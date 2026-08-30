@@ -1997,12 +1997,6 @@ class WrapperSurfaceTests(unittest.TestCase):
             )
             if systemd_probe.returncode != 0:
                 capability_failures.append("the systemd manager is unavailable")
-        if capability_failures:
-            detail = "; ".join(capability_failures)
-            if require_mode == "1":
-                self.fail(f"required v4 systemd envelope capability missing: {detail}")
-            self.skipTest(detail)
-
         properties = (
             "PrivateNetwork=yes",
             "ProtectSystem=strict",
@@ -2060,10 +2054,16 @@ class WrapperSurfaceTests(unittest.TestCase):
         ]
         cursor = -1
         for property_value in source_properties:
-            needle = f"--property={property_value}"
+            needle = property_value
             observed = isolation.index(needle)
             self.assertGreater(observed, cursor, f"property is out of order: {needle}")
             cursor = observed
+
+        if capability_failures:
+            detail = "; ".join(capability_failures)
+            if require_mode == "1":
+                self.fail(f"required v4 systemd envelope capability missing: {detail}")
+            self.skipTest(detail)
 
         unique = f"{os.getpid()}-{time.time_ns()}"
         with tempfile.TemporaryDirectory(prefix="boole-nsv4-envelope-") as directory:
