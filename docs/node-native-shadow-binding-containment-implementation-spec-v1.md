@@ -4097,3 +4097,30 @@ gate files while pinning the v3 shared staging function and readback-v3
 security boundary.  A fresh JSON-only R2 of those exact bytes must precede F6
 and A6.  The digest graph is one-way and acyclic.  P2 performs and permits zero
 production and boot runs and opens no MAC.4 or activation boundary.
+
+## Production-dispatch fence correction (2026-08-30)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCTION-DISPATCH-FENCE-CORRECTION-ARM64-V1-FROZEN -->
+
+The earlier plan prose recorded P2 as 8,096 bytes.  The live, unchanged P2 is
+actually **8,156 bytes**, SHA-256
+`4c801a52d4c6d47dbbc1c9a7657eb8bce215f9f258586b97064359caefd28a95`.
+The 7,295-byte append-only correction has SHA-256
+`16f15bd7b9fcddeb02e104a3628d218817b047a3927fdfd77983ffaf0760910b`.
+
+The implementation contract now distinguishes a one-run number from the
+machine-enforced consumption of that run.  `workflowDispatchesAllowed=1`, a
+runner marker, artifact, cache, absent result-v6, concurrency group and human
+promise are not a repository-global fence.  The production guard is the sole
+job with job-level `contents: write`.  On `github.run_attempt == 1` it must
+create, without force, the fixed attempt-specific annotated tag ref whose
+canonical message binds A6 digest, attempt ID, run ID, workflow path and head
+SHA.  Existing-ref failure is terminal; successful atomic ref creation consumes
+the run; delete, update and reuse paths are forbidden.
+
+Each replica must re-resolve the ref, annotated tag message, target head and
+live A6 digest before dependencies or any effect.  Future R2, F6 and A6 schemas
+must contain the direct exact `productionDispatchFenceCorrection` object with
+only `path`, `sha256` and `sizeBytes`.  This correction itself has all authority,
+effect and run counters at zero: V4, R2, F6, A6, result-v6, production and boot
+were not run, and no MAC.4 or activation boundary opened.

@@ -2296,3 +2296,29 @@ F5 and P2 cursor to the master, execution and thesis mirrors.  Only those three
 local files changed; all six mirror digests were recalculated, while the other
 three tracked values remained byte-identical.  These hashes are synchronization
 evidence only and grant no runtime authority.
+
+## Production-dispatch fence correction addendum (2026-08-30)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCTION-DISPATCH-FENCE-CORRECTION-ARM64-V1-FROZEN -->
+
+One historical paragraph reports P2 as 8,096 bytes.  The preserved P2 file is
+exactly **8,156 bytes** at SHA-256
+`4c801a52d4c6d47dbbc1c9a7657eb8bce215f9f258586b97064359caefd28a95`;
+it was not rewritten.  The append-only correction is 7,295 bytes at SHA-256
+`16f15bd7b9fcddeb02e104a3628d218817b047a3927fdfd77983ffaf0760910b`.
+
+The correction also records that `workflowDispatchesAllowed=1` alone cannot
+prove global one-use dispatch.  Runner-local markers, artifacts, caches,
+result-v6 absence, concurrency and human promises are explicitly rejected as
+substitutes.  Only the production guard may have job-level `contents: write`.
+It must require first run-attempt, then atomically create the fixed
+attempt-specific annotated tag ref whose canonical message binds A6 digest,
+attempt ID, GitHub run ID, workflow and head SHA.  Existing, forced, updated,
+deleted or reused refs are hard stops.  Creation of that ref consumes the run.
+
+Every replica revalidates the repository ref, tag message, checked-out head and
+live A6 before dependencies or effects.  R2, F6 and A6 must directly bind the
+correction in an exact `productionDispatchFenceCorrection` field containing
+only path, SHA-256 and size.  This authority-zero record created no ref and ran
+no V4, R2, F6, A6, result-v6, image production or boot.  MAC.4, testnet,
+mining, reward, consensus, P2P and activation remain closed.

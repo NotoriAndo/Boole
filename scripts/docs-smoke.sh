@@ -2746,4 +2746,26 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'PRODUCTION-GENERA
 require_text docs/native-submission-shadow-verification-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCTION-GENERATION-PREREGISTRATION-ARM64-V1-FROZEN'
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCTION-GENERATION-PREREGISTRATION-ARM64-V1-FROZEN'
 
+# P2's historical 8,096-byte prose was a typo (the preserved file is 8,156
+# bytes), and its future one-run declaration did not create a durable global
+# dispatch claim.  The append-only correction freezes an attempt-specific,
+# annotated-tag claim contract while granting no run.
+V4_DISPATCH_FENCE_CORRECTION=native/containment/native-shadow-mac3-launcher-v2-successor-production-dispatch-fence-correction-arm64-v1.json
+require_file "$V4_DISPATCH_FENCE_CORRECTION"
+require_file "scripts/test_native_shadow_successor_production_dispatch_fence_correction_arm64_v1.py"
+require_text scripts/self-test.sh 'scripts/test_native_shadow_successor_production_dispatch_fence_correction_arm64_v1.py'
+require_text "$V4_DISPATCH_FENCE_CORRECTION" '"schema": "boole.native-shadow.mac3.launcher-v2-successor-production-dispatch-fence-correction.arm64.v1"'
+require_text "$V4_DISPATCH_FENCE_CORRECTION" '"status": "CORRECTED-BEFORE-R2-NO-PRODUCTION-DISPATCH-AUTHORITY"'
+require_text "$V4_DISPATCH_FENCE_CORRECTION" '"sha256": "4c801a52d4c6d47dbbc1c9a7657eb8bce215f9f258586b97064359caefd28a95"'
+require_text "$V4_DISPATCH_FENCE_CORRECTION" '"sizeBytes": 8156'
+require_text "$V4_DISPATCH_FENCE_CORRECTION" '"productionDispatchClaimsAllowed": 0'
+require_text "$V4_DISPATCH_FENCE_CORRECTION" '"productionDispatchClaimsCreated": 0'
+require_text "$V4_DISPATCH_FENCE_CORRECTION" '"soleWriteJob": "production-authority-guard"'
+require_text "$V4_DISPATCH_FENCE_CORRECTION" '"requiredGitHubRunAttempt": 1'
+require_text "$V4_DISPATCH_FENCE_CORRECTION" '"fieldName": "productionDispatchFenceCorrection"'
+require_text scripts/test_native_shadow_successor_production_dispatch_fence_correction_arm64_v1.py '16f15bd7b9fcddeb02e104a3628d218817b047a3927fdfd77983ffaf0760910b'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCTION-DISPATCH-FENCE-CORRECTION-ARM64-V1-FROZEN'
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCTION-DISPATCH-FENCE-CORRECTION-ARM64-V1-FROZEN'
+require_text docs/native-submission-shadow-verification-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCTION-DISPATCH-FENCE-CORRECTION-ARM64-V1-FROZEN'
+
 printf 'docs-smoke: PASS\n' >&2
