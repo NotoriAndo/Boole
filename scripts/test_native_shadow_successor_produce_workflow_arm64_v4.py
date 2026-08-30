@@ -2028,12 +2028,38 @@ class WrapperSurfaceTests(unittest.TestCase):
             "rt_sigqueueinfo rt_tgsigqueueinfo ptrace process_vm_readv "
             "process_vm_writev",
         )
+        source_properties = (
+            "PrivateNetwork=yes",
+            "ProtectSystem=strict",
+            "NoNewPrivileges=yes",
+            "KillMode=control-group",
+            "TimeoutStopSec=${transient_unit_stop_timeout_seconds}s",
+            "SendSIGKILL=yes",
+            "Restart=no",
+            "MemoryAccounting=yes",
+            "MemoryMax=${staging_unit_memory_max_bytes}",
+            "MemorySwapMax=0",
+            "TasksAccounting=yes",
+            "TasksMax=${staging_unit_tasks_max}",
+            "CPUAccounting=yes",
+            "RuntimeMaxSec=${staging_unit_runtime_max_seconds}s",
+            "OOMPolicy=kill",
+            "PrivateDevices=yes",
+            "PrivateMounts=yes",
+            "RestrictAddressFamilies=none",
+            "CapabilityBoundingSet=",
+            "AmbientCapabilities=",
+            "SystemCallFilter=~kill tkill tgkill pidfd_send_signal "
+            "rt_sigqueueinfo rt_tgsigqueueinfo ptrace process_vm_readv "
+            "process_vm_writev",
+        )
+        self.assertEqual(len(source_properties), len(properties))
         source = WRAPPER.read_text(encoding="utf-8")
         isolation = source[
             source.index("isolation_prefix()") : source.index("qualification_prefix()")
         ]
         cursor = -1
-        for property_value in properties:
+        for property_value in source_properties:
             needle = f"--property={property_value}"
             observed = isolation.index(needle)
             self.assertGreater(observed, cursor, f"property is out of order: {needle}")

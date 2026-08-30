@@ -164,19 +164,22 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
         self.assertNotIn("continue-on-error:", job)
 
     def test_named_linux_job_probes_the_exact_v4_systemd_property_envelope(self):
-        job = self._job("native-shadow-containment-linux")
-        self.assertRegex(
-            job,
-            re.compile(
-                r"sudo env PYTHONDONTWRITEBYTECODE=1\s+"
-                r"BOOLE_REQUIRE_V4_SYSTEMD_ENVELOPE=1\s+"
-                r"python3 -m unittest\s+"
-                r"scripts\.test_native_shadow_successor_produce_workflow_arm64_v4\."
-                r"WrapperSurfaceTests\."
-                r"test_linux_exact_rehearsal_systemd_property_envelope_is_accepted"
-            ),
+        command = re.compile(
+            r"sudo env PYTHONDONTWRITEBYTECODE=1\s+"
+            r"BOOLE_REQUIRE_V4_SYSTEMD_ENVELOPE=1\s+"
+            r"python3 -m unittest\s+"
+            r"scripts\.test_native_shadow_successor_produce_workflow_arm64_v4\."
+            r"WrapperSurfaceTests\."
+            r"test_linux_exact_rehearsal_systemd_property_envelope_is_accepted"
         )
-        self.assertNotIn("continue-on-error:", job)
+        for job_name in (
+            "native-shadow-containment-linux",
+            "native-shadow-rootfs-replay-linux-arm64",
+        ):
+            with self.subTest(job_name=job_name):
+                job = self._job(job_name)
+                self.assertRegex(job, command)
+                self.assertNotIn("continue-on-error:", job)
 
     def test_clean_linux_rootfs_replay_is_a_named_non_skippable_gate(self):
         job = self._job("native-shadow-rootfs-replay-linux")

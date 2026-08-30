@@ -151,6 +151,12 @@ jobs:
           sudo groupadd --system boole-native-checker
           sudo useradd --system --gid boole-native-checker --home-dir /nonexistent --no-create-home --shell /bin/false boole-native-checker
 
+      - name: Probe the exact v4 rehearsal systemd property envelope on arm64
+        run: >-
+          sudo env PYTHONDONTWRITEBYTECODE=1
+          BOOLE_REQUIRE_V4_SYSTEMD_ENVELOPE=1 python3 -m unittest
+          scripts.test_native_shadow_successor_produce_workflow_arm64_v4.WrapperSurfaceTests.test_linux_exact_rehearsal_systemd_property_envelope_is_accepted
+
       - name: Rebuild and execute the Linux arm64 checker parity matrix
         run: sudo ./scripts/native-shadow-portable-rootfs-replay-linux-arm64.sh
 
