@@ -73,6 +73,12 @@ jobs:
       - name: Probe delegated cgroup and namespace capabilities
         run: sudo ./scripts/native-shadow-containment-capability-probe.sh
 
+      - name: Probe the exact v4 rehearsal systemd property envelope
+        run: >-
+          sudo env PYTHONDONTWRITEBYTECODE=1
+          BOOLE_REQUIRE_V4_SYSTEMD_ENVELOPE=1 python3 -m unittest
+          scripts.test_native_shadow_successor_produce_workflow_arm64_v4.WrapperSurfaceTests.test_linux_exact_rehearsal_systemd_property_envelope_is_accepted
+
       - name: Exercise v4 supervisor crash cleanup with real systemd units
         run: >-
           sudo env PYTHONDONTWRITEBYTECODE=1
