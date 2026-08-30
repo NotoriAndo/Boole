@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `619e39e5e8fc140fd8a42f94765980e81c84393fde9234ea81eb8884795c50ad` (updated 2026-08-30i — fresh R2 and F6 are sealed with production authority still zero) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `75fb8a4ead8526785eaf3350920503b6286bd5c4ad5f9d31a880033eefa72774` (updated 2026-08-30i — R2 is green and F6 is sealed; A6, production and boot remain unstarted) |
+| `local-docs/todo/todo-l1-network-master.md` | `676625026523d4c48e6e42006402bcf59e36abb76943cde1135a3f1c0d0452c9` (updated 2026-08-31a — A6-v6 is withheld and the event/main-only, fresh-A7-namespace v5 successor is preregistered with authority zero) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `3eb001ed7d1e09f6a207e67c1d1a8d9bb32ccff74fb9a715f13ee9fdd7c7a153` (updated 2026-08-31a — execution moves from withdrawn A6-v6 to workflow-dispatch/main-only producer-generation v5 with direct P4 binding) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `414c20594445bc9352ac702143f44592357a8c38f925106f025a30cf8b87e27c` (updated 2026-08-30m — observed implementation identity may advance while production authority remains zero) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `9c9290bb9a70cae681664408546457db114fe2744c39e73025259aef9c80dbc3` (updated 2026-08-31a — a one-use claim must bind the exact event, reviewed main ref and fresh A7 generation while authority remains zero) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -2543,3 +2543,44 @@ R2-green/F6-sealed cursor to the Master Plan, Execution and thesis roadmap.
 Their byte digests are updated in section 12.  The ADR, verified thesis and
 encyclopedia mirrors remain byte-unchanged.  These hashes are synchronization
 evidence only and grant no runtime authority.
+
+## Main-only production-dispatch fence correction (2026-08-31)
+
+<!-- LAUNCHER-V2-SUCCESSOR-MAIN-BRANCH-DISPATCH-FENCE-CORRECTION-ARM64-V1-SEALED:BEGIN -->
+
+Review before A6 found that sealed generation v4 checks the workflow path by
+prefix but does not require the selected ref to be main.  A feature or tag ref
+could therefore pass the historical guard and reach global
+claim creation before an authority was merged to main.  A6-v6 is not created.
+
+The canonical 13,335-byte correction at SHA-256
+`63f5bdf0ffaac00ac1af3972ed69051da9fcbe8a06b90ae3c9f70756bbfe144b`
+binds the live P2/P3/R1/F5/R2/F6 records and the exact five historical v4
+files.  It preserves them as authority-zero evidence, withdraws the unused
+A6/result-v6 reservation and preregisters producer-generation v5.  The new
+generation must require the exact `workflow_dispatch` event, a dispatch-only
+trigger set, the exact main dispatch ref and exact main workflow ref before all
+effects, then obtain a fresh authority-zero R3 before F7 or A7.
+
+The successor may not copy the retired A6 namespace.  P4 fixes an A7 tag
+template, dispatch-claim v2 schema, v7 authority/result paths and schemas, and
+the generic `authoritySha256` field.  The canonical tag message must carry the
+exact event name, dispatch ref, workflow ref and run attempt, and every
+consumer must compare them again with the live workflow context.  V5 also gets
+fresh root, recovery, artifact and internal-schema names.  R3, F7, A7 and the
+v7 result must contain the direct exact P4 identity under
+`mainBranchDispatchFenceCorrection`; transitive binding does not satisfy this
+contract.
+
+```text
+R2 GREEN / F6 HISTORICAL / A6-V6 WITHDRAWN UNUSED
+MAIN-ONLY PRODUCER V5  PREREGISTERED / NOT IMPLEMENTED
+PRODUCTION CLAIM TAG / IMAGE / BOOT  NOT CREATED OR RUN
+```
+
+Atomic create is claimed only while the tag exists.  No unobserved server-side
+ruleset is used to call administrator deletion impossible.  The correction
+opens no production, boot, MAC.4, testnet, mining, reward, consensus, P2P or
+activation authority.
+
+<!-- LAUNCHER-V2-SUCCESSOR-MAIN-BRANCH-DISPATCH-FENCE-CORRECTION-ARM64-V1-SEALED:END -->

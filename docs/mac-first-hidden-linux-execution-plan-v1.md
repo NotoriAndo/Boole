@@ -6055,3 +6055,59 @@ MAC.4 / TESTNET / MINING / REWARD  NOT STARTED
 
 The next irreversible edge still requires a separately reviewed A6.  F6 alone
 cannot dispatch production or boot a guest.
+
+## 75. A6 withheld after the main-branch dispatch underbinding was found (2026-08-31)
+
+<!-- LAUNCHER-V2-SUCCESSOR-MAIN-BRANCH-DISPATCH-FENCE-CORRECTION-ARM64-V1-SEALED:BEGIN -->
+
+Pre-A6 review found that the sealed v4 wrapper accepts any non-empty suffix
+after the expected workflow-path prefix.  The workflow also does not require
+`github.ref` to equal `refs/heads/main`.  A feature or tag ref could therefore
+reach the repository-global claim creation path before the
+authority was merged to main.  Creating A6 on this generation would turn the
+documented main-only boundary into a false claim.
+
+The 13,335-byte authority-zero correction record at SHA-256
+`63f5bdf0ffaac00ac1af3972ed69051da9fcbe8a06b90ae3c9f70756bbfe144b`
+preserves v4, R2 and F6 byte-for-byte and withdraws the unused A6/result-v6
+reservations.  It preregisters an append-only v5 generation whose guard and
+every claim consumer must require `workflow_dispatch`, the exact main dispatch
+ref and exact main workflow ref before any dependency, scratch, output,
+marker, claim or image effect.  Feature, tag, pull-request, empty and
+main-prefix lookalike refs must all be rejected; pull-request-like refs remain
+a wrapper hardening case rather than a currently selectable workflow-dispatch
+ref.
+
+P4 also preregisters the fresh claim namespace rather than allowing v5 to copy
+the withdrawn A6 names.  The only future tag template is
+`refs/tags/boole-native-shadow-mac3-successor-production-a7-{attemptId}`;
+the claim schema is dispatch-claim v2 and its canonical message includes
+`eventName`, `dispatchRef`, `workflowRef`, `githubRunAttempt` and the A7 digest
+under `authoritySha256`.  Every consumer must recheck those live values before
+effects.  Old A6 paths, schemas, tag prefix, claim schema, digest/CLI symbols
+and the v4 root/recovery/artifact/schema namespace are forbidden in v5
+production code.  R3, F7, A7 and result-v7 must each bind P4 directly under the
+exact field `mainBranchDispatchFenceCorrection`; an indirect reference is not
+enough.
+
+Atomic tag creation prevents concurrent duplicate creation while the tag
+exists.  No server-side ruleset evidence currently proves that a repository
+administrator cannot later delete the tag, so this record does not call the
+tag irrevocably undeletable.  A previously observed claim disappearing is a
+hard stop.
+
+### 75.1 Cursor
+
+```text
+R2 GREEN / F6 HISTORICAL / A6-V6 AND RESULT-V6 WITHDRAWN UNUSED
+▶ MAIN-ONLY PRODUCER GENERATION V5 — PREREGISTERED / NOT IMPLEMENTED
+⛔ R3 / F7 / A7 / RESULT-V7 — NOT CREATED
+⛔ PRODUCTION CLAIM TAG / IMAGE / BOOT — 0 RUNS
+⛔ MAC.4 / TESTNET / MINING / REWARD — NOT STARTED
+```
+
+This correction grants no image-production, boot, serving or activation
+authority.  `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`,
+Base activation=false and activationAllowed=false remain unchanged.
+
+<!-- LAUNCHER-V2-SUCCESSOR-MAIN-BRANCH-DISPATCH-FENCE-CORRECTION-ARM64-V1-SEALED:END -->

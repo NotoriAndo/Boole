@@ -1749,9 +1749,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "619e39e5e8fc140fd8a42f94765980e81c84393fde9234ea81eb8884795c50ad"
-require_text docs/native-submission-shadow-verification-v1.md "75fb8a4ead8526785eaf3350920503b6286bd5c4ad5f9d31a880033eefa72774"
-require_text docs/native-submission-shadow-verification-v1.md "414c20594445bc9352ac702143f44592357a8c38f925106f025a30cf8b87e27c"
+require_text docs/native-submission-shadow-verification-v1.md "676625026523d4c48e6e42006402bcf59e36abb76943cde1135a3f1c0d0452c9"
+require_text docs/native-submission-shadow-verification-v1.md "3eb001ed7d1e09f6a207e67c1d1a8d9bb32ccff74fb9a715f13ee9fdd7c7a153"
+require_text docs/native-submission-shadow-verification-v1.md "9c9290bb9a70cae681664408546457db114fe2744c39e73025259aef9c80dbc3"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Boot source lock plan successor addendum"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BOOT-ROOTFS-SOURCE-LOCK-PLAN-SUCCESSOR-FROZEN-LOCK-NOT-GENERATED"
@@ -2931,6 +2931,32 @@ for doc in \
   docs/native-submission-shadow-verification-v1.md; do
   require_text "$doc" 'LAUNCHER-V2-SUCCESSOR-PRODUCER-FINGERPRINT-ARM64-V6-SEALED'
   require_text "$doc" 'R2 GREEN / F6 SEALED / A6 NOT CREATED / PRODUCTION AND BOOT NOT RUN'
+done
+
+# Pre-A6 review found that generation v4 accepted any non-empty workflow-ref
+# suffix.  Preserve that generation as history and require an authority-zero,
+# append-only main-only successor before any production authority can exist.
+V4_MAIN_BRANCH_FENCE_CORRECTION=native/containment/native-shadow-mac3-launcher-v2-successor-main-branch-dispatch-fence-correction-arm64-v1.json
+V4_MAIN_BRANCH_FENCE_GATE=scripts/test_native_shadow_successor_main_branch_dispatch_fence_correction_arm64_v1.py
+require_file "$V4_MAIN_BRANCH_FENCE_CORRECTION"
+require_file "$V4_MAIN_BRANCH_FENCE_GATE"
+require_text scripts/self-test.sh "$V4_MAIN_BRANCH_FENCE_GATE"
+require_text "$V4_MAIN_BRANCH_FENCE_GATE" '63f5bdf0ffaac00ac1af3972ed69051da9fcbe8a06b90ae3c9f70756bbfe144b'
+require_text "$V4_MAIN_BRANCH_FENCE_CORRECTION" '"status": "A6-WITHHELD-PENDING-MAIN-ONLY-SUCCESSOR-GENERATION"'
+require_text "$V4_MAIN_BRANCH_FENCE_CORRECTION" '"exactDispatchRef": "refs/heads/main"'
+require_text "$V4_MAIN_BRANCH_FENCE_CORRECTION" 'native-shadow-successor-produce-arm64-v5.yml@refs/heads/main'
+require_text "$V4_MAIN_BRANCH_FENCE_CORRECTION" '"imageProductionRunsAllowed": 0'
+require_text "$V4_MAIN_BRANCH_FENCE_CORRECTION" '"administratorDeletionIsPreventedByObservedServerRuleset": false'
+require_text "$V4_MAIN_BRANCH_FENCE_CORRECTION" 'native-shadow-mac3-successor-production-authority-arm64-v7.json'
+require_text docs/native-submission-shadow-verification-v1.md '676625026523d4c48e6e42006402bcf59e36abb76943cde1135a3f1c0d0452c9'
+require_text docs/native-submission-shadow-verification-v1.md '3eb001ed7d1e09f6a207e67c1d1a8d9bb32ccff74fb9a715f13ee9fdd7c7a153'
+require_text docs/native-submission-shadow-verification-v1.md '9c9290bb9a70cae681664408546457db114fe2744c39e73025259aef9c80dbc3'
+for doc in \
+  docs/mac-first-hidden-linux-execution-plan-v1.md \
+  docs/node-native-shadow-binding-containment-implementation-spec-v1.md \
+  docs/native-submission-shadow-verification-v1.md; do
+  require_text "$doc" 'LAUNCHER-V2-SUCCESSOR-MAIN-BRANCH-DISPATCH-FENCE-CORRECTION-ARM64-V1-SEALED:BEGIN'
+  require_text "$doc" 'A6-V6'
 done
 
 printf 'docs-smoke: PASS\n' >&2
