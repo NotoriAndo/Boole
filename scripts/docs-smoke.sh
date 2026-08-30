@@ -1749,9 +1749,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "77ffa2f983068c3e21517e752f51b8c80215a6fe2e153c9380389f9fb3cbbe71"
-require_text docs/native-submission-shadow-verification-v1.md "6cc91dfe4bde03bca417419f3049360b11878cf5b50c767e65bd0789a98a65c9"
-require_text docs/native-submission-shadow-verification-v1.md "4ff8ee25f983fa1accadc56a45ebe1f9e1de53a988d4f4890231ba324fdc16ca"
+require_text docs/native-submission-shadow-verification-v1.md "f462cc9e9703306117c394b6cbc3ccac1562001920eb2c0204a72c4c6de85ac0"
+require_text docs/native-submission-shadow-verification-v1.md "7182ae511725d6302e33ed56a382b48ef270bf0fb05f7c68c4ab843616ce9153"
+require_text docs/native-submission-shadow-verification-v1.md "c1c3d59b7720feb5da9d1197b9193d0a095d40cddf7ac3bdddd9cd83e27ae5bf"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Boot source lock plan successor addendum"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BOOT-ROOTFS-SOURCE-LOCK-PLAN-SUCCESSOR-FROZEN-LOCK-NOT-GENERATED"
@@ -2695,5 +2695,55 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'LAUNCHER-V2-SUCCE
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'S3-B IMPLEMENTATION  GREEN / ARM64 REHEARSAL NOT YET RUN'
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCER-S3B-AUTHORITY-ZERO:BEGIN'
 require_text docs/native-submission-shadow-verification-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCER-S3B-AUTHORITY-ZERO:BEGIN'
+
+# The real native-arm64 free rehearsal is retained byte-for-byte as R1, and
+# F5 seals the exact seven v3 files as historical authority-zero evidence.
+# Neither record grants production, boot or MAC.4 authority.
+V3_REHEARSAL_RESULT=native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-result-arm64-v1.json
+V3_REHEARSAL_FINGERPRINT=native/containment/native-shadow-mac3-successor-producer-fingerprint-arm64-v5.json
+require_file "$V3_REHEARSAL_RESULT"
+require_file "$V3_REHEARSAL_FINGERPRINT"
+require_file scripts/test_native_shadow_launcher_v2_successor_producer_rehearsal_result_arm64_v1.py
+require_file scripts/test_native_shadow_successor_producer_fingerprint_arm64_v5.py
+require_text scripts/self-test.sh 'scripts/test_native_shadow_launcher_v2_successor_producer_rehearsal_result_arm64_v1.py'
+require_text scripts/self-test.sh 'scripts/test_native_shadow_successor_producer_fingerprint_arm64_v5.py'
+require_text "$V3_REHEARSAL_RESULT" '"status": "PASS-NO-IMAGE-PRODUCED"'
+require_text "$V3_REHEARSAL_RESULT" '"imageProductionRunsAllowed": 0'
+require_text "$V3_REHEARSAL_RESULT" '"imageProduced": false'
+require_text scripts/test_native_shadow_launcher_v2_successor_producer_rehearsal_result_arm64_v1.py 'd21863e342b701141d6577d3b17cf0a1f26c9211b4b82fa4c8942be96c69f21c'
+require_text scripts/test_native_shadow_launcher_v2_successor_producer_rehearsal_result_arm64_v1.py 'AUTHORITY-ZERO-STAGING-EVIDENCE'
+require_text "$V3_REHEARSAL_FINGERPRINT" '"historicalAuthorityZeroStagingEvidenceOnly": true'
+require_text "$V3_REHEARSAL_FINGERPRINT" '"productionReadyClaim": false'
+require_text "$V3_REHEARSAL_FINGERPRINT" '"readbackV3ExecutedByRehearsal": false'
+require_text scripts/test_native_shadow_successor_producer_fingerprint_arm64_v5.py '6ca75d732d7d3a064659047d33cb6bf7aaae9b5b01a5ad67754a843093d4f7aa'
+require_text scripts/test_native_shadow_successor_producer_fingerprint_arm64_v5.py 'LAUNCHER-V2-SUCCESSOR-PRODUCER-FINGERPRINT-ARM64-V5-SEALED'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCER-REHEARSAL-RESULT-ARM64-V1-SEALED:BEGIN'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'V3 FREE ARM64 REHEARSAL  GREEN / ONE CANONICAL JSON SEALED'
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCER-REHEARSAL-RESULT-ARM64-V1-SEALED:BEGIN'
+require_text docs/native-submission-shadow-verification-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCER-REHEARSAL-RESULT-ARM64-V1-SEALED:BEGIN'
+
+# Production is deliberately moved to a fresh namespace.  P2 retires the two
+# unused v5 reservations, requires a fresh R2 for v4 bytes and leaves every
+# production, boot and activation authority at zero.
+V4_PRODUCTION_PREREG=native/containment/native-shadow-mac3-launcher-v2-successor-production-generation-preregistration-arm64-v1.json
+V4_PRODUCTION_PREREG_GATE=scripts/test_native_shadow_launcher_v2_successor_production_generation_preregistration_arm64_v1.py
+require_file "$V4_PRODUCTION_PREREG"
+require_file scripts/test_native_shadow_launcher_v2_successor_production_generation_preregistration_arm64_v1.py
+require_text scripts/self-test.sh "$V4_PRODUCTION_PREREG_GATE"
+require_text "$V4_PRODUCTION_PREREG" '"schema": "boole.native-shadow.mac3.launcher-v2-successor-production-generation-preregistration.arm64.v1"'
+require_text "$V4_PRODUCTION_PREREG" '"status": "PRE-REGISTERED-PRODUCTION-GENERATION-NO-IMAGE-PRODUCTION-AUTHORITY"'
+require_text "$V4_PRODUCTION_PREREG" '"imageProductionRunsAllowed": 0'
+require_text "$V4_PRODUCTION_PREREG" '"historicalFreeRehearsalsObserved": 1'
+require_text "$V4_PRODUCTION_PREREG" '"requiresFreshR2BeforeFingerprintOrAuthority": true'
+require_text "$V4_PRODUCTION_PREREG" '"producerGeneration": 4'
+require_text "$V4_PRODUCTION_PREREG" '"fingerprint": 6'
+require_text "$V4_PRODUCTION_PREREG" 'native-shadow-mac3-successor-production-authority-arm64-v5.json'
+require_text "$V4_PRODUCTION_PREREG" 'native-shadow-mac3-successor-image-production-result-arm64-v5.json'
+require_text "$V4_PRODUCTION_PREREG_GATE" '4c801a52d4c6d47dbbc1c9a7657eb8bce215f9f258586b97064359caefd28a95'
+require_text "$V4_PRODUCTION_PREREG_GATE" 'os.path.lexists'
+require_text "$V4_PRODUCTION_PREREG_GATE" 'LAUNCHER-V2-SUCCESSOR-PRODUCTION-GENERATION-PREREGISTRATION-ARM64-V1-FROZEN'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'PRODUCTION-GENERATION V4 + R2  NEXT'
+require_text docs/native-submission-shadow-verification-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCTION-GENERATION-PREREGISTRATION-ARM64-V1-FROZEN'
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCTION-GENERATION-PREREGISTRATION-ARM64-V1-FROZEN'
 
 printf 'docs-smoke: PASS\n' >&2

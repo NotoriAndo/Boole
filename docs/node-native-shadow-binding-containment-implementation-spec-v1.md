@@ -4033,3 +4033,67 @@ rolls that name back. The declared wrapper edge becomes
 executable only after a future authority and qualified image exist.
 
 <!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-S3B-AUTHORITY-ZERO:END -->
+
+## Launcher-v2 successor free-rehearsal result and F5 fingerprint (2026-08-30)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-REHEARSAL-RESULT-ARM64-V1-SEALED:BEGIN -->
+
+Required native Linux arm64 executed the repeatable no-image rehearsal once.
+The production guard was skipped and the one uploaded member is tracked as the
+raw 10,168-byte canonical JSON result.
+
+```text
+sourceHeadSha=0649dbc92a228fb67350a7eef864a9c9c612fd3d
+sourceWorkflow=.github/workflows/native-shadow-successor-produce-arm64-v3.yml
+sourceEvent=workflow_dispatch
+sourceRunId=33281151298
+sourceRunAttempt=1
+sourceJobId=99176428509
+artifactId=9723056242
+artifactName=launcher-v2-successor-v3-free-rehearsal
+archiveSizeBytes=3424
+archiveDigest=sha256:a3f6e9c5c9a79712fab1b4454b9401325f543632d5f5f632e3e34e843974b2ef
+artifactMemberCount=1
+artifactMemberName=REHEARSAL-RESULT.json
+payloadSizeBytes=10168
+payloadSha256=d21863e342b701141d6577d3b17cf0a1f26c9211b4b82fa4c8942be96c69f21c
+productionGuardJobConclusion=skipped
+evidenceClass=AUTHORITY-ZERO-STAGING-EVIDENCE
+offlineClaim=false
+runnerGlobalTransientAbsenceClaim=false
+imageProductionClaim=false
+bootClaim=false
+mac4Claim=false
+```
+
+The result rechecks the exact 41-file union and records zero image, output,
+attempt-marker and production effects.  Frozen inputs were acquired over the
+network, and the record makes no runner-global transient-absence claim.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-REHEARSAL-RESULT-ARM64-V1-SEALED:END -->
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-FINGERPRINT-ARM64-V5-SEALED -->
+
+F5 at SHA-256
+`6ca75d732d7d3a064659047d33cb6bf7aaae9b5b01a5ad67754a843093d4f7aa`
+binds the exact seven v3 generation files, P1, C1 and the raw result.  It is
+historical authority-zero staging evidence.  Readback v3 did not execute, and
+no production, boot, serving or MAC.4 claim follows.
+
+## Production-only successor generation P2 preregistration (2026-08-30)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCTION-GENERATION-PREREGISTRATION-ARM64-V1-FROZEN -->
+
+P2 at SHA-256
+`4c801a52d4c6d47dbbc1c9a7657eb8bce215f9f258586b97064359caefd28a95`
+separates the historical authority-zero v3 rehearsal from a future production
+generation.  R1 and F5 are direct byte bindings; F5 remains historical evidence
+and transitively preserves P1, C1 and R1.  The unused A5 and result-v5 names
+were never created or authorised and must remain absent rather than being
+recycled.
+
+Generation v4 introduces five new production adapter, wrapper, workflow and
+gate files while pinning the v3 shared staging function and readback-v3
+security boundary.  A fresh JSON-only R2 of those exact bytes must precede F6
+and A6.  The digest graph is one-way and acyclic.  P2 performs and permits zero
+production and boot runs and opens no MAC.4 or activation boundary.

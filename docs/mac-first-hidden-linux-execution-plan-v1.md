@@ -5642,3 +5642,121 @@ and makes no bootability or serving claim. `mineable_now=0`, `REWARD_READY=0`,
 `activationAllowed=false` remain unchanged.
 
 <!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-S3B-AUTHORITY-ZERO:END -->
+
+## 67. Sealing the real authority-zero arm64 rehearsal (2026-08-30)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-REHEARSAL-RESULT-ARM64-V1-SEALED:BEGIN -->
+
+The repeatable launcher-v2 successor rehearsal ran once on required native
+Linux arm64 after PR #307 merged.  The production job was skipped.  The sole
+artifact member is tracked byte-for-byte as
+`native-shadow-mac3-launcher-v2-successor-producer-rehearsal-result-arm64-v1.json`.
+It is 10,168 bytes at SHA-256
+`d21863e342b701141d6577d3b17cf0a1f26c9211b4b82fa4c8942be96c69f21c`.
+
+```text
+sourceHeadSha=0649dbc92a228fb67350a7eef864a9c9c612fd3d
+sourceWorkflow=.github/workflows/native-shadow-successor-produce-arm64-v3.yml
+sourceEvent=workflow_dispatch
+sourceRunId=33281151298
+sourceRunAttempt=1
+sourceJobId=99176428509
+artifactId=9723056242
+artifactName=launcher-v2-successor-v3-free-rehearsal
+archiveSizeBytes=3424
+archiveDigest=sha256:a3f6e9c5c9a79712fab1b4454b9401325f543632d5f5f632e3e34e843974b2ef
+artifactMemberCount=1
+artifactMemberName=REHEARSAL-RESULT.json
+payloadSizeBytes=10168
+payloadSha256=d21863e342b701141d6577d3b17cf0a1f26c9211b4b82fa4c8942be96c69f21c
+productionGuardJobConclusion=skipped
+evidenceClass=AUTHORITY-ZERO-STAGING-EVIDENCE
+offlineClaim=false
+runnerGlobalTransientAbsenceClaim=false
+imageProductionClaim=false
+bootClaim=false
+mac4Claim=false
+```
+
+The payload independently rebinds the historical 23 rows and append-only 18
+row correction to 41 live regular files.  Its two measurements agree on
+17,676 entries and 1,773,475,059 payload bytes.  It reports one canonical JSON
+member, zero image-effect calls, zero image files, zero production output
+directories, zero attempt markers and an unchanged empty scratch tree.  The
+workflow acquired frozen inputs over the network, so this is not an offline
+claim.  It also does not claim absence of every runner-global transient; its
+evidence is limited to the named rehearsal boundary.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-REHEARSAL-RESULT-ARM64-V1-SEALED:END -->
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-FINGERPRINT-ARM64-V5-SEALED -->
+
+The post-run fingerprint
+`native-shadow-mac3-successor-producer-fingerprint-arm64-v5.json` is 5,458
+bytes at SHA-256
+`6ca75d732d7d3a064659047d33cb6bf7aaae9b5b01a5ad67754a843093d4f7aa`.
+It seals the exact seven v3 generation files plus P1, C1 and the raw rehearsal
+result.  It is historical authority-zero staging evidence only.  Readback v3
+was sealed but not executed by the rehearsal, and the record does not establish
+production readiness, an image, bootability, serving or MAC.4.
+
+### 67.1 Cursor
+
+```text
+V3 FREE ARM64 REHEARSAL  GREEN / ONE CANONICAL JSON SEALED
+V3 PRODUCER FINGERPRINT F5  SEALED / HISTORICAL AUTHORITY-ZERO EVIDENCE
+READBACK-V3  BYTE-SEALED / NOT EXECUTED BY THE REHEARSAL
+IMAGE PRODUCTION / GUEST BOOT  NOT AUTHORISED — 0 runs
+PRODUCTION-ONLY SUCCESSOR GENERATION  NEXT — append-only preregistration
+MAC.4 / TESTNET / MINING / REWARD  NOT STARTED
+```
+
+The cursors through §66.1 remain historical.  No image or attempt marker was
+created, no preserved image changed and no guest started.  `mineable_now=0`,
+`REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation `false` and
+`activationAllowed=false` remain unchanged.
+
+## 68. Pre-registering the separate production-only generation (2026-08-30)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCTION-GENERATION-PREREGISTRATION-ARM64-V1-FROZEN -->
+
+The canonical P2 record is
+`native-shadow-mac3-launcher-v2-successor-production-generation-preregistration-arm64-v1.json`,
+8,096 bytes at SHA-256
+`4c801a52d4c6d47dbbc1c9a7657eb8bce215f9f258586b97064359caefd28a95`.
+It binds the raw R1 result and F5 historical fingerprint, then traverses F5 to
+the byte-preserved P1, C1 and R1 records.  The one v3 free rehearsal remains an
+observed historical run; P2 itself performs and permits zero rehearsals,
+productions and boots.
+
+P1 had reserved authority-v5 and result-v5 names before v3 existed.  Neither
+path was ever created and no authority was granted.  P2 withdraws those unused
+reservations for production, requires both paths to remain absent even as
+dangling symbolic links, and forbids reusing them.  F5 is not withdrawn: it
+remains immutable authority-zero rehearsal evidence and cannot become F6 or
+authorise production.
+
+The actual production-only namespace is producer generation v4 with fresh R2,
+F6, A6 and result-v6 records.  Five new executable or gate files may be
+implemented; they must pin and reuse the already proved `prepare_staging`
+implementation plus readback-v3 and its security gate.  A fresh no-image R2 of
+the exact v4 bytes is mandatory before F6 or A6 may exist.  The declared digest
+graph points only from a later binder to already existing predecessors, so no
+record stores its own or a future record's digest.
+
+### 68.1 Cursor
+
+```text
+V3 FREE REHEARSAL R1  GREEN / RAW RESULT SEALED
+V3 FINGERPRINT F5  HISTORICAL AUTHORITY-ZERO EVIDENCE / NOT PRODUCTION READY
+UNUSED A5 / RESULT-V5 RESERVATIONS  WITHDRAWN UNUSED / MUST REMAIN ABSENT
+P2 PRODUCTION GENERATION  PRE-REGISTERED / AUTHORITY 0
+PRODUCTION-GENERATION V4 + R2  NEXT
+F6 / A6 / RESULT-V6  NOT CREATED
+IMAGE PRODUCTION / GUEST BOOT  NOT AUTHORISED — 0 runs
+MAC.4 / TESTNET / MINING / REWARD  NOT STARTED
+```
+
+This record implements no v4 file and grants no run.  `mineable_now=0`,
+`REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation `false` and
+`activationAllowed=false` remain unchanged.

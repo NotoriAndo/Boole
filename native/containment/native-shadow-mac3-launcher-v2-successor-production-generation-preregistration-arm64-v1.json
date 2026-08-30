@@ -1,0 +1,216 @@
+{
+  "authorisations": {
+    "bootAuthorised": false,
+    "consensusActivated": false,
+    "imageProductionAuthorised": false,
+    "imageProductionRunsAllowed": 0,
+    "mac4Started": false,
+    "miningActivated": false,
+    "p2pActivated": false,
+    "rewardActivated": false,
+    "testnetStarted": false
+  },
+  "bindings": [
+    {
+      "path": "native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-result-arm64-v1.json",
+      "role": "raw canonical authority-zero v3 rehearsal result",
+      "sha256": "d21863e342b701141d6577d3b17cf0a1f26c9211b4b82fa4c8942be96c69f21c",
+      "sizeBytes": 10168
+    },
+    {
+      "path": "native/containment/native-shadow-mac3-successor-producer-fingerprint-arm64-v5.json",
+      "role": "historical v3 authority-zero rehearsal fingerprint",
+      "sha256": "6ca75d732d7d3a064659047d33cb6bf7aaae9b5b01a5ad67754a843093d4f7aa",
+      "sizeBytes": 5458
+    }
+  ],
+  "dag": {
+    "cycleAllowed": false,
+    "edgeMeaning": "binder-to-bound-predecessor",
+    "edges": [
+      {
+        "binder": "P2",
+        "binds": [
+          "R1",
+          "F5"
+        ]
+      },
+      {
+        "binder": "R2",
+        "binds": [
+          "P2",
+          "R1",
+          "F5",
+          "V4"
+        ]
+      },
+      {
+        "binder": "F6",
+        "binds": [
+          "P2",
+          "R1",
+          "F5",
+          "R2",
+          "V4"
+        ]
+      },
+      {
+        "binder": "A6",
+        "binds": [
+          "P2",
+          "R1",
+          "F5",
+          "R2",
+          "F6"
+        ]
+      },
+      {
+        "binder": "RESULT-V6",
+        "binds": [
+          "P2",
+          "R1",
+          "F5",
+          "R2",
+          "F6",
+          "A6"
+        ]
+      }
+    ],
+    "forbiddenReverseDigestBindings": [
+      "P2-to-R2-F6-A6-RESULT-V6",
+      "F6-to-A6-RESULT-V6",
+      "V4-to-F6-A6-RESULT-V6-digests",
+      "A6-to-RESULT-V6-digest"
+    ]
+  },
+  "futureGeneration": {
+    "implementedByThisRecord": false,
+    "newFiles": [
+      {
+        "path": "scripts/native_shadow_successor_produce_phase_arm64_v4.py",
+        "role": "production-generation authority adapter and orchestrator"
+      },
+      {
+        "path": "scripts/test_native_shadow_successor_produce_phase_arm64_v4.py",
+        "role": "production-generation producer contract gate"
+      },
+      {
+        "path": "scripts/native-shadow-successor-produce-arm64-v4.sh",
+        "role": "production-generation wrapper"
+      },
+      {
+        "path": ".github/workflows/native-shadow-successor-produce-arm64-v4.yml",
+        "role": "production-generation manual workflow"
+      },
+      {
+        "path": "scripts/test_native_shadow_successor_produce_workflow_arm64_v4.py",
+        "role": "production-generation workflow contract gate"
+      }
+    ],
+    "recordPaths": {
+      "authority": "native/containment/native-shadow-mac3-successor-production-authority-arm64-v6.json",
+      "fingerprint": "native/containment/native-shadow-mac3-successor-producer-fingerprint-arm64-v6.json",
+      "productionResult": "native/containment/native-shadow-mac3-successor-image-production-result-arm64-v6.json",
+      "rehearsalGate": "scripts/test_native_shadow_launcher_v2_successor_producer_rehearsal_result_arm64_v2.py",
+      "rehearsalResult": "native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-result-arm64-v2.json"
+    },
+    "requiresFreshR2BeforeFingerprintOrAuthority": true,
+    "reusedPinnedUpstream": [
+      {
+        "path": "scripts/native_shadow_successor_produce_phase_arm64_v3.py",
+        "role": "shared prepare_staging implementation proved by R1 and F5",
+        "sha256": "4633fe54c0d44b435b70742c027a83d1354293057787650bb7e91f4a901c46bd",
+        "sizeBytes": 33103
+      },
+      {
+        "path": "scripts/native_shadow_successor_root_disk_readback_arm64_v3.py",
+        "role": "open-descriptor readback implementation",
+        "sha256": "1463dadb30bb55403b7604161839ac1164a42f56824255767a6c303a69437c4c",
+        "sizeBytes": 44652
+      },
+      {
+        "path": "scripts/test_native_shadow_successor_root_disk_readback_arm64_v3.py",
+        "role": "readback-v3 security contract gate",
+        "sha256": "689fa2d4dd880a0c34aa06bf9685cd60c6fb60b004de9e3dc3c2cdaa86040016",
+        "sizeBytes": 44782
+      }
+    ]
+  },
+  "hardStopConditions": [
+    "R1 or F5 digest, size, canonical shape or regular-file identity differs",
+    "R1 reports anything except one canonical PASS-NO-IMAGE-PRODUCED artifact with zero image, marker and production-output effects",
+    "F5 does not bind the exact v3 seven-file generation plus P1, C1 and R1",
+    "an unused authority-v5 or result-v5 reserved path exists as a file, directory or symbolic link",
+    "historical v3 files, R1 or F5 are rewritten, re-sealed or reused as production authority",
+    "a production-generation v4 path reuses or aliases a historical generation path",
+    "F6 or A6 is created before a fresh R2 proves the exact v4 executable bytes without image, marker or production output",
+    "R2 executes a path different from the v4 path later bound by F6",
+    "F6 omits P2, R1, F5, R2 or any exact v4 implementation identity",
+    "a reverse digest edge or self digest creates a P2, R2, F6, A6 or result-v6 cycle",
+    "the authority chain is checked after dependency acquisition, scratch, output-directory, attempt-marker, assembly or image effects",
+    "CLI, environment or image-provided values override authority, fingerprint, source-lock or readback bindings",
+    "the production generation falls back to v3 or older producer, wrapper, workflow or launcher-v1 paths, or to any readback path other than the explicitly pinned readback-v3",
+    "open-file identity, read-only mount, cleanup hard stop, post-write revalidation or create-once readback promotion is weakened",
+    "production, boot or MAC.4 is run without a separately reviewed A6 that grants exactly one named run",
+    "testnet, mining, reward, consensus or P2P authority is opened by this preregistration"
+  ],
+  "invariants": {
+    "BF.7": "HOLD",
+    "LLM-MINEABLE-ELIGIBLE-V5": 14160,
+    "REWARD_READY": 0,
+    "RP0-MD": "HOLD",
+    "activationAllowed": false,
+    "baseActivation": false,
+    "mineable_now": 0
+  },
+  "predecessorDisposition": {
+    "f5MayAuthoriseProduction": false,
+    "f5MayBeReusedAsF6": false,
+    "f5RemainsHistoricalRehearsalEvidence": true,
+    "historicalFreeRehearsalsObserved": 1,
+    "p1AndC1RemainBytePreserved": true,
+    "r1AndF5RemainBytePreserved": true,
+    "supersedesP1FutureReservationForProductionOnly": true
+  },
+  "runs": {
+    "bootsAllowed": 0,
+    "bootsPerformed": 0,
+    "freeRehearsalsPerformedByThisRecord": 0,
+    "imageProductionsAllowed": 0,
+    "imageProductionsPerformed": 0
+  },
+  "schema": "boole.native-shadow.mac3.launcher-v2-successor-production-generation-preregistration.arm64.v1",
+  "status": "PRE-REGISTERED-PRODUCTION-GENERATION-NO-IMAGE-PRODUCTION-AUTHORITY",
+  "subject": "Freeze a distinct production-only launcher-v2 successor generation after the v3 authority-zero rehearsal, before any v4 implementation, fresh R2, F6, A6 or production result exists.",
+  "unusedReservedPaths": [
+    {
+      "authorityEverGranted": false,
+      "createdAtFreeze": false,
+      "path": "native/containment/native-shadow-mac3-successor-production-authority-arm64-v5.json",
+      "requiredAbsent": true,
+      "reuseForbidden": true
+    },
+    {
+      "authorityEverGranted": false,
+      "createdAtFreeze": false,
+      "path": "native/containment/native-shadow-mac3-successor-image-production-result-arm64-v5.json",
+      "requiredAbsent": true,
+      "reuseForbidden": true
+    }
+  ],
+  "versionNamespaces": {
+    "authority": 6,
+    "fingerprint": 6,
+    "producerGeneration": 4,
+    "productionResult": 6,
+    "rehearsalResult": 2,
+    "withdrawnReservation": 5
+  },
+  "whatThisRecordDoesNotEstablish": [
+    "that producer generation v4 is implemented",
+    "that a fresh v4 rehearsal R2 has run",
+    "that F6, A6 or result-v6 exists",
+    "that image production or guest boot is authorised",
+    "that MAC.4, testnet, mining, reward, consensus or P2P has started"
+  ]
+}

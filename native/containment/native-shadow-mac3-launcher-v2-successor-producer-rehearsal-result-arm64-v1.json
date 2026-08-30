@@ -1,0 +1,262 @@
+{
+  "activationAllowed": false,
+  "authorisations": {
+    "bootAuthorised": false,
+    "consensusActivated": false,
+    "imageProductionAuthorised": false,
+    "imageProductionRunsAllowed": 0,
+    "mac4Started": false,
+    "miningActivated": false,
+    "p2pActivated": false,
+    "rewardActivated": false,
+    "testnetStarted": false
+  },
+  "bootableClaim": false,
+  "boundInputs": [
+    {
+      "path": "native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json",
+      "sha256": "6e4a2ae19493f81a58e6130ea95676967cb08fd7d7f3694eb90f673e6e3a1820",
+      "sizeBytes": 4938
+    },
+    {
+      "path": "native/containment/native-shadow-boot-rootfs-closure-exception-arm64-v1.json",
+      "sha256": "70374fd617a12b7d8a3f07c3693cc4b9efe237631e4886ab9d92fd5de9145266",
+      "sizeBytes": 8707
+    },
+    {
+      "path": "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v2.json",
+      "sha256": "1a1a1df9b61795a46e82f392bda82d29c0cbde0473a11efd1f1cbd7993a85a9f",
+      "sizeBytes": 359099
+    },
+    {
+      "path": "native/containment/native-shadow-boot-rootfs-source-lock-result-arm64-v2.json",
+      "sha256": "0542978a6c49287b27c46a836ae3c1aa548d61e4e065b345ebccbb8d8821dedd",
+      "sizeBytes": 3506
+    },
+    {
+      "path": "native/containment/native-shadow-boot-staging-tree-measurement-arm64-v1.json",
+      "sha256": "a9b53199ca519def2232687c096a7fbefeef13a26f68ba44fcb9a3da30d35d18",
+      "sizeBytes": 2536
+    },
+    {
+      "path": "native/containment/native-shadow-launcher-build-authority-arm64-v2.json",
+      "sha256": "1fa2430a04e750d2c3cba22bab03d7a30e2a244300c729ddbd904d282958a5da",
+      "sizeBytes": 3773
+    },
+    {
+      "path": "native/containment/native-shadow-launcher-build-result-arm64-v2.json",
+      "sha256": "0ffa4035b8f7f3e698c2ac57eead4b8122cb0c462ab2cb170a87c1973bb01b08",
+      "sizeBytes": 1314
+    },
+    {
+      "path": "native/containment/native-shadow-launcher-source-overlay-arm64-v2.json",
+      "sha256": "a138cf374459e6c70c591998cae0c974a0ac58965e91d5cbea230f10df7f3970",
+      "sizeBytes": 3782
+    },
+    {
+      "path": "native/containment/native-shadow-launcher-v2-console-evidence-protocol-arm64-v1.json",
+      "sha256": "f5faaa26b38120e67cbf6748581ac1e793e8ac4f87a629004a025a67b5e725f5",
+      "sizeBytes": 1878
+    },
+    {
+      "path": "native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v3.json",
+      "sha256": "74b9507932b4eda97c89753f642bac579593b034b3e9eff24bb5b056c09079a6",
+      "sizeBytes": 45082
+    },
+    {
+      "path": "native/containment/native-shadow-mac3-launcher-v2-image-integration-preregistration-arm64-v1.json",
+      "sha256": "bb51f61b044b9ff651282860eb8645dc97e9122bc446cf65f2489bfefbd73173",
+      "sizeBytes": 12632
+    },
+    {
+      "path": "native/containment/native-shadow-mac3-launcher-v2-image-preflight-result-arm64-v1.json",
+      "sha256": "2a2bfa93796e0ec1463e1d144250e3bc4e2f6b9c2486c35846e3b9f70071d19d",
+      "sizeBytes": 9409
+    },
+    {
+      "path": "native/containment/native-shadow-mac3-successor-image-preservation-arm64-v4.json",
+      "sha256": "2ff7a3a30513092495a2d8b67555b4e974ef75af47de08acfe8c049063549126",
+      "sizeBytes": 10112
+    },
+    {
+      "path": "native/containment/native-shadow-mac3-successor-image-production-result-arm64-v4.json",
+      "sha256": "0faddb098503bbf17bf94ec36148e6ccf1af8fa1335ba0e5e9c79cd9d573b7dd",
+      "sizeBytes": 14002
+    },
+    {
+      "path": "native/containment/native-shadow-mac3-successor-producer-fingerprint-arm64-v4.json",
+      "sha256": "de25e3ac769ab4c575fff6b0839a2ccee2273decdbdd15eb87b3ed2a4c90b765",
+      "sizeBytes": 4610
+    },
+    {
+      "path": "native/containment/native-shadow-mac3-successor-production-authority-arm64-v4.json",
+      "sha256": "50a76ca2a6926a897006ae0d294509934cb8f6f0b902f09d2dc88941185290cc",
+      "sizeBytes": 41237
+    },
+    {
+      "path": "native/containment/native-shadow-runtime-rootfs-source-lock-arm64-v1.json",
+      "sha256": "829ca81d321d412746cce7a62d59d7e538c394b92c1b6a9a966f3016b73cede0",
+      "sizeBytes": 102952
+    },
+    {
+      "path": "scripts/native_shadow_boot_image_produce_arm64_v1.py",
+      "sha256": "5cdc249751a7b8c3128fcff2150059692a00de8590a925f426bc58129056e939",
+      "sizeBytes": 11173
+    },
+    {
+      "path": "scripts/native_shadow_boot_image_producer_authority_arm64_v2.py",
+      "sha256": "14fe8b5dfc5f6b34a5593895c4c9cc18d4b96c8ec28f9a4800a5c81644b67e69",
+      "sizeBytes": 19219
+    },
+    {
+      "path": "scripts/native_shadow_boot_image_verify_arm64_v1.py",
+      "sha256": "3c97808a6dd7b83feb679ca21ce257019b8d549250c1e39ab87e0a6fccdf6e3e",
+      "sizeBytes": 12416
+    },
+    {
+      "path": "scripts/native_shadow_boot_initrd_arm64_v1.py",
+      "sha256": "7e339b6c9dda0af9f0b6ab141e097e74ee695913ec972e29cb15d3cf8bc73fcd",
+      "sizeBytes": 9270
+    },
+    {
+      "path": "scripts/native_shadow_boot_kernel_extract_arm64_v1.py",
+      "sha256": "658cd637b65131f8cfb64700fdacd3db10813a527019b417ec48ef6c7d560c3f",
+      "sizeBytes": 15888
+    },
+    {
+      "path": "scripts/native_shadow_boot_produce_phase_arm64_v1.py",
+      "sha256": "325fd01b8791be3b22566dd71c0c05f992ea1ed295470d3ee342accd76cf87a8",
+      "sizeBytes": 31684
+    },
+    {
+      "path": "scripts/native_shadow_boot_root_disk_arm64_v1.py",
+      "sha256": "09169dc8bdb785e8a18c1a979efee95a7c39723ffb025b54b724294d976f2e68",
+      "sizeBytes": 21276
+    },
+    {
+      "path": "scripts/native_shadow_boot_root_disk_execute_arm64_v1.py",
+      "sha256": "b0b2048b87c35285696adae2ddc536afcffa74ade3de879735a6474f8f4a442b",
+      "sizeBytes": 31284
+    },
+    {
+      "path": "scripts/native_shadow_boot_root_disk_readback_arm64_v1.py",
+      "sha256": "9c41473050b34b830ac6758d88d217d8844ce3154686c93875c1493b50b90589",
+      "sizeBytes": 9852
+    },
+    {
+      "path": "scripts/native_shadow_boot_root_disk_time_audit_arm64_v1.py",
+      "sha256": "08ad4dc8a6514069f9d46c1e6f35c4f61e1f3f4d6f6d052068a9ecec7f708303",
+      "sizeBytes": 8320
+    },
+    {
+      "path": "scripts/native_shadow_boot_rootfs_mount_point_audit_arm64_v1.py",
+      "sha256": "7403fcb4818b30a75c22153712ca02ee5c8b52fbabb3ead6373333e28124f384",
+      "sizeBytes": 8476
+    },
+    {
+      "path": "scripts/native_shadow_boot_rootfs_payload_acquire_arm64_v1.py",
+      "sha256": "a165ae89834f21a6109f43959c5e03964b3ddefc315cced0289266a8a6657e5e",
+      "sizeBytes": 40782
+    },
+    {
+      "path": "scripts/native_shadow_boot_staging_measure_arm64_v1.py",
+      "sha256": "d7deacc81e1262b8bd6c9b525a2784850db55c7d93425458243daf5d45fc75b1",
+      "sizeBytes": 20420
+    },
+    {
+      "path": "scripts/native_shadow_boot_writer_tree_arm64_v1.py",
+      "sha256": "9842c3a05e2d88036345f0096edf7811f97656c58f207f8cccb2e85f5dd19728",
+      "sizeBytes": 12031
+    },
+    {
+      "path": "scripts/native_shadow_launcher_emit_arm64_v2.py",
+      "sha256": "e75b57adbc0ad19dea314d1fa65b9ec56aaf4e1c369f34405ace0378c6adf044",
+      "sizeBytes": 11293
+    },
+    {
+      "path": "scripts/native_shadow_rootfs_acquire_arm64_v1.py",
+      "sha256": "0d82a724332d6cd9ed3b8d30b13d18c545c56caf855d608e68410cd9124e303b",
+      "sizeBytes": 2815
+    },
+    {
+      "path": "scripts/native_shadow_rootfs_builder_arm64_v1.py",
+      "sha256": "180e893e9643c6fab110016119679b96a5ddf56785cd398b51c8cf8352615ef4",
+      "sizeBytes": 3680
+    },
+    {
+      "path": "scripts/native_shadow_rootfs_builder_boot_arm64_v1.py",
+      "sha256": "a5dd54198878473c162ec306fbccd6edac8b22f036d9cf84d244b5f010f96d87",
+      "sizeBytes": 37435
+    },
+    {
+      "path": "scripts/native_shadow_rootfs_builder_boot_arm64_v2.py",
+      "sha256": "82b96d5a1ab465a710725d580ef58ddb3e1bd4f1db2a11b7e6ccb85fb6acf655",
+      "sizeBytes": 13822
+    },
+    {
+      "path": "scripts/native_shadow_rootfs_builder_boot_arm64_v3.py",
+      "sha256": "93bd05d06e43cc69f325036d204b7b57721e358dd5c5d5990227ef88c4de8c39",
+      "sizeBytes": 12505
+    },
+    {
+      "path": "scripts/native_shadow_rootfs_builder_boot_arm64_v4.py",
+      "sha256": "28a53945226af569468fd0db590fb74419afe7aee20efa97d443254634849770",
+      "sizeBytes": 9415
+    },
+    {
+      "path": "scripts/native_shadow_rootfs_portable_arm64_v1.py",
+      "sha256": "67ef26fecbbeaeaf38cf081388b99dab37f9b6417c9e699738a81ab5e45f9cb7",
+      "sizeBytes": 5216
+    },
+    {
+      "path": "scripts/native_shadow_rootfs_portable_boot_arm64_v1.py",
+      "sha256": "4598e73f9389f41d739edb59660b69b99376a7be1788af24406a58b64d6e0a62",
+      "sizeBytes": 3763
+    },
+    {
+      "path": "scripts/native_shadow_rootfs_portable_boot_arm64_v2.py",
+      "sha256": "15f88cf286879ae30aae10bb7819aefea91095a819d96c2634ee9ecc4ea2f305",
+      "sizeBytes": 3528
+    }
+  ],
+  "effects": {
+    "allowedArtifact": "one canonical JSON result only",
+    "allowedImageTools": [],
+    "artifactMemberCount": 1,
+    "attemptMarkersCreated": 0,
+    "forbiddenOutputNames": [
+      "ATTEMPT-CONSUMED.json",
+      "guest-kernel",
+      "guest-initrd",
+      "guest-root-disk"
+    ],
+    "imageEffectCalls": 0,
+    "imageFilesCreated": 0,
+    "productionOutputDirectoriesCreated": 0,
+    "productionOutputsCreated": 0,
+    "scratchSnapshotSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+    "scratchTreeUnchanged": true
+  },
+  "imageProduced": false,
+  "importClosureCorrectionSha256": "b199fb616029e2e38169b4d5f7a82cb7d9962be56fb8bd25dd6b17309131a498",
+  "measurement": {
+    "byKind": {
+      "directory": 1737,
+      "file": 15102,
+      "symlink": 837
+    },
+    "caseFoldedSiblings": 20,
+    "duplicatePaths": 0,
+    "entries": 17676,
+    "largestFileBytes": 160096808,
+    "largestFilePath": "opt/boole/native-checker-toolchain/lib/libLLVM.so.22.1-rust-1.99.0-nightly",
+    "pathCollisions": 0,
+    "pathManifestSha256": "0dbc17aeaaa8ef63ddeb53ac8b7615f361c21bda95f0ba3d9677bdbdb76dcb9a",
+    "payloadBytes": 1773475059,
+    "symlinkEscapes": 0
+  },
+  "preregistrationSha256": "576bafd10600a05e9ab326e1e507c1a0351381d068f393ce402e295bf93afbec",
+  "repeatable": true,
+  "schema": "boole.native-shadow.mac3.launcher-v2-successor-producer-rehearsal.arm64.v1",
+  "status": "PASS-NO-IMAGE-PRODUCED"
+}

@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `77ffa2f983068c3e21517e752f51b8c80215a6fe2e153c9380389f9fb3cbbe71` (updated 2026-08-30f — the append-only master freezes the successor producer/readback generation at authority zero) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `6cc91dfe4bde03bca417419f3049360b11878cf5b50c767e65bd0789a98a65c9` (updated 2026-08-30f — the cursor moves to producer-v3/readback-v3 implementation and then free rehearsal) |
+| `local-docs/todo/todo-l1-network-master.md` | `f462cc9e9703306117c394b6cbc3ccac1562001920eb2c0204a72c4c6de85ac0` (updated 2026-08-30g — R1/F5 are sealed as historical authority-zero evidence and P2 separates a production-only generation at authority zero) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `7182ae511725d6302e33ed56a382b48ef270bf0fb05f7c68c4ab843616ce9153` (updated 2026-08-30g — the cursor moves to producer-generation v4 plus fresh R2; F6/A6/result-v6 remain absent) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `4ff8ee25f983fa1accadc56a45ebe1f9e1de53a988d4f4890231ba324fdc16ca` (updated 2026-08-30j — generation names and one-way digest flow become evidence boundaries before implementation) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `c1c3d59b7720feb5da9d1197b9193d0a095d40cddf7ac3bdddd9cd83e27ae5bf` (updated 2026-08-30k — rehearsal evidence does not inherit production authority and unused reservations are not authority) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -2228,3 +2228,71 @@ No image was produced or read, no guest booted, and MAC.4, testnet, mining,
 reward, consensus, P2P and activation remain unopened.
 
 <!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-S3B-AUTHORITY-ZERO:END -->
+
+## Launcher-v2 successor free-rehearsal result and F5 fingerprint addendum (2026-08-30)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-REHEARSAL-RESULT-ARM64-V1-SEALED:BEGIN -->
+
+The authority-zero v3 rehearsal ran once on required native Linux arm64 after
+the implementation merged.  Production was skipped and one canonical JSON
+member was uploaded and tracked without a metadata wrapper.
+
+```text
+sourceHeadSha=0649dbc92a228fb67350a7eef864a9c9c612fd3d
+sourceWorkflow=.github/workflows/native-shadow-successor-produce-arm64-v3.yml
+sourceEvent=workflow_dispatch
+sourceRunId=33281151298
+sourceRunAttempt=1
+sourceJobId=99176428509
+artifactId=9723056242
+artifactName=launcher-v2-successor-v3-free-rehearsal
+archiveSizeBytes=3424
+archiveDigest=sha256:a3f6e9c5c9a79712fab1b4454b9401325f543632d5f5f632e3e34e843974b2ef
+artifactMemberCount=1
+artifactMemberName=REHEARSAL-RESULT.json
+payloadSizeBytes=10168
+payloadSha256=d21863e342b701141d6577d3b17cf0a1f26c9211b4b82fa4c8942be96c69f21c
+productionGuardJobConclusion=skipped
+evidenceClass=AUTHORITY-ZERO-STAGING-EVIDENCE
+offlineClaim=false
+runnerGlobalTransientAbsenceClaim=false
+imageProductionClaim=false
+bootClaim=false
+mac4Claim=false
+```
+
+The raw result binds 41 live inputs, exact staging measurements and zero image,
+marker or production-output effects.  Dependency acquisition used the network,
+and the record says nothing about unnamed runner-global transient files.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-REHEARSAL-RESULT-ARM64-V1-SEALED:END -->
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-FINGERPRINT-ARM64-V5-SEALED -->
+
+The 5,458-byte F5 record at SHA-256
+`6ca75d732d7d3a064659047d33cb6bf7aaae9b5b01a5ad67754a843093d4f7aa`
+seals the seven v3 generation files and P1/C1/R1 as historical authority-zero
+staging evidence.  Readback v3 was not run by the rehearsal, and no image,
+boot, serving or MAC.4 boundary is opened.
+
+## Production-only successor generation P2 preregistration addendum (2026-08-30)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCTION-GENERATION-PREREGISTRATION-ARM64-V1-FROZEN -->
+
+The 8,156-byte P2 record at SHA-256
+`4c801a52d4c6d47dbbc1c9a7657eb8bce215f9f258586b97064359caefd28a95`
+binds R1 and F5 while keeping F5 as historical authority-zero evidence only.
+The unused A5 and result-v5 reservations were never created or granted and are
+withdrawn for production; their paths must remain absent and cannot be reused.
+
+A distinct producer-generation v4 must use five new production-facing files,
+pin the proved v3 staging function and readback-v3 boundary, and produce a
+fresh authority-zero R2 before F6 or A6 can be created.  All P2 run and
+authority counters are zero.  No image, boot, MAC.4, testnet, mining, reward,
+consensus or P2P boundary is opened.
+
+The 2026-08-30g/2026-08-30k mirror synchronization appended the same R1,
+F5 and P2 cursor to the master, execution and thesis mirrors.  Only those three
+local files changed; all six mirror digests were recalculated, while the other
+three tracked values remained byte-identical.  These hashes are synchronization
+evidence only and grant no runtime authority.
