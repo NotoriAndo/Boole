@@ -2429,3 +2429,36 @@ No runner-global cleanup, R2, production, image, boot or activation claim is
 created by this correction.
 
 <!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-THIRD-FAILED-ATTEMPT-SCOPE-CORRECTION-ARM64-V1-SEALED:END -->
+
+## Fourth free R2 rehearsal hard-stop addendum (2026-08-30)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-FOURTH-FAILED-ATTEMPT-ARM64-V4-SEALED:BEGIN -->
+
+The fourth authority-zero rehearsal reached the root-owned HEAD-bound systemd
+service, then stopped because its content store held the sealed guest closure
+but not the separately sealed ext4 writer packages.  The append-only record is
+`native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-hard-stop-arm64-v4.json`,
+6,147 bytes at SHA-256
+`96721d93d6016a6ee9c8714672ee9e49c0672336181bc1ef8082ab5445081eae`.
+
+```text
+sourceRunId=33319199252
+freeRehearsalJobId=99278062868
+sourceHeadSha=0029b3df45b87a2f2643abfff0f30f57f0c46d48
+artifactsUploadedByThisAttempt=0
+finalGuestImageOutputsCreatedByThisAttempt=0
+successfulR2ResultsCreatedByThisAttempt=0
+productionGuardJob=skipped
+produceJob=skipped
+compareJob=skipped
+```
+
+The missing objects were the already-pinned `e2fsprogs` and
+`libext2fs2t64` writer packages; production already acquired them, while the
+free rehearsal did not.  This is a rehearsal wiring omission, not a change to
+the sealed guest closure.  A transient OCI scratch layout existed, so this is
+not a runner-global cleanup claim.  The record is not R2, occupies no successful
+R2 path and grants no A6, production, image, boot, MAC.4, testnet, mining,
+reward, consensus, P2P or activation authority.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-FOURTH-FAILED-ATTEMPT-ARM64-V4-SEALED:END -->

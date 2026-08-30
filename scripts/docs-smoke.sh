@@ -2848,4 +2848,23 @@ for doc in \
   require_text "$doc" 'LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-THIRD-FAILED-ATTEMPT-SCOPE-CORRECTION-ARM64-V1-SEALED:BEGIN'
 done
 
+# The fourth free rehearsal reached low-level preparation but the rehearsal
+# job had not acquired the separately sealed ext4 writer packages.  Preserve
+# that failure without claiming R2 or broad runner cleanup.
+V4_R2_HARD_STOP_V4=native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-hard-stop-arm64-v4.json
+V4_R2_HARD_STOP_GATE_V4=scripts/test_native_shadow_launcher_v2_successor_producer_rehearsal_hard_stop_arm64_v4.py
+require_file "$V4_R2_HARD_STOP_V4"
+require_file "$V4_R2_HARD_STOP_GATE_V4"
+require_text scripts/self-test.sh "$V4_R2_HARD_STOP_GATE_V4"
+require_text "$V4_R2_HARD_STOP_GATE_V4" '96721d93d6016a6ee9c8714672ee9e49c0672336181bc1ef8082ab5445081eae'
+require_text "$V4_R2_HARD_STOP_V4" '"runId": 33319199252'
+require_text "$V4_R2_HARD_STOP_V4" '"successfulR2ResultsCreatedByThisAttempt": 0'
+require_text "$V4_R2_HARD_STOP_V4" '"transientOciScratchLayoutCreatedByRehearsal": true'
+for doc in \
+  docs/mac-first-hidden-linux-execution-plan-v1.md \
+  docs/node-native-shadow-binding-containment-implementation-spec-v1.md \
+  docs/native-submission-shadow-verification-v1.md; do
+  require_text "$doc" 'LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-FOURTH-FAILED-ATTEMPT-ARM64-V4-SEALED:BEGIN'
+done
+
 printf 'docs-smoke: PASS\n' >&2

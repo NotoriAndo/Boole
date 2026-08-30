@@ -1,0 +1,169 @@
+{
+  "activationAllowed": false,
+  "appendOnlyTargetBinding": {
+    "pathsAreDistinct": true,
+    "successfulR2PathNotOccupiedByThisRecord": true,
+    "successfulR2ResultPath": "native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-result-arm64-v2.json",
+    "thisHardStopRecordPath": "native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-hard-stop-arm64-v4.json"
+  },
+  "attempt": {
+    "artifactApiTotalCount": 0,
+    "completedAt": "2026-08-30T15:20:55Z",
+    "event": "workflow_dispatch",
+    "failure": {
+      "conclusion": "failure",
+      "exactMessage": "native-shadow successor producer v4: FAIL: low-level image preparation failed: the content-addressed store holds no object 89c94171d47851896b9c0bf600dd753b5b8770a4550b38304cd873fa7c8aabea",
+      "stepName": "Run the v4 rehearsal from a verified root-owned HEAD anchor",
+      "stepNumber": 9,
+      "systemdTransientServiceStarted": true
+    },
+    "freeRehearsalJobId": 99278062868,
+    "freeRehearsalJobUrl": "https://github.com/NotoriAndo/Boole/actions/runs/33319199252/job/99278062868",
+    "headSha": "0029b3df45b87a2f2643abfff0f30f57f0c46d48",
+    "jobs": {
+      "compare": {
+        "conclusion": "skipped",
+        "jobId": 99278063467
+      },
+      "produce": {
+        "conclusion": "skipped",
+        "jobId": 99278063403
+      },
+      "productionAuthorityGuard": {
+        "conclusion": "skipped",
+        "jobId": 99278063331
+      }
+    },
+    "mode": "rehearsal",
+    "runAttempt": 1,
+    "runConclusion": "failure",
+    "runId": 33319199252,
+    "runUrl": "https://github.com/NotoriAndo/Boole/actions/runs/33319199252",
+    "startedAt": "2026-08-30T15:17:05Z",
+    "workflow": "native-shadow-successor-produce-arm64-v4"
+  },
+  "authorisations": {
+    "bootAuthorised": false,
+    "consensusActivated": false,
+    "imageProductionAuthorised": false,
+    "imageProductionRunsAllowed": 0,
+    "mac4Started": false,
+    "miningActivated": false,
+    "p2pActivated": false,
+    "rewardActivated": false,
+    "testnetStarted": false
+  },
+  "bootableClaim": false,
+  "claimsNotMade": [
+    "complete cleanup of runner-global transient state",
+    "global absence of all filesystem or process side effects",
+    "offline execution of dependency acquisition",
+    "successful R2 or any rehearsal PASS",
+    "production, image, boot, MAC.4, testnet, mining, reward, consensus or P2P authority"
+  ],
+  "cleanupCompleteClaim": false,
+  "diagnosis": {
+    "classification": "REHEARSAL-WIRING-OMISSION",
+    "fixIncludedInThisRecord": false,
+    "guestClosureAcquirerCorrectlyCoveredItsOwnSealedArtifacts": true,
+    "minimalSuccessor": "invoke the already-sealed writer-set acquirer in the free rehearsal before root isolation",
+    "productionPathAlreadyInvokedTheWriterSetAcquirer": true,
+    "writerPackagesAbsentFromRehearsalCas": [
+      {
+        "name": "e2fsprogs",
+        "poolPath": "pool/main/e/e2fsprogs/e2fsprogs_1.47.2-1ubuntu1_arm64.deb",
+        "sha256": "89c94171d47851896b9c0bf600dd753b5b8770a4550b38304cd873fa7c8aabea",
+        "sizeBytes": 607866
+      },
+      {
+        "name": "libext2fs2t64",
+        "poolPath": "pool/main/e/e2fsprogs/libext2fs2t64_1.47.2-1ubuntu1_arm64.deb",
+        "sha256": "da4d465823f2653b35bd316f9c479e4a531165e01840151184f015f6e0d391a5",
+        "sizeBytes": 230570
+      }
+    ]
+  },
+  "effectScope": "the fourth v4 workflow attempt and its rehearsal path only",
+  "invariants": {
+    "BF.7": "HOLD",
+    "LLM-MINEABLE-ELIGIBLE-V5": 14160,
+    "REWARD_READY": 0,
+    "RP0-MD": "HOLD",
+    "activationAllowed": false,
+    "baseActivation": false,
+    "mineable_now": 0
+  },
+  "offlineClaim": false,
+  "outcome": "FOURTH-FAILED-FREE-REHEARSAL",
+  "postFailureSteps": [
+    {
+      "conclusion": "skipped",
+      "name": "Require exactly one canonical R2 JSON member",
+      "number": 10
+    },
+    {
+      "conclusion": "skipped",
+      "name": "Keep the sole authority-zero rehearsal result for seven days",
+      "number": 11
+    }
+  ],
+  "predecessor": {
+    "path": "native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-hard-stop-correction-arm64-v1.json",
+    "sha256": "88a7fc38963f48fa42018ba7e29ab5648f6767f7cecaac66d1aa4e7047c292c8",
+    "sizeBytes": 2837
+  },
+  "preparationSteps": [
+    {
+      "conclusion": "success",
+      "name": "Checkout",
+      "number": 2
+    },
+    {
+      "conclusion": "success",
+      "name": "Verify the complete preregistered v4 bindings first",
+      "number": 3
+    },
+    {
+      "conclusion": "success",
+      "name": "Complete exact HEAD history without importing tags",
+      "number": 4
+    },
+    {
+      "conclusion": "success",
+      "name": "Install Rust toolchain",
+      "number": 5
+    },
+    {
+      "conclusion": "success",
+      "name": "Acquire the frozen Rust distribution and re-prove its record",
+      "number": 6
+    },
+    {
+      "conclusion": "success",
+      "name": "Acquire the frozen package payloads",
+      "number": 7
+    },
+    {
+      "conclusion": "success",
+      "name": "Emit and independently match the sealed launcher v2",
+      "number": 8
+    }
+  ],
+  "r2PayloadsCreatedByThisAttempt": 0,
+  "runnerGlobalTransientAbsenceClaim": false,
+  "schema": "boole.native-shadow.mac3.launcher-v2-successor-producer-rehearsal-hard-stop.arm64.v4",
+  "scopedObservedEffects": {
+    "artifactsUploadedByWorkflow": 0,
+    "attemptMarkersCreatedByRehearsal": 0,
+    "bootAttemptsStartedByWorkflow": 0,
+    "finalGuestImageOutputsCreatedByRehearsal": 0,
+    "productionClaimTagsCreatedByWorkflow": 0,
+    "productionJobsExecuted": 0,
+    "rehearsalResultFilesCreated": 0,
+    "runnerGlobalCleanupClaimed": false,
+    "transientOciScratchLayoutCreatedByRehearsal": true
+  },
+  "status": "HARD-STOP",
+  "subject": "The fourth free v4 rehearsal reached the root-owned HEAD-bound systemd service and stopped because the rehearsal CAS omitted the separately sealed ext4 writer packages. This append-only record preserves the official run metadata and exact failure without granting authority or occupying the successful R2 result path.",
+  "successfulR2ResultsCreatedByThisAttempt": 0
+}
