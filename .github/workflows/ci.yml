@@ -73,6 +73,12 @@ jobs:
       - name: Probe delegated cgroup and namespace capabilities
         run: sudo ./scripts/native-shadow-containment-capability-probe.sh
 
+      - name: Exercise v4 supervisor crash cleanup with real systemd units
+        run: >-
+          sudo env PYTHONDONTWRITEBYTECODE=1
+          BOOLE_REQUIRE_V4_SYSTEMD_LIFECYCLE=1 python3 -m unittest
+          scripts.test_native_shadow_successor_produce_workflow_arm64_v4.WrapperSurfaceTests.test_linux_crashed_wrapper_cleanup_removes_all_claim_units
+
       - name: Exercise enforced seccomp and Landlock behavior
         run: |
           set -euo pipefail

@@ -4124,3 +4124,41 @@ must contain the direct exact `productionDispatchFenceCorrection` object with
 only `path`, `sha256` and `sizeBytes`.  This correction itself has all authority,
 effect and run counters at zero: V4, R2, F6, A6, result-v6, production and boot
 were not run, and no MAC.4 or activation boundary opened.
+
+## Producer v4 implementation with R2 still pending (2026-08-30)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-V4-IMPLEMENTED-R2-PENDING:BEGIN -->
+
+The five P2-declared generation paths now exist and are one inseparable
+generation: core producer, focused core gate, root wrapper, manual workflow and
+workflow/root-boundary gate.  The repeatable Linux-arm64 rehearsal is the only
+currently executable edge and emits one canonical JSON member without image
+effects.
+
+The future production adapter implements, but does not exercise, the corrected
+global run fence.  One annotated tag is created without force by the only
+write-capable job; replica and comparison consumers fetch and revalidate its
+tag object, message, A6 digest, head and GitHub context before effects.  A
+claim-specific systemd supervisor contains the wrapper and its direct child
+tree.  The wrapper starts three independently cgroup-contained, claim-named
+transient services for preflight, production and qualification.  On failure a
+wrapper EXIT trap performs the first recovery pass when it can; after an outer
+failure, a separate cleanup supervisor runs exactly once and explicitly stops
+and verifies all three inner services before converging through the same
+idempotent recovery state machine.
+Qualified replicas are sealed with logical matrix provenance, retained for
+seven days and provenance-validated before literal byte comparison of all three
+image outputs.
+
+The required Linux containment job validates the corrected lifecycle with
+disposable real systemd units: crash the outer wrapper service, run the separate
+cleanup service, then prove that both wrapper services and all three inner
+services have no loaded unit, live MainPID or cgroup.  This is a no-image
+integration gate, not evidence that the production workflow ran.
+
+Fresh R2, F6, A6 and result-v6 remain absent.  Therefore the implemented
+production surface cannot pass its own authority check, cannot create a claim
+tag and cannot make an image.  No production, boot, MAC.4, testnet, mining,
+reward, consensus, P2P or activation claim follows.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-V4-IMPLEMENTED-R2-PENDING:END -->

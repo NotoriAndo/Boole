@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `f462cc9e9703306117c394b6cbc3ccac1562001920eb2c0204a72c4c6de85ac0` (updated 2026-08-30g — R1/F5 are sealed as historical authority-zero evidence and P2 separates a production-only generation at authority zero) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `7182ae511725d6302e33ed56a382b48ef270bf0fb05f7c68c4ab843616ce9153` (updated 2026-08-30g — the cursor moves to producer-generation v4 plus fresh R2; F6/A6/result-v6 remain absent) |
+| `local-docs/todo/todo-l1-network-master.md` | `d7d17cd52ff7bc51640081c5f06bc6cc0d67b9824f1811bc163a679a397aec2f` (updated 2026-08-30h — producer-generation v4 is implemented without authority; a fresh R2 rehearsal is next) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `386c4ea0674a0651fa8d2c72536e7cad60927ccb4dba0bdedc98f41af2c19d6e` (updated 2026-08-30h — v4 implementation is complete and the cursor moves to its fresh R2; F6/A6/result-v6 remain absent) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `c1c3d59b7720feb5da9d1197b9193d0a095d40cddf7ac3bdddd9cd83e27ae5bf` (updated 2026-08-30k — rehearsal evidence does not inherit production authority and unused reservations are not authority) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `8e9673817cdcb7d6882dc0008c3338f0d3c6574fd74b716ade894646b8f7c8b5` (updated 2026-08-30l — executable preparation still does not spend or grant production authority) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -2322,3 +2322,32 @@ correction in an exact `productionDispatchFenceCorrection` field containing
 only path, SHA-256 and size.  This authority-zero record created no ref and ran
 no V4, R2, F6, A6, result-v6, image production or boot.  MAC.4, testnet,
 mining, reward, consensus, P2P and activation remain closed.
+
+## Producer v4 implementation addendum (2026-08-30)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-V4-IMPLEMENTED-R2-PENDING:BEGIN -->
+
+Producer generation v4 now implements the exact five paths that P2 named.  Its
+current executable boundary is a repeatable Linux-arm64, authority-zero
+rehearsal that can retain only one canonical JSON result.  It acquires no image
+writer and cannot create kernel, initrd, root disk, attempt marker or boot
+evidence.
+
+The later production boundary is implemented behind the append-only dispatch
+fence correction: create-once annotated tag, live A6/head/context revalidation,
+claim-bound production and cleanup supervisors, sealed logical provenance,
+seven-day qualified artifact retention and provenance-first byte comparison.
+The required Linux containment job crashes a disposable outer supervisor and
+requires its separate cleanup supervisor to remove all three independently
+cgroup-contained inner services.  This is unexecuted production code plus a
+no-image lifecycle integration gate, not a production claim.  R2, F6, A6 and
+result-v6 are absent, so no claim tag or image can be created.  MAC.4, node
+connection, testnet, mining, reward, consensus, P2P and activation remain
+unopened.
+
+The 2026-08-30h/2026-08-30l mirror synchronization appends this same v4/R2
+cursor to the master, execution and thesis mirrors.  All six mirror hashes in
+section 12 were recalculated; the other three mirrors remain byte-identical.
+Those hashes record planning synchronization only and grant no run authority.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-V4-IMPLEMENTED-R2-PENDING:END -->

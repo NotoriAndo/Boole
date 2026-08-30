@@ -1,0 +1,974 @@
+name: native-shadow-successor-produce-arm64-v4
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: rehearsal (no image) or separately authorised production
+        required: true
+        default: rehearsal
+        type: choice
+        options: [rehearsal, production]
+
+permissions:
+  contents: read
+
+env:
+  CAS: local-docs/native-shadow-runtime-rootfs-source-lock-v1/cas
+
+jobs:
+  production-authority-guard:
+    if: inputs.mode == 'production'
+    permissions:
+      contents: write
+    outputs:
+      claim-ref: ${{ steps.create-claim.outputs.claim_ref }}
+      tag-object-sha: ${{ steps.create-claim.outputs.tag_object_sha }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          fetch-tags: false
+          persist-credentials: false
+
+      - name: Refuse before dependencies scratch output marker or assembly
+        shell: bash
+        run: ./scripts/native-shadow-successor-produce-arm64-v4.sh --verify-production-authority-only
+
+      - name: Build and locally verify the one canonical annotated claim
+        id: create-claim
+        shell: bash
+        env:
+          GITHUB_RUN_ID_VALUE: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT_VALUE: ${{ github.run_attempt }}
+          GITHUB_REPOSITORY_VALUE: ${{ github.repository }}
+          GITHUB_WORKFLOW_REF_VALUE: ${{ github.workflow_ref }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          wrapper=./scripts/native-shadow-successor-produce-arm64-v4.sh
+          claim_message="$("$wrapper" --dispatch-claim-message \
+            --github-run-id "$GITHUB_RUN_ID_VALUE" \
+            --github-run-attempt "$GITHUB_RUN_ATTEMPT_VALUE" \
+            --github-repository "$GITHUB_REPOSITORY_VALUE" \
+            --github-workflow-ref "$GITHUB_WORKFLOW_REF_VALUE" \
+            --head-sha "$HEAD_SHA")"
+          attempt_id="$(printf %s "$claim_message" | python3 -I -S -c '
+          import json, re, sys
+          document = json.load(sys.stdin)
+          value = document.get("attemptId")
+          if not isinstance(value, str) or re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,127}", value) is None:
+              raise SystemExit("claim attempt ID differs")
+          sys.stdout.write(value)
+          ')"
+          claim_ref="refs/tags/boole-native-shadow-mac3-successor-production-a6-$attempt_id"
+          git check-ref-format "$claim_ref"
+          tag_name=${claim_ref#refs/tags/}
+          tag_object_sha="$(
+            {
+              printf 'object %s\n' "$HEAD_SHA"
+              printf 'type commit\n'
+              printf 'tag %s\n' "$tag_name"
+              printf 'tagger NotoriAndo <281125350+NotoriAndo@users.noreply.github.com> 0 +0000\n\n'
+              printf %s "$claim_message"
+            } | git mktag
+          )"
+          [[ $tag_object_sha =~ ^[0-9a-f]{40}$ ]]
+          git update-ref "$claim_ref" "$tag_object_sha" 0000000000000000000000000000000000000000
+          "$wrapper" --verify-dispatch-claim \
+            --github-run-id "$GITHUB_RUN_ID_VALUE" \
+            --github-run-attempt "$GITHUB_RUN_ATTEMPT_VALUE" \
+            --github-repository "$GITHUB_REPOSITORY_VALUE" \
+            --github-workflow-ref "$GITHUB_WORKFLOW_REF_VALUE" \
+            --head-sha "$HEAD_SHA" \
+            --claim-ref "$claim_ref" \
+            --tag-object-sha "$tag_object_sha"
+          printf 'claim_ref=%s\ntag_object_sha=%s\n' \
+            "$claim_ref" "$tag_object_sha" >>"$GITHUB_OUTPUT"
+
+      - name: Publish the claim exactly once and re-read the remote ref
+        shell: bash
+        env:
+          CLAIM_REF: ${{ steps.create-claim.outputs.claim_ref }}
+          TAG_OBJECT_SHA: ${{ steps.create-claim.outputs.tag_object_sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ $CLAIM_REF == refs/tags/boole-native-shadow-mac3-successor-production-a6-* ]]
+          [[ $TAG_OBJECT_SHA =~ ^[0-9a-f]{40}$ ]]
+          askpass="$GITHUB_WORKSPACE/.git/boole-native-shadow-askpass"
+          [[ ! -e $askpass && ! -L $askpass ]]
+          cleanup_askpass() {
+            if [[ -e $askpass || -L $askpass ]]; then
+              rm -f -- "$askpass"
+            fi
+          }
+          trap cleanup_askpass EXIT
+          (umask 077; set -o noclobber; printf '%s\n' \
+              '#!/bin/sh' \
+              'case "$1" in' \
+              '  *Username*) printf "%s\n" x-access-token ;;' \
+              '  *Password*) printf "%s\n" "$GITHUB_TOKEN" ;;' \
+              '  *) exit 1 ;;' \
+              'esac' >"$askpass")
+          chmod 0700 -- "$askpass"
+          remote_url="https://github.com/${GITHUB_REPOSITORY}.git"
+          export GIT_ASKPASS="$askpass" GIT_ASKPASS_REQUIRE=force GIT_TERMINAL_PROMPT=0 \
+            GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+            GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_COUNT=2 \
+            GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= \
+            GIT_CONFIG_KEY_1=core.hooksPath GIT_CONFIG_VALUE_1=/dev/null
+          set +e
+          remote_before="$(git ls-remote --refs --exit-code "$remote_url" "$CLAIM_REF")"
+          remote_status=$?
+          set -e
+          [[ $remote_status -eq 2 && -z $remote_before ]]
+          push_output="$(git push --atomic --porcelain "$remote_url" "$CLAIM_REF:$CLAIM_REF")"
+          mapfile -t push_status_lines < <(
+            printf '%s\n' "$push_output" |
+              awk -F '\t' -v expected="$CLAIM_REF:$CLAIM_REF" \
+                'NF == 3 && $1 == "*" && $2 == expected && $3 == "[new tag]" { print }'
+          )
+          [[ ${#push_status_lines[@]} -eq 1 ]]
+          remote_after="$(git ls-remote --refs --exit-code "$remote_url" "$CLAIM_REF")"
+          [[ $remote_after == "$TAG_OBJECT_SHA"$'\t'"$CLAIM_REF" ]]
+
+  free-rehearsal:
+    if: inputs.mode == 'rehearsal'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          fetch-tags: false
+          persist-credentials: false
+
+      - name: Verify the complete preregistered v4 bindings first
+        shell: bash
+        run: ./scripts/native-shadow-successor-produce-arm64-v4.sh --verify-bindings-only
+
+      - name: Complete exact HEAD history without importing tags
+        shell: bash
+        env:
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [[ $(git rev-parse --is-shallow-repository) == true ]]
+          [[ -z $(git for-each-ref --format='%(refname)' refs/tags/) ]]
+          export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+            GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_COUNT=2 \
+            GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= \
+            GIT_CONFIG_KEY_1=core.hooksPath GIT_CONFIG_VALUE_1=/dev/null
+          git fetch --no-tags --unshallow origin "$HEAD_SHA"
+          [[ $(git rev-parse --is-shallow-repository) == false ]]
+          [[ $(git rev-parse --verify 'HEAD^{commit}') == "$HEAD_SHA" ]]
+          [[ -z $(git for-each-ref --format='%(refname)' refs/tags/) ]]
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+        with:
+          toolchain: 1.95.0
+          components: rustfmt, clippy
+
+      - name: Acquire the frozen Rust distribution and re-prove its record
+        shell: bash
+        run: |
+          set -euo pipefail
+          sealed=native/containment/native-shadow-boot-rustdist-acquisition-result-arm64-v1.json
+          rm "$sealed"
+          python3 -I -S scripts/native_shadow_boot_rustdist_acquire_arm64_v1.py --acquire
+          git diff --exit-code -- "$sealed"
+
+      - name: Acquire the frozen package payloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/acquire"
+          python3 -I -S scripts/native_shadow_boot_ci_payload_acquire_arm64_v1.py acquire \
+            --cas "$PWD/$CAS" \
+            --zstd "$(readlink -f "$(command -v zstd)")" \
+            --result "$RUNNER_TEMP/acquire/ci-payload-acquisition.json"
+
+      - name: Emit and independently match the sealed launcher v2
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/launcher-v2"
+          launcher="$RUNNER_TEMP/launcher-v2/boole-native-shadow-launcher"
+          seal=native/containment/native-shadow-launcher-build-result-arm64-v2.json
+          python3 -I -S scripts/native_shadow_launcher_emit_arm64_v2.py emit --out "$launcher"
+          expected_sha="$(python3 -I -S -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["launcher"]["sha256"])' "$seal")"
+          expected_size="$(python3 -I -S -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["launcher"]["sizeBytes"])' "$seal")"
+          actual_sha="$(sha256sum "$launcher" | awk '{print $1}')"
+          actual_size="$(wc -c < "$launcher" | tr -d '[:space:]')"
+          test "$actual_sha" = "$expected_sha"
+          test "$actual_size" = "$expected_size"
+
+      - name: Run the v4 rehearsal from a verified root-owned HEAD anchor
+        shell: bash
+        env:
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [[ $HEAD_SHA =~ ^[0-9a-f]{40}$ ]]
+          runner_bundle="$RUNNER_TEMP/native-shadow-successor-v4-rehearsal-${HEAD_SHA}.bundle"
+          /usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C LC_ALL=C \
+            GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+            GIT_CONFIG_NOSYSTEM=1 GIT_OPTIONAL_LOCKS=0 \
+            /usr/bin/git --no-replace-objects -C "$GITHUB_WORKSPACE" \
+              bundle create "$runner_bundle" HEAD
+          [[ -f $runner_bundle && ! -L $runner_bundle ]]
+
+          sudo /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+            HOME=/root LANG=C LC_ALL=C /bin/bash -s -- \
+            "$runner_bundle" "$HEAD_SHA" "$PWD/$CAS" \
+            "$RUNNER_TEMP/launcher-v2/boole-native-shadow-launcher" <<'ROOT_REHEARSAL'
+          set -euo pipefail
+          readonly PATH=/usr/sbin:/usr/bin:/sbin:/bin
+          export PATH
+          unset BASH_ENV ENV CDPATH PYTHONPATH PYTHONHOME LD_PRELOAD LD_LIBRARY_PATH \
+            GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY \
+            GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_INDEX_FILE
+          runner_bundle=$1
+          head_sha=$2
+          runner_cas=$3
+          runner_launcher=$4
+          readonly base=/var/lib/boole/native-shadow-successor-v4
+          readonly anchor_parent="$base/anchors"
+          readonly anchor="$anchor_parent/${head_sha}-rehearsal"
+          readonly anchor_partial="${anchor}.partial"
+          readonly root_bundle="$anchor_partial/source.bundle"
+          readonly repo="$anchor_partial/repo"
+          readonly verify_repo="$anchor_partial/verify.git"
+          readonly import_root="$anchor_partial/imports"
+          readonly rehearsal_root="$base/rehearsals"
+          readonly result_parent="$rehearsal_root/$head_sha"
+
+          [[ $head_sha =~ ^[0-9a-f]{40}$ ]]
+          [[ -f $runner_bundle && ! -L $runner_bundle ]]
+          [[ $(/usr/bin/stat -c %h -- "$runner_bundle") == 1 ]]
+          [[ -d $runner_cas && ! -L $runner_cas ]]
+          [[ -f $runner_launcher && ! -L $runner_launcher ]]
+          for candidate in /var /var/lib; do
+            [[ -d $candidate && ! -L $candidate ]]
+            [[ $(/usr/bin/readlink -f -- "$candidate") == "$candidate" ]]
+            [[ $(/usr/bin/stat -c %u:%g -- "$candidate") == 0:0 ]]
+            candidate_mode=$(/usr/bin/stat -c %a -- "$candidate")
+            [[ $((8#$candidate_mode & 8#22)) -eq 0 ]]
+          done
+          /usr/bin/install -d -o root -g root -m 0755 \
+            /var/lib/boole "$base" "$anchor_parent" "$rehearsal_root"
+          for candidate in /var /var/lib /var/lib/boole "$base" \
+            "$anchor_parent" "$rehearsal_root"; do
+            [[ -d $candidate && ! -L $candidate ]]
+            [[ $(/usr/bin/readlink -f -- "$candidate") == "$candidate" ]]
+            [[ $(/usr/bin/stat -c %u:%g -- "$candidate") == 0:0 ]]
+            candidate_mode=$(/usr/bin/stat -c %a -- "$candidate")
+            [[ $((8#$candidate_mode & 8#22)) -eq 0 ]]
+          done
+          [[ ! -e $anchor && ! -L $anchor ]]
+          [[ ! -e $anchor_partial && ! -L $anchor_partial ]]
+          [[ ! -e $result_parent && ! -L $result_parent ]]
+          /usr/bin/install -d -o root -g root -m 0700 \
+            "$anchor_partial" "$verify_repo" "$import_root" "$result_parent"
+          /usr/bin/install -o root -g root -m 0400 -- "$runner_bundle" "$root_bundle"
+
+          /usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C LC_ALL=C \
+            GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+            GIT_CONFIG_NOSYSTEM=1 GIT_OPTIONAL_LOCKS=0 \
+            /usr/bin/git --no-replace-objects -C "$verify_repo" init --bare
+          /usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C LC_ALL=C \
+            GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+            GIT_CONFIG_NOSYSTEM=1 GIT_OPTIONAL_LOCKS=0 \
+            /usr/bin/git --no-replace-objects -C "$verify_repo" bundle verify "$root_bundle"
+          /usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C LC_ALL=C \
+            GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+            GIT_CONFIG_NOSYSTEM=1 GIT_OPTIONAL_LOCKS=0 \
+            /usr/bin/git clone --no-checkout --no-local -- "$root_bundle" "$repo"
+          [[ ! -e $repo/.git/objects/info/alternates && ! -L $repo/.git/objects/info/alternates ]]
+          /usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C LC_ALL=C \
+            GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+            GIT_CONFIG_NOSYSTEM=1 GIT_OPTIONAL_LOCKS=0 \
+            /usr/bin/git --no-replace-objects -C "$repo" checkout --detach "$head_sha"
+          [[ $(/usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C LC_ALL=C \
+            GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+            GIT_CONFIG_NOSYSTEM=1 GIT_OPTIONAL_LOCKS=0 \
+            /usr/bin/git --no-replace-objects -C "$repo" rev-parse --verify 'HEAD^{commit}') == "$head_sha" ]]
+          /usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C LC_ALL=C \
+            GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+            GIT_CONFIG_NOSYSTEM=1 GIT_OPTIONAL_LOCKS=0 \
+            /usr/bin/git --no-replace-objects -C "$repo" fsck --strict --full
+          while IFS= read -r -d '' tree_entry; do
+            tree_mode=${tree_entry%% *}
+            [[ $tree_mode != 120000 ]]
+            [[ $tree_mode != 160000 ]]
+          done < <(/usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C LC_ALL=C \
+            GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+            GIT_CONFIG_NOSYSTEM=1 GIT_OPTIONAL_LOCKS=0 \
+            /usr/bin/git --no-replace-objects -C "$repo" ls-tree -rz --full-tree "$head_sha")
+          [[ -z $(/usr/bin/find "$repo" -type l -print -quit) ]]
+          [[ -z $(/usr/bin/find "$repo" ! -type d ! -type f -print -quit) ]]
+          [[ -z $(/usr/bin/find "$repo" -perm /0022 -print -quit) ]]
+          /usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C LC_ALL=C \
+            GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+            GIT_CONFIG_NOSYSTEM=1 GIT_OPTIONAL_LOCKS=0 \
+            /usr/bin/git --no-replace-objects -C "$repo" diff-index --quiet HEAD --
+          [[ -z $(/usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C LC_ALL=C \
+            GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+            GIT_CONFIG_NOSYSTEM=1 GIT_OPTIONAL_LOCKS=0 \
+            /usr/bin/git --no-replace-objects -C "$repo" ls-files --others --exclude-standard) ]]
+
+          /usr/bin/cp -a --reflink=never -- "$runner_cas" "$import_root/cas"
+          /usr/bin/install -o root -g root -m 0500 -- \
+            "$runner_launcher" "$import_root/boole-native-shadow-launcher"
+          [[ -z $(/usr/bin/find "$import_root" -type l -print -quit) ]]
+          [[ -z $(/usr/bin/find "$import_root" ! -type d ! -type f -print -quit) ]]
+          /usr/bin/chown -R 0:0 -- "$anchor_partial"
+          /usr/bin/chmod -R go-w -- "$anchor_partial"
+          [[ -z $(/usr/bin/find "$anchor_partial" -perm /0022 -print -quit) ]]
+          /usr/bin/rm -rf -- "$verify_repo"
+          /usr/bin/mv -T -- "$anchor_partial" "$anchor"
+          /usr/bin/sync -f "$anchor_parent"
+
+          readonly anchored_wrapper="$anchor/repo/scripts/native-shadow-successor-produce-arm64-v4.sh"
+          "$anchored_wrapper" --rehearsal-only \
+            --cas "$anchor/imports/cas" \
+            --launcher "$anchor/imports/boole-native-shadow-launcher" \
+            --result "$result_parent/R2-RESULT.json"
+          ROOT_REHEARSAL
+
+          collection="$RUNNER_TEMP/rehearsal-artifact"
+          mkdir -m 0700 "$collection"
+          install -m 0444 -- \
+            "/var/lib/boole/native-shadow-successor-v4/rehearsals/$HEAD_SHA/R2-RESULT.json" \
+            "$collection/R2-RESULT.json"
+
+      - name: Require exactly one canonical R2 JSON member
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifact="$RUNNER_TEMP/rehearsal-artifact/R2-RESULT.json"
+          member_count="$(find "$RUNNER_TEMP/rehearsal-artifact" -mindepth 1 -maxdepth 1 | wc -l | tr -d '[:space:]')"
+          test "$member_count" = 1
+          test -f "$artifact"
+          test ! -L "$artifact"
+          test "$(stat -c %h -- "$artifact")" = 1
+          python3 -I -S -c 'import json,pathlib,sys; p=pathlib.Path(sys.argv[1]); raw=p.read_bytes(); d=json.loads(raw); expected=(json.dumps(d, indent=2, sort_keys=True)+"\n").encode(); raise SystemExit(0 if raw == expected else 1)' "$artifact"
+
+      - name: Keep the sole authority-zero rehearsal result for seven days
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: launcher-v2-successor-v4-free-rehearsal
+          path: ${{ runner.temp }}/rehearsal-artifact/R2-RESULT.json
+          if-no-files-found: error
+          retention-days: 7
+
+  produce:
+    if: inputs.mode == 'production'
+    needs: [production-authority-guard]
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        replica: [1, 2]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          fetch-tags: false
+          persist-credentials: false
+
+      - name: Fetch and verify the exact create-once production claim
+        shell: bash
+        env:
+          CLAIM_REF: ${{ needs.production-authority-guard.outputs.claim-ref }}
+          GUARD_TAG_OBJECT_SHA: ${{ needs.production-authority-guard.outputs.tag-object-sha }}
+          GITHUB_RUN_ID_VALUE: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT_VALUE: ${{ github.run_attempt }}
+          GITHUB_REPOSITORY_VALUE: ${{ github.repository }}
+          GITHUB_WORKFLOW_REF_VALUE: ${{ github.workflow_ref }}
+          HEAD_SHA: ${{ github.sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          guard_tag_object_sha=$GUARD_TAG_OBJECT_SHA
+          [[ $CLAIM_REF == refs/tags/boole-native-shadow-mac3-successor-production-a6-* ]]
+          [[ $guard_tag_object_sha =~ ^[0-9a-f]{40}$ ]]
+          if git show-ref --verify --quiet "$CLAIM_REF"; then
+            printf 'the production claim unexpectedly exists before exact fetch\n' >&2
+            exit 1
+          else
+            local_ref_status=$?
+            [[ $local_ref_status -eq 1 ]]
+          fi
+          askpass="$GITHUB_WORKSPACE/.git/boole-native-shadow-askpass"
+          [[ ! -e $askpass && ! -L $askpass ]]
+          cleanup_askpass() {
+            if [[ -e $askpass || -L $askpass ]]; then
+              rm -f -- "$askpass"
+            fi
+          }
+          trap cleanup_askpass EXIT
+          (umask 077; set -o noclobber; printf '%s\n' \
+              '#!/bin/sh' \
+              'case "$1" in' \
+              '  *Username*) printf "%s\n" x-access-token ;;' \
+              '  *Password*) printf "%s\n" "$GITHUB_TOKEN" ;;' \
+              '  *) exit 1 ;;' \
+              'esac' >"$askpass")
+          chmod 0700 -- "$askpass"
+          remote_url="https://github.com/${GITHUB_REPOSITORY_VALUE}.git"
+          export GIT_ASKPASS="$askpass" GIT_ASKPASS_REQUIRE=force GIT_TERMINAL_PROMPT=0 \
+            GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+            GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_COUNT=2 \
+            GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= \
+            GIT_CONFIG_KEY_1=core.hooksPath GIT_CONFIG_VALUE_1=/dev/null
+          remote_claim="$(git ls-remote --refs --exit-code "$remote_url" "$CLAIM_REF")"
+          [[ $remote_claim == "$guard_tag_object_sha"$'\t'"$CLAIM_REF" ]]
+          git fetch --no-tags --atomic "$remote_url" "$CLAIM_REF:$CLAIM_REF"
+          [[ $(git rev-parse --verify "$CLAIM_REF^{tag}") == "$guard_tag_object_sha" ]]
+          cleanup_askpass
+          trap - EXIT
+          unset GITHUB_TOKEN GIT_ASKPASS GIT_ASKPASS_REQUIRE GIT_TERMINAL_PROMPT
+          ./scripts/native-shadow-successor-produce-arm64-v4.sh --verify-dispatch-claim \
+            --github-run-id "$GITHUB_RUN_ID_VALUE" \
+            --github-run-attempt "$GITHUB_RUN_ATTEMPT_VALUE" \
+            --github-repository "$GITHUB_REPOSITORY_VALUE" \
+            --github-workflow-ref "$GITHUB_WORKFLOW_REF_VALUE" \
+            --head-sha "$HEAD_SHA" \
+            --claim-ref "$CLAIM_REF" \
+            --tag-object-sha "$guard_tag_object_sha"
+
+      - name: Complete exact HEAD history without importing other tags
+        shell: bash
+        env:
+          HEAD_SHA: ${{ github.sha }}
+          CLAIM_REF: ${{ needs.production-authority-guard.outputs.claim-ref }}
+        run: |
+          set -euo pipefail
+          [[ $(git rev-parse --is-shallow-repository) == true ]]
+          [[ $(git for-each-ref --format='%(refname)' refs/tags/) == "$CLAIM_REF" ]]
+          export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+            GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_COUNT=2 \
+            GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= \
+            GIT_CONFIG_KEY_1=core.hooksPath GIT_CONFIG_VALUE_1=/dev/null
+          git fetch --no-tags --unshallow origin "$HEAD_SHA"
+          [[ $(git rev-parse --is-shallow-repository) == false ]]
+          [[ $(git rev-parse --verify 'HEAD^{commit}') == "$HEAD_SHA" ]]
+          [[ $(git for-each-ref --format='%(refname)' refs/tags/) == "$CLAIM_REF" ]]
+
+      - name: Recheck authority before this replica acquires anything
+        shell: bash
+        run: ./scripts/native-shadow-successor-produce-arm64-v4.sh --verify-production-authority-only
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+        with:
+          toolchain: 1.95.0
+          components: rustfmt, clippy
+
+      - name: Acquire the frozen Rust distribution and re-prove its record
+        shell: bash
+        run: |
+          set -euo pipefail
+          sealed=native/containment/native-shadow-boot-rustdist-acquisition-result-arm64-v1.json
+          rm "$sealed"
+          python3 -I -S scripts/native_shadow_boot_rustdist_acquire_arm64_v1.py --acquire
+          git diff --exit-code -- "$sealed"
+
+      - name: Acquire the frozen package payloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/acquire"
+          python3 -I -S scripts/native_shadow_boot_ci_payload_acquire_arm64_v1.py acquire \
+            --cas "$PWD/$CAS" \
+            --zstd "$(readlink -f "$(command -v zstd)")" \
+            --result "$RUNNER_TEMP/acquire/ci-payload-acquisition.json"
+
+      - name: Acquire the sealed ext4 writer set
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/acquire"
+          python3 -I -S scripts/native_shadow_boot_writer_set_acquire_arm64_v1.py acquire \
+            --cas "$PWD/$CAS" \
+            --result "$RUNNER_TEMP/acquire/writer-set-acquisition.json"
+
+      - name: Emit and independently match the sealed launcher v2
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/launcher-v2"
+          launcher="$RUNNER_TEMP/launcher-v2/boole-native-shadow-launcher"
+          seal=native/containment/native-shadow-launcher-build-result-arm64-v2.json
+          python3 -I -S scripts/native_shadow_launcher_emit_arm64_v2.py emit --out "$launcher"
+          expected_sha="$(python3 -I -S -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["launcher"]["sha256"])' "$seal")"
+          expected_size="$(python3 -I -S -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["launcher"]["sizeBytes"])' "$seal")"
+          actual_sha="$(sha256sum "$launcher" | awk '{print $1}')"
+          actual_size="$(wc -c < "$launcher" | tr -d '[:space:]')"
+          test "$actual_sha" = "$expected_sha"
+          test "$actual_size" = "$expected_size"
+
+      # This is the only production edge.  Its claim-bound supervisor owns the
+      # direct wrapper process tree; the wrapper creates three inner
+      # claim-named transient services, each with its own cgroup and bounds;
+      # a different claim-bound supervisor performs the one post-wrapper
+      # convergence pass after the wrapper EXIT trap has run when possible,
+      # explicitly stopping all three before reading recovery state.
+      - name: Invoke the root-installed production isolation exactly once
+        shell: bash
+        env:
+          CLAIM_REF: ${{ needs.production-authority-guard.outputs.claim-ref }}
+          GUARD_TAG_OBJECT_SHA: ${{ needs.production-authority-guard.outputs.tag-object-sha }}
+          HEAD_SHA: ${{ github.sha }}
+          REPLICA_ORDINAL: ${{ matrix.replica }}
+          GITHUB_RUN_ID_VALUE: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT_VALUE: ${{ github.run_attempt }}
+          GITHUB_REPOSITORY_VALUE: ${{ github.repository }}
+          GITHUB_WORKFLOW_REF_VALUE: ${{ github.workflow_ref }}
+          STRATEGY_JOB_INDEX_VALUE: ${{ strategy.job-index }}
+          STRATEGY_JOB_TOTAL_VALUE: ${{ strategy.job-total }}
+          GITHUB_JOB_VALUE: ${{ github.job }}
+        run: |
+          set -euo pipefail
+          [[ $HEAD_SHA =~ ^[0-9a-f]{40}$ ]]
+          [[ $GUARD_TAG_OBJECT_SHA =~ ^[0-9a-f]{40}$ ]]
+          [[ $REPLICA_ORDINAL =~ ^[12]$ ]]
+          [[ $CLAIM_REF == refs/tags/boole-native-shadow-mac3-successor-production-a6-* ]]
+          [[ $GITHUB_RUN_ID_VALUE =~ ^[1-9][0-9]*$ ]]
+          [[ $GITHUB_RUN_ATTEMPT_VALUE =~ ^[1-9][0-9]*$ ]]
+          [[ $STRATEGY_JOB_INDEX_VALUE =~ ^[01]$ ]]
+          [[ $STRATEGY_JOB_TOTAL_VALUE == 2 ]]
+          [[ $GITHUB_JOB_VALUE == produce ]]
+
+          # The runner creates only a transport bundle.  Root first copies it
+          # into a root-only partial tree, then verifies that copy before any
+          # checkout byte can become executable.
+          runner_bundle="$RUNNER_TEMP/native-shadow-successor-v4-${GUARD_TAG_OBJECT_SHA}-r${REPLICA_ORDINAL}.bundle"
+          /usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C LC_ALL=C \
+            GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+            GIT_CONFIG_NOSYSTEM=1 GIT_OPTIONAL_LOCKS=0 \
+            /usr/bin/git --no-replace-objects -C "$GITHUB_WORKSPACE" \
+              bundle create "$runner_bundle" HEAD "$CLAIM_REF"
+          [[ -f $runner_bundle && ! -L $runner_bundle ]]
+
+          sudo /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+            HOME=/root LANG=C LC_ALL=C /bin/bash -s -- \
+            "$runner_bundle" "$HEAD_SHA" "$CLAIM_REF" \
+            "$GUARD_TAG_OBJECT_SHA" "$REPLICA_ORDINAL" \
+            "$PWD/$CAS" \
+            "$RUNNER_TEMP/launcher-v2/boole-native-shadow-launcher" \
+            "$GITHUB_RUN_ID_VALUE" "$GITHUB_RUN_ATTEMPT_VALUE" \
+            "$GITHUB_REPOSITORY_VALUE" "$GITHUB_WORKFLOW_REF_VALUE" \
+            "$STRATEGY_JOB_INDEX_VALUE" "$STRATEGY_JOB_TOTAL_VALUE" \
+            "$GITHUB_JOB_VALUE" <<'ROOT_BOOTSTRAP'
+          set -euo pipefail
+          readonly PATH=/usr/sbin:/usr/bin:/sbin:/bin
+          export PATH
+          unset BASH_ENV ENV CDPATH PYTHONPATH PYTHONHOME LD_PRELOAD LD_LIBRARY_PATH \
+            GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY \
+            GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_INDEX_FILE
+
+          runner_bundle=$1
+          head_sha=$2
+          claim_ref=$3
+          tag_object_sha=$4
+          replica=$5
+          runner_cas=$6
+          runner_launcher=$7
+          github_run_id=$8
+          github_run_attempt=$9
+          github_repository=${10}
+          github_workflow_ref=${11}
+          strategy_job_index=${12}
+          strategy_job_total=${13}
+          github_job=${14}
+          readonly base=/var/lib/boole/native-shadow-successor-v4
+          readonly anchor_parent="$base/anchors"
+          readonly anchor="$anchor_parent/${tag_object_sha}-r${replica}"
+          readonly anchor_partial="${anchor}.partial"
+          readonly root_bundle="$anchor_partial/source.bundle"
+          readonly repo="$anchor_partial/repo"
+          readonly verify_repo="$anchor_partial/verify.git"
+          readonly import_root="$anchor_partial/imports"
+          readonly export_root="$base/exports"
+          readonly export_tag="$export_root/$tag_object_sha"
+          readonly export_parent="$export_tag/replica-$replica"
+          readonly recovery_stem="boole-nsv4-${tag_object_sha}-r${replica}"
+          readonly production_supervisor_unit="${recovery_stem}-supervisor.service"
+          readonly cleanup_supervisor_unit="${recovery_stem}-cleanup.service"
+          readonly production_supervisor_runtime_seconds=3000
+          readonly cleanup_supervisor_runtime_seconds=600
+          readonly supervisor_stop_seconds=20
+          readonly supervisor_kill_after_seconds=10
+
+          [[ $head_sha =~ ^[0-9a-f]{40}$ ]]
+          [[ $tag_object_sha =~ ^[0-9a-f]{40}$ ]]
+          [[ $replica =~ ^[12]$ ]]
+          [[ $claim_ref == refs/tags/boole-native-shadow-mac3-successor-production-a6-* ]]
+          [[ $github_run_id =~ ^[1-9][0-9]*$ ]]
+          [[ $github_run_attempt =~ ^[1-9][0-9]*$ ]]
+          [[ $strategy_job_index =~ ^[01]$ ]]
+          [[ $strategy_job_total == 2 ]]
+          [[ $github_job == produce ]]
+          [[ -f $runner_bundle && ! -L $runner_bundle ]]
+          [[ $(/usr/bin/stat -c %h -- "$runner_bundle") == 1 ]]
+          [[ -d $runner_cas && ! -L $runner_cas ]]
+          [[ -f $runner_launcher && ! -L $runner_launcher ]]
+
+          for candidate in /var /var/lib; do
+            [[ -d $candidate && ! -L $candidate ]]
+            [[ $(/usr/bin/readlink -f -- "$candidate") == "$candidate" ]]
+            [[ $(/usr/bin/stat -c %u:%g -- "$candidate") == 0:0 ]]
+            candidate_mode=$(/usr/bin/stat -c %a -- "$candidate")
+            [[ $((8#$candidate_mode & 8#22)) -eq 0 ]]
+          done
+          /usr/bin/install -d -o root -g root -m 0755 \
+            /var/lib/boole "$base" "$anchor_parent" "$export_root"
+          [[ ! -e $anchor && ! -L $anchor ]]
+          [[ ! -e $anchor_partial && ! -L $anchor_partial ]]
+          /usr/bin/install -d -o root -g root -m 0700 \
+            "$anchor_partial" "$verify_repo" "$import_root"
+          /usr/bin/install -o root -g root -m 0400 -- "$runner_bundle" "$root_bundle"
+          [[ -f $root_bundle && ! -L $root_bundle ]]
+          [[ $(/usr/bin/stat -c %u:%g -- "$root_bundle") == 0:0 ]]
+          [[ $(/usr/bin/stat -c %a -- "$root_bundle") == 400 ]]
+          [[ $(/usr/bin/stat -c %h -- "$root_bundle") == 1 ]]
+
+          /usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C LC_ALL=C \
+            GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+            GIT_CONFIG_NOSYSTEM=1 GIT_OPTIONAL_LOCKS=0 \
+            /usr/bin/git --no-replace-objects -C "$verify_repo" init --bare
+          /usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C LC_ALL=C \
+            GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+            GIT_CONFIG_NOSYSTEM=1 GIT_OPTIONAL_LOCKS=0 \
+            /usr/bin/git --no-replace-objects -C "$verify_repo" bundle verify "$root_bundle"
+          /usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C LC_ALL=C \
+            GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+            GIT_CONFIG_NOSYSTEM=1 GIT_OPTIONAL_LOCKS=0 \
+            /usr/bin/git clone --no-checkout --no-local -- "$root_bundle" "$repo"
+          [[ ! -e $repo/.git/objects/info/alternates && ! -L $repo/.git/objects/info/alternates ]]
+          /usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C LC_ALL=C \
+            GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+            GIT_CONFIG_NOSYSTEM=1 GIT_OPTIONAL_LOCKS=0 \
+            /usr/bin/git --no-replace-objects -C "$repo" checkout --detach "$head_sha"
+          [[ $(/usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C LC_ALL=C \
+            GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+            GIT_CONFIG_NOSYSTEM=1 GIT_OPTIONAL_LOCKS=0 \
+            /usr/bin/git --no-replace-objects -C "$repo" rev-parse --verify 'HEAD^{commit}') == "$head_sha" ]]
+          [[ $(/usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C LC_ALL=C \
+            GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+            GIT_CONFIG_NOSYSTEM=1 GIT_OPTIONAL_LOCKS=0 \
+            /usr/bin/git --no-replace-objects -C "$repo" rev-parse --verify "$claim_ref") == "$tag_object_sha" ]]
+          [[ $(/usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C LC_ALL=C \
+            GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+            GIT_CONFIG_NOSYSTEM=1 GIT_OPTIONAL_LOCKS=0 \
+            /usr/bin/git --no-replace-objects -C "$repo" cat-file -t "$tag_object_sha") == tag ]]
+          [[ $(/usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C LC_ALL=C \
+            GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+            GIT_CONFIG_NOSYSTEM=1 GIT_OPTIONAL_LOCKS=0 \
+            /usr/bin/git --no-replace-objects -C "$repo" rev-parse --verify "${tag_object_sha}^{commit}") == "$head_sha" ]]
+          /usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C LC_ALL=C \
+            GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+            GIT_CONFIG_NOSYSTEM=1 GIT_OPTIONAL_LOCKS=0 \
+            /usr/bin/git --no-replace-objects -C "$repo" fsck --strict --full
+
+          while IFS= read -r -d '' tree_entry; do
+            tree_mode=${tree_entry%% *}
+            [[ $tree_mode != 120000 ]]
+            [[ $tree_mode != 160000 ]]
+          done < <(/usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C LC_ALL=C \
+            GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+            GIT_CONFIG_NOSYSTEM=1 GIT_OPTIONAL_LOCKS=0 \
+            /usr/bin/git --no-replace-objects -C "$repo" ls-tree -rz --full-tree "$head_sha")
+          [[ -z $(/usr/bin/find "$repo" -type l -print -quit) ]]
+          [[ -z $(/usr/bin/find "$repo" ! -type d ! -type f -print -quit) ]]
+          [[ -z $(/usr/bin/find "$repo" -perm /0022 -print -quit) ]]
+          /usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C LC_ALL=C \
+            GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+            GIT_CONFIG_NOSYSTEM=1 GIT_OPTIONAL_LOCKS=0 \
+            /usr/bin/git --no-replace-objects -C "$repo" diff-index --quiet HEAD --
+          [[ -z $(/usr/bin/env -i PATH=/usr/bin:/bin HOME=/nonexistent LANG=C LC_ALL=C \
+            GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+            GIT_CONFIG_NOSYSTEM=1 GIT_OPTIONAL_LOCKS=0 \
+            /usr/bin/git --no-replace-objects -C "$repo" ls-files --others --exclude-standard) ]]
+
+          # Root reads runner-owned materials only as data.  The anchored
+          # producer re-verifies every copied byte against the sealed records.
+          /usr/bin/cp -a --reflink=never -- "$runner_cas" "$import_root/cas"
+          /usr/bin/install -o root -g root -m 0500 -- \
+            "$runner_launcher" "$import_root/boole-native-shadow-launcher"
+          [[ -z $(/usr/bin/find "$import_root" -type l -print -quit) ]]
+          [[ -z $(/usr/bin/find "$import_root" ! -type d ! -type f -print -quit) ]]
+          /usr/bin/chown -R 0:0 -- "$anchor_partial"
+          /usr/bin/chmod -R go-w -- "$anchor_partial"
+          [[ -z $(/usr/bin/find "$anchor_partial" -perm /0022 -print -quit) ]]
+          [[ $(/usr/bin/stat -c %h -- "$repo/scripts/native-shadow-successor-produce-arm64-v4.sh") == 1 ]]
+          [[ $(/usr/bin/stat -c %h -- "$repo/scripts/native_shadow_successor_produce_phase_arm64_v4.py") == 1 ]]
+          /usr/bin/rm -rf -- "$verify_repo"
+          /usr/bin/mv -T -- "$anchor_partial" "$anchor"
+          /usr/bin/sync -f "$anchor_parent"
+
+          /usr/bin/install -d -o root -g root -m 0700 "$export_tag"
+          [[ ! -e $export_parent && ! -L $export_parent ]]
+          /usr/bin/install -d -o root -g root -m 0700 "$export_parent"
+          for candidate in /var /var/lib /var/lib/boole "$base" \
+            "$export_root" "$export_tag" "$export_parent"; do
+            [[ -d $candidate && ! -L $candidate ]]
+            [[ $(/usr/bin/stat -c %u:%g -- "$candidate") == 0:0 ]]
+            candidate_mode=$(/usr/bin/stat -c %a -- "$candidate")
+            [[ $((8#$candidate_mode & 8#22)) -eq 0 ]]
+          done
+
+          readonly anchored_wrapper="$anchor/repo/scripts/native-shadow-successor-produce-arm64-v4.sh"
+          production_command=(
+            "$anchored_wrapper" --production
+            --cas "$anchor/imports/cas"
+            --launcher "$anchor/imports/boole-native-shadow-launcher"
+            --outputs "$export_parent/outputs"
+            --result "$export_parent/outputs/PRODUCE-RESULT.json"
+            --github-run-id "$github_run_id"
+            --github-run-attempt "$github_run_attempt"
+            --github-repository "$github_repository"
+            --github-workflow-ref "$github_workflow_ref"
+            --head-sha "$head_sha"
+            --claim-ref "$claim_ref"
+            --tag-object-sha "$tag_object_sha"
+            --replica-ordinal "$replica"
+            --strategy-job-index "$strategy_job_index"
+            --strategy-job-total "$strategy_job_total"
+            --github-job "$github_job"
+            --artifact-name "native-shadow-successor-v4-replica-$replica"
+          )
+          cleanup_command=(
+            "$anchored_wrapper" --cleanup-only
+            --outputs "$export_parent/outputs"
+            --github-run-id "$github_run_id"
+            --github-run-attempt "$github_run_attempt"
+            --github-repository "$github_repository"
+            --github-workflow-ref "$github_workflow_ref"
+            --head-sha "$head_sha"
+            --claim-ref "$claim_ref"
+            --tag-object-sha "$tag_object_sha"
+            --replica-ordinal "$replica"
+          )
+
+          production_status=0
+          if /usr/bin/timeout --foreground --signal=TERM \
+            --kill-after="${supervisor_kill_after_seconds}s" \
+            "$((production_supervisor_runtime_seconds + supervisor_stop_seconds + supervisor_kill_after_seconds))s" \
+            /usr/bin/systemd-run \
+              --unit="$production_supervisor_unit" \
+              --pipe --wait --collect --service-type=exec \
+              --property=KillMode=control-group \
+              --property="TimeoutStopSec=${supervisor_stop_seconds}s" \
+              --property=SendSIGKILL=yes \
+              --property=Restart=no \
+              --property=CPUAccounting=yes \
+              --property=MemoryAccounting=yes \
+              --property=TasksAccounting=yes \
+              --property="RuntimeMaxSec=${production_supervisor_runtime_seconds}s" \
+              -- /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+                HOME=/root LANG=C LC_ALL=C "${production_command[@]}"; then
+            production_status=0
+          else
+            production_status=$?
+          fi
+
+          if [[ $production_status -ne 0 ]]; then
+            cleanup_status=0
+            if /usr/bin/timeout --foreground --signal=TERM \
+              --kill-after="${supervisor_kill_after_seconds}s" \
+              "$((cleanup_supervisor_runtime_seconds + supervisor_stop_seconds + supervisor_kill_after_seconds))s" \
+              /usr/bin/systemd-run \
+                --unit="$cleanup_supervisor_unit" \
+                --pipe --wait --collect --service-type=exec \
+                --property=KillMode=control-group \
+                --property="TimeoutStopSec=${supervisor_stop_seconds}s" \
+                --property=SendSIGKILL=yes \
+                --property=Restart=no \
+                --property=CPUAccounting=yes \
+                --property=MemoryAccounting=yes \
+                --property=TasksAccounting=yes \
+                --property="RuntimeMaxSec=${cleanup_supervisor_runtime_seconds}s" \
+                -- /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+                  HOME=/root LANG=C LC_ALL=C "${cleanup_command[@]}"; then
+              cleanup_status=0
+            else
+              cleanup_status=$?
+            fi
+            if [[ $cleanup_status -ne 0 ]]; then
+              printf 'production supervisor failed with %s; cleanup supervisor also failed with %s\n' \
+                "$production_status" "$cleanup_status" >&2
+              exit "$cleanup_status"
+            fi
+            printf 'production supervisor failed with %s; cleanup supervisor completed\n' \
+              "$production_status" >&2
+            exit "$production_status"
+          fi
+
+          # The producer seals the replica directory before returning.  Open
+          # traversal through only the tag directory so the unprivileged
+          # runner can copy the already sealed files into its artifact root.
+          [[ -d $export_parent/outputs && ! -L $export_parent/outputs ]]
+          [[ -f $export_parent/REPLICA-PROVENANCE.json \
+            && ! -L $export_parent/REPLICA-PROVENANCE.json ]]
+          /usr/bin/chmod 0555 -- "$export_tag"
+          /usr/bin/sync -f "$export_root"
+          ROOT_BOOTSTRAP
+
+          runner_collection="$RUNNER_TEMP/successor-v4-replica-${REPLICA_ORDINAL}"
+          [[ ! -e $runner_collection && ! -L $runner_collection ]]
+          install -d -m 0700 -- "$runner_collection"
+          cp -a -- \
+            "/var/lib/boole/native-shadow-successor-v4/exports/$GUARD_TAG_OBJECT_SHA/replica-$REPLICA_ORDINAL/outputs" \
+            "$runner_collection/outputs"
+          cp -a -- \
+            "/var/lib/boole/native-shadow-successor-v4/exports/$GUARD_TAG_OBJECT_SHA/replica-$REPLICA_ORDINAL/REPLICA-PROVENANCE.json" \
+            "$runner_collection/REPLICA-PROVENANCE.json"
+          [[ -d $runner_collection/outputs && ! -L $runner_collection/outputs ]]
+          [[ -f $runner_collection/REPLICA-PROVENANCE.json \
+            && ! -L $runner_collection/REPLICA-PROVENANCE.json ]]
+          member_count="$(find "$runner_collection" -mindepth 1 -maxdepth 1 | wc -l)"
+          [[ $member_count -eq 2 ]]
+          [[ -z $(find "$runner_collection" -type l -print -quit) ]]
+
+      - name: Keep this qualified replica for seven days
+        if: success()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: native-shadow-successor-v4-replica-${{ matrix.replica }}
+          path: |
+            ${{ runner.temp }}/successor-v4-replica-${{ matrix.replica }}/outputs
+            ${{ runner.temp }}/successor-v4-replica-${{ matrix.replica }}/REPLICA-PROVENANCE.json
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 1
+
+  compare:
+    if: inputs.mode == 'production'
+    needs: [production-authority-guard, produce]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          fetch-tags: false
+          persist-credentials: false
+
+      - name: Fetch and verify the exact create-once production claim
+        shell: bash
+        env:
+          CLAIM_REF: ${{ needs.production-authority-guard.outputs.claim-ref }}
+          GUARD_TAG_OBJECT_SHA: ${{ needs.production-authority-guard.outputs.tag-object-sha }}
+          GITHUB_RUN_ID_VALUE: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT_VALUE: ${{ github.run_attempt }}
+          GITHUB_REPOSITORY_VALUE: ${{ github.repository }}
+          GITHUB_WORKFLOW_REF_VALUE: ${{ github.workflow_ref }}
+          HEAD_SHA: ${{ github.sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          guard_tag_object_sha=$GUARD_TAG_OBJECT_SHA
+          [[ $CLAIM_REF == refs/tags/boole-native-shadow-mac3-successor-production-a6-* ]]
+          [[ $guard_tag_object_sha =~ ^[0-9a-f]{40}$ ]]
+          if git show-ref --verify --quiet "$CLAIM_REF"; then
+            printf 'the production claim unexpectedly exists before exact fetch\n' >&2
+            exit 1
+          else
+            local_ref_status=$?
+            [[ $local_ref_status -eq 1 ]]
+          fi
+          askpass="$GITHUB_WORKSPACE/.git/boole-native-shadow-askpass"
+          [[ ! -e $askpass && ! -L $askpass ]]
+          cleanup_askpass() {
+            if [[ -e $askpass || -L $askpass ]]; then
+              rm -f -- "$askpass"
+            fi
+          }
+          trap cleanup_askpass EXIT
+          (umask 077; set -o noclobber; printf '%s\n' \
+              '#!/bin/sh' \
+              'case "$1" in' \
+              '  *Username*) printf "%s\n" x-access-token ;;' \
+              '  *Password*) printf "%s\n" "$GITHUB_TOKEN" ;;' \
+              '  *) exit 1 ;;' \
+              'esac' >"$askpass")
+          chmod 0700 -- "$askpass"
+          remote_url="https://github.com/${GITHUB_REPOSITORY_VALUE}.git"
+          export GIT_ASKPASS="$askpass" GIT_ASKPASS_REQUIRE=force GIT_TERMINAL_PROMPT=0 \
+            GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+            GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_COUNT=2 \
+            GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= \
+            GIT_CONFIG_KEY_1=core.hooksPath GIT_CONFIG_VALUE_1=/dev/null
+          remote_claim="$(git ls-remote --refs --exit-code "$remote_url" "$CLAIM_REF")"
+          [[ $remote_claim == "$guard_tag_object_sha"$'\t'"$CLAIM_REF" ]]
+          git fetch --no-tags --atomic "$remote_url" "$CLAIM_REF:$CLAIM_REF"
+          [[ $(git rev-parse --verify "$CLAIM_REF^{tag}") == "$guard_tag_object_sha" ]]
+          cleanup_askpass
+          trap - EXIT
+          unset GITHUB_TOKEN GIT_ASKPASS GIT_ASKPASS_REQUIRE GIT_TERMINAL_PROMPT
+          ./scripts/native-shadow-successor-produce-arm64-v4.sh --verify-dispatch-claim \
+            --github-run-id "$GITHUB_RUN_ID_VALUE" \
+            --github-run-attempt "$GITHUB_RUN_ATTEMPT_VALUE" \
+            --github-repository "$GITHUB_REPOSITORY_VALUE" \
+            --github-workflow-ref "$GITHUB_WORKFLOW_REF_VALUE" \
+            --head-sha "$HEAD_SHA" \
+            --claim-ref "$CLAIM_REF" \
+            --tag-object-sha "$guard_tag_object_sha"
+
+      - name: Download replica one
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: native-shadow-successor-v4-replica-1
+          path: ${{ runner.temp }}/replica-1
+
+      - name: Download replica two
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: native-shadow-successor-v4-replica-2
+          path: ${{ runner.temp }}/replica-2
+
+      - name: Verify provenance before byte-exact image comparison
+        shell: bash
+        env:
+          CLAIM_REF: ${{ needs.production-authority-guard.outputs.claim-ref }}
+          GUARD_TAG_OBJECT_SHA: ${{ needs.production-authority-guard.outputs.tag-object-sha }}
+          GITHUB_RUN_ID_VALUE: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT_VALUE: ${{ github.run_attempt }}
+          GITHUB_REPOSITORY_VALUE: ${{ github.repository }}
+          GITHUB_WORKFLOW_REF_VALUE: ${{ github.workflow_ref }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          guard_tag_object_sha=$GUARD_TAG_OBJECT_SHA
+          left="$RUNNER_TEMP/replica-1"
+          right="$RUNNER_TEMP/replica-2"
+          ./scripts/native-shadow-successor-produce-arm64-v4.sh \
+            --compare-provenanced-replicas \
+            --github-run-id "$GITHUB_RUN_ID_VALUE" \
+            --github-run-attempt "$GITHUB_RUN_ATTEMPT_VALUE" \
+            --github-repository "$GITHUB_REPOSITORY_VALUE" \
+            --github-workflow-ref "$GITHUB_WORKFLOW_REF_VALUE" \
+            --head-sha "$HEAD_SHA" \
+            --claim-ref "$CLAIM_REF" \
+            --tag-object-sha "$guard_tag_object_sha" \
+            --left-bundle "$left" \
+            --right-bundle "$right"
+          cmp -- "$left/outputs/guest-kernel" "$right/outputs/guest-kernel"
+          cmp -- "$left/outputs/guest-initrd" "$right/outputs/guest-initrd"
+          cmp -- "$left/outputs/guest-root-disk" "$right/outputs/guest-root-disk"
