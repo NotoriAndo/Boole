@@ -4162,3 +4162,35 @@ tag and cannot make an image.  No production, boot, MAC.4, testnet, mining,
 reward, consensus, P2P or activation claim follows.
 
 <!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-V4-IMPLEMENTED-R2-PENDING:END -->
+
+## Two failed free R2 rehearsals, preserved separately (2026-08-30)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-FAILED-ATTEMPTS-ARM64-V2-SEALED:BEGIN -->
+
+The first two authority-zero v4 rehearsal dispatches failed before a canonical
+R2 result existed.  Their append-only hard-stop record is
+`native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-hard-stop-arm64-v2.json`,
+8,120 bytes at SHA-256
+`7a8cf17bfedfbe424978f41b38314d6ba5304a36df49a566a60ff4e5114328eb`.
+It does not occupy the distinct successful R2 path.
+
+```text
+sourceRunId=33311411461
+sourceRunId=33313895353
+artifactsUploadedByTheseAttempts=0
+successfulR2ResultsCreatedByTheseAttempts=0
+productionGuardJobs=skipped
+imageProductionClaim=false
+bootClaim=false
+```
+
+The first dispatch stopped when systemd rejected its address-family property
+before the core service started.  The second started systemd but its direct
+program bootstrap lacked the preregistered generation binding.  Later changes
+repair both defects, but R2 remains unsealed by these two attempts.  Because
+dependency and toolchain preparation occurred, this record does not claim
+network-zero execution or complete cleanup.  It grants no A6, production,
+image, boot, MAC.4, testnet, mining, reward, consensus, P2P or activation
+authority.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-FAILED-ATTEMPTS-ARM64-V2-SEALED:END -->

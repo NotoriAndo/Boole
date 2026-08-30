@@ -16,6 +16,21 @@ RECORD_PATH = REPO / (
     "rehearsal-hard-stop-arm64-v2.json"
 )
 SELF_TEST_PATH = REPO / "scripts/self-test.sh"
+DOCS_SMOKE_PATH = REPO / "scripts/docs-smoke.sh"
+PLAN_PATH = REPO / "docs/mac-first-hidden-linux-execution-plan-v1.md"
+SPEC_PATH = (
+    REPO
+    / "docs/node-native-shadow-binding-containment-implementation-spec-v1.md"
+)
+SHADOW_PATH = REPO / "docs/native-submission-shadow-verification-v1.md"
+SECTION_BEGIN = (
+    "<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-FAILED-ATTEMPTS-"
+    "ARM64-V2-SEALED:BEGIN -->"
+)
+SECTION_END = (
+    "<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-FAILED-ATTEMPTS-"
+    "ARM64-V2-SEALED:END -->"
+)
 
 # Filled with the canonical record's identity after the RED cycle proves the
 # record is absent.  Keeping this as an exact byte pin makes the failure
@@ -123,6 +138,17 @@ def read_exact_regular_file(path: pathlib.Path) -> bytes:
     if not stat.S_ISREG(info.st_mode) or path.is_symlink():
         raise AssertionError(f"{path.relative_to(REPO)} is not a regular non-symlink")
     return path.read_bytes()
+
+
+def sealed_section(path: pathlib.Path) -> str:
+    text = path.read_text(encoding="utf-8")
+    if text.count(SECTION_BEGIN) != 1 or text.count(SECTION_END) != 1:
+        raise AssertionError(f"{path.name} does not contain one sealed section")
+    before, remainder = text.split(SECTION_BEGIN, 1)
+    section, after = remainder.split(SECTION_END, 1)
+    if SECTION_END in before or SECTION_BEGIN in after:
+        raise AssertionError(f"{path.name} has crossed sealed-section markers")
+    return section
 
 
 class LauncherV2SuccessorProducerRehearsalHardStopV2Tests(unittest.TestCase):
@@ -270,6 +296,40 @@ class LauncherV2SuccessorProducerRehearsalHardStopV2Tests(unittest.TestCase):
         lane = text.split("run_logged native-shadow-launcher-v2-contract", 1)[1]
         lane = lane.split("\nrun_logged ", 1)[0]
         self.assertIn(gate, lane)
+
+    def test_three_authority_docs_seal_the_same_narrow_failure_history(self) -> None:
+        required = (
+            "sourceRunId=33311411461",
+            "sourceRunId=33313895353",
+            "artifactsUploadedByTheseAttempts=0",
+            "successfulR2ResultsCreatedByTheseAttempts=0",
+            "productionGuardJobs=skipped",
+            "imageProductionClaim=false",
+            "bootClaim=false",
+            "R2 remains unsealed by these two attempts",
+        )
+        for path in (PLAN_PATH, SPEC_PATH, SHADOW_PATH):
+            section = sealed_section(path)
+            with self.subTest(path=path.name):
+                for token in required:
+                    self.assertEqual(section.count(token), 1, token)
+                self.assertNotIn("PASS-NO-IMAGE-PRODUCED", section)
+                self.assertNotIn("OFFLINE", section)
+                self.assertNotIn("PRODUCTION-READY", section)
+
+    def test_docs_smoke_permanently_pins_the_record_gate_and_section(self) -> None:
+        smoke = DOCS_SMOKE_PATH.read_text(encoding="utf-8")
+        section_token = SECTION_BEGIN.removeprefix("<!-- ").removesuffix(" -->")
+        for token in (
+            RECORD_PATH.relative_to(REPO).as_posix(),
+            pathlib.Path(__file__).relative_to(REPO).as_posix(),
+            RECORD_SHA256,
+            "33311411461",
+            "33313895353",
+            "successfulR2ResultsCreatedByTheseAttempts",
+            section_token,
+        ):
+            self.assertIn(token, smoke, token)
 
 
 if __name__ == "__main__":

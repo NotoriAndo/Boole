@@ -2796,4 +2796,23 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'V4 IMPLEMENTATION
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCER-V4-IMPLEMENTED-R2-PENDING:BEGIN'
 require_text docs/native-submission-shadow-verification-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCER-V4-IMPLEMENTED-R2-PENDING:BEGIN'
 
+# The first two free v4 rehearsals failed before any canonical R2 result or
+# artifact existed.  Pin that narrow history separately so it cannot be
+# rewritten as success and cannot occupy the future successful R2 path.
+V4_R2_HARD_STOP=native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-hard-stop-arm64-v2.json
+V4_R2_HARD_STOP_GATE=scripts/test_native_shadow_launcher_v2_successor_producer_rehearsal_hard_stop_arm64_v2.py
+require_file "$V4_R2_HARD_STOP"
+require_file "$V4_R2_HARD_STOP_GATE"
+require_text scripts/self-test.sh "$V4_R2_HARD_STOP_GATE"
+require_text "$V4_R2_HARD_STOP_GATE" '7a8cf17bfedfbe424978f41b38314d6ba5304a36df49a566a60ff4e5114328eb'
+require_text "$V4_R2_HARD_STOP" '"runId": 33311411461'
+require_text "$V4_R2_HARD_STOP" '"runId": 33313895353'
+require_text "$V4_R2_HARD_STOP" '"successfulR2ResultsCreatedByTheseAttempts": 0'
+for doc in \
+  docs/mac-first-hidden-linux-execution-plan-v1.md \
+  docs/node-native-shadow-binding-containment-implementation-spec-v1.md \
+  docs/native-submission-shadow-verification-v1.md; do
+  require_text "$doc" 'LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-FAILED-ATTEMPTS-ARM64-V2-SEALED:BEGIN'
+done
+
 printf 'docs-smoke: PASS\n' >&2
