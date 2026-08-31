@@ -3052,4 +3052,17 @@ for doc in \
   require_text "$doc" 'provenance remains outside the authority lineage'
 done
 
+# The current cursor must distinguish free readiness evidence from the two
+# explicit execution boundaries that have not run yet.
+for doc in \
+  docs/mac-first-hidden-linux-execution-plan-v1.md \
+  docs/node-native-shadow-binding-containment-implementation-spec-v1.md \
+  docs/native-submission-shadow-verification-v1.md; do
+  require_text "$doc" 'CLOSED-LOCAL-IMAGE-READINESS-PREFLIGHT-GREEN-BUILD-AND-BOOT-NOT-RUN'
+  require_text "$doc" 'f4d1e9c'
+  require_text "$doc" '6af0b16'
+  require_text "$doc" 'de96974'
+  require_text "$doc" '33393135963'
+done
+
 printf 'docs-smoke: PASS\n' >&2

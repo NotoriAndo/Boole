@@ -7,10 +7,12 @@
 > activation boundaries in this specification remain unchanged, and no A7,
 > production, boot, mining or reward authority is created here.
 
-> **CURRENT-CURSOR-2026-08-31:** `R3 GREEN / F7 SEALED / PRE-A7 REVIEW COMPLETE /
-> A7 NOT CREATED`. The next coherent development milestone is the reversible
-> closed-local image-to-readiness path. This cursor is status, not production,
-> boot, MAC.4, testnet, mining, reward or activation permission.
+> **CURRENT-CURSOR-2026-08-31:** `CLOSED-LOCAL IMAGE LANE + MAC RUNNER MERGED /
+> ARM64 PREFLIGHT GREEN / IMAGE BUILD AND VM BOOT NOT RUN / A7 NOT CREATED`.
+> The next coherent development milestone is the explicitly approved,
+> disposable two-replica ARM64 image build. A real Mac VM start remains a
+> separate explicit decision. This cursor is status, not production, MAC.4,
+> testnet, mining, reward, consensus, P2P or activation permission.
 
 Status: **CLOSED-LOCAL QUALIFICATION GREEN — tracked checker, named-Linux containment, loopback
 node raw-answer HTTP adjudication and durable replay landed; production activation, P2P, block,
@@ -2708,3 +2710,19 @@ PRE-A7 REVIEW COMPLETE / A7 NOT CREATED / PRODUCTION AND BOOT NOT RUN
 
 This review is not A7.  Creating A7 and choosing its attempt ID remains a
 separate operator decision, and production dispatch remains a later decision.
+
+## 2026-08-31f — readiness machinery is present; execution permission is not
+
+<!-- CLOSED-LOCAL-IMAGE-READINESS-PREFLIGHT-GREEN-BUILD-AND-BOOT-NOT-RUN -->
+
+PR #323 (`f4d1e9c`) added the reversible Linux/arm64 image lane and PR #324
+(`6af0b16`) added the receipt-bound Mac readiness runner. A local Mac dry run
+changed no input hash and started zero virtual machines. The first arm64
+preflight (run `33388707339`) found a post-step visibility defect after backend
+PASS and produced no image. PR #325 (`de96974`) corrected the root-owned
+inspection boundary; run `33393135963` then passed end to end with zero images
+and zero virtual machines.
+
+The actual two-replica image build and actual Mac VM boot have not run. Each
+remains separately explicit. This evidence grants no A7, production, MAC.4,
+testnet, mining, reward, consensus, P2P or activation authority.
