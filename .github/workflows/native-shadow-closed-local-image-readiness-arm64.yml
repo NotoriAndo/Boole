@@ -1,0 +1,232 @@
+name: native-shadow-closed-local-image-readiness-arm64
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: reversible staging preflight or disposable two-replica build
+        required: true
+        default: preflight
+        type: choice
+        options: [preflight, build]
+
+permissions:
+  contents: read
+
+env:
+  CAS: local-docs/native-shadow-runtime-rootfs-source-lock-v1/cas
+
+jobs:
+  image:
+    name: closed-local ${{ inputs.mode }} replica ${{ matrix.replica }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        replica: ${{ fromJSON(inputs.mode == 'build' && '[1, 2]' || '[1]') }}
+    steps:
+      - name: Checkout the selected development commit
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          fetch-tags: false
+          persist-credentials: false
+
+      - name: Verify the reversible lane and historical production separation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest \
+            scripts.test_native_shadow_closed_local_image_to_readiness_arm64_v1 \
+            scripts.test_native_shadow_closed_local_image_readiness_workflow_arm64_v1
+
+      - name: Install the sealed Rust toolchain producer
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+        with:
+          toolchain: 1.95.0
+          components: rustfmt, clippy
+
+      - name: Acquire frozen Rust and package inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          sealed=native/containment/native-shadow-boot-rustdist-acquisition-result-arm64-v1.json
+          rm "$sealed"
+          python3 -I -S scripts/native_shadow_boot_rustdist_acquire_arm64_v1.py --acquire
+          git diff --exit-code -- "$sealed"
+          mkdir -p "$RUNNER_TEMP/acquire"
+          python3 -I -S scripts/native_shadow_boot_ci_payload_acquire_arm64_v1.py acquire \
+            --cas "$PWD/$CAS" \
+            --zstd "$(readlink -f "$(command -v zstd)")" \
+            --result "$RUNNER_TEMP/acquire/ci-payload-acquisition.json"
+          python3 -I -S scripts/native_shadow_boot_writer_set_acquire_arm64_v1.py acquire \
+            --cas "$PWD/$CAS" \
+            --result "$RUNNER_TEMP/acquire/writer-set-acquisition.json"
+
+      - name: Rebuild and match the sealed launcher v2
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/launcher-v2"
+          launcher="$RUNNER_TEMP/launcher-v2/boole-native-shadow-launcher"
+          seal=native/containment/native-shadow-launcher-build-result-arm64-v2.json
+          python3 -I -S scripts/native_shadow_launcher_emit_arm64_v2.py emit --out "$launcher"
+          expected_sha="$(python3 -I -S -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["launcher"]["sha256"])' "$seal")"
+          expected_size="$(python3 -I -S -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["launcher"]["sizeBytes"])' "$seal")"
+          test "$(sha256sum "$launcher" | awk '{print $1}')" = "$expected_sha"
+          test "$(wc -c < "$launcher" | tr -d '[:space:]')" = "$expected_size"
+
+      - name: Run the image backend in a network-closed root-owned workspace
+        shell: bash
+        env:
+          MODE: ${{ inputs.mode }}
+          REPLICA: ${{ matrix.replica }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [[ $MODE == preflight || $MODE == build ]]
+          [[ $REPLICA == 1 || $REPLICA == 2 ]]
+          [[ $HEAD_SHA =~ ^[0-9a-f]{40}$ ]]
+          run_root="/var/lib/boole/closed-local-image-readiness/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-r${REPLICA}"
+          repo="$run_root/repo"
+          scratch="$run_root/scratch"
+          outputs="$run_root/outputs"
+          result="$run_root/result.json"
+          launcher="$run_root/boole-native-shadow-launcher"
+          unit="boole-closed-local-image-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-r${REPLICA}.service"
+          test ! -e "$run_root"
+          sudo install -d -o root -g root -m 0700 "$run_root" "$scratch"
+          sudo cp -a -- "$GITHUB_WORKSPACE/." "$repo"
+          sudo chown -R 0:0 -- "$repo"
+          sudo chmod -R go-w -- "$repo"
+          sudo install -o root -g root -m 0500 -- \
+            "$RUNNER_TEMP/launcher-v2/boole-native-shadow-launcher" "$launcher"
+          script="$repo/scripts/native_shadow_closed_local_image_to_readiness_arm64_v1.py"
+          common=(
+            --repository-root "$repo"
+            --cas "$repo/$CAS"
+            --outputs "$outputs"
+            --scratch "$scratch"
+            --gpgv "$(readlink -f "$(command -v gpgv)")"
+            --zstd "$(readlink -f "$(command -v zstd)")"
+            --launcher "$launcher"
+            --result "$result"
+          )
+          command=(/usr/bin/python3 -I -S "$script" "$MODE" "${common[@]}")
+          if [[ $MODE == build ]]; then
+            command+=(--run-label "gh-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-r${REPLICA}")
+          fi
+          sudo systemd-run --wait --pipe --collect --quiet \
+            --unit "$unit" \
+            --property=Type=exec \
+            --property=IPAddressDeny=any \
+            --property=RestrictAddressFamilies=AF_UNIX \
+            --property=NoNewPrivileges=yes \
+            --property=ProtectSystem=strict \
+            --property="ReadWritePaths=$run_root" \
+            --property=PrivateTmp=yes \
+            --property=TasksMax=128 \
+            --property=MemoryMax=10G \
+            --property=RuntimeMaxSec=3600 \
+            --setenv=HOME=/root \
+            --setenv=LANG=C \
+            --setenv=LC_ALL=C \
+            --setenv=PYTHONDONTWRITEBYTECODE=1 \
+            --setenv=PYTHONHASHSEED=0 \
+            --setenv="TMPDIR=$scratch" \
+            -- "${command[@]}"
+          test -f "$result"
+          test ! -L "$result"
+          export_root="$RUNNER_TEMP/closed-local-r${REPLICA}"
+          mkdir -m 0700 "$export_root"
+          sudo cp -a -- "$result" "$export_root/result.json"
+          if [[ $MODE == build ]]; then
+            for name in guest-kernel guest-initrd guest-root-disk; do
+              test -f "$outputs/$name"
+              test ! -L "$outputs/$name"
+              sudo cp -a -- "$outputs/$name" "$export_root/$name"
+            done
+          else
+            test ! -e "$outputs"
+          fi
+          sudo chown -R "$(id -u):$(id -g)" -- "$export_root"
+          find "$export_root" -type f -exec chmod 0444 {} +
+          find "$export_root" -type d -exec chmod 0555 {} +
+
+      - name: Keep the reversible result for seven days
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: closed-local-image-readiness-${{ inputs.mode }}-replica-${{ matrix.replica }}
+          path: ${{ runner.temp }}/closed-local-r${{ matrix.replica }}
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 1
+
+  compare:
+    name: compare disposable image replicas
+    if: inputs.mode == 'build'
+    needs: [image]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Download replica one
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: closed-local-image-readiness-build-replica-1
+          path: ${{ runner.temp }}/replica-1
+
+      - name: Download replica two
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: closed-local-image-readiness-build-replica-2
+          path: ${{ runner.temp }}/replica-2
+
+      - name: Compare all image bytes and preserve a development-only receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          left="$RUNNER_TEMP/replica-1"
+          right="$RUNNER_TEMP/replica-2"
+          cmp -- "$left/guest-kernel" "$right/guest-kernel"
+          cmp -- "$left/guest-initrd" "$right/guest-initrd"
+          cmp -- "$left/guest-root-disk" "$right/guest-root-disk"
+          mkdir -m 0700 "$RUNNER_TEMP/comparison"
+          python3 -I -S - "$left" "$right" "$RUNNER_TEMP/comparison/result.json" <<'PY'
+          import hashlib
+          import json
+          import pathlib
+          import sys
+
+          left, right, result = map(pathlib.Path, sys.argv[1:])
+          outputs = []
+          for name in ("guest-kernel", "guest-initrd", "guest-root-disk"):
+              left_raw = (left / name).read_bytes()
+              right_raw = (right / name).read_bytes()
+              if left_raw != right_raw:
+                  raise SystemExit("replicas differ: " + name)
+              outputs.append({
+                  "name": name,
+                  "sha256": hashlib.sha256(left_raw).hexdigest(),
+                  "sizeBytes": len(left_raw),
+              })
+          document = {
+              "activationAllowed": False,
+              "artifactClass": "DISPOSABLE-DEVELOPMENT",
+              "bootVerified": False,
+              "outputs": outputs,
+              "productionRelease": False,
+              "schema": "boole.native-shadow.closed-local-image-replica-comparison.arm64.v1",
+              "status": "TWO-REPLICAS-BYTE-IDENTICAL",
+          }
+          result.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n")
+          PY
+
+      - name: Keep the byte-comparison receipt for seven days
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: closed-local-image-readiness-build-comparison
+          path: ${{ runner.temp }}/comparison/result.json
+          if-no-files-found: error
+          retention-days: 7
