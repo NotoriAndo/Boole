@@ -2590,11 +2590,14 @@ activation authority.
 <!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-V5-IMPLEMENTED-R3-PENDING:BEGIN -->
 
 The P4-preregistered v5 producer generation is implemented as five new files.
-It requires the exact manual event, main dispatch ref and main workflow ref in
-the workflow, wrapper and core before effects; uses the fresh A7/claim-v2/v7
-namespace; and reconstructs its controlled Python imports only from
-P4-pinned historical identities.  All historical v4/R2/F6 bytes remain
-unchanged.
+The workflow fences every job to the exact manual event, main dispatch ref and
+main workflow ref.  Its production-only wrapper, core and claim-v2/v7 path
+additionally recheck live HEAD and future A7 before production effects.  The
+authority-zero R3 path instead rechecks P4, requires R3, F7, A7 and result-v7
+to remain absent, may acquire the sealed dependencies, and may retain only one
+canonical R3 JSON result.  It grants no production authority.  Controlled
+Python imports are reconstructed only from P4-pinned historical identities.
+All historical v4/R2/F6 bytes remain unchanged.
 
 This is implementation evidence, not authority.  Fresh authority-zero R3 has
 not run; F7, A7, result-v7, a claim tag, an attempt marker, an image and a boot
