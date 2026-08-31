@@ -21,12 +21,15 @@ from typing import Optional
 MAX_ATTEMPTS = 3
 RETRYABLE_MESSAGE = "snapshot response status is not 200"
 RETRYABLE_HTTP_STATUS = re.compile(rb"HTTP Error (?:500|502|503|504):")
+RETRYABLE_FETCH_FAILURE = re.compile(
+    rb"artifact fetch failed: https://snapshot\.ubuntu\.com/ubuntu/[^\s]+"
+)
 
 
 def run(
     command: list[str],
     *,
-    delay_seconds: float = 5.0,
+    delay_seconds: float = 30.0,
     runner: object = subprocess.run,
     sleeper: object = time.sleep,
 ) -> int:
@@ -49,6 +52,7 @@ def run(
         retryable = (
             RETRYABLE_MESSAGE.encode("utf-8") in stderr
             or RETRYABLE_HTTP_STATUS.search(stderr) is not None
+            or RETRYABLE_FETCH_FAILURE.search(stderr) is not None
         )
         if not retryable or attempt == MAX_ATTEMPTS:
             return int(completed.returncode)
@@ -65,7 +69,7 @@ def run(
 
 def parser() -> argparse.ArgumentParser:
     value = argparse.ArgumentParser(description=__doc__)
-    value.add_argument("--delay-seconds", type=float, default=5.0)
+    value.add_argument("--delay-seconds", type=float, default=30.0)
     value.add_argument("command", nargs=argparse.REMAINDER)
     return value
 

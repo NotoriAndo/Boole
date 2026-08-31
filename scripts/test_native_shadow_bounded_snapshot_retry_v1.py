@@ -98,6 +98,20 @@ class BoundedSnapshotRetryTests(unittest.TestCase):
             self.assertEqual(permanent.returncode, 1)
             self.assertEqual((base / "permanent").read_text(), "1")
 
+    def test_rootfs_harness_generic_snapshot_fetch_failure_is_retryable(self) -> None:
+        program = (
+            "import pathlib,sys; p=pathlib.Path(sys.argv[1]); "
+            "n=int(p.read_text()) if p.exists() else 0; p.write_text(str(n+1)); "
+            "print('native-shadow rootfs acquisition failed: artifact fetch failed: "
+            "https://snapshot.ubuntu.com/ubuntu/frozen.deb', file=sys.stderr); "
+            "raise SystemExit(2)"
+        )
+        with tempfile.TemporaryDirectory() as scratch:
+            state = pathlib.Path(scratch) / "attempts"
+            completed = self.run_wrapper(program, state)
+            self.assertEqual(completed.returncode, 2)
+            self.assertEqual(state.read_text(), "3")
+
     def test_required_ci_uses_the_same_bound_for_three_snapshot_consumers(self) -> None:
         text = CI.read_text(encoding="utf-8")
         wrapper = "native_shadow_bounded_snapshot_retry_v1.py"
