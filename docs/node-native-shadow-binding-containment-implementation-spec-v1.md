@@ -4398,3 +4398,36 @@ PRODUCTION / IMAGE / BOOT  NOT AUTHORISED OR RUN
 ```
 
 <!-- LAUNCHER-V2-SUCCESSOR-MAIN-BRANCH-DISPATCH-FENCE-CORRECTION-ARM64-V1-SEALED:END -->
+
+## Main-only successor producer v5 implementation (2026-08-31)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-V5-IMPLEMENTED-R3-PENDING:BEGIN -->
+
+P4's exact five-file successor generation is now implemented without changing
+the historical v4 generation.  The workflow is manual-only and every job
+checks the exact event, main ref and main workflow ref before checkout.  The
+production wrapper and core repeat that check before claim, recovery, scratch,
+output, marker, image, seal or comparison effects.  Dispatch-claim v2 binds
+ten exact fields, including the run attempt and A7 digest, and every production
+consumer rechecks the live repository context.
+
+The authority-zero rehearsal has no A7 to present.  It instead rechecks P4
+and the exact manual-main workflow context, requires R3, F7, A7 and result-v7
+to remain absent, and may acquire only the sealed dependencies needed by the
+shared assembler.  It cannot claim authority or create production scratch,
+output, marker or image state.  Its only permitted retained effect is one
+canonical R3 JSON result.
+
+The controlled repository importer no longer relies on an unpinned live
+module set.  It derives historical Python identities from the P4-bound R1
+result and the reused v3 identities from the P4-bound P2 preregistration,
+checks path/digest/size against live regular files, then permits imports only
+from that set.  This internal import closure does not alter the external
+P4→R3→F7→A7 authority graph.
+
+The combined focused contract has 258 passing tests with three Linux-only
+workflow cases deferred to CI.  R3, F7, A7 and result-v7 remain absent and no
+production claim, marker, image or boot has run.  The next executable edge is
+one authority-zero R3 rehearsal that may emit only its canonical JSON result.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-V5-IMPLEMENTED-R3-PENDING:END -->
