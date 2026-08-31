@@ -59,7 +59,11 @@ class DevelopmentThroughputPolicyContract(unittest.TestCase):
             text = read(ROOT / relative)
             with self.subTest(relative=relative):
                 self.assertIn("CURRENT-CURSOR-2026-08-31", text)
-                self.assertIn("R3 GREEN / F7 SEALED / PRE-A7 REVIEW COMPLETE", text)
+                self.assertIn(
+                    "CLOSED-LOCAL IMAGE LANE + MAC RUNNER MERGED", text
+                )
+                self.assertIn("ARM64 PREFLIGHT GREEN", text)
+                self.assertIn("IMAGE BUILD AND VM BOOT NOT RUN", text)
                 self.assertIn("A7 NOT CREATED", text)
 
     def test_lessons_are_advisory_until_promoted(self) -> None:
