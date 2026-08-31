@@ -23,6 +23,7 @@ jobs:
     timeout-minutes: 90
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
         replica: ${{ fromJSON(inputs.mode == 'build' && '[1, 2]' || '[1]') }}
     steps:

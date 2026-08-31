@@ -28,6 +28,7 @@ class ClosedLocalWorkflowContractTests(unittest.TestCase):
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("matrix:\n        replica:", text)
         self.assertIn("'[1, 2]'", text)
+        self.assertIn("max-parallel: 1", text)
         self.assertIn(
             "native_shadow_closed_local_image_to_readiness_arm64_v1.py", text
         )
