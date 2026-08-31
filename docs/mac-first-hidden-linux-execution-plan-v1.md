@@ -6216,3 +6216,27 @@ still requires a separate risk review and record; R3 itself grants no image,
 boot, serving, mining, reward, consensus, P2P or activation authority.
 
 <!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R3-ARTIFACT-PROVENANCE-ARM64-V3-SEALED:END -->
+
+## 78. F7 seals the observed v5 generation without granting production (2026-08-31)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-FINGERPRINT-ARM64-V7-SEALED -->
+
+F7 is the canonical 2,798-byte identity record at SHA-256
+`3839d92c189a4a56d1d6a79a7fbfb2deaaadcf3dfaec3e636385c96aa106348c`.
+It binds P4 and raw R3 in that order, the exact five v5 generation files, and
+the exact R3 regression gate.  The separate GitHub artifact provenance is
+transport evidence and is deliberately excluded from this authority lineage.
+
+All F7 authority values remain false or zero.  F7 creates no A7, result-v7,
+claim tag, marker, image or boot.  It records which generation passed R3; it
+does not authorize that generation to produce anything.
+
+### 78.1 Cursor
+
+```text
+R3 GREEN / F7 SEALED / A7 NOT CREATED / PRODUCTION AND BOOT NOT RUN
+MAC.4 / TESTNET / MINING / REWARD  NOT STARTED
+```
+
+The next boundary is a separate pre-A7 risk review.  No production authority
+record may be created merely because F7 exists.
