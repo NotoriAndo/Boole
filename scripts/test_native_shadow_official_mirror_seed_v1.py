@@ -129,6 +129,48 @@ class OfficialMirrorSeedTests(unittest.TestCase):
                 )
             self.assertFalse((cas / "sha256" / spec["sha256"]).exists())
 
+    def test_frozen_runtime_consumer_reuses_only_a_verified_cas_object(self):
+        module = self.require_module()
+
+        class FakeAcquirer:
+            class AcquisitionError(RuntimeError):
+                pass
+
+            def __init__(self, verified: bool):
+                self.verified = verified
+                self.network_calls = 0
+
+            def _verified_cas_artifact(self, cas, spec):
+                if not self.verified:
+                    raise self.AcquisitionError("absent or invalid")
+                return b"verified"
+
+            def _cas_path(self, cas, digest):
+                return pathlib.Path(cas) / "sha256" / digest
+
+            def original(self, cas, spec, allowed_hosts):
+                self.network_calls += 1
+                return pathlib.Path(cas) / "downloaded"
+
+        spec = {"sha256": "a" * 64, "sizeBytes": 8}
+        cached = FakeAcquirer(True)
+        self.assertEqual(
+            module.cas_first_fetch(
+                cached, cached.original, pathlib.Path("cas"), spec, ["snapshot.ubuntu.com"]
+            ),
+            pathlib.Path("cas/sha256") / ("a" * 64),
+        )
+        self.assertEqual(cached.network_calls, 0)
+
+        absent = FakeAcquirer(False)
+        self.assertEqual(
+            module.cas_first_fetch(
+                absent, absent.original, pathlib.Path("cas"), spec, ["snapshot.ubuntu.com"]
+            ),
+            pathlib.Path("cas/downloaded"),
+        )
+        self.assertEqual(absent.network_calls, 1)
+
     def test_tracked_boot_and_runtime_sets_are_covered_without_metadata(self):
         module = self.require_module()
         boot = module.boot_specs()
@@ -176,6 +218,7 @@ class OfficialMirrorSeedTests(unittest.TestCase):
             self.assertLess(text.index("runtime-metadata"), text.index("fetch-metadata"))
             self.assertLess(text.index("runtime-bootstrap"), text.index("fetch-metadata"))
             self.assertLess(text.index("runtime-packages"), text.index("fetch-payloads"))
+            self.assertEqual(text.count("runtime-consumer"), 2)
 
 
 if __name__ == "__main__":

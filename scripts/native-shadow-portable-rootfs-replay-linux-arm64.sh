@@ -310,7 +310,10 @@ python3 "$ROOT/scripts/native_shadow_official_mirror_seed_v1.py" runtime-metadat
   --plan "$ROOT/native/containment/native-shadow-runtime-rootfs-acquisition-plan-arm64-v1.json" \
   --cas "$scratch/cas"
 
-python3 "$ROOT/scripts/native_shadow_rootfs_acquire_arm64_v1.py" fetch-metadata \
+python3 "$ROOT/scripts/native_shadow_official_mirror_seed_v1.py" runtime-consumer \
+  --architecture arm64 \
+  --consumer acquirer \
+  -- fetch-metadata \
   --plan "$ROOT/native/containment/native-shadow-runtime-rootfs-acquisition-plan-arm64-v1.json" \
   --builder "$ROOT/scripts/native_shadow_rootfs_builder_arm64_v1.py" \
   --cas "$scratch/cas"
@@ -334,7 +337,10 @@ python3 "$ROOT/scripts/native_shadow_official_mirror_seed_v1.py" runtime-package
   --resolution "$scratch/runtime-resolution.json" \
   --cas "$scratch/cas"
 
-python3 "$ROOT/scripts/native_shadow_rootfs_portable_arm64_v1.py" fetch-payloads \
+python3 "$ROOT/scripts/native_shadow_official_mirror_seed_v1.py" runtime-consumer \
+  --architecture arm64 \
+  --consumer portable \
+  -- fetch-payloads \
   --cas "$scratch/cas" \
   --gpgv "$gpgv_path" \
   --zstd "$zstd_path" \

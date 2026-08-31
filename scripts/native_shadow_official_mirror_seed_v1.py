@@ -177,6 +177,57 @@ def seed_specs(
     return {"fetched": fetched, "reused": reused}
 
 
+def cas_first_fetch(
+    acquirer: Any,
+    original: Callable[[pathlib.Path, dict[str, Any], list[str]], pathlib.Path],
+    cas: pathlib.Path,
+    spec: dict[str, Any],
+    allowed_hosts: list[str],
+) -> pathlib.Path:
+    """Let a frozen consumer reuse only bytes it independently verifies."""
+
+    try:
+        acquirer._verified_cas_artifact(cas, spec)
+    except acquirer.AcquisitionError:
+        return original(cas, spec, allowed_hosts)
+    return acquirer._cas_path(cas, str(spec["sha256"]))
+
+
+def _install_cas_first_fetch(acquirer: Any) -> None:
+    original = acquirer.fetch_artifact
+
+    def replacement(
+        cas: pathlib.Path, spec: dict[str, Any], allowed_hosts: list[str]
+    ) -> pathlib.Path:
+        return cas_first_fetch(acquirer, original, cas, spec, allowed_hosts)
+
+    implementation = getattr(acquirer, "_IMPL", None)
+    if isinstance(implementation, dict):
+        implementation["fetch_artifact"] = replacement
+    else:
+        acquirer.fetch_artifact = replacement
+
+
+def run_runtime_consumer(
+    architecture: str, consumer: str, consumer_args: list[str]
+) -> int:
+    if architecture == "amd64":
+        from scripts import native_shadow_rootfs_acquire as acquirer
+        from scripts import native_shadow_rootfs_portable_v2 as portable
+    elif architecture == "arm64":
+        from scripts import native_shadow_rootfs_acquire_arm64_v1 as acquirer
+        from scripts import native_shadow_rootfs_portable_arm64_v1 as portable
+    else:
+        raise MirrorSeedError("runtime consumer architecture differs")
+    _install_cas_first_fetch(acquirer)
+    target = acquirer if consumer == "acquirer" else portable
+    if consumer_args[:1] == ["--"]:
+        consumer_args = consumer_args[1:]
+    if not consumer_args:
+        raise MirrorSeedError("runtime consumer command is absent")
+    return int(target.main(consumer_args))
+
+
 def boot_specs() -> list[dict[str, object]]:
     rows = [dict(row) for row in ci_payload.derive_plan()["artifacts"]]
     rows.extend(dict(row) for row in writer_set.derive_plan()["artifacts"])
@@ -266,12 +317,20 @@ def _parser() -> argparse.ArgumentParser:
         command.add_argument("--cas", type=pathlib.Path, required=True)
         if name == "runtime-packages":
             command.add_argument("--resolution", type=pathlib.Path, required=True)
+    consumer = commands.add_parser("runtime-consumer")
+    consumer.add_argument("--architecture", choices=sorted(MIRRORS), required=True)
+    consumer.add_argument("--consumer", choices=("acquirer", "portable"), required=True)
+    consumer.add_argument("consumer_args", nargs=argparse.REMAINDER)
     return parser
 
 
 def main(argv: Optional[list[str]] = None) -> int:
     args = _parser().parse_args(argv)
     try:
+        if args.command == "runtime-consumer":
+            return run_runtime_consumer(
+                args.architecture, args.consumer, args.consumer_args
+            )
         if args.command == "boot":
             architecture = "arm64"
             specs = boot_specs()

@@ -204,7 +204,7 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
         http_replay = NATIVE_SHADOW_HTTP_REPLAY_GATE.read_text(encoding="utf-8")
         for command in (
-            "native_shadow_rootfs_acquire.py",
+            "native_shadow_official_mirror_seed_v1.py",
             "native_shadow_rootfs_portable_v2.py",
             "native_shadow_rootfs_builder.py",
         ):
