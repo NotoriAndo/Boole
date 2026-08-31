@@ -1,3 +1,12 @@
+# Task journal
+
+> **TASK-JOURNAL-NOT-CURRENT-AUTHORITY (2026-08-31):** 이 파일은 완료·실패·
+> 검토 항목의 역사 일지다. 현재 커서는
+> `local-docs/todo/EXECUTION-ORDER.md`, 작업 포장·증거·재시도 규칙은
+> `docs/development-throughput-and-evidence-policy-v1.md`가 통제한다. 아래
+> 과거 체크리스트와 per-slice 지시는 그때의 기록이며 새 승인·one-shot 예산·
+> PR 분할 규칙을 만들지 않는다.
+
 # 문서 정직성 정정 — L1 적합성 리뷰 실행권고 1 (2026-07-03)
 
 `local-docs/l1-fitness-review-2026-07-03.md` 실행권고 1 이행: 마스터플랜

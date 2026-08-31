@@ -44,6 +44,9 @@ require_file docs/receipt-commitment.md
 require_file docs/verified-answer-local-mvp-closeout.md
 require_file docs/dev-mock-payment.md
 require_file docs/mac-first-hidden-linux-execution-plan-v1.md
+require_file docs/development-throughput-and-evidence-policy-v1.md
+require_text docs/development-throughput-and-evidence-policy-v1.md "BOOLE-DEVELOPMENT-THROUGHPUT-AND-EVIDENCE-V1"
+require_text docs/development-throughput-and-evidence-policy-v1.md "TP8-CURRENT-AUTHORITY-BOUNDARY"
 
 # Historical Mac-first native-checker contract pins. These strings remain in
 # the append-only record, but the current curl-first correction below controls
@@ -1749,9 +1752,6 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "56c5cb1a47d385319480fe3703e1cb24e2918c63f4378b128708e48e5bbef54d"
-require_text docs/native-submission-shadow-verification-v1.md "72f3fa9a5ebe28ffe345986ed8647c5fda900c13fa80fa0766caacab6a840c51"
-require_text docs/native-submission-shadow-verification-v1.md "4aed2b5eea4721446aa5249e2e2e3f96a2471b410e41ddc374e2ef6be1158817"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Boot source lock plan successor addendum"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BOOT-ROOTFS-SOURCE-LOCK-PLAN-SUCCESSOR-FROZEN-LOCK-NOT-GENERATED"
@@ -2948,9 +2948,6 @@ require_text "$V4_MAIN_BRANCH_FENCE_CORRECTION" 'native-shadow-successor-produce
 require_text "$V4_MAIN_BRANCH_FENCE_CORRECTION" '"imageProductionRunsAllowed": 0'
 require_text "$V4_MAIN_BRANCH_FENCE_CORRECTION" '"administratorDeletionIsPreventedByObservedServerRuleset": false'
 require_text "$V4_MAIN_BRANCH_FENCE_CORRECTION" 'native-shadow-mac3-successor-production-authority-arm64-v7.json'
-require_text docs/native-submission-shadow-verification-v1.md '56c5cb1a47d385319480fe3703e1cb24e2918c63f4378b128708e48e5bbef54d'
-require_text docs/native-submission-shadow-verification-v1.md '72f3fa9a5ebe28ffe345986ed8647c5fda900c13fa80fa0766caacab6a840c51'
-require_text docs/native-submission-shadow-verification-v1.md '4aed2b5eea4721446aa5249e2e2e3f96a2471b410e41ddc374e2ef6be1158817'
 for doc in \
   docs/mac-first-hidden-linux-execution-plan-v1.md \
   docs/node-native-shadow-binding-containment-implementation-spec-v1.md \
@@ -3053,8 +3050,5 @@ for doc in \
   require_text "$doc" 'code-only proof'
   require_text "$doc" 'provenance remains outside the authority lineage'
 done
-require_text docs/native-submission-shadow-verification-v1.md '56c5cb1a47d385319480fe3703e1cb24e2918c63f4378b128708e48e5bbef54d'
-require_text docs/native-submission-shadow-verification-v1.md '72f3fa9a5ebe28ffe345986ed8647c5fda900c13fa80fa0766caacab6a840c51'
-require_text docs/native-submission-shadow-verification-v1.md '4aed2b5eea4721446aa5249e2e2e3f96a2471b410e41ddc374e2ef6be1158817'
 
 printf 'docs-smoke: PASS\n' >&2

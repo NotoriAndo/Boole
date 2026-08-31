@@ -1,5 +1,20 @@
 # Mac-first hidden Linux execution plan v1
 
+> **CURRENT-PROCESS-POLICY-V1 (2026-08-31):** Future engineering work under
+> this plan follows
+> `docs/development-throughput-and-evidence-policy-v1.md`. The historical
+> one-shot production/boot records below remain exact accounts of past runs,
+> but they are not the default procedure for new reversible closed-local
+> builds or boots. This correction creates no A7, production run, boot or
+> activation authority; code that still enforces the historical chain must be
+> changed by normal TDD before it is used.
+
+> **CURRENT-CURSOR-2026-08-31:** `R3 GREEN / F7 SEALED / PRE-A7 REVIEW COMPLETE /
+> A7 NOT CREATED`. The next coherent development milestone is the reversible
+> closed-local image-to-readiness path under the current process policy. No v5
+> production, boot, MAC.4, testnet, mining or reward run is authorized by this
+> cursor.
+
 Status: **MAC.0 COMPLETE (closed-local Linux baseline, 2026-08-24, section 9);
 MAC.1-PARTIAL — CURL-FIRST MODE FROZEN; UPDATE TRUST POLICY AND MEASUREMENT PROTOCOL OPEN
 (product-form correction 2026-08-25, section 14; macOS 14/M1/Intel decision remains fixed);
