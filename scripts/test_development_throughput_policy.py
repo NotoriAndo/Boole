@@ -26,6 +26,7 @@ class DevelopmentThroughputPolicyContract(unittest.TestCase):
             "TP6-DOCUMENT-SYNC",
             "TP7-HISTORICAL-SUPERSESSION",
             "TP8-CURRENT-AUTHORITY-BOUNDARY",
+            "TP9-PROCESS-ONLY-CI",
         )
         for marker in expected_once:
             self.assertEqual(text.count(marker), 1, marker)
@@ -33,6 +34,7 @@ class DevelopmentThroughputPolicyContract(unittest.TestCase):
         self.assertRegex(text, r"defaultMilestoneHours:\s*4-8")
         self.assertRegex(text, r"maxInfrastructureRetriesAfterInitial:\s*2")
         self.assertRegex(text, r"fullCiRunsPerMilestone:\s*1")
+        self.assertRegex(text, r"processOnlyHeavyCiRunsPerMilestone:\s*0")
 
     def test_tracked_authority_docs_use_the_current_process_policy(self) -> None:
         for relative in (

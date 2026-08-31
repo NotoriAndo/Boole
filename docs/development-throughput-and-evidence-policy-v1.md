@@ -10,6 +10,7 @@ Machine-readable operating values:
 defaultMilestoneHours: 4-8
 maxInfrastructureRetriesAfterInitial: 2
 fullCiRunsPerMilestone: 1
+processOnlyHeavyCiRunsPerMilestone: 0
 ```
 
 This policy governs how Boole development work is packaged, tested, recorded and
@@ -162,6 +163,27 @@ the historical A7 chain must not be bypassed silently: simplify or replace that
 guard through normal TDD as part of the next coherent milestone, then run the
 focused preflight and CI gates. Public release or activation still requires the
 explicit authority described in TP5.
+
+## TP9-PROCESS-ONLY-CI — do not rebuild the product for process edits
+
+A change is process-only only when every changed path is on the narrow
+documentation/process allowlist maintained by `scripts/ci_change_scope.py`.
+Runtime code, native code, fixtures, dependencies, install scripts, unknown
+paths and mixed changes fail closed to the full-validation lane.
+
+Process-only changes do not install Rust or Lean, run supply-chain downloads,
+rebuild release binaries, replay root filesystems, build arm64 launchers, or run
+the four-platform verdict corpus. They run only the classifier tests, workflow
+contract tests, current process-policy tests, `docs-smoke` and diff whitespace
+validation. The branch-protection status names `self-test`, `supply-chain` and
+`verdict-corpus` still appear and must pass; their process-only result means
+“this change cannot affect the artifact governed by that heavy check,” not that
+the heavy check ran.
+
+The classifier and both workflows are themselves covered by the lightweight
+contract gate. A workflow-dispatch run, empty range, unsafe path or classifier
+uncertainty selects full validation. Product/runtime milestones still get the
+one full CI run specified by TP1.
 
 Unchanged state at adoption:
 

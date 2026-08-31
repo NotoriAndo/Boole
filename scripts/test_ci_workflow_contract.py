@@ -337,7 +337,8 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
         self.assertRegex(
             job,
             re.compile(
-                r"needs:\s*\[native-shadow-containment-linux,\s*"
+                r"needs:\s*\[change-scope,\s*"
+                r"native-shadow-containment-linux,\s*"
                 r"native-shadow-rootfs-replay-linux,\s*"
                 r"native-shadow-rootfs-replay-linux-arm64,\s*"
                 r"native-shadow-launcher-build-arm64,\s*"
@@ -842,7 +843,8 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
         self.assertRegex(
             job,
             re.compile(
-                r"^\s+needs:\s*\[native-shadow-containment-linux,\s*"
+                r"^\s+needs:\s*\[change-scope,\s*"
+                r"native-shadow-containment-linux,\s*"
                 r"native-shadow-rootfs-replay-linux,\s*"
                 r"native-shadow-rootfs-replay-linux-arm64,\s*"
                 r"native-shadow-launcher-build-arm64,\s*"

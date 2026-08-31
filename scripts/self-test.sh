@@ -58,6 +58,7 @@ run_logged native-shadow-successor-producer-f7 python3 -m unittest scripts/test_
 run_logged native-shadow-raw-scan-correction python3 -m unittest scripts/test_native_shadow_mac3_guest_secret_raw_scan_correction_arm64_v1.py
 run_logged native-shadow-ext4-secret-reconciliation python3 -m unittest scripts/test_native_shadow_ext4_readonly_owner_map_arm64_v1.py scripts/test_native_shadow_mac3_guest_secret_path_content_reconcile_arm64_v1.py
 run_logged development-throughput-policy python3 -m unittest scripts/test_development_throughput_policy.py
+run_logged ci-change-scope python3 -m unittest scripts/test_ci_change_scope.py
 run_logged docs-smoke ./scripts/docs-smoke.sh
 run_logged wallet-session-receipt-gate ./scripts/wallet-session-receipt-gate.sh
 # P1.8 + P1.9 — clippy verifies both the no-feature production surface
