@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `dd9f76fbbaf887d9f87b19b0e7b4df17660775bc6c3a5f4993e67478ab174ab8` (updated 2026-08-31d — F7 seals the R3-observed generation as authority-zero identity; pre-A7 review is next) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `e4d44b776466f134415d4387f4e632c69db9ad62546190c2403db46d77559536` (updated 2026-08-31d — execution stops at the pre-A7 risk review after F7) |
+| `local-docs/todo/todo-l1-network-master.md` | `56c5cb1a47d385319480fe3703e1cb24e2918c63f4378b128708e48e5bbef54d` (updated 2026-08-31e — pre-A7 review finds no new frozen-contract blocker but grants no production authority) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `72f3fa9a5ebe28ffe345986ed8647c5fda900c13fa80fa0766caacab6a840c51` (updated 2026-08-31e — execution stops at the explicit A7 creation and attempt-ID decision) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `98d69b5d9c94831e7b4a880c20e4552f4207e0f86ef32fcfb6d4d3a9cb2868ec` (updated 2026-08-31d — stable implementation identity remains distinct from irreversible production consent) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `4aed2b5eea4721446aa5249e2e2e3f96a2471b410e41ddc374e2ef6be1158817` (updated 2026-08-31e — a clean risk review remains distinct from operator consent and execution) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -2665,3 +2665,25 @@ result-v7, a production claim tag, an attempt marker, an image and a boot are
 absent.  The 2026-08-31d local mirror synchronization advances the Master
 Plan, Execution and thesis roadmap only to the pre-A7 review boundary; those
 hashes are synchronization evidence and grant no runtime authority.
+
+## Pre-A7 risk review complete without granting authority (2026-08-31)
+
+<!-- PRE-A7-RISK-REVIEW-V1-COMPLETE-AUTHORITY-NOT-GRANTED -->
+
+The frozen P4/v5 contract and live F7 consumer were reviewed again.  No new
+contract contradiction was found.  A future A7 may grant only one exact
+`workflow_dispatch` on `refs/heads/main`, through the fixed workflow ref, with
+two replicas and the fixed result path.  Boot, serving, MAC.4, testnet,
+mining, reward, consensus, P2P and activation authority remain zero.
+
+Two limits remain explicit: administrator deletion is outside the code-only proof.
+Disappearance of an already observed claim is therefore a hard stop.  Transport
+provenance remains outside the authority lineage because it proves carriage,
+not permission.
+
+```text
+PRE-A7 REVIEW COMPLETE / A7 NOT CREATED / PRODUCTION AND BOOT NOT RUN
+```
+
+This review is not A7.  Creating A7 and choosing its attempt ID remains a
+separate operator decision, and production dispatch remains a later decision.

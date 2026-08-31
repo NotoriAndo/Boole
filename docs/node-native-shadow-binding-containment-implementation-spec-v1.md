@@ -4482,3 +4482,25 @@ R3 GREEN / F7 SEALED / A7 NOT CREATED / PRODUCTION AND BOOT NOT RUN
 
 F7 is implementation identity only.  A7 and result-v7 remain absent and need
 a separate review before any production effect can be proposed.
+
+## Pre-A7 risk review: frozen consumer is coherent, authority remains absent
+
+<!-- PRE-A7-RISK-REVIEW-V1-COMPLETE-AUTHORITY-NOT-GRANTED -->
+
+The live v5 consumer verifies P4, raw R3 and F7 before requesting A7.  A future
+A7 is constrained to one exact main-only workflow dispatch, two replicas, the
+fixed three output names and the fixed result-v7 path.  Its run accounting
+starts at zero and every boot, serving and activation-related permission stays
+zero.  No new frozen-contract blocker was found.
+
+This does not extend the threat model: administrator deletion is outside the
+code-only proof, and loss of a previously observed claim remains a hard stop.
+Transport provenance remains outside the authority lineage and cannot become
+permission merely because its CI metadata is complete.
+
+```text
+PRE-A7 REVIEW COMPLETE / A7 NOT CREATED / PRODUCTION AND BOOT NOT RUN
+```
+
+The implementation may accept a correctly shaped A7, but this review neither
+creates that record nor authorizes its later dispatch.

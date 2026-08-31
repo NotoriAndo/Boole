@@ -6240,3 +6240,29 @@ MAC.4 / TESTNET / MINING / REWARD  NOT STARTED
 
 The next boundary is a separate pre-A7 risk review.  No production authority
 record may be created merely because F7 exists.
+
+## 79. Pre-A7 risk review closes without opening production (2026-08-31)
+
+<!-- PRE-A7-RISK-REVIEW-V1-COMPLETE-AUTHORITY-NOT-GRANTED -->
+
+The reviewed A7 shape is narrow: one exact manual dispatch from main, the
+fixed workflow ref, two replicas, the fixed result path and zero performed
+runs at creation.  No new frozen-contract blocker was found.  That finding is
+not permission to create A7 or run production.
+
+Two known boundaries remain unchanged.  First, administrator deletion is outside
+the code-only proof; the atomic tag prevents a concurrent second creator only
+while it exists, and disappearance of a previously observed tag is a hard stop.
+Second, transport provenance remains outside the authority lineage; raw R3 and
+its gate provide the authority-chain observation while the GitHub artifact
+record proves carriage separately.
+
+### 79.1 Cursor
+
+```text
+PRE-A7 REVIEW COMPLETE / A7 NOT CREATED / PRODUCTION AND BOOT NOT RUN
+MAC.4 / TESTNET / MINING / REWARD  NOT STARTED
+```
+
+The next boundary is the operator's explicit A7 creation decision and attempt
+ID.  A7 creation, production dispatch and boot remain three separate acts.
