@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import pathlib
+import struct
 import subprocess
 import sys
 import tempfile
@@ -208,6 +209,77 @@ class ClosedLocalImageBehaviorTests(unittest.TestCase):
             self.assertNotIn("authoritySha256", report)
             self.assertNotIn("attemptId", report)
             self.assertFalse((outputs / sealed.CONSUMED_MARKER_NAME).exists())
+
+    def test_development_readback_sets_kernel_autoclear_and_keeps_explicit_detach(self):
+        calls = []
+
+        class Delegate:
+            def setup_loop(self, image):
+                calls.append(("setup", image.descriptor))
+                return "/dev/loop7"
+
+            def mount(self, device, mountpoint):
+                calls.append(("mount", device, mountpoint))
+
+            def read_tree(self, mountpoint):
+                return {"mountpoint": str(mountpoint)}
+
+            def unmount(self, mountpoint):
+                calls.append(("unmount", mountpoint))
+
+            def detach_loop(self, device):
+                calls.append(("detach", device))
+
+        module = types.SimpleNamespace(HostReadbackEffects=Delegate)
+        effects = dev.DevelopmentAutoclearReadbackEffects(
+            module,
+            autoclear_setter=lambda device: calls.append(("autoclear", device)),
+        )
+        image = types.SimpleNamespace(descriptor=17)
+
+        self.assertEqual(effects.setup_loop(image), "/dev/loop7")
+        self.assertEqual(
+            calls[:2], [("setup", 17), ("autoclear", "/dev/loop7")]
+        )
+        effects.detach_loop("/dev/loop7")
+        self.assertEqual(calls[-1], ("detach", "/dev/loop7"))
+
+    def test_autoclear_ioctl_sets_the_kernel_flag_on_the_loop_device(self):
+        calls = []
+
+        def opener(path, flags):
+            calls.append(("open", path, flags))
+            return 19
+
+        def ioctl(descriptor, request, value, mutate=False):
+            calls.append(("ioctl", descriptor, request, mutate))
+            if request == dev.LOOP_GET_STATUS64:
+                struct.pack_into("=I", value, dev.LOOP_FLAGS_OFFSET, 1)
+                return 0
+            self.assertEqual(request, dev.LOOP_SET_STATUS64)
+            self.assertEqual(
+                struct.unpack_from("=I", value, dev.LOOP_FLAGS_OFFSET)[0],
+                1 | dev.LO_FLAGS_AUTOCLEAR,
+            )
+            return 0
+
+        dev._set_loop_autoclear(
+            "/dev/loop7", opener=opener, closer=lambda fd: calls.append(("close", fd)), ioctl=ioctl
+        )
+        self.assertEqual(calls[-1], ("close", 19))
+
+    def test_development_backend_scopes_the_compatible_effects_override(self):
+        backend = dev._development_backend()
+        self.assertIsInstance(backend, dev.DevelopmentRepositoryImageBackend)
+        original = sealed.AutoclearReadbackEffects
+        with mock.patch.object(
+            sealed.RepositoryImageBackend,
+            "readback",
+            side_effect=lambda *_args: sealed.AutoclearReadbackEffects,
+        ):
+            observed = backend.readback(REPOSITORY_ROOT, pathlib.Path("outputs"), fake_chain())
+        self.assertIs(observed, dev.DevelopmentAutoclearReadbackEffects)
+        self.assertIs(sealed.AutoclearReadbackEffects, original)
 
 
 if __name__ == "__main__":
