@@ -12,14 +12,16 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import fcntl
 import importlib
 import json
 import os
 import pathlib
 import re
+import struct
 import sys
 from collections.abc import Mapping
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 REPOSITORY_ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPOSITORY_ROOT))
@@ -32,6 +34,11 @@ PREFLIGHT_STATUS = "READY-NO-IMAGE-CREATED"
 BUILD_STATUS = "CLOSED-LOCAL-IMAGE-VERIFIED"
 ARTIFACT_CLASS = "DISPOSABLE-DEVELOPMENT"
 RUN_LABEL_PATTERN = r"[a-z0-9][a-z0-9._-]{0,79}"
+LOOP_SET_STATUS64 = 0x4C04
+LOOP_GET_STATUS64 = 0x4C05
+LO_FLAGS_AUTOCLEAR = 4
+LOOP_INFO64_SIZE = 232
+LOOP_FLAGS_OFFSET = 52
 
 
 class ClosedLocalImageError(RuntimeError):
@@ -246,6 +253,80 @@ def _request(
     )
 
 
+def _set_loop_autoclear(
+    device: str,
+    *,
+    opener: Callable[[str, int], int] = os.open,
+    closer: Callable[[int], None] = os.close,
+    ioctl: Callable[..., Any] = fcntl.ioctl,
+) -> None:
+    """Set the kernel autoclear flag without relying on a nonexistent CLI flag."""
+
+    if re.fullmatch(r"/dev/loop[0-9]+", device) is None:
+        raise ClosedLocalImageError("loop device name is unsafe")
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = opener(device, flags)
+    try:
+        info = bytearray(LOOP_INFO64_SIZE)
+        ioctl(descriptor, LOOP_GET_STATUS64, info, True)
+        current = struct.unpack_from("=I", info, LOOP_FLAGS_OFFSET)[0]
+        struct.pack_into(
+            "=I", info, LOOP_FLAGS_OFFSET, current | LO_FLAGS_AUTOCLEAR
+        )
+        ioctl(descriptor, LOOP_SET_STATUS64, bytes(info))
+    finally:
+        closer(descriptor)
+
+
+class DevelopmentAutoclearReadbackEffects:
+    """Use the portable loop ioctl and retain explicit normal-path cleanup."""
+
+    def __init__(
+        self,
+        readback_module: Any,
+        *,
+        autoclear_setter: Callable[[str], None] = _set_loop_autoclear,
+    ) -> None:
+        self._delegate = readback_module.HostReadbackEffects()
+        self._set_autoclear = autoclear_setter
+
+    def unmet_requirements(self) -> list[str]:
+        return list(self._delegate.unmet_requirements())
+
+    def setup_loop(self, image: Any) -> str:
+        device = self._delegate.setup_loop(image)
+        try:
+            self._set_autoclear(device)
+        except BaseException:
+            self._delegate.detach_loop(device)
+            raise
+        return device
+
+    def mount(self, device: str, mountpoint: pathlib.Path) -> None:
+        self._delegate.mount(device, mountpoint)
+
+    def read_tree(self, mountpoint: pathlib.Path) -> dict[str, dict[str, Any]]:
+        return dict(self._delegate.read_tree(mountpoint))
+
+    def unmount(self, mountpoint: pathlib.Path) -> None:
+        self._delegate.unmount(mountpoint)
+
+    def detach_loop(self, device: str) -> None:
+        self._delegate.detach_loop(device)
+
+
+class DevelopmentRepositoryImageBackend(sealed.RepositoryImageBackend):
+    """Scope the runner-compatible readback adapter to this reversible lane."""
+
+    def readback(self, repository_root, outputs, chain):
+        historical = sealed.AutoclearReadbackEffects
+        sealed.AutoclearReadbackEffects = DevelopmentAutoclearReadbackEffects
+        try:
+            return super().readback(repository_root, outputs, chain)
+        finally:
+            sealed.AutoclearReadbackEffects = historical
+
+
 def _development_backend() -> sealed.RepositoryImageBackend:
     # The production loader correctly refuses every repository module that is
     # not named by the historical F7 fingerprint.  This new orchestrator is
@@ -254,7 +335,7 @@ def _development_backend() -> sealed.RepositoryImageBackend:
     # supplies a root-owned, non-writable checkout, while
     # verify_development_generation_chain hashes the complete bound import
     # closure before this loader is reached.
-    return sealed.RepositoryImageBackend(module_loader=importlib.import_module)
+    return DevelopmentRepositoryImageBackend(module_loader=importlib.import_module)
 
 
 def preflight(
