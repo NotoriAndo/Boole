@@ -4537,3 +4537,28 @@ separate explicit execution decisions. The runtime replay, containment and
 fail-closed contracts remain unchanged, and no A7, production, MAC.4, testnet,
 mining, reward, consensus, P2P or activation authority follows from this
 readiness result.
+
+## Reversible image replica GREEN and first Mac launcher fail-closed result (2026-09-01)
+
+Development run `33414353361` produced two byte-identical arm64 image sets. A
+receipt-bound Mac preflight then started zero machines and passed; the approved
+boot started one closed Apple Virtualization.framework VM. The root disk mounted
+read-only, systemd ran as PID 1 and the launcher unit started. The installed
+authority reader refused before readiness because
+`/usr/share/boole/native-shadow` was mode `0755`, not the required `0555`.
+A read-only streaming walk of the actual initrd `newc` headers independently
+confirmed root:root mode `0755` for that exact path.
+
+The cause is the image assembler's generic derived-parent mode. Tracked files
+beneath the directory were already root-owned `0444`, so the existing source-lock
+readback passed while omitting the parent metadata the runtime enforces. The
+reversible development assembler now narrows that one derived directory to
+root-owned `0555`, and its Linux mounted-tree adapter rejects any other metadata
+before an image may qualify for replica comparison. The correction is scoped to
+the development lane and restores the inherited assembler after preparation;
+historical sealed production bytes remain unchanged.
+
+The Mac result is FAIL, not readiness. There was no retry, node connection,
+submission, production release, testnet, mining, reward, consensus, P2P or
+activation effect. A fresh disposable image run and another Mac boot remain
+future execution decisions.

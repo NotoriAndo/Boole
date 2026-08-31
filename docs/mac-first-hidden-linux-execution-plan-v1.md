@@ -6317,3 +6317,43 @@ IMAGE BUILD AND VM BOOT NOT RUN / A7 NOT CREATED
 Next is the explicitly approved disposable two-replica ARM64 build. If and
 only if its receipt is green, a real Mac VM boot remains a second, separate
 explicit approval.
+
+## 81. Disposable image replicas matched; the first Mac readiness boot exposed one image-mode bug (2026-09-01)
+
+The approved reversible build run
+[`33414353361`](https://github.com/NotoriAndo/Boole/actions/runs/33414353361)
+completed two independent arm64 replicas and compared all three outputs byte for
+byte. The comparison status was `TWO-REPLICAS-BYTE-IDENTICAL`. Across the two
+replicas the raw outputs totalled 7,739,926,912 bytes. The kernel, initrd and root
+disk identities are recorded in
+`native-shadow-closed-local-image-mac-readiness-result-arm64-v1.json`.
+
+The comparison GREEN opened the separately approved Mac run. Its no-VM
+preflight passed, then Apple Virtualization.framework started exactly one closed
+VM with two CPUs, 2 GiB RAM, no network, no shared directory and one read-only
+disk. Linux mounted the expected ext4 root read-only, started systemd as PID 1
+and reached the launcher service. The launcher then correctly failed closed:
+`/usr/share/boole/native-shadow` had generic parent mode `0755`, while the
+installed-authority contract requires exact mode `0555`. No readiness record was
+emitted; the host stopped the VM at its fixed timeout and all three input hashes
+remained unchanged.
+
+This is a deterministic development-image assembly bug, not an Apple VM or
+kernel boot failure. The source lock tracks the files under the authority
+directory but not the parent directory itself, and the Linux readback gate had
+the same blind spot. A read-only streaming walk of the actual uncompressed
+initrd header confirmed that directory as root-owned `0755`. The development
+image path now changes that one derived
+parent to root-owned `0555`; readback independently requires the same metadata
+before a future image can reach replica comparison. Historical sealed producers
+are not edited. No second image build or Mac boot is part of this milestone.
+
+### 81.1 Cursor
+
+```text
+ARM64 REPLICAS BYTE-IDENTICAL / FIRST MAC VM REACHED SYSTEMD AND LAUNCHER
+READINESS FAIL-CLOSED ON AUTHORITY DIRECTORY 0755 != 0555
+CORRECTION IMPLEMENTED + PRE-BOOT READBACK REGRESSION GATE ADDED
+NEXT: FRESH DISPOSABLE REPLICAS, THEN A SEPARATELY APPROVED MAC READINESS RETEST
+A7 / PRODUCTION / MAC.4 / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION NOT STARTED
+```

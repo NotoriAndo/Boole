@@ -11,6 +11,7 @@ they establish neither a boot, a release, nor any activation right.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import dataclasses
 import fcntl
 import importlib
@@ -26,6 +27,7 @@ from typing import Any, Callable, Optional
 REPOSITORY_ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPOSITORY_ROOT))
 
+from scripts import native_shadow_rootfs_builder_boot_arm64_v4 as builder_v4
 from scripts import native_shadow_successor_produce_phase_arm64_v5 as sealed
 
 
@@ -39,10 +41,65 @@ LOOP_GET_STATUS64 = 0x4C05
 LO_FLAGS_AUTOCLEAR = 4
 LOOP_INFO64_SIZE = 232
 LOOP_FLAGS_OFFSET = 52
+AUTHORITY_STAGING_PATH = "usr/share/boole/native-shadow"
+AUTHORITY_MOUNTED_PATH = "/" + AUTHORITY_STAGING_PATH
+AUTHORITY_DIRECTORY_MODE = 0o555
 
 
 class ClosedLocalImageError(RuntimeError):
     pass
+
+
+def _require_authority_directory(row: Any) -> None:
+    if (
+        not isinstance(row, Mapping)
+        or row.get("kind") != "directory"
+        or row.get("mode") != AUTHORITY_DIRECTORY_MODE
+        or row.get("uid") != 0
+        or row.get("gid") != 0
+    ):
+        raise ClosedLocalImageError(
+            "installed authority directory must be root:root mode 0555"
+        )
+
+
+@contextlib.contextmanager
+def _development_authority_directory_contract():
+    """Correct and verify the one derived parent that is security authority.
+
+    The sealed source lock tracks the files beneath this directory but does not
+    carry a row for the directory itself.  The inherited assembler therefore
+    derives it with the generic 0755 parent mode.  The installed-authority
+    reader deliberately requires 0555.  Scope the correction to this reversible
+    development lane so historical sealed producers remain byte-preserved.
+    """
+
+    namespace = builder_v4.materialize_staging_tree.__globals__.get("_IMPL")
+    if not isinstance(namespace, dict):
+        raise ClosedLocalImageError("development builder namespace is unavailable")
+    original = namespace.get("_ensure_parents")
+    if not callable(original):
+        raise ClosedLocalImageError("development parent derivation is unavailable")
+
+    def ensure_parents(entries):
+        original(entries)
+        row = entries.get(AUTHORITY_STAGING_PATH)
+        if (
+            isinstance(row, Mapping)
+            and row.get("kind") == "directory"
+            and row.get("mode") == 0o755
+            and row.get("uid") == 0
+            and row.get("gid") == 0
+        ):
+            row = dict(row, mode=AUTHORITY_DIRECTORY_MODE)
+            entries[AUTHORITY_STAGING_PATH] = row
+        _require_authority_directory(row)
+
+    namespace["_ensure_parents"] = ensure_parents
+    try:
+        yield
+    finally:
+        namespace["_ensure_parents"] = original
 
 
 @dataclasses.dataclass(frozen=True)
@@ -309,7 +366,9 @@ class DevelopmentAutoclearReadbackEffects:
         self._delegate.mount(device, mountpoint)
 
     def read_tree(self, mountpoint: pathlib.Path) -> dict[str, dict[str, Any]]:
-        return dict(self._delegate.read_tree(mountpoint))
+        tree = dict(self._delegate.read_tree(mountpoint))
+        _require_authority_directory(tree.get(AUTHORITY_MOUNTED_PATH))
+        return tree
 
     def unmount(self, mountpoint: pathlib.Path) -> None:
         self._delegate.unmount(mountpoint)
@@ -337,6 +396,10 @@ class DevelopmentAutoclearReadbackEffects:
 
 class DevelopmentRepositoryImageBackend(sealed.RepositoryImageBackend):
     """Scope the runner-compatible readback adapter to this reversible lane."""
+
+    def prepare(self, request):
+        with _development_authority_directory_contract():
+            return super().prepare(request)
 
     def readback(self, repository_root, outputs, chain):
         historical = sealed.AutoclearReadbackEffects
