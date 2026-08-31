@@ -55,6 +55,21 @@ class ClosedLocalWorkflowContractTests(unittest.TestCase):
         self.assertNotIn('\n          test -f "$result"', text)
         self.assertNotIn('\n            test ! -e "$outputs"', text)
 
+    def test_snapshot_5xx_is_bounded_without_relaxing_the_frozen_acquirers(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        wrapper = "native_shadow_bounded_snapshot_retry_v1.py"
+        self.assertEqual(text.count(wrapper), 2)
+        self.assertIn(
+            f"{wrapper} -- python3 -I -S "
+            "scripts/native_shadow_boot_ci_payload_acquire_arm64_v1.py acquire",
+            text,
+        )
+        self.assertIn(
+            f"{wrapper} -- python3 -I -S "
+            "scripts/native_shadow_boot_writer_set_acquire_arm64_v1.py acquire",
+            text,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
