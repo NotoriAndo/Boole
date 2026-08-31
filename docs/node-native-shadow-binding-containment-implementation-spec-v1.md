@@ -4351,3 +4351,50 @@ R2 GREEN / F6 SEALED / A6 NOT CREATED / PRODUCTION AND BOOT NOT RUN
 F6 records implementation identity only.  Its production, boot, serving,
 MAC.4, testnet, mining, reward, consensus, P2P and activation authorities are
 all false or zero.  No claim tag, image, attempt marker or boot was created.
+
+## Main-only dispatch correction before any successor production authority (2026-08-31)
+
+<!-- LAUNCHER-V2-SUCCESSOR-MAIN-BRANCH-DISPATCH-FENCE-CORRECTION-ARM64-V1-SEALED:BEGIN -->
+
+The pre-A6 gate found one authority-boundary defect in the otherwise sealed v4
+generation.  `prepare_dispatch_context` accepts the expected workflow path by
+prefix and only requires a non-empty suffix; the workflow does not separately
+bind `github.ref` to `refs/heads/main`.  Consequently, a feature-branch or tag
+workflow ref can satisfy the historical guard.  This is a hard stop, not a
+reason to reinterpret F6 as production-ready.
+
+The append-only 13,335-byte correction at SHA-256
+`63f5bdf0ffaac00ac1af3972ed69051da9fcbe8a06b90ae3c9f70756bbfe144b`
+keeps all five v4 generation files and the P2/P3/R1/F5/R2/F6 evidence immutable.
+Unused A6-v6 and result-v6 names are withdrawn and must remain absent.  The
+successor namespace is producer-generation v5 followed by a fresh
+authority-zero R3, F7, separately authorised A7 and result-v7.
+
+The successor contract requires `github.event_name=workflow_dispatch`, a
+workflow-dispatch-only trigger set, and exact equality for both
+`github.ref=refs/heads/main` and the v5 workflow ref at `refs/heads/main`, plus
+the existing exact checkout/tag-target head binding.  It rejects feature,
+tag, pull-request, empty and main-prefix lookalike refs before effects.  A
+pull-request-like ref is a defensive consumer test rather than a currently
+selectable workflow-dispatch ref.  The
+annotated tag is only claimed atomic while present: no external administrator
+deletion protection is asserted without observed server ruleset evidence.
+
+The correction additionally makes the generation boundary exact.  V5 must use
+the A7 tag prefix, dispatch-claim v2, v7 authority/result paths and schemas, and
+must record `eventName`, `dispatchRef`, `workflowRef`, `githubRunAttempt` and
+`authoritySha256` in the canonical claim message.  Consumers re-read the live
+context before effects.  A6/v6 paths, schemas and symbols plus the v4
+root/recovery/artifact/internal-schema namespace are rejection fixtures only,
+never production inputs.  Each of R3, F7, A7 and result-v7 directly includes
+P4 as `mainBranchDispatchFenceCorrection:{path,sha256,sizeBytes}`; an alias or
+transitive reference is a hard stop.
+
+```text
+V4 / R2 / F6  HISTORICAL AND BYTE-PRESERVED
+A6-V6 / RESULT-V6  WITHDRAWN UNUSED
+V5 / R3 / F7 / A7 / RESULT-V7  FUTURE
+PRODUCTION / IMAGE / BOOT  NOT AUTHORISED OR RUN
+```
+
+<!-- LAUNCHER-V2-SUCCESSOR-MAIN-BRANCH-DISPATCH-FENCE-CORRECTION-ARM64-V1-SEALED:END -->
