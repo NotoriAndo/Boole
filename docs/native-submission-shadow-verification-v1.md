@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `676625026523d4c48e6e42006402bcf59e36abb76943cde1135a3f1c0d0452c9` (updated 2026-08-31a — A6-v6 is withheld and the event/main-only, fresh-A7-namespace v5 successor is preregistered with authority zero) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `3eb001ed7d1e09f6a207e67c1d1a8d9bb32ccff74fb9a715f13ee9fdd7c7a153` (updated 2026-08-31a — execution moves from withdrawn A6-v6 to workflow-dispatch/main-only producer-generation v5 with direct P4 binding) |
+| `local-docs/todo/todo-l1-network-master.md` | `588c9d134151ae2a43e6e84772c601d1da46a71b9aeafc6032d24a4f6bb65604` (updated 2026-08-31b — main-only producer-generation v5 is implemented while R3 and all production authority remain absent) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `8abec2927ed5b1433a1df21c55cc2fa4f552f51e02e37fad233e28aa0d86cd3c` (updated 2026-08-31b — execution moves to fresh authority-zero R3 after v5 focused gates) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `9c9290bb9a70cae681664408546457db114fe2744c39e73025259aef9c80dbc3` (updated 2026-08-31a — a one-use claim must bind the exact event, reviewed main ref and fresh A7 generation while authority remains zero) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `c7860c1a0cb15cdfe98aa14efe8f5e7f4d6c89142eccf2ed23383f73fad0145c` (updated 2026-08-31b — stricter executable preparation remains distinct from R3 evidence and production authority) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -2584,3 +2584,21 @@ opens no production, boot, MAC.4, testnet, mining, reward, consensus, P2P or
 activation authority.
 
 <!-- LAUNCHER-V2-SUCCESSOR-MAIN-BRANCH-DISPATCH-FENCE-CORRECTION-ARM64-V1-SEALED:END -->
+
+## Main-only successor producer v5 implementation (2026-08-31)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-V5-IMPLEMENTED-R3-PENDING:BEGIN -->
+
+The P4-preregistered v5 producer generation is implemented as five new files.
+It requires the exact manual event, main dispatch ref and main workflow ref in
+the workflow, wrapper and core before effects; uses the fresh A7/claim-v2/v7
+namespace; and reconstructs its controlled Python imports only from
+P4-pinned historical identities.  All historical v4/R2/F6 bytes remain
+unchanged.
+
+This is implementation evidence, not authority.  Fresh authority-zero R3 has
+not run; F7, A7, result-v7, a claim tag, an attempt marker, an image and a boot
+do not exist.  Production, MAC.4, testnet, mining, reward, consensus, P2P and
+activation remain closed.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-V5-IMPLEMENTED-R3-PENDING:END -->

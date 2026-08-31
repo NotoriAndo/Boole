@@ -6111,3 +6111,49 @@ authority.  `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`,
 Base activation=false and activationAllowed=false remain unchanged.
 
 <!-- LAUNCHER-V2-SUCCESSOR-MAIN-BRANCH-DISPATCH-FENCE-CORRECTION-ARM64-V1-SEALED:END -->
+
+## 76. Main-only producer generation v5 is implemented; R3 remains unrun (2026-08-31)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-V5-IMPLEMENTED-R3-PENDING:BEGIN -->
+
+The five files preregistered by P4 now exist as a new append-only generation:
+the v5 core, its contract test, the v5 wrapper, the manual workflow and the
+workflow contract test.  The historical v4 files, successful R2 and F6 remain
+byte-preserved.  V5 does not reuse the withdrawn A6/result-v6 reservation.
+
+Every effectful workflow job rejects anything other than
+`workflow_dispatch`, `refs/heads/main` and the exact v5 workflow ref at main
+before checkout or another effect.  The wrapper and core receive and recheck
+the same event, dispatch ref, workflow ref, run attempt, live HEAD and future
+A7 digest.  The canonical dispatch-claim v2 message has exactly ten fields,
+and all claim, recovery, seal and comparison consumers use the same context.
+Feature, tag, pull-request-like, empty and main-prefix lookalike values are
+negative tests, not alternative production routes.
+
+The production backend also reconstructs its allowed Python import closure
+from records already pinned by P4.  Historical R1 supplies the exact low-level
+module identities, while historical P2 supplies the reused v3 identities.
+Those identities are checked against live bytes before repository modules may
+load.  They are internal import evidence only and are not added to the new
+external predecessor chain: future R3 remains `[P4]`, F7 remains `[P4,R3]`
+and A7 remains `[P4,R3,F7]`.
+
+The combined v5 focused gate passes 258 tests (three Linux-only workflow tests
+skip locally and remain CI responsibilities).  No fresh R3 record, F7, A7,
+dispatch claim tag, result-v7, attempt marker, image or boot was created.
+
+### 76.1 Cursor
+
+```text
+✅ MAIN-ONLY PRODUCER GENERATION V5 — IMPLEMENTED / FOCUSED GREEN
+▶ FRESH AUTHORITY-ZERO R3 — NEXT / NOT RUN
+⏳ F7 → SEPARATELY REVIEWED A7 → RESULT-V7
+⛔ PRODUCTION CLAIM TAG / IMAGE / BOOT — 0 RUNS
+⛔ MAC.4 / TESTNET / MINING / REWARD — NOT STARTED
+```
+
+Implementation is not permission.  `mineable_now=0`, `REWARD_READY=0`,
+`RP0-MD=HOLD`, `BF.7=HOLD`, Base activation=false and
+activationAllowed=false remain unchanged.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-V5-IMPLEMENTED-R3-PENDING:END -->

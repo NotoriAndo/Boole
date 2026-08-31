@@ -1749,9 +1749,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "676625026523d4c48e6e42006402bcf59e36abb76943cde1135a3f1c0d0452c9"
-require_text docs/native-submission-shadow-verification-v1.md "3eb001ed7d1e09f6a207e67c1d1a8d9bb32ccff74fb9a715f13ee9fdd7c7a153"
-require_text docs/native-submission-shadow-verification-v1.md "9c9290bb9a70cae681664408546457db114fe2744c39e73025259aef9c80dbc3"
+require_text docs/native-submission-shadow-verification-v1.md "588c9d134151ae2a43e6e84772c601d1da46a71b9aeafc6032d24a4f6bb65604"
+require_text docs/native-submission-shadow-verification-v1.md "8abec2927ed5b1433a1df21c55cc2fa4f552f51e02e37fad233e28aa0d86cd3c"
+require_text docs/native-submission-shadow-verification-v1.md "c7860c1a0cb15cdfe98aa14efe8f5e7f4d6c89142eccf2ed23383f73fad0145c"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Boot source lock plan successor addendum"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BOOT-ROOTFS-SOURCE-LOCK-PLAN-SUCCESSOR-FROZEN-LOCK-NOT-GENERATED"
@@ -2948,15 +2948,45 @@ require_text "$V4_MAIN_BRANCH_FENCE_CORRECTION" 'native-shadow-successor-produce
 require_text "$V4_MAIN_BRANCH_FENCE_CORRECTION" '"imageProductionRunsAllowed": 0'
 require_text "$V4_MAIN_BRANCH_FENCE_CORRECTION" '"administratorDeletionIsPreventedByObservedServerRuleset": false'
 require_text "$V4_MAIN_BRANCH_FENCE_CORRECTION" 'native-shadow-mac3-successor-production-authority-arm64-v7.json'
-require_text docs/native-submission-shadow-verification-v1.md '676625026523d4c48e6e42006402bcf59e36abb76943cde1135a3f1c0d0452c9'
-require_text docs/native-submission-shadow-verification-v1.md '3eb001ed7d1e09f6a207e67c1d1a8d9bb32ccff74fb9a715f13ee9fdd7c7a153'
-require_text docs/native-submission-shadow-verification-v1.md '9c9290bb9a70cae681664408546457db114fe2744c39e73025259aef9c80dbc3'
+require_text docs/native-submission-shadow-verification-v1.md '588c9d134151ae2a43e6e84772c601d1da46a71b9aeafc6032d24a4f6bb65604'
+require_text docs/native-submission-shadow-verification-v1.md '8abec2927ed5b1433a1df21c55cc2fa4f552f51e02e37fad233e28aa0d86cd3c'
+require_text docs/native-submission-shadow-verification-v1.md 'c7860c1a0cb15cdfe98aa14efe8f5e7f4d6c89142eccf2ed23383f73fad0145c'
 for doc in \
   docs/mac-first-hidden-linux-execution-plan-v1.md \
   docs/node-native-shadow-binding-containment-implementation-spec-v1.md \
   docs/native-submission-shadow-verification-v1.md; do
   require_text "$doc" 'LAUNCHER-V2-SUCCESSOR-MAIN-BRANCH-DISPATCH-FENCE-CORRECTION-ARM64-V1-SEALED:BEGIN'
   require_text "$doc" 'A6-V6'
+done
+
+# P4's main-only producer generation now exists, but implementation does not
+# create R3 or any production authority/effect.  Keep the fresh namespace and
+# the next authority-zero cursor visible in every authority-facing document.
+V5_CORE=scripts/native_shadow_successor_produce_phase_arm64_v5.py
+V5_CORE_GATE=scripts/test_native_shadow_successor_produce_phase_arm64_v5.py
+V5_WRAPPER=scripts/native-shadow-successor-produce-arm64-v5.sh
+V5_WORKFLOW=.github/workflows/native-shadow-successor-produce-arm64-v5.yml
+V5_WORKFLOW_GATE=scripts/test_native_shadow_successor_produce_workflow_arm64_v5.py
+V5_GENERATION_GATE=scripts/test_native_shadow_successor_generation_v5_contract.py
+for path in "$V5_CORE" "$V5_CORE_GATE" "$V5_WRAPPER" "$V5_WORKFLOW" \
+  "$V5_WORKFLOW_GATE" "$V5_GENERATION_GATE"; do
+  require_file "$path"
+done
+for gate in "$V5_CORE_GATE" "$V5_WORKFLOW_GATE" "$V5_GENERATION_GATE"; do
+  require_text scripts/self-test.sh "$gate"
+done
+require_text "$V5_CORE" 'native-shadow-mac3-successor-production-authority-arm64-v7.json'
+require_text "$V5_CORE" 'boole.native-shadow.mac3.successor-production-dispatch-claim.arm64.v2'
+require_text "$V5_CORE" 'mainBranchDispatchFenceCorrection'
+require_text "$V5_WRAPPER" 'refs/heads/main'
+require_text "$V5_WORKFLOW" "github.event_name == 'workflow_dispatch'"
+require_text "$V5_WORKFLOW" "github.ref == 'refs/heads/main'"
+for doc in \
+  docs/mac-first-hidden-linux-execution-plan-v1.md \
+  docs/node-native-shadow-binding-containment-implementation-spec-v1.md \
+  docs/native-submission-shadow-verification-v1.md; do
+  require_text "$doc" 'LAUNCHER-V2-SUCCESSOR-PRODUCER-V5-IMPLEMENTED-R3-PENDING:BEGIN'
+  require_text "$doc" 'R3'
 done
 
 printf 'docs-smoke: PASS\n' >&2
