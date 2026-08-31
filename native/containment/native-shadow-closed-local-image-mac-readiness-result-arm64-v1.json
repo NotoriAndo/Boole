@@ -1,0 +1,121 @@
+{
+  "appendOnly": true,
+  "artifactClass": "DISPOSABLE-DEVELOPMENT",
+  "boundaries": {
+    "activationAllowed": false,
+    "consensusTouched": false,
+    "nodeConnected": false,
+    "p2pTouched": false,
+    "productionRelease": false,
+    "publicMining": false,
+    "rewardReady": false,
+    "testnetClaim": false
+  },
+  "imageBuild": {
+    "artifacts": [
+      {
+        "digest": "sha256:e0515339547a99d6f1f446d519840b4620e2bf0047766f7c0a4c9d77b80fb789",
+        "expiresAt": "2026-09-07T16:34:54Z",
+        "id": 9766610088,
+        "name": "closed-local-image-readiness-build-replica-1",
+        "sizeBytes": 1375264991
+      },
+      {
+        "digest": "sha256:c04c5ff5d173d60de22692bf21672db404e52457feca8b42a5324c3c1c1af0d9",
+        "expiresAt": "2026-09-07T16:41:29Z",
+        "id": 9766846148,
+        "name": "closed-local-image-readiness-build-replica-2",
+        "sizeBytes": 1375264991
+      },
+      {
+        "digest": "sha256:4c58654dff0665b0b8996e6c804a7c4b6a8fd152b759790b89f0d29c9456e9c9",
+        "expiresAt": "2026-09-07T16:44:45Z",
+        "id": 9766935460,
+        "name": "closed-local-image-readiness-build-comparison",
+        "sizeBytes": 574
+      }
+    ],
+    "comparisonStatus": "TWO-REPLICAS-BYTE-IDENTICAL",
+    "headSha": "b6bd77ab808557b7b29931842bafc9b0eb896a80",
+    "jobs": {
+      "compare": 99565239145,
+      "replica1": 99561350173,
+      "replica2": 99561350528
+    },
+    "outputs": [
+      {
+        "name": "guest-kernel",
+        "sha256": "d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336",
+        "sizeBytes": 57860488
+      },
+      {
+        "name": "guest-initrd",
+        "sha256": "a31fdb5f2088923a450c6740a4d8581ee9ec1e1a91d9d4cf092f61d43a49307a",
+        "sizeBytes": 1776452408
+      },
+      {
+        "name": "guest-root-disk",
+        "sha256": "7f6d589907f8e1fc8856f2412c112842e7d2401aabc81223fda37a8c303a5ee1",
+        "sizeBytes": 2035650560
+      }
+    ],
+    "rawOutputBytesAcrossTwoReplicas": 7739926912,
+    "runId": 33414353361,
+    "runUrl": "https://github.com/NotoriAndo/Boole/actions/runs/33414353361"
+  },
+  "macObservation": {
+    "boot": {
+      "attempts": 1,
+      "consoleTranscriptSha256": "3c4f933cab9996b81ea0c4690d369e9716bf45aa5f6d6d6cddcd51817c74e0ed",
+      "hostIsolationMet": true,
+      "hostOutcome": "stopped-at-timeout",
+      "imagesUnchanged": true,
+      "launcherServiceStarted": true,
+      "missingGuestRecords": [
+        "launcher-executable",
+        "launcher-prerequisites",
+        "readiness",
+        "supervisor-privilege"
+      ],
+      "observedFailure": {
+        "error": "Authority(UnsafeMetadata)",
+        "path": "/usr/share/boole/native-shadow",
+        "reason": "authority directory mode is not exactly 0555"
+      },
+      "ranForSeconds": 75.0951679944992,
+      "status": "CLOSED-LOCAL-MAC-READINESS-FAIL",
+      "systemdPid1Reached": true,
+      "vmStarted": true
+    },
+    "preflight": {
+      "imagesUnchanged": true,
+      "status": "CLOSED-LOCAL-MAC-PREFLIGHT-PASS",
+      "vmStarted": false
+    },
+    "vmShape": {
+      "cpuCount": 2,
+      "memoryBytes": 2147483648,
+      "networkDevices": 0,
+      "rootDiskReadOnly": true,
+      "serialPorts": 1,
+      "sharedDirectories": 0,
+      "socketDevices": 0,
+      "storageDevices": 1
+    }
+  },
+  "rootCause": {
+    "classification": "DETERMINISTIC-DEVELOPMENT-IMAGE-ASSEMBLY-BUG",
+    "detail": "The source lock tracks authority files but not their parent directory. The inherited parent derivation therefore emitted generic mode 0755 while the installed-authority reader requires exact mode 0555.",
+    "existingReadbackGap": "The Linux readback compared tracked files and did not assert the authority parent directory mode.",
+    "imageMetadataObservation": {
+      "format": "uncompressed-newc-initrd-read-only-header-walk",
+      "gid": 0,
+      "mode": "0755",
+      "path": "usr/share/boole/native-shadow",
+      "uid": 0
+    },
+    "retryPerformed": false
+  },
+  "schema": "boole.native-shadow.closed-local-image-mac-readiness-result.arm64.v1",
+  "status": "IMAGE-REPLICAS-GREEN-MAC-BOOT-REACHED-LAUNCHER-READINESS-FAILED"
+}

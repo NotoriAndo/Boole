@@ -17,6 +17,7 @@ REPOSITORY_ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPOSITORY_ROOT))
 
 from scripts import native_shadow_closed_local_image_to_readiness_arm64_v1 as dev
+from scripts import native_shadow_rootfs_builder_boot_arm64_v4 as builder_v4
 from scripts import native_shadow_successor_produce_phase_arm64_v5 as sealed
 
 
@@ -332,6 +333,77 @@ class ClosedLocalImageBehaviorTests(unittest.TestCase):
             observed = backend.readback(REPOSITORY_ROOT, pathlib.Path("outputs"), fake_chain())
         self.assertIs(observed, dev.DevelopmentAutoclearReadbackEffects)
         self.assertIs(sealed.AutoclearReadbackEffects, original)
+
+    def test_development_prepare_makes_the_installed_authority_directory_read_only(self):
+        namespace = builder_v4.materialize_staging_tree.__globals__["_IMPL"]
+        original = namespace["_ensure_parents"]
+        observed = {}
+
+        def prepare(_backend, _request):
+            entries = {
+                "usr/share/boole/native-shadow/registry-v1.json": {
+                    "path": "usr/share/boole/native-shadow/registry-v1.json",
+                    "kind": "file",
+                    "mode": 0o444,
+                    "uid": 0,
+                    "gid": 0,
+                    "raw": b"{}\n",
+                }
+            }
+            namespace["_ensure_parents"](entries)
+            observed.update(entries["usr/share/boole/native-shadow"])
+            return "prepared"
+
+        with mock.patch.object(
+            sealed.RepositoryImageBackend,
+            "prepare",
+            autospec=True,
+            side_effect=prepare,
+        ):
+            self.assertEqual(dev._development_backend().prepare(object()), "prepared")
+
+        self.assertEqual(observed["kind"], "directory")
+        self.assertEqual(observed["mode"], 0o555)
+        self.assertEqual((observed["uid"], observed["gid"]), (0, 0))
+        self.assertIs(namespace["_ensure_parents"], original)
+
+    def test_development_readback_rejects_the_boot_observed_0755_authority_directory(self):
+        class Delegate:
+            def read_tree(self, _mountpoint):
+                return {
+                    "/usr/share/boole/native-shadow": {
+                        "kind": "directory",
+                        "mode": 0o755,
+                        "uid": 0,
+                        "gid": 0,
+                    }
+                }
+
+        module = types.SimpleNamespace(HostReadbackEffects=Delegate)
+        effects = dev.DevelopmentAutoclearReadbackEffects(module)
+        with self.assertRaisesRegex(
+            dev.ClosedLocalImageError,
+            "authority directory must be root:root mode 0555",
+        ):
+            effects.read_tree(pathlib.Path("mounted-root"))
+
+    def test_development_readback_accepts_the_exact_0555_authority_directory(self):
+        expected = {
+            "/usr/share/boole/native-shadow": {
+                "kind": "directory",
+                "mode": 0o555,
+                "uid": 0,
+                "gid": 0,
+            }
+        }
+
+        class Delegate:
+            def read_tree(self, _mountpoint):
+                return expected
+
+        module = types.SimpleNamespace(HostReadbackEffects=Delegate)
+        effects = dev.DevelopmentAutoclearReadbackEffects(module)
+        self.assertEqual(effects.read_tree(pathlib.Path("mounted-root")), expected)
 
 
 if __name__ == "__main__":
