@@ -13,6 +13,7 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 WRAPPER = ROOT / "scripts/native_shadow_bounded_snapshot_retry_v1.py"
 RETRYABLE = "snapshot response status is not 200"
+CI = ROOT / ".github/workflows/ci.yml"
 
 
 class BoundedSnapshotRetryTests(unittest.TestCase):
@@ -79,6 +80,40 @@ class BoundedSnapshotRetryTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 9)
             self.assertEqual(state.read_text(), "3")
             self.assertEqual(completed.stderr.count(RETRYABLE), 3)
+
+    def test_observed_snapshot_502_is_retryable_but_404_is_not(self) -> None:
+        retryable_program = (
+            "import pathlib,sys; p=pathlib.Path(sys.argv[1]); "
+            "n=int(p.read_text()) if p.exists() else 0; p.write_text(str(n+1)); "
+            "print('urllib.error.HTTPError: HTTP Error 502: Bad Gateway', file=sys.stderr); "
+            "raise SystemExit(1)"
+        )
+        permanent_program = retryable_program.replace("502: Bad Gateway", "404: Not Found")
+        with tempfile.TemporaryDirectory() as scratch:
+            base = pathlib.Path(scratch)
+            retryable = self.run_wrapper(retryable_program, base / "retryable")
+            permanent = self.run_wrapper(permanent_program, base / "permanent")
+            self.assertEqual(retryable.returncode, 1)
+            self.assertEqual((base / "retryable").read_text(), "3")
+            self.assertEqual(permanent.returncode, 1)
+            self.assertEqual((base / "permanent").read_text(), "1")
+
+    def test_required_ci_uses_the_same_bound_for_three_snapshot_consumers(self) -> None:
+        text = CI.read_text(encoding="utf-8")
+        wrapper = "native_shadow_bounded_snapshot_retry_v1.py"
+        self.assertEqual(text.count(wrapper), 3)
+        self.assertIn(
+            f"{wrapper} -- sudo ./scripts/native-shadow-portable-rootfs-replay-linux.sh",
+            text,
+        )
+        self.assertIn(
+            f"{wrapper} -- sudo ./scripts/native-shadow-portable-rootfs-replay-linux-arm64.sh",
+            text,
+        )
+        self.assertIn(
+            f"{wrapper} -- python3 scripts/native_shadow_boot_ci_payload_acquire_arm64_v1.py acquire",
+            text,
+        )
 
     def test_empty_command_is_refused(self) -> None:
         completed = subprocess.run(

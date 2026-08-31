@@ -162,7 +162,8 @@ jobs:
           sudo useradd --system --gid boole-native-checker --home-dir /nonexistent --no-create-home --shell /bin/false boole-native-checker
 
       - name: Rebuild, independently verify, and probe the portable checker rootfs
-        run: sudo ./scripts/native-shadow-portable-rootfs-replay-linux.sh
+        run: >-
+          python3 scripts/native_shadow_bounded_snapshot_retry_v1.py -- sudo ./scripts/native-shadow-portable-rootfs-replay-linux.sh
 
   native-shadow-rootfs-replay-linux-arm64:
     name: native-shadow-rootfs-replay-linux-arm64
@@ -201,7 +202,8 @@ jobs:
           scripts.test_native_shadow_successor_produce_workflow_arm64_v4.WrapperSurfaceTests.test_linux_exact_rehearsal_systemd_property_envelope_is_accepted
 
       - name: Rebuild and execute the Linux arm64 checker parity matrix
-        run: sudo ./scripts/native-shadow-portable-rootfs-replay-linux-arm64.sh
+        run: >-
+          python3 scripts/native_shadow_bounded_snapshot_retry_v1.py -- sudo ./scripts/native-shadow-portable-rootfs-replay-linux-arm64.sh
 
   native-shadow-launcher-build-arm64:
     name: native-shadow-launcher-build-arm64
@@ -341,7 +343,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/acquire"
-          python3 scripts/native_shadow_boot_ci_payload_acquire_arm64_v1.py acquire \
+          python3 scripts/native_shadow_bounded_snapshot_retry_v1.py -- python3 scripts/native_shadow_boot_ci_payload_acquire_arm64_v1.py acquire \
             --cas "$PWD/$CAS" \
             --zstd "$(readlink -f "$(command -v zstd)")" \
             --result "$RUNNER_TEMP/acquire/ci-payload-acquisition.json"

@@ -11,6 +11,7 @@ the original size and SHA-256 rules.  Any other error is returned immediately.
 from __future__ import annotations
 
 import argparse
+import re
 import subprocess
 import sys
 import time
@@ -19,6 +20,7 @@ from typing import Optional
 
 MAX_ATTEMPTS = 3
 RETRYABLE_MESSAGE = "snapshot response status is not 200"
+RETRYABLE_HTTP_STATUS = re.compile(rb"HTTP Error (?:500|502|503|504):")
 
 
 def run(
@@ -44,7 +46,10 @@ def run(
 
         if completed.returncode == 0:
             return 0
-        retryable = RETRYABLE_MESSAGE.encode("utf-8") in stderr
+        retryable = (
+            RETRYABLE_MESSAGE.encode("utf-8") in stderr
+            or RETRYABLE_HTTP_STATUS.search(stderr) is not None
+        )
         if not retryable or attempt == MAX_ATTEMPTS:
             return int(completed.returncode)
         next_attempt = attempt + 1
