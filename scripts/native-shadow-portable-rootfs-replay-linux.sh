@@ -198,6 +198,11 @@ zstd_path="$(readlink -f "$(command -v zstd)")"
 # Only the two frozen fetch operations run outside PrivateNetwork.  Signed
 # resolution is fixed offline before payload fetch; sealing, exact-output
 # adoption decisions and every executable probe stay in networkless units.
+python3 "$ROOT/scripts/native_shadow_official_mirror_seed_v1.py" runtime-bootstrap \
+  --architecture amd64 \
+  --plan "$ROOT/native/containment/native-shadow-runtime-rootfs-acquisition-plan-v1.json" \
+  --cas "$cas"
+
 python3 "$ROOT/scripts/native_shadow_rootfs_acquire.py" fetch-metadata \
   --plan "$ROOT/native/containment/native-shadow-runtime-rootfs-acquisition-plan-v1.json" \
   --cas "$cas"
@@ -219,6 +224,12 @@ systemd-run \
   --property=RestrictAddressFamilies=AF_UNIX \
   /usr/bin/env bash "$ROOT/scripts/native-shadow-portable-rootfs-replay-linux.sh" \
     --resolve-offline "$scratch"
+
+python3 "$ROOT/scripts/native_shadow_official_mirror_seed_v1.py" runtime-packages \
+  --architecture amd64 \
+  --plan "$ROOT/native/containment/native-shadow-runtime-rootfs-acquisition-plan-v1.json" \
+  --resolution "$runtime_resolution" \
+  --cas "$cas"
 
 python3 "$ROOT/scripts/native_shadow_rootfs_portable_v2.py" fetch-payloads \
   --cas "$cas" \

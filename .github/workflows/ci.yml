@@ -343,6 +343,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/acquire"
+          python3 scripts/native_shadow_official_mirror_seed_v1.py boot \
+            --cas "$PWD/$CAS"
           python3 scripts/native_shadow_bounded_snapshot_retry_v1.py -- python3 scripts/native_shadow_boot_ci_payload_acquire_arm64_v1.py acquire \
             --cas "$PWD/$CAS" \
             --zstd "$(readlink -f "$(command -v zstd)")" \

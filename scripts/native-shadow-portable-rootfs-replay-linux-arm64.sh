@@ -300,6 +300,11 @@ export TMPDIR="$scratch/tmp"
 gpgv_path="$(readlink -f "$(command -v gpgv)")"
 zstd_path="$(readlink -f "$(command -v zstd)")"
 
+python3 "$ROOT/scripts/native_shadow_official_mirror_seed_v1.py" runtime-bootstrap \
+  --architecture arm64 \
+  --plan "$ROOT/native/containment/native-shadow-runtime-rootfs-acquisition-plan-arm64-v1.json" \
+  --cas "$scratch/cas"
+
 python3 "$ROOT/scripts/native_shadow_rootfs_acquire_arm64_v1.py" fetch-metadata \
   --plan "$ROOT/native/containment/native-shadow-runtime-rootfs-acquisition-plan-arm64-v1.json" \
   --builder "$ROOT/scripts/native_shadow_rootfs_builder_arm64_v1.py" \
@@ -317,6 +322,12 @@ systemd-run --quiet --pipe --wait --collect --unit "$resolution_unit" \
   --property=RestrictAddressFamilies=AF_UNIX \
   /usr/bin/env bash "$ROOT/scripts/native-shadow-portable-rootfs-replay-linux-arm64.sh" \
   --offline-resolve "$scratch"
+
+python3 "$ROOT/scripts/native_shadow_official_mirror_seed_v1.py" runtime-packages \
+  --architecture arm64 \
+  --plan "$ROOT/native/containment/native-shadow-runtime-rootfs-acquisition-plan-arm64-v1.json" \
+  --resolution "$scratch/runtime-resolution.json" \
+  --cas "$scratch/cas"
 
 python3 "$ROOT/scripts/native_shadow_rootfs_portable_arm64_v1.py" fetch-payloads \
   --cas "$scratch/cas" \
