@@ -1,0 +1,167 @@
+{
+  "activationAllowed": false,
+  "authorisations": {
+    "bootAuthorised": false,
+    "consensusActivated": false,
+    "imageProductionAuthorised": false,
+    "imageProductionRunsAllowed": 0,
+    "mac4Started": false,
+    "miningActivated": false,
+    "p2pActivated": false,
+    "rewardActivated": false,
+    "testnetStarted": false
+  },
+  "bootableClaim": false,
+  "boundInputs": [
+    {
+      "path": "native/containment/native-shadow-mac3-launcher-v2-successor-main-branch-dispatch-fence-correction-arm64-v1.json",
+      "sha256": "63f5bdf0ffaac00ac1af3972ed69051da9fcbe8a06b90ae3c9f70756bbfe144b",
+      "sizeBytes": 13335
+    },
+    {
+      "path": "scripts/native_shadow_successor_produce_phase_arm64_v5.py",
+      "sha256": "4916b78f81edc449128162edf0197e0acdcae3373b43a2c0b8b2326601f222aa",
+      "sizeBytes": 346909
+    },
+    {
+      "path": "scripts/test_native_shadow_successor_produce_phase_arm64_v5.py",
+      "sha256": "476d8246d1dc94f600786001aea8467f78c462bf5b6aa98f25ed3f822dbb8583",
+      "sizeBytes": 262004
+    },
+    {
+      "path": "scripts/native-shadow-successor-produce-arm64-v5.sh",
+      "sha256": "d0e8b8434921f83d8eaf4a57169bff235837ac14496811e9be1faedf7e73c6c1",
+      "sizeBytes": 88448
+    },
+    {
+      "path": ".github/workflows/native-shadow-successor-produce-arm64-v5.yml",
+      "sha256": "e52c2a8102efa7607dd12d89dedf5c8145874b238e237d580b0d67ec41cdd5d4",
+      "sizeBytes": 59188
+    },
+    {
+      "path": "scripts/test_native_shadow_successor_produce_workflow_arm64_v5.py",
+      "sha256": "96f2aac1121764879440e72c977a8b3f429c2af285a6d7f1815908104ae944f6",
+      "sizeBytes": 147695
+    },
+    {
+      "path": "scripts/native_shadow_successor_produce_phase_arm64_v3.py",
+      "sha256": "4633fe54c0d44b435b70742c027a83d1354293057787650bb7e91f4a901c46bd",
+      "sizeBytes": 33103
+    },
+    {
+      "path": "scripts/native_shadow_successor_root_disk_readback_arm64_v3.py",
+      "sha256": "1463dadb30bb55403b7604161839ac1164a42f56824255767a6c303a69437c4c",
+      "sizeBytes": 44652
+    },
+    {
+      "path": "scripts/test_native_shadow_successor_root_disk_readback_arm64_v3.py",
+      "sha256": "689fa2d4dd880a0c34aa06bf9685cd60c6fb60b004de9e3dc3c2cdaa86040016",
+      "sizeBytes": 44782
+    }
+  ],
+  "effects": {
+    "attemptMarkersCreated": 0,
+    "bootAttempts": 0,
+    "imageOutputsCreated": 0,
+    "productionOutputsCreated": 0
+  },
+  "executionEnvelope": {
+    "cgroupV2": {
+      "equalAtBeforeAndAfterObservations": true,
+      "leafControlsKernelObserved": true,
+      "limitEventsKernelObserved": true,
+      "memoryHighEvents": 0,
+      "memoryMaxBytes": 8589934592,
+      "memoryMaxEvents": 0,
+      "memoryOomEvents": 0,
+      "memoryOomKillEvents": 0,
+      "memorySwapMaxBytes": 0,
+      "pidsMax": 128,
+      "pidsMaxEvents": 0,
+      "requestedUnitMembershipMatched": true
+    },
+    "systemdRuntimeMaxSec": {
+      "evidence": "source-pinned-request-and-exact-unit-membership-at-exec",
+      "execReachedRequestedUnit": true,
+      "kernelObserved": false,
+      "managerValueQueried": false,
+      "requestedSeconds": 1200,
+      "sourcePinnedRequestPresent": true
+    }
+  },
+  "generationFiles": [
+    {
+      "path": "scripts/native_shadow_successor_produce_phase_arm64_v5.py",
+      "sha256": "4916b78f81edc449128162edf0197e0acdcae3373b43a2c0b8b2326601f222aa",
+      "sizeBytes": 346909
+    },
+    {
+      "path": "scripts/test_native_shadow_successor_produce_phase_arm64_v5.py",
+      "sha256": "476d8246d1dc94f600786001aea8467f78c462bf5b6aa98f25ed3f822dbb8583",
+      "sizeBytes": 262004
+    },
+    {
+      "path": "scripts/native-shadow-successor-produce-arm64-v5.sh",
+      "sha256": "d0e8b8434921f83d8eaf4a57169bff235837ac14496811e9be1faedf7e73c6c1",
+      "sizeBytes": 88448
+    },
+    {
+      "path": ".github/workflows/native-shadow-successor-produce-arm64-v5.yml",
+      "sha256": "e52c2a8102efa7607dd12d89dedf5c8145874b238e237d580b0d67ec41cdd5d4",
+      "sizeBytes": 59188
+    },
+    {
+      "path": "scripts/test_native_shadow_successor_produce_workflow_arm64_v5.py",
+      "sha256": "96f2aac1121764879440e72c977a8b3f429c2af285a6d7f1815908104ae944f6",
+      "sizeBytes": 147695
+    }
+  ],
+  "mainBranchDispatchFenceCorrection": {
+    "path": "native/containment/native-shadow-mac3-launcher-v2-successor-main-branch-dispatch-fence-correction-arm64-v1.json",
+    "sha256": "63f5bdf0ffaac00ac1af3972ed69051da9fcbe8a06b90ae3c9f70756bbfe144b",
+    "sizeBytes": 13335
+  },
+  "measurement": {
+    "byKind": {
+      "directory": 1737,
+      "file": 15102,
+      "symlink": 837
+    },
+    "caseFoldedSiblings": 20,
+    "duplicatePaths": 0,
+    "entries": 17676,
+    "largestFileBytes": 160096808,
+    "largestFilePath": "opt/boole/native-checker-toolchain/lib/libLLVM.so.22.1-rust-1.99.0-nightly",
+    "pathCollisions": 0,
+    "pathManifestSha256": "0dbc17aeaaa8ef63ddeb53ac8b7615f361c21bda95f0ba3d9677bdbdb76dcb9a",
+    "payloadBytes": 1773475059,
+    "symlinkEscapes": 0
+  },
+  "predecessors": [
+    {
+      "path": "native/containment/native-shadow-mac3-launcher-v2-successor-main-branch-dispatch-fence-correction-arm64-v1.json",
+      "sha256": "63f5bdf0ffaac00ac1af3972ed69051da9fcbe8a06b90ae3c9f70756bbfe144b",
+      "sizeBytes": 13335
+    }
+  ],
+  "repeatable": true,
+  "reusedPinnedUpstream": [
+    {
+      "path": "scripts/native_shadow_successor_produce_phase_arm64_v3.py",
+      "sha256": "4633fe54c0d44b435b70742c027a83d1354293057787650bb7e91f4a901c46bd",
+      "sizeBytes": 33103
+    },
+    {
+      "path": "scripts/native_shadow_successor_root_disk_readback_arm64_v3.py",
+      "sha256": "1463dadb30bb55403b7604161839ac1164a42f56824255767a6c303a69437c4c",
+      "sizeBytes": 44652
+    },
+    {
+      "path": "scripts/test_native_shadow_successor_root_disk_readback_arm64_v3.py",
+      "sha256": "689fa2d4dd880a0c34aa06bf9685cd60c6fb60b004de9e3dc3c2cdaa86040016",
+      "sizeBytes": 44782
+    }
+  ],
+  "schema": "boole.native-shadow.mac3.launcher-v2-successor-producer-rehearsal.arm64.v3",
+  "status": "PASS-NO-IMAGE-PRODUCED"
+}

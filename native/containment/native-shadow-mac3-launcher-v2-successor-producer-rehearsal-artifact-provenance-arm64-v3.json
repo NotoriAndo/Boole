@@ -1,0 +1,98 @@
+{
+  "artifact": {
+    "apiDigest": "sha256:5f0b7da657d6a56077f16757e4bc461cb968fdd2921c9cdfa11ec878453bed9a",
+    "createdAt": "2026-08-31T01:37:45Z",
+    "expiredAtObservation": false,
+    "expiresAt": "2026-09-07T01:37:45Z",
+    "id": 9742685578,
+    "name": "launcher-v2-successor-v5-free-rehearsal",
+    "runArtifactTotalCount": 1,
+    "sizeInBytes": 1744,
+    "updatedAt": "2026-08-31T01:37:45Z"
+  },
+  "authorityBoundary": {
+    "activationAllowed": false,
+    "authorisations": {
+      "bootAuthorised": false,
+      "consensusActivated": false,
+      "imageProductionAuthorised": false,
+      "imageProductionRunsAllowed": 0,
+      "mac4Started": false,
+      "miningActivated": false,
+      "p2pActivated": false,
+      "rewardActivated": false,
+      "testnetStarted": false
+    },
+    "bootableClaim": false,
+    "effects": {
+      "attemptMarkersCreated": 0,
+      "bootAttempts": 0,
+      "imageOutputsCreated": 0,
+      "productionOutputsCreated": 0
+    },
+    "guestBootClaim": false,
+    "imageProductionClaim": false,
+    "productionGuardSkipped": true
+  },
+  "downloadedZip": {
+    "apiDigestMatched": true,
+    "apiSizeMatched": true,
+    "retrievedAt": "2026-08-31T01:38:27Z",
+    "sha256": "5f0b7da657d6a56077f16757e4bc461cb968fdd2921c9cdfa11ec878453bed9a",
+    "sizeBytes": 1744
+  },
+  "jobs": {
+    "freeRehearsal": {
+      "conclusion": "success",
+      "jobId": 99355609752,
+      "jobUrl": "https://github.com/NotoriAndo/Boole/actions/runs/33347946953/job/99355609752",
+      "name": "free-rehearsal"
+    },
+    "skipped": [
+      {
+        "conclusion": "skipped",
+        "jobId": 99355610641,
+        "name": "production-authority-guard"
+      },
+      {
+        "conclusion": "skipped",
+        "jobId": 99355610725,
+        "name": "produce"
+      },
+      {
+        "conclusion": "skipped",
+        "jobId": 99355611112,
+        "name": "compare"
+      }
+    ]
+  },
+  "schema": "boole.native-shadow.mac3.launcher-v2-successor-producer-rehearsal-artifact-provenance.arm64.v3",
+  "soleMember": {
+    "archiveMemberCount": 1,
+    "bytesReadDirectly": true,
+    "directory": false,
+    "name": "R3-RESULT.json",
+    "pathSafe": true,
+    "sha256": "44cd7d6feea2efc62d9ab6cb809e5d66c1452c9e4d2f034fd800e6573938fe87",
+    "sizeBytes": 6012,
+    "symlink": false
+  },
+  "source": {
+    "event": "workflow_dispatch",
+    "headSha": "f690f109ce268bc44a6b91459a373390f6bbc31f",
+    "repository": "NotoriAndo/Boole",
+    "runAttempt": 1,
+    "runId": 33347946953,
+    "runUrl": "https://github.com/NotoriAndo/Boole/actions/runs/33347946953",
+    "workflowName": "native-shadow-successor-produce-arm64-v5",
+    "workflowPath": ".github/workflows/native-shadow-successor-produce-arm64-v5.yml"
+  },
+  "status": "SEALED-SUCCESSFUL-AUTHORITY-ZERO-R3-ARTIFACT-PROVENANCE",
+  "subject": "The sole artifact from the first successful main-only v5 authority-zero R3 rehearsal. This record seals transport metadata around the raw payload without authorising image production or guest boot.",
+  "trackedPayload": {
+    "byteIdenticalToSoleMember": true,
+    "path": "native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-result-arm64-v3.json",
+    "sha256": "44cd7d6feea2efc62d9ab6cb809e5d66c1452c9e4d2f034fd800e6573938fe87",
+    "sizeBytes": 6012
+  }
+}
