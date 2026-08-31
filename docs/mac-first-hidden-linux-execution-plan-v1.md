@@ -6166,3 +6166,53 @@ Implementation is not permission.  `mineable_now=0`, `REWARD_READY=0`,
 activationAllowed=false remain unchanged.
 
 <!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-V5-IMPLEMENTED-R3-PENDING:END -->
+
+## 77. Fresh authority-zero R3 succeeded; production remains closed (2026-08-31)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R3-SUCCESS-ARM64-V3-SEALED:BEGIN -->
+
+The first fresh R3 run of the main-only v5 generation completed on exact main
+`f690f109ce268bc44a6b91459a373390f6bbc31f`.  Workflow run
+`33347946953` used `workflow_dispatch` at `refs/heads/main`; the sole
+`free-rehearsal` job (`99355609752`) succeeded, while
+`production-authority-guard`, `produce` and `compare` were skipped.  The raw
+canonical result is 6,012 bytes at SHA-256
+`44cd7d6feea2efc62d9ab6cb809e5d66c1452c9e4d2f034fd800e6573938fe87`
+with status `PASS-NO-IMAGE-PRODUCED`.
+
+R3 rechecked P4 and the exact five live v5 generation files, reconstructed the
+three sealed reused inputs, and measured the preregistered staging tree as
+17,676 entries and 1,773,475,059 payload bytes.  Path collisions, duplicate
+paths and symlink escapes were all zero.  The run acquired already sealed
+dependencies, so it is not described as offline.  It created no production
+claim, marker, scratch, image, boot or activation effect; every authority and
+effect count remains false or zero.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R3-SUCCESS-ARM64-V3-SEALED:END -->
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R3-ARTIFACT-PROVENANCE-ARM64-V3-SEALED:BEGIN -->
+
+Transport evidence is kept separately in the 3,288-byte provenance record at
+SHA-256
+`f1618b92cfa138370209a50743f9630e497b35ee4e05d117d1e0af369a95320d`.
+Run `33347946953` exposed exactly one artifact (`9742685578`), a 1,744-byte
+ZIP at SHA-256
+`5f0b7da657d6a56077f16757e4bc461cb968fdd2921c9cdfa11ec878453bed9a`.
+Its sole safe member was `R3-RESULT.json`, byte-identical to the tracked raw
+result.  This is a frozen observation before the artifact's scheduled expiry,
+not a promise that GitHub will retain or re-serve it forever.  Transport
+provenance does not enter the future production-authority lineage.
+
+### 77.1 Cursor
+
+```text
+R3 GREEN / F7 NEXT / A7 NOT CREATED
+PRODUCTION CLAIM TAG / IMAGE / BOOT  NOT CREATED OR RUN
+MAC.4 / TESTNET / MINING / REWARD  NOT STARTED
+```
+
+F7 may now bind the observed v5 generation as authority-zero identity.  A7
+still requires a separate risk review and record; R3 itself grants no image,
+boot, serving, mining, reward, consensus, P2P or activation authority.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R3-ARTIFACT-PROVENANCE-ARM64-V3-SEALED:END -->

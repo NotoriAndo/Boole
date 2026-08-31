@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `588c9d134151ae2a43e6e84772c601d1da46a71b9aeafc6032d24a4f6bb65604` (updated 2026-08-31b — main-only producer-generation v5 is implemented while R3 and all production authority remain absent) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `8abec2927ed5b1433a1df21c55cc2fa4f552f51e02e37fad233e28aa0d86cd3c` (updated 2026-08-31b — execution moves to fresh authority-zero R3 after v5 focused gates) |
+| `local-docs/todo/todo-l1-network-master.md` | `626a9b5e8d8bbdc4ba37c0b43f89e9dd40306ac6df109ff19f7936cbfa6e021e` (updated 2026-08-31c — exact-main authority-zero R3 and its separate transport provenance are sealed; F7 is next) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `f1a52b4a64c60f6ddd03f9953c94c9d5090811e31229420ba3c4909fb97acd05` (updated 2026-08-31c — execution moves from successful R3 to the authority-zero F7 identity seal) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `c7860c1a0cb15cdfe98aa14efe8f5e7f4d6c89142eccf2ed23383f73fad0145c` (updated 2026-08-31b — stricter executable preparation remains distinct from R3 evidence and production authority) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `a2316ab19141f725f1c816fdc0d4edf9d1d6920b17b81958e64a1ed5d2889554` (updated 2026-08-31c — observed implementation identity, transport provenance and production permission remain distinct) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -2605,3 +2605,43 @@ do not exist.  Production, MAC.4, testnet, mining, reward, consensus, P2P and
 activation remain closed.
 
 <!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-V5-IMPLEMENTED-R3-PENDING:END -->
+
+## Fresh authority-zero R3 result and transport seal (2026-08-31)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R3-SUCCESS-ARM64-V3-SEALED:BEGIN -->
+
+The exact-main v5 authority-zero rehearsal succeeded once as run
+`33347946953` on main
+`f690f109ce268bc44a6b91459a373390f6bbc31f`.  Its free job
+`99355609752` succeeded; production authority, production and comparison jobs
+were skipped.  The tracked raw result is 6,012 bytes at SHA-256
+`44cd7d6feea2efc62d9ab6cb809e5d66c1452c9e4d2f034fd800e6573938fe87`
+and says `PASS-NO-IMAGE-PRODUCED`.  It binds P4 and the exact v5/reused source
+bytes, may acquire sealed dependencies, and therefore makes no offline claim.
+All authority and effect values remain false or zero.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R3-SUCCESS-ARM64-V3-SEALED:END -->
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R3-ARTIFACT-PROVENANCE-ARM64-V3-SEALED:BEGIN -->
+
+The separate 3,288-byte transport record at SHA-256
+`f1618b92cfa138370209a50743f9630e497b35ee4e05d117d1e0af369a95320d`
+binds run `33347946953`, artifact `9742685578`, the three skipped production
+jobs and the downloaded ZIP.  The ZIP is 1,744 bytes at SHA-256
+`5f0b7da657d6a56077f16757e4bc461cb968fdd2921c9cdfa11ec878453bed9a`;
+its sole safe member is byte-identical `R3-RESULT.json`.  This is a frozen
+pre-expiry observation, not perpetual GitHub availability.  Transport evidence
+does not flow into the P4→R3→F7→A7 authority chain.
+
+```text
+R3 GREEN / F7 NEXT / A7 NOT CREATED
+PRODUCTION CLAIM TAG / IMAGE / BOOT  NOT CREATED OR RUN
+```
+
+The 2026-08-31c local mirror synchronization appends the same R3-green/F7-next
+cursor to the Master Plan, Execution and thesis roadmap.  Section 12 records
+their new byte digests; the ADR, verified thesis and encyclopedia mirrors are
+unchanged.  These mirror hashes are synchronization evidence only and grant no
+runtime authority.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R3-ARTIFACT-PROVENANCE-ARM64-V3-SEALED:END -->

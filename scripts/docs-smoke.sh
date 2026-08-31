@@ -1749,9 +1749,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "588c9d134151ae2a43e6e84772c601d1da46a71b9aeafc6032d24a4f6bb65604"
-require_text docs/native-submission-shadow-verification-v1.md "8abec2927ed5b1433a1df21c55cc2fa4f552f51e02e37fad233e28aa0d86cd3c"
-require_text docs/native-submission-shadow-verification-v1.md "c7860c1a0cb15cdfe98aa14efe8f5e7f4d6c89142eccf2ed23383f73fad0145c"
+require_text docs/native-submission-shadow-verification-v1.md "626a9b5e8d8bbdc4ba37c0b43f89e9dd40306ac6df109ff19f7936cbfa6e021e"
+require_text docs/native-submission-shadow-verification-v1.md "f1a52b4a64c60f6ddd03f9953c94c9d5090811e31229420ba3c4909fb97acd05"
+require_text docs/native-submission-shadow-verification-v1.md "a2316ab19141f725f1c816fdc0d4edf9d1d6920b17b81958e64a1ed5d2889554"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Boot source lock plan successor addendum"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BOOT-ROOTFS-SOURCE-LOCK-PLAN-SUCCESSOR-FROZEN-LOCK-NOT-GENERATED"
@@ -2948,9 +2948,9 @@ require_text "$V4_MAIN_BRANCH_FENCE_CORRECTION" 'native-shadow-successor-produce
 require_text "$V4_MAIN_BRANCH_FENCE_CORRECTION" '"imageProductionRunsAllowed": 0'
 require_text "$V4_MAIN_BRANCH_FENCE_CORRECTION" '"administratorDeletionIsPreventedByObservedServerRuleset": false'
 require_text "$V4_MAIN_BRANCH_FENCE_CORRECTION" 'native-shadow-mac3-successor-production-authority-arm64-v7.json'
-require_text docs/native-submission-shadow-verification-v1.md '588c9d134151ae2a43e6e84772c601d1da46a71b9aeafc6032d24a4f6bb65604'
-require_text docs/native-submission-shadow-verification-v1.md '8abec2927ed5b1433a1df21c55cc2fa4f552f51e02e37fad233e28aa0d86cd3c'
-require_text docs/native-submission-shadow-verification-v1.md 'c7860c1a0cb15cdfe98aa14efe8f5e7f4d6c89142eccf2ed23383f73fad0145c'
+require_text docs/native-submission-shadow-verification-v1.md '626a9b5e8d8bbdc4ba37c0b43f89e9dd40306ac6df109ff19f7936cbfa6e021e'
+require_text docs/native-submission-shadow-verification-v1.md 'f1a52b4a64c60f6ddd03f9953c94c9d5090811e31229420ba3c4909fb97acd05'
+require_text docs/native-submission-shadow-verification-v1.md 'a2316ab19141f725f1c816fdc0d4edf9d1d6920b17b81958e64a1ed5d2889554'
 for doc in \
   docs/mac-first-hidden-linux-execution-plan-v1.md \
   docs/node-native-shadow-binding-containment-implementation-spec-v1.md \
@@ -2987,6 +2987,36 @@ for doc in \
   docs/native-submission-shadow-verification-v1.md; do
   require_text "$doc" 'LAUNCHER-V2-SUCCESSOR-PRODUCER-V5-IMPLEMENTED-R3-PENDING:BEGIN'
   require_text "$doc" 'R3'
+done
+
+# Fresh authority-zero R3 succeeded on exact main.  Keep its raw canonical
+# payload separate from GitHub transport provenance and preserve zero
+# production/image/boot authority in both records.
+V5_R3_RESULT=native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-result-arm64-v3.json
+V5_R3_RESULT_GATE=scripts/test_native_shadow_launcher_v2_successor_producer_rehearsal_result_arm64_v3.py
+V5_R3_PROVENANCE=native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-artifact-provenance-arm64-v3.json
+V5_R3_PROVENANCE_GATE=scripts/test_native_shadow_launcher_v2_successor_producer_rehearsal_artifact_provenance_arm64_v3.py
+for path in "$V5_R3_RESULT" "$V5_R3_RESULT_GATE" \
+  "$V5_R3_PROVENANCE" "$V5_R3_PROVENANCE_GATE"; do
+  require_file "$path"
+done
+require_text scripts/self-test.sh "$V5_R3_RESULT_GATE"
+require_text scripts/self-test.sh "$V5_R3_PROVENANCE_GATE"
+require_text "$V5_R3_RESULT_GATE" '44cd7d6feea2efc62d9ab6cb809e5d66c1452c9e4d2f034fd800e6573938fe87'
+require_text "$V5_R3_PROVENANCE_GATE" 'f1618b92cfa138370209a50743f9630e497b35ee4e05d117d1e0af369a95320d'
+require_text "$V5_R3_RESULT" '"status": "PASS-NO-IMAGE-PRODUCED"'
+require_text "$V5_R3_RESULT" '"imageProductionRunsAllowed": 0'
+require_text "$V5_R3_RESULT" '"productionOutputsCreated": 0'
+require_text "$V5_R3_PROVENANCE" '"runId": 33347946953'
+require_text "$V5_R3_PROVENANCE" '"runArtifactTotalCount": 1'
+require_text "$V5_R3_PROVENANCE" '"productionGuardSkipped": true'
+for doc in \
+  docs/mac-first-hidden-linux-execution-plan-v1.md \
+  docs/node-native-shadow-binding-containment-implementation-spec-v1.md \
+  docs/native-submission-shadow-verification-v1.md; do
+  require_text "$doc" 'LAUNCHER-V2-SUCCESSOR-PRODUCER-R3-SUCCESS-ARM64-V3-SEALED:BEGIN'
+  require_text "$doc" 'LAUNCHER-V2-SUCCESSOR-PRODUCER-R3-ARTIFACT-PROVENANCE-ARM64-V3-SEALED:BEGIN'
+  require_text "$doc" 'R3 GREEN / F7 NEXT / A7 NOT CREATED'
 done
 
 printf 'docs-smoke: PASS\n' >&2

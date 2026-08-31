@@ -4431,3 +4431,36 @@ production claim, marker, image or boot has run.  The next executable edge is
 one authority-zero R3 rehearsal that may emit only its canonical JSON result.
 
 <!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-V5-IMPLEMENTED-R3-PENDING:END -->
+
+## Fresh authority-zero R3 result and artifact provenance (2026-08-31)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R3-SUCCESS-ARM64-V3-SEALED:BEGIN -->
+
+Main-only v5 run `33347946953` at exact main
+`f690f109ce268bc44a6b91459a373390f6bbc31f` completed the authority-zero R3
+path.  Job `99355609752` succeeded and the production guard, producer and
+comparison jobs were skipped.  The canonical 6,012-byte result has SHA-256
+`44cd7d6feea2efc62d9ab6cb809e5d66c1452c9e4d2f034fd800e6573938fe87`
+and status `PASS-NO-IMAGE-PRODUCED`.  It binds P4 plus the exact live v5 and
+sealed reused bytes and records no marker, image, boot, production or
+activation effect.  Sealed dependency acquisition was allowed; this is not an
+offline-run claim.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R3-SUCCESS-ARM64-V3-SEALED:END -->
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R3-ARTIFACT-PROVENANCE-ARM64-V3-SEALED:BEGIN -->
+
+The separate 3,288-byte provenance record at SHA-256
+`f1618b92cfa138370209a50743f9630e497b35ee4e05d117d1e0af369a95320d`
+binds the one GitHub artifact (`9742685578`), its 1,744-byte ZIP digest
+`5f0b7da657d6a56077f16757e4bc461cb968fdd2921c9cdfa11ec878453bed9a`,
+the sole safe `R3-RESULT.json` member and the three skipped production jobs.
+It freezes the observation before artifact expiry; it does not assert future
+API availability and does not enter F7/A7 authority lineage.
+
+```text
+R3 GREEN / F7 NEXT / A7 NOT CREATED
+PRODUCTION CLAIM TAG / IMAGE / BOOT  NOT CREATED OR RUN
+```
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R3-ARTIFACT-PROVENANCE-ARM64-V3-SEALED:END -->
