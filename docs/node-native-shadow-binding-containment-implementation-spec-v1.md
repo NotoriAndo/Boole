@@ -4406,10 +4406,17 @@ PRODUCTION / IMAGE / BOOT  NOT AUTHORISED OR RUN
 P4's exact five-file successor generation is now implemented without changing
 the historical v4 generation.  The workflow is manual-only and every job
 checks the exact event, main ref and main workflow ref before checkout.  The
-wrapper and core repeat that check before claim, recovery, scratch, output,
-marker, image, seal or comparison effects.  Dispatch-claim v2 binds ten exact
-fields, including the run attempt and A7 digest, and every consumer rechecks
-the live repository context.
+production wrapper and core repeat that check before claim, recovery, scratch,
+output, marker, image, seal or comparison effects.  Dispatch-claim v2 binds
+ten exact fields, including the run attempt and A7 digest, and every production
+consumer rechecks the live repository context.
+
+The authority-zero rehearsal has no A7 to present.  It instead rechecks P4
+and the exact manual-main workflow context, requires R3, F7, A7 and result-v7
+to remain absent, and may acquire only the sealed dependencies needed by the
+shared assembler.  It cannot claim authority or create production scratch,
+output, marker or image state.  Its only permitted retained effect is one
+canonical R3 JSON result.
 
 The controlled repository importer no longer relies on an unpinned live
 module set.  It derives historical Python identities from the P4-bound R1

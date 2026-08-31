@@ -6123,12 +6123,21 @@ byte-preserved.  V5 does not reuse the withdrawn A6/result-v6 reservation.
 
 Every effectful workflow job rejects anything other than
 `workflow_dispatch`, `refs/heads/main` and the exact v5 workflow ref at main
-before checkout or another effect.  The wrapper and core receive and recheck
-the same event, dispatch ref, workflow ref, run attempt, live HEAD and future
-A7 digest.  The canonical dispatch-claim v2 message has exactly ten fields,
-and all claim, recovery, seal and comparison consumers use the same context.
+before checkout or another effect.  Production, claim, recovery, seal and
+comparison paths pass through the wrapper and core, which recheck the same
+event, dispatch ref, workflow ref, run attempt, live HEAD and future A7
+digest.  Their canonical dispatch-claim v2 message has exactly ten fields.
 Feature, tag, pull-request-like, empty and main-prefix lookalike values are
 negative tests, not alternative production routes.
+
+The authority-zero rehearsal is deliberately narrower.  It rechecks P4 and
+the exact manual-main workflow context, requires R3, F7, A7 and result-v7 to
+remain absent, and may acquire the already sealed dependencies needed to
+exercise the shared assembler.  It cannot claim authority or create a marker,
+image or production output; its sole permitted retained effect is one
+canonical R3 JSON result.  Therefore the rehearsal does not pretend to possess
+the future A7 digest that only a separately authorised production path may
+consume.
 
 The production backend also reconstructs its allowed Python import closure
 from records already pinned by P4.  Historical R1 supplies the exact low-level
