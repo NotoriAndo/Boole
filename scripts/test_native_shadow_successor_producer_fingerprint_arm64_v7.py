@@ -261,6 +261,11 @@ class SuccessorProducerFingerprintV7Tests(unittest.TestCase):
         gate_path = pathlib.Path(__file__).resolve().relative_to(REPO).as_posix()
         self_test = SELF_TEST_PATH.read_text(encoding="utf-8")
         self.assertEqual(self_test.count(gate_path), 1)
+        self.assertIn(
+            "run_logged native-shadow-successor-producer-f7 "
+            f"python3 -m unittest {gate_path}",
+            self_test,
+        )
         for doc in DOCS:
             text = doc.read_text(encoding="utf-8")
             self.assertEqual(text.count(SECTION_TOKEN), 1, doc.name)
