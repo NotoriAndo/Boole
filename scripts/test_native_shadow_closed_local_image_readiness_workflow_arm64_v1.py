@@ -44,6 +44,16 @@ class ClosedLocalWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("closed-local-image-to-readiness", production)
         self.assertNotIn("production-authority-arm64-v7", development)
 
+    def test_root_owned_results_are_checked_with_root_visibility(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn('sudo test -f "$result"', text)
+        self.assertIn('sudo test ! -L "$result"', text)
+        self.assertIn('sudo test -f "$outputs/$name"', text)
+        self.assertIn('sudo test ! -L "$outputs/$name"', text)
+        self.assertIn('sudo test ! -e "$outputs"', text)
+        self.assertNotIn('\n          test -f "$result"', text)
+        self.assertNotIn('\n            test ! -e "$outputs"', text)
+
 
 if __name__ == "__main__":
     unittest.main()

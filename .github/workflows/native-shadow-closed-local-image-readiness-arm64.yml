@@ -137,19 +137,19 @@ jobs:
             --setenv=PYTHONHASHSEED=0 \
             --setenv="TMPDIR=$scratch" \
             -- "${command[@]}"
-          test -f "$result"
-          test ! -L "$result"
+          sudo test -f "$result"
+          sudo test ! -L "$result"
           export_root="$RUNNER_TEMP/closed-local-r${REPLICA}"
           mkdir -m 0700 "$export_root"
           sudo cp -a -- "$result" "$export_root/result.json"
           if [[ $MODE == build ]]; then
             for name in guest-kernel guest-initrd guest-root-disk; do
-              test -f "$outputs/$name"
-              test ! -L "$outputs/$name"
+              sudo test -f "$outputs/$name"
+              sudo test ! -L "$outputs/$name"
               sudo cp -a -- "$outputs/$name" "$export_root/$name"
             done
           else
-            test ! -e "$outputs"
+            sudo test ! -e "$outputs"
           fi
           sudo chown -R "$(id -u):$(id -g)" -- "$export_root"
           find "$export_root" -type f -exec chmod 0444 {} +
