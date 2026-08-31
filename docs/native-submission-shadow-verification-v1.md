@@ -1,5 +1,17 @@
 # Native submission shadow verification v1
 
+> **CURRENT-PROCESS-POLICY-V1 (2026-08-31):** Work packaging, retry,
+> evidence-freezing and document synchronization now follow
+> `docs/development-throughput-and-evidence-policy-v1.md`. This changes future
+> development procedure only. The node-owned verdict, containment, replay and
+> activation boundaries in this specification remain unchanged, and no A7,
+> production, boot, mining or reward authority is created here.
+
+> **CURRENT-CURSOR-2026-08-31:** `R3 GREEN / F7 SEALED / PRE-A7 REVIEW COMPLETE /
+> A7 NOT CREATED`. The next coherent development milestone is the reversible
+> closed-local image-to-readiness path. This cursor is status, not production,
+> boot, MAC.4, testnet, mining, reward or activation permission.
+
 Status: **CLOSED-LOCAL QUALIFICATION GREEN — tracked checker, named-Linux containment, loopback
 node raw-answer HTTP adjudication and durable replay landed; production activation, P2P, block,
 reward and consensus remain forbidden**
@@ -698,7 +710,16 @@ exactly-once E2E and unresolved-`InFlight` fail-closed behavior closed in sectio
 PR #221). Every other limit in this section stands unchanged, and the Mac product gates MAC.2+
 remain unimplemented.
 
-## 12. Synchronized local planning mirrors
+## 12. Historical local planning mirror snapshot
+
+<!-- LOCAL-MIRROR-DIGEST-SYNC-RETIRED -->
+
+The table below is a **historical snapshot**, not a live synchronization
+contract. Starting with CURRENT-PROCESS-POLICY-V1, ignored planning files are
+edited in place at major milestones and are not re-hashed into tracked docs or
+CI prose gates. The recorded values remain evidence of the dated snapshots;
+they are not current trust roots and will not be refreshed merely because a
+plan or cursor changes.
 
 The detailed master, execution and thesis mirrors remain under gitignored `local-docs`; the
 repository must not unignore that directory wholesale. Their synchronized 2026-08-25 byte

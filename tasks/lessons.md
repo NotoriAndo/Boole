@@ -1,5 +1,14 @@
 # Session lessons
 
+> **LESSONS-ARE-ADVISORY-NOT-BINDING (2026-08-31):** This file is an incident
+> notebook, not a second constitution. Entries help diagnose repeated mistakes,
+> but they do not create approval gates, one-shot budgets, required PRs or
+> permanent process rules by themselves. A lesson becomes binding only when it
+> is explicitly promoted into `AGENTS.md`,
+> `local-docs/todo/todo-l1-network-master.md` or
+> `docs/development-throughput-and-evidence-policy-v1.md`. Existing entries are
+> preserved as historical observations.
+
 ## 2026-05-09 — S14 Green build error: `Path` extractor
 
 **Pattern:** when adding a new axum handler that uses the `Path<...>` URL-parameter extractor, always grep the existing handlers in the same file for `Path` first. `crates/boole-node/src/local_node.rs` aliases `axum::extract::Path as AxumPath`, and every existing handler (block-by-height, account-by-pk, bounty-by-id, bounty-proof) uses `AxumPath(...): AxumPath<String>`. Writing the new `bounty_status_handler` with the unaliased `Path(id): Path<String>` produced three compile errors at once.

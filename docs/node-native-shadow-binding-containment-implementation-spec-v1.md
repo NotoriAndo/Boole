@@ -1,5 +1,18 @@
 # Node-native shadow binding and containment — consolidated implementation spec v1
 
+> **CURRENT-PROCESS-POLICY-V1 (2026-08-31):** New implementation work follows
+> `docs/development-throughput-and-evidence-policy-v1.md`. Runtime exactly-once,
+> durable replay, containment and fail-closed requirements remain binding. The
+> historical one-shot limits on disposable image builds and closed-local boots
+> describe earlier attempts; they do not require a new authority document or
+> PR for every reversible retry. This note grants no A7, production, boot,
+> MAC.4 or activation effect.
+
+> **CURRENT-CURSOR-2026-08-31:** `R3 GREEN / F7 SEALED / PRE-A7 REVIEW COMPLETE /
+> A7 NOT CREATED`. The next coherent development milestone is the reversible
+> closed-local image-to-readiness path. Existing runtime exactly-once and
+> containment contracts remain its acceptance boundary.
+
 Status: **CLOSED-LOCAL IMPLEMENTATION GREEN.** Registry/state durability, named-Linux containment,
 actual checker execution and the feature-gated loopback HTTP route are on `main`. Production
 activation, P2P, block, reward and consensus remain forbidden.
