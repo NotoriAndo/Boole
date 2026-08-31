@@ -244,6 +244,58 @@ class ClosedLocalImageBehaviorTests(unittest.TestCase):
         effects.detach_loop("/dev/loop7")
         self.assertEqual(calls[-1], ("detach", "/dev/loop7"))
 
+    def test_explicit_detach_accepts_the_exact_already_autocleared_result(self):
+        class ReadbackV3Error(RuntimeError):
+            pass
+
+        class Delegate:
+            def setup_loop(self, _image):
+                return "/dev/loop7"
+
+            def detach_loop(self, device):
+                raise ReadbackV3Error(
+                    "/usr/sbin/losetup failed: losetup: %s: detach failed: "
+                    "No such device or address" % device
+                )
+
+        module = types.SimpleNamespace(
+            HostReadbackEffects=Delegate,
+            ReadbackV3Error=ReadbackV3Error,
+        )
+        effects = dev.DevelopmentAutoclearReadbackEffects(
+            module,
+            autoclear_setter=lambda _device: None,
+        )
+
+        self.assertEqual(effects.setup_loop(types.SimpleNamespace()), "/dev/loop7")
+        effects.detach_loop("/dev/loop7")
+
+    def test_explicit_detach_keeps_every_other_cleanup_error_fatal(self):
+        class ReadbackV3Error(RuntimeError):
+            pass
+
+        class Delegate:
+            def setup_loop(self, _image):
+                return "/dev/loop7"
+
+            def detach_loop(self, _device):
+                raise ReadbackV3Error(
+                    "/usr/sbin/losetup failed: permission denied"
+                )
+
+        module = types.SimpleNamespace(
+            HostReadbackEffects=Delegate,
+            ReadbackV3Error=ReadbackV3Error,
+        )
+        effects = dev.DevelopmentAutoclearReadbackEffects(
+            module,
+            autoclear_setter=lambda _device: None,
+        )
+
+        self.assertEqual(effects.setup_loop(types.SimpleNamespace()), "/dev/loop7")
+        with self.assertRaisesRegex(ReadbackV3Error, "permission denied"):
+            effects.detach_loop("/dev/loop7")
+
     def test_autoclear_ioctl_sets_the_kernel_flag_on_the_loop_device(self):
         calls = []
 
