@@ -1749,9 +1749,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "dd9f76fbbaf887d9f87b19b0e7b4df17660775bc6c3a5f4993e67478ab174ab8"
-require_text docs/native-submission-shadow-verification-v1.md "e4d44b776466f134415d4387f4e632c69db9ad62546190c2403db46d77559536"
-require_text docs/native-submission-shadow-verification-v1.md "98d69b5d9c94831e7b4a880c20e4552f4207e0f86ef32fcfb6d4d3a9cb2868ec"
+require_text docs/native-submission-shadow-verification-v1.md "56c5cb1a47d385319480fe3703e1cb24e2918c63f4378b128708e48e5bbef54d"
+require_text docs/native-submission-shadow-verification-v1.md "72f3fa9a5ebe28ffe345986ed8647c5fda900c13fa80fa0766caacab6a840c51"
+require_text docs/native-submission-shadow-verification-v1.md "4aed2b5eea4721446aa5249e2e2e3f96a2471b410e41ddc374e2ef6be1158817"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Boot source lock plan successor addendum"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BOOT-ROOTFS-SOURCE-LOCK-PLAN-SUCCESSOR-FROZEN-LOCK-NOT-GENERATED"
@@ -2948,9 +2948,9 @@ require_text "$V4_MAIN_BRANCH_FENCE_CORRECTION" 'native-shadow-successor-produce
 require_text "$V4_MAIN_BRANCH_FENCE_CORRECTION" '"imageProductionRunsAllowed": 0'
 require_text "$V4_MAIN_BRANCH_FENCE_CORRECTION" '"administratorDeletionIsPreventedByObservedServerRuleset": false'
 require_text "$V4_MAIN_BRANCH_FENCE_CORRECTION" 'native-shadow-mac3-successor-production-authority-arm64-v7.json'
-require_text docs/native-submission-shadow-verification-v1.md 'dd9f76fbbaf887d9f87b19b0e7b4df17660775bc6c3a5f4993e67478ab174ab8'
-require_text docs/native-submission-shadow-verification-v1.md 'e4d44b776466f134415d4387f4e632c69db9ad62546190c2403db46d77559536'
-require_text docs/native-submission-shadow-verification-v1.md '98d69b5d9c94831e7b4a880c20e4552f4207e0f86ef32fcfb6d4d3a9cb2868ec'
+require_text docs/native-submission-shadow-verification-v1.md '56c5cb1a47d385319480fe3703e1cb24e2918c63f4378b128708e48e5bbef54d'
+require_text docs/native-submission-shadow-verification-v1.md '72f3fa9a5ebe28ffe345986ed8647c5fda900c13fa80fa0766caacab6a840c51'
+require_text docs/native-submission-shadow-verification-v1.md '4aed2b5eea4721446aa5249e2e2e3f96a2471b410e41ddc374e2ef6be1158817'
 for doc in \
   docs/mac-first-hidden-linux-execution-plan-v1.md \
   docs/node-native-shadow-binding-containment-implementation-spec-v1.md \
@@ -3040,5 +3040,21 @@ for doc in \
   require_text "$doc" '2,798-byte'
   require_text "$doc" 'R3 GREEN / F7 SEALED / A7 NOT CREATED / PRODUCTION AND BOOT NOT RUN'
 done
+
+# The pre-A7 review may clear the frozen code contract, but it must leave the
+# irreversible production permission as an explicit operator boundary.
+for doc in \
+  docs/mac-first-hidden-linux-execution-plan-v1.md \
+  docs/node-native-shadow-binding-containment-implementation-spec-v1.md \
+  docs/native-submission-shadow-verification-v1.md; do
+  require_text "$doc" 'PRE-A7-RISK-REVIEW-V1-COMPLETE-AUTHORITY-NOT-GRANTED'
+  require_text "$doc" 'PRE-A7 REVIEW COMPLETE / A7 NOT CREATED / PRODUCTION AND BOOT NOT RUN'
+  require_text "$doc" 'administrator deletion is outside'
+  require_text "$doc" 'code-only proof'
+  require_text "$doc" 'provenance remains outside the authority lineage'
+done
+require_text docs/native-submission-shadow-verification-v1.md '56c5cb1a47d385319480fe3703e1cb24e2918c63f4378b128708e48e5bbef54d'
+require_text docs/native-submission-shadow-verification-v1.md '72f3fa9a5ebe28ffe345986ed8647c5fda900c13fa80fa0766caacab6a840c51'
+require_text docs/native-submission-shadow-verification-v1.md '4aed2b5eea4721446aa5249e2e2e3f96a2471b410e41ddc374e2ef6be1158817'
 
 printf 'docs-smoke: PASS\n' >&2
