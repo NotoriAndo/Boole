@@ -16,8 +16,47 @@ permissions:
   contents: read
 
 jobs:
+  change-scope:
+    name: change-scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      process_only: ${{ steps.classify.outputs.process_only }}
+    steps:
+      - name: Checkout change range
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+
+      - name: Select process-only or full validation
+        id: classify
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BASE_SHA: ${{ github.event.before }}
+          PUSH_HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          zero=0000000000000000000000000000000000000000
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            base="$PR_BASE_SHA"
+            head="$PR_HEAD_SHA"
+          elif [[ "$EVENT_NAME" == push && -n "$PUSH_BASE_SHA" && "$PUSH_BASE_SHA" != "$zero" ]]; then
+            base="$PUSH_BASE_SHA"
+            head="$PUSH_HEAD_SHA"
+          else
+            printf 'process_only=false\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git diff --name-only --no-renames "$base" "$head" |
+            python3 scripts/ci_change_scope.py --github-output "$GITHUB_OUTPUT"
+
   native-shadow-containment-linux:
     name: native-shadow-containment-linux
+    needs: change-scope
+    if: needs.change-scope.outputs.process_only != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
@@ -94,6 +133,8 @@ jobs:
 
   native-shadow-rootfs-replay-linux:
     name: native-shadow-rootfs-replay-linux
+    needs: change-scope
+    if: needs.change-scope.outputs.process_only != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -125,6 +166,8 @@ jobs:
 
   native-shadow-rootfs-replay-linux-arm64:
     name: native-shadow-rootfs-replay-linux-arm64
+    needs: change-scope
+    if: needs.change-scope.outputs.process_only != 'true'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 45
     steps:
@@ -162,6 +205,8 @@ jobs:
 
   native-shadow-launcher-build-arm64:
     name: native-shadow-launcher-build-arm64
+    needs: change-scope
+    if: needs.change-scope.outputs.process_only != 'true'
     # The launcher target is aarch64-unknown-linux-gnu, which the developer Mac
     # cannot produce, so the two independent builds run here instead. The
     # toolchain below is the workspace channel from rust-toolchain.toml, not the
@@ -197,6 +242,8 @@ jobs:
 
   native-shadow-launcher-build-arm64-v2:
     name: native-shadow-launcher-build-arm64-v2
+    needs: change-scope
+    if: needs.change-scope.outputs.process_only != 'true'
     # The successor is built beside, never instead of, the historical v1
     # launcher. Its frozen overlay adds the evidence producer and remaps both
     # the workspace and fresh Cargo home before the ELF can be sealed.
@@ -250,6 +297,8 @@ jobs:
 
   native-shadow-launcher-v2-image-preflight-arm64:
     name: native-shadow-launcher-v2-image-preflight-arm64
+    needs: change-scope
+    if: needs.change-scope.outputs.process_only != 'true'
     # This required lane assembles and walks the real launcher-v2 staging tree.
     # It has no image producer, no boot entry point and no one-use authority.
     runs-on: ubuntu-24.04-arm
@@ -357,7 +406,7 @@ jobs:
 
   self-test:
     name: self-test
-    needs: [native-shadow-containment-linux, native-shadow-rootfs-replay-linux, native-shadow-rootfs-replay-linux-arm64, native-shadow-launcher-build-arm64, native-shadow-launcher-build-arm64-v2, native-shadow-launcher-v2-image-preflight-arm64]
+    needs: [change-scope, native-shadow-containment-linux, native-shadow-rootfs-replay-linux, native-shadow-rootfs-replay-linux-arm64, native-shadow-launcher-build-arm64, native-shadow-launcher-build-arm64-v2, native-shadow-launcher-v2-image-preflight-arm64]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -372,6 +421,7 @@ jobs:
     steps:
       - name: Require native-shadow containment capability
         env:
+          PROCESS_ONLY: ${{ needs.change-scope.outputs.process_only }}
           NATIVE_SHADOW_CONTAINMENT_RESULT: ${{ needs.native-shadow-containment-linux.result }}
           NATIVE_SHADOW_ROOTFS_REPLAY_RESULT: ${{ needs.native-shadow-rootfs-replay-linux.result }}
           NATIVE_SHADOW_ARM64_ROOTFS_REPLAY_RESULT: ${{ needs.native-shadow-rootfs-replay-linux-arm64.result }}
@@ -380,6 +430,21 @@ jobs:
           NATIVE_SHADOW_ARM64_LAUNCHER_V2_IMAGE_PREFLIGHT_RESULT: ${{ needs.native-shadow-launcher-v2-image-preflight-arm64.result }}
         run: |
           set -euo pipefail
+          if [[ "$PROCESS_ONLY" == true ]]; then
+            for result in \
+              "$NATIVE_SHADOW_CONTAINMENT_RESULT" \
+              "$NATIVE_SHADOW_ROOTFS_REPLAY_RESULT" \
+              "$NATIVE_SHADOW_ARM64_ROOTFS_REPLAY_RESULT" \
+              "$NATIVE_SHADOW_ARM64_LAUNCHER_BUILD_RESULT" \
+              "$NATIVE_SHADOW_ARM64_LAUNCHER_V2_BUILD_RESULT" \
+              "$NATIVE_SHADOW_ARM64_LAUNCHER_V2_IMAGE_PREFLIGHT_RESULT"; do
+              if [[ "$result" != skipped ]]; then
+                echo "process-only change unexpectedly ran a native-shadow heavy job" >&2
+                exit 1
+              fi
+            done
+            exit 0
+          fi
           if [[ "$NATIVE_SHADOW_CONTAINMENT_RESULT" != success ]]; then
             echo "native-shadow containment capability probe did not pass" >&2
             exit 1
@@ -411,8 +476,35 @@ jobs:
         # verified via `git ls-remote https://github.com/actions/checkout
         # refs/tags/v6` on 2026-06-13; bump deliberately.
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+
+      - name: Run process-only contract gate
+        if: needs.change-scope.outputs.process_only == 'true'
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BASE_SHA: ${{ github.event.before }}
+          PUSH_HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          python3 -m unittest scripts/test_ci_change_scope.py
+          python3 -m unittest scripts/test_development_throughput_policy.py \
+            scripts/test_ci_workflow_contract.py scripts/test_self_test_contract.py
+          ./scripts/docs-smoke.sh
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            base="$PR_BASE_SHA"
+            head="$PR_HEAD_SHA"
+          else
+            base="$PUSH_BASE_SHA"
+            head="$PUSH_HEAD_SHA"
+          fi
+          git diff --check "$base" "$head"
 
       - name: Install Rust toolchain
+        if: needs.change-scope.outputs.process_only != 'true'
         # P0.7 (audit) — pin the third-party action to an immutable commit SHA
         # (was @master): a mutable ref is arbitrary-code-execution-on-push.
         # SHA = dtolnay/rust-toolchain master @ 2026-06; bump deliberately.
@@ -422,6 +514,7 @@ jobs:
           components: rustfmt, clippy
 
       - name: Install native checker Rust toolchain
+        if: needs.change-scope.outputs.process_only != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -433,6 +526,7 @@ jobs:
           echo "BOOLE_NATIVE_TOOLCHAIN_BIN=$native_toolchain/bin" >> "$GITHUB_ENV"
 
       - name: Install Lean toolchain
+        if: needs.change-scope.outputs.process_only != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -443,6 +537,7 @@ jobs:
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
 
       - name: Install gitleaks
+        if: needs.change-scope.outputs.process_only != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -454,6 +549,7 @@ jobs:
           sudo install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
 
       - name: Run Boole self-test
+        if: needs.change-scope.outputs.process_only != 'true'
         run: ./scripts/self-test.sh
 
       # P0.7 (audit) — the self-test gate only builds the dev profile, so the
@@ -462,6 +558,7 @@ jobs:
       # so a release-only miscompile or panic-strategy regression fails CI,
       # not production.
       - name: Build release binaries
+        if: needs.change-scope.outputs.process_only != 'true'
         run: >-
           cargo build --release --locked
           -p boole-node -p boole-cli -p boole-miner
@@ -469,6 +566,7 @@ jobs:
 
   supply-chain:
     name: supply-chain
+    needs: change-scope
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -479,7 +577,12 @@ jobs:
         # refs/tags/v6` on 2026-06-13; bump deliberately.
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
+      - name: Record process-only supply-chain exemption
+        if: needs.change-scope.outputs.process_only == 'true'
+        run: echo "process-only change; dependency and runtime inputs are unchanged"
+
       - name: Install Rust toolchain
+        if: needs.change-scope.outputs.process_only != 'true'
         # P0.7 (audit) — pin the third-party action to an immutable commit SHA
         # (was @master): a mutable ref is arbitrary-code-execution-on-push.
         # SHA = dtolnay/rust-toolchain master @ 2026-06; bump deliberately.
@@ -488,6 +591,7 @@ jobs:
           toolchain: 1.95.0
 
       - name: Install cargo-deny
+        if: needs.change-scope.outputs.process_only != 'true'
         shell: bash
         # Bumped from 0.16.4 -> 0.19.7: 0.16.x cannot parse RustSec advisory
         # entries that use the CVSS 4.0 vector format, which the advisory-db
@@ -512,13 +616,16 @@ jobs:
           cargo-deny --version
 
       - name: Install cargo-audit
+        if: needs.change-scope.outputs.process_only != 'true'
         shell: bash
         run: |
           set -euo pipefail
           cargo install --locked cargo-audit
 
       - name: cargo deny check
+        if: needs.change-scope.outputs.process_only != 'true'
         run: cargo deny --all-features check advisories bans licenses sources
 
       - name: cargo audit
+        if: needs.change-scope.outputs.process_only != 'true'
         run: cargo audit --deny warnings

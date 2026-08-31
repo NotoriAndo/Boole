@@ -8,9 +8,9 @@ name: verdict-corpus
 # always-created aggregate `verdict-corpus` job is the branch-protection
 # required check.
 #
-# Deliberately NOT path-filtered: a required check must run on every PR
-# (contrast the non-required, path-filtered macos-isolation canary —
-# ADR-0016 (a-1) records why their postures differ).
+# Deliberately NOT trigger-path-filtered: the required aggregate exists on
+# every PR. Process/documentation-only changes keep that status but do not
+# start the four expensive corpus jobs; every other change still runs them.
 
 on:
   push:
@@ -24,8 +24,47 @@ permissions:
   contents: read
 
 jobs:
+  change-scope:
+    name: verdict-change-scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      process_only: ${{ steps.classify.outputs.process_only }}
+    steps:
+      - name: Checkout change range
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+
+      - name: Select process-only or full validation
+        id: classify
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BASE_SHA: ${{ github.event.before }}
+          PUSH_HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          zero=0000000000000000000000000000000000000000
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            base="$PR_BASE_SHA"
+            head="$PR_HEAD_SHA"
+          elif [[ "$EVENT_NAME" == push && -n "$PUSH_BASE_SHA" && "$PUSH_BASE_SHA" != "$zero" ]]; then
+            base="$PUSH_BASE_SHA"
+            head="$PUSH_HEAD_SHA"
+          else
+            printf 'process_only=false\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git diff --name-only --no-renames "$base" "$head" |
+            python3 scripts/ci_change_scope.py --github-output "$GITHUB_OUTPUT"
+
   corpus:
     name: corpus (${{ matrix.os }}, ${{ matrix.profile }})
+    needs: change-scope
+    if: needs.change-scope.outputs.process_only != 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -78,14 +117,19 @@ jobs:
     name: verdict-corpus
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: corpus
+    needs: [change-scope, corpus]
     if: always()
     steps:
       - name: Require all corpus jobs green
         shell: bash
         env:
+          PROCESS_ONLY: ${{ needs.change-scope.outputs.process_only }}
           CORPUS_RESULT: ${{ needs.corpus.result }}
         run: |
           set -euo pipefail
           echo "corpus matrix result: ${CORPUS_RESULT}"
+          if [[ "$PROCESS_ONLY" == true ]]; then
+            test "${CORPUS_RESULT}" = "skipped"
+            exit 0
+          fi
           test "${CORPUS_RESULT}" = "success"

@@ -47,6 +47,7 @@ require_file docs/mac-first-hidden-linux-execution-plan-v1.md
 require_file docs/development-throughput-and-evidence-policy-v1.md
 require_text docs/development-throughput-and-evidence-policy-v1.md "BOOLE-DEVELOPMENT-THROUGHPUT-AND-EVIDENCE-V1"
 require_text docs/development-throughput-and-evidence-policy-v1.md "TP8-CURRENT-AUTHORITY-BOUNDARY"
+require_text docs/development-throughput-and-evidence-policy-v1.md "TP9-PROCESS-ONLY-CI"
 
 # Historical Mac-first native-checker contract pins. These strings remain in
 # the append-only record, but the current curl-first correction below controls
