@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `626a9b5e8d8bbdc4ba37c0b43f89e9dd40306ac6df109ff19f7936cbfa6e021e` (updated 2026-08-31c — exact-main authority-zero R3 and its separate transport provenance are sealed; F7 is next) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `f1a52b4a64c60f6ddd03f9953c94c9d5090811e31229420ba3c4909fb97acd05` (updated 2026-08-31c — execution moves from successful R3 to the authority-zero F7 identity seal) |
+| `local-docs/todo/todo-l1-network-master.md` | `dd9f76fbbaf887d9f87b19b0e7b4df17660775bc6c3a5f4993e67478ab174ab8` (updated 2026-08-31d — F7 seals the R3-observed generation as authority-zero identity; pre-A7 review is next) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `e4d44b776466f134415d4387f4e632c69db9ad62546190c2403db46d77559536` (updated 2026-08-31d — execution stops at the pre-A7 risk review after F7) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `a2316ab19141f725f1c816fdc0d4edf9d1d6920b17b81958e64a1ed5d2889554` (updated 2026-08-31c — observed implementation identity, transport provenance and production permission remain distinct) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `98d69b5d9c94831e7b4a880c20e4552f4207e0f86ef32fcfb6d4d3a9cb2868ec` (updated 2026-08-31d — stable implementation identity remains distinct from irreversible production consent) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -2645,3 +2645,23 @@ unchanged.  These mirror hashes are synchronization evidence only and grant no
 runtime authority.
 
 <!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R3-ARTIFACT-PROVENANCE-ARM64-V3-SEALED:END -->
+
+## F7 authority-zero identity after successful R3 (2026-08-31)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-FINGERPRINT-ARM64-V7-SEALED -->
+
+F7 is the canonical 2,798-byte record at SHA-256
+`3839d92c189a4a56d1d6a79a7fbfb2deaaadcf3dfaec3e636385c96aa106348c`.
+It binds P4, raw R3, the five exact v5 files and the exact R3 gate.  The
+GitHub ZIP/job provenance remains outside the authority lineage because it
+proves carriage, not permission.
+
+```text
+R3 GREEN / F7 SEALED / A7 NOT CREATED / PRODUCTION AND BOOT NOT RUN
+```
+
+All F7 authority and runtime boundary values are false or zero.  A7,
+result-v7, a production claim tag, an attempt marker, an image and a boot are
+absent.  The 2026-08-31d local mirror synchronization advances the Master
+Plan, Execution and thesis roadmap only to the pre-A7 review boundary; those
+hashes are synchronization evidence and grant no runtime authority.

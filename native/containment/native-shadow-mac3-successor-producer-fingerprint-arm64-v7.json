@@ -1,0 +1,74 @@
+{
+  "authorisations": {
+    "bootAuthorised": false,
+    "consensusActivated": false,
+    "imageProductionAuthorised": false,
+    "imageProductionRunsAllowed": 0,
+    "mac4Started": false,
+    "miningActivated": false,
+    "p2pActivated": false,
+    "rewardActivated": false,
+    "testnetStarted": false
+  },
+  "boundaries": {
+    "activationAllowed": false,
+    "bootableClaim": false,
+    "servingClaim": false
+  },
+  "files": [
+    {
+      "path": "scripts/native_shadow_successor_produce_phase_arm64_v5.py",
+      "sha256": "4916b78f81edc449128162edf0197e0acdcae3373b43a2c0b8b2326601f222aa",
+      "sizeBytes": 346909
+    },
+    {
+      "path": "scripts/test_native_shadow_successor_produce_phase_arm64_v5.py",
+      "sha256": "476d8246d1dc94f600786001aea8467f78c462bf5b6aa98f25ed3f822dbb8583",
+      "sizeBytes": 262004
+    },
+    {
+      "path": "scripts/native-shadow-successor-produce-arm64-v5.sh",
+      "sha256": "d0e8b8434921f83d8eaf4a57169bff235837ac14496811e9be1faedf7e73c6c1",
+      "sizeBytes": 88448
+    },
+    {
+      "path": ".github/workflows/native-shadow-successor-produce-arm64-v5.yml",
+      "sha256": "e52c2a8102efa7607dd12d89dedf5c8145874b238e237d580b0d67ec41cdd5d4",
+      "sizeBytes": 59188
+    },
+    {
+      "path": "scripts/test_native_shadow_successor_produce_workflow_arm64_v5.py",
+      "sha256": "96f2aac1121764879440e72c977a8b3f429c2af285a6d7f1815908104ae944f6",
+      "sizeBytes": 147695
+    }
+  ],
+  "mainBranchDispatchFenceCorrection": {
+    "path": "native/containment/native-shadow-mac3-launcher-v2-successor-main-branch-dispatch-fence-correction-arm64-v1.json",
+    "sha256": "63f5bdf0ffaac00ac1af3972ed69051da9fcbe8a06b90ae3c9f70756bbfe144b",
+    "sizeBytes": 13335
+  },
+  "predecessors": [
+    {
+      "path": "native/containment/native-shadow-mac3-launcher-v2-successor-main-branch-dispatch-fence-correction-arm64-v1.json",
+      "sha256": "63f5bdf0ffaac00ac1af3972ed69051da9fcbe8a06b90ae3c9f70756bbfe144b",
+      "sizeBytes": 13335
+    },
+    {
+      "path": "native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-result-arm64-v3.json",
+      "sha256": "44cd7d6feea2efc62d9ab6cb809e5d66c1452c9e4d2f034fd800e6573938fe87",
+      "sizeBytes": 6012
+    }
+  ],
+  "rehearsalGate": {
+    "path": "scripts/test_native_shadow_launcher_v2_successor_producer_rehearsal_result_arm64_v3.py",
+    "sha256": "1afe90a8256ec5205ef6d692f0f85989fce2efff1cb435bbb92af19f42b8c5e4",
+    "sizeBytes": 8092
+  },
+  "schema": "boole.native-shadow.mac3.successor-producer-fingerprint.arm64.v7",
+  "status": "SEALED-AFTER-FRESH-R3-PRODUCTION-GENERATION-NOT-AUTHORISED",
+  "subject": "Pin the exact main-only v5 production generation after fresh R3.",
+  "whatThisRecordDoesNotEstablish": [
+    "image production authority",
+    "guest boot authority"
+  ]
+}

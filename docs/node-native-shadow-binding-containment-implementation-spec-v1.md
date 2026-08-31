@@ -4464,3 +4464,21 @@ PRODUCTION CLAIM TAG / IMAGE / BOOT  NOT CREATED OR RUN
 ```
 
 <!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R3-ARTIFACT-PROVENANCE-ARM64-V3-SEALED:END -->
+
+## F7 authority-zero producer fingerprint after fresh R3 (2026-08-31)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-FINGERPRINT-ARM64-V7-SEALED -->
+
+The 2,798-byte F7 record at SHA-256
+`3839d92c189a4a56d1d6a79a7fbfb2deaaadcf3dfaec3e636385c96aa106348c`
+binds direct P4 and raw R3 identities, the five exact v5 generation files and
+the exact R3 gate.  Transport provenance is excluded.  Production, boot,
+serving, MAC.4, testnet, mining, reward, consensus, P2P and activation
+authorities remain false or zero.
+
+```text
+R3 GREEN / F7 SEALED / A7 NOT CREATED / PRODUCTION AND BOOT NOT RUN
+```
+
+F7 is implementation identity only.  A7 and result-v7 remain absent and need
+a separate review before any production effect can be proposed.
