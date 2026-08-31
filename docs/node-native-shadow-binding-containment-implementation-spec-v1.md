@@ -8,10 +8,12 @@
 > PR for every reversible retry. This note grants no A7, production, boot,
 > MAC.4 or activation effect.
 
-> **CURRENT-CURSOR-2026-08-31:** `R3 GREEN / F7 SEALED / PRE-A7 REVIEW COMPLETE /
-> A7 NOT CREATED`. The next coherent development milestone is the reversible
-> closed-local image-to-readiness path. Existing runtime exactly-once and
-> containment contracts remain its acceptance boundary.
+> **CURRENT-CURSOR-2026-08-31:** `CLOSED-LOCAL IMAGE LANE + MAC RUNNER MERGED /
+> ARM64 PREFLIGHT GREEN / IMAGE BUILD AND VM BOOT NOT RUN / A7 NOT CREATED`.
+> The next coherent development milestone is the explicitly approved,
+> disposable two-replica ARM64 image build. A real Mac VM start remains a
+> separate explicit decision. Existing runtime exactly-once and containment
+> contracts remain its acceptance boundary.
 
 Status: **CLOSED-LOCAL IMPLEMENTATION GREEN.** Registry/state durability, named-Linux containment,
 actual checker execution and the feature-gated loopback HTTP route are on `main`. Production
@@ -4517,3 +4519,21 @@ PRE-A7 REVIEW COMPLETE / A7 NOT CREATED / PRODUCTION AND BOOT NOT RUN
 
 The implementation may accept a correctly shaped A7, but this review neither
 creates that record nor authorizes its later dispatch.
+
+## Reversible closed-local image and Mac readiness boundary (2026-08-31)
+
+<!-- CLOSED-LOCAL-IMAGE-READINESS-PREFLIGHT-GREEN-BUILD-AND-BOOT-NOT-RUN -->
+
+PR #323 (`f4d1e9c`) introduced a retryable Linux/arm64 image lane; PR #324
+(`6af0b16`) introduced the receipt-bound Mac readiness runner. The latter has
+completed a local dry run with hashes unchanged and zero virtual machines.
+The first arm64 preflight (run `33388707339`) exposed only a root-owned result
+visibility error after backend PASS and created no image. PR #325 (`de96974`)
+fixed that inspection boundary, and corrected run `33393135963` passed end to
+end with zero images and zero virtual machines.
+
+Neither the two-replica build nor a real Mac VM boot has run. They remain two
+separate explicit execution decisions. The runtime replay, containment and
+fail-closed contracts remain unchanged, and no A7, production, MAC.4, testnet,
+mining, reward, consensus, P2P or activation authority follows from this
+readiness result.

@@ -9,11 +9,12 @@
 > activation authority; code that still enforces the historical chain must be
 > changed by normal TDD before it is used.
 
-> **CURRENT-CURSOR-2026-08-31:** `R3 GREEN / F7 SEALED / PRE-A7 REVIEW COMPLETE /
-> A7 NOT CREATED`. The next coherent development milestone is the reversible
-> closed-local image-to-readiness path under the current process policy. No v5
-> production, boot, MAC.4, testnet, mining or reward run is authorized by this
-> cursor.
+> **CURRENT-CURSOR-2026-08-31:** `CLOSED-LOCAL IMAGE LANE + MAC RUNNER MERGED /
+> ARM64 PREFLIGHT GREEN / IMAGE BUILD AND VM BOOT NOT RUN / A7 NOT CREATED`.
+> The next coherent development milestone is the explicitly approved,
+> disposable two-replica ARM64 image build. A real Mac VM start remains a
+> separate explicit decision. No v5 production, MAC.4, testnet, mining, reward,
+> consensus, P2P or activation run is authorized by this cursor.
 
 Status: **MAC.0 COMPLETE (closed-local Linux baseline, 2026-08-24, section 9);
 MAC.1-PARTIAL — CURL-FIRST MODE FROZEN; UPDATE TRUST POLICY AND MEASUREMENT PROTOCOL OPEN
@@ -6281,3 +6282,38 @@ MAC.4 / TESTNET / MINING / REWARD  NOT STARTED
 
 The next boundary is the operator's explicit A7 creation decision and attempt
 ID.  A7 creation, production dispatch and boot remain three separate acts.
+
+## 80. Reversible image-to-readiness preflight is green; execution remains explicit (2026-08-31)
+
+<!-- CLOSED-LOCAL-IMAGE-READINESS-PREFLIGHT-GREEN-BUILD-AND-BOOT-NOT-RUN -->
+
+The reversible closed-local development path now exists as two ordinary,
+retryable components. PR #323 (`f4d1e9c`) added the Linux/arm64 image lane,
+and PR #324 (`6af0b16`) added the Mac readiness runner. The Mac runner's local
+dry run compiled and signed the existing Swift host, validated the exact
+three-image receipt and closed VM shape, changed no input hash, and started
+zero virtual machines.
+
+The first arm64 preflight (run `33388707339`) reached backend PASS but exposed
+an unprivileged post-step that could not inspect the root-owned workspace. It
+created no image. PR #325 (`de96974`) made those checks use the same privileged
+view without weakening containment. The corrected preflight, run
+`33393135963`, then passed end to end with zero images and zero virtual
+machines.
+
+The real two-replica image build and the real Mac VM boot have not run. Each is
+an explicit execution boundary because it consumes substantial compute or
+starts Apple Virtualization.framework. No rejected execution was worked
+around. This milestone creates no A7, v5 production, MAC.4, testnet, mining,
+reward, consensus, P2P or activation authority.
+
+### 80.1 Cursor
+
+```text
+CLOSED-LOCAL IMAGE LANE + MAC RUNNER MERGED / ARM64 PREFLIGHT GREEN
+IMAGE BUILD AND VM BOOT NOT RUN / A7 NOT CREATED
+```
+
+Next is the explicitly approved disposable two-replica ARM64 build. If and
+only if its receipt is green, a real Mac VM boot remains a second, separate
+explicit approval.
