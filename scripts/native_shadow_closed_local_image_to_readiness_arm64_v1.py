@@ -287,8 +287,10 @@ class DevelopmentAutoclearReadbackEffects:
         *,
         autoclear_setter: Callable[[str], None] = _set_loop_autoclear,
     ) -> None:
+        self._readback_module = readback_module
         self._delegate = readback_module.HostReadbackEffects()
         self._set_autoclear = autoclear_setter
+        self._autoclear_devices: set[str] = set()
 
     def unmet_requirements(self) -> list[str]:
         return list(self._delegate.unmet_requirements())
@@ -300,6 +302,7 @@ class DevelopmentAutoclearReadbackEffects:
         except BaseException:
             self._delegate.detach_loop(device)
             raise
+        self._autoclear_devices.add(device)
         return device
 
     def mount(self, device: str, mountpoint: pathlib.Path) -> None:
@@ -312,7 +315,24 @@ class DevelopmentAutoclearReadbackEffects:
         self._delegate.unmount(mountpoint)
 
     def detach_loop(self, device: str) -> None:
-        self._delegate.detach_loop(device)
+        try:
+            self._delegate.detach_loop(device)
+        except BaseException as exc:
+            error_type = getattr(self._readback_module, "ReadbackV3Error", None)
+            expected = (
+                "failed: losetup: %s: detach failed: No such device or address"
+                % device
+            )
+            already_autocleared = (
+                device in self._autoclear_devices
+                and isinstance(error_type, type)
+                and isinstance(exc, error_type)
+                and str(exc).endswith(expected)
+            )
+            if not already_autocleared:
+                raise
+        finally:
+            self._autoclear_devices.discard(device)
 
 
 class DevelopmentRepositoryImageBackend(sealed.RepositoryImageBackend):
