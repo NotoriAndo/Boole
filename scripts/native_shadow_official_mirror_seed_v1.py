@@ -36,6 +36,16 @@ MIRRORS = {
     "amd64": ("archive.ubuntu.com", "/ubuntu/"),
     "arm64": ("ports.ubuntu.com", "/ubuntu-ports/"),
 }
+METADATA_PATHS = {
+    "amd64": {
+        "dists/noble/InRelease",
+        "dists/noble/main/binary-amd64/Packages.xz",
+    },
+    "arm64": {
+        "dists/noble/InRelease",
+        "dists/noble/main/binary-arm64/Packages.xz",
+    },
+}
 MAX_ATTEMPTS = 3
 
 
@@ -52,20 +62,27 @@ def mirror_url(snapshot_url: str, architecture: str) -> str:
         raise ValueError(f"unsupported mirror architecture: {architecture}")
     parsed = urllib.parse.urlsplit(snapshot_url)
     prefix = "/ubuntu/"
-    if parsed.scheme != "https" or parsed.netloc != "snapshot.ubuntu.com":
+    if (
+        parsed.scheme != "https"
+        or parsed.netloc != "snapshot.ubuntu.com"
+        or parsed.query
+        or parsed.fragment
+    ):
         raise ValueError("package source is not the frozen Ubuntu snapshot")
     remainder = parsed.path.removeprefix(prefix)
-    if remainder == parsed.path or "/pool/" not in remainder:
-        raise ValueError("only frozen Ubuntu pool objects may use the mirror")
-    timestamp, pool_path = remainder.split("/", 1)
+    if remainder == parsed.path or "/" not in remainder:
+        raise ValueError("frozen Ubuntu mirror path differs")
+    timestamp, artifact_path = remainder.split("/", 1)
     if len(timestamp) != 16 or timestamp[8] != "T" or timestamp[-1] != "Z":
         raise ValueError("snapshot timestamp shape differs")
     if not timestamp[:8].isdigit() or not timestamp[9:15].isdigit():
         raise ValueError("snapshot timestamp shape differs")
-    if not pool_path.startswith("pool/") or ".." in pool_path.split("/"):
-        raise ValueError("snapshot pool path differs")
+    if ".." in artifact_path.split("/"):
+        raise ValueError("snapshot artifact path differs")
+    if not artifact_path.startswith("pool/") and artifact_path not in METADATA_PATHS[architecture]:
+        raise ValueError("snapshot artifact is not an approved pool or metadata object")
     host, base = MIRRORS[architecture]
-    return urllib.parse.urlunsplit(("https", host, base + pool_path, "", ""))
+    return urllib.parse.urlunsplit(("https", host, base + artifact_path, "", ""))
 
 
 def official_https_stream(
@@ -161,11 +178,7 @@ def seed_specs(
 
 
 def boot_specs() -> list[dict[str, object]]:
-    rows = [
-        dict(row)
-        for row in ci_payload.derive_plan()["artifacts"]
-        if "/pool/" in str(row["url"])
-    ]
+    rows = [dict(row) for row in ci_payload.derive_plan()["artifacts"]]
     rows.extend(dict(row) for row in writer_set.derive_plan()["artifacts"])
     digests = [str(row["sha256"]) for row in rows]
     if len(rows) != len(set(digests)):
@@ -198,6 +211,28 @@ def runtime_bootstrap_specs(plan_path: pathlib.Path) -> list[dict[str, object]]:
     ]
 
 
+def runtime_metadata_specs(plan_path: pathlib.Path) -> list[dict[str, object]]:
+    plan = _read_object(plan_path, "runtime acquisition plan")
+    repository = plan.get("repository")
+    if not isinstance(repository, dict):
+        raise MirrorSeedError("runtime acquisition plan has no repository")
+    base = str(repository["snapshotBase"]).rstrip("/")
+    rows = []
+    for key in ("inRelease", "packagesIndex"):
+        row = repository.get(key)
+        if not isinstance(row, dict):
+            raise MirrorSeedError(f"runtime acquisition plan has no {key}")
+        rows.append(
+            {
+                "artifactId": str(row["artifactId"]),
+                "sha256": str(row["sha256"]),
+                "sizeBytes": int(row["sizeBytes"]),
+                "url": f"{base}/{row['path']}",
+            }
+        )
+    return sorted(rows, key=lambda row: str(row["artifactId"]))
+
+
 def runtime_package_specs(
     plan_path: pathlib.Path, resolution_path: pathlib.Path
 ) -> list[dict[str, object]]:
@@ -224,7 +259,7 @@ def _parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     boot = commands.add_parser("boot")
     boot.add_argument("--cas", type=pathlib.Path, required=True)
-    for name in ("runtime-bootstrap", "runtime-packages"):
+    for name in ("runtime-bootstrap", "runtime-metadata", "runtime-packages"):
         command = commands.add_parser(name)
         command.add_argument("--architecture", choices=sorted(MIRRORS), required=True)
         command.add_argument("--plan", type=pathlib.Path, required=True)
@@ -243,6 +278,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         elif args.command == "runtime-bootstrap":
             architecture = args.architecture
             specs = runtime_bootstrap_specs(args.plan)
+        elif args.command == "runtime-metadata":
+            architecture = args.architecture
+            specs = runtime_metadata_specs(args.plan)
         else:
             architecture = args.architecture
             specs = runtime_package_specs(args.plan, args.resolution)

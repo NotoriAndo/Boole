@@ -203,6 +203,11 @@ python3 "$ROOT/scripts/native_shadow_official_mirror_seed_v1.py" runtime-bootstr
   --plan "$ROOT/native/containment/native-shadow-runtime-rootfs-acquisition-plan-v1.json" \
   --cas "$cas"
 
+python3 "$ROOT/scripts/native_shadow_official_mirror_seed_v1.py" runtime-metadata \
+  --architecture amd64 \
+  --plan "$ROOT/native/containment/native-shadow-runtime-rootfs-acquisition-plan-v1.json" \
+  --cas "$cas"
+
 python3 "$ROOT/scripts/native_shadow_rootfs_acquire.py" fetch-metadata \
   --plan "$ROOT/native/containment/native-shadow-runtime-rootfs-acquisition-plan-v1.json" \
   --cas "$cas"
