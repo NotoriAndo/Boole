@@ -54,7 +54,7 @@ from scripts import native_shadow_boot_rootfs_payload_acquire_arm64_v1 as payloa
 canonical_json = payload.canonical_json
 
 
-class CiPayloadAcquisitionError(RuntimeError):
+class CiPayloadAcquisitionError(payload.PayloadAcquisitionError):
     """The frozen closure is not being reproduced exactly."""
 
 
@@ -341,7 +341,12 @@ def acquire_specs(
                 if payload._verify_name(directory, spec):
                     reused += 1
                     continue
-                payload._store_stream(directory, spec, stream_factory(spec))
+                try:
+                    payload._store_stream(directory, spec, stream_factory(spec))
+                except payload.PayloadAcquisitionError as exc:
+                    raise CiPayloadAcquisitionError(
+                        f"{spec['artifactId']} fetch failed: {exc}"
+                    ) from exc
                 if not payload._verify_name(directory, spec):
                     raise CiPayloadAcquisitionError(
                         f"{spec['artifactId']} did not survive publication into the store"

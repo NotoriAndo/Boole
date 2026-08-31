@@ -253,6 +253,24 @@ class AcquisitionTests(unittest.TestCase):
             stored = cas / "sha256" / hashlib.sha256(body).hexdigest()
             self.assertFalse(stored.exists())
 
+    def test_transport_failure_names_the_frozen_artifact(self) -> None:
+        body = b"a stand-in for a package"
+
+        def fail(_spec: dict[str, object]) -> Iterable[bytes]:
+            raise payload.PayloadAcquisitionError(
+                "snapshot response status is not 200"
+            )
+
+        with tempfile.TemporaryDirectory() as scratch:
+            cas = pathlib.Path(scratch) / "cas"
+            with self.assertRaises(acquirer.CiPayloadAcquisitionError) as caught:
+                acquirer.acquire_specs(
+                    cas=cas, specs=[self.spec(body)], stream_factory=fail
+                )
+            message = str(caught.exception)
+            self.assertIn("deb-stand-in", message)
+            self.assertIn("snapshot response status is not 200", message)
+
     def test_a_missing_rust_archive_stops_the_run_and_says_which_tool_is_owed(
         self,
     ) -> None:
