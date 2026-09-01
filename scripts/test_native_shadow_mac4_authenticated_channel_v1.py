@@ -134,7 +134,7 @@ class Mac4AuthenticatedChannelBehaviorTests(unittest.TestCase):
         self.assertIn("readelf -h", workflow)
         self.assertIn('mac4_relay="$run_root/boole-native-shadow-mac4-relay"', workflow)
         self.assertIn('--mac4-relay "$mac4_relay"', workflow)
-        self.assertIn('--depmod "$(readlink -f "$(command -v depmod)")"', workflow)
+        self.assertIn('--depmod "$(command -v depmod)"', workflow)
         self.assertIn(
             '"$RUNNER_TEMP/mac4-relay/boole-native-shadow-mac4-relay" "$mac4_relay"',
             workflow,

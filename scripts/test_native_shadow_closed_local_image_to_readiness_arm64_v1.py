@@ -226,6 +226,21 @@ class ClosedLocalImageBehaviorTests(unittest.TestCase):
         )
         self.assertTrue(all(row["mode"] == 0o444 for row in generated.values()))
 
+    def test_host_depmod_generator_preserves_the_depmod_multicall_name(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            kmod = root / "kmod"
+            kmod.write_bytes(b"tool")
+            kmod.chmod(0o555)
+            depmod = root / "depmod"
+            depmod.symlink_to("kmod")
+            generator = dev.HostDepmodModuleIndexGenerator(
+                depmod=depmod,
+                scratch=root,
+                runner=lambda *_args, **_kwargs: None,
+            )
+        self.assertEqual(generator._depmod, depmod)
+
     def test_module_index_generator_rejects_a_missing_vsock_object(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)

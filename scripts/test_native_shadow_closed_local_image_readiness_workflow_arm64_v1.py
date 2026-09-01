@@ -40,7 +40,7 @@ class ClosedLocalWorkflowContractTests(unittest.TestCase):
     def test_preflight_and_build_use_depmod_without_adding_network_access(self):
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn('command -v depmod', text)
-        self.assertIn('--depmod "$(readlink -f "$(command -v depmod)")"', text)
+        self.assertIn('--depmod "$(command -v depmod)"', text)
         self.assertIn("IPAddressDeny=any", text)
         self.assertIn("RestrictAddressFamilies=AF_UNIX", text)
 

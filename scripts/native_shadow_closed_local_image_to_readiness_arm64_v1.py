@@ -415,7 +415,10 @@ class HostDepmodModuleIndexGenerator:
             raise ClosedLocalImageError("depmod is unreadable") from exc
         if not resolved.is_file() or not os.access(resolved, os.X_OK):
             raise ClosedLocalImageError("depmod is not one executable file")
-        self._depmod = resolved
+        # Keep the caller-visible multicall name.  Ubuntu's /usr/sbin/depmod is
+        # a kmod symlink, and resolving it changes argv[0] to "kmod", which no
+        # longer selects depmod behavior.
+        self._depmod = pathlib.Path(os.path.abspath(candidate))
         self._scratch = pathlib.Path(scratch)
         self._runner = runner
         self._cached_input_digest: Optional[str] = None
@@ -507,8 +510,6 @@ class HostDepmodModuleIndexGenerator:
         try:
             original_names = self._write_module_tree(work, entries)
             command = [str(self._depmod)]
-            if self._depmod.name == "kmod":
-                command.append("depmod")
             command.extend(
                 ["-b", str(work), "-o", str(work), "-a", MAC4_KERNEL_RELEASE]
             )
