@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import pathlib
 import struct
 import subprocess
@@ -19,6 +20,12 @@ sys.path.insert(0, str(REPOSITORY_ROOT))
 from scripts import native_shadow_closed_local_image_to_readiness_arm64_v1 as dev
 from scripts import native_shadow_rootfs_builder_boot_arm64_v4 as builder_v4
 from scripts import native_shadow_successor_produce_phase_arm64_v5 as sealed
+
+
+SECOND_MAC_RESULT = (
+    REPOSITORY_ROOT
+    / "native/containment/native-shadow-closed-local-image-mac-readiness-result-arm64-v2.json"
+)
 
 
 class FakeBackend:
@@ -348,7 +355,15 @@ class ClosedLocalImageBehaviorTests(unittest.TestCase):
                     "uid": 0,
                     "gid": 0,
                     "raw": b"{}\n",
-                }
+                },
+                "opt/boole/native-checker-toolchain/bin/rustc": {
+                    "path": "opt/boole/native-checker-toolchain/bin/rustc",
+                    "kind": "file",
+                    "mode": 0o755,
+                    "uid": 0,
+                    "gid": 0,
+                    "raw": b"rustc",
+                },
             }
             namespace["_ensure_parents"](entries)
             observed.update(entries["usr/share/boole/native-shadow"])
@@ -365,6 +380,53 @@ class ClosedLocalImageBehaviorTests(unittest.TestCase):
         self.assertEqual(observed["kind"], "directory")
         self.assertEqual(observed["mode"], 0o555)
         self.assertEqual((observed["uid"], observed["gid"]), (0, 0))
+        self.assertIs(namespace["_ensure_parents"], original)
+
+    def test_development_prepare_makes_the_installed_toolchain_directories_read_only(self):
+        namespace = builder_v4.materialize_staging_tree.__globals__["_IMPL"]
+        original = namespace["_ensure_parents"]
+        observed = {}
+
+        def prepare(_backend, _request):
+            entries = {
+                "usr/share/boole/native-shadow/registry-v1.json": {
+                    "path": "usr/share/boole/native-shadow/registry-v1.json",
+                    "kind": "file",
+                    "mode": 0o444,
+                    "uid": 0,
+                    "gid": 0,
+                    "raw": b"{}\n",
+                },
+                "opt/boole/native-checker-toolchain/bin/rustc": {
+                    "path": "opt/boole/native-checker-toolchain/bin/rustc",
+                    "kind": "file",
+                    "mode": 0o755,
+                    "uid": 0,
+                    "gid": 0,
+                    "raw": b"rustc",
+                }
+            }
+            namespace["_ensure_parents"](entries)
+            for path in (
+                "opt/boole/native-checker-toolchain",
+                "opt/boole/native-checker-toolchain/bin",
+            ):
+                observed[path] = dict(entries[path])
+            return "prepared"
+
+        with mock.patch.object(
+            sealed.RepositoryImageBackend,
+            "prepare",
+            autospec=True,
+            side_effect=prepare,
+        ):
+            self.assertEqual(dev._development_backend().prepare(object()), "prepared")
+
+        for path, row in observed.items():
+            with self.subTest(path=path):
+                self.assertEqual(row["kind"], "directory")
+                self.assertEqual(row["mode"], 0o555)
+                self.assertEqual((row["uid"], row["gid"]), (0, 0))
         self.assertIs(namespace["_ensure_parents"], original)
 
     def test_development_readback_rejects_the_boot_observed_0755_authority_directory(self):
@@ -394,7 +456,19 @@ class ClosedLocalImageBehaviorTests(unittest.TestCase):
                 "mode": 0o555,
                 "uid": 0,
                 "gid": 0,
-            }
+            },
+            "/opt/boole/native-checker-toolchain": {
+                "kind": "directory",
+                "mode": 0o555,
+                "uid": 0,
+                "gid": 0,
+            },
+            "/opt/boole/native-checker-toolchain/bin": {
+                "kind": "directory",
+                "mode": 0o555,
+                "uid": 0,
+                "gid": 0,
+            },
         }
 
         class Delegate:
@@ -404,6 +478,103 @@ class ClosedLocalImageBehaviorTests(unittest.TestCase):
         module = types.SimpleNamespace(HostReadbackEffects=Delegate)
         effects = dev.DevelopmentAutoclearReadbackEffects(module)
         self.assertEqual(effects.read_tree(pathlib.Path("mounted-root")), expected)
+
+    def test_development_readback_rejects_boot_observed_writable_toolchain_directories(self):
+        exact = {
+            "/usr/share/boole/native-shadow": {
+                "kind": "directory",
+                "mode": 0o555,
+                "uid": 0,
+                "gid": 0,
+            },
+            "/opt/boole/native-checker-toolchain": {
+                "kind": "directory",
+                "mode": 0o555,
+                "uid": 0,
+                "gid": 0,
+            },
+            "/opt/boole/native-checker-toolchain/bin": {
+                "kind": "directory",
+                "mode": 0o555,
+                "uid": 0,
+                "gid": 0,
+            },
+        }
+        for path in (
+            "/opt/boole/native-checker-toolchain",
+            "/opt/boole/native-checker-toolchain/bin",
+        ):
+            with self.subTest(path=path):
+                observed = {name: dict(row) for name, row in exact.items()}
+                observed[path]["mode"] = 0o755
+
+                class Delegate:
+                    def read_tree(self, _mountpoint):
+                        return observed
+
+                module = types.SimpleNamespace(HostReadbackEffects=Delegate)
+                effects = dev.DevelopmentAutoclearReadbackEffects(module)
+                with self.assertRaisesRegex(
+                    dev.ClosedLocalImageError,
+                    "installed toolchain directory must be root:root mode 0555",
+                ):
+                    effects.read_tree(pathlib.Path("mounted-root"))
+
+    def test_second_mac_observation_records_the_exact_fail_closed_boundary(self):
+        document = json.loads(SECOND_MAC_RESULT.read_text(encoding="utf-8"))
+        self.assertEqual(
+            document["schema"],
+            "boole.native-shadow.closed-local-image-mac-readiness-result.arm64.v2",
+        )
+        self.assertEqual(
+            document["status"],
+            "IMAGE-REPLICAS-GREEN-MAC-BOOT-REACHED-LAUNCHER-READINESS-FAILED",
+        )
+        self.assertEqual(document["imageBuild"]["runId"], 33458786844)
+        self.assertEqual(
+            document["imageBuild"]["comparisonStatus"],
+            "TWO-REPLICAS-BYTE-IDENTICAL",
+        )
+        outputs = {
+            row["name"]: (row["sha256"], row["sizeBytes"])
+            for row in document["imageBuild"]["outputs"]
+        }
+        self.assertEqual(
+            outputs,
+            {
+                "guest-kernel": (
+                    "d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336",
+                    57_860_488,
+                ),
+                "guest-initrd": (
+                    "62a914b2d6a160379884181df55586c974a475b972f27346214891f0ba26f883",
+                    1_776_452_408,
+                ),
+                "guest-root-disk": (
+                    "75c571bc1c53f85b7af6e7fab38344f78c41355f9d411d114ba906279cb5297a",
+                    2_035_650_560,
+                ),
+            },
+        )
+        self.assertEqual(
+            document["imageBuild"]["rawOutputBytesAcrossTwoReplicas"],
+            2 * sum(size for _digest, size in outputs.values()),
+        )
+        self.assertEqual(document["macObservation"]["boot"]["attempts"], 1)
+        self.assertEqual(
+            document["macObservation"]["boot"]["observedFailure"]["path"],
+            "/opt/boole/native-checker-toolchain",
+        )
+        self.assertEqual(
+            document["macObservation"]["boot"]["observedFailure"]["reason"],
+            "directory mode differs from fixed contract",
+        )
+        self.assertEqual(
+            document["predecessor"]["sha256"],
+            "2d8cd7c70e1c105da6eb657992c56fea6818ef4992e022f33a0ed22eef19042c",
+        )
+        self.assertTrue(document["macObservation"]["boot"]["imagesUnchanged"])
+        self.assertFalse(any(document["boundaries"].values()))
 
 
 if __name__ == "__main__":
