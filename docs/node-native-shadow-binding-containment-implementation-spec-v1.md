@@ -4586,3 +4586,17 @@ implementations are unchanged.
 
 No retry, third image build, further VM, MAC.4, node connection, testnet,
 mining, reward, consensus, P2P or activation is authorised by this record.
+
+### Toolchain-directory correction preflight closure
+
+PR #331 (`4577dade2b2d85644d21d88d59e591eadbcc79ed`) passed the full main
+gate, including the arm64 image preflight consumer. The separate main-only
+workflow run `33463421718` then exercised the corrected development assembler
+in its root-owned, network-closed workspace and returned
+`READY-NO-IMAGE-CREATED`. Its result digest is
+`0896bd9700cb76c7a99af139ff26a47d5d3ae242d8ec8b552bfcb49fb113c85a`.
+
+That observation closes only the reversible preparation boundary. It created
+zero images and started zero machines, so it neither proves readiness nor
+authorises a fresh image build or another Mac boot. All production and network
+activation boundaries remain false or zero.
