@@ -223,6 +223,12 @@ jobs:
           export RUSTFLAGS="-C debuginfo=0 --remap-path-prefix=$GITHUB_WORKSPACE=/boole-source --remap-path-prefix=$RUNNER_TEMP=/boole-build"
           cargo build --locked --release --manifest-path native/mac4/relay/Cargo.toml
           relay="$target/release/boole-native-shadow-mac4-relay"
+          static_target="$RUNNER_TEMP/mac4-relay-static-target"
+          CARGO_TARGET_DIR="$static_target" \
+            RUSTFLAGS="$RUSTFLAGS -C target-feature=+crt-static" \
+            cargo build --locked --release --manifest-path native/mac4/relay/Cargo.toml
+          static_relay="$static_target/release/boole-native-shadow-mac4-relay"
+          file "$static_relay" | grep -Fq 'statically linked'
           unit=boole-native-shadow-mac4-relay.service
           getent group boole-node >/dev/null || sudo groupadd --system boole-node
           getent passwd boole-node >/dev/null || sudo useradd --system --gid boole-node --home-dir /nonexistent --shell /usr/sbin/nologin boole-node
@@ -237,14 +243,11 @@ jobs:
             if [[ $layout == present-var-tmp ]]; then
               sudo install -d -o root -g root -m 1777 "$root/var/tmp"
             fi
-            sudo install -D -o root -g root -m 0555 "$relay" \
+            sudo install -D -o root -g root -m 0555 "$static_relay" \
               "$root/usr/libexec/boole/boole-native-shadow-mac4-relay"
             sudo install -D -o root -g root -m 0444 \
               native/containment/native-shadow-mac4-authenticated-channel-contract-v1.json \
               "$root/usr/share/boole/native-shadow/mac4-channel-contract-v1.json"
-            while IFS= read -r library; do
-              sudo cp --parents -- "$library" "$root"
-            done < <(ldd "$relay" | awk '/=> \// {print $3} /^\// {print $1}')
             sudo chown -R root:root "$root"
             sudo install -d -o root -g root -m 0755 "/run/systemd/system/$unit.d"
             printf '[Service]\nRootDirectory=%s\nRestart=no\n' "$root" | \
