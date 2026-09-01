@@ -249,6 +249,8 @@ jobs:
               native/containment/native-shadow-mac4-authenticated-channel-contract-v1.json \
               "$root/usr/share/boole/native-shadow/mac4-channel-contract-v1.json"
             sudo chown -R root:root "$root"
+            sudo mount --bind "$root" "$root"
+            sudo mount -o remount,bind,ro "$root"
             sudo install -d -o root -g root -m 0755 "/run/systemd/system/$unit.d"
             printf '[Service]\nRootDirectory=%s\nRestart=no\n' "$root" | \
               sudo tee "/run/systemd/system/$unit.d/root.conf" >/dev/null
