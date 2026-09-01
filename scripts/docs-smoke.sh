@@ -3093,4 +3093,19 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'FOURTH ARM64 REPL
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'CRITERION UNCHANGED / DEVELOPMENT-ONLY UNIT MASKS + MOUNTED READBACK IMPLEMENTED'
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Fourth reversible Mac observation: all launcher prerequisites passed'
 
+# The fifth approved reversible observation is the first exact closed-local Mac
+# readiness PASS.  Pin the build, the empty failed-unit set and every still-
+# closed product boundary without turning readiness into activation authority.
+V5_MAC_RESULT=native/containment/native-shadow-closed-local-image-mac-readiness-result-arm64-v5.json
+require_file "$V5_MAC_RESULT"
+require_text "$V5_MAC_RESULT" '"runId": 33485969541'
+require_text "$V5_MAC_RESULT" '"status": "CLOSED-LOCAL-MAC-READINESS-PASS"'
+require_text "$V5_MAC_RESULT" '"failedUnits": []'
+require_text "$V5_MAC_RESULT" '"submissionsObserved": false'
+require_text "$V5_MAC_RESULT" '"productionRelease": false'
+require_text "$V5_MAC_RESULT" '"testnetClaim": false'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'FIFTH ARM64 REPLICA PAIR BYTE-IDENTICAL / CLOSED MAC READINESS PASS'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'NEXT: MAC.4 HOST-GUEST AUTHENTICATED CHANNEL, STILL CLOSED-LOCAL'
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Fifth reversible Mac observation: exact closed readiness passed'
+
 printf 'docs-smoke: PASS\n' >&2

@@ -9,12 +9,11 @@
 > activation authority; code that still enforces the historical chain must be
 > changed by normal TDD before it is used.
 
-> **CURRENT-CURSOR-2026-08-31:** `CLOSED-LOCAL IMAGE LANE + MAC RUNNER MERGED /
-> ARM64 PREFLIGHT GREEN / IMAGE BUILD AND VM BOOT NOT RUN / A7 NOT CREATED`.
-> The next coherent development milestone is the explicitly approved,
-> disposable two-replica ARM64 image build. A real Mac VM start remains a
-> separate explicit decision. No v5 production, MAC.4, testnet, mining, reward,
-> consensus, P2P or activation run is authorized by this cursor.
+> **CURRENT-CURSOR-2026-09-01:** `ARM64 REPLICAS BYTE-IDENTICAL / MAC CLOSED READINESS PASS /
+> MAC.4 NOT STARTED / A7 NOT CREATED`. The next coherent
+> development milestone is the closed-local authenticated host-to-guest MAC.4
+> channel. No v5 production, testnet, mining, reward, consensus, P2P or
+> activation run is authorized by this cursor.
 
 Status: **MAC.0 COMPLETE (closed-local Linux baseline, 2026-08-24, section 9);
 MAC.1-PARTIAL — CURL-FIRST MODE FROZEN; UPDATE TRUST POLICY AND MEASUREMENT PROTOCOL OPEN
@@ -6501,4 +6500,39 @@ READINESS FALSE ONLY BECAUSE GENERIC READ-ONLY/INTERACTIVE SYSTEMD UNITS ENTERED
 CRITERION UNCHANGED / DEVELOPMENT-ONLY UNIT MASKS + MOUNTED READBACK IMPLEMENTED
 NEXT REVERSIBLE GATE: MAIN CI, THEN ZERO-IMAGE ARM64 PREFLIGHT
 PRODUCTION / MAC.4 / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
+```
+
+## 85. The closed Mac guest reached exact readiness (2026-09-01)
+
+The corrected main commit
+`0d437f226331a76636ef15fc9f033eb0a4ac2199` first passed its zero-image
+arm64 preflight in run `33476715979`: no image was created and no virtual
+machine started. The separately approved development run
+[`33485969541`](https://github.com/NotoriAndo/Boole/actions/runs/33485969541)
+then produced two fresh arm64 replicas. The kernel, initrd and root disk were
+byte-identical across both replicas; their exact sizes, identities and GitHub
+artifact records are sealed in the append-only v5 result.
+
+The Mac host preflight again started no machine and passed. Exactly one closed
+Apple Virtualization.framework VM then ran with two CPUs, 2 GiB RAM, no
+network device, no shared directory and one read-only root disk. Linux reached
+systemd PID 1, multi-user and graphical targets, and the launcher service. The
+guest reported the exact sealed launcher identity, all nine prerequisites as
+resolved, the complete fixed root-supervisor privilege shape, and readiness
+with an empty failed-unit set. The four development-only unit masks therefore
+closed the observed headless-policy gap without relaxing the readiness rule.
+The host stopped the VM at the fixed observation timeout and all three input
+image identities remained unchanged. No submission was made or observed.
+
+This is a closed-local development readiness result, not production serving or
+network activation. It grants no MAC.4, node connection, testnet, mining,
+reward, consensus, P2P or activation authority.
+
+### 85.1 Cursor
+
+```text
+FIFTH ARM64 REPLICA PAIR BYTE-IDENTICAL / CLOSED MAC READINESS PASS
+EXACT LAUNCHER + 9 PREREQUISITES + ROOT SUPERVISOR + FAILED UNITS 0
+NEXT: MAC.4 HOST-GUEST AUTHENTICATED CHANNEL, STILL CLOSED-LOCAL
+PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
 ```
