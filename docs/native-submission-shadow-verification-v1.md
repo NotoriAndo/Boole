@@ -2752,3 +2752,19 @@ construction, adds an exact vsock modules-load input and proves both through a
 free readback/preflight before asking for another disposable image or boot.
 This result authorizes no retry and changes no node ledger, submission,
 testnet, mining, reward, consensus, P2P or activation boundary.
+
+### MAC.4 vsock module preflight closure addendum (2026-09-01)
+
+The additive development successor now generates ten `depmod` lookup files,
+installs an exact three-module `/etc/modules` contract and makes mounted-image
+readback verify their digests. ARM64 run `33519178333` passed that path with
+`READY-NO-IMAGE-CREATED`, 17,702 staging entries, zero images and zero virtual
+machines. The exact observation is sealed in
+`native-shadow-mac4-vsock-module-preflight-result-arm64-v1.json`.
+
+The preceding free run `33518658937` failed before image creation because a
+resolved multicall symlink lost the `depmod` invocation name; that failure and
+its zero-effect accounting are retained in the same record. This addendum
+changes no node ledger or submission state and grants no fresh build, boot,
+testnet, mining, reward, consensus, P2P or activation authority. MAC.4 remains
+partial until a later closed VM demonstrates the authenticated round trip.

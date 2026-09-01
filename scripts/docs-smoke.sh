@@ -3128,4 +3128,15 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'MAC.4 AUTHENTICAT
 require_text docs/native-submission-shadow-verification-v1.md 'MAC.4 authenticated-channel observation addendum'
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'First MAC.4 authenticated-channel observation: vsock transport unavailable'
 
+MAC4_MODULE_PREFLIGHT=native/containment/native-shadow-mac4-vsock-module-preflight-result-arm64-v1.json
+require_file "$MAC4_MODULE_PREFLIGHT"
+require_text "$MAC4_MODULE_PREFLIGHT" '"runId": 33519178333'
+require_text "$MAC4_MODULE_PREFLIGHT" '"status": "GREEN-NO-IMAGE-NO-VM"'
+require_text "$MAC4_MODULE_PREFLIGHT" '"imagesCreated": 0'
+require_text "$MAC4_MODULE_PREFLIGHT" '"machinesStarted": 0'
+require_text "$MAC4_MODULE_PREFLIGHT" '"name": "modules.dep.bin"'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'VSOCK MODULE OBJECTS + DEPMOD INDEXES + EXACT LOAD CONTRACT: PREFLIGHT GREEN'
+require_text docs/native-submission-shadow-verification-v1.md 'MAC.4 vsock module preflight closure addendum'
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'MAC.4 module discovery correction: zero-image preflight green'
+
 printf 'docs-smoke: PASS\n' >&2

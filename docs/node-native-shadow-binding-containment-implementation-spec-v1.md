@@ -4692,3 +4692,19 @@ The successor must generate and pin deterministic depmod indexes, add an exact
 vsock load contract and prove both before image creation in the free readback
 path. This record authorizes neither a retry nor another image/VM. Production,
 testnet, mining, reward, consensus, P2P and activation remain false.
+
+### MAC.4 module discovery correction: zero-image preflight green (2026-09-01)
+
+The development assembler now treats module discovery as image content rather
+than a runtime privilege. It runs `depmod` over the sealed
+`6.8.0-31-generic` module objects, adds every generated lookup table to the
+read-only image staging tree and installs the exact ordered vsock load input.
+The Linux mounted-tree consumer independently requires the load-file digest
+and all generated metadata digests.
+
+Run `33519178333` exercised this contract on ARM64 and returned
+`READY-NO-IMAGE-CREATED`; it created no image and started no VM. The earlier
+free probe `33518658937` exposed and then preserved the depmod multicall-name
+bug without consuming an image or boot boundary. The append-only result is
+`native-shadow-mac4-vsock-module-preflight-result-arm64-v1.json`. A fresh image
+pair and another Mac boot remain separate effects, and MAC.4 remains partial.

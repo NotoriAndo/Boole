@@ -6579,3 +6579,38 @@ NEXT: DETERMINISTIC DEPMOD INDEXES + VSOCK LOAD CONTRACT + FREE PREFLIGHT
 NEW IMAGE / NEW BOOT REQUIRE NEW AUTHORITY
 PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
 ```
+
+## 87. The vsock module-load correction passed a zero-image ARM64 preflight (2026-09-01)
+
+The reversible image lane now generates Linux module lookup tables with
+`depmod` while assembling the guest and installs an exact `/etc/modules` input
+for `vsock`, `vmw_vsock_virtio_transport_common` and
+`vmw_vsock_virtio_transport`. Mounted-image readback requires the exact load
+file and every generated metadata digest before a future replica may qualify.
+Historical sealed producers remain unchanged.
+
+The first free probe, run `33518658937`, found that resolving Ubuntu's
+`depmod` symlink erased the multicall name and produced `invalid command
+'depmod'`. It created zero images and started zero machines. The invocation now
+validates the resolved executable but preserves the original `depmod` name.
+
+The successor free probe
+[`33519178333`](https://github.com/NotoriAndo/Boole/actions/runs/33519178333)
+then returned `READY-NO-IMAGE-CREATED` at exact feature head
+`b08828200cb7848959baad9fabf9f05f4c5e6db7`. It generated and hash-bound ten
+module metadata files, measured 17,702 entries and 1,775,284,622 payload bytes,
+and reported zero path collisions, duplicates and symlink escapes. Its effects
+remain `imagesCreated=0` and `machinesStarted=0`. The append-only result is
+`native-shadow-mac4-vsock-module-preflight-result-arm64-v1.json`.
+
+This closes only the reversible preparation defect. A fresh disposable replica
+pair and a further closed Mac boot are still separate execution effects; this
+record grants neither. MAC.4 remains partial until an authenticated round trip
+is actually observed.
+
+```text
+VSOCK MODULE OBJECTS + DEPMOD INDEXES + EXACT LOAD CONTRACT: PREFLIGHT GREEN
+IMAGES CREATED 0 / MACHINES STARTED 0 / MAC.4 ROUND TRIPS STILL 0
+NEXT EXECUTION BOUNDARY: FRESH DISPOSABLE REPLICAS, THEN CLOSED MAC OBSERVATION
+PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
+```

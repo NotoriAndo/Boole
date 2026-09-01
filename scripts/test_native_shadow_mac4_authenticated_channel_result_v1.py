@@ -20,6 +20,12 @@ CONTRACT_PATH = (
 )
 EXPECTED_HEAD = "957319e0a2aa780febd25e97ea27ad8243e287d0"
 EXPECTED_RUN = 33510635018
+MODULE_PREFLIGHT_PATH = (
+    ROOT
+    / "native/containment/native-shadow-mac4-vsock-module-preflight-result-arm64-v1.json"
+)
+MODULE_PREFLIGHT_RUN = 33519178333
+MODULE_PREFLIGHT_HEAD = "b08828200cb7848959baad9fabf9f05f4c5e6db7"
 
 
 def sha256(path: pathlib.Path) -> str:
@@ -191,6 +197,84 @@ class Mac4AuthenticatedChannelResultTests(unittest.TestCase):
             "testnetClaim",
         ):
             self.assertFalse(self.result["boundaries"][key], key)
+
+
+class Mac4VsockModulePreflightResultTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.result = json.loads(MODULE_PREFLIGHT_PATH.read_text(encoding="utf-8"))
+
+    def test_green_preflight_is_bound_to_the_exact_feature_head_and_run(self):
+        self.assertEqual(
+            self.result["schema"],
+            "boole.native-shadow.mac4-vsock-module-preflight-result.arm64.v1",
+        )
+        self.assertEqual(self.result["status"], "GREEN-NO-IMAGE-NO-VM")
+        self.assertEqual(self.result["headSha"], MODULE_PREFLIGHT_HEAD)
+        self.assertEqual(self.result["runId"], MODULE_PREFLIGHT_RUN)
+        self.assertEqual(self.result["jobId"], 99893784061)
+
+    def test_preflight_created_no_image_vm_or_activation_authority(self):
+        self.assertEqual(
+            self.result["effects"], {"imagesCreated": 0, "machinesStarted": 0}
+        )
+        self.assertEqual(self.result["authorisations"]["imageProductionRunsAllowed"], 0)
+        self.assertFalse(self.result["authorisations"]["bootAuthorised"])
+        self.assertFalse(self.result["authorisations"]["activationAllowed"])
+
+    def test_all_required_depmod_indexes_are_present_and_hash_bound(self):
+        rows = self.result["moduleMetadata"]
+        self.assertEqual(
+            [row["name"] for row in rows],
+            [
+                "modules.alias",
+                "modules.alias.bin",
+                "modules.builtin.alias.bin",
+                "modules.builtin.bin",
+                "modules.dep",
+                "modules.dep.bin",
+                "modules.devname",
+                "modules.softdep",
+                "modules.symbols",
+                "modules.symbols.bin",
+            ],
+        )
+        self.assertTrue(all(row["sizeBytes"] > 0 for row in rows))
+        self.assertTrue(all(len(row["sha256"]) == 64 for row in rows))
+
+    def test_load_contract_and_measurement_are_exact(self):
+        self.assertEqual(
+            self.result["moduleLoadContract"],
+            {
+                "path": "etc/modules",
+                "sha256": "3c02b7df355c02e3c1bd223628af759447f969d78a73bec3db42fe62ef67ed87",
+                "modules": [
+                    "vsock",
+                    "vmw_vsock_virtio_transport_common",
+                    "vmw_vsock_virtio_transport",
+                ],
+            },
+        )
+        measurement = self.result["measurement"]
+        self.assertEqual(measurement["entries"], 17_702)
+        self.assertEqual(measurement["payloadBytes"], 1_775_284_622)
+        self.assertEqual(measurement["pathCollisions"], 0)
+        self.assertEqual(measurement["duplicatePaths"], 0)
+        self.assertEqual(measurement["symlinkEscapes"], 0)
+
+    def test_failed_free_probe_is_retained_without_consuming_an_execution_budget(self):
+        first = self.result["predecessorProbe"]
+        self.assertEqual(first["runId"], 33518658937)
+        self.assertEqual(first["headSha"], "c866ed0de411f8f2c625d336447c1437f603db70")
+        self.assertEqual(first["failure"], "DEPMOD-MULTICALL-NAME-LOST")
+        self.assertEqual(first["imagesCreated"], 0)
+        self.assertEqual(first["machinesStarted"], 0)
+
+    def test_implementation_bindings_match_the_live_repository_bytes(self):
+        for row in self.result["implementation"].values():
+            path = ROOT / row["path"]
+            self.assertEqual(path.stat().st_size, row["sizeBytes"])
+            self.assertEqual(sha256(path), row["sha256"])
 
 
 if __name__ == "__main__":
