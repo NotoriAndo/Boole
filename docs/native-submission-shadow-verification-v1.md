@@ -7,12 +7,11 @@
 > activation boundaries in this specification remain unchanged, and no A7,
 > production, boot, mining or reward authority is created here.
 
-> **CURRENT-CURSOR-2026-08-31:** `CLOSED-LOCAL IMAGE LANE + MAC RUNNER MERGED /
-> ARM64 PREFLIGHT GREEN / IMAGE BUILD AND VM BOOT NOT RUN / A7 NOT CREATED`.
-> The next coherent development milestone is the explicitly approved,
-> disposable two-replica ARM64 image build. A real Mac VM start remains a
-> separate explicit decision. This cursor is status, not production, MAC.4,
-> testnet, mining, reward, consensus, P2P or activation permission.
+> **CURRENT-CURSOR-2026-09-01:** `ARM64 REPLICAS BYTE-IDENTICAL / MAC CLOSED READINESS PASS /
+> MAC.4 NOT STARTED / A7 NOT CREATED`. The next coherent
+> development milestone is the closed-local authenticated host-to-guest MAC.4
+> channel. This cursor is status, not production, testnet, mining, reward,
+> consensus, P2P or activation permission.
 
 Status: **CLOSED-LOCAL QUALIFICATION GREEN — tracked checker, named-Linux containment, loopback
 node raw-answer HTTP adjudication and durable replay landed; production activation, P2P, block,

@@ -34,6 +34,10 @@ FOURTH_MAC_RESULT = (
     REPOSITORY_ROOT
     / "native/containment/native-shadow-closed-local-image-mac-readiness-result-arm64-v4.json"
 )
+FIFTH_MAC_RESULT = (
+    REPOSITORY_ROOT
+    / "native/containment/native-shadow-closed-local-image-mac-readiness-result-arm64-v5.json"
+)
 
 
 class FakeBackend:
@@ -967,6 +971,78 @@ class ClosedLocalImageBehaviorTests(unittest.TestCase):
                 "path": "native/containment/native-shadow-closed-local-image-mac-readiness-result-arm64-v3.json",
                 "sha256": "4e463d18e217f25ae8cf9877596e8a2a3304d461b2bc6ee8e49ed0d0dcb84723",
                 "sizeBytes": 5_860,
+            },
+        )
+        self.assertFalse(any(document["boundaries"].values()))
+
+    def test_fifth_mac_observation_records_exact_closed_readiness_pass(self):
+        document = json.loads(FIFTH_MAC_RESULT.read_text(encoding="utf-8"))
+        self.assertEqual(
+            document["schema"],
+            "boole.native-shadow.closed-local-image-mac-readiness-result.arm64.v5",
+        )
+        self.assertEqual(
+            document["status"],
+            "IMAGE-REPLICAS-GREEN-MAC-CLOSED-READINESS-PASS",
+        )
+        self.assertEqual(document["imageBuild"]["runId"], 33485969541)
+        self.assertEqual(
+            document["imageBuild"]["headSha"],
+            "0d437f226331a76636ef15fc9f033eb0a4ac2199",
+        )
+        self.assertEqual(
+            document["imageBuild"]["comparisonStatus"],
+            "TWO-REPLICAS-BYTE-IDENTICAL",
+        )
+        outputs = {
+            row["name"]: (row["sha256"], row["sizeBytes"])
+            for row in document["imageBuild"]["outputs"]
+        }
+        self.assertEqual(
+            outputs,
+            {
+                "guest-kernel": (
+                    "d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336",
+                    57_860_488,
+                ),
+                "guest-initrd": (
+                    "bf64b980e36643d21bab0b3e20e668b1c216d7ed0d1e8d5ea69ceba64ca71888",
+                    1_776_467_964,
+                ),
+                "guest-root-disk": (
+                    "dffd60d09803bc44882c2508398735b79fb9271d403a41846b9a87b6a24842fe",
+                    2_035_691_520,
+                ),
+            },
+        )
+        self.assertEqual(
+            document["imageBuild"]["rawOutputBytesAcrossTwoReplicas"],
+            2 * sum(size for _digest, size in outputs.values()),
+        )
+        boot = document["macObservation"]["boot"]
+        self.assertEqual(boot["attempts"], 1)
+        self.assertFalse(boot["retryPerformed"])
+        self.assertEqual(boot["status"], "CLOSED-LOCAL-MAC-READINESS-PASS")
+        self.assertTrue(boot["imagesUnchanged"])
+        self.assertTrue(boot["hostIsolationMet"])
+        self.assertTrue(boot["readiness"])
+        self.assertEqual(boot["failedUnits"], [])
+        self.assertEqual(
+            boot["guestEvidence"],
+            {
+                "launcher-executable": True,
+                "launcher-prerequisites": True,
+                "readiness": True,
+                "supervisor-privilege": True,
+            },
+        )
+        self.assertFalse(boot["submissionsObserved"])
+        self.assertEqual(
+            document["predecessor"],
+            {
+                "path": "native/containment/native-shadow-closed-local-image-mac-readiness-result-arm64-v4.json",
+                "sha256": "f7db899f59bb391f6625e483d2686447845a62fcdc31fca90b8b648aab71bee5",
+                "sizeBytes": 5_946,
             },
         )
         self.assertFalse(any(document["boundaries"].values()))

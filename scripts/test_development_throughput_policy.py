@@ -58,13 +58,12 @@ class DevelopmentThroughputPolicyContract(unittest.TestCase):
         ):
             text = read(ROOT / relative)
             with self.subTest(relative=relative):
-                self.assertIn("CURRENT-CURSOR-2026-08-31", text)
-                self.assertIn(
-                    "CLOSED-LOCAL IMAGE LANE + MAC RUNNER MERGED", text
-                )
-                self.assertIn("ARM64 PREFLIGHT GREEN", text)
-                self.assertIn("IMAGE BUILD AND VM BOOT NOT RUN", text)
-                self.assertIn("A7 NOT CREATED", text)
+                normalized = " ".join(text.split())
+                self.assertIn("CURRENT-CURSOR-2026-09-01", normalized)
+                self.assertIn("ARM64 REPLICAS BYTE-IDENTICAL", normalized)
+                self.assertIn("MAC CLOSED READINESS PASS", normalized)
+                self.assertIn("MAC.4 NOT STARTED", normalized)
+                self.assertIn("A7 NOT CREATED", normalized)
 
     def test_lessons_are_advisory_until_promoted(self) -> None:
         text = read(ROOT / "tasks/lessons.md")

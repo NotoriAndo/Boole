@@ -1,0 +1,183 @@
+{
+  "appendOnly": true,
+  "artifactClass": "DISPOSABLE-DEVELOPMENT",
+  "boundaries": {
+    "activationAllowed": false,
+    "consensusTouched": false,
+    "mac4Started": false,
+    "miningActivated": false,
+    "nodeConnected": false,
+    "p2pTouched": false,
+    "productionRelease": false,
+    "publicMining": false,
+    "rewardReady": false,
+    "testnetClaim": false
+  },
+  "correctionOutcome": {
+    "developmentOnly": true,
+    "failedUnitsAfterMasks": [],
+    "readinessCriteriaRelaxed": false,
+    "status": "BOOT-VERIFIED",
+    "systemdMaskTarget": "/dev/null",
+    "systemdMasks": [
+      "etc/systemd/system/getty-static.service",
+      "etc/systemd/system/getty@.service",
+      "etc/systemd/system/ldconfig.service",
+      "etc/systemd/system/serial-getty@.service"
+    ],
+    "summary": "The four development-only masks prevented the write-requiring linker-cache rebuild and unused interactive login services from entering the failed-unit set. The unchanged empty-failed-unit readiness rule passed."
+  },
+  "imageBuild": {
+    "artifacts": [
+      {
+        "digest": "sha256:3b35228630f5b46f4f0377639c349aad85d162dccab39a4e0310bdedc0066d37",
+        "expiresAt": "2026-09-08T08:18:21Z",
+        "id": 9791923059,
+        "name": "closed-local-image-readiness-build-replica-1",
+        "sizeBytes": 1375257802
+      },
+      {
+        "digest": "sha256:5b7dce6ea392f01ad1de704bb84f590acdfdb090014e1f60ed2f5732df315324",
+        "expiresAt": "2026-09-08T08:23:40Z",
+        "id": 9792099486,
+        "name": "closed-local-image-readiness-build-replica-2",
+        "sizeBytes": 1375257802
+      },
+      {
+        "digest": "sha256:70fe22e4c724ad123df268ceb47accacd1ce8bcd7d95257570a7756c98d10d02",
+        "expiresAt": "2026-09-08T08:26:25Z",
+        "id": 9792166141,
+        "name": "closed-local-image-readiness-build-comparison",
+        "sizeBytes": 577
+      }
+    ],
+    "comparisonReceipt": {
+      "sha256": "2c630d76714be92f3f9737fbee5e669a167cc5bc6612068bf27b5edcd4119a2a",
+      "sizeBytes": 749
+    },
+    "comparisonStatus": "TWO-REPLICAS-BYTE-IDENTICAL",
+    "headSha": "0d437f226331a76636ef15fc9f033eb0a4ac2199",
+    "jobs": {
+      "compare": 99788859305,
+      "replica1": 99786004365,
+      "replica2": 99786004131
+    },
+    "outputs": [
+      {
+        "name": "guest-kernel",
+        "sha256": "d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336",
+        "sizeBytes": 57860488
+      },
+      {
+        "name": "guest-initrd",
+        "sha256": "bf64b980e36643d21bab0b3e20e668b1c216d7ed0d1e8d5ea69ceba64ca71888",
+        "sizeBytes": 1776467964
+      },
+      {
+        "name": "guest-root-disk",
+        "sha256": "dffd60d09803bc44882c2508398735b79fb9271d403a41846b9a87b6a24842fe",
+        "sizeBytes": 2035691520
+      }
+    ],
+    "rawOutputBytesAcrossTwoReplicas": 7740039944,
+    "replicaOneResult": {
+      "sha256": "791036dc05091fe65646c392acd32220a0fade375e2f8fe1104a1062aa0389e0",
+      "sizeBytes": 12130,
+      "status": "CLOSED-LOCAL-IMAGE-VERIFIED"
+    },
+    "runId": 33485969541,
+    "runUrl": "https://github.com/NotoriAndo/Boole/actions/runs/33485969541"
+  },
+  "macObservation": {
+    "boot": {
+      "attempts": 1,
+      "consoleTranscript": {
+        "lines": 218,
+        "sha256": "66d7b9a71c5c7a8d33cfd06fb0e932bf1bda94b92376475f0f59d7f068390309",
+        "sizeBytes": 20340
+      },
+      "failedUnits": [],
+      "guestEvidence": {
+        "launcher-executable": true,
+        "launcher-prerequisites": true,
+        "readiness": true,
+        "supervisor-privilege": true
+      },
+      "guestReachedGraphicalTarget": true,
+      "guestReachedMultiUserTarget": true,
+      "hostIsolationMet": true,
+      "hostOutcome": "stopped-at-timeout",
+      "imagesUnchanged": true,
+      "launcherServiceStarted": true,
+      "readiness": true,
+      "receipt": {
+        "sha256": "7ea4f36de8bc0cd4ed19e92cad8cde77ac8050b5265419deaac22bb70646a190",
+        "sizeBytes": 1114
+      },
+      "result": {
+        "sha256": "49d07f610e33ef2278ea5dd0b1a37836215391151ba14fc0a825744cb9055a41",
+        "sizeBytes": 4254
+      },
+      "retryPerformed": false,
+      "status": "CLOSED-LOCAL-MAC-READINESS-PASS",
+      "submissionsObserved": false,
+      "systemdPid1Reached": true
+    },
+    "host": {
+      "chip": "Apple M4 Max",
+      "modelIdentifier": "Mac16,9",
+      "modelName": "Mac Studio",
+      "osBuild": "25F84",
+      "osVersion": "26.5.2"
+    },
+    "preflight": {
+      "hostProbe": {
+        "imagesUnchanged": true,
+        "receipt": {
+          "sha256": "ff3f5c6338b08791bc06aeb15a678711e00b1b1c998469e92e1d95f9055cabda",
+          "sizeBytes": 1110
+        },
+        "result": {
+          "sha256": "fb2c1704ef719a6bb11d43ac5a7c33249b4b5f15a0364f6617eeaef06ecb36bb",
+          "sizeBytes": 3378
+        },
+        "status": "CLOSED-LOCAL-MAC-PREFLIGHT-PASS",
+        "vmStarted": false
+      },
+      "sandboxedProbe": {
+        "reason": "Virtualization.framework was unavailable inside the command sandbox",
+        "status": "REFUSED-BEFORE-VM-CREATION",
+        "vmStarted": false
+      }
+    },
+    "vmShape": {
+      "cpuCount": 2,
+      "memoryBytes": 2147483648,
+      "networkDevices": 0,
+      "rootDiskReadOnly": true,
+      "serialPorts": 1,
+      "sharedDirectories": 0,
+      "socketDevices": 0,
+      "storageDevices": 1
+    }
+  },
+  "predecessor": {
+    "path": "native/containment/native-shadow-closed-local-image-mac-readiness-result-arm64-v4.json",
+    "sha256": "f7db899f59bb391f6625e483d2686447845a62fcdc31fca90b8b648aab71bee5",
+    "sizeBytes": 5946
+  },
+  "schema": "boole.native-shadow.closed-local-image-mac-readiness-result.arm64.v5",
+  "status": "IMAGE-REPLICAS-GREEN-MAC-CLOSED-READINESS-PASS",
+  "zeroImagePreflight": {
+    "effects": {
+      "imagesCreated": 0,
+      "machinesStarted": 0
+    },
+    "result": {
+      "sha256": "167f31f9e15d96ce9947f87ef0ac22b4938abbac317d65ce7846ceac379d153c",
+      "sizeBytes": 1302
+    },
+    "runId": 33476715979,
+    "status": "READY-NO-IMAGE-CREATED"
+  }
+}

@@ -8,12 +8,11 @@
 > PR for every reversible retry. This note grants no A7, production, boot,
 > MAC.4 or activation effect.
 
-> **CURRENT-CURSOR-2026-08-31:** `CLOSED-LOCAL IMAGE LANE + MAC RUNNER MERGED /
-> ARM64 PREFLIGHT GREEN / IMAGE BUILD AND VM BOOT NOT RUN / A7 NOT CREATED`.
-> The next coherent development milestone is the explicitly approved,
-> disposable two-replica ARM64 image build. A real Mac VM start remains a
-> separate explicit decision. Existing runtime exactly-once and containment
-> contracts remain its acceptance boundary.
+> **CURRENT-CURSOR-2026-09-01:** `ARM64 REPLICAS BYTE-IDENTICAL / MAC CLOSED READINESS PASS /
+> MAC.4 NOT STARTED / A7 NOT CREATED`. The next coherent
+> development milestone is the closed-local authenticated host-to-guest MAC.4
+> channel. Existing runtime exactly-once and containment contracts remain its
+> acceptance boundary.
 
 Status: **CLOSED-LOCAL IMPLEMENTATION GREEN.** Registry/state durability, named-Linux containment,
 actual checker execution and the feature-gated loopback HTTP route are on `main`. Production
@@ -4650,3 +4649,25 @@ receipts, console identity, complete guest evidence result, predecessor and
 false authority boundaries. The fix is implemented but not yet boot-verified.
 No production, MAC.4, node, testnet, mining, reward, consensus, P2P or
 activation effect follows.
+
+## Fifth reversible Mac observation: exact closed readiness passed (2026-09-01)
+
+Run `33485969541` on corrected main
+`0d437f226331a76636ef15fc9f033eb0a4ac2199` produced two byte-identical
+disposable arm64 image replicas. The separately approved Mac observation
+started exactly one Virtualization.framework VM after a zero-machine host
+preflight passed. The root disk was attached read-only; the VM had no network,
+shared-directory or socket device.
+
+The guest reached systemd PID 1, its normal targets and the launcher service.
+All four evidence records matched: the sealed launcher executable, all nine
+startup prerequisites, the fixed root-supervisor privilege shape, and
+readiness with `failedUnits=[]`. No criterion was removed or relaxed. The host
+stopped at the fixed observation timeout, the three image identities were
+unchanged, no retry occurred and no submission was observed.
+
+The append-only v5 result binds the exact build run, jobs, artifact identities,
+three raw output identities, comparison receipt, host preflight, boot receipt,
+console transcript and predecessor. This closes only the closed-local Mac
+readiness proposition. MAC.4, node transport, production, testnet, mining,
+reward, consensus, P2P and activation remain outside the result.
