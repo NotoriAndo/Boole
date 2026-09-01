@@ -185,10 +185,9 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
         job = self._job("native-shadow-rootfs-replay-linux")
         self.assertIn("runs-on: ubuntu-24.04", job)
         self.assertIn("timeout-minutes: 30", job)
-        self.assertIn(
-            "sudo ./scripts/native-shadow-portable-rootfs-replay-linux.sh",
-            job,
-        )
+        self.assertIn("./scripts/native-shadow-portable-rootfs-replay-linux.sh", job)
+        self.assertIn("native_shadow_official_mirror_python_v1", job)
+        self.assertIn("BOOLE_UBUNTU_MIRROR_ARCH=amd64", job)
         self.assertNotIn("continue-on-error:", job)
         self.assertNotRegex(job, re.compile(r"\bskip\b", re.IGNORECASE))
         self.assertTrue(PORTABLE_ROOTFS_REPLAY_GATE.is_file())
@@ -204,7 +203,6 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
         http_replay = NATIVE_SHADOW_HTTP_REPLAY_GATE.read_text(encoding="utf-8")
         for command in (
-            "native_shadow_official_mirror_seed_v1.py",
             "native_shadow_rootfs_portable_v2.py",
             "native_shadow_rootfs_builder.py",
         ):
@@ -1077,10 +1075,9 @@ class NativeShadowArm64RootfsWorkflowContractTest(unittest.TestCase):
         self.assertIn("toolchain: 1.95.0", job)
         self.assertIn("groupadd --system boole-node", job)
         self.assertIn("groupadd --system boole-native-checker", job)
-        self.assertIn(
-            "sudo ./scripts/native-shadow-portable-rootfs-replay-linux-arm64.sh",
-            job,
-        )
+        self.assertIn("./scripts/native-shadow-portable-rootfs-replay-linux-arm64.sh", job)
+        self.assertIn("native_shadow_official_mirror_python_v1", job)
+        self.assertIn("BOOLE_UBUNTU_MIRROR_ARCH=arm64", job)
         for forbidden in ("continue-on-error", "SKIP", "|| true"):
             self.assertNotIn(forbidden, job)
 

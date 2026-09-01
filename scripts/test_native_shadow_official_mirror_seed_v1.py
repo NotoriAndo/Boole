@@ -4,10 +4,13 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
+import os
 import pathlib
 import re
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -17,6 +20,11 @@ CLOSED_LOCAL = (
 )
 X86_REPLAY = ROOT / "scripts/native-shadow-portable-rootfs-replay-linux.sh"
 ARM64_REPLAY = ROOT / "scripts/native-shadow-portable-rootfs-replay-linux-arm64.sh"
+MIRROR_SITE = (
+    ROOT
+    / "scripts/native_shadow_official_mirror_python_v1"
+    / "sitecustomize.py"
+)
 
 try:
     from scripts import native_shadow_official_mirror_seed_v1 as seed
@@ -201,24 +209,63 @@ class OfficialMirrorSeedTests(unittest.TestCase):
         self.assertEqual(len(x86), 57)
         self.assertEqual(len(arm), 56)
 
-    def test_development_and_required_lanes_seed_before_frozen_consumers(self):
+    def test_development_and_required_lanes_use_verified_mirrors_without_changing_frozen_replay(self):
         module_name = "native_shadow_official_mirror_seed_v1.py"
         closed = CLOSED_LOCAL.read_text(encoding="utf-8")
         ci = CI.read_text(encoding="utf-8")
-        x86 = X86_REPLAY.read_text(encoding="utf-8")
-        arm = ARM64_REPLAY.read_text(encoding="utf-8")
         self.assertIn(f"{module_name} boot", closed)
         self.assertLess(closed.index(f"{module_name} boot"), closed.index("ci_payload_acquire"))
         self.assertIn(f"{module_name} boot", ci)
         self.assertLess(ci.index(f"{module_name} boot"), ci.index("ci_payload_acquire"))
-        for text in (x86, arm):
-            self.assertRegex(text, re.escape(module_name) + r'"?\s+runtime-bootstrap')
-            self.assertRegex(text, re.escape(module_name) + r'"?\s+runtime-metadata')
-            self.assertRegex(text, re.escape(module_name) + r'"?\s+runtime-packages')
-            self.assertLess(text.index("runtime-metadata"), text.index("fetch-metadata"))
-            self.assertLess(text.index("runtime-bootstrap"), text.index("fetch-metadata"))
-            self.assertLess(text.index("runtime-packages"), text.index("fetch-payloads"))
-            self.assertEqual(text.count("runtime-consumer"), 2)
+        self.assertTrue(MIRROR_SITE.is_file())
+        self.assertIn("native_shadow_official_mirror_python_v1", ci)
+        self.assertIn("BOOLE_UBUNTU_MIRROR_ARCH=amd64", ci)
+        self.assertIn("BOOLE_UBUNTU_MIRROR_ARCH=arm64", ci)
+        self.assertEqual(
+            hashlib.sha256(X86_REPLAY.read_bytes()).hexdigest(),
+            "d04bd92de2b5d2ba86cd2fe0d9990bf106fe94be7237bb23b55b7c30bd1aaea4",
+        )
+        self.assertEqual(
+            hashlib.sha256(ARM64_REPLAY.read_bytes()).hexdigest(),
+            "5b4fbde81a538d68fd01e96dcb5e9c02c76628dda75035d2f392a82ef3bdb68d",
+        )
+
+    def test_transport_adapter_preserves_the_frozen_snapshot_identity(self):
+        self.assertTrue(MIRROR_SITE.is_file())
+        spec = importlib.util.spec_from_file_location("boole_mirror_site", MIRROR_SITE)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        with mock.patch.dict(os.environ, {}, clear=True):
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+
+        original_url = (
+            "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/"
+            "pool/main/t/test/test_arm64.deb"
+        )
+        calls = []
+
+        class Response:
+            status = 200
+
+            def geturl(self):
+                return "https://ports.ubuntu.com/ubuntu-ports/pool/main/t/test/test_arm64.deb"
+
+            def read(self, *_args):
+                return b"sealed"
+
+            def close(self):
+                pass
+
+        def original_open(_opener, url, *args, **kwargs):
+            calls.append((url, args, kwargs))
+            return Response()
+
+        adapted = module.adapted_open(original_open, "arm64")
+        response = adapted(object(), original_url, timeout=60)
+        self.assertEqual(calls[0][0], module.mirror_url(original_url, "arm64"))
+        self.assertEqual(response.geturl(), original_url)
+        self.assertEqual(response.read(), b"sealed")
 
 
 if __name__ == "__main__":

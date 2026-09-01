@@ -163,7 +163,11 @@ jobs:
 
       - name: Rebuild, independently verify, and probe the portable checker rootfs
         run: >-
-          python3 scripts/native_shadow_bounded_snapshot_retry_v1.py -- sudo ./scripts/native-shadow-portable-rootfs-replay-linux.sh
+          python3 scripts/native_shadow_bounded_snapshot_retry_v1.py --
+          sudo env PYTHONDONTWRITEBYTECODE=1
+          PYTHONPATH="$GITHUB_WORKSPACE/scripts/native_shadow_official_mirror_python_v1"
+          BOOLE_UBUNTU_MIRROR_ARCH=amd64
+          ./scripts/native-shadow-portable-rootfs-replay-linux.sh
 
   native-shadow-rootfs-replay-linux-arm64:
     name: native-shadow-rootfs-replay-linux-arm64
@@ -203,7 +207,11 @@ jobs:
 
       - name: Rebuild and execute the Linux arm64 checker parity matrix
         run: >-
-          python3 scripts/native_shadow_bounded_snapshot_retry_v1.py -- sudo ./scripts/native-shadow-portable-rootfs-replay-linux-arm64.sh
+          python3 scripts/native_shadow_bounded_snapshot_retry_v1.py --
+          sudo env PYTHONDONTWRITEBYTECODE=1
+          PYTHONPATH="$GITHUB_WORKSPACE/scripts/native_shadow_official_mirror_python_v1"
+          BOOLE_UBUNTU_MIRROR_ARCH=arm64
+          ./scripts/native-shadow-portable-rootfs-replay-linux-arm64.sh
 
   native-shadow-launcher-build-arm64:
     name: native-shadow-launcher-build-arm64

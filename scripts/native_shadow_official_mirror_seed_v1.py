@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""Seed frozen Ubuntu package bytes from the official architecture mirrors.
+"""Reproduce frozen Ubuntu bytes from the official architecture mirrors.
 
-The snapshot remains the authority for signed repository metadata.  Package
-payloads are transport-only: their expected size and SHA-256 already come from
-the signed, frozen records.  This helper copies only ``/pool/`` objects from
-Ubuntu's official archive/ports mirrors into the existing content-addressed
-store, where the original acquirers independently verify and reuse them.
+The frozen snapshot URLs remain the authority identity.  Official mirrors are
+transport only: metadata and package objects enter the existing
+content-addressed store only after their sealed size and SHA-256 match.  The
+original acquirers then independently verify and consume those exact bytes.
 """
 
 from __future__ import annotations
