@@ -4562,3 +4562,27 @@ The Mac result is FAIL, not readiness. There was no retry, node connection,
 submission, production release, testnet, mining, reward, consensus, P2P or
 activation effect. A fresh disposable image run and another Mac boot remain
 future execution decisions.
+
+## Second reversible Mac observation: toolchain parents fail closed (2026-09-01)
+
+Run `33458786844` produced a second byte-identical disposable arm64 replica
+pair. Its single Mac VM mounted the root read-only and reached systemd PID 1,
+the normal targets and the launcher unit. The launcher then rejected
+`/opt/boole/native-checker-toolchain` because its observed mode was `0755`
+instead of the exact `0555` required by
+`verify_installed_paths_beneath`. All four guest evidence records consequently
+remained absent; the host timed out safely and the three image identities were
+unchanged.
+
+The failure record is
+`native-shadow-closed-local-image-mac-readiness-result-arm64-v2.json`. It binds
+the run, three artifacts, output identities, Mac receipts, console digest,
+predecessor record and unchanged authority boundaries. The correction remains
+development-only: after generic parent derivation it changes the authority
+parent plus the toolchain root and `bin` parent from root-owned `0755` to exact
+`0555`, and mounted-tree readback asserts all three. Any explicit non-generic
+metadata still fails rather than being overwritten. Historical sealed producer
+implementations are unchanged.
+
+No retry, third image build, further VM, MAC.4, node connection, testnet,
+mining, reward, consensus, P2P or activation is authorised by this record.

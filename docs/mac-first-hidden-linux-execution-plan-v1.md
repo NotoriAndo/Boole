@@ -6357,3 +6357,40 @@ CORRECTION IMPLEMENTED + PRE-BOOT READBACK REGRESSION GATE ADDED
 NEXT: FRESH DISPOSABLE REPLICAS, THEN A SEPARATELY APPROVED MAC READINESS RETEST
 A7 / PRODUCTION / MAC.4 / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION NOT STARTED
 ```
+
+## 82. A second disposable build stayed deterministic; the next fixed directory was exposed (2026-09-01)
+
+The approved development run
+[`33458786844`](https://github.com/NotoriAndo/Boole/actions/runs/33458786844)
+again produced two independent arm64 replicas whose kernel, initrd and root
+disk were byte-identical. The output identities are recorded append-only in
+`native-shadow-closed-local-image-mac-readiness-result-arm64-v2.json`. The
+Mac no-VM preflight passed, then exactly one closed VM started with no network,
+no shared directory and one read-only root disk. Linux reached systemd PID 1,
+multi-user and graphical targets, and the launcher service.
+
+Readiness remained false. The launcher failed closed while reverifying
+`/opt/boole/native-checker-toolchain`: the directory was generic derived-parent
+mode `0755`, while the fixed launcher contract requires exact mode `0555` for
+both the toolchain root and its `bin` directory. The same fatal line appeared
+on each launcher restart. The host stopped at the fixed timeout, emitted no
+submission, and all three image hashes remained unchanged.
+
+The source lock contains the toolchain files but no rows for those two parent
+directories. The previous development correction covered only the installed
+authority parent, and its mounted-tree readback repeated the same omission.
+The reversible development path now narrows all three fixed security parents
+to root-owned `0555`; readback independently requires both toolchain directory
+modes before replica comparison. Historical sealed producers remain byte
+preserved. No additional image build or Mac boot is part of this correction.
+
+### 82.1 Cursor
+
+```text
+SECOND ARM64 REPLICA PAIR BYTE-IDENTICAL / SECOND MAC VM REACHED LAUNCHER
+READINESS FAIL-CLOSED ON TOOLCHAIN ROOT 0755 != 0555
+ROOT CAUSE RECORDED / DEVELOPMENT ASSEMBLER + READBACK CORRECTED
+NEXT REVERSIBLE GATE: MAIN CI, THEN ZERO-IMAGE PREFLIGHT
+FRESH IMAGE BUILD + ANY FURTHER MAC BOOT REQUIRE NEW EXECUTION AUTHORITY
+A7 / PRODUCTION / MAC.4 / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION NOT STARTED
+```

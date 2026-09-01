@@ -1,0 +1,157 @@
+{
+  "appendOnly": true,
+  "artifactClass": "DISPOSABLE-DEVELOPMENT",
+  "boundaries": {
+    "activationAllowed": false,
+    "consensusTouched": false,
+    "nodeConnected": false,
+    "p2pTouched": false,
+    "productionRelease": false,
+    "publicMining": false,
+    "rewardReady": false,
+    "testnetClaim": false
+  },
+  "correction": {
+    "historicalSealedProducersChanged": false,
+    "readbackNowRequires": [
+      "/opt/boole/native-checker-toolchain root:root mode 0555",
+      "/opt/boole/native-checker-toolchain/bin root:root mode 0555"
+    ],
+    "scope": "reversible closed-local development image lane",
+    "stagingNowRequires": [
+      "opt/boole/native-checker-toolchain root:root mode 0555",
+      "opt/boole/native-checker-toolchain/bin root:root mode 0555"
+    ]
+  },
+  "imageBuild": {
+    "artifacts": [
+      {
+        "digest": "sha256:f93c421b8e781c16c6526311e9897cf718c58178b939d544d7fe55948bb7897e",
+        "expiresAt": "2026-09-08T01:31:02Z",
+        "id": 9782497193,
+        "name": "closed-local-image-readiness-build-replica-1",
+        "sizeBytes": 1375264874
+      },
+      {
+        "digest": "sha256:ac764f30e85a08a34633bc15c88196014af0a9ef90d7a4c9b0cce2664b2d9c03",
+        "expiresAt": "2026-09-08T01:37:08Z",
+        "id": 9782640664,
+        "name": "closed-local-image-readiness-build-replica-2",
+        "sizeBytes": 1375264874
+      },
+      {
+        "digest": "sha256:26dfc7aca0f40acb9dca54b4aac370516e2b74f4aab777d39a0ccf15ac6e7cab",
+        "expiresAt": "2026-09-08T01:39:40Z",
+        "id": 9782677269,
+        "name": "closed-local-image-readiness-build-comparison",
+        "sizeBytes": 575
+      }
+    ],
+    "comparisonReceipt": {
+      "sha256": "f4b44aff9beff2bc2d635aa4884a579447bd4344e95ed5532971e178702855c1",
+      "sizeBytes": 749
+    },
+    "comparisonStatus": "TWO-REPLICAS-BYTE-IDENTICAL",
+    "headSha": "32d80b8565d68a4e737c80d3bc96db0a48d30def",
+    "jobs": {
+      "compare": 99706465925,
+      "replica1": 99704331456,
+      "replica2": 99704331575
+    },
+    "outputs": [
+      {
+        "name": "guest-kernel",
+        "sha256": "d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336",
+        "sizeBytes": 57860488
+      },
+      {
+        "name": "guest-initrd",
+        "sha256": "62a914b2d6a160379884181df55586c974a475b972f27346214891f0ba26f883",
+        "sizeBytes": 1776452408
+      },
+      {
+        "name": "guest-root-disk",
+        "sha256": "75c571bc1c53f85b7af6e7fab38344f78c41355f9d411d114ba906279cb5297a",
+        "sizeBytes": 2035650560
+      }
+    ],
+    "rawOutputBytesAcrossTwoReplicas": 7739926912,
+    "runId": 33458786844,
+    "runUrl": "https://github.com/NotoriAndo/Boole/actions/runs/33458786844"
+  },
+  "macObservation": {
+    "boot": {
+      "attempts": 1,
+      "consoleTranscript": {
+        "failureLineOccurrences": 3,
+        "lines": 227,
+        "sha256": "f814108a819b94353b5b14481554a1686361ea882ff660851c5b703b9d224d67",
+        "sizeBytes": 20451
+      },
+      "guestReachedGraphicalTarget": true,
+      "guestReachedMultiUserTarget": true,
+      "hostIsolationMet": true,
+      "hostOutcome": "stopped-at-timeout",
+      "imagesUnchanged": true,
+      "launcherServiceStarted": true,
+      "missingGuestRecords": [
+        "launcher-executable",
+        "launcher-prerequisites",
+        "readiness",
+        "supervisor-privilege"
+      ],
+      "observedFailure": {
+        "error": "PostMoveFatal / UnsafeInstalledPath",
+        "path": "/opt/boole/native-checker-toolchain",
+        "probe": "reverify fixed installed toolchain paths after trusted probes",
+        "reason": "directory mode differs from fixed contract"
+      },
+      "ranForSeconds": 75.29885494709015,
+      "receipt": {
+        "sha256": "21f0c98d22ce7afdee32c459756ee31c6e19b5b22ba6e161df90ad7f5b427479",
+        "sizeBytes": 4101
+      },
+      "status": "CLOSED-LOCAL-MAC-READINESS-FAIL",
+      "systemdPid1Reached": true,
+      "vmStarted": true
+    },
+    "preflight": {
+      "imagesUnchanged": true,
+      "receipt": {
+        "sha256": "9f88fcadf0d8ff22848f306bcc6f2850f5bdfefb5bb32f0de10a6944d04d3662",
+        "sizeBytes": 3199
+      },
+      "status": "CLOSED-LOCAL-MAC-PREFLIGHT-PASS",
+      "vmStarted": false
+    },
+    "vmShape": {
+      "cpuCount": 2,
+      "memoryBytes": 2147483648,
+      "networkDevices": 0,
+      "rootDiskReadOnly": true,
+      "serialPorts": 1,
+      "sharedDirectories": 0,
+      "socketDevices": 0,
+      "storageDevices": 1
+    }
+  },
+  "predecessor": {
+    "path": "native/containment/native-shadow-closed-local-image-mac-readiness-result-arm64-v1.json",
+    "sha256": "2d8cd7c70e1c105da6eb657992c56fea6818ef4992e022f33a0ed22eef19042c",
+    "sizeBytes": 4128
+  },
+  "rootCause": {
+    "classification": "SECOND-DETERMINISTIC-DEVELOPMENT-IMAGE-ASSEMBLY-BUG",
+    "detail": "The earlier development-only correction covered the installed authority parent but omitted the toolchain root and bin parents. The inherited assembler derived both omitted directories as root-owned mode 0755 while the launcher requires exact mode 0555.",
+    "existingReadbackGap": "The development readback asserted the installed authority parent but did not assert the two fixed toolchain directory modes.",
+    "fixedLauncherContract": {
+      "binMode": "0555",
+      "rootMode": "0555",
+      "source": "crates/boole-native-shadow-launcher/src/toolchain_compatibility.rs"
+    },
+    "retryPerformed": false,
+    "sourceLockDoesNotCarryDirectoryRows": true
+  },
+  "schema": "boole.native-shadow.closed-local-image-mac-readiness-result.arm64.v2",
+  "status": "IMAGE-REPLICAS-GREEN-MAC-BOOT-REACHED-LAUNCHER-READINESS-FAILED"
+}

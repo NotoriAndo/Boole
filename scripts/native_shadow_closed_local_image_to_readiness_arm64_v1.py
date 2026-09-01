@@ -43,35 +43,41 @@ LOOP_INFO64_SIZE = 232
 LOOP_FLAGS_OFFSET = 52
 AUTHORITY_STAGING_PATH = "usr/share/boole/native-shadow"
 AUTHORITY_MOUNTED_PATH = "/" + AUTHORITY_STAGING_PATH
-AUTHORITY_DIRECTORY_MODE = 0o555
+TOOLCHAIN_STAGING_PATHS = (
+    "opt/boole/native-checker-toolchain",
+    "opt/boole/native-checker-toolchain/bin",
+)
+TOOLCHAIN_MOUNTED_PATHS = tuple("/" + path for path in TOOLCHAIN_STAGING_PATHS)
+FIXED_DIRECTORY_MODE = 0o555
 
 
 class ClosedLocalImageError(RuntimeError):
     pass
 
 
-def _require_authority_directory(row: Any) -> None:
+def _require_fixed_directory(row: Any, description: str) -> None:
     if (
         not isinstance(row, Mapping)
         or row.get("kind") != "directory"
-        or row.get("mode") != AUTHORITY_DIRECTORY_MODE
+        or row.get("mode") != FIXED_DIRECTORY_MODE
         or row.get("uid") != 0
         or row.get("gid") != 0
     ):
         raise ClosedLocalImageError(
-            "installed authority directory must be root:root mode 0555"
+            f"{description} must be root:root mode 0555"
         )
 
 
 @contextlib.contextmanager
-def _development_authority_directory_contract():
-    """Correct and verify the one derived parent that is security authority.
+def _development_fixed_directory_contract():
+    """Correct and verify derived parents with fixed runtime contracts.
 
-    The sealed source lock tracks the files beneath this directory but does not
-    carry a row for the directory itself.  The inherited assembler therefore
-    derives it with the generic 0755 parent mode.  The installed-authority
-    reader deliberately requires 0555.  Scope the correction to this reversible
-    development lane so historical sealed producers remain byte-preserved.
+    The sealed source lock tracks files beneath the installed authority and
+    toolchain directories but carries no rows for these directories themselves.
+    The inherited assembler therefore derives them with the generic 0755 parent
+    mode, while their runtime readers require exact 0555.  Scope the correction
+    to this reversible development lane so historical sealed producers remain
+    byte-preserved.
     """
 
     namespace = builder_v4.materialize_staging_tree.__globals__.get("_IMPL")
@@ -83,17 +89,22 @@ def _development_authority_directory_contract():
 
     def ensure_parents(entries):
         original(entries)
-        row = entries.get(AUTHORITY_STAGING_PATH)
-        if (
-            isinstance(row, Mapping)
-            and row.get("kind") == "directory"
-            and row.get("mode") == 0o755
-            and row.get("uid") == 0
-            and row.get("gid") == 0
-        ):
-            row = dict(row, mode=AUTHORITY_DIRECTORY_MODE)
-            entries[AUTHORITY_STAGING_PATH] = row
-        _require_authority_directory(row)
+        fixed = (
+            (AUTHORITY_STAGING_PATH, "installed authority directory"),
+            *((path, "installed toolchain directory") for path in TOOLCHAIN_STAGING_PATHS),
+        )
+        for path, description in fixed:
+            row = entries.get(path)
+            if (
+                isinstance(row, Mapping)
+                and row.get("kind") == "directory"
+                and row.get("mode") == 0o755
+                and row.get("uid") == 0
+                and row.get("gid") == 0
+            ):
+                row = dict(row, mode=FIXED_DIRECTORY_MODE)
+                entries[path] = row
+            _require_fixed_directory(row, description)
 
     namespace["_ensure_parents"] = ensure_parents
     try:
@@ -367,7 +378,13 @@ class DevelopmentAutoclearReadbackEffects:
 
     def read_tree(self, mountpoint: pathlib.Path) -> dict[str, dict[str, Any]]:
         tree = dict(self._delegate.read_tree(mountpoint))
-        _require_authority_directory(tree.get(AUTHORITY_MOUNTED_PATH))
+        _require_fixed_directory(
+            tree.get(AUTHORITY_MOUNTED_PATH), "installed authority directory"
+        )
+        for path in TOOLCHAIN_MOUNTED_PATHS:
+            _require_fixed_directory(
+                tree.get(path), "installed toolchain directory"
+            )
         return tree
 
     def unmount(self, mountpoint: pathlib.Path) -> None:
@@ -398,7 +415,7 @@ class DevelopmentRepositoryImageBackend(sealed.RepositoryImageBackend):
     """Scope the runner-compatible readback adapter to this reversible lane."""
 
     def prepare(self, request):
-        with _development_authority_directory_contract():
+        with _development_fixed_directory_contract():
             return super().prepare(request)
 
     def readback(self, repository_root, outputs, chain):
