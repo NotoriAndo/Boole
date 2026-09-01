@@ -1,0 +1,146 @@
+{
+  "appendOnly": true,
+  "artifact": {
+    "artifactId": 9805063778,
+    "digest": "sha256:d313c39a0ce18938f50a99140057b1cf6b9cade849b0632b054e3ad80cd0ae42",
+    "expiresAt": "2026-09-08T14:27:18Z",
+    "name": "closed-local-image-readiness-preflight-replica-1",
+    "sizeBytes": 1352
+  },
+  "artifactClass": "DISPOSABLE-DEVELOPMENT",
+  "authorisations": {
+    "activationAllowed": false,
+    "bootAuthorised": false,
+    "consensusActivated": false,
+    "imageProductionAuthorised": false,
+    "imageProductionRunsAllowed": 0,
+    "mac4Started": false,
+    "miningActivated": false,
+    "p2pActivated": false,
+    "rewardActivated": false,
+    "testnetStarted": false
+  },
+  "boundaries": {
+    "mac4Complete": false,
+    "nodeExecutionConnected": false,
+    "productionRelease": false,
+    "publicMining": false,
+    "testnetClaim": false
+  },
+  "effects": {
+    "imagesCreated": 0,
+    "machinesStarted": 0
+  },
+  "headSha": "b08828200cb7848959baad9fabf9f05f4c5e6db7",
+  "implementation": {
+    "imageLane": {
+      "path": "scripts/native_shadow_closed_local_image_to_readiness_arm64_v1.py",
+      "sha256": "8d8b8d4e4391271620133514db0fd021b78734a754515d763fd2c16c012a23aa",
+      "sizeBytes": 54801
+    },
+    "predecessorResult": {
+      "path": "native/containment/native-shadow-mac4-authenticated-channel-result-arm64-v1.json",
+      "sha256": "87935a25ad32b3dac6e4e99f3afb7035272fad0936642a792fd7cf8a8e44c373",
+      "sizeBytes": 6966
+    },
+    "workflow": {
+      "path": ".github/workflows/native-shadow-closed-local-image-readiness-arm64.yml",
+      "sha256": "e2faceb71af919f8000563eebe4a41fcfcd41180c4900e941e679ef226bf81a7",
+      "sizeBytes": 11468
+    }
+  },
+  "jobId": 99893784061,
+  "measurement": {
+    "byKind": {
+      "directory": 1739,
+      "file": 15121,
+      "symlink": 842
+    },
+    "caseFoldedSiblings": 20,
+    "duplicatePaths": 0,
+    "entries": 17702,
+    "largestFileBytes": 160096808,
+    "largestFilePath": "opt/boole/native-checker-toolchain/lib/libLLVM.so.22.1-rust-1.99.0-nightly",
+    "pathCollisions": 0,
+    "pathManifestSha256": "c2803fa5ccc558817191a7bcf15e65c247b36a1bb71e42e8c3b29c968072fa79",
+    "payloadBytes": 1775284622,
+    "symlinkEscapes": 0
+  },
+  "moduleLoadContract": {
+    "modules": [
+      "vsock",
+      "vmw_vsock_virtio_transport_common",
+      "vmw_vsock_virtio_transport"
+    ],
+    "path": "etc/modules",
+    "sha256": "3c02b7df355c02e3c1bd223628af759447f969d78a73bec3db42fe62ef67ed87"
+  },
+  "moduleMetadata": [
+    {
+      "name": "modules.alias",
+      "sha256": "066e57e86a4f7e8b2606e4842cfda8e0507537ede96444d94dc4ebd35345de3d",
+      "sizeBytes": 173211
+    },
+    {
+      "name": "modules.alias.bin",
+      "sha256": "46d5db494425761516f30fb3f2ccf7ede2e2ec91d4aaff657730483f5b6a37fe",
+      "sizeBytes": 184202
+    },
+    {
+      "name": "modules.builtin.alias.bin",
+      "sha256": "f446a463953c3acb9e6207189a15f828fe9b0c6bcb6469532b0c0c8d7ea4f07c",
+      "sizeBytes": 11939
+    },
+    {
+      "name": "modules.builtin.bin",
+      "sha256": "8bd505b5042c1ce68513f3d4239cf9be95238e19be22c09e361321ef2781f4a0",
+      "sizeBytes": 23385
+    },
+    {
+      "name": "modules.dep",
+      "sha256": "20b5bafb2f571b2c742f7ba78270807b57565d80287bbdc3b56ea4f5834b07f1",
+      "sizeBytes": 103765
+    },
+    {
+      "name": "modules.dep.bin",
+      "sha256": "e1efabf54dc60ba947ff0efc2ab01f4bc3cee383e2cabd07362e30a9b015bfa1",
+      "sizeBytes": 144127
+    },
+    {
+      "name": "modules.devname",
+      "sha256": "1573e885f8eac59ead83d7cd583f7d4d7a625eed2e11d6f39524cbf6e73a8605",
+      "sizeBytes": 271
+    },
+    {
+      "name": "modules.softdep",
+      "sha256": "d2b2ae2220d4552c50c7d59e23cd5afe46ec81b3e1127f073ce4b1d3459d506e",
+      "sizeBytes": 455
+    },
+    {
+      "name": "modules.symbols",
+      "sha256": "6f345e0c73b158bac8c26b266e19eb33c7918f92ceffd70728cbac3ab4d472c4",
+      "sizeBytes": 312955
+    },
+    {
+      "name": "modules.symbols.bin",
+      "sha256": "c5677f0ec065159be6a223d865cff663ec2b6d59be2eb0ca8232a8eaa277e059",
+      "sizeBytes": 367616
+    }
+  ],
+  "predecessorProbe": {
+    "failure": "DEPMOD-MULTICALL-NAME-LOST",
+    "headSha": "c866ed0de411f8f2c625d336447c1437f603db70",
+    "imagesCreated": 0,
+    "machinesStarted": 0,
+    "runId": 33518658937
+  },
+  "preflightResult": {
+    "sha256": "da61b4a9612c38c64edff0a000249c97750d6e843c118949612549baadec219f",
+    "sizeBytes": 3088,
+    "status": "READY-NO-IMAGE-CREATED"
+  },
+  "runId": 33519178333,
+  "runUrl": "https://github.com/NotoriAndo/Boole/actions/runs/33519178333",
+  "schema": "boole.native-shadow.mac4-vsock-module-preflight-result.arm64.v1",
+  "status": "GREEN-NO-IMAGE-NO-VM"
+}

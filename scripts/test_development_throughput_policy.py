@@ -62,7 +62,8 @@ class DevelopmentThroughputPolicyContract(unittest.TestCase):
                 self.assertIn("CURRENT-CURSOR-2026-09-01", normalized)
                 self.assertIn("ARM64 REPLICAS BYTE-IDENTICAL", normalized)
                 self.assertIn("MAC CLOSED READINESS PASS", normalized)
-                self.assertIn("MAC.4 NOT STARTED", normalized)
+                self.assertIn("MAC.4 VSOCK ROUND TRIP FAILED CLOSED", normalized)
+                self.assertIn("SUFFICIENT ROOT CAUSE IDENTIFIED", normalized)
                 self.assertIn("A7 NOT CREATED", normalized)
 
     def test_lessons_are_advisory_until_promoted(self) -> None:

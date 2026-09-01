@@ -37,6 +37,13 @@ class ClosedLocalWorkflowContractTests(unittest.TestCase):
         for name in ("guest-kernel", "guest-initrd", "guest-root-disk"):
             self.assertIn(f'cmp -- "$left/{name}" "$right/{name}"', text)
 
+    def test_preflight_and_build_use_depmod_without_adding_network_access(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn('command -v depmod', text)
+        self.assertIn('--depmod "$(command -v depmod)"', text)
+        self.assertIn("IPAddressDeny=any", text)
+        self.assertIn("RestrictAddressFamilies=AF_UNIX", text)
+
     def test_historical_production_lane_remains_locked_and_separate(self):
         production = SEALED_PRODUCTION.read_text(encoding="utf-8")
         development = WORKFLOW.read_text(encoding="utf-8")

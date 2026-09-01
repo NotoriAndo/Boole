@@ -9,10 +9,10 @@
 > MAC.4 or activation effect.
 
 > **CURRENT-CURSOR-2026-09-01:** `ARM64 REPLICAS BYTE-IDENTICAL / MAC CLOSED READINESS PASS /
-> MAC.4 NOT STARTED / A7 NOT CREATED`. The next coherent
-> development milestone is the closed-local authenticated host-to-guest MAC.4
-> channel. Existing runtime exactly-once and containment contracts remain its
-> acceptance boundary.
+> MAC.4 VSOCK ROUND TRIP FAILED CLOSED / SUFFICIENT ROOT CAUSE IDENTIFIED / A7 NOT CREATED`.
+> Next is deterministic guest module indexing/loading and a free readback
+> preflight. A fresh image pair and Mac boot require new authority. Existing
+> runtime exactly-once and containment contracts remain the acceptance boundary.
 
 Status: **CLOSED-LOCAL IMPLEMENTATION GREEN.** Registry/state durability, named-Linux containment,
 actual checker execution and the feature-gated loopback HTTP route are on `main`. Production
@@ -4671,3 +4671,40 @@ three raw output identities, comparison receipt, host preflight, boot receipt,
 console transcript and predecessor. This closes only the closed-local Mac
 readiness proposition. MAC.4, node transport, production, testnet, mining,
 reward, consensus, P2P and activation remain outside the result.
+
+## First MAC.4 authenticated-channel observation: vsock transport unavailable (2026-09-01)
+
+Run `33510635018` at exact feature head `957319e…` produced two byte-identical
+ARM64 development replicas. The separately approved Mac observation started
+and stopped exactly one closed VM with one vsock device, no IP network or
+shared directory and one read-only root disk. The existing launcher reached
+readiness, but the new relay unit failed before an authenticated frame crossed
+the channel. The observed round-trip count is zero; MAC.4 and node transport
+remain incomplete.
+
+The append-only MAC.4 result binds the build, artifacts, exact outputs, host
+receipt and console. Read-only image inspection provides a sufficient root
+cause: the kernel's vsock transports are modules and their objects exist, but
+the image contains no depmod dependency/alias indexes and no valid modules-load
+input. The precise relay errno was not preserved and is not claimed.
+
+The successor must generate and pin deterministic depmod indexes, add an exact
+vsock load contract and prove both before image creation in the free readback
+path. This record authorizes neither a retry nor another image/VM. Production,
+testnet, mining, reward, consensus, P2P and activation remain false.
+
+### MAC.4 module discovery correction: zero-image preflight green (2026-09-01)
+
+The development assembler now treats module discovery as image content rather
+than a runtime privilege. It runs `depmod` over the sealed
+`6.8.0-31-generic` module objects, adds every generated lookup table to the
+read-only image staging tree and installs the exact ordered vsock load input.
+The Linux mounted-tree consumer independently requires the load-file digest
+and all generated metadata digests.
+
+Run `33519178333` exercised this contract on ARM64 and returned
+`READY-NO-IMAGE-CREATED`; it created no image and started no VM. The earlier
+free probe `33518658937` exposed and then preserved the depmod multicall-name
+bug without consuming an image or boot boundary. The append-only result is
+`native-shadow-mac4-vsock-module-preflight-result-arm64-v1.json`. A fresh image
+pair and another Mac boot remain separate effects, and MAC.4 remains partial.

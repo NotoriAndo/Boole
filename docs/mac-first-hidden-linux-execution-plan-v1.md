@@ -10,10 +10,11 @@
 > changed by normal TDD before it is used.
 
 > **CURRENT-CURSOR-2026-09-01:** `ARM64 REPLICAS BYTE-IDENTICAL / MAC CLOSED READINESS PASS /
-> MAC.4 NOT STARTED / A7 NOT CREATED`. The next coherent
-> development milestone is the closed-local authenticated host-to-guest MAC.4
-> channel. No v5 production, testnet, mining, reward, consensus, P2P or
-> activation run is authorized by this cursor.
+> MAC.4 VSOCK ROUND TRIP FAILED CLOSED / SUFFICIENT ROOT CAUSE IDENTIFIED / A7 NOT CREATED`.
+> The next coherent development milestone is deterministic guest module indexes
+> and an explicit vsock load contract, followed by a free readback/preflight.
+> Another image pair or Mac boot needs new authority. No v5 production, testnet,
+> mining, reward, consensus, P2P or activation run is authorized by this cursor.
 
 Status: **MAC.0 COMPLETE (closed-local Linux baseline, 2026-08-24, section 9);
 MAC.1-PARTIAL — CURL-FIRST MODE FROZEN; UPDATE TRUST POLICY AND MEASUREMENT PROTOCOL OPEN
@@ -6534,5 +6535,82 @@ reward, consensus, P2P or activation authority.
 FIFTH ARM64 REPLICA PAIR BYTE-IDENTICAL / CLOSED MAC READINESS PASS
 EXACT LAUNCHER + 9 PREREQUISITES + ROOT SUPERVISOR + FAILED UNITS 0
 NEXT: MAC.4 HOST-GUEST AUTHENTICATED CHANNEL, STILL CLOSED-LOCAL
+PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
+```
+
+## 86. The first authenticated-channel observation failed closed before one round trip (2026-09-01)
+
+The explicitly approved development run
+[`33510635018`](https://github.com/NotoriAndo/Boole/actions/runs/33510635018)
+produced two independent ARM64 replicas at exact feature head
+`957319e0a2aa780febd25e97ea27ad8243e287d0`. Kernel, initrd and root disk were
+byte-identical across the replicas. Their exact identities and the ephemeral
+artifact provenance are sealed in
+`native-shadow-mac4-authenticated-channel-result-arm64-v1.json`.
+
+The same approval opened exactly one Apple Virtualization.framework boot. The
+VM remained closed: no IP network or shared directory, one vsock device and
+one read-only root disk. Linux reached systemd, the existing launcher reported
+all nine prerequisites resolved and readiness true, and the host stopped the
+machine after the fixed timeout. The new relay service failed before emitting
+its ready frame, so the authenticated vsock round trip count is zero and
+MAC.4 is not complete. No retry was made.
+
+Read-only inspection identified a sufficient root cause. The exact guest
+kernel sets `CONFIG_VSOCKETS`, `CONFIG_VIRTIO_VSOCKETS` and the common
+transport to modular (`m`). The corresponding compressed module objects exist,
+but the image has no `modules.dep`/`modules.alias` indexes. Its only
+`modules-load.d` entry is a dangling symlink to an absent `/etc/modules`.
+There is consequently no usable deterministic load path for the AF_VSOCK
+transport. The precise relay errno was not preserved, so this record does not
+claim it.
+
+The next reversible work is to generate and pin depmod indexes during image
+construction, provide an exact vsock modules-load input and require both in a
+free readback/preflight. A privileged runtime module loader or custom kernel is
+not the default remedy because either expands the runtime privilege or the
+build/supply surface. A fresh image pair and another Mac boot remain separate
+operator decisions.
+
+```text
+DISPOSABLE ARM64 REPLICAS BYTE-IDENTICAL / EXACTLY ONE MAC VM STARTED AND STOPPED
+MAC.4 AUTHENTICATED ROUND TRIP 0 / FAILED CLOSED / SUFFICIENT ROOT CAUSE IDENTIFIED
+NEXT: DETERMINISTIC DEPMOD INDEXES + VSOCK LOAD CONTRACT + FREE PREFLIGHT
+NEW IMAGE / NEW BOOT REQUIRE NEW AUTHORITY
+PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
+```
+
+## 87. The vsock module-load correction passed a zero-image ARM64 preflight (2026-09-01)
+
+The reversible image lane now generates Linux module lookup tables with
+`depmod` while assembling the guest and installs an exact `/etc/modules` input
+for `vsock`, `vmw_vsock_virtio_transport_common` and
+`vmw_vsock_virtio_transport`. Mounted-image readback requires the exact load
+file and every generated metadata digest before a future replica may qualify.
+Historical sealed producers remain unchanged.
+
+The first free probe, run `33518658937`, found that resolving Ubuntu's
+`depmod` symlink erased the multicall name and produced `invalid command
+'depmod'`. It created zero images and started zero machines. The invocation now
+validates the resolved executable but preserves the original `depmod` name.
+
+The successor free probe
+[`33519178333`](https://github.com/NotoriAndo/Boole/actions/runs/33519178333)
+then returned `READY-NO-IMAGE-CREATED` at exact feature head
+`b08828200cb7848959baad9fabf9f05f4c5e6db7`. It generated and hash-bound ten
+module metadata files, measured 17,702 entries and 1,775,284,622 payload bytes,
+and reported zero path collisions, duplicates and symlink escapes. Its effects
+remain `imagesCreated=0` and `machinesStarted=0`. The append-only result is
+`native-shadow-mac4-vsock-module-preflight-result-arm64-v1.json`.
+
+This closes only the reversible preparation defect. A fresh disposable replica
+pair and a further closed Mac boot are still separate execution effects; this
+record grants neither. MAC.4 remains partial until an authenticated round trip
+is actually observed.
+
+```text
+VSOCK MODULE OBJECTS + DEPMOD INDEXES + EXACT LOAD CONTRACT: PREFLIGHT GREEN
+IMAGES CREATED 0 / MACHINES STARTED 0 / MAC.4 ROUND TRIPS STILL 0
+NEXT EXECUTION BOUNDARY: FRESH DISPOSABLE REPLICAS, THEN CLOSED MAC OBSERVATION
 PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
 ```

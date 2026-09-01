@@ -8,10 +8,11 @@
 > production, boot, mining or reward authority is created here.
 
 > **CURRENT-CURSOR-2026-09-01:** `ARM64 REPLICAS BYTE-IDENTICAL / MAC CLOSED READINESS PASS /
-> MAC.4 NOT STARTED / A7 NOT CREATED`. The next coherent
-> development milestone is the closed-local authenticated host-to-guest MAC.4
-> channel. This cursor is status, not production, testnet, mining, reward,
-> consensus, P2P or activation permission.
+> MAC.4 VSOCK ROUND TRIP FAILED CLOSED / SUFFICIENT ROOT CAUSE IDENTIFIED / A7 NOT CREATED`.
+> Next is deterministic guest module indexing and loading plus a free
+> readback/preflight. A fresh image pair and Mac boot require new authority.
+> This cursor is status, not production, testnet, mining, reward, consensus,
+> P2P or activation permission.
 
 Status: **CLOSED-LOCAL QUALIFICATION GREEN — tracked checker, named-Linux containment, loopback
 node raw-answer HTTP adjudication and durable replay landed; production activation, P2P, block,
@@ -2725,3 +2726,45 @@ and zero virtual machines.
 The actual two-replica image build and actual Mac VM boot have not run. Each
 remains separately explicit. This evidence grants no A7, production, MAC.4,
 testnet, mining, reward, consensus, P2P or activation authority.
+
+## 2026-09-01 MAC.4 authenticated-channel observation addendum
+
+The operator-authorized disposable build at feature head
+`957319e0a2aa780febd25e97ea27ad8243e287d0` completed exactly once as run
+[`33510635018`](https://github.com/NotoriAndo/Boole/actions/runs/33510635018).
+Its two ARM64 replicas were byte-identical. Exactly one subsequent closed Mac
+VM started and stopped with no IP network or shared directory and a read-only
+root disk. Existing launcher readiness remained true, but the new vsock relay
+service failed before completing any authenticated round trip. MAC.4 therefore
+remains partial and node execution is not connected.
+
+The append-only result
+`native/containment/native-shadow-mac4-authenticated-channel-result-arm64-v1.json`
+binds the output identities, ephemeral artifact provenance, one-boot receipt,
+serial-console digest and the sufficient root cause. The kernel builds vsock
+and virtio-vsock as modules; their module objects exist, while depmod
+dependency/alias indexes are absent and the only modules-load entry points to
+an absent `/etc/modules`. The exact relay errno was not preserved and is not
+claimed.
+
+The recommended successor generates and pins the depmod indexes during image
+construction, adds an exact vsock modules-load input and proves both through a
+free readback/preflight before asking for another disposable image or boot.
+This result authorizes no retry and changes no node ledger, submission,
+testnet, mining, reward, consensus, P2P or activation boundary.
+
+### MAC.4 vsock module preflight closure addendum (2026-09-01)
+
+The additive development successor now generates ten `depmod` lookup files,
+installs an exact three-module `/etc/modules` contract and makes mounted-image
+readback verify their digests. ARM64 run `33519178333` passed that path with
+`READY-NO-IMAGE-CREATED`, 17,702 staging entries, zero images and zero virtual
+machines. The exact observation is sealed in
+`native-shadow-mac4-vsock-module-preflight-result-arm64-v1.json`.
+
+The preceding free run `33518658937` failed before image creation because a
+resolved multicall symlink lost the `depmod` invocation name; that failure and
+its zero-effect accounting are retained in the same record. This addendum
+changes no node ledger or submission state and grants no fresh build, boot,
+testnet, mining, reward, consensus, P2P or activation authority. MAC.4 remains
+partial until a later closed VM demonstrates the authenticated round trip.
