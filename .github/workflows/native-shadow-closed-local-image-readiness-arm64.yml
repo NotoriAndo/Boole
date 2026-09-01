@@ -224,8 +224,8 @@ jobs:
           cargo build --locked --release --manifest-path native/mac4/relay/Cargo.toml
           relay="$target/release/boole-native-shadow-mac4-relay"
           unit=boole-native-shadow-mac4-relay.service
-          sudo groupadd --system --gid 990 boole-node
-          sudo useradd --system --uid 990 --gid 990 --home-dir /nonexistent --shell /usr/sbin/nologin boole-node
+          getent group boole-node >/dev/null || sudo groupadd --system boole-node
+          getent passwd boole-node >/dev/null || sudo useradd --system --gid boole-node --home-dir /nonexistent --shell /usr/sbin/nologin boole-node
           sudo install -D -o root -g root -m 0555 "$relay" /usr/libexec/boole/boole-native-shadow-mac4-relay
           sudo install -D -o root -g root -m 0444 \
             native/containment/native-shadow-mac4-authenticated-channel-contract-v1.json \
