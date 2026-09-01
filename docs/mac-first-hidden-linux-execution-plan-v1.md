@@ -6358,6 +6358,31 @@ NEXT: FRESH DISPOSABLE REPLICAS, THEN A SEPARATELY APPROVED MAC READINESS RETEST
 A7 / PRODUCTION / MAC.4 / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION NOT STARTED
 ```
 
+### 82.2 Main CI and the zero-image preflight are green
+
+PR #331 merged the correction as `4577dade2b2d85644d21d88d59e591eadbcc79ed`
+after all required checks passed. The main-only preflight run
+[`33463421718`](https://github.com/NotoriAndo/Boole/actions/runs/33463421718)
+then completed with status `READY-NO-IMAGE-CREATED`. Its sole 1,302-byte
+canonical result hashes to
+`0896bd9700cb76c7a99af139ff26a47d5d3ae242d8ec8b552bfcb49fb113c85a`.
+It measured 17,676 entries and 1,773,475,059 payload bytes with zero path
+collision, duplicate or symlink escape.
+
+The result records `imagesCreated=0` and `machinesStarted=0`; every production,
+boot, serving, MAC.4, testnet, mining, reward, consensus, P2P and activation
+permission or claim remains false or zero. The next evidentiary step is a fresh
+disposable two-replica build. It is not implied by this preflight: another
+approximately 7.7 GB raw output set and any subsequent Mac VM are separate
+execution decisions.
+
+```text
+TOOLCHAIN DIRECTORY CORRECTION MERGED / ZERO-IMAGE PREFLIGHT GREEN
+NEXT: EXPLICITLY AUTHORISED DISPOSABLE REPLICA BUILD
+IF AND ONLY IF REPLICAS MATCH: SEPARATELY AUTHORISED MAC READINESS OBSERVATION
+PRODUCTION / MAC.4 / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
+```
+
 ## 82. A second disposable build stayed deterministic; the next fixed directory was exposed (2026-09-01)
 
 The approved development run
