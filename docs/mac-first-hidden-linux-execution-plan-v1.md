@@ -9,12 +9,12 @@
 > activation authority; code that still enforces the historical chain must be
 > changed by normal TDD before it is used.
 
-> **CURRENT-CURSOR-2026-09-01:** `ARM64 REPLICAS BYTE-IDENTICAL / MAC CLOSED READINESS PASS /
-> MAC.4 VSOCK ROUND TRIP FAILED CLOSED / SUFFICIENT ROOT CAUSE IDENTIFIED / A7 NOT CREATED`.
-> The next coherent development milestone is deterministic guest module indexes
-> and an explicit vsock load contract, followed by a free readback/preflight.
-> Another image pair or Mac boot needs new authority. No v5 production, testnet,
-> mining, reward, consensus, P2P or activation run is authorized by this cursor.
+> **CURRENT-CURSOR-2026-09-02:** `SECOND MAC.4 OBSERVATION FAILED CLOSED /
+> VSOCK LOADED / PRIVATE-TMP ROOT CAUSE REPRODUCED / ADDITIVE SUCCESSOR IMPLEMENTED`.
+> The next coherent development milestone is the successor's zero-image ARM64
+> preflight. A fresh image and Mac observation may follow only after that gate
+> is green. No v5 production, testnet, mining, reward, consensus, P2P or
+> activation run is authorized by this cursor.
 
 Status: **MAC.0 COMPLETE (closed-local Linux baseline, 2026-08-24, section 9);
 MAC.1-PARTIAL — CURL-FIRST MODE FROZEN; UPDATE TRUST POLICY AND MEASUREMENT PROTOCOL OPEN
@@ -6613,4 +6613,36 @@ VSOCK MODULE OBJECTS + DEPMOD INDEXES + EXACT LOAD CONTRACT: PREFLIGHT GREEN
 IMAGES CREATED 0 / MACHINES STARTED 0 / MAC.4 ROUND TRIPS STILL 0
 NEXT EXECUTION BOUNDARY: FRESH DISPOSABLE REPLICAS, THEN CLOSED MAC OBSERVATION
 PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
+```
+
+## 88. The second MAC.4 observation loaded vsock and exposed an absent PrivateTmp parent (2026-09-02)
+
+Run [`33569233592`](https://github.com/NotoriAndo/Boole/actions/runs/33569233592)
+produced two byte-identical disposable ARM64 replicas at main `c5074b0`. The
+kernel, initrd and root disk totalled 7,747,732,920 raw bytes across the pair.
+A zero-machine Mac preflight passed, then exactly one closed VM started and
+stopped with no network or shared directory and one read-only root disk.
+
+The earlier module correction worked: AF_VSOCK registered, systemd loaded the
+requested modules, normal targets completed and launcher readiness remained
+true. The relay nevertheless emitted no ready marker and no authenticated
+round trip. Read-only differential run `33572058564` reproduced the exact
+remaining cause without creating an image or VM. With `/var/tmp` absent, the
+relay unit's `PrivateTmp=yes` setup failed before exec with systemd status
+`226/NAMESPACE`; with exactly that directory present, the same unit remained
+active and emitted `BOOLE_MAC4_RELAY_READY`.
+
+The historical v1 producer is byte-preserved. An additive v2 lane creates the
+single root-owned sticky directory `/var/tmp` at mode `01777`, requires it in
+mounted-image readback, and otherwise delegates to v1. This correction is
+implemented but has not produced an image or started a VM. The append-only
+failed-closed record is
+`native-shadow-mac4-authenticated-channel-result-arm64-v2.json`.
+
+```text
+SECOND MAC.4 OBSERVATION: MODULES LOADED / RELAY BLOCKED BY ABSENT /var/tmp
+READ-ONLY DIFFERENTIAL: ABSENT = 226/NAMESPACE / PRESENT = RELAY READY
+ADDITIVE V2 IMAGE LANE IMPLEMENTED / V1 BYTE-PRESERVED
+NEXT: ZERO-IMAGE ARM64 V2 PREFLIGHT
+MAC.4 ROUND TRIPS 0 / PRODUCTION / TESTNET / MINING / REWARD / ACTIVATION CLOSED
 ```
