@@ -43,7 +43,9 @@ jobs:
             scripts.test_native_shadow_bounded_snapshot_retry_v1 \
             scripts.test_native_shadow_official_mirror_seed_v1 \
             scripts.test_native_shadow_closed_local_image_to_readiness_arm64_v1 \
-            scripts.test_native_shadow_closed_local_image_readiness_workflow_arm64_v1
+            scripts.test_native_shadow_closed_local_image_readiness_workflow_arm64_v1 \
+            scripts.test_native_shadow_mac4_authenticated_channel_v1 \
+            scripts.test_native_shadow_mac4_channel_runner_arm64_v1
 
       - name: Install the sealed Rust toolchain producer
         uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
@@ -83,6 +85,22 @@ jobs:
           test "$(sha256sum "$launcher" | awk '{print $1}')" = "$expected_sha"
           test "$(wc -c < "$launcher" | tr -d '[:space:]')" = "$expected_size"
 
+      - name: Build the standalone MAC.4 vsock relay
+        shell: bash
+        run: |
+          set -euo pipefail
+          target="$RUNNER_TEMP/mac4-relay-target"
+          export CARGO_TARGET_DIR="$target"
+          export CARGO_INCREMENTAL=0
+          export SOURCE_DATE_EPOCH=1
+          export RUSTFLAGS="-C debuginfo=0 --remap-path-prefix=$GITHUB_WORKSPACE=/boole-source --remap-path-prefix=$RUNNER_TEMP=/boole-build"
+          cargo test --locked --manifest-path native/mac4/relay/Cargo.toml
+          cargo build --locked --release --manifest-path native/mac4/relay/Cargo.toml
+          mkdir -p "$RUNNER_TEMP/mac4-relay"
+          relay="$RUNNER_TEMP/mac4-relay/boole-native-shadow-mac4-relay"
+          install -m 0555 "$target/release/boole-native-shadow-mac4-relay" "$relay"
+          readelf -h "$relay" | grep -F 'Machine:' | grep -Fq 'AArch64'
+
       - name: Run the image backend in a network-closed root-owned workspace
         shell: bash
         env:
@@ -100,6 +118,7 @@ jobs:
           outputs="$run_root/outputs"
           result="$run_root/result.json"
           launcher="$run_root/boole-native-shadow-launcher"
+          mac4_relay="$run_root/boole-native-shadow-mac4-relay"
           unit="boole-closed-local-image-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-r${REPLICA}.service"
           test ! -e "$run_root"
           sudo install -d -o root -g root -m 0700 "$run_root" "$scratch"
@@ -108,6 +127,8 @@ jobs:
           sudo chmod -R go-w -- "$repo"
           sudo install -o root -g root -m 0500 -- \
             "$RUNNER_TEMP/launcher-v2/boole-native-shadow-launcher" "$launcher"
+          sudo install -o root -g root -m 0500 -- \
+            "$RUNNER_TEMP/mac4-relay/boole-native-shadow-mac4-relay" "$mac4_relay"
           script="$repo/scripts/native_shadow_closed_local_image_to_readiness_arm64_v1.py"
           common=(
             --repository-root "$repo"
@@ -117,6 +138,7 @@ jobs:
             --gpgv "$(readlink -f "$(command -v gpgv)")"
             --zstd "$(readlink -f "$(command -v zstd)")"
             --launcher "$launcher"
+            --mac4-relay "$mac4_relay"
             --result "$result"
           )
           command=(/usr/bin/python3 -I -S "$script" "$MODE" "${common[@]}")

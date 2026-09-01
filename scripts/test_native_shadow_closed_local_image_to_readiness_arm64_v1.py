@@ -668,6 +668,7 @@ class ClosedLocalImageBehaviorTests(unittest.TestCase):
         full = dict(historical)
         full.update(dev._development_replay_entries(REPOSITORY_ROOT))
         full.update(dev._development_systemd_mask_entries())
+        full.update(dev._development_mac4_entries(REPOSITORY_ROOT, b"relay"))
         for path in dev.DEVELOPMENT_DERIVED_DIRECTORY_PATHS:
             full[path] = {
                 "path": path,
@@ -700,6 +701,7 @@ class ClosedLocalImageBehaviorTests(unittest.TestCase):
             expected_base["entries"]
             + len(dev.DEVELOPMENT_REPLAY_MATERIALS)
             + len(dev.DEVELOPMENT_SYSTEMD_MASK_PATHS)
+            + len(dev.MAC4_OVERLAY_PATHS)
             + 2,
         )
 

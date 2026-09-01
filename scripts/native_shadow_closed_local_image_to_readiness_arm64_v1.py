@@ -61,6 +61,36 @@ TOOLCHAIN_STAGING_PATHS = (
 )
 TOOLCHAIN_MOUNTED_PATHS = tuple("/" + path for path in TOOLCHAIN_STAGING_PATHS)
 FIXED_DIRECTORY_MODE = 0o555
+MAC4_RELAY_STAGING_PATH = "usr/libexec/boole/boole-native-shadow-mac4-relay"
+MAC4_SERVICE_SOURCE = "native/systemd/boole-native-shadow-mac4-relay.service"
+MAC4_SERVICE_STAGING_PATH = (
+    "usr/lib/systemd/system/boole-native-shadow-mac4-relay.service"
+)
+MAC4_SERVICE_ENABLEMENT_PATH = (
+    "etc/systemd/system/multi-user.target.wants/"
+    "boole-native-shadow-mac4-relay.service"
+)
+MAC4_CONTRACT_SOURCE = (
+    "native/containment/"
+    "native-shadow-mac4-authenticated-channel-contract-v1.json"
+)
+MAC4_CONTRACT_STAGING_PATH = (
+    AUTHORITY_STAGING_PATH + "/mac4-channel-contract-v1.json"
+)
+MAC4_CONTRACT_SHA256 = (
+    "4f2ec110d72f628207ac383668daff7bda6b568449fd315d8376aeb20ae08bbd"
+)
+MAC4_CONTRACT_SIZE_BYTES = 1_977
+MAC4_SERVICE_SHA256 = (
+    "394195d0ad7a5bbe3a74f5ffa3a490e617327d21bf054e554327d884f1ef73c4"
+)
+MAC4_SERVICE_SIZE_BYTES = 938
+MAC4_OVERLAY_PATHS = (
+    MAC4_RELAY_STAGING_PATH,
+    MAC4_SERVICE_STAGING_PATH,
+    MAC4_SERVICE_ENABLEMENT_PATH,
+    MAC4_CONTRACT_STAGING_PATH,
+)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -206,6 +236,82 @@ def _development_systemd_mask_entries() -> dict[str, dict[str, Any]]:
     }
 
 
+def _pinned_mac4_source(
+    repository_root: pathlib.Path,
+    relative: str,
+    *,
+    sha256: str,
+    size_bytes: int,
+) -> bytes:
+    root = pathlib.Path(repository_root).resolve()
+    candidate = root.joinpath(*pathlib.PurePosixPath(relative).parts)
+    try:
+        resolved = candidate.resolve(strict=True)
+        raw = candidate.read_bytes()
+    except OSError as exc:
+        raise ClosedLocalImageError(f"MAC.4 source is unreadable: {relative}") from exc
+    if resolved != candidate or not candidate.is_file() or candidate.is_symlink():
+        raise ClosedLocalImageError(f"MAC.4 source is not one regular file: {relative}")
+    if len(raw) != size_bytes or hashlib.sha256(raw).hexdigest() != sha256:
+        raise ClosedLocalImageError(f"MAC.4 source differs from its pin: {relative}")
+    return raw
+
+
+def _development_mac4_entries(
+    repository_root: pathlib.Path, relay_binary: bytes
+) -> dict[str, dict[str, Any]]:
+    """Stage the reversible relay beside, never inside, the sealed launcher."""
+
+    if not isinstance(relay_binary, bytes) or not relay_binary:
+        raise ClosedLocalImageError("MAC.4 relay binary is absent")
+    service = _pinned_mac4_source(
+        repository_root,
+        MAC4_SERVICE_SOURCE,
+        sha256=MAC4_SERVICE_SHA256,
+        size_bytes=MAC4_SERVICE_SIZE_BYTES,
+    )
+    contract = _pinned_mac4_source(
+        repository_root,
+        MAC4_CONTRACT_SOURCE,
+        sha256=MAC4_CONTRACT_SHA256,
+        size_bytes=MAC4_CONTRACT_SIZE_BYTES,
+    )
+    return {
+        MAC4_RELAY_STAGING_PATH: {
+            "path": MAC4_RELAY_STAGING_PATH,
+            "kind": "file",
+            "mode": 0o555,
+            "uid": 0,
+            "gid": 0,
+            "raw": relay_binary,
+        },
+        MAC4_SERVICE_STAGING_PATH: {
+            "path": MAC4_SERVICE_STAGING_PATH,
+            "kind": "file",
+            "mode": 0o444,
+            "uid": 0,
+            "gid": 0,
+            "raw": service,
+        },
+        MAC4_CONTRACT_STAGING_PATH: {
+            "path": MAC4_CONTRACT_STAGING_PATH,
+            "kind": "file",
+            "mode": 0o444,
+            "uid": 0,
+            "gid": 0,
+            "raw": contract,
+        },
+        MAC4_SERVICE_ENABLEMENT_PATH: {
+            "path": MAC4_SERVICE_ENABLEMENT_PATH,
+            "kind": "symlink",
+            "mode": 0o777,
+            "uid": 0,
+            "gid": 0,
+            "target": "/" + MAC4_SERVICE_STAGING_PATH,
+        },
+    }
+
+
 def _require_all_fixed_directories(entries: Mapping[str, Any]) -> None:
     for path in AUTHORITY_STAGING_PATHS:
         _require_fixed_directory(entries.get(path), "installed authority directory")
@@ -255,6 +361,9 @@ def _development_prepare_staging(
             raise ClosedLocalImageError(
                 f"closed-local replay parent was not derived: {path}"
             )
+    for path in MAC4_OVERLAY_PATHS:
+        if historical.pop(path, None) is None:
+            raise ClosedLocalImageError(f"MAC.4 overlay was not staged: {path}")
     historical_measurement = staging_measure.builder_totals(historical)
     if not producer_v3._strict_equal(historical_measurement, expected):
         raise ClosedLocalImageError(
@@ -265,7 +374,9 @@ def _development_prepare_staging(
 
 
 @contextlib.contextmanager
-def _development_fixed_directory_contract(repository_root: pathlib.Path):
+def _development_fixed_directory_contract(
+    repository_root: pathlib.Path, relay_binary: bytes
+):
     """Correct and verify derived parents with fixed runtime contracts.
 
     The sealed source lock tracks files beneath the installed authority and
@@ -286,6 +397,7 @@ def _development_fixed_directory_contract(repository_root: pathlib.Path):
         raise ClosedLocalImageError("development parent derivation is unavailable")
     replay_entries = _development_replay_entries(repository_root)
     systemd_mask_entries = _development_systemd_mask_entries()
+    mac4_entries = _development_mac4_entries(repository_root, relay_binary)
 
     def ensure_parents(entries):
         original_ensure(entries)
@@ -312,7 +424,7 @@ def _development_fixed_directory_contract(repository_root: pathlib.Path):
         entries = original_assemble(*args, **kwargs)
         if not isinstance(entries, dict):
             raise ClosedLocalImageError("development assembler returned no mutable mapping")
-        overlay_entries = {**replay_entries, **systemd_mask_entries}
+        overlay_entries = {**replay_entries, **systemd_mask_entries, **mac4_entries}
         collisions = sorted(set(entries).intersection(overlay_entries))
         if collisions:
             raise ClosedLocalImageError(
@@ -665,9 +777,15 @@ class DevelopmentAutoclearReadbackEffects:
 class DevelopmentRepositoryImageBackend(sealed.RepositoryImageBackend):
     """Scope the runner-compatible readback adapter to this reversible lane."""
 
+    def __init__(self, *, module_loader, relay_binary: bytes):
+        super().__init__(module_loader=module_loader)
+        self._relay_binary = relay_binary
+
     def prepare(self, request):
         repository_root = getattr(request, "repository_root", REPOSITORY_ROOT)
-        with _development_fixed_directory_contract(repository_root):
+        with _development_fixed_directory_contract(
+            repository_root, self._relay_binary
+        ):
             return super().prepare(request)
 
     def readback(self, repository_root, outputs, chain):
@@ -679,7 +797,7 @@ class DevelopmentRepositoryImageBackend(sealed.RepositoryImageBackend):
             sealed.AutoclearReadbackEffects = historical
 
 
-def _development_backend() -> sealed.RepositoryImageBackend:
+def _development_backend(relay_binary: bytes = b"fake-relay") -> sealed.RepositoryImageBackend:
     # The production loader correctly refuses every repository module that is
     # not named by the historical F7 fingerprint.  This new orchestrator is
     # intentionally outside that old production fingerprint, so the
@@ -687,7 +805,32 @@ def _development_backend() -> sealed.RepositoryImageBackend:
     # supplies a root-owned, non-writable checkout, while
     # verify_development_generation_chain hashes the complete bound import
     # closure before this loader is reached.
-    return DevelopmentRepositoryImageBackend(module_loader=importlib.import_module)
+    return DevelopmentRepositoryImageBackend(
+        module_loader=importlib.import_module,
+        relay_binary=relay_binary,
+    )
+
+
+def _mac4_relay_bytes(
+    path: Optional[pathlib.Path], *, require_real: bool
+) -> bytes:
+    if not require_real:
+        return b"fake-relay"
+    if path is None:
+        raise ClosedLocalImageError("real image backend requires --mac4-relay")
+    candidate = pathlib.Path(path)
+    try:
+        resolved = candidate.resolve(strict=True)
+        raw = candidate.read_bytes()
+    except OSError as exc:
+        raise ClosedLocalImageError("MAC.4 relay binary is unreadable") from exc
+    if resolved != candidate or not candidate.is_file() or candidate.is_symlink():
+        raise ClosedLocalImageError("MAC.4 relay binary is not one regular file")
+    if len(raw) < 64 or raw[:4] != b"\x7fELF" or raw[4:6] != b"\x02\x01":
+        raise ClosedLocalImageError("MAC.4 relay is not one 64-bit little-endian ELF")
+    if int.from_bytes(raw[18:20], "little") != 183:
+        raise ClosedLocalImageError("MAC.4 relay ELF is not aarch64")
+    return raw
 
 
 def preflight(
@@ -699,6 +842,7 @@ def preflight(
     gpgv: pathlib.Path,
     zstd: pathlib.Path,
     launcher: pathlib.Path,
+    mac4_relay: Optional[pathlib.Path] = None,
     backend: Optional[sealed.ImageBackend] = None,
 ) -> dict[str, Any]:
     chain = verify_development_generation_chain(repository_root)
@@ -719,7 +863,10 @@ def preflight(
         launcher=launcher,
         backend=backend,
     )
-    selected = _development_backend() if backend is None else backend
+    relay_binary = _mac4_relay_bytes(mac4_relay, require_real=backend is None)
+    selected = (
+        _development_backend(relay_binary) if backend is None else backend
+    )
     prepared = selected.prepare(request)
     if not isinstance(prepared, sealed.PreparedProduction):
         raise ClosedLocalImageError("image backend returned no prepared staging")
@@ -778,6 +925,7 @@ def build(
     zstd: pathlib.Path,
     launcher: pathlib.Path,
     run_label: str,
+    mac4_relay: Optional[pathlib.Path] = None,
     backend: Optional[sealed.ImageBackend] = None,
 ) -> dict[str, Any]:
     if re.fullmatch(RUN_LABEL_PATTERN, run_label) is None:
@@ -803,7 +951,10 @@ def build(
         launcher=launcher,
         backend=backend,
     )
-    selected = _development_backend() if backend is None else backend
+    relay_binary = _mac4_relay_bytes(mac4_relay, require_real=backend is None)
+    selected = (
+        _development_backend(relay_binary) if backend is None else backend
+    )
     prepared = selected.prepare(request)
     if not isinstance(prepared, sealed.PreparedProduction):
         raise ClosedLocalImageError("image backend returned no prepared staging")
@@ -864,6 +1015,7 @@ def _parser() -> argparse.ArgumentParser:
         command.add_argument("--gpgv", type=pathlib.Path, required=True)
         command.add_argument("--zstd", type=pathlib.Path, required=True)
         command.add_argument("--launcher", type=pathlib.Path, required=True)
+        command.add_argument("--mac4-relay", type=pathlib.Path, required=True)
         command.add_argument("--result", type=pathlib.Path, required=True)
         if mode == "build":
             command.add_argument("--run-label", required=True)
@@ -880,6 +1032,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         "gpgv": options.gpgv,
         "zstd": options.zstd,
         "launcher": options.launcher,
+        "mac4_relay": options.mac4_relay,
     }
     try:
         if options.mode == "preflight":

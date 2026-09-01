@@ -1,0 +1,49 @@
+{
+  "activationAllowed": false,
+  "authentication": {
+    "freshness": "The host supplies a fresh non-zero 32-byte nonce for every connection and accepts only an exact echo in the response.",
+    "guestIdentity": "The host connects through the VZVirtioSocketDevice attached to the exact VM whose kernel and read-only root disk it verified immediately before start. The complete three-artifact tuple also binds the verified but direct-boot-unused initrd.",
+    "hostIdentity": "The guest accepts only the kernel-reported AF_VSOCK peer CID VMADDR_CID_HOST (2).",
+    "protocolBinding": "Every request and response carries the SHA-256 digest of this complete contract.",
+    "replayBoundary": "A response from another nonce, boot tuple, protocol contract, VM, or frame kind is rejected."
+  },
+  "boundaries": {
+    "encryptedChannelClaim": false,
+    "guestMayMutateHostState": false,
+    "guestOwnsChallengeOrReplayState": false,
+    "internetNetworkDeviceRequired": false,
+    "mac4Complete": false,
+    "miningEnabled": false,
+    "productionRelease": false,
+    "rewardEnabled": false,
+    "testnetEnabled": false
+  },
+  "frame": {
+    "bootTupleBindingBytes": 32,
+    "byteOrder": "network-big-endian-for-numeric-fields",
+    "fixedFrameBytes": 108,
+    "frameKinds": {
+      "guestReady": 2,
+      "hostHello": 1
+    },
+    "magicAscii": "BOOLE4V1",
+    "nonceBytes": 32,
+    "protocolDigestBytes": 32,
+    "reservedBytes": 3,
+    "trailingBytesAllowed": false
+  },
+  "hostState": {
+    "challengeRegistryReplayJournalEvidenceOwner": "trusted-mac-host",
+    "guestRole": "bounded-execution-relay-only"
+  },
+  "schema": "boole.native-shadow.mac4-authenticated-channel-contract.v1",
+  "status": "MAC4-AUTHENTICATED-CHANNEL-CONTRACT-FROZEN-NOT-YET-OBSERVED",
+  "transport": {
+    "addressFamily": "AF_VSOCK",
+    "guestListenerPort": 4050,
+    "hostCid": 2,
+    "ipNetworking": false,
+    "sharedDirectory": false,
+    "socketDevice": "VZVirtioSocketDeviceConfiguration"
+  }
+}
