@@ -8,7 +8,7 @@ on:
         required: true
         default: preflight
         type: choice
-        options: [preflight, build]
+        options: [preflight, build, relay-probe]
 
 permissions:
   contents: read
@@ -19,6 +19,7 @@ env:
 jobs:
   image:
     name: closed-local ${{ inputs.mode }} replica ${{ matrix.replica }}
+    if: inputs.mode != 'relay-probe'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 90
     strategy:
@@ -191,6 +192,54 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           compression-level: 1
+
+  relay-probe:
+    name: diagnose MAC.4 relay systemd start
+    if: inputs.mode == 'relay-probe'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    steps:
+      - name: Checkout the selected development commit
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          fetch-tags: false
+          persist-credentials: false
+
+      - name: Install the relay build toolchain
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+        with:
+          toolchain: 1.95.0
+
+      - name: Exercise the exact unit contract without making an image
+        shell: bash
+        run: |
+          set -euo pipefail
+          target="$RUNNER_TEMP/mac4-relay-target"
+          export CARGO_TARGET_DIR="$target"
+          export CARGO_INCREMENTAL=0
+          export SOURCE_DATE_EPOCH=1
+          export RUSTFLAGS="-C debuginfo=0 --remap-path-prefix=$GITHUB_WORKSPACE=/boole-source --remap-path-prefix=$RUNNER_TEMP=/boole-build"
+          cargo build --locked --release --manifest-path native/mac4/relay/Cargo.toml
+          relay="$target/release/boole-native-shadow-mac4-relay"
+          unit=boole-native-shadow-mac4-relay.service
+          sudo groupadd --system --gid 990 boole-node
+          sudo useradd --system --uid 990 --gid 990 --home-dir /nonexistent --shell /usr/sbin/nologin boole-node
+          sudo install -D -o root -g root -m 0555 "$relay" /usr/libexec/boole/boole-native-shadow-mac4-relay
+          sudo install -D -o root -g root -m 0444 \
+            native/containment/native-shadow-mac4-authenticated-channel-contract-v1.json \
+            /usr/share/boole/native-shadow/mac4-channel-contract-v1.json
+          sudo install -o root -g root -m 0444 \
+            native/systemd/boole-native-shadow-mac4-relay.service "/run/systemd/system/$unit"
+          sudo systemctl daemon-reload
+          sudo systemctl start "$unit" || true
+          sleep 4
+          sudo systemctl show "$unit" \
+            -p ActiveState -p SubState -p Result -p ExecMainCode -p ExecMainStatus \
+            -p NRestarts -p StatusErrno
+          sudo journalctl -u "$unit" --no-pager -o short-monotonic
+          sudo systemctl stop "$unit" || true
 
   compare:
     name: compare disposable image replicas

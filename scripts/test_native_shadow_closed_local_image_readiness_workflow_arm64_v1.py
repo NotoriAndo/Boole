@@ -16,7 +16,7 @@ class ClosedLocalWorkflowContractTests(unittest.TestCase):
     def test_lane_is_manual_read_only_and_has_no_production_authority_surface(self):
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("workflow_dispatch:", text)
-        self.assertIn("options: [preflight, build]", text)
+        self.assertIn("options: [preflight, build, relay-probe]", text)
         self.assertIn("permissions:\n  contents: read", text)
         self.assertNotIn("contents: write", text)
         self.assertNotIn("production-authority-arm64-v7", text)
