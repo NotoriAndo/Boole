@@ -139,6 +139,7 @@ jobs:
             --zstd "$(readlink -f "$(command -v zstd)")"
             --launcher "$launcher"
             --mac4-relay "$mac4_relay"
+            --depmod "$(readlink -f "$(command -v depmod)")"
             --result "$result"
           )
           command=(/usr/bin/python3 -I -S "$script" "$MODE" "${common[@]}")

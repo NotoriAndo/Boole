@@ -55,7 +55,7 @@ class Mac4AuthenticatedChannelBehaviorTests(unittest.TestCase):
         self.assertIn(f'"{digest}"', source)
         self.assertEqual(digest, image.MAC4_CONTRACT_SHA256)
 
-    def test_development_overlay_installs_one_fixed_relay_and_one_enabled_service(self):
+    def test_development_overlay_installs_relay_service_and_exact_vsock_load_contract(self):
         relay = b"arm64-linux-relay"
         entries = image._development_mac4_entries(ROOT, relay)
         self.assertEqual(
@@ -65,6 +65,7 @@ class Mac4AuthenticatedChannelBehaviorTests(unittest.TestCase):
                 image.MAC4_SERVICE_STAGING_PATH,
                 image.MAC4_SERVICE_ENABLEMENT_PATH,
                 image.MAC4_CONTRACT_STAGING_PATH,
+                image.MAC4_MODULE_LOAD_STAGING_PATH,
             },
         )
         self.assertEqual(entries[image.MAC4_RELAY_STAGING_PATH]["raw"], relay)
@@ -79,6 +80,14 @@ class Mac4AuthenticatedChannelBehaviorTests(unittest.TestCase):
         self.assertEqual(
             entries[image.MAC4_SERVICE_ENABLEMENT_PATH]["target"],
             "/" + image.MAC4_SERVICE_STAGING_PATH,
+        )
+        self.assertEqual(
+            entries[image.MAC4_MODULE_LOAD_STAGING_PATH]["raw"],
+            b"vsock\nvmw_vsock_virtio_transport_common\n"
+            b"vmw_vsock_virtio_transport\n",
+        )
+        self.assertEqual(
+            entries[image.MAC4_MODULE_LOAD_STAGING_PATH]["mode"], 0o444
         )
 
     def test_image_cli_requires_the_relay_in_both_reversible_modes(self):
@@ -125,6 +134,7 @@ class Mac4AuthenticatedChannelBehaviorTests(unittest.TestCase):
         self.assertIn("readelf -h", workflow)
         self.assertIn('mac4_relay="$run_root/boole-native-shadow-mac4-relay"', workflow)
         self.assertIn('--mac4-relay "$mac4_relay"', workflow)
+        self.assertIn('--depmod "$(readlink -f "$(command -v depmod)")"', workflow)
         self.assertIn(
             '"$RUNNER_TEMP/mac4-relay/boole-native-shadow-mac4-relay" "$mac4_relay"',
             workflow,

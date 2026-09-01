@@ -148,10 +148,103 @@ def exact_development_readback_tree():
             "gid": 0,
             "target": dev.DEVELOPMENT_SYSTEMD_MASK_TARGET,
         }
+    tree["/" + dev.MAC4_MODULE_LOAD_STAGING_PATH] = {
+        "kind": "file",
+        "mode": 0o444,
+        "uid": 0,
+        "gid": 0,
+        "sha256": hashlib.sha256(dev.MAC4_MODULE_LOAD_BYTES).hexdigest(),
+    }
+    for path, raw in dev._static_test_module_index_entries().items():
+        tree["/" + path] = {
+            "kind": "file",
+            "mode": 0o444,
+            "uid": 0,
+            "gid": 0,
+            "sha256": hashlib.sha256(raw["raw"]).hexdigest(),
+        }
     return tree
 
 
 class ClosedLocalImageBehaviorTests(unittest.TestCase):
+    def test_host_depmod_generator_materializes_modules_and_returns_all_required_indexes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            depmod = root / "depmod"
+            depmod.write_bytes(b"tool")
+            depmod.chmod(0o555)
+            scratch = root / "scratch"
+            scratch.mkdir()
+            object_paths = tuple(
+                dev.MAC4_MODULE_DIRECTORY + "/" + relative
+                for relative in dev.MAC4_REQUIRED_MODULE_OBJECTS
+            )
+            entries = {
+                dev.MAC4_MODULE_DIRECTORY: {
+                    "path": dev.MAC4_MODULE_DIRECTORY,
+                    "kind": "directory",
+                    "mode": 0o755,
+                    "uid": 0,
+                    "gid": 0,
+                },
+                **{
+                    path: {
+                        "path": path,
+                        "kind": "file",
+                        "mode": 0o444,
+                        "uid": 0,
+                        "gid": 0,
+                        "raw": b"module:" + path.encode(),
+                    }
+                    for path in object_paths
+                },
+            }
+
+            def runner(command, **_kwargs):
+                basedir = pathlib.Path(command[command.index("-b") + 1])
+                module_root = (
+                    basedir / "lib/modules" / dev.MAC4_KERNEL_RELEASE
+                )
+                for path in object_paths:
+                    relative = path.removeprefix(dev.MAC4_MODULE_DIRECTORY + "/")
+                    self.assertTrue((module_root / relative).is_file())
+                for name in dev.MAC4_REQUIRED_MODULE_INDEX_NAMES:
+                    (module_root / name).write_bytes((name + "\n").encode())
+                return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+            generator = dev.HostDepmodModuleIndexGenerator(
+                depmod=depmod, scratch=scratch, runner=runner
+            )
+            generated = generator(entries)
+
+        self.assertEqual(
+            set(generated),
+            {
+                dev.MAC4_MODULE_DIRECTORY + "/" + name
+                for name in dev.MAC4_REQUIRED_MODULE_INDEX_NAMES
+            },
+        )
+        self.assertTrue(all(row["mode"] == 0o444 for row in generated.values()))
+
+    def test_module_index_generator_rejects_a_missing_vsock_object(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            depmod = root / "depmod"
+            depmod.write_bytes(b"tool")
+            depmod.chmod(0o555)
+            scratch = root / "scratch"
+            scratch.mkdir()
+            generator = dev.HostDepmodModuleIndexGenerator(
+                depmod=depmod,
+                scratch=scratch,
+                runner=lambda *_args, **_kwargs: self.fail("depmod must not run"),
+            )
+            with self.assertRaisesRegex(
+                dev.ClosedLocalImageError,
+                "sealed kernel module tree is absent|required vsock module object is absent",
+            ):
+                generator({})
+
     def test_cli_bootstraps_its_repository_import_under_isolated_python(self):
         completed = subprocess.run(
             [
@@ -372,6 +465,9 @@ class ClosedLocalImageBehaviorTests(unittest.TestCase):
     def test_development_backend_scopes_the_compatible_effects_override(self):
         backend = dev._development_backend()
         self.assertIsInstance(backend, dev.DevelopmentRepositoryImageBackend)
+        backend._module_metadata = dev._module_metadata_identities(
+            dev._static_test_module_index_entries()
+        )
         original = sealed.AutoclearReadbackEffects
         with mock.patch.object(
             sealed.RepositoryImageBackend,
@@ -379,7 +475,9 @@ class ClosedLocalImageBehaviorTests(unittest.TestCase):
             side_effect=lambda *_args: sealed.AutoclearReadbackEffects,
         ):
             observed = backend.readback(REPOSITORY_ROOT, pathlib.Path("outputs"), fake_chain())
-        self.assertIs(observed, dev.DevelopmentAutoclearReadbackEffects)
+        self.assertTrue(callable(observed))
+        produced = observed(types.SimpleNamespace(HostReadbackEffects=lambda: object()))
+        self.assertIsInstance(produced, dev.DevelopmentAutoclearReadbackEffects)
         self.assertIs(sealed.AutoclearReadbackEffects, original)
 
     def test_development_prepare_makes_the_installed_authority_directory_read_only(self):
@@ -669,6 +767,7 @@ class ClosedLocalImageBehaviorTests(unittest.TestCase):
         full.update(dev._development_replay_entries(REPOSITORY_ROOT))
         full.update(dev._development_systemd_mask_entries())
         full.update(dev._development_mac4_entries(REPOSITORY_ROOT, b"relay"))
+        full.update(dev._static_test_module_index_entries())
         for path in dev.DEVELOPMENT_DERIVED_DIRECTORY_PATHS:
             full[path] = {
                 "path": path,
@@ -702,6 +801,7 @@ class ClosedLocalImageBehaviorTests(unittest.TestCase):
             + len(dev.DEVELOPMENT_REPLAY_MATERIALS)
             + len(dev.DEVELOPMENT_SYSTEMD_MASK_PATHS)
             + len(dev.MAC4_OVERLAY_PATHS)
+            + len(dev.MAC4_REQUIRED_MODULE_INDEX_NAMES)
             + 2,
         )
 
@@ -766,6 +866,27 @@ class ClosedLocalImageBehaviorTests(unittest.TestCase):
         module = types.SimpleNamespace(HostReadbackEffects=Delegate)
         effects = dev.DevelopmentAutoclearReadbackEffects(module)
         self.assertEqual(effects.read_tree(pathlib.Path("mounted-root")), expected)
+
+    def test_development_readback_rejects_a_missing_vsock_module_index(self):
+        exact = exact_development_readback_tree()
+        missing = "/" + dev.MAC4_MODULE_DIRECTORY + "/modules.dep.bin"
+        del exact[missing]
+
+        class Delegate:
+            def read_tree(self, _mountpoint):
+                return exact
+
+        expected = dev._module_metadata_identities(
+            dev._static_test_module_index_entries()
+        )
+        effects = dev.DevelopmentAutoclearReadbackEffects(
+            types.SimpleNamespace(HostReadbackEffects=Delegate),
+            expected_module_metadata=expected,
+        )
+        with self.assertRaisesRegex(
+            dev.ClosedLocalImageError, "MAC.4 module metadata differs"
+        ):
+            effects.read_tree(pathlib.Path("mounted-root"))
 
     def test_development_readback_rejects_a_missing_or_retargeted_systemd_mask(self):
         exact = exact_development_readback_tree()

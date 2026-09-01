@@ -20,7 +20,9 @@ import json
 import os
 import pathlib
 import re
+import shutil
 import struct
+import subprocess
 import sys
 from collections.abc import Mapping
 from typing import Any, Callable, Optional
@@ -85,11 +87,40 @@ MAC4_SERVICE_SHA256 = (
     "394195d0ad7a5bbe3a74f5ffa3a490e617327d21bf054e554327d884f1ef73c4"
 )
 MAC4_SERVICE_SIZE_BYTES = 938
+MAC4_KERNEL_RELEASE = "6.8.0-31-generic"
+MAC4_MODULE_DIRECTORY = "usr/lib/modules/" + MAC4_KERNEL_RELEASE
+MAC4_MODULE_LOAD_STAGING_PATH = "etc/modules"
+MAC4_MODULE_LOAD_BYTES = (
+    b"vsock\n"
+    b"vmw_vsock_virtio_transport_common\n"
+    b"vmw_vsock_virtio_transport\n"
+)
+MAC4_REQUIRED_MODULE_OBJECTS = (
+    "kernel/net/vmw_vsock/vsock.ko.zst",
+    "kernel/net/vmw_vsock/vmw_vsock_virtio_transport_common.ko.zst",
+    "kernel/net/vmw_vsock/vmw_vsock_virtio_transport.ko.zst",
+)
+MAC4_REQUIRED_MODULE_INDEX_NAMES = (
+    "modules.alias",
+    "modules.alias.bin",
+    "modules.builtin.alias.bin",
+    "modules.builtin.bin",
+    "modules.dep",
+    "modules.dep.bin",
+    "modules.devname",
+    "modules.softdep",
+    "modules.symbols",
+    "modules.symbols.bin",
+)
+MAC4_SEALED_MODULE_METADATA_NAMES = frozenset(
+    ("modules.builtin", "modules.builtin.modinfo", "modules.order")
+)
 MAC4_OVERLAY_PATHS = (
     MAC4_RELAY_STAGING_PATH,
     MAC4_SERVICE_STAGING_PATH,
     MAC4_SERVICE_ENABLEMENT_PATH,
     MAC4_CONTRACT_STAGING_PATH,
+    MAC4_MODULE_LOAD_STAGING_PATH,
 )
 
 
@@ -309,7 +340,226 @@ def _development_mac4_entries(
             "gid": 0,
             "target": "/" + MAC4_SERVICE_STAGING_PATH,
         },
+        MAC4_MODULE_LOAD_STAGING_PATH: {
+            "path": MAC4_MODULE_LOAD_STAGING_PATH,
+            "kind": "file",
+            "mode": 0o444,
+            "uid": 0,
+            "gid": 0,
+            "raw": MAC4_MODULE_LOAD_BYTES,
+        },
     }
+
+
+def _module_metadata_identities(
+    entries: Mapping[str, Mapping[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    identities: dict[str, dict[str, Any]] = {}
+    for path in sorted(entries, key=lambda value: value.encode("utf-8")):
+        row = entries[path]
+        raw = row.get("raw")
+        if (
+            row.get("path") != path
+            or row.get("kind") != "file"
+            or row.get("mode") != 0o444
+            or row.get("uid") != 0
+            or row.get("gid") != 0
+            or not isinstance(raw, bytes)
+        ):
+            raise ClosedLocalImageError("MAC.4 module metadata entry is invalid")
+        identities[path] = {
+            "sha256": hashlib.sha256(raw).hexdigest(),
+            "sizeBytes": len(raw),
+        }
+    return identities
+
+
+def _static_test_module_index_entries(
+    _entries: Optional[Mapping[str, Mapping[str, Any]]] = None,
+) -> dict[str, dict[str, Any]]:
+    """Small deterministic stand-in used only by injected unit-test backends."""
+
+    return {
+        MAC4_MODULE_DIRECTORY + "/" + name: {
+            "path": MAC4_MODULE_DIRECTORY + "/" + name,
+            "kind": "file",
+            "mode": 0o444,
+            "uid": 0,
+            "gid": 0,
+            "raw": (name + "\n").encode("ascii"),
+        }
+        for name in MAC4_REQUIRED_MODULE_INDEX_NAMES
+    }
+
+
+class HostDepmodModuleIndexGenerator:
+    """Generate module lookup tables from the sealed objects without an image.
+
+    The runner's depmod is only a deterministic transformer.  Its complete
+    output is folded into the staging tree and later checked again from the
+    read-only ext4 image.  Independent image replicas still have to agree byte
+    for byte, so a runner-tool drift cannot silently qualify an image.
+    """
+
+    def __init__(
+        self,
+        *,
+        depmod: pathlib.Path,
+        scratch: pathlib.Path,
+        runner: Callable[..., Any] = subprocess.run,
+    ) -> None:
+        candidate = pathlib.Path(depmod)
+        try:
+            resolved = candidate.resolve(strict=True)
+        except OSError as exc:
+            raise ClosedLocalImageError("depmod is unreadable") from exc
+        if not resolved.is_file() or not os.access(resolved, os.X_OK):
+            raise ClosedLocalImageError("depmod is not one executable file")
+        self._depmod = resolved
+        self._scratch = pathlib.Path(scratch)
+        self._runner = runner
+        self._cached_input_digest: Optional[str] = None
+        self._cached: Optional[dict[str, dict[str, Any]]] = None
+
+    @staticmethod
+    def _input_digest(entries: Mapping[str, Mapping[str, Any]]) -> str:
+        digest = hashlib.sha256()
+        prefix = MAC4_MODULE_DIRECTORY + "/"
+        found = 0
+        for path in sorted(entries, key=lambda value: value.encode("utf-8")):
+            if path != MAC4_MODULE_DIRECTORY and not path.startswith(prefix):
+                continue
+            row = entries[path]
+            digest.update(path.encode("utf-8") + b"\0")
+            digest.update(str(row.get("kind")).encode("ascii") + b"\0")
+            raw = row.get("raw")
+            if isinstance(raw, bytes):
+                digest.update(hashlib.sha256(raw).digest())
+            target = row.get("target")
+            if isinstance(target, str):
+                digest.update(target.encode("utf-8"))
+            found += 1
+        if found == 0:
+            raise ClosedLocalImageError("sealed kernel module tree is absent")
+        return digest.hexdigest()
+
+    @staticmethod
+    def _write_module_tree(
+        root: pathlib.Path, entries: Mapping[str, Mapping[str, Any]]
+    ) -> set[str]:
+        module_root = root / "lib/modules" / MAC4_KERNEL_RELEASE
+        module_root.mkdir(parents=True, mode=0o755)
+        prefix = MAC4_MODULE_DIRECTORY + "/"
+        original_direct_names: set[str] = set()
+        for path in sorted(entries, key=lambda value: value.encode("utf-8")):
+            if path != MAC4_MODULE_DIRECTORY and not path.startswith(prefix):
+                continue
+            relative = "" if path == MAC4_MODULE_DIRECTORY else path[len(prefix) :]
+            if not relative:
+                continue
+            pure = pathlib.PurePosixPath(relative)
+            if pure.is_absolute() or ".." in pure.parts:
+                raise ClosedLocalImageError("kernel module staging path is unsafe")
+            target = module_root.joinpath(*pure.parts)
+            row = entries[path]
+            kind = row.get("kind")
+            if len(pure.parts) == 1:
+                original_direct_names.add(pure.name)
+            if kind == "directory":
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if kind == "file" and isinstance(row.get("raw"), bytes):
+                with target.open("xb") as stream:
+                    stream.write(row["raw"])
+                target.chmod(0o444)
+                continue
+            if kind == "symlink" and isinstance(row.get("target"), str):
+                link_target = pathlib.PurePosixPath(row["target"])
+                if link_target.is_absolute() or ".." in link_target.parts:
+                    # build/source links are irrelevant to dependency indexing;
+                    # do not let them become host authority.
+                    continue
+                target.symlink_to(row["target"])
+                continue
+            raise ClosedLocalImageError("kernel module staging entry is invalid")
+        for relative in MAC4_REQUIRED_MODULE_OBJECTS:
+            if not (module_root / pathlib.Path(*pathlib.PurePosixPath(relative).parts)).is_file():
+                raise ClosedLocalImageError(
+                    "required vsock module object is absent: " + relative
+                )
+        return original_direct_names
+
+    def __call__(
+        self, entries: Mapping[str, Mapping[str, Any]]
+    ) -> dict[str, dict[str, Any]]:
+        input_digest = self._input_digest(entries)
+        if self._cached is not None:
+            if input_digest != self._cached_input_digest:
+                raise ClosedLocalImageError(
+                    "kernel module inputs changed between staging passes"
+                )
+            return {path: dict(row) for path, row in self._cached.items()}
+        work = self._scratch / "mac4-depmod-index-v1"
+        if os.path.lexists(work):
+            raise ClosedLocalImageError("depmod scratch already exists")
+        work.mkdir(mode=0o700)
+        try:
+            original_names = self._write_module_tree(work, entries)
+            command = [str(self._depmod)]
+            if self._depmod.name == "kmod":
+                command.append("depmod")
+            command.extend(
+                ["-b", str(work), "-o", str(work), "-a", MAC4_KERNEL_RELEASE]
+            )
+            completed = self._runner(
+                command,
+                cwd=work,
+                env={"LANG": "C", "LC_ALL": "C", "PATH": "/usr/bin:/usr/sbin"},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if completed.returncode != 0:
+                raise ClosedLocalImageError(
+                    "depmod failed while generating MAC.4 module metadata: "
+                    + completed.stderr.strip()
+                )
+            module_root = work / "lib/modules" / MAC4_KERNEL_RELEASE
+            generated: dict[str, dict[str, Any]] = {}
+            for candidate in sorted(module_root.glob("modules.*"), key=lambda path: os.fsencode(path.name)):
+                if candidate.name in original_names:
+                    continue
+                if not candidate.is_file() or candidate.is_symlink():
+                    raise ClosedLocalImageError("depmod produced a non-regular index")
+                raw = candidate.read_bytes()
+                path = MAC4_MODULE_DIRECTORY + "/" + candidate.name
+                generated[path] = {
+                    "path": path,
+                    "kind": "file",
+                    "mode": 0o444,
+                    "uid": 0,
+                    "gid": 0,
+                    "raw": raw,
+                }
+            missing = sorted(
+                set(MAC4_REQUIRED_MODULE_INDEX_NAMES)
+                - {path.rsplit("/", 1)[-1] for path in generated}
+            )
+            if missing:
+                raise ClosedLocalImageError(
+                    "depmod omitted required MAC.4 indexes: " + ", ".join(missing)
+                )
+            self._cached_input_digest = input_digest
+            self._cached = generated
+            return {path: dict(row) for path, row in generated.items()}
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+
+    def identities(self) -> dict[str, dict[str, Any]]:
+        if self._cached is None:
+            raise ClosedLocalImageError("MAC.4 module metadata was not generated")
+        return _module_metadata_identities(self._cached)
 
 
 def _require_all_fixed_directories(entries: Mapping[str, Any]) -> None:
@@ -364,6 +614,27 @@ def _development_prepare_staging(
     for path in MAC4_OVERLAY_PATHS:
         if historical.pop(path, None) is None:
             raise ClosedLocalImageError(f"MAC.4 overlay was not staged: {path}")
+    module_prefix = MAC4_MODULE_DIRECTORY + "/"
+    generated_paths = [
+        path
+        for path in historical
+        if path.startswith(module_prefix)
+        and pathlib.PurePosixPath(path).parent.as_posix() == MAC4_MODULE_DIRECTORY
+        and pathlib.PurePosixPath(path).name.startswith("modules.")
+        and pathlib.PurePosixPath(path).name
+        not in MAC4_SEALED_MODULE_METADATA_NAMES
+    ]
+    for path in generated_paths:
+        historical.pop(path)
+    missing_indexes = sorted(
+        set(MAC4_REQUIRED_MODULE_INDEX_NAMES)
+        - {path.rsplit("/", 1)[-1] for path in generated_paths}
+    )
+    if missing_indexes:
+        raise ClosedLocalImageError(
+            "MAC.4 generated module metadata is incomplete: "
+            + ", ".join(missing_indexes)
+        )
     historical_measurement = staging_measure.builder_totals(historical)
     if not producer_v3._strict_equal(historical_measurement, expected):
         raise ClosedLocalImageError(
@@ -375,7 +646,11 @@ def _development_prepare_staging(
 
 @contextlib.contextmanager
 def _development_fixed_directory_contract(
-    repository_root: pathlib.Path, relay_binary: bytes
+    repository_root: pathlib.Path,
+    relay_binary: bytes,
+    module_index_generator: Callable[
+        [Mapping[str, Mapping[str, Any]]], dict[str, dict[str, Any]]
+    ],
 ):
     """Correct and verify derived parents with fixed runtime contracts.
 
@@ -432,6 +707,14 @@ def _development_fixed_directory_contract(
                 + ", ".join(collisions)
             )
         entries.update({path: dict(row) for path, row in overlay_entries.items()})
+        module_indexes = module_index_generator(entries)
+        index_collisions = sorted(set(entries).intersection(module_indexes))
+        if index_collisions:
+            raise ClosedLocalImageError(
+                "generated MAC.4 module metadata collides with sealed staging: "
+                + ", ".join(index_collisions)
+            )
+        entries.update({path: dict(row) for path, row in module_indexes.items()})
         ensure_parents(entries)
         _require_all_fixed_directories(entries)
         return entries
@@ -688,11 +971,19 @@ class DevelopmentAutoclearReadbackEffects:
         readback_module: Any,
         *,
         autoclear_setter: Callable[[str], None] = _set_loop_autoclear,
+        expected_module_metadata: Optional[
+            Mapping[str, Mapping[str, Any]]
+        ] = None,
     ) -> None:
         self._readback_module = readback_module
         self._delegate = readback_module.HostReadbackEffects()
         self._set_autoclear = autoclear_setter
         self._autoclear_devices: set[str] = set()
+        self._expected_module_metadata = dict(
+            expected_module_metadata
+            if expected_module_metadata is not None
+            else _module_metadata_identities(_static_test_module_index_entries())
+        )
 
     def unmet_requirements(self) -> list[str]:
         return list(self._delegate.unmet_requirements())
@@ -748,6 +1039,31 @@ class DevelopmentAutoclearReadbackEffects:
                 raise ClosedLocalImageError(
                     f"closed-local systemd mask differs: {mounted}"
                 )
+        module_load = tree.get("/" + MAC4_MODULE_LOAD_STAGING_PATH)
+        if (
+            not isinstance(module_load, Mapping)
+            or module_load.get("kind") != "file"
+            or module_load.get("mode") != 0o444
+            or module_load.get("uid") != 0
+            or module_load.get("gid") != 0
+            or module_load.get("sha256")
+            != hashlib.sha256(MAC4_MODULE_LOAD_BYTES).hexdigest()
+        ):
+            raise ClosedLocalImageError("MAC.4 module load contract differs")
+        for path, identity in self._expected_module_metadata.items():
+            mounted = "/" + path
+            row = tree.get(mounted)
+            if (
+                not isinstance(row, Mapping)
+                or row.get("kind") != "file"
+                or row.get("mode") != 0o444
+                or row.get("uid") != 0
+                or row.get("gid") != 0
+                or row.get("sha256") != identity.get("sha256")
+            ):
+                raise ClosedLocalImageError(
+                    f"MAC.4 module metadata differs: {mounted}"
+                )
         return tree
 
     def unmount(self, mountpoint: pathlib.Path) -> None:
@@ -777,27 +1093,55 @@ class DevelopmentAutoclearReadbackEffects:
 class DevelopmentRepositoryImageBackend(sealed.RepositoryImageBackend):
     """Scope the runner-compatible readback adapter to this reversible lane."""
 
-    def __init__(self, *, module_loader, relay_binary: bytes):
+    def __init__(
+        self,
+        *,
+        module_loader,
+        relay_binary: bytes,
+        module_index_generator: Callable[
+            [Mapping[str, Mapping[str, Any]]], dict[str, dict[str, Any]]
+        ],
+    ):
         super().__init__(module_loader=module_loader)
         self._relay_binary = relay_binary
+        self._module_index_generator = module_index_generator
 
     def prepare(self, request):
         repository_root = getattr(request, "repository_root", REPOSITORY_ROOT)
         with _development_fixed_directory_contract(
-            repository_root, self._relay_binary
+            repository_root, self._relay_binary, self._module_index_generator
         ):
-            return super().prepare(request)
+            prepared = super().prepare(request)
+        identities = getattr(self._module_index_generator, "identities", None)
+        self._module_metadata = (
+            identities()
+            if callable(identities)
+            else _module_metadata_identities(
+                self._module_index_generator({})
+            )
+        )
+        return prepared
 
     def readback(self, repository_root, outputs, chain):
         historical = sealed.AutoclearReadbackEffects
-        sealed.AutoclearReadbackEffects = DevelopmentAutoclearReadbackEffects
+        sealed.AutoclearReadbackEffects = lambda module: DevelopmentAutoclearReadbackEffects(
+            module, expected_module_metadata=self._module_metadata
+        )
         try:
             return super().readback(repository_root, outputs, chain)
         finally:
             sealed.AutoclearReadbackEffects = historical
 
 
-def _development_backend(relay_binary: bytes = b"fake-relay") -> sealed.RepositoryImageBackend:
+def _development_backend(
+    relay_binary: bytes = b"fake-relay",
+    *,
+    depmod: Optional[pathlib.Path] = None,
+    scratch: Optional[pathlib.Path] = None,
+    module_index_generator: Optional[
+        Callable[[Mapping[str, Mapping[str, Any]]], dict[str, dict[str, Any]]]
+    ] = None,
+) -> sealed.RepositoryImageBackend:
     # The production loader correctly refuses every repository module that is
     # not named by the historical F7 fingerprint.  This new orchestrator is
     # intentionally outside that old production fingerprint, so the
@@ -805,9 +1149,19 @@ def _development_backend(relay_binary: bytes = b"fake-relay") -> sealed.Reposito
     # supplies a root-owned, non-writable checkout, while
     # verify_development_generation_chain hashes the complete bound import
     # closure before this loader is reached.
+    if module_index_generator is None:
+        if depmod is None:
+            module_index_generator = _static_test_module_index_entries
+        else:
+            if scratch is None:
+                raise ClosedLocalImageError("depmod generation needs scratch")
+            module_index_generator = HostDepmodModuleIndexGenerator(
+                depmod=depmod, scratch=scratch
+            )
     return DevelopmentRepositoryImageBackend(
         module_loader=importlib.import_module,
         relay_binary=relay_binary,
+        module_index_generator=module_index_generator,
     )
 
 
@@ -843,6 +1197,7 @@ def preflight(
     zstd: pathlib.Path,
     launcher: pathlib.Path,
     mac4_relay: Optional[pathlib.Path] = None,
+    depmod: Optional[pathlib.Path] = None,
     backend: Optional[sealed.ImageBackend] = None,
 ) -> dict[str, Any]:
     chain = verify_development_generation_chain(repository_root)
@@ -865,14 +1220,18 @@ def preflight(
     )
     relay_binary = _mac4_relay_bytes(mac4_relay, require_real=backend is None)
     selected = (
-        _development_backend(relay_binary) if backend is None else backend
+        _development_backend(
+            relay_binary, depmod=depmod, scratch=scratch_root
+        )
+        if backend is None
+        else backend
     )
     prepared = selected.prepare(request)
     if not isinstance(prepared, sealed.PreparedProduction):
         raise ClosedLocalImageError("image backend returned no prepared staging")
     if os.path.lexists(outputs):
         raise ClosedLocalImageError("preflight created an output path")
-    return {
+    document = {
         "artifactClass": ARTIFACT_CLASS,
         "authorisations": _authorisations(),
         "claims": _claims(),
@@ -881,6 +1240,10 @@ def preflight(
         "schema": SCHEMA,
         "status": PREFLIGHT_STATUS,
     }
+    metadata = getattr(selected, "_module_metadata", None)
+    if isinstance(metadata, Mapping):
+        document["mac4ModuleMetadata"] = dict(metadata)
+    return document
 
 
 def _output_manifest(outputs: pathlib.Path) -> list[dict[str, Any]]:
@@ -926,6 +1289,7 @@ def build(
     launcher: pathlib.Path,
     run_label: str,
     mac4_relay: Optional[pathlib.Path] = None,
+    depmod: Optional[pathlib.Path] = None,
     backend: Optional[sealed.ImageBackend] = None,
 ) -> dict[str, Any]:
     if re.fullmatch(RUN_LABEL_PATTERN, run_label) is None:
@@ -953,7 +1317,11 @@ def build(
     )
     relay_binary = _mac4_relay_bytes(mac4_relay, require_real=backend is None)
     selected = (
-        _development_backend(relay_binary) if backend is None else backend
+        _development_backend(
+            relay_binary, depmod=depmod, scratch=scratch_root
+        )
+        if backend is None
+        else backend
     )
     prepared = selected.prepare(request)
     if not isinstance(prepared, sealed.PreparedProduction):
@@ -997,6 +1365,9 @@ def build(
         "status": BUILD_STATUS,
         "verification": dict(verification),
     }
+    metadata = getattr(selected, "_module_metadata", None)
+    if isinstance(metadata, Mapping):
+        document["mac4ModuleMetadata"] = dict(metadata)
     _publish_result(result, document)
     return document
 
@@ -1016,6 +1387,7 @@ def _parser() -> argparse.ArgumentParser:
         command.add_argument("--zstd", type=pathlib.Path, required=True)
         command.add_argument("--launcher", type=pathlib.Path, required=True)
         command.add_argument("--mac4-relay", type=pathlib.Path, required=True)
+        command.add_argument("--depmod", type=pathlib.Path, required=True)
         command.add_argument("--result", type=pathlib.Path, required=True)
         if mode == "build":
             command.add_argument("--run-label", required=True)
@@ -1033,6 +1405,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         "zstd": options.zstd,
         "launcher": options.launcher,
         "mac4_relay": options.mac4_relay,
+        "depmod": options.depmod,
     }
     try:
         if options.mode == "preflight":
