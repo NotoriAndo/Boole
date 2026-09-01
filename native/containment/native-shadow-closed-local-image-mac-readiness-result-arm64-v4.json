@@ -1,0 +1,169 @@
+{
+  "appendOnly": true,
+  "artifactClass": "DISPOSABLE-DEVELOPMENT",
+  "boundaries": {
+    "activationAllowed": false,
+    "consensusTouched": false,
+    "nodeConnected": false,
+    "p2pTouched": false,
+    "productionRelease": false,
+    "publicMining": false,
+    "rewardReady": false,
+    "testnetClaim": false
+  },
+  "correction": {
+    "developmentOnly": true,
+    "historicalSealedProducersChanged": false,
+    "readbackRequiresEveryMask": true,
+    "readinessCriteriaRelaxed": false,
+    "sealedBaseMeasurementPreserved": true,
+    "status": "IMPLEMENTED-NOT-BOOT-VERIFIED",
+    "systemdMaskTarget": "/dev/null",
+    "systemdMasks": [
+      "etc/systemd/system/getty-static.service",
+      "etc/systemd/system/getty@.service",
+      "etc/systemd/system/ldconfig.service",
+      "etc/systemd/system/serial-getty@.service"
+    ],
+    "summary": "The closed, read-only development guest now prevents the write-requiring linker-cache rebuild and unused interactive login services from being scheduled. The readiness requirement remains an empty failed-unit set."
+  },
+  "imageBuild": {
+    "artifacts": [
+      {
+        "digest": "sha256:4320416cb83b80e3e11655da93a39564d2deb793422578d525fff8bcbbaebd8f",
+        "expiresAt": "2026-09-08T05:04:00Z",
+        "id": 9786901873,
+        "name": "closed-local-image-readiness-build-replica-1",
+        "sizeBytes": 1375258111
+      },
+      {
+        "digest": "sha256:cf44c45733eca88b1cc7558ac026687e33df46667f98ea395df9bd0ba38dbe10",
+        "expiresAt": "2026-09-08T05:09:09Z",
+        "id": 9787008800,
+        "name": "closed-local-image-readiness-build-replica-2",
+        "sizeBytes": 1375258111
+      },
+      {
+        "digest": "sha256:4d372b1858c815d0a468ebd1ff34d344f640607a895e4c8c0c88d0cc2b0b0201",
+        "expiresAt": "2026-09-08T05:11:56Z",
+        "id": 9787052362,
+        "name": "closed-local-image-readiness-build-comparison",
+        "sizeBytes": 577
+      }
+    ],
+    "comparisonReceipt": {
+      "sha256": "8468cc7a7edaf6690529bcb40325c70fe00967767f923b2b5f8ff66a8e7c6312",
+      "sizeBytes": 749
+    },
+    "comparisonStatus": "TWO-REPLICAS-BYTE-IDENTICAL",
+    "headSha": "36bc14e4606f2b812bf7294a81a04e575cc6998e",
+    "jobs": {
+      "compare": 99745041072,
+      "replica1": 99743202690,
+      "replica2": 99743202519
+    },
+    "outputs": [
+      {
+        "name": "guest-kernel",
+        "sha256": "d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336",
+        "sizeBytes": 57860488
+      },
+      {
+        "name": "guest-initrd",
+        "sha256": "3857918bda74cdc460e958b3447667b10cdb0ce749d98df349c3b5ed34c3169e",
+        "sizeBytes": 1776467320
+      },
+      {
+        "name": "guest-root-disk",
+        "sha256": "b669ab0f0f7d26b10b2f19fc8c8ca4cc1a1799df954c2de3e1232b0d09f344c6",
+        "sizeBytes": 2035691520
+      }
+    ],
+    "rawOutputBytesAcrossTwoReplicas": 7740038656,
+    "runId": 33471902181,
+    "runUrl": "https://github.com/NotoriAndo/Boole/actions/runs/33471902181"
+  },
+  "macObservation": {
+    "boot": {
+      "attempts": 1,
+      "consoleTranscript": {
+        "lines": 234,
+        "sha256": "28bec88e0e9d673800badff9ee7eeb62a59db09bca65075474e0837fc7095053",
+        "sizeBytes": 21878
+      },
+      "guestEvidence": {
+        "launcher-executable": true,
+        "launcher-prerequisites": true,
+        "readiness": false,
+        "supervisor-privilege": true
+      },
+      "guestReachedGraphicalTarget": true,
+      "guestReachedMultiUserTarget": true,
+      "hostIsolationMet": true,
+      "hostOutcome": "stopped-at-timeout",
+      "imagesUnchanged": true,
+      "launcherServiceStarted": true,
+      "readiness": false,
+      "receipt": {
+        "sha256": "d042eb53d8c9101afd7af0a027bb8af99c514d27ca5c5ed5098ee0ad8aea6a52",
+        "sizeBytes": 1105
+      },
+      "result": {
+        "sha256": "f166afd8535910072f9055e9d12002758b74c6e0c447e6ce8d4c24834f9f29a5",
+        "sizeBytes": 4213
+      },
+      "retryPerformed": false,
+      "status": "CLOSED-LOCAL-MAC-READINESS-FAIL",
+      "systemdPid1Reached": true,
+      "vmStarted": true
+    },
+    "preflight": {
+      "hostProbe": {
+        "imagesUnchanged": true,
+        "receipt": {
+          "sha256": "ef1bad3190a4677e72404a4d9e233d8483dc9a267fccbe04d1f8717e6e72dd1f",
+          "sizeBytes": 3356
+        },
+        "status": "CLOSED-LOCAL-MAC-PREFLIGHT-PASS",
+        "vmStarted": false
+      },
+      "sandboxedProbe": {
+        "reason": "Virtualization.framework was unavailable inside the command sandbox",
+        "status": "REFUSED-BEFORE-VM-CREATION",
+        "vmStarted": false
+      }
+    },
+    "vmShape": {
+      "cpuCount": 2,
+      "memoryBytes": 2147483648,
+      "networkDevices": 0,
+      "rootDiskReadOnly": true,
+      "serialPorts": 1,
+      "sharedDirectories": 0,
+      "socketDevices": 0,
+      "storageDevices": 1
+    }
+  },
+  "predecessor": {
+    "path": "native/containment/native-shadow-closed-local-image-mac-readiness-result-arm64-v3.json",
+    "sha256": "4e463d18e217f25ae8cf9877596e8a2a3304d461b2bc6ee8e49ed0d0dcb84723",
+    "sizeBytes": 5860
+  },
+  "rootCause": {
+    "classification": "DEVELOPMENT-IMAGE-HEADLESS-UNIT-POLICY-OMISSION",
+    "failedUnits": [
+      "getty@tty2.service",
+      "getty@tty3.service",
+      "getty@tty4.service",
+      "getty@tty5.service",
+      "getty@tty6.service",
+      "ldconfig.service",
+      "serial-getty@hvc0.service"
+    ],
+    "launcherEvidenceRecordsComplete": true,
+    "retryPerformed": false,
+    "summary": "Every launcher-v2 executable, prerequisite and supervisor-privilege observation passed. Readiness alone remained false because Ubuntu's generic boot policy scheduled a linker-cache rebuild on a read-only root and interactive login units in a guest that deliberately exposes no login surface."
+  },
+  "schema": "boole.native-shadow.closed-local-image-mac-readiness-result.arm64.v4",
+  "status": "IMAGE-REPLICAS-GREEN-MAC-BOOT-PREREQUISITES-MET-HEADLESS-UNITS-FAILED"
+}

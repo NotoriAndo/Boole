@@ -6461,3 +6461,44 @@ NEXT REVERSIBLE GATE: MAIN CI, THEN ZERO-IMAGE ARM64 PREFLIGHT
 FRESH IMAGE BUILD + ANY FURTHER MAC BOOT REQUIRE NEW EXECUTION AUTHORITY
 PRODUCTION / MAC.4 / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
 ```
+
+## 84. A fourth deterministic build passed every launcher prerequisite; generic headless units blocked readiness (2026-09-01)
+
+The development-only correction merged as PR #333 at main
+`36bc14e4606f2b812bf7294a81a04e575cc6998e`. Its zero-image arm64 preflight
+run `33471378609` returned `READY-NO-IMAGE-CREATED` with 17,683 entries,
+1,773,488,658 payload bytes, zero image and zero virtual machine.
+
+The subsequently approved build run
+[`33471902181`](https://github.com/NotoriAndo/Boole/actions/runs/33471902181)
+produced two independent replicas. The kernel, initrd and root disk were
+byte-identical, totalling 7,740,038,656 raw bytes across both replicas. A Mac
+host preflight started no machine and passed. Exactly one closed VM then ran
+with two CPUs, 2 GiB RAM, no network or shared directory and one read-only
+root disk. The image hashes remained unchanged after host shutdown.
+
+This run crossed every earlier launcher boundary. The console contained the
+exact sealed launcher identity, all nine launcher prerequisites as resolved,
+and the complete fixed root-supervisor privilege shape. Readiness alone was
+false because the generic Ubuntu boot policy left seven failed units:
+`ldconfig.service`, `getty@tty2.service` through `getty@tty6.service`, and
+`serial-getty@hvc0.service`. The first cannot rebuild its cache on the required
+read-only root; the login units have no role in a closed guest with no login
+surface. The empty-failed-unit readiness rule is unchanged.
+
+The reversible development image now masks the four unit definitions that can
+schedule that set (`ldconfig.service`, `getty-static.service`, `getty@.service`
+and `serial-getty@.service`) by exact root-owned symlinks to `/dev/null`.
+Mounted-tree readback requires every mask and target before replica comparison.
+The historical sealed image producers remain byte-preserved. This correction
+has not yet been exercised by another image or VM.
+
+### 84.1 Cursor
+
+```text
+FOURTH ARM64 REPLICA PAIR BYTE-IDENTICAL / FOURTH MAC VM REACHED ALL LAUNCHER PREREQUISITES
+READINESS FALSE ONLY BECAUSE GENERIC READ-ONLY/INTERACTIVE SYSTEMD UNITS ENTERED FAILED STATE
+CRITERION UNCHANGED / DEVELOPMENT-ONLY UNIT MASKS + MOUNTED READBACK IMPLEMENTED
+NEXT REVERSIBLE GATE: MAIN CI, THEN ZERO-IMAGE ARM64 PREFLIGHT
+PRODUCTION / MAC.4 / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
+```

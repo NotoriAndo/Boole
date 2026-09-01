@@ -112,6 +112,17 @@ DEVELOPMENT_REPLAY_MATERIALS = (
     ),
 )
 
+DEVELOPMENT_DISABLED_SYSTEMD_UNITS = (
+    "getty-static.service",
+    "getty@.service",
+    "ldconfig.service",
+    "serial-getty@.service",
+)
+DEVELOPMENT_SYSTEMD_MASK_TARGET = "/dev/null"
+DEVELOPMENT_SYSTEMD_MASK_PATHS = tuple(
+    "etc/systemd/system/" + unit for unit in DEVELOPMENT_DISABLED_SYSTEMD_UNITS
+)
+
 DEVELOPMENT_DERIVED_DIRECTORY_PATHS = (
     AUTHORITY_STAGING_PATH + "/fixtures",
     AUTHORITY_STAGING_PATH
@@ -181,6 +192,20 @@ def _development_replay_entries(
     return entries
 
 
+def _development_systemd_mask_entries() -> dict[str, dict[str, Any]]:
+    return {
+        path: {
+            "path": path,
+            "kind": "symlink",
+            "mode": 0o777,
+            "uid": 0,
+            "gid": 0,
+            "target": DEVELOPMENT_SYSTEMD_MASK_TARGET,
+        }
+        for path in DEVELOPMENT_SYSTEMD_MASK_PATHS
+    }
+
+
 def _require_all_fixed_directories(entries: Mapping[str, Any]) -> None:
     for path in AUTHORITY_STAGING_PATHS:
         _require_fixed_directory(entries.get(path), "installed authority directory")
@@ -220,6 +245,11 @@ def _development_prepare_staging(
             raise ClosedLocalImageError(
                 f"closed-local replay material was not staged: {material.staging_path}"
             )
+    for path in DEVELOPMENT_SYSTEMD_MASK_PATHS:
+        if historical.pop(path, None) is None:
+            raise ClosedLocalImageError(
+                f"closed-local systemd mask was not staged: {path}"
+            )
     for path in DEVELOPMENT_DERIVED_DIRECTORY_PATHS:
         if historical.pop(path, None) is None:
             raise ClosedLocalImageError(
@@ -255,6 +285,7 @@ def _development_fixed_directory_contract(repository_root: pathlib.Path):
     if not callable(original_ensure) or not callable(original_assemble):
         raise ClosedLocalImageError("development parent derivation is unavailable")
     replay_entries = _development_replay_entries(repository_root)
+    systemd_mask_entries = _development_systemd_mask_entries()
 
     def ensure_parents(entries):
         original_ensure(entries)
@@ -281,13 +312,14 @@ def _development_fixed_directory_contract(repository_root: pathlib.Path):
         entries = original_assemble(*args, **kwargs)
         if not isinstance(entries, dict):
             raise ClosedLocalImageError("development assembler returned no mutable mapping")
-        collisions = sorted(set(entries).intersection(replay_entries))
+        overlay_entries = {**replay_entries, **systemd_mask_entries}
+        collisions = sorted(set(entries).intersection(overlay_entries))
         if collisions:
             raise ClosedLocalImageError(
-                "closed-local replay material collides with sealed staging: "
+                "closed-local development overlay collides with sealed staging: "
                 + ", ".join(collisions)
             )
-        entries.update({path: dict(row) for path, row in replay_entries.items()})
+        entries.update({path: dict(row) for path, row in overlay_entries.items()})
         ensure_parents(entries)
         _require_all_fixed_directories(entries)
         return entries
@@ -589,6 +621,20 @@ class DevelopmentAutoclearReadbackEffects:
             ):
                 raise ClosedLocalImageError(
                     f"closed-local replay material differs: {path}"
+                )
+        for path in DEVELOPMENT_SYSTEMD_MASK_PATHS:
+            mounted = "/" + path
+            row = tree.get(mounted)
+            if (
+                not isinstance(row, Mapping)
+                or row.get("kind") != "symlink"
+                or row.get("mode") != 0o777
+                or row.get("uid") != 0
+                or row.get("gid") != 0
+                or row.get("target") != DEVELOPMENT_SYSTEMD_MASK_TARGET
+            ):
+                raise ClosedLocalImageError(
+                    f"closed-local systemd mask differs: {mounted}"
                 )
         return tree
 
