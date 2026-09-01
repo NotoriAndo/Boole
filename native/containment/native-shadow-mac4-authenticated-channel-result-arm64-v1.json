@@ -1,0 +1,191 @@
+{
+  "appendOnly": true,
+  "artifactClass": "DISPOSABLE-DEVELOPMENT",
+  "authorityOwner": "MAC-HOST-NODE",
+  "boundaries": {
+    "activationAllowed": false,
+    "consensusTouched": false,
+    "mac4Complete": false,
+    "miningActivated": false,
+    "nodeExecutionConnected": false,
+    "p2pTouched": false,
+    "productionRelease": false,
+    "publicMining": false,
+    "rewardReady": false,
+    "testnetClaim": false
+  },
+  "contract": {
+    "path": "native/containment/native-shadow-mac4-authenticated-channel-contract-v1.json",
+    "sha256": "4f2ec110d72f628207ac383668daff7bda6b568449fd315d8376aeb20ae08bbd"
+  },
+  "guestRole": "BOUNDED-RELAY",
+  "imageBuild": {
+    "artifacts": [
+      {
+        "artifactId": 9801647057,
+        "compressedSizeBytes": 1375673086,
+        "digest": "sha256:600e41a04563bba87cb9f2e9695eefb683758c719830b174f8c4dcb4ab1ff822",
+        "expiresAt": "2026-09-08",
+        "name": "closed-local-image-readiness-build-replica-1"
+      },
+      {
+        "artifactId": 9801843388,
+        "compressedSizeBytes": 1375673086,
+        "digest": "sha256:097219f7268b5e2b32379809be64728b313d6ac8e9f98c12ea77c7b545950ed2",
+        "expiresAt": "2026-09-08",
+        "name": "closed-local-image-readiness-build-replica-2"
+      },
+      {
+        "artifactId": 9801971881,
+        "compressedSizeBytes": 577,
+        "digest": "sha256:2ffbda8e1ef96028898c87ae22f622005cf04d58b855cc6f857996928af1b050",
+        "expiresAt": "2026-09-08",
+        "name": "closed-local-image-readiness-build-comparison"
+      }
+    ],
+    "comparisonReceipt": {
+      "sha256": "dc02159af0d3c98328c295612596455afd63df1ecdf7e0eff720acf49e0edd60"
+    },
+    "comparisonStatus": "TWO-REPLICAS-BYTE-IDENTICAL",
+    "headSha": "957319e0a2aa780febd25e97ea27ad8243e287d0",
+    "jobs": [
+      {
+        "conclusion": "success",
+        "jobId": 99865163228,
+        "name": "closed-local build replica 1"
+      },
+      {
+        "conclusion": "success",
+        "jobId": 99865163758,
+        "name": "closed-local build replica 2"
+      },
+      {
+        "conclusion": "success",
+        "jobId": 99868389658,
+        "name": "compare disposable image replicas"
+      }
+    ],
+    "manualReplicas": 0,
+    "outputs": [
+      {
+        "name": "guest-kernel",
+        "replicasByteIdentical": true,
+        "sha256": "d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336",
+        "sizeBytes": 57860488
+      },
+      {
+        "name": "guest-initrd",
+        "replicasByteIdentical": true,
+        "sha256": "104e8e170abaaaf03f0e9a0f9c9eecc39a5fa0b96658bb0a5128f7d198ed784b",
+        "sizeBytes": 1776942700
+      },
+      {
+        "name": "guest-root-disk",
+        "replicasByteIdentical": true,
+        "sha256": "f1a18c2c1c77ee8e27657c3d0f5a2d2fb82061468a6e82ffa1583d5c0b0b088a",
+        "sizeBytes": 2036236288
+      }
+    ],
+    "rawOutputBytesAcrossTwoReplicas": 7742078952,
+    "replicas": 2,
+    "runAttempt": 1,
+    "runId": 33510635018,
+    "runUrl": "https://github.com/NotoriAndo/Boole/actions/runs/33510635018",
+    "workflowDispatches": 1,
+    "workflowReruns": 0
+  },
+  "macObservation": {
+    "bootAttempts": 1,
+    "bootTupleBindingHex": "468151a880fdb4dbabadd92a666f2bf90de9dc136c9f3d02957495141223f064",
+    "channelAuthenticated": false,
+    "contractSha256": "4f2ec110d72f628207ac383668daff7bda6b568449fd315d8376aeb20ae08bbd",
+    "evidence": {
+      "console": {
+        "lines": 226,
+        "sha256": "7ad66ad5f7fceae52efb35de9eb8f8816ad0a81b0a51e71703eb1b59ede1d739",
+        "sizeBytes": 21182
+      },
+      "dryRunReceipt": {
+        "sha256": "fc32d67081dddeec7901ab776a2fb5275bcaad52077958facaf53ed9eb9b50ea",
+        "sizeBytes": 1252
+      },
+      "launcherReadinessWasTrue": true,
+      "relayReadyMarkerObserved": false,
+      "relayServiceFailed": true,
+      "receipt": {
+        "sha256": "f704201fba1faa148861fe83654ca7152133b46ffdf6f5d67389bc81f41cde0d",
+        "sizeBytes": 1278
+      },
+      "systemdReachedMultiUser": true
+    },
+    "host": {
+      "chip": "Apple M4 Max",
+      "macOS": "26.5.2",
+      "model": "Mac Studio"
+    },
+    "imagesUnchanged": true,
+    "machineStopped": true,
+    "machinesStarted": 1,
+    "nonceHex": "9de52f320d101f9c9f060ac23923def51b9ba8fa998abcf4f104465f34d644d8",
+    "ranForSeconds": 100.26670396327972,
+    "resultFileWritten": false,
+    "resultFileNote": "The outer driver stopped on the host program's non-zero exit before writing its aggregate result. The host receipt and serial console were preserved and hash-bound above.",
+    "timeoutSeconds": 90,
+    "vmShape": {
+      "networkDevices": 0,
+      "rootDiskReadOnly": true,
+      "sharedDirectories": 0,
+      "socketDevices": 1,
+      "storageDevices": 1
+    },
+    "vsock": {
+      "port": 4050,
+      "roundTrips": 0
+    }
+  },
+  "nextStep": {
+    "newBootAuthorityRequired": true,
+    "newImageAuthorityRequired": true,
+    "recommendation": "DETERMINISTIC-DEPMOD-INDEXES",
+    "recommendationDetail": "Generate and pin depmod indexes while constructing the read-only image, require the exact vsock modules through a deterministic modules-load input, and make a free image readback/preflight prove the indexes and load contract before requesting another disposable build and boot.",
+    "retryAuthorizedByThisRecord": false
+  },
+  "rootCause": {
+    "builderHasDepmodGeneration": false,
+    "builderHasVsockModuleLoadInstruction": false,
+    "exactRelayErrnoPreserved": false,
+    "explanation": "The exact kernel builds AF_VSOCK and virtio-vsock as modules. Their compressed module objects exist, but the image has no depmod dependency or alias indexes and its only modules-load entry is a dangling symlink to an absent /etc/modules file. The relay therefore had no usable AF_VSOCK transport and its systemd unit failed before emitting the ready marker.",
+    "fixStatus": "NOT-STARTED",
+    "kernelConfig": {
+      "CONFIG_VIRTIO_VSOCKETS": "m",
+      "CONFIG_VIRTIO_VSOCKETS_COMMON": "m",
+      "CONFIG_VSOCKETS": "m"
+    },
+    "missingModuleIndexes": [
+      "modules.alias",
+      "modules.alias.bin",
+      "modules.dep",
+      "modules.dep.bin"
+    ],
+    "moduleObjectsPresent": true,
+    "moduleObjectPaths": [
+      "usr/lib/modules/6.8.0-31-generic/kernel/net/vmw_vsock/vsock.ko.zst",
+      "usr/lib/modules/6.8.0-31-generic/kernel/net/vmw_vsock/vmw_vsock_virtio_transport_common.ko.zst",
+      "usr/lib/modules/6.8.0-31-generic/kernel/net/vmw_vsock/vmw_vsock_virtio_transport.ko.zst"
+    ],
+    "modulesLoadConfiguration": {
+      "kind": "dangling-symlink",
+      "path": "etc/modules-load.d/modules.conf",
+      "target": "../modules",
+      "targetPresent": false
+    },
+    "presentModuleIndexes": [
+      "modules.builtin",
+      "modules.builtin.modinfo",
+      "modules.order"
+    ],
+    "status": "SUFFICIENT-ROOT-CAUSE-IDENTIFIED"
+  },
+  "schema": "boole.native-shadow.mac4-authenticated-channel-observation.arm64.v1",
+  "status": "MAC4-AUTHENTICATED-CHANNEL-OBSERVED-FAIL-CLOSED"
+}

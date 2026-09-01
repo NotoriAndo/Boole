@@ -3108,4 +3108,24 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'FIFTH ARM64 REPLI
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'NEXT: MAC.4 HOST-GUEST AUTHENTICATED CHANNEL, STILL CLOSED-LOCAL'
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Fifth reversible Mac observation: exact closed readiness passed'
 
+# The first closed-local MAC.4 round trip was attempted exactly once.  Preserve
+# the successful replica comparison and the failed-closed channel observation
+# without turning the result into node or product authority.
+MAC4_CHANNEL_RESULT=native/containment/native-shadow-mac4-authenticated-channel-result-arm64-v1.json
+MAC4_CHANNEL_GATE=scripts/test_native_shadow_mac4_authenticated_channel_result_v1.py
+require_file "$MAC4_CHANNEL_RESULT"
+require_file "$MAC4_CHANNEL_GATE"
+require_text scripts/self-test.sh "$MAC4_CHANNEL_GATE"
+require_text "$MAC4_CHANNEL_RESULT" '"runId": 33510635018'
+require_text "$MAC4_CHANNEL_RESULT" '"status": "MAC4-AUTHENTICATED-CHANNEL-OBSERVED-FAIL-CLOSED"'
+require_text "$MAC4_CHANNEL_RESULT" '"comparisonStatus": "TWO-REPLICAS-BYTE-IDENTICAL"'
+require_text "$MAC4_CHANNEL_RESULT" '"roundTrips": 0'
+require_text "$MAC4_CHANNEL_RESULT" '"status": "SUFFICIENT-ROOT-CAUSE-IDENTIFIED"'
+require_text "$MAC4_CHANNEL_RESULT" '"recommendation": "DETERMINISTIC-DEPMOD-INDEXES"'
+require_text "$MAC4_CHANNEL_RESULT" '"newBootAuthorityRequired": true'
+require_text "$MAC4_CHANNEL_RESULT" '"mac4Complete": false'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'MAC.4 AUTHENTICATED ROUND TRIP 0 / FAILED CLOSED'
+require_text docs/native-submission-shadow-verification-v1.md 'MAC.4 authenticated-channel observation addendum'
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'First MAC.4 authenticated-channel observation: vsock transport unavailable'
+
 printf 'docs-smoke: PASS\n' >&2
