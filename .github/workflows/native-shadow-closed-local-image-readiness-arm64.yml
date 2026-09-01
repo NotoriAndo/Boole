@@ -226,20 +226,40 @@ jobs:
           unit=boole-native-shadow-mac4-relay.service
           getent group boole-node >/dev/null || sudo groupadd --system boole-node
           getent passwd boole-node >/dev/null || sudo useradd --system --gid boole-node --home-dir /nonexistent --shell /usr/sbin/nologin boole-node
-          sudo install -D -o root -g root -m 0555 "$relay" /usr/libexec/boole/boole-native-shadow-mac4-relay
-          sudo install -D -o root -g root -m 0444 \
-            native/containment/native-shadow-mac4-authenticated-channel-contract-v1.json \
-            /usr/share/boole/native-shadow/mac4-channel-contract-v1.json
           sudo install -o root -g root -m 0444 \
             native/systemd/boole-native-shadow-mac4-relay.service "/run/systemd/system/$unit"
-          sudo systemctl daemon-reload
-          sudo systemctl start "$unit" || true
-          sleep 4
-          sudo systemctl show "$unit" \
-            -p ActiveState -p SubState -p Result -p ExecMainCode -p ExecMainStatus \
-            -p NRestarts -p StatusErrno
-          sudo journalctl -u "$unit" --no-pager -o short-monotonic
-          sudo systemctl stop "$unit" || true
+          for layout in missing-var-tmp present-var-tmp; do
+            root="$RUNNER_TEMP/$layout"
+            sudo install -d -o root -g root -m 0755 \
+              "$root" "$root/dev" "$root/home" "$root/proc" "$root/root" \
+              "$root/run" "$root/sys" "$root/usr" "$root/var"
+            sudo install -d -o root -g root -m 1777 "$root/tmp"
+            if [[ $layout == present-var-tmp ]]; then
+              sudo install -d -o root -g root -m 1777 "$root/var/tmp"
+            fi
+            sudo install -D -o root -g root -m 0555 "$relay" \
+              "$root/usr/libexec/boole/boole-native-shadow-mac4-relay"
+            sudo install -D -o root -g root -m 0444 \
+              native/containment/native-shadow-mac4-authenticated-channel-contract-v1.json \
+              "$root/usr/share/boole/native-shadow/mac4-channel-contract-v1.json"
+            while IFS= read -r library; do
+              sudo cp --parents -- "$library" "$root"
+            done < <(ldd "$relay" | awk '/=> \// {print $3} /^\// {print $1}')
+            sudo chown -R root:root "$root"
+            sudo install -d -o root -g root -m 0755 "/run/systemd/system/$unit.d"
+            printf '[Service]\nRootDirectory=%s\nRestart=no\n' "$root" | \
+              sudo tee "/run/systemd/system/$unit.d/root.conf" >/dev/null
+            sudo systemctl daemon-reload
+            sudo systemctl reset-failed "$unit" || true
+            echo "PROBE-LAYOUT=$layout"
+            sudo systemctl start "$unit" || true
+            sleep 2
+            sudo systemctl show "$unit" \
+              -p ActiveState -p SubState -p Result -p ExecMainCode -p ExecMainStatus \
+              -p NRestarts -p StatusErrno
+            sudo journalctl -u "$unit" --no-pager -o short-monotonic -n 20
+            sudo systemctl stop "$unit" || true
+          done
 
   compare:
     name: compare disposable image replicas
