@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -116,14 +117,19 @@ class BoundedSnapshotRetryTests(unittest.TestCase):
         text = CI.read_text(encoding="utf-8")
         wrapper = "native_shadow_bounded_snapshot_retry_v1.py"
         self.assertEqual(text.count(wrapper), 3)
-        self.assertIn(
-            f"{wrapper} -- sudo ./scripts/native-shadow-portable-rootfs-replay-linux.sh",
-            text,
-        )
-        self.assertIn(
-            f"{wrapper} -- sudo ./scripts/native-shadow-portable-rootfs-replay-linux-arm64.sh",
-            text,
-        )
+        for architecture, script in (
+            ("amd64", "native-shadow-portable-rootfs-replay-linux.sh"),
+            ("arm64", "native-shadow-portable-rootfs-replay-linux-arm64.sh"),
+        ):
+            self.assertRegex(
+                text,
+                re.compile(
+                    rf"{re.escape(wrapper)} --\s+sudo env .*?"
+                    rf"BOOLE_UBUNTU_MIRROR_ARCH={architecture}\s+"
+                    rf"\./scripts/{re.escape(script)}",
+                    re.DOTALL,
+                ),
+            )
         self.assertIn(
             f"{wrapper} -- python3 scripts/native_shadow_boot_ci_payload_acquire_arm64_v1.py acquire",
             text,
