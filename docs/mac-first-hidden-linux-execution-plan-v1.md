@@ -6419,3 +6419,45 @@ NEXT REVERSIBLE GATE: MAIN CI, THEN ZERO-IMAGE PREFLIGHT
 FRESH IMAGE BUILD + ANY FURTHER MAC BOOT REQUIRE NEW EXECUTION AUTHORITY
 A7 / PRODUCTION / MAC.4 / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION NOT STARTED
 ```
+
+## 83. A third deterministic build reached the replay-authority boundary (2026-09-01)
+
+The explicitly approved run
+[`33466531840`](https://github.com/NotoriAndo/Boole/actions/runs/33466531840)
+produced a third pair of independent disposable arm64 images. The kernel,
+initrd and root disk were byte-identical across both replicas. Their exact
+identities, GitHub artifact identities and the comparison receipt are recorded
+append-only in
+`native-shadow-closed-local-image-mac-readiness-result-arm64-v3.json`.
+
+The approved Mac no-VM preflight passed and exactly one closed VM then started.
+It used no network or shared directory and attached one read-only root disk.
+Linux reached systemd PID 1, the normal targets and the launcher service. The
+launcher then failed closed before readiness because the development image did
+not contain
+`/usr/share/boole/native-shadow/closed-local-replay-registry-overlay-v1.json`.
+The same missing-file failure appeared on each service restart. The host stopped
+at the fixed timeout; all image identities remained unchanged and there was no
+retry.
+
+The root cause is one generation mismatch. The historical source lock contains
+the original installed checker bundle, while the newer closed-local replay
+startup also requires three replay-authority records plus the frozen task and
+anchor. The reversible development lane now adds exactly those five pinned
+files (13,599 bytes) and requires every authority, checker, fixture and
+toolchain directory to be root-owned mode `0555`. The historical staging tree
+is measured again after removing only this additive overlay and must remain
+identical to its sealed measurement. Linux mounted-tree readback independently
+requires the five file identities and seven fixed directory contracts.
+Historical sealed producers and authority records remain byte-preserved.
+
+### 83.1 Cursor
+
+```text
+THIRD ARM64 REPLICA PAIR BYTE-IDENTICAL / THIRD MAC VM REACHED LAUNCHER
+READINESS FAIL-CLOSED ON MISSING CLOSED-LOCAL REPLAY AUTHORITY MATERIAL
+ROOT CAUSE RECORDED / EXACT FIVE-FILE DEVELOPMENT OVERLAY IMPLEMENTED
+NEXT REVERSIBLE GATE: MAIN CI, THEN ZERO-IMAGE ARM64 PREFLIGHT
+FRESH IMAGE BUILD + ANY FURTHER MAC BOOT REQUIRE NEW EXECUTION AUTHORITY
+PRODUCTION / MAC.4 / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
+```
