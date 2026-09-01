@@ -40,6 +40,8 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m unittest \
+            scripts.test_native_shadow_bounded_snapshot_retry_v1 \
+            scripts.test_native_shadow_official_mirror_seed_v1 \
             scripts.test_native_shadow_closed_local_image_to_readiness_arm64_v1 \
             scripts.test_native_shadow_closed_local_image_readiness_workflow_arm64_v1
 
@@ -58,11 +60,13 @@ jobs:
           python3 -I -S scripts/native_shadow_boot_rustdist_acquire_arm64_v1.py --acquire
           git diff --exit-code -- "$sealed"
           mkdir -p "$RUNNER_TEMP/acquire"
-          python3 -I -S scripts/native_shadow_boot_ci_payload_acquire_arm64_v1.py acquire \
+          python3 -I -S scripts/native_shadow_official_mirror_seed_v1.py boot \
+            --cas "$PWD/$CAS"
+          python3 -I -S scripts/native_shadow_bounded_snapshot_retry_v1.py -- python3 -I -S scripts/native_shadow_boot_ci_payload_acquire_arm64_v1.py acquire \
             --cas "$PWD/$CAS" \
             --zstd "$(readlink -f "$(command -v zstd)")" \
             --result "$RUNNER_TEMP/acquire/ci-payload-acquisition.json"
-          python3 -I -S scripts/native_shadow_boot_writer_set_acquire_arm64_v1.py acquire \
+          python3 -I -S scripts/native_shadow_bounded_snapshot_retry_v1.py -- python3 -I -S scripts/native_shadow_boot_writer_set_acquire_arm64_v1.py acquire \
             --cas "$PWD/$CAS" \
             --result "$RUNNER_TEMP/acquire/writer-set-acquisition.json"
 
