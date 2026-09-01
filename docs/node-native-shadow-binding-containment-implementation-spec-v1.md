@@ -4625,3 +4625,28 @@ The append-only v3 result record binds the build run, artifacts, three output
 identities, Mac receipts, console digest, predecessor and unchanged false
 authority boundaries. This correction authorises no new image, VM, production,
 MAC.4, node, testnet, mining, reward, consensus, P2P or activation effect.
+
+## Fourth reversible Mac observation: all launcher prerequisites passed; headless unit policy remained generic (2026-09-01)
+
+Run `33471902181` produced two byte-identical development image replicas from
+main `36bc14e`. One Mac VM then preserved the exact closed shape and all input
+hashes. Unlike the predecessor, it emitted all four guest evidence records.
+The launcher executable, its nine prerequisites and the fixed root-supervisor
+privilege shape all matched. Only `readiness` was false.
+
+The failed-unit query returned exactly seven generic Ubuntu units:
+`ldconfig.service`, `getty@tty2.service` through `getty@tty6.service`, and
+`serial-getty@hvc0.service`. This does not justify ignoring failed units. The
+development image must instead avoid scheduling a cache writer on its
+read-only root and interactive login services in a guest with no login
+surface. It therefore installs root-owned systemd masks for
+`ldconfig.service`, `getty-static.service`, `getty@.service`, and
+`serial-getty@.service`; mounted readback requires those exact `/dev/null`
+links. Historical sealed producers and the empty-failed-unit readiness rule
+are unchanged.
+
+The append-only v4 result record contains the build/artifact identities, Mac
+receipts, console identity, complete guest evidence result, predecessor and
+false authority boundaries. The fix is implemented but not yet boot-verified.
+No production, MAC.4, node, testnet, mining, reward, consensus, P2P or
+activation effect follows.

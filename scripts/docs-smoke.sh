@@ -3077,4 +3077,20 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'THIRD ARM64 REPLI
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'NEXT REVERSIBLE GATE: MAIN CI, THEN ZERO-IMAGE ARM64 PREFLIGHT'
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Third reversible Mac observation: replay authority material was absent'
 
+# The fourth approved development observation crossed every launcher startup
+# boundary.  Readiness alone remained false, so preserve the exact failed-unit
+# set and the development-only policy correction without weakening the rule.
+V4_MAC_RESULT=native/containment/native-shadow-closed-local-image-mac-readiness-result-arm64-v4.json
+require_file "$V4_MAC_RESULT"
+require_text "$V4_MAC_RESULT" '"runId": 33471902181'
+require_text "$V4_MAC_RESULT" '"launcher-prerequisites": true'
+require_text "$V4_MAC_RESULT" '"supervisor-privilege": true'
+require_text "$V4_MAC_RESULT" '"readiness": false'
+require_text "$V4_MAC_RESULT" '"readinessCriteriaRelaxed": false'
+require_text "$V4_MAC_RESULT" 'etc/systemd/system/ldconfig.service'
+require_text "$V4_MAC_RESULT" 'etc/systemd/system/serial-getty@.service'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'FOURTH ARM64 REPLICA PAIR BYTE-IDENTICAL'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'CRITERION UNCHANGED / DEVELOPMENT-ONLY UNIT MASKS + MOUNTED READBACK IMPLEMENTED'
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Fourth reversible Mac observation: all launcher prerequisites passed'
+
 printf 'docs-smoke: PASS\n' >&2

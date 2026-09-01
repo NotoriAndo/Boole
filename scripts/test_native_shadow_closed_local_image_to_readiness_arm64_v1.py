@@ -30,6 +30,10 @@ THIRD_MAC_RESULT = (
     REPOSITORY_ROOT
     / "native/containment/native-shadow-closed-local-image-mac-readiness-result-arm64-v3.json"
 )
+FOURTH_MAC_RESULT = (
+    REPOSITORY_ROOT
+    / "native/containment/native-shadow-closed-local-image-mac-readiness-result-arm64-v4.json"
+)
 
 
 class FakeBackend:
@@ -131,6 +135,14 @@ def exact_development_readback_tree():
             "uid": 0,
             "gid": 0,
             "sha256": material.sha256,
+        }
+    for path in dev.DEVELOPMENT_SYSTEMD_MASK_PATHS:
+        tree["/" + path] = {
+            "kind": "symlink",
+            "mode": 0o777,
+            "uid": 0,
+            "gid": 0,
+            "target": dev.DEVELOPMENT_SYSTEMD_MASK_TARGET,
         }
     return tree
 
@@ -549,6 +561,95 @@ class ClosedLocalImageBehaviorTests(unittest.TestCase):
                 self.assertEqual(row["mode"], 0o555)
                 self.assertEqual((row["uid"], row["gid"]), (0, 0))
 
+    def test_development_prepare_masks_units_the_closed_read_only_guest_cannot_use(self):
+        namespace = builder_v4.materialize_staging_tree.__globals__["_IMPL"]
+        original_assemble = namespace["_assemble_entries"]
+        observed = {}
+
+        def base_assemble(*_args, **_kwargs):
+            entries = {
+                "usr/share/boole/native-shadow/registry-v1.json": {
+                    "path": "usr/share/boole/native-shadow/registry-v1.json",
+                    "kind": "file",
+                    "mode": 0o444,
+                    "uid": 0,
+                    "gid": 0,
+                    "raw": b"{}\n",
+                },
+                "usr/share/boole/native-shadow/checkers/rust-tuple-struct-project-v1/checker.py": {
+                    "path": "usr/share/boole/native-shadow/checkers/rust-tuple-struct-project-v1/checker.py",
+                    "kind": "file",
+                    "mode": 0o444,
+                    "uid": 0,
+                    "gid": 0,
+                    "raw": b"checker",
+                },
+                "opt/boole/native-checker-toolchain/bin/rustc": {
+                    "path": "opt/boole/native-checker-toolchain/bin/rustc",
+                    "kind": "file",
+                    "mode": 0o755,
+                    "uid": 0,
+                    "gid": 0,
+                    "raw": b"rustc",
+                },
+                "etc/systemd/system": {
+                    "path": "etc/systemd/system",
+                    "kind": "directory",
+                    "mode": 0o755,
+                    "uid": 0,
+                    "gid": 0,
+                },
+            }
+            namespace["_ensure_parents"](entries)
+            return entries
+
+        def prepare(_backend, _request):
+            entries = namespace["_assemble_entries"]()
+            observed.update(entries)
+            return "prepared"
+
+        namespace["_assemble_entries"] = base_assemble
+        try:
+            with mock.patch.object(
+                sealed.RepositoryImageBackend,
+                "prepare",
+                autospec=True,
+                side_effect=prepare,
+            ):
+                self.assertEqual(dev._development_backend().prepare(object()), "prepared")
+        finally:
+            namespace["_assemble_entries"] = original_assemble
+
+        self.assertEqual(
+            {
+                path: {
+                    key: observed[path][key]
+                    for key in ("kind", "mode", "uid", "gid", "target")
+                }
+                for path in (
+                    "etc/systemd/system/ldconfig.service",
+                    "etc/systemd/system/getty-static.service",
+                    "etc/systemd/system/getty@.service",
+                    "etc/systemd/system/serial-getty@.service",
+                )
+            },
+            {
+                path: {
+                    "kind": "symlink",
+                    "mode": 0o777,
+                    "uid": 0,
+                    "gid": 0,
+                    "target": "/dev/null",
+                }
+                for path in (
+                    "etc/systemd/system/ldconfig.service",
+                    "etc/systemd/system/getty-static.service",
+                    "etc/systemd/system/getty@.service",
+                    "etc/systemd/system/serial-getty@.service",
+                )
+            },
+        )
+
     def test_development_measurement_preserves_the_sealed_base_and_counts_the_overlay(self):
         historical = {
             "usr/bin/example": {
@@ -562,6 +663,7 @@ class ClosedLocalImageBehaviorTests(unittest.TestCase):
         }
         full = dict(historical)
         full.update(dev._development_replay_entries(REPOSITORY_ROOT))
+        full.update(dev._development_systemd_mask_entries())
         for path in dev.DEVELOPMENT_DERIVED_DIRECTORY_PATHS:
             full[path] = {
                 "path": path,
@@ -591,7 +693,10 @@ class ClosedLocalImageBehaviorTests(unittest.TestCase):
         self.assertEqual(prepared.measurement, expected_full)
         self.assertEqual(
             prepared.measurement["entries"],
-            expected_base["entries"] + len(dev.DEVELOPMENT_REPLAY_MATERIALS) + 2,
+            expected_base["entries"]
+            + len(dev.DEVELOPMENT_REPLAY_MATERIALS)
+            + len(dev.DEVELOPMENT_SYSTEMD_MASK_PATHS)
+            + 2,
         )
 
     def test_development_readback_rejects_the_boot_observed_0755_authority_directory(self):
@@ -655,6 +760,29 @@ class ClosedLocalImageBehaviorTests(unittest.TestCase):
         module = types.SimpleNamespace(HostReadbackEffects=Delegate)
         effects = dev.DevelopmentAutoclearReadbackEffects(module)
         self.assertEqual(effects.read_tree(pathlib.Path("mounted-root")), expected)
+
+    def test_development_readback_rejects_a_missing_or_retargeted_systemd_mask(self):
+        exact = exact_development_readback_tree()
+        mounted = "/etc/systemd/system/ldconfig.service"
+        for mutation in ("missing", "retargeted"):
+            with self.subTest(mutation=mutation):
+                observed = {name: dict(row) for name, row in exact.items()}
+                if mutation == "missing":
+                    del observed[mounted]
+                else:
+                    observed[mounted]["target"] = "/usr/bin/true"
+
+                class Delegate:
+                    def read_tree(self, _mountpoint):
+                        return observed
+
+                module = types.SimpleNamespace(HostReadbackEffects=Delegate)
+                effects = dev.DevelopmentAutoclearReadbackEffects(module)
+                with self.assertRaisesRegex(
+                    dev.ClosedLocalImageError,
+                    "closed-local systemd mask differs",
+                ):
+                    effects.read_tree(pathlib.Path("mounted-root"))
 
     def test_development_readback_rejects_boot_observed_writable_toolchain_directories(self):
         exact = exact_development_readback_tree()
@@ -769,6 +897,76 @@ class ClosedLocalImageBehaviorTests(unittest.TestCase):
                 "path": "native/containment/native-shadow-closed-local-image-mac-readiness-result-arm64-v2.json",
                 "sha256": "11178786987241e207ebfeb574e2c0369778c40bcd6ad1491fefe99475d6b779",
                 "sizeBytes": 5_638,
+            },
+        )
+        self.assertFalse(any(document["boundaries"].values()))
+
+    def test_fourth_mac_observation_records_only_headless_unit_failures_and_the_fix(self):
+        document = json.loads(FOURTH_MAC_RESULT.read_text(encoding="utf-8"))
+        self.assertEqual(
+            document["schema"],
+            "boole.native-shadow.closed-local-image-mac-readiness-result.arm64.v4",
+        )
+        self.assertEqual(
+            document["status"],
+            "IMAGE-REPLICAS-GREEN-MAC-BOOT-PREREQUISITES-MET-HEADLESS-UNITS-FAILED",
+        )
+        self.assertEqual(document["imageBuild"]["runId"], 33471902181)
+        self.assertEqual(
+            document["imageBuild"]["comparisonStatus"],
+            "TWO-REPLICAS-BYTE-IDENTICAL",
+        )
+        outputs = {
+            row["name"]: (row["sha256"], row["sizeBytes"])
+            for row in document["imageBuild"]["outputs"]
+        }
+        self.assertEqual(
+            outputs,
+            {
+                "guest-kernel": (
+                    "d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336",
+                    57_860_488,
+                ),
+                "guest-initrd": (
+                    "3857918bda74cdc460e958b3447667b10cdb0ce749d98df349c3b5ed34c3169e",
+                    1_776_467_320,
+                ),
+                "guest-root-disk": (
+                    "b669ab0f0f7d26b10b2f19fc8c8ca4cc1a1799df954c2de3e1232b0d09f344c6",
+                    2_035_691_520,
+                ),
+            },
+        )
+        evidence = document["macObservation"]["boot"]["guestEvidence"]
+        self.assertTrue(evidence["launcher-executable"])
+        self.assertTrue(evidence["launcher-prerequisites"])
+        self.assertTrue(evidence["supervisor-privilege"])
+        self.assertFalse(evidence["readiness"])
+        self.assertEqual(
+            document["rootCause"]["failedUnits"],
+            [
+                "getty@tty2.service",
+                "getty@tty3.service",
+                "getty@tty4.service",
+                "getty@tty5.service",
+                "getty@tty6.service",
+                "ldconfig.service",
+                "serial-getty@hvc0.service",
+            ],
+        )
+        self.assertEqual(
+            document["correction"]["systemdMasks"],
+            list(dev.DEVELOPMENT_SYSTEMD_MASK_PATHS),
+        )
+        self.assertEqual(document["macObservation"]["boot"]["attempts"], 1)
+        self.assertFalse(document["macObservation"]["boot"]["retryPerformed"])
+        self.assertTrue(document["macObservation"]["boot"]["imagesUnchanged"])
+        self.assertEqual(
+            document["predecessor"],
+            {
+                "path": "native/containment/native-shadow-closed-local-image-mac-readiness-result-arm64-v3.json",
+                "sha256": "4e463d18e217f25ae8cf9877596e8a2a3304d461b2bc6ee8e49ed0d0dcb84723",
+                "sizeBytes": 5_860,
             },
         )
         self.assertFalse(any(document["boundaries"].values()))
