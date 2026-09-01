@@ -3065,4 +3065,16 @@ for doc in \
   require_text "$doc" '33393135963'
 done
 
+# The third approved reversible observation reached the launcher but not
+# readiness.  Keep the exact run, missing material and still-closed product
+# boundary visible without granting another image or VM execution.
+V3_MAC_RESULT=native/containment/native-shadow-closed-local-image-mac-readiness-result-arm64-v3.json
+require_file "$V3_MAC_RESULT"
+require_text "$V3_MAC_RESULT" '"runId": 33466531840'
+require_text "$V3_MAC_RESULT" 'closed-local-replay-registry-overlay-v1.json'
+require_text "$V3_MAC_RESULT" '"productionRelease": false'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'THIRD ARM64 REPLICA PAIR BYTE-IDENTICAL'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'NEXT REVERSIBLE GATE: MAIN CI, THEN ZERO-IMAGE ARM64 PREFLIGHT'
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Third reversible Mac observation: replay authority material was absent'
+
 printf 'docs-smoke: PASS\n' >&2

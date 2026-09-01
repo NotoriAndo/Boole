@@ -26,6 +26,10 @@ SECOND_MAC_RESULT = (
     REPOSITORY_ROOT
     / "native/containment/native-shadow-closed-local-image-mac-readiness-result-arm64-v2.json"
 )
+THIRD_MAC_RESULT = (
+    REPOSITORY_ROOT
+    / "native/containment/native-shadow-closed-local-image-mac-readiness-result-arm64-v3.json"
+)
 
 
 class FakeBackend:
@@ -108,6 +112,27 @@ def fake_chain():
         import_identities=(),
         output_names=sealed.OUTPUT_NAMES,
     )
+
+
+def exact_development_readback_tree():
+    tree = {
+        path: {
+            "kind": "directory",
+            "mode": 0o555,
+            "uid": 0,
+            "gid": 0,
+        }
+        for path in (*dev.AUTHORITY_MOUNTED_PATHS, *dev.TOOLCHAIN_MOUNTED_PATHS)
+    }
+    for material in dev.DEVELOPMENT_REPLAY_MATERIALS:
+        tree["/" + material.staging_path] = {
+            "kind": "file",
+            "mode": 0o444,
+            "uid": 0,
+            "gid": 0,
+            "sha256": material.sha256,
+        }
+    return tree
 
 
 class ClosedLocalImageBehaviorTests(unittest.TestCase):
@@ -429,6 +454,146 @@ class ClosedLocalImageBehaviorTests(unittest.TestCase):
                 self.assertEqual((row["uid"], row["gid"]), (0, 0))
         self.assertIs(namespace["_ensure_parents"], original)
 
+    def test_development_prepare_stages_the_complete_closed_local_replay_materials(self):
+        namespace = builder_v4.materialize_staging_tree.__globals__["_IMPL"]
+        original_assemble = namespace["_assemble_entries"]
+        observed = {}
+
+        def base_assemble(*_args, **_kwargs):
+            entries = {
+                "usr/share/boole/native-shadow/registry-v1.json": {
+                    "path": "usr/share/boole/native-shadow/registry-v1.json",
+                    "kind": "file",
+                    "mode": 0o444,
+                    "uid": 0,
+                    "gid": 0,
+                    "raw": b"{}\n",
+                },
+                "usr/share/boole/native-shadow/checkers/rust-tuple-struct-project-v1/checker.py": {
+                    "path": "usr/share/boole/native-shadow/checkers/rust-tuple-struct-project-v1/checker.py",
+                    "kind": "file",
+                    "mode": 0o444,
+                    "uid": 0,
+                    "gid": 0,
+                    "raw": b"checker",
+                },
+                "opt/boole/native-checker-toolchain/bin/rustc": {
+                    "path": "opt/boole/native-checker-toolchain/bin/rustc",
+                    "kind": "file",
+                    "mode": 0o755,
+                    "uid": 0,
+                    "gid": 0,
+                    "raw": b"rustc",
+                },
+            }
+            namespace["_ensure_parents"](entries)
+            return entries
+
+        def prepare(_backend, _request):
+            entries = namespace["_assemble_entries"]()
+            observed.update(entries)
+            return "prepared"
+
+        namespace["_assemble_entries"] = base_assemble
+        try:
+            with mock.patch.object(
+                sealed.RepositoryImageBackend,
+                "prepare",
+                autospec=True,
+                side_effect=prepare,
+            ):
+                self.assertEqual(dev._development_backend().prepare(object()), "prepared")
+        finally:
+            namespace["_assemble_entries"] = original_assemble
+
+        expected = {
+            "usr/share/boole/native-shadow/closed-local-replay-registry-overlay-v1.json": (
+                "2962adef8d1aea9ba1c8466b8e014b71f1ec3c9555ce8b685d58ede6b631fe74",
+                5_461,
+            ),
+            "usr/share/boole/native-shadow/closed-local-replay-grant-v1.json": (
+                "bd5cd9fc87e5e47a23e6fa12844ec0c47bdb01ee34090cddff24568c18d7236f",
+                4_548,
+            ),
+            "usr/share/boole/native-shadow/closed-local-replay-execution-authority-v1.json": (
+                "d220d20b7adaa22357929729d2f0666a8c9cbe50ce8031f90539ba1309950c6b",
+                2_106,
+            ),
+            "usr/share/boole/native-shadow/fixtures/a-rooted-native-mining-e2e-v1-real-history/task.json": (
+                "f25a8a6d92ac556937eaacbec6d12d9d09be675878eb7d942952b35838ee7c82",
+                1_303,
+            ),
+            "usr/share/boole/native-shadow/fixtures/a-rooted-native-mining-e2e-v1-real-history/anchor.rs": (
+                "693f62acfa0626a0831c9133a26fcfc1dbb30922c1ab2036231c42a363cfd7fe",
+                181,
+            ),
+        }
+        for path, (digest, size) in expected.items():
+            with self.subTest(path=path):
+                row = observed[path]
+                self.assertEqual(row["kind"], "file")
+                self.assertEqual(row["mode"], 0o444)
+                self.assertEqual((row["uid"], row["gid"]), (0, 0))
+                self.assertEqual(len(row["raw"]), size)
+                self.assertEqual(hashlib.sha256(row["raw"]).hexdigest(), digest)
+
+        for path in (
+            "usr/share/boole/native-shadow/checkers",
+            "usr/share/boole/native-shadow/checkers/rust-tuple-struct-project-v1",
+            "usr/share/boole/native-shadow/fixtures",
+            "usr/share/boole/native-shadow/fixtures/a-rooted-native-mining-e2e-v1-real-history",
+        ):
+            with self.subTest(path=path):
+                row = observed[path]
+                self.assertEqual(row["kind"], "directory")
+                self.assertEqual(row["mode"], 0o555)
+                self.assertEqual((row["uid"], row["gid"]), (0, 0))
+
+    def test_development_measurement_preserves_the_sealed_base_and_counts_the_overlay(self):
+        historical = {
+            "usr/bin/example": {
+                "path": "usr/bin/example",
+                "kind": "file",
+                "mode": 0o555,
+                "uid": 0,
+                "gid": 0,
+                "raw": b"historical",
+            }
+        }
+        full = dict(historical)
+        full.update(dev._development_replay_entries(REPOSITORY_ROOT))
+        for path in dev.DEVELOPMENT_DERIVED_DIRECTORY_PATHS:
+            full[path] = {
+                "path": path,
+                "kind": "directory",
+                "mode": 0o555,
+                "uid": 0,
+                "gid": 0,
+            }
+        expected_base = dev.staging_measure.builder_totals(historical)
+        expected_full = dev.staging_measure.builder_totals(full)
+
+        with mock.patch.object(
+            builder_v4, "materialize_staging_tree", return_value=full
+        ):
+            prepared = dev._development_prepare_staging(
+                validated={},
+                repository_root=REPOSITORY_ROOT,
+                artifact_store=pathlib.Path("cas"),
+                launcher_binary=b"launcher",
+                nested_tree={},
+                preregistration={
+                    "expectedPreflight": {"measurement": expected_base}
+                },
+            )
+
+        self.assertEqual(prepared.entries, full)
+        self.assertEqual(prepared.measurement, expected_full)
+        self.assertEqual(
+            prepared.measurement["entries"],
+            expected_base["entries"] + len(dev.DEVELOPMENT_REPLAY_MATERIALS) + 2,
+        )
+
     def test_development_readback_rejects_the_boot_observed_0755_authority_directory(self):
         class Delegate:
             def read_tree(self, _mountpoint):
@@ -449,27 +614,39 @@ class ClosedLocalImageBehaviorTests(unittest.TestCase):
         ):
             effects.read_tree(pathlib.Path("mounted-root"))
 
-    def test_development_readback_accepts_the_exact_0555_authority_directory(self):
-        expected = {
-            "/usr/share/boole/native-shadow": {
+    def test_development_readback_rejects_a_missing_closed_local_replay_material(self):
+        observed = {
+            path: {
                 "kind": "directory",
                 "mode": 0o555,
                 "uid": 0,
                 "gid": 0,
-            },
-            "/opt/boole/native-checker-toolchain": {
-                "kind": "directory",
-                "mode": 0o555,
-                "uid": 0,
-                "gid": 0,
-            },
-            "/opt/boole/native-checker-toolchain/bin": {
-                "kind": "directory",
-                "mode": 0o555,
-                "uid": 0,
-                "gid": 0,
-            },
+            }
+            for path in (
+                "/usr/share/boole/native-shadow",
+                "/usr/share/boole/native-shadow/checkers",
+                "/usr/share/boole/native-shadow/checkers/rust-tuple-struct-project-v1",
+                "/usr/share/boole/native-shadow/fixtures",
+                "/usr/share/boole/native-shadow/fixtures/a-rooted-native-mining-e2e-v1-real-history",
+                "/opt/boole/native-checker-toolchain",
+                "/opt/boole/native-checker-toolchain/bin",
+            )
         }
+
+        class Delegate:
+            def read_tree(self, _mountpoint):
+                return observed
+
+        module = types.SimpleNamespace(HostReadbackEffects=Delegate)
+        effects = dev.DevelopmentAutoclearReadbackEffects(module)
+        with self.assertRaisesRegex(
+            dev.ClosedLocalImageError,
+            "closed-local replay material",
+        ):
+            effects.read_tree(pathlib.Path("mounted-root"))
+
+    def test_development_readback_accepts_the_exact_0555_authority_directory(self):
+        expected = exact_development_readback_tree()
 
         class Delegate:
             def read_tree(self, _mountpoint):
@@ -480,26 +657,7 @@ class ClosedLocalImageBehaviorTests(unittest.TestCase):
         self.assertEqual(effects.read_tree(pathlib.Path("mounted-root")), expected)
 
     def test_development_readback_rejects_boot_observed_writable_toolchain_directories(self):
-        exact = {
-            "/usr/share/boole/native-shadow": {
-                "kind": "directory",
-                "mode": 0o555,
-                "uid": 0,
-                "gid": 0,
-            },
-            "/opt/boole/native-checker-toolchain": {
-                "kind": "directory",
-                "mode": 0o555,
-                "uid": 0,
-                "gid": 0,
-            },
-            "/opt/boole/native-checker-toolchain/bin": {
-                "kind": "directory",
-                "mode": 0o555,
-                "uid": 0,
-                "gid": 0,
-            },
-        }
+        exact = exact_development_readback_tree()
         for path in (
             "/opt/boole/native-checker-toolchain",
             "/opt/boole/native-checker-toolchain/bin",
@@ -574,6 +732,45 @@ class ClosedLocalImageBehaviorTests(unittest.TestCase):
             "2d8cd7c70e1c105da6eb657992c56fea6818ef4992e022f33a0ed22eef19042c",
         )
         self.assertTrue(document["macObservation"]["boot"]["imagesUnchanged"])
+        self.assertFalse(any(document["boundaries"].values()))
+
+    def test_third_mac_observation_records_the_missing_replay_material_and_fix(self):
+        document = json.loads(THIRD_MAC_RESULT.read_text(encoding="utf-8"))
+        self.assertEqual(
+            document["schema"],
+            "boole.native-shadow.closed-local-image-mac-readiness-result.arm64.v3",
+        )
+        self.assertEqual(
+            document["status"],
+            "IMAGE-REPLICAS-GREEN-MAC-BOOT-REACHED-LAUNCHER-REPLAY-MATERIAL-ABSENT",
+        )
+        self.assertEqual(document["imageBuild"]["runId"], 33466531840)
+        self.assertEqual(
+            document["imageBuild"]["comparisonStatus"],
+            "TWO-REPLICAS-BYTE-IDENTICAL",
+        )
+        self.assertEqual(
+            document["rootCause"]["firstMissingInstalledPath"],
+            "/usr/share/boole/native-shadow/closed-local-replay-registry-overlay-v1.json",
+        )
+        self.assertEqual(
+            len(document["correction"]["addedReplayMaterials"]), 5
+        )
+        self.assertEqual(
+            document["correction"]["addedReplayMaterialBytes"], 13_599
+        )
+        self.assertTrue(document["correction"]["sealedBaseMeasurementPreserved"])
+        self.assertEqual(document["macObservation"]["boot"]["attempts"], 1)
+        self.assertFalse(document["macObservation"]["boot"]["readiness"])
+        self.assertTrue(document["macObservation"]["boot"]["imagesUnchanged"])
+        self.assertEqual(
+            document["predecessor"],
+            {
+                "path": "native/containment/native-shadow-closed-local-image-mac-readiness-result-arm64-v2.json",
+                "sha256": "11178786987241e207ebfeb574e2c0369778c40bcd6ad1491fefe99475d6b779",
+                "sizeBytes": 5_638,
+            },
+        )
         self.assertFalse(any(document["boundaries"].values()))
 
 

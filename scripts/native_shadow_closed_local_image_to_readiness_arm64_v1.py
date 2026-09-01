@@ -14,6 +14,7 @@ import argparse
 import contextlib
 import dataclasses
 import fcntl
+import hashlib
 import importlib
 import json
 import os
@@ -28,6 +29,8 @@ REPOSITORY_ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPOSITORY_ROOT))
 
 from scripts import native_shadow_rootfs_builder_boot_arm64_v4 as builder_v4
+from scripts import native_shadow_boot_staging_measure_arm64_v1 as staging_measure
+from scripts import native_shadow_successor_produce_phase_arm64_v3 as producer_v3
 from scripts import native_shadow_successor_produce_phase_arm64_v5 as sealed
 
 
@@ -43,12 +46,77 @@ LOOP_INFO64_SIZE = 232
 LOOP_FLAGS_OFFSET = 52
 AUTHORITY_STAGING_PATH = "usr/share/boole/native-shadow"
 AUTHORITY_MOUNTED_PATH = "/" + AUTHORITY_STAGING_PATH
+AUTHORITY_STAGING_PATHS = (
+    AUTHORITY_STAGING_PATH,
+    AUTHORITY_STAGING_PATH + "/checkers",
+    AUTHORITY_STAGING_PATH + "/checkers/rust-tuple-struct-project-v1",
+    AUTHORITY_STAGING_PATH + "/fixtures",
+    AUTHORITY_STAGING_PATH
+    + "/fixtures/a-rooted-native-mining-e2e-v1-real-history",
+)
+AUTHORITY_MOUNTED_PATHS = tuple("/" + path for path in AUTHORITY_STAGING_PATHS)
 TOOLCHAIN_STAGING_PATHS = (
     "opt/boole/native-checker-toolchain",
     "opt/boole/native-checker-toolchain/bin",
 )
 TOOLCHAIN_MOUNTED_PATHS = tuple("/" + path for path in TOOLCHAIN_STAGING_PATHS)
 FIXED_DIRECTORY_MODE = 0o555
+
+
+@dataclasses.dataclass(frozen=True)
+class DevelopmentReplayMaterial:
+    source: str
+    staging_path: str
+    sha256: str
+    size_bytes: int
+
+
+DEVELOPMENT_REPLAY_MATERIALS = (
+    DevelopmentReplayMaterial(
+        "native/containment/"
+        "native-shadow-closed-local-replay-registry-overlay-arm64-v1.json",
+        AUTHORITY_STAGING_PATH + "/closed-local-replay-registry-overlay-v1.json",
+        "2962adef8d1aea9ba1c8466b8e014b71f1ec3c9555ce8b685d58ede6b631fe74",
+        5_461,
+    ),
+    DevelopmentReplayMaterial(
+        "native/containment/"
+        "native-shadow-closed-local-replay-grant-arm64-v1.json",
+        AUTHORITY_STAGING_PATH + "/closed-local-replay-grant-v1.json",
+        "bd5cd9fc87e5e47a23e6fa12844ec0c47bdb01ee34090cddff24568c18d7236f",
+        4_548,
+    ),
+    DevelopmentReplayMaterial(
+        "native/containment/"
+        "native-shadow-closed-local-replay-execution-authority-arm64-v1.json",
+        AUTHORITY_STAGING_PATH
+        + "/closed-local-replay-execution-authority-v1.json",
+        "d220d20b7adaa22357929729d2f0666a8c9cbe50ce8031f90539ba1309950c6b",
+        2_106,
+    ),
+    DevelopmentReplayMaterial(
+        "fixtures/native-shadow/"
+        "a-rooted-native-mining-e2e-v1-real-history/task.json",
+        AUTHORITY_STAGING_PATH
+        + "/fixtures/a-rooted-native-mining-e2e-v1-real-history/task.json",
+        "f25a8a6d92ac556937eaacbec6d12d9d09be675878eb7d942952b35838ee7c82",
+        1_303,
+    ),
+    DevelopmentReplayMaterial(
+        "fixtures/native-shadow/"
+        "a-rooted-native-mining-e2e-v1-real-history/anchor.rs",
+        AUTHORITY_STAGING_PATH
+        + "/fixtures/a-rooted-native-mining-e2e-v1-real-history/anchor.rs",
+        "693f62acfa0626a0831c9133a26fcfc1dbb30922c1ab2036231c42a363cfd7fe",
+        181,
+    ),
+)
+
+DEVELOPMENT_DERIVED_DIRECTORY_PATHS = (
+    AUTHORITY_STAGING_PATH + "/fixtures",
+    AUTHORITY_STAGING_PATH
+    + "/fixtures/a-rooted-native-mining-e2e-v1-real-history",
+)
 
 
 class ClosedLocalImageError(RuntimeError):
@@ -68,8 +136,106 @@ def _require_fixed_directory(row: Any, description: str) -> None:
         )
 
 
+def _development_replay_entries(
+    repository_root: pathlib.Path,
+) -> dict[str, dict[str, Any]]:
+    root = pathlib.Path(repository_root).resolve()
+    entries: dict[str, dict[str, Any]] = {}
+    for material in DEVELOPMENT_REPLAY_MATERIALS:
+        pure = pathlib.PurePosixPath(material.source)
+        if (
+            pure.is_absolute()
+            or ".." in pure.parts
+            or pure.as_posix() != material.source
+        ):
+            raise ClosedLocalImageError("closed-local replay source path is unsafe")
+        candidate = root.joinpath(*pure.parts)
+        try:
+            resolved = candidate.resolve(strict=True)
+            info = candidate.lstat()
+            raw = candidate.read_bytes()
+        except OSError as exc:
+            raise ClosedLocalImageError(
+                f"closed-local replay material is unreadable: {material.source}"
+            ) from exc
+        if resolved != candidate or not candidate.is_file() or candidate.is_symlink():
+            raise ClosedLocalImageError(
+                f"closed-local replay material is not one regular file: {material.source}"
+            )
+        if info.st_size != material.size_bytes or len(raw) != material.size_bytes:
+            raise ClosedLocalImageError(
+                f"closed-local replay material size differs: {material.source}"
+            )
+        if hashlib.sha256(raw).hexdigest() != material.sha256:
+            raise ClosedLocalImageError(
+                f"closed-local replay material digest differs: {material.source}"
+            )
+        entries[material.staging_path] = {
+            "path": material.staging_path,
+            "kind": "file",
+            "mode": 0o444,
+            "uid": 0,
+            "gid": 0,
+            "raw": raw,
+        }
+    return entries
+
+
+def _require_all_fixed_directories(entries: Mapping[str, Any]) -> None:
+    for path in AUTHORITY_STAGING_PATHS:
+        _require_fixed_directory(entries.get(path), "installed authority directory")
+    for path in TOOLCHAIN_STAGING_PATHS:
+        _require_fixed_directory(entries.get(path), "installed toolchain directory")
+
+
+def _development_prepare_staging(
+    *,
+    validated: dict[str, Any],
+    repository_root: pathlib.Path,
+    artifact_store: pathlib.Path,
+    launcher_binary: bytes,
+    nested_tree: Mapping[str, Mapping[str, Any]],
+    preregistration: Optional[Mapping[str, Any]] = None,
+) -> producer_v3.PreparedStaging:
+    """Add the development replay overlay without rewriting the sealed base."""
+
+    if preregistration is None:
+        raise ClosedLocalImageError("development staging needs the sealed preregistration")
+    expected = preregistration.get("expectedPreflight", {}).get("measurement")
+    if not isinstance(expected, dict):
+        raise ClosedLocalImageError("sealed staging measurement is absent")
+    entries = builder_v4.materialize_staging_tree(
+        validated,
+        pathlib.Path(repository_root),
+        pathlib.Path(artifact_store),
+        launcher_binary=launcher_binary,
+        nested_tree=nested_tree,
+    )
+    if not isinstance(entries, Mapping):
+        raise ClosedLocalImageError("development staging assembler returned no mapping")
+
+    historical = dict(entries)
+    for material in DEVELOPMENT_REPLAY_MATERIALS:
+        if historical.pop(material.staging_path, None) is None:
+            raise ClosedLocalImageError(
+                f"closed-local replay material was not staged: {material.staging_path}"
+            )
+    for path in DEVELOPMENT_DERIVED_DIRECTORY_PATHS:
+        if historical.pop(path, None) is None:
+            raise ClosedLocalImageError(
+                f"closed-local replay parent was not derived: {path}"
+            )
+    historical_measurement = staging_measure.builder_totals(historical)
+    if not producer_v3._strict_equal(historical_measurement, expected):
+        raise ClosedLocalImageError(
+            "development replay overlay changed the sealed historical staging tree"
+        )
+    measurement = staging_measure.builder_totals(dict(entries))
+    return producer_v3.PreparedStaging(entries=entries, measurement=measurement)
+
+
 @contextlib.contextmanager
-def _development_fixed_directory_contract():
+def _development_fixed_directory_contract(repository_root: pathlib.Path):
     """Correct and verify derived parents with fixed runtime contracts.
 
     The sealed source lock tracks files beneath the installed authority and
@@ -83,17 +249,16 @@ def _development_fixed_directory_contract():
     namespace = builder_v4.materialize_staging_tree.__globals__.get("_IMPL")
     if not isinstance(namespace, dict):
         raise ClosedLocalImageError("development builder namespace is unavailable")
-    original = namespace.get("_ensure_parents")
-    if not callable(original):
+    original_ensure = namespace.get("_ensure_parents")
+    original_assemble = namespace.get("_assemble_entries")
+    original_prepare_staging = producer_v3.prepare_staging
+    if not callable(original_ensure) or not callable(original_assemble):
         raise ClosedLocalImageError("development parent derivation is unavailable")
+    replay_entries = _development_replay_entries(repository_root)
 
     def ensure_parents(entries):
-        original(entries)
-        fixed = (
-            (AUTHORITY_STAGING_PATH, "installed authority directory"),
-            *((path, "installed toolchain directory") for path in TOOLCHAIN_STAGING_PATHS),
-        )
-        for path, description in fixed:
+        original_ensure(entries)
+        for path in (*AUTHORITY_STAGING_PATHS, *TOOLCHAIN_STAGING_PATHS):
             row = entries.get(path)
             if (
                 isinstance(row, Mapping)
@@ -104,13 +269,38 @@ def _development_fixed_directory_contract():
             ):
                 row = dict(row, mode=FIXED_DIRECTORY_MODE)
                 entries[path] = row
-            _require_fixed_directory(row, description)
+            if row is not None:
+                description = (
+                    "installed authority directory"
+                    if path in AUTHORITY_STAGING_PATHS
+                    else "installed toolchain directory"
+                )
+                _require_fixed_directory(row, description)
+
+    def assemble_entries(*args, **kwargs):
+        entries = original_assemble(*args, **kwargs)
+        if not isinstance(entries, dict):
+            raise ClosedLocalImageError("development assembler returned no mutable mapping")
+        collisions = sorted(set(entries).intersection(replay_entries))
+        if collisions:
+            raise ClosedLocalImageError(
+                "closed-local replay material collides with sealed staging: "
+                + ", ".join(collisions)
+            )
+        entries.update({path: dict(row) for path, row in replay_entries.items()})
+        ensure_parents(entries)
+        _require_all_fixed_directories(entries)
+        return entries
 
     namespace["_ensure_parents"] = ensure_parents
+    namespace["_assemble_entries"] = assemble_entries
+    producer_v3.prepare_staging = _development_prepare_staging
     try:
         yield
     finally:
-        namespace["_ensure_parents"] = original
+        producer_v3.prepare_staging = original_prepare_staging
+        namespace["_assemble_entries"] = original_assemble
+        namespace["_ensure_parents"] = original_ensure
 
 
 @dataclasses.dataclass(frozen=True)
@@ -378,13 +568,28 @@ class DevelopmentAutoclearReadbackEffects:
 
     def read_tree(self, mountpoint: pathlib.Path) -> dict[str, dict[str, Any]]:
         tree = dict(self._delegate.read_tree(mountpoint))
-        _require_fixed_directory(
-            tree.get(AUTHORITY_MOUNTED_PATH), "installed authority directory"
-        )
+        for path in AUTHORITY_MOUNTED_PATHS:
+            _require_fixed_directory(
+                tree.get(path), "installed authority directory"
+            )
         for path in TOOLCHAIN_MOUNTED_PATHS:
             _require_fixed_directory(
                 tree.get(path), "installed toolchain directory"
             )
+        for material in DEVELOPMENT_REPLAY_MATERIALS:
+            path = "/" + material.staging_path
+            row = tree.get(path)
+            if (
+                not isinstance(row, Mapping)
+                or row.get("kind") != "file"
+                or row.get("mode") != 0o444
+                or row.get("uid") != 0
+                or row.get("gid") != 0
+                or row.get("sha256") != material.sha256
+            ):
+                raise ClosedLocalImageError(
+                    f"closed-local replay material differs: {path}"
+                )
         return tree
 
     def unmount(self, mountpoint: pathlib.Path) -> None:
@@ -415,7 +620,8 @@ class DevelopmentRepositoryImageBackend(sealed.RepositoryImageBackend):
     """Scope the runner-compatible readback adapter to this reversible lane."""
 
     def prepare(self, request):
-        with _development_fixed_directory_contract():
+        repository_root = getattr(request, "repository_root", REPOSITORY_ROOT)
+        with _development_fixed_directory_contract(repository_root):
             return super().prepare(request)
 
     def readback(self, repository_root, outputs, chain):

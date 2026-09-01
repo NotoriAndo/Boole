@@ -4600,3 +4600,28 @@ That observation closes only the reversible preparation boundary. It created
 zero images and started zero machines, so it neither proves readiness nor
 authorises a fresh image build or another Mac boot. All production and network
 activation boundaries remain false or zero.
+
+## Third reversible Mac observation: replay authority material was absent (2026-09-01)
+
+Run `33466531840` produced another byte-identical disposable arm64 replica pair.
+The single approved Mac VM kept the closed read-only shape, reached systemd PID
+1, normal targets and the launcher unit, then failed closed before readiness.
+The first unavailable installed input was
+`/usr/share/boole/native-shadow/closed-local-replay-registry-overlay-v1.json`.
+There was no retry, and the three image identities were unchanged after host
+shutdown.
+
+The launcher startup consumer requires five newer closed-local replay inputs
+that the historical image source lock did not stage: the registry overlay,
+grant, execution authority, frozen task and frozen anchor. The development-only
+assembler now pins and stages those exact five repository files. It proves the
+underlying sealed measurement remains unchanged when the exact overlay and its
+two newly derived parents are removed, then measures the full development tree.
+Mounted readback rejects a missing or changed overlay file and rejects any
+authority, checker, fixture or toolchain security directory that is not
+root-owned mode `0555`.
+
+The append-only v3 result record binds the build run, artifacts, three output
+identities, Mac receipts, console digest, predecessor and unchanged false
+authority boundaries. This correction authorises no new image, VM, production,
+MAC.4, node, testnet, mining, reward, consensus, P2P or activation effect.
