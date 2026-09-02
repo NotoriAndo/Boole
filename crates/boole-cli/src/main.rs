@@ -2384,6 +2384,26 @@ fn product_install_emit_err(reason: &str, message: String) -> ! {
     std::process::exit(1);
 }
 
+static PRODUCT_DOWNLOAD_ATTEMPT: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+fn product_download_attempt_staging(requested: &Path) -> Result<std::path::PathBuf, String> {
+    let name = requested
+        .file_name()
+        .ok_or_else(|| "download staging needs a final path component".to_string())?;
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_nanos())
+        .unwrap_or(0);
+    let ordinal = PRODUCT_DOWNLOAD_ATTEMPT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let mut attempt_name = std::ffi::OsString::from(name);
+    attempt_name.push(format!(
+        ".boole-attempt-{}-{nonce}-{ordinal}",
+        std::process::id()
+    ));
+    Ok(requested.with_file_name(attempt_name))
+}
+
 fn product_install(
     base_url: &str,
     install_root: &Path,
@@ -2402,6 +2422,21 @@ fn product_install(
             .unwrap_or_else(|error| {
                 product_install_emit_err("trust-root-rejected", error.to_string())
             });
+    let _mutation_lease =
+        boole_cli::installed_product_lifecycle::acquire_installed_product_mutation_lease(
+            install_root,
+        )
+        .unwrap_or_else(|error| {
+            let reason = if matches!(
+                error,
+                boole_cli::installed_product_lifecycle::InstalledProductLifecycleError::Busy
+            ) {
+                "product-busy"
+            } else {
+                "install-rejected"
+            };
+            product_install_emit_err(reason, error.to_string())
+        });
     // Default staging is a per-run temp directory: unique, outside any
     // install root, and removed by the transport on every outcome.
     let default_staging = download_staging.is_none().then(|| {
@@ -2414,16 +2449,18 @@ fn product_install(
             std::process::id()
         ))
     });
-    let staging = download_staging.unwrap_or_else(|| {
+    let requested_staging = download_staging.unwrap_or_else(|| {
         default_staging
             .as_deref()
             .expect("default staging exists when no override is given")
     });
+    let staging = product_download_attempt_staging(requested_staging)
+        .unwrap_or_else(|error| product_install_emit_err("staging-io-failed", error));
 
     let installed = download_and_install_curl_product_release(
         base_url,
         install_root,
-        staging,
+        &staging,
         &trust_root,
         first_install_minimum,
         std::time::Duration::from_secs(timeout_seconds),
@@ -2563,6 +2600,21 @@ fn product_install_boot_contract(
     .unwrap_or_else(|error| {
         product_install_bootable_emit_err(command, "guest-trust-root-rejected", error.to_string())
     });
+    let _mutation_lease =
+        boole_cli::installed_product_lifecycle::acquire_installed_product_mutation_lease(
+            install_root,
+        )
+        .unwrap_or_else(|error| {
+            let reason = if matches!(
+                error,
+                boole_cli::installed_product_lifecycle::InstalledProductLifecycleError::Busy
+            ) {
+                "product-busy"
+            } else {
+                "install-rejected"
+            };
+            product_install_bootable_emit_err(command, reason, error.to_string())
+        });
     let default_staging = download_staging.is_none().then(|| {
         let nonce = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -2573,10 +2625,13 @@ fn product_install_boot_contract(
             std::process::id()
         ))
     });
-    let staging = download_staging.unwrap_or_else(|| {
+    let requested_staging = download_staging.unwrap_or_else(|| {
         default_staging
             .as_deref()
             .expect("default staging exists when no override is given")
+    });
+    let staging = product_download_attempt_staging(requested_staging).unwrap_or_else(|error| {
+        product_install_bootable_emit_err(command, "staging-io-failed", error)
     });
     let install = if direct_boot {
         download_and_install_direct_boot_curl_product_release
@@ -2586,7 +2641,7 @@ fn product_install_boot_contract(
     let installed = install(
         base_url,
         install_root,
-        staging,
+        &staging,
         &product_trust_root,
         first_product_minimum,
         &guest_trust_root,
@@ -2718,6 +2773,21 @@ fn product_change_direct_boot_release(
     .unwrap_or_else(|error| {
         product_lifecycle_emit_err(command, "guest-trust-root-rejected", error.to_string())
     });
+    let _mutation_lease =
+        boole_cli::installed_product_lifecycle::acquire_installed_product_mutation_lease(
+            install_root,
+        )
+        .unwrap_or_else(|error| {
+            let reason = if matches!(
+                error,
+                boole_cli::installed_product_lifecycle::InstalledProductLifecycleError::Busy
+            ) {
+                "product-busy"
+            } else {
+                "lifecycle-rejected"
+            };
+            product_lifecycle_emit_err(command, reason, error.to_string())
+        });
     let state = if rollback {
         boole_core::rollback_installed_direct_boot_curl_product_release(
             install_root,

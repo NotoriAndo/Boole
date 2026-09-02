@@ -7162,3 +7162,36 @@ POST-STATE SIGKILL REOPENS COMMITTED RELEASE / VERIFIED ROLLBACK CLEANS RESIDUE
 NEXT: SERIALIZE CONCURRENT PRODUCT MUTATIONS + ISOLATE DOWNLOAD STAGING
 PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
 ```
+
+## 106. Product mutations are single-writer and downloads are attempt-local (2026-09-03)
+
+Every user-facing install, signed update, rollback and corrupt-active recovery
+now acquires one nonblocking OS lease keyed to the absolute install root before
+reading a floor or making a network request. A competing command returns the
+typed `product-busy` result, leaves the durable state byte-identical and sends
+zero HTTP requests. The persistent 0600 sidecar is owner-held, rejects
+symlinks and multiple hard links, and is never unlinked while locked, so a
+second process cannot lock a replacement inode after a crash.
+
+The CLI also converts either the default or explicitly supplied download
+staging name into a unique sibling for each process attempt. The transport
+still owns and removes that exact transient directory on every result, while
+an existing caller-owned path at the requested name remains byte-identical.
+Different install roots therefore cannot clear or mix one another's download
+bytes merely because an operator reused the same staging name.
+
+One real-process E2E holds the OS lease in the test process, invokes the actual
+CLI, observes `product-busy` before the loopback server receives any request,
+then releases the lease and completes the same signed update. This closes
+single-host mutation serialization only. Production trust, clean-Mac
+acceptance, testnet, mining, reward, consensus, P2P and activation remain
+closed. The next product boundary is a read-only installed-product status
+surface that reports the selected generation, security floors and retained
+rollback without exposing trust secrets.
+
+```text
+ONE INSTALL ROOT = ONE OWNER-HELD MUTATION LEASE / LOSER SENDS ZERO HTTP
+DOWNLOAD BYTES LIVE IN A UNIQUE ATTEMPT SIBLING / CALLER PATH UNCHANGED
+NEXT: VERIFIED INSTALLED-RELEASE STATUS + OPERATOR DIAGNOSTICS
+PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
+```

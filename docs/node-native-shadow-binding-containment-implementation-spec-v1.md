@@ -5033,3 +5033,21 @@ post-rollback states retain the rollback target and previous active release.
 It converges any validly named post-commit residue without lowering either
 security floor. The next boundary is cross-process mutation serialization and
 per-attempt transport staging, not production or network activation.
+
+## Installed product mutation serialization (2026-09-03)
+
+The CLI install/update/rollback/recovery surface now takes one nonblocking
+`flock` lease derived from the canonical install-root parent and final name.
+The 0600 sidecar is owner-held, regular, single-link and opened without
+following symlinks. It persists after unlock so no unlink-and-replace race can
+split two writers across distinct inodes. A losing process emits
+`product-busy` before floor inspection, staging creation or network I/O.
+
+Each CLI download uses a unique sibling derived from the requested staging
+name, process id, clock nonce and in-process ordinal. The transport owns that
+exact sibling and removes it on every outcome; it neither reads nor clears an
+existing caller path with the base name. The real-process E2E holds the lease
+across a competing CLI invocation, checks zero loopback requests and unchanged
+state, then proves the same update succeeds after lease release. This contract
+does not serialize unrelated runtime reset state and grants no production or
+network activation authority.

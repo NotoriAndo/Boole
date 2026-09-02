@@ -11,6 +11,7 @@
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::fd::AsRawFd;
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
@@ -22,6 +23,8 @@ const CONTROLLER_RUNTIME_LEASE_BASENAME: &str = ".controller-runtime.lock";
 
 #[derive(Debug, thiserror::Error)]
 pub enum InstalledProductLifecycleError {
+    #[error("another installed product mutation is already active")]
+    Busy,
     #[error("installed product lifecycle path rejected: {0}")]
     Path(String),
     #[error("installed product lifecycle I/O failed: {0}")]
@@ -34,6 +37,94 @@ pub enum InstalledProductLifecycleError {
     Health(String),
     #[error("installed product lifecycle requires macOS")]
     Unsupported,
+}
+
+/// Process-scoped exclusive lease for install/update/rollback/recovery.
+///
+/// The lock lives beside, rather than inside, the install root so rejecting a
+/// release before verification still leaves the install tree untouched. The
+/// file itself is persistent: unlinking a live advisory lock would permit a
+/// second process to lock a replacement inode and defeat serialization.
+pub struct InstalledProductMutationLease {
+    _file: File,
+}
+
+#[allow(unsafe_code)]
+pub fn acquire_installed_product_mutation_lease(
+    install_root: &Path,
+) -> Result<InstalledProductMutationLease, InstalledProductLifecycleError> {
+    if !install_root.is_absolute() {
+        return Err(InstalledProductLifecycleError::Path(
+            "install root must be absolute before acquiring its mutation lease".to_string(),
+        ));
+    }
+    let parent = install_root.parent().ok_or_else(|| {
+        InstalledProductLifecycleError::Path(
+            "install root has no parent for its mutation lease".to_string(),
+        )
+    })?;
+    let canonical_parent = fs::canonicalize(parent).map_err(|error| {
+        InstalledProductLifecycleError::Path(format!(
+            "install root parent {} cannot be resolved for its mutation lease: {error}",
+            parent.display()
+        ))
+    })?;
+    let name = install_root.file_name().ok_or_else(|| {
+        InstalledProductLifecycleError::Path(
+            "install root has no final path component for its mutation lease".to_string(),
+        )
+    })?;
+    let mut hasher = Sha256::new();
+    hasher.update(canonical_parent.as_os_str().as_bytes());
+    hasher.update([0]);
+    hasher.update(name.as_bytes());
+    let identity = hex::encode(hasher.finalize());
+    let lock_path =
+        canonical_parent.join(format!(".boole-product-mutation-{}.lock", &identity[..24]));
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(&lock_path)
+        .map_err(|error| {
+            InstalledProductLifecycleError::Io(format!(
+                "open product mutation lease {}: {error}",
+                lock_path.display()
+            ))
+        })?;
+    let metadata = file.metadata().map_err(|error| {
+        InstalledProductLifecycleError::Io(format!(
+            "inspect product mutation lease {}: {error}",
+            lock_path.display()
+        ))
+    })?;
+    let (uid, gid) = expected_identity();
+    if !metadata.is_file()
+        || metadata.nlink() != 1
+        || metadata.uid() != uid
+        || metadata.gid() != gid
+        || metadata.permissions().mode() & 0o7777 != 0o600
+    {
+        return Err(InstalledProductLifecycleError::Path(format!(
+            "product mutation lease {} is not an owner-held private 0600 file",
+            lock_path.display()
+        )));
+    }
+    // SAFETY: `file` owns this descriptor for the whole lease lifetime. flock
+    // does not access Rust memory and failure is read from the OS error code.
+    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        let error = std::io::Error::last_os_error();
+        if error.raw_os_error() == Some(libc::EWOULDBLOCK) {
+            return Err(InstalledProductLifecycleError::Busy);
+        }
+        return Err(InstalledProductLifecycleError::Io(format!(
+            "lock product mutation lease {}: {error}",
+            lock_path.display()
+        )));
+    }
+    Ok(InstalledProductMutationLease { _file: file })
 }
 
 pub fn default_installed_mac_state_root() -> Result<PathBuf, InstalledProductLifecycleError> {
