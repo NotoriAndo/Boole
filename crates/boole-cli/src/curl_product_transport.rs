@@ -270,8 +270,16 @@ fn bootable_guest_floor(
     first_guest_sequence: u64,
     contract: TransportGuestContract,
 ) -> Result<NativeShadowUpdateFloor, CurlProductTransportError> {
-    if read_installed_curl_product_state(install_root)?.is_none() {
+    let state = read_installed_curl_product_state(install_root)?;
+    let Some(state) = state else {
         return NativeShadowUpdateFloor::first_install(first_guest_sequence)
+            .map_err(|error| CurlProductTransportError::Install(error.into()));
+    };
+    if let (Some(sequence), Some(manifest_sha256)) = (
+        state.guest_release_floor_sequence(),
+        state.guest_release_floor_manifest_sha256(),
+    ) {
+        return NativeShadowUpdateFloor::installed(sequence, manifest_sha256)
             .map_err(|error| CurlProductTransportError::Install(error.into()));
     }
     let active = match contract {
@@ -344,14 +352,15 @@ fn release_floor(
     first_install_minimum_sequence: u64,
 ) -> Result<CurlProductReleaseFloor, CurlProductTransportError> {
     match read_installed_curl_product_state(install_root)? {
-        Some(state) => {
-            CurlProductReleaseFloor::installed(state.release_sequence(), state.manifest_sha256())
-                .map_err(|error| {
-                    CurlProductTransportError::Install(CurlProductInstallError::State(format!(
-                        "{CURL_PRODUCT_INSTALL_STATE_FILE} is internally inconsistent: {error}"
-                    )))
-                })
-        }
+        Some(state) => CurlProductReleaseFloor::installed(
+            state.release_floor_sequence(),
+            state.release_floor_manifest_sha256(),
+        )
+        .map_err(|error| {
+            CurlProductTransportError::Install(CurlProductInstallError::State(format!(
+                "{CURL_PRODUCT_INSTALL_STATE_FILE} is internally inconsistent: {error}"
+            )))
+        }),
         None => Ok(CurlProductReleaseFloor::first_install(
             first_install_minimum_sequence,
         )?),

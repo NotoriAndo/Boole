@@ -3237,4 +3237,13 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'CURL-INSTALLED HO
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'NEXT: SIGNED UPDATE + ROLLBACK + CORRUPT-IMAGE/RESET RECOVERY E2E'
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Curl-installed host lifecycle and health closure'
 
+# The installed update state now keeps active selection separate from the
+# monotonic security floors and one verified rollback generation. Runtime
+# reset must preserve durable evidence and wallet state.
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'SIGNED UPDATE + ONE-GENERATION VERIFIED ROLLBACK + CORRUPT-ACTIVE RECOVERY GREEN'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'PRODUCT/GUEST FLOORS NEVER DECREASE / JOURNAL + WALLET SURVIVE RUNTIME RESET'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'NEXT: INSTALLED UPDATE/ROLLBACK PROCESS-CRASH E2E'
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Installed direct-boot update, rollback and reset lifecycle'
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Permanent uninstall remains outside this contract'
+
 printf 'docs-smoke: PASS\n' >&2

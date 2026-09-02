@@ -10,6 +10,7 @@
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
+use std::os::fd::AsRawFd;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
@@ -17,6 +18,7 @@ use boole_core::{CurlProductReleaseTrustRoot, NativeShadowUpdateTrustRoot};
 use sha2::{Digest, Sha256};
 
 const HOST_NODE_BASENAME: &str = "boole-mac-native-shadow-replay-node";
+const CONTROLLER_RUNTIME_LEASE_BASENAME: &str = ".controller-runtime.lock";
 
 #[derive(Debug, thiserror::Error)]
 pub enum InstalledProductLifecycleError {
@@ -173,6 +175,158 @@ pub fn plan_installed_mac_lifecycle(
         host_runtime_root,
         materialized_host_node_path,
     })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InstalledMacRuntimeReset {
+    controller_removed: bool,
+    host_runtime_removed: bool,
+    journal_preserved: bool,
+}
+
+impl InstalledMacRuntimeReset {
+    pub fn controller_removed(self) -> bool {
+        self.controller_removed
+    }
+
+    pub fn host_runtime_removed(self) -> bool {
+        self.host_runtime_removed
+    }
+
+    pub fn journal_preserved(self) -> bool {
+        self.journal_preserved
+    }
+}
+
+/// Remove only disposable controller and materialized-host runtime state.
+/// The exactly-once journal is deliberately retained, and wallet vaults are
+/// outside this fixed subtree. A live controller's lease makes the operation
+/// fail closed instead of deleting files from underneath a running VM.
+#[allow(unsafe_code)]
+pub fn reset_installed_direct_boot_runtime(
+    state_root: &Path,
+) -> Result<InstalledMacRuntimeReset, InstalledProductLifecycleError> {
+    let plan = plan_installed_mac_lifecycle(state_root)?;
+    if !state_root.exists() {
+        return Ok(InstalledMacRuntimeReset {
+            controller_removed: false,
+            host_runtime_removed: false,
+            journal_preserved: false,
+        });
+    }
+    let (uid, gid) = expected_identity();
+    require_existing_private_directory(state_root, uid, gid)?;
+
+    let controller_removed = if plan.controller_runtime_root.exists() {
+        require_existing_private_directory(&plan.controller_runtime_root, uid, gid)?;
+        let lease_path = plan
+            .controller_runtime_root
+            .join(CONTROLLER_RUNTIME_LEASE_BASENAME);
+        let _lease = match OpenOptions::new()
+            .read(true)
+            .write(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(&lease_path)
+        {
+            Ok(file) => {
+                let metadata = file.metadata().map_err(|error| {
+                    InstalledProductLifecycleError::Io(format!(
+                        "inspect controller runtime lease: {error}"
+                    ))
+                })?;
+                if !metadata.is_file()
+                    || metadata.nlink() != 1
+                    || metadata.uid() != uid
+                    || metadata.gid() != gid
+                    || metadata.permissions().mode() & 0o7777 != 0o600
+                {
+                    return Err(InstalledProductLifecycleError::Path(
+                        "controller runtime lease metadata is unsafe".to_string(),
+                    ));
+                }
+                // SAFETY: `file` owns this live descriptor until after the
+                // controller tree is removed or this function returns.
+                if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+                    let error = std::io::Error::last_os_error();
+                    if error.raw_os_error() == Some(libc::EWOULDBLOCK) {
+                        return Err(InstalledProductLifecycleError::Path(
+                            "controller runtime is still active".to_string(),
+                        ));
+                    }
+                    return Err(InstalledProductLifecycleError::Io(format!(
+                        "lock controller runtime lease: {error}"
+                    )));
+                }
+                Some(file)
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => {
+                return Err(InstalledProductLifecycleError::Io(format!(
+                    "open controller runtime lease: {error}"
+                )))
+            }
+        };
+        fs::remove_dir_all(&plan.controller_runtime_root).map_err(|error| {
+            InstalledProductLifecycleError::Io(format!(
+                "remove controller runtime {}: {error}",
+                plan.controller_runtime_root.display()
+            ))
+        })?;
+        true
+    } else {
+        false
+    };
+
+    let host_runtime_removed = if plan.host_runtime_root.exists() {
+        require_existing_private_directory(&plan.host_runtime_root, uid, gid)?;
+        fs::remove_dir_all(&plan.host_runtime_root).map_err(|error| {
+            InstalledProductLifecycleError::Io(format!(
+                "remove host runtime {}: {error}",
+                plan.host_runtime_root.display()
+            ))
+        })?;
+        true
+    } else {
+        false
+    };
+    File::open(state_root)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|error| {
+            InstalledProductLifecycleError::Io(format!(
+                "sync state root {}: {error}",
+                state_root.display()
+            ))
+        })?;
+    Ok(InstalledMacRuntimeReset {
+        controller_removed,
+        host_runtime_removed,
+        journal_preserved: plan.journal_path.exists(),
+    })
+}
+
+fn require_existing_private_directory(
+    path: &Path,
+    uid: u32,
+    gid: u32,
+) -> Result<(), InstalledProductLifecycleError> {
+    let metadata = fs::symlink_metadata(path).map_err(|error| {
+        InstalledProductLifecycleError::Io(format!(
+            "inspect private directory {}: {error}",
+            path.display()
+        ))
+    })?;
+    if !metadata.is_dir()
+        || metadata.file_type().is_symlink()
+        || metadata.uid() != uid
+        || metadata.gid() != gid
+        || metadata.permissions().mode() & 0o7777 != 0o700
+    {
+        return Err(InstalledProductLifecycleError::Path(format!(
+            "{} is not an owner-held private 0700 directory",
+            path.display()
+        )));
+    }
+    Ok(())
 }
 
 #[allow(unsafe_code)]

@@ -4971,3 +4971,29 @@ clean shutdown. Its compact result is
 `native/containment/native-shadow-installed-product-lifecycle-result-arm64-v1.json`.
 This closes product start/status/stop, not clean-Mac acceptance, production,
 testnet, mining, reward, consensus, P2P or activation.
+
+## Installed direct-boot update, rollback and reset lifecycle (2026-09-03)
+
+`installed-release.json` v2 separates the active release from the highest
+authenticated product and guest floors and from one retained rollback target.
+The v1 record remains a strict migration input. A signed direct-boot successor
+authenticates against the stored floors, verifies the currently selected
+generation through both trust domains, adopts one canonical state record, and
+retains the working predecessor. Rollback and corrupt-active recovery reopen
+their targets through both trust roots before changing that record; neither
+operation reduces a floor.
+
+After recovery, a later successor retains the verified working active release
+instead of the corrupt high-water generation. Unreferenced version directories
+are pruned to the active/floor/rollback set. The CLI exposes explicit rollback
+and recovery commands and reports all three product identities without
+claiming activation.
+
+Runtime reset is a separate operation. It obtains the controller lease or
+fails closed, then removes only the private controller and materialized-host
+runtime directories. It preserves the durable exactly-once journal and never
+addresses wallet paths. Permanent uninstall remains outside this contract
+until a recoverable removal design is separately approved. The next evidence
+boundary is process-crash testing around update adoption and rollback; this
+section creates no production, testnet, mining, reward, consensus, P2P or
+activation authority.

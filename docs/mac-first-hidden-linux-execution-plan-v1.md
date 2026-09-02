@@ -7059,3 +7059,43 @@ ONE VERIFIED FOREGROUND COMMAND / HIDDEN VM PATHS / BOUNDED CLEAN STOP
 NEXT: SIGNED UPDATE + ROLLBACK + CORRUPT-IMAGE/RESET RECOVERY E2E
 PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
 ```
+
+## 103. Signed update, rollback and corrupt-release recovery preserve both floors (2026-09-03)
+
+The installed direct-boot state now distinguishes three facts that the legacy
+single-active record could not express: the selected active release, the
+highest authenticated product and guest release floors, and one retained
+rollback generation. Existing v1 state remains readable. The first signed
+successor upgrades the record to v2; later rollback or recovery can select an
+older verified generation without lowering either anti-replay floor.
+
+Every rollback target is reopened through both injected public trust roots
+before the one canonical state file changes. Explicit rollback retains the
+previous active generation, allowing one reversible step. Corrupt-active
+recovery selects the independently verified retained generation and clears the
+corrupt target. A later signed update advances from the preserved floors and
+keeps the currently working generation, not the corrupt one, as its rollback
+target. Version pruning retains only the active generation, the security floor
+when distinct, and the one rollback target.
+
+The installed CLI exposes typed rollback and recovery commands. Its reset
+command removes only disposable controller and materialized-host runtime after
+proving that no live controller owns the runtime lease. The exactly-once
+journal is retained and wallet state is outside the deletion subtree. Permanent
+uninstall is deliberately not implemented in this milestone: deleting the
+whole installation requires a separately approved recoverable removal design,
+not an irreversible recursive delete hidden behind reset.
+
+This closes the local update-state and runtime-reset behavior, not the deferred
+clean-Mac canary. It creates no production trust root and grants no testnet,
+mining, reward, consensus, P2P or activation authority. The next reversible
+product boundary is a process-level update/rollback crash matrix using the
+real CLI surface, including interruption around version adoption and state
+replacement.
+
+```text
+SIGNED UPDATE + ONE-GENERATION VERIFIED ROLLBACK + CORRUPT-ACTIVE RECOVERY GREEN
+PRODUCT/GUEST FLOORS NEVER DECREASE / JOURNAL + WALLET SURVIVE RUNTIME RESET
+NEXT: INSTALLED UPDATE/ROLLBACK PROCESS-CRASH E2E
+PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
+```
