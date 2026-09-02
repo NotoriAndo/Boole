@@ -135,6 +135,39 @@ class DevelopmentThroughputPolicyContract(unittest.TestCase):
             with self.subTest(relative=relative, method=method_name):
                 self.assertTrue(forbidden_calls.isdisjoint(observed_calls))
 
+    def test_launcher_v2_history_gate_records_the_old_generation_without_rehashing_main(self) -> None:
+        relative = "scripts/test_native_shadow_launcher_build_arm64_v2.py"
+        tree = ast.parse(read(ROOT / relative), filename=relative)
+        expected = {
+            "FrozenOverlayTests": (
+                "test_v1_authority_identity_remains_historical_without_rehashing_current_tree"
+            ),
+            "BuildAuthorityTests": (
+                "test_ci_checks_out_the_historical_generation_before_running_the_builder"
+            ),
+        }
+        for class_name, method_name in expected.items():
+            classes = [
+                node
+                for node in tree.body
+                if isinstance(node, ast.ClassDef) and node.name == class_name
+            ]
+            self.assertEqual(len(classes), 1, class_name)
+            methods = [
+                node
+                for node in classes[0].body
+                if isinstance(node, ast.FunctionDef) and node.name == method_name
+            ]
+            self.assertEqual(len(methods), 1, method_name)
+            called_attributes = {
+                node.func.attr
+                for node in ast.walk(methods[0])
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            }
+            with self.subTest(relative=relative, method=method_name):
+                self.assertNotIn("verify_sources", called_attributes)
+                self.assertNotIn("run", called_attributes)
+
 
 if __name__ == "__main__":
     unittest.main()
