@@ -323,10 +323,7 @@ fn encode_proxy(
     frame
 }
 
-fn decode_proxy(
-    frame: &[u8],
-    expected_kind: u8,
-) -> Result<DecodedProxyFrame, FrameError> {
+fn decode_proxy(frame: &[u8], expected_kind: u8) -> Result<DecodedProxyFrame, FrameError> {
     if frame.len() != PROXY_FRAME_BYTES {
         return Err(FrameError("proxy frame length differs"));
     }
@@ -482,6 +479,35 @@ where
     LR: Read,
     LW: Write,
 {
+    relay_launcher_exchange_with_half_close(
+        phase,
+        host_input,
+        host_output,
+        launcher_input,
+        launcher_output,
+        || Ok(()),
+    )
+}
+
+/// Relay one launcher exchange and propagate the authenticated host's EOF to
+/// the launcher's write half before waiting for the launcher's EOF. Without
+/// this ordering both qualification peers wait for the other to close and the
+/// launcher deadline turns a valid exchange into a connection reset.
+pub fn relay_launcher_exchange_with_half_close<HR, HW, LR, LW, F>(
+    phase: ProxyPhase,
+    host_input: &mut HR,
+    host_output: &mut HW,
+    launcher_input: &mut LR,
+    launcher_output: &mut LW,
+    mut half_close_launcher: F,
+) -> Result<(), ProxyRelayError>
+where
+    HR: Read,
+    HW: Write,
+    LR: Read,
+    LW: Write,
+    F: FnMut() -> std::io::Result<()>,
+{
     let first_request = read_bounded_frame(
         host_input,
         PROXY_REQUEST_FRAME_CAP_BYTES,
@@ -503,6 +529,9 @@ where
         )?;
         write_frame(launcher_output, &request, "launcher execution request")?;
         require_eof(host_input, "host execution input")?;
+        half_close_launcher().map_err(|error| {
+            ProxyRelayError(format!("half-close launcher execution input: {error}"))
+        })?;
         let report = read_bounded_frame(
             launcher_input,
             PROXY_RESPONSE_FRAME_CAP_BYTES,
@@ -511,6 +540,9 @@ where
         write_frame(host_output, &report, "host execution report")?;
     } else {
         require_eof(host_input, "host qualification input")?;
+        half_close_launcher().map_err(|error| {
+            ProxyRelayError(format!("half-close launcher qualification input: {error}"))
+        })?;
     }
     require_eof(launcher_input, "launcher response")
 }
@@ -548,6 +580,29 @@ where
     H: Read + Write,
     L: Read + Write,
 {
+    serve_proxy_connection_with_half_close(
+        host,
+        launcher,
+        launcher_pid,
+        launcher_uid,
+        launcher_gid,
+        || Ok(()),
+    )
+}
+
+pub fn serve_proxy_connection_with_half_close<H, L, F>(
+    host: &mut H,
+    launcher: &mut L,
+    launcher_pid: u32,
+    launcher_uid: u32,
+    launcher_gid: u32,
+    half_close_launcher: F,
+) -> Result<(), ProxyRelayError>
+where
+    H: Read + Write,
+    L: Read + Write,
+    F: FnMut() -> std::io::Result<()>,
+{
     let mut open_frame = [0_u8; PROXY_FRAME_BYTES];
     host.read_exact(&mut open_frame)
         .map_err(|error| ProxyRelayError(format!("read proxy open: {error}")))?;
@@ -561,11 +616,12 @@ where
 
     let host = RefCell::new(host);
     let launcher = RefCell::new(launcher);
-    relay_launcher_exchange(
+    relay_launcher_exchange_with_half_close(
         hello.phase(),
         &mut SharedReader(&host),
         &mut SharedWriter(&host),
         &mut SharedReader(&launcher),
         &mut SharedWriter(&launcher),
+        half_close_launcher,
     )
 }

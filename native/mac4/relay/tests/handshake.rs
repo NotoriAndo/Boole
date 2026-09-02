@@ -1,11 +1,13 @@
 use boole_native_shadow_mac4_relay::{
     decode_hello, decode_proxy_hello, decode_proxy_ready, decode_ready, encode_hello,
     encode_proxy_hello, encode_proxy_ready, encode_ready, relay_launcher_exchange,
-    serve_proxy_connection, validate_proxy_ready, validate_ready, GuestProxyReady, GuestReady,
-    HostHello, HostProxyHello, ProxyPhase, FRAME_BYTES, PROXY_FRAME_BYTES, PROXY_VSOCK_PORT,
-    VSOCK_PORT,
+    relay_launcher_exchange_with_half_close, serve_proxy_connection, validate_proxy_ready,
+    validate_ready, GuestProxyReady, GuestReady, HostHello, HostProxyHello, ProxyPhase,
+    FRAME_BYTES, PROXY_FRAME_BYTES, PROXY_VSOCK_PORT, VSOCK_PORT,
 };
+use std::cell::Cell;
 use std::io::{self, Cursor, Read, Write};
+use std::rc::Rc;
 
 fn hello() -> HostHello {
     HostHello::new([0x11; 32], [0x22; 32]).expect("valid bound hello")
@@ -72,6 +74,55 @@ fn execution_proxy_forwards_the_exact_four_frame_sequence_and_eof() {
 
     assert_eq!(launcher_output, [hello, request].concat());
     assert_eq!(host_output, [ready, report].concat());
+}
+
+struct LauncherEofAfterHalfClose {
+    input: Cursor<Vec<u8>>,
+    half_closed: Rc<Cell<bool>>,
+}
+
+impl Read for LauncherEofAfterHalfClose {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        let read = self.input.read(buffer)?;
+        if read == 0 && !self.half_closed.get() {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "launcher still waits for the relayed host EOF",
+            ));
+        }
+        Ok(read)
+    }
+}
+
+#[test]
+fn qualification_half_closes_the_launcher_before_waiting_for_launcher_eof() {
+    let hello = framed(b"host qualification hello");
+    let ready = framed(b"launcher qualification ready");
+    let mut host_input = Cursor::new(hello.clone());
+    let mut host_output = Vec::new();
+    let half_closed = Rc::new(Cell::new(false));
+    let mut launcher_input = LauncherEofAfterHalfClose {
+        input: Cursor::new(ready.clone()),
+        half_closed: Rc::clone(&half_closed),
+    };
+    let mut launcher_output = Vec::new();
+
+    relay_launcher_exchange_with_half_close(
+        ProxyPhase::Qualification,
+        &mut host_input,
+        &mut host_output,
+        &mut launcher_input,
+        &mut launcher_output,
+        || {
+            half_closed.set(true);
+            Ok(())
+        },
+    )
+    .expect("host EOF is propagated before launcher EOF is awaited");
+
+    assert!(half_closed.get());
+    assert_eq!(launcher_output, hello);
+    assert_eq!(host_output, ready);
 }
 
 struct ScriptedIo {
