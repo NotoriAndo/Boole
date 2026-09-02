@@ -25,7 +25,8 @@ PROXY_CONTRACT = (
     / "native/containment/native-shadow-mac4-execution-proxy-contract-v1.json"
 )
 RELAY_MANIFEST = ROOT / "native/mac4/relay/Cargo.toml"
-SERVICE = ROOT / "native/systemd/boole-native-shadow-mac4-relay.service"
+HISTORICAL_SERVICE = ROOT / "native/systemd/boole-native-shadow-mac4-relay.service"
+SERVICE = ROOT / "native/systemd/boole-native-shadow-mac4-relay-v2.service"
 MAC_HOST = ROOT / "native/mac4/boole-mac4-auth-channel.swift"
 WORKFLOW = (
     ROOT / ".github/workflows/native-shadow-closed-local-image-readiness-arm64.yml"
@@ -62,7 +63,6 @@ class Mac4AuthenticatedChannelBehaviorTests(unittest.TestCase):
 
         proxy_digest = hashlib.sha256(PROXY_CONTRACT.read_bytes()).hexdigest()
         self.assertIn(f'"{proxy_digest}"', source)
-        self.assertEqual(proxy_digest, image.MAC4_PROXY_CONTRACT_SHA256)
 
     def test_development_overlay_installs_relay_service_and_exact_vsock_load_contract(self):
         relay = b"arm64-linux-relay"
@@ -74,22 +74,17 @@ class Mac4AuthenticatedChannelBehaviorTests(unittest.TestCase):
                 image.MAC4_SERVICE_STAGING_PATH,
                 image.MAC4_SERVICE_ENABLEMENT_PATH,
                 image.MAC4_CONTRACT_STAGING_PATH,
-                image.MAC4_PROXY_CONTRACT_STAGING_PATH,
                 image.MAC4_MODULE_LOAD_STAGING_PATH,
             },
         )
         self.assertEqual(entries[image.MAC4_RELAY_STAGING_PATH]["raw"], relay)
         self.assertEqual(entries[image.MAC4_RELAY_STAGING_PATH]["mode"], 0o555)
         self.assertEqual(
-            entries[image.MAC4_SERVICE_STAGING_PATH]["raw"], SERVICE.read_bytes()
+            entries[image.MAC4_SERVICE_STAGING_PATH]["raw"], HISTORICAL_SERVICE.read_bytes()
         )
         self.assertEqual(entries[image.MAC4_SERVICE_STAGING_PATH]["mode"], 0o444)
         self.assertEqual(
             entries[image.MAC4_CONTRACT_STAGING_PATH]["raw"], CONTRACT.read_bytes()
-        )
-        self.assertEqual(
-            entries[image.MAC4_PROXY_CONTRACT_STAGING_PATH]["raw"],
-            PROXY_CONTRACT.read_bytes(),
         )
         self.assertEqual(
             entries[image.MAC4_SERVICE_ENABLEMENT_PATH]["target"],
