@@ -7,11 +7,10 @@
 > activation boundaries in this specification remain unchanged, and no A7,
 > production, boot, mining or reward authority is created here.
 
-> **CURRENT-CURSOR-2026-09-02:** `MAC.4 EXECUTION PROXY + NODE SESSION VALIDATION GREEN / PERSISTENT HOST CONTROLLER + REAL NODE ROUTE COMPOSITION NEXT`.
-> Next is one persistent Mac controller that owns one hidden-guest lifecycle
-> and composes the existing node replay service with the bounded proxy adapter.
-> This cursor is status, not production, testnet, mining, reward, consensus,
-> P2P or activation permission.
+> **CURRENT-CURSOR-2026-09-02:** `MAC.4 PERSISTENT CONTROLLER PROTOCOL + NODE REPLAY COMPOSITION GREEN / VERIFIED PROCESS SPAWN + INSTALLED MAC ROUTE NEXT`.
+> Next is fail-closed ownership of the verified host-controller process and an
+> installed Mac replay-service entrypoint. This cursor is status, not
+> production, testnet, mining, reward, consensus, P2P or activation permission.
 
 Status: **CLOSED-LOCAL QUALIFICATION GREEN — tracked checker, named-Linux containment, loopback
 node raw-answer HTTP adjudication and durable replay landed; production activation, P2P, block,
@@ -2782,3 +2781,18 @@ the real replay-service constructor still have to compose the adapter into one
 VM lifecycle. The guest remains unable to own a challenge, journal, replay,
 terminal evidence or verdict, and all production and network activation
 boundaries remain closed.
+
+### MAC.4 persistent-controller protocol and node composition addendum (2026-09-02)
+
+The Mac controller now supports one qualification followed by sequential
+execution exchanges over a bounded binary parent/child pipe, then explicit
+shutdown. Each request is digest-bound, every execution receives a fresh proxy
+nonce, and every guest response must retain the qualification-time root
+launcher peer. The node client rejects kind, binding, size, framing or peer
+drift before the existing replay-service classifier sees a launcher result.
+
+The protocol was exercised without a VM through the compiled Swift dry-run
+surface, while the Rust composition test reused the existing node replay route
+for multiple exchanges. This does not yet start the verified product artifact
+or expose an installed Mac route. Challenge, journal, replay, terminal evidence
+and verdict ownership remain exclusively in the node.

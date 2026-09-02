@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 import pathlib
+import struct
 import subprocess
 import sys
 import tempfile
@@ -24,6 +25,10 @@ PROXY_CONTRACT = (
     ROOT
     / "native/containment/native-shadow-mac4-execution-proxy-contract-v1.json"
 )
+CONTROLLER_CONTRACT = (
+    ROOT
+    / "native/containment/native-shadow-mac4-host-controller-contract-v1.json"
+)
 RELAY_MANIFEST = ROOT / "native/mac4/relay/Cargo.toml"
 HISTORICAL_SERVICE = ROOT / "native/systemd/boole-native-shadow-mac4-relay.service"
 SERVICE = ROOT / "native/systemd/boole-native-shadow-mac4-relay-v2.service"
@@ -35,6 +40,55 @@ SELF_TEST = ROOT / "scripts/self-test.sh"
 
 
 class Mac4AuthenticatedChannelBehaviorTests(unittest.TestCase):
+    @staticmethod
+    def _controller_request(command: int, frames: list[bytes]) -> tuple[bytes, bytes]:
+        payload = b"".join(struct.pack(">I", len(frame)) + frame for frame in frames)
+        request_id = hashlib.sha256(
+            bytes([command])
+            + b"".join(struct.pack(">I", len(frame)) + frame for frame in frames)
+        ).digest()
+        header = (
+            b"BOOLE4C1"
+            + bytes([1, command])
+            + struct.pack(">H", len(frames))
+            + struct.pack(">I", len(payload))
+            + request_id
+            + bytes.fromhex(hashlib.sha256(CONTROLLER_CONTRACT.read_bytes()).hexdigest())
+            + bytes(16)
+        )
+        return header + payload, request_id
+
+    @staticmethod
+    def _controller_response(data: bytes, offset: int) -> tuple[dict[str, object], int]:
+        header = data[offset : offset + 96]
+        if len(header) != 96:
+            raise AssertionError("controller response header is truncated")
+        frame_count = int.from_bytes(header[10:12], "big")
+        payload_length = int.from_bytes(header[12:16], "big")
+        payload = data[offset + 96 : offset + 96 + payload_length]
+        frames: list[bytes] = []
+        cursor = 0
+        for _ in range(frame_count):
+            length = int.from_bytes(payload[cursor : cursor + 4], "big")
+            cursor += 4
+            frames.append(payload[cursor : cursor + length])
+            cursor += length
+        if cursor != len(payload):
+            raise AssertionError("controller response has trailing payload")
+        return (
+            {
+                "magic": header[:8],
+                "version": header[8],
+                "kind": header[9],
+                "request_id": header[16:48],
+                "contract": header[48:80],
+                "peer": struct.unpack(">III", header[80:92]),
+                "reserved": header[92:96],
+                "frames": frames,
+            },
+            offset + 96 + payload_length,
+        )
+
     def test_public_handshake_rejects_wrong_attempt_image_and_protocol(self):
         completed = subprocess.run(
             [
@@ -63,6 +117,9 @@ class Mac4AuthenticatedChannelBehaviorTests(unittest.TestCase):
 
         proxy_digest = hashlib.sha256(PROXY_CONTRACT.read_bytes()).hexdigest()
         self.assertIn(f'"{proxy_digest}"', source)
+
+        controller_digest = hashlib.sha256(CONTROLLER_CONTRACT.read_bytes()).hexdigest()
+        self.assertIn(f'"{controller_digest}"', MAC_HOST.read_text(encoding="utf-8"))
 
     def test_development_overlay_installs_relay_service_and_exact_vsock_load_contract(self):
         relay = b"arm64-linux-relay"
@@ -132,6 +189,9 @@ class Mac4AuthenticatedChannelBehaviorTests(unittest.TestCase):
         self.assertIn("qualificationPeer == executionPeer", source)
         self.assertIn("proxy launcher peer changed after qualification", source)
         self.assertIn('"launcherPeer"', source)
+        self.assertIn("func runPersistentController()", source)
+        self.assertIn("nonceBase: request.requestID", source)
+        self.assertIn("controller input ended before explicit shutdown", source)
 
     def test_standalone_relay_does_not_change_the_root_cargo_workspace(self):
         root_manifest = (ROOT / "Cargo.toml").read_text(encoding="utf-8")
@@ -284,10 +344,51 @@ class Mac4AuthenticatedChannelBehaviorTests(unittest.TestCase):
                 json.loads(receipt.read_text(encoding="utf-8"))["executionProxy"],
                 {
                     "configured": True,
+                    "persistentController": False,
                     "port": 4051,
                     "sessions": ["qualification", "execution"],
                 },
             )
+
+            qualification_frame = struct.pack(">I", 13) + b"qualification"
+            hello_frame = struct.pack(">I", 5) + b"hello"
+            request_frame = struct.pack(">I", 7) + b"request"
+            qualification_request, qualification_id = self._controller_request(
+                1, [qualification_frame]
+            )
+            execution_request, execution_id = self._controller_request(
+                2, [hello_frame, request_frame]
+            )
+            shutdown_request, shutdown_id = self._controller_request(3, [])
+            protocol = subprocess.run(
+                [str(output), "--controller-protocol-dry-run"],
+                cwd=ROOT,
+                input=qualification_request + execution_request + shutdown_request,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(protocol.returncode, 0, protocol.stderr.decode())
+            self.assertEqual(protocol.stderr, b"")
+            qualification_response, offset = self._controller_response(protocol.stdout, 0)
+            execution_response, offset = self._controller_response(protocol.stdout, offset)
+            shutdown_response, offset = self._controller_response(protocol.stdout, offset)
+            self.assertEqual(offset, len(protocol.stdout))
+            contract_digest = hashlib.sha256(CONTROLLER_CONTRACT.read_bytes()).digest()
+            for response, kind, request_id, peer in (
+                (qualification_response, 0x81, qualification_id, (4242, 0, 0)),
+                (execution_response, 0x82, execution_id, (4242, 0, 0)),
+                (shutdown_response, 0x83, shutdown_id, (0, 0, 0)),
+            ):
+                self.assertEqual(response["magic"], b"BOOLE4C1")
+                self.assertEqual(response["version"], 1)
+                self.assertEqual(response["kind"], kind)
+                self.assertEqual(response["request_id"], request_id)
+                self.assertEqual(response["contract"], contract_digest)
+                self.assertEqual(response["peer"], peer)
+                self.assertEqual(response["reserved"], bytes(4))
+            self.assertEqual(qualification_response["frames"][1], qualification_frame)
+            self.assertEqual(execution_response["frames"][1:], [hello_frame, request_frame])
+            self.assertEqual(shutdown_response["frames"], [])
         source = MAC_HOST.read_text(encoding="utf-8")
         self.assertIn("VZVirtioSocketDeviceConfiguration()", source)
         self.assertIn("connectGuest(port: VSOCK_PORT)", source)

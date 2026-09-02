@@ -8,11 +8,10 @@
 > PR for every reversible retry. This note grants no A7, production, boot,
 > MAC.4 or activation effect.
 
-> **CURRENT-CURSOR-2026-09-02:** `MAC.4 EXECUTION PROXY + NODE SESSION VALIDATION GREEN / PERSISTENT HOST CONTROLLER + REAL NODE ROUTE COMPOSITION NEXT`.
-> Next is one persistent Mac controller that owns one hidden-guest lifecycle
-> and composes the existing node replay service with the bounded proxy adapter.
-> Existing runtime exactly-once and containment contracts remain the acceptance
-> boundary.
+> **CURRENT-CURSOR-2026-09-02:** `MAC.4 PERSISTENT CONTROLLER PROTOCOL + NODE REPLAY COMPOSITION GREEN / VERIFIED PROCESS SPAWN + INSTALLED MAC ROUTE NEXT`.
+> Next is fail-closed ownership of the verified host-controller process and an
+> installed Mac replay-service entrypoint. Existing runtime exactly-once and
+> containment contracts remain the acceptance boundary.
 
 Status: **CLOSED-LOCAL IMPLEMENTATION GREEN.** Registry/state durability, named-Linux containment,
 actual checker execution and the feature-gated loopback HTTP route are on `main`. Production
@@ -4772,3 +4771,19 @@ This closure is not yet a production constructor or route. A persistent Mac
 controller must own one verified VM lifecycle and be composed into the real
 durable replay service before MAC.4 can be called complete. No image or VM was
 created by this implementation slice.
+
+## MAC.4 persistent controller and node composition (2026-09-02)
+
+The fixed controller protocol uses one private parent/child stdio pair, a
+96-byte header, SHA-256 request binding, bounded embedded frames and exact
+qualification, execution and shutdown response shapes. One controller owns one
+VM lifecycle. Qualification is allowed once; execution is serialized and may
+repeat; parent EOF or explicit shutdown ends the lifecycle. The guest still
+owns no journal or verdict.
+
+`boole-node` now validates this stream and composes the qualified controller
+with its existing Mac launcher transport. It independently checks the guest
+proxy-ready identity, launcher qualification frame and all later execution
+frames before the existing node adjudicator classifies them. This is a tested
+composition boundary, not an installed constructor: verified process spawn and
+Mac authority/journal path selection remain next.

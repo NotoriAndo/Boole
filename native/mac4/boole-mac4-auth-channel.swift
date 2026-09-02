@@ -19,6 +19,12 @@ let CONTRACT_DIGEST_HEX = "4f2ec110d72f628207ac383668daff7bda6b568449fd315d8376a
 let PROXY_MAGIC = Data("BOOLE4P1".utf8)
 let PROXY_FRAME_BYTES = 120
 let PROXY_CONTRACT_DIGEST_HEX = "74d2f8c0be187a0b3ff0c9a1272bd5cef6943222448b4c6e7f7a97f209763613"
+let CONTROLLER_MAGIC = Data("BOOLE4C1".utf8)
+let CONTROLLER_VERSION: UInt8 = 1
+let CONTROLLER_HEADER_BYTES = 96
+let CONTROLLER_FRAME_CAP_BYTES = 524_288
+let CONTROLLER_FRAME_COUNT_CAP = 3
+let CONTROLLER_CONTRACT_DIGEST_HEX = "98095abde0cb32cb5fb27edeaf5bc6c67f3df796ad3cda07b16f8b4484b9b713"
 
 struct HostError: Error, CustomStringConvertible {
     let description: String
@@ -33,6 +39,27 @@ struct LauncherPeer: Equatable {
     var json: [String: Any] {
         ["pid": pid, "uid": uid, "gid": gid]
     }
+}
+
+enum ControllerCommand: UInt8 {
+    case qualification = 1
+    case execution = 2
+    case shutdown = 3
+
+    var responseKind: UInt8 { rawValue | 0x80 }
+    var requestFrameCount: Int {
+        switch self {
+        case .qualification: return 1
+        case .execution: return 2
+        case .shutdown: return 0
+        }
+    }
+}
+
+struct ControllerEnvelope {
+    let command: ControllerCommand
+    let requestID: Data
+    let frames: [Data]
 }
 
 func fail(_ message: String) -> Never {
@@ -84,6 +111,152 @@ func dataFromHex(_ value: String, named name: String) throws -> Data {
         throw HostError("\(name) must not be all zero")
     }
     return output
+}
+
+func appendUInt16(_ value: UInt16, to data: inout Data) {
+    var bigEndian = value.bigEndian
+    withUnsafeBytes(of: &bigEndian) { data.append(contentsOf: $0) }
+}
+
+func appendUInt32(_ value: UInt32, to data: inout Data) {
+    var bigEndian = value.bigEndian
+    withUnsafeBytes(of: &bigEndian) { data.append(contentsOf: $0) }
+}
+
+func uint16(_ data: Data, at offset: Int) -> UInt16 {
+    data[offset..<offset + 2].reduce(0) { ($0 << 8) | UInt16($1) }
+}
+
+func uint32(_ data: Data, at offset: Int) -> UInt32 {
+    data[offset..<offset + 4].reduce(0) { ($0 << 8) | UInt32($1) }
+}
+
+func controllerRequestID(command: ControllerCommand, frames: [Data]) -> Data {
+    var content = Data([command.rawValue])
+    for frame in frames {
+        appendUInt32(UInt32(frame.count), to: &content)
+        content.append(frame)
+    }
+    return Data(SHA256.hash(data: content))
+}
+
+func readHandleExact(_ handle: FileHandle, count: Int, allowCleanEOF: Bool = false) throws -> Data? {
+    var output = Data()
+    while output.count < count {
+        let next = try handle.read(upToCount: count - output.count) ?? Data()
+        if next.isEmpty {
+            if allowCleanEOF && output.isEmpty { return nil }
+            throw HostError("controller stream ended before exact frame")
+        }
+        output.append(next)
+    }
+    return output
+}
+
+func readControllerEnvelope(_ handle: FileHandle) throws -> ControllerEnvelope? {
+    guard let header = try readHandleExact(
+        handle, count: CONTROLLER_HEADER_BYTES, allowCleanEOF: true
+    ) else { return nil }
+    guard header[0..<8] == CONTROLLER_MAGIC,
+          header[8] == CONTROLLER_VERSION,
+          header[48..<80] == (try dataFromHex(
+              CONTROLLER_CONTRACT_DIGEST_HEX, named: "controller contract digest"
+          )),
+          header[80..<96].allSatisfy({ $0 == 0 }) else {
+        throw HostError("controller request header differs")
+    }
+    guard let command = ControllerCommand(rawValue: header[9]) else {
+        throw HostError("controller request command differs")
+    }
+    let frameCount = Int(uint16(header, at: 10))
+    let payloadBytes = Int(uint32(header, at: 12))
+    guard frameCount == command.requestFrameCount,
+          frameCount <= CONTROLLER_FRAME_COUNT_CAP,
+          payloadBytes <= CONTROLLER_FRAME_COUNT_CAP * (CONTROLLER_FRAME_CAP_BYTES + 4) else {
+        throw HostError("controller request shape exceeds contract")
+    }
+    let requestID = Data(header[16..<48])
+    let payload = try readHandleExact(handle, count: payloadBytes) ?? Data()
+    var offset = 0
+    var frames: [Data] = []
+    for _ in 0..<frameCount {
+        guard payload.count - offset >= 4 else {
+            throw HostError("controller embedded frame header is truncated")
+        }
+        let length = Int(uint32(payload, at: offset))
+        offset += 4
+        guard length <= CONTROLLER_FRAME_CAP_BYTES, payload.count - offset >= length else {
+            throw HostError("controller embedded frame is truncated or oversized")
+        }
+        frames.append(Data(payload[offset..<offset + length]))
+        offset += length
+    }
+    guard offset == payload.count else { throw HostError("controller request has trailing bytes") }
+    guard requestID == controllerRequestID(command: command, frames: frames) else {
+        throw HostError("controller request binding differs")
+    }
+    return ControllerEnvelope(command: command, requestID: requestID, frames: frames)
+}
+
+func writeControllerResponse(
+    _ handle: FileHandle,
+    request: ControllerEnvelope,
+    launcherPeer: LauncherPeer?,
+    frames: [Data]
+) throws {
+    let expectedFrames: Int
+    switch request.command {
+    case .qualification: expectedFrames = 2
+    case .execution: expectedFrames = 3
+    case .shutdown: expectedFrames = 0
+    }
+    guard frames.count == expectedFrames, frames.count <= CONTROLLER_FRAME_COUNT_CAP else {
+        throw HostError("controller response frame count differs")
+    }
+    if request.command == .shutdown {
+        guard launcherPeer == nil else { throw HostError("shutdown response has launcher peer") }
+    } else {
+        guard let peer = launcherPeer, peer.pid != 0, peer.uid == 0, peer.gid == 0 else {
+            throw HostError("controller response launcher peer is not root")
+        }
+    }
+    var payload = Data()
+    for frame in frames {
+        guard frame.count <= CONTROLLER_FRAME_CAP_BYTES else {
+            throw HostError("controller response frame exceeds cap")
+        }
+        appendUInt32(UInt32(frame.count), to: &payload)
+        payload.append(frame)
+    }
+    var header = Data()
+    header.append(CONTROLLER_MAGIC)
+    header.append(CONTROLLER_VERSION)
+    header.append(request.command.responseKind)
+    appendUInt16(UInt16(frames.count), to: &header)
+    appendUInt32(UInt32(payload.count), to: &header)
+    header.append(request.requestID)
+    header.append(try dataFromHex(
+        CONTROLLER_CONTRACT_DIGEST_HEX, named: "controller contract digest"
+    ))
+    if let peer = launcherPeer {
+        appendUInt32(peer.pid, to: &header)
+        appendUInt32(peer.uid, to: &header)
+        appendUInt32(peer.gid, to: &header)
+    } else {
+        header.append(contentsOf: [UInt8](repeating: 0, count: 12))
+    }
+    header.append(contentsOf: [UInt8](repeating: 0, count: 4))
+    guard header.count == CONTROLLER_HEADER_BYTES else {
+        throw HostError("controller response header size differs")
+    }
+    try handle.write(contentsOf: header + payload)
+}
+
+func validateEmbeddedLauncherFrame(_ frame: Data, cap: Int, named name: String) throws {
+    guard frame.count >= 4 else { throw HostError("\(name) frame header is truncated") }
+    let declared = Int(uint32(frame, at: 0))
+    guard declared <= cap else { throw HostError("\(name) frame exceeds cap") }
+    guard frame.count == declared + 4 else { throw HostError("\(name) frame length differs") }
 }
 
 func sha256(ofFileAt path: String) throws -> String {
@@ -174,6 +347,22 @@ func validateProxyReady(
     return peer
 }
 
+func controllerDryRunProxyReady(phase: UInt8, peer: LauncherPeer) throws -> Data {
+    var frame = Data()
+    frame.append(PROXY_MAGIC)
+    frame.append(2)
+    frame.append(phase)
+    frame.append(contentsOf: [0, 0])
+    frame.append(try dataFromHex(PROXY_CONTRACT_DIGEST_HEX, named: "proxy contract digest"))
+    frame.append(contentsOf: [UInt8](repeating: 0x11, count: 32))
+    frame.append(contentsOf: [UInt8](repeating: 0x22, count: 32))
+    appendUInt32(peer.pid, to: &frame)
+    appendUInt32(peer.uid, to: &frame)
+    appendUInt32(peer.gid, to: &frame)
+    guard frame.count == PROXY_FRAME_BYTES else { throw HostError("proxy ready size differs") }
+    return frame
+}
+
 func writeAll(_ descriptor: Int32, data: Data) throws {
     try data.withUnsafeBytes { raw in
         guard let base = raw.baseAddress else { throw HostError("empty frame") }
@@ -231,6 +420,47 @@ func requireSocketEOF(_ descriptor: Int32, named name: String) throws {
 let arguments = Array(CommandLine.arguments.dropFirst())
 let dryRun = arguments.contains("--dry-run")
 let proxyDryRun = arguments.contains("--proxy-dry-run")
+let controllerProtocolDryRun = arguments.contains("--controller-protocol-dry-run")
+let controllerStdio = arguments.contains("--controller-stdio")
+
+if controllerProtocolDryRun {
+    let peer = LauncherPeer(pid: 4242, uid: 0, gid: 0)
+    do {
+        while let request = try readControllerEnvelope(.standardInput) {
+            switch request.command {
+            case .qualification:
+                try writeControllerResponse(
+                    .standardOutput,
+                    request: request,
+                    launcherPeer: peer,
+                    frames: [
+                        try controllerDryRunProxyReady(phase: 1, peer: peer),
+                        request.frames[0],
+                    ]
+                )
+            case .execution:
+                try writeControllerResponse(
+                    .standardOutput,
+                    request: request,
+                    launcherPeer: peer,
+                    frames: [
+                        try controllerDryRunProxyReady(phase: 2, peer: peer),
+                        request.frames[0],
+                        request.frames[1],
+                    ]
+                )
+            case .shutdown:
+                try writeControllerResponse(
+                    .standardOutput, request: request, launcherPeer: nil, frames: []
+                )
+                exit(0)
+            }
+        }
+        exit(0)
+    } catch {
+        fail("controller protocol dry run failed: \(error)")
+    }
+}
 
 let kernelPath: String
 let rootDiskPath: String
@@ -307,6 +537,9 @@ if proxyConfigured && !proxyDryRun && !proxyOutputPaths.allSatisfy({ $0 != nil }
 if !proxyConfigured && proxyOutputPaths.contains(where: { $0 != nil }) {
     fail("proxy output paths require all three proxy input frames")
 }
+if controllerStdio && (dryRun || proxyConfigured || proxyOutputPaths.contains(where: { $0 != nil })) {
+    fail("--controller-stdio cannot be combined with dry-run or one-shot proxy paths")
+}
 if proxyConfigured {
     do {
         _ = try exactFrame(
@@ -330,6 +563,7 @@ if proxyDryRun {
         "dryRun": true,
         "executionProxy": [
             "configured": true,
+            "persistentController": false,
             "port": PROXY_VSOCK_PORT,
             "sessions": ["qualification", "execution"],
         ],
@@ -383,10 +617,13 @@ do { try configuration.validate() } catch { fail("invalid VM configuration: \(er
 var proxyLauncherPeer: LauncherPeer?
 
 func writeReceipt(outcome: String, detail: String, startedAt: Date?, stoppedAt: Date?) {
+    let persistentControllerConfigured = controllerStdio
     var executionProxy: [String: Any] = [
-        "configured": proxyConfigured,
+        "configured": proxyConfigured || persistentControllerConfigured,
         "port": PROXY_VSOCK_PORT,
-        "sessions": proxyConfigured ? ["qualification", "execution"] : [],
+        "sessions": (proxyConfigured || persistentControllerConfigured)
+            ? ["qualification", "execution"] : [],
+        "persistentController": persistentControllerConfigured,
     ]
     if let peer = proxyLauncherPeer {
         executionProxy["launcherPeer"] = peer.json
@@ -488,10 +725,12 @@ func connectGuest(port: UInt32) throws -> VZVirtioSocketConnection {
     return try result.get()
 }
 
-func openProxy(phase: UInt8) throws -> (VZVirtioSocketConnection, LauncherPeer) {
+func openProxy(
+    phase: UInt8, nonceBase: Data? = nil
+) throws -> (VZVirtioSocketConnection, LauncherPeer, Data) {
     let connection = try connectGuest(port: PROXY_VSOCK_PORT)
     do {
-        let fresh = proxyNonce(base: nonce, phase: phase)
+        let fresh = proxyNonce(base: nonceBase ?? nonce, phase: phase)
         try writeAll(
             connection.fileDescriptor,
             data: try proxyOpenFrame(nonce: fresh, bootBinding: bootBinding, phase: phase)
@@ -500,11 +739,89 @@ func openProxy(phase: UInt8) throws -> (VZVirtioSocketConnection, LauncherPeer) 
         let peer = try validateProxyReady(
             ready, nonce: fresh, bootBinding: bootBinding, phase: phase
         )
-        return (connection, peer)
+        return (connection, peer, ready)
     } catch {
         connection.close()
         throw error
     }
+}
+
+func runPersistentController() throws -> LauncherPeer? {
+    var qualifiedPeer: LauncherPeer?
+    while let request = try readControllerEnvelope(.standardInput) {
+        switch request.command {
+        case .qualification:
+            guard qualifiedPeer == nil else { throw HostError("controller qualified twice") }
+            try validateEmbeddedLauncherFrame(
+                request.frames[0], cap: 131_072, named: "qualification hello"
+            )
+            let (connection, peer, proxyReady) = try openProxy(
+                phase: 1, nonceBase: request.requestID
+            )
+            do {
+                try writeAll(connection.fileDescriptor, data: request.frames[0])
+                try closeWrite(connection, named: "qualification")
+                let launcherReady = try readFrame(
+                    connection.fileDescriptor, cap: 65_536, named: "qualification ready"
+                )
+                try requireSocketEOF(connection.fileDescriptor, named: "qualification proxy")
+                connection.close()
+                qualifiedPeer = peer
+                try writeControllerResponse(
+                    .standardOutput,
+                    request: request,
+                    launcherPeer: peer,
+                    frames: [proxyReady, launcherReady]
+                )
+            } catch {
+                connection.close()
+                throw error
+            }
+        case .execution:
+            guard let qualifiedPeer else { throw HostError("execution preceded qualification") }
+            try validateEmbeddedLauncherFrame(
+                request.frames[0], cap: 131_072, named: "execution hello"
+            )
+            try validateEmbeddedLauncherFrame(
+                request.frames[1], cap: 131_072, named: "execution request"
+            )
+            let (connection, peer, proxyReady) = try openProxy(
+                phase: 2, nonceBase: request.requestID
+            )
+            guard peer == qualifiedPeer else {
+                connection.close()
+                throw HostError("proxy launcher peer changed after qualification")
+            }
+            do {
+                try writeAll(connection.fileDescriptor, data: request.frames[0])
+                let launcherReady = try readFrame(
+                    connection.fileDescriptor, cap: 65_536, named: "execution ready"
+                )
+                try writeAll(connection.fileDescriptor, data: request.frames[1])
+                try closeWrite(connection, named: "execution")
+                let launcherReport = try readFrame(
+                    connection.fileDescriptor, cap: 65_536, named: "execution report"
+                )
+                try requireSocketEOF(connection.fileDescriptor, named: "execution proxy")
+                connection.close()
+                try writeControllerResponse(
+                    .standardOutput,
+                    request: request,
+                    launcherPeer: peer,
+                    frames: [proxyReady, launcherReady, launcherReport]
+                )
+            } catch {
+                connection.close()
+                throw error
+            }
+        case .shutdown:
+            try writeControllerResponse(
+                .standardOutput, request: request, launcherPeer: nil, frames: []
+            )
+            return qualifiedPeer
+        }
+    }
+    throw HostError("controller input ended before explicit shutdown")
 }
 
 func closeWrite(_ connection: VZVirtioSocketConnection, named name: String) throws {
@@ -540,10 +857,19 @@ while Date() < deadline && !queue.sync(execute: { watcher.stopped }) && !handsha
     }
 }
 
-var proxyComplete = !proxyConfigured
-if handshakeComplete && proxyConfigured {
+var proxyComplete = !proxyConfigured && !controllerStdio
+if handshakeComplete && controllerStdio {
     do {
-        let (qualification, qualificationPeer) = try openProxy(phase: 1)
+        proxyLauncherPeer = try runPersistentController()
+        proxyComplete = true
+        handshakeDetail += "; persistent controller stopped cleanly"
+    } catch {
+        proxyComplete = false
+        handshakeDetail += "; persistent controller failed: \(error)"
+    }
+} else if handshakeComplete && proxyConfigured {
+    do {
+        let (qualification, qualificationPeer, _) = try openProxy(phase: 1)
         try writeAll(
             qualification.fileDescriptor,
             data: try exactFrame(
@@ -558,7 +884,7 @@ if handshakeComplete && proxyConfigured {
         qualification.close()
         try atomicWrite(qualificationReady, to: proxyQualificationReadyPath!)
 
-        let (execution, executionPeer) = try openProxy(phase: 2)
+        let (execution, executionPeer, _) = try openProxy(phase: 2)
         guard qualificationPeer == executionPeer else {
             execution.close()
             throw HostError("proxy launcher peer changed after qualification")
@@ -621,4 +947,4 @@ writeReceipt(
     stoppedAt: stoppedAt
 )
 if !handshakeComplete || !proxyComplete { fail(handshakeDetail) }
-print("mac4-channel: authenticated handshake complete")
+if !controllerStdio { print("mac4-channel: authenticated handshake complete") }

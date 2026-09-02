@@ -27,6 +27,9 @@ mod lean_bounty_verifier;
 mod local_node;
 #[allow(dead_code)]
 mod native_shadow;
+#[cfg(feature = "native-shadow-closed-local-replay")]
+#[cfg(any(target_os = "macos", test))]
+pub mod native_shadow_mac4_controller;
 #[allow(dead_code)]
 mod native_shadow_qualification;
 #[cfg(feature = "native-shadow-closed-local-replay")]
