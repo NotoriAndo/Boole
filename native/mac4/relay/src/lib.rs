@@ -625,3 +625,126 @@ where
         half_close_launcher,
     )
 }
+
+/// Connect to a socket whose owner starts concurrently with the relay.
+///
+/// Only the two errors that mean "the fixed local socket is not accepting yet"
+/// are retried. Authentication and all later protocol checks remain unchanged.
+#[doc(hidden)]
+pub fn retry_startup_connect<T, C, W>(
+    mut connect: C,
+    max_attempts: usize,
+    mut wait: W,
+) -> std::io::Result<T>
+where
+    C: FnMut() -> std::io::Result<T>,
+    W: FnMut(),
+{
+    if max_attempts == 0 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "startup socket connect needs at least one attempt",
+        ));
+    }
+
+    for attempt in 0..max_attempts {
+        match connect() {
+            Ok(connection) => return Ok(connection),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
+                ) && attempt + 1 < max_attempts =>
+            {
+                wait();
+            }
+            Err(error) => return Err(error),
+        }
+    }
+
+    unreachable!("the non-zero bounded loop always returns")
+}
+
+#[cfg(test)]
+mod startup_connect_tests {
+    use super::retry_startup_connect;
+    use std::collections::VecDeque;
+    use std::io;
+
+    #[test]
+    fn retries_only_launcher_startup_absence_until_the_socket_is_ready() {
+        let mut outcomes = VecDeque::from([
+            Err(io::Error::from(io::ErrorKind::NotFound)),
+            Err(io::Error::from(io::ErrorKind::ConnectionRefused)),
+            Ok(42_u8),
+        ]);
+        let mut waits = 0;
+
+        let connected = retry_startup_connect(
+            || {
+                outcomes
+                    .pop_front()
+                    .expect("one scripted connect per attempt")
+            },
+            3,
+            || waits += 1,
+        )
+        .expect("the bounded startup race resolves");
+
+        assert_eq!(connected, 42);
+        assert_eq!(waits, 2);
+        assert!(outcomes.is_empty());
+    }
+
+    #[test]
+    fn refuses_non_startup_errors_without_retrying() {
+        let mut attempts = 0;
+        let mut waits = 0;
+
+        let error = retry_startup_connect::<(), _, _>(
+            || {
+                attempts += 1;
+                Err(io::Error::from(io::ErrorKind::PermissionDenied))
+            },
+            100,
+            || waits += 1,
+        )
+        .expect_err("permission failures are not a readiness race");
+
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        assert_eq!(attempts, 1);
+        assert_eq!(waits, 0);
+    }
+
+    #[test]
+    fn returns_the_last_transient_error_at_the_fixed_attempt_limit() {
+        let mut attempts = 0;
+        let mut waits = 0;
+
+        let error = retry_startup_connect::<(), _, _>(
+            || {
+                attempts += 1;
+                Err(io::Error::from(io::ErrorKind::NotFound))
+            },
+            4,
+            || waits += 1,
+        )
+        .expect_err("the readiness wait is bounded");
+
+        assert_eq!(error.kind(), io::ErrorKind::NotFound);
+        assert_eq!(attempts, 4);
+        assert_eq!(waits, 3);
+    }
+
+    #[test]
+    fn rejects_a_zero_attempt_contract() {
+        let error = retry_startup_connect::<(), _, _>(
+            || panic!("zero attempts must not call the connector"),
+            0,
+            || panic!("zero attempts must not wait"),
+        )
+        .expect_err("zero attempts cannot establish a connection");
+
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    }
+}
