@@ -169,35 +169,65 @@ class AuthorityAcceptanceTests(unittest.TestCase):
 
 
 class SourceDriftTests(unittest.TestCase):
-    """The pinned sources must still be the sources on disk."""
+    """The historical verifier still detects drift without freezing today's tree.
+
+    The v1 authority remains evidence for the historical launcher generation.  It
+    no longer owns the current workspace (TP7/TP8), so these tests exercise the
+    verifier against a private fixture instead of asserting that current product
+    sources still have their historical bytes.
+    """
 
     def setUp(self) -> None:
-        self.authority = _load(launcher.AUTHORITY_PATH)
+        self.root = tempfile.TemporaryDirectory(prefix="boole-launcher-v1-drift-")
+        self.repo_root = pathlib.Path(self.root.name)
+        source = self.repo_root / "crates/fixture.rs"
+        source.parent.mkdir(parents=True)
+        source.write_bytes(b"historical launcher fixture\n")
+        self.authority = {
+            "sourceFiles": [
+                {
+                    "path": "crates/fixture.rs",
+                    "sha256": launcher.sha256_bytes(source.read_bytes()),
+                    "sizeBytes": source.stat().st_size,
+                }
+            ]
+        }
 
-    def test_the_working_tree_matches_every_pinned_source(self) -> None:
-        self.assertEqual(launcher.verify_sources(self.authority), [])
+    def tearDown(self) -> None:
+        self.root.cleanup()
+
+    def test_matching_historical_materialization_has_no_drift(self) -> None:
+        self.assertEqual(
+            launcher.verify_sources(self.authority, repo_root=self.repo_root), []
+        )
 
     def test_a_tampered_source_is_reported_as_drift(self) -> None:
         authority = copy.deepcopy(self.authority)
         authority["sourceFiles"][0]["sha256"] = "0" * 64
         self.assertEqual(
-            launcher.verify_sources(authority), [authority["sourceFiles"][0]["path"]]
+            launcher.verify_sources(authority, repo_root=self.repo_root),
+            [authority["sourceFiles"][0]["path"]],
         )
 
     def test_a_resized_source_is_reported_as_drift(self) -> None:
         authority = copy.deepcopy(self.authority)
         authority["sourceFiles"][0]["sizeBytes"] += 1
         self.assertEqual(
-            launcher.verify_sources(authority), [authority["sourceFiles"][0]["path"]]
+            launcher.verify_sources(authority, repo_root=self.repo_root),
+            [authority["sourceFiles"][0]["path"]],
         )
 
     def test_a_vanished_source_is_reported_as_drift(self) -> None:
         authority = copy.deepcopy(self.authority)
         authority["sourceFiles"][0]["path"] = "crates/does-not-exist.rs"
-        self.assertEqual(launcher.verify_sources(authority), ["crates/does-not-exist.rs"])
+        self.assertEqual(
+            launcher.verify_sources(authority, repo_root=self.repo_root),
+            ["crates/does-not-exist.rs"],
+        )
 
     def test_the_launcher_binary_entrypoint_is_pinned(self) -> None:
-        pinned = {row["path"] for row in self.authority["sourceFiles"]}
+        authority = _load(launcher.AUTHORITY_PATH)
+        pinned = {row["path"] for row in authority["sourceFiles"]}
         self.assertIn(
             "crates/boole-native-shadow-launcher/src/bin/boole-native-shadow-launcher.rs",
             pinned,
@@ -208,7 +238,7 @@ class SourceDriftTests(unittest.TestCase):
     def test_ignored_local_debris_is_never_pinned(self) -> None:
         # `.DS_Store` sits untracked inside the launcher crate; a directory walk
         # would have swept it in and made the pin host-dependent.
-        for row in self.authority["sourceFiles"]:
+        for row in _load(launcher.AUTHORITY_PATH)["sourceFiles"]:
             self.assertNotIn(".DS_Store", row["path"])
 
 

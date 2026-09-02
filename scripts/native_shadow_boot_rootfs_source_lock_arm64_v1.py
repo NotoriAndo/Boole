@@ -230,8 +230,18 @@ def build_source_lock(plan: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # verification
 # ---------------------------------------------------------------------------
-def verify_source_lock(plan: dict[str, Any], source_lock: dict[str, Any]) -> dict[str, Any]:
-    """Refuse a successor lock that fails any frozen acceptance ground."""
+def verify_source_lock(
+    plan: dict[str, Any],
+    source_lock: dict[str, Any],
+    *,
+    verify_current_source_bytes: bool = True,
+) -> dict[str, Any]:
+    """Refuse a successor lock that fails any frozen acceptance ground.
+
+    The strict default is retained for the historical producer.  Current-tree
+    tests can validate the sealed plan/lock relationship without pretending
+    that today's evolving source files are still that historical workspace.
+    """
 
     _verify_identity(source_lock)
     _verify_build_recipe(plan, source_lock)
@@ -239,9 +249,16 @@ def verify_source_lock(plan: dict[str, Any], source_lock: dict[str, Any]) -> dic
     _verify_ordering(source_lock)
     _verify_package_closure(source_lock)
     _verify_seeds(source_lock)
-    _verify_tracked_files(plan, source_lock)
+    _verify_tracked_files(
+        plan,
+        source_lock,
+        verify_current_source_bytes=verify_current_source_bytes,
+    )
     _verify_derived_entries(plan, source_lock)
-    _verify_authority_bindings(source_lock)
+    _verify_authority_bindings(
+        source_lock,
+        verify_current_source_bytes=verify_current_source_bytes,
+    )
     return _audit(source_lock)
 
 
@@ -398,7 +415,12 @@ def _verify_seeds(source_lock: dict[str, Any]) -> None:
     )
 
 
-def _verify_tracked_files(plan: dict[str, Any], source_lock: dict[str, Any]) -> None:
+def _verify_tracked_files(
+    plan: dict[str, Any],
+    source_lock: dict[str, Any],
+    *,
+    verify_current_source_bytes: bool = True,
+) -> None:
     rows = source_lock.get("trackedFiles")
     _require(isinstance(rows, list), "source lock trackedFiles are absent")
     required = {row["logicalPath"]: row for row in plan["trackedFiles"]}
@@ -429,15 +451,16 @@ def _verify_tracked_files(plan: dict[str, Any], source_lock: dict[str, Any]) -> 
                 row[field] == want[field],
                 f"tracked file {field} differs: {role}",
             )
-        source = REPO_ROOT / row["sourcePath"]
-        _require(
-            source.is_file(),
-            f"tracked file source bytes are absent: {role}",
-        )
-        _require(
-            sha256_file(source) == row["sha256"],
-            f"tracked file source bytes differ from the pinned digest: {role}",
-        )
+        if verify_current_source_bytes:
+            source = REPO_ROOT / row["sourcePath"]
+            _require(
+                source.is_file(),
+                f"tracked file source bytes are absent: {role}",
+            )
+            _require(
+                sha256_file(source) == row["sha256"],
+                f"tracked file source bytes differ from the pinned digest: {role}",
+            )
 
 
 def _verify_derived_entries(plan: dict[str, Any], source_lock: dict[str, Any]) -> None:
@@ -466,21 +489,26 @@ def _verify_derived_entries(plan: dict[str, Any], source_lock: dict[str, Any]) -
         )
 
 
-def _verify_authority_bindings(source_lock: dict[str, Any]) -> None:
+def _verify_authority_bindings(
+    source_lock: dict[str, Any],
+    *,
+    verify_current_source_bytes: bool = True,
+) -> None:
     rows = source_lock.get("authorityBindings")
     _require(isinstance(rows, list), "source lock authority bindings are absent")
     ids = [row["id"] for row in rows]
     _require(ids == sorted(set(ids)), "source lock authority binding IDs are not sorted and unique")
     for row in rows:
-        source = REPO_ROOT / row["sourcePath"]
-        _require(
-            source.is_file(),
-            f"source lock authority binding source is absent: {row['id']}",
-        )
-        _require(
-            sha256_file(source) == row["sha256"],
-            f"source lock authority binding digest differs from the file on disk: {row['id']}",
-        )
+        if verify_current_source_bytes:
+            source = REPO_ROOT / row["sourcePath"]
+            _require(
+                source.is_file(),
+                f"source lock authority binding source is absent: {row['id']}",
+            )
+            _require(
+                sha256_file(source) == row["sha256"],
+                f"source lock authority binding digest differs from the file on disk: {row['id']}",
+            )
     bound = {(row["sourcePath"], row["sha256"]) for row in rows}
     for row in source_lock["trackedFiles"]:
         _require(

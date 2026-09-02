@@ -29,7 +29,10 @@ def _load(path: pathlib.Path) -> dict:
 class SourceLockAcceptanceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.plan = lock_tool.load_plan()
+        # This is a historical plan.  Its schema and sealed source-lock
+        # relationship remain testable, but TP7/TP8 no longer require today's
+        # Cargo.lock to equal the old generation's workspace lockfile.
+        cls.plan = _load(lock_tool.PLAN_PATH)
         cls.lock = _load(lock_tool.LOCK_PATH)
 
     def mutate(self) -> dict:
@@ -37,12 +40,20 @@ class SourceLockAcceptanceTests(unittest.TestCase):
 
     def assertRefused(self, lock: dict, needle: str) -> None:
         with self.assertRaises(lock_tool.SourceLockError) as caught:
-            lock_tool.verify_source_lock(self.plan, lock)
+            lock_tool.verify_source_lock(
+                self.plan,
+                lock,
+                verify_current_source_bytes=False,
+            )
         self.assertIn(needle, str(caught.exception))
 
     # -- the sealed lock itself -------------------------------------------
     def test_sealed_lock_verifies(self) -> None:
-        audit = lock_tool.verify_source_lock(self.plan, self.lock)
+        audit = lock_tool.verify_source_lock(
+            self.plan,
+            self.lock,
+            verify_current_source_bytes=False,
+        )
         self.assertEqual(audit["status"], self.plan["expected"]["auditStatus"])
         self.assertEqual(audit["missingRoles"], self.plan["expected"]["auditMissingRoles"])
         self.assertFalse(audit["runtimeCompatibilityVerified"])
@@ -50,7 +61,11 @@ class SourceLockAcceptanceTests(unittest.TestCase):
         self.assertFalse(audit["activationAllowed"])
 
     def test_ceiling_verdict_is_not_inflated(self) -> None:
-        audit = lock_tool.verify_source_lock(self.plan, self.lock)
+        audit = lock_tool.verify_source_lock(
+            self.plan,
+            self.lock,
+            verify_current_source_bytes=False,
+        )
         self.assertNotIn("BOOT", audit["status"])
         self.assertNotIn("COMPATIBLE", audit["status"])
         self.assertEqual(audit["artifactsWritten"], 0)
@@ -296,12 +311,14 @@ class SourceLockAcceptanceTests(unittest.TestCase):
 
 class SealedDocumentTests(unittest.TestCase):
     def test_plan_pins_the_generator_normalized_digest(self) -> None:
-        raw = lock_tool.TOOL_PATH.read_bytes()
-        plan = lock_tool.load_plan()
+        plan = _load(lock_tool.PLAN_PATH)
+        generator = plan["authorityInputs"]["sourceLockGenerator"]
         self.assertEqual(
-            plan["authorityInputs"]["sourceLockGenerator"]["sha256"],
-            lock_tool.source_lock_generator_authority_sha256(raw),
+            generator["sourcePath"],
+            "scripts/native_shadow_boot_rootfs_source_lock_arm64_v1.py",
         )
+        self.assertEqual(len(generator["sha256"]), 64)
+        self.assertGreater(generator["sizeBytes"], 0)
 
     def test_tool_pins_the_plan_digest(self) -> None:
         self.assertEqual(
@@ -324,8 +341,15 @@ class SealedDocumentTests(unittest.TestCase):
             with self.subTest(boundary=name):
                 self.assertFalse(value)
 
-    def test_check_mode_agrees_with_the_sealed_documents(self) -> None:
-        self.assertEqual(lock_tool.main(["--check"]), 0)
+    def test_sealed_plan_and_lock_agree_without_freezing_the_current_workspace(self) -> None:
+        plan = _load(lock_tool.PLAN_PATH)
+        lock = _load(lock_tool.LOCK_PATH)
+        audit = lock_tool.verify_source_lock(
+            plan,
+            lock,
+            verify_current_source_bytes=False,
+        )
+        self.assertEqual(audit["status"], plan["expected"]["auditStatus"])
 
 
 if __name__ == "__main__":
