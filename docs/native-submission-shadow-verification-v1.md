@@ -7,11 +7,10 @@
 > activation boundaries in this specification remain unchanged, and no A7,
 > production, boot, mining or reward authority is created here.
 
-> **CURRENT-CURSOR-2026-09-02:** `MAC.4 INSTALLED MAC REPLAY ENTRYPOINT GREEN / BOOTABLE CURL TRANSPORT + CLOSED-LOCAL E2E NEXT`.
-> Next is carrying the signed bootable bundle through curl transport and the
-> atomic installer, then running this node-owned route closed-locally. This
-> cursor is status, not production, testnet, mining, reward, consensus, P2P or
-> activation permission.
+> **CURRENT-CURSOR-2026-09-02:** `BOOTABLE CURL TRANSPORT GREEN / INSTALLED CLOSED-LOCAL E2E NEXT`.
+> Next is running the installed, signed bootable bundle through the node-owned
+> Mac loopback route. This cursor is status, not production, testnet, mining,
+> reward, consensus, P2P or activation permission.
 
 Status: **CLOSED-LOCAL QUALIFICATION GREEN — tracked checker, named-Linux containment, loopback
 node raw-answer HTTP adjudication and durable replay landed; production activation, P2P, block,
@@ -2853,3 +2852,11 @@ qualifies the persistent guest launcher and opens only the existing fixed
 loopback submission route. All verdict, replay and terminal evidence decisions
 remain host-owned, while the signed grant continues to forbid issuance,
 mining, reward, consensus, P2P and activation effects.
+
+### Bootable curl transport addendum (2026-09-02)
+
+The curl transport now authenticates the product and embedded guest signature
+domains separately, downloads only their signed exact files and hands all
+eighteen retained staging inputs to the atomic bootable installer. The CLI
+requires both public trust roots explicitly. A forged guest envelope stops
+before guest artifact requests and leaves the install root unchanged.

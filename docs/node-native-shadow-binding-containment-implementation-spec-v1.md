@@ -8,10 +8,10 @@
 > PR for every reversible retry. This note grants no A7, production, boot,
 > MAC.4 or activation effect.
 
-> **CURRENT-CURSOR-2026-09-02:** `MAC.4 INSTALLED MAC REPLAY ENTRYPOINT GREEN / BOOTABLE CURL TRANSPORT + CLOSED-LOCAL E2E NEXT`.
-> Next is carrying the signed bootable bundle through curl transport and the
-> atomic installer, then running this node-owned route closed-locally. Existing
-> runtime exactly-once and containment contracts remain the acceptance boundary.
+> **CURRENT-CURSOR-2026-09-02:** `BOOTABLE CURL TRANSPORT GREEN / INSTALLED CLOSED-LOCAL E2E NEXT`.
+> Next is running the installed, signed bootable bundle through the node-owned
+> Mac loopback route. Existing runtime exactly-once and containment contracts
+> remain the acceptance boundary.
 
 Status: **CLOSED-LOCAL IMPLEMENTATION GREEN.** Registry/state durability, named-Linux containment,
 actual checker execution and the feature-gated loopback HTTP route are on `main`. Production
@@ -4859,3 +4859,16 @@ durable state and qualifies one persistent controller before the fixed
 journal, replay, terminal evidence or verdict. The entrypoint rejects all
 issuance, mining, reward, consensus, P2P and activation authority and requires
 caller-provisioned 0700 runtime and journal parents.
+
+## Bootable curl transport and CLI (2026-09-02)
+
+Product-v2 and guest-v2 transport verification are sequential trust barriers.
+The product envelope passes before its six artifacts are requested; those
+artifacts pass before the embedded guest envelope is authenticated; only then
+are the twelve guest artifacts requested below the fixed `guest/` prefix.
+Neither URL, HTTP status nor server filename is authority. The bootable
+installer repeats both signature and byte checks before one atomic adoption.
+
+`product install-bootable` takes separate product and guest public roots and
+anti-rollback floors. Failure removes transient staging and cannot create an
+active release. This path contains no built-in production key or activation.

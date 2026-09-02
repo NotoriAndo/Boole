@@ -9,11 +9,11 @@
 > activation authority; code that still enforces the historical chain must be
 > changed by normal TDD before it is used.
 
-> **CURRENT-CURSOR-2026-09-02:** `MAC.4 INSTALLED MAC REPLAY ENTRYPOINT GREEN / BOOTABLE CURL TRANSPORT + CLOSED-LOCAL E2E NEXT`.
-> The next coherent milestone is downloading the already-defined signed
-> bootable bundle into the atomic installer, then exercising this loopback-only
-> route end to end. No production, testnet, mining, reward, consensus, P2P or
-> activation run is authorized by this cursor.
+> **CURRENT-CURSOR-2026-09-02:** `BOOTABLE CURL TRANSPORT GREEN / INSTALLED CLOSED-LOCAL E2E NEXT`.
+> The next coherent milestone is exercising the installed, signed bootable
+> bundle through the Mac loopback adjudication route end to end. No production,
+> testnet, mining, reward, consensus, P2P or activation run is authorized by
+> this cursor.
 
 Status: **MAC.0 COMPLETE (closed-local Linux baseline, 2026-08-24, section 9);
 MAC.1-PARTIAL — CURL-FIRST MODE FROZEN; UPDATE TRUST POLICY AND MEASUREMENT PROTOCOL OPEN
@@ -6858,5 +6858,29 @@ testnet activation and not yet an end-to-end installed-bundle run.
 MAC.4 INSTALLED MAC REPLAY ENTRYPOINT GREEN
 VERIFIED CONTROLLER + KERNEL + ROOT DISK / NODE-OWNED JOURNAL + VERDICT
 NEXT: BOOTABLE CURL TRANSPORT + CLOSED-LOCAL E2E
+PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
+```
+
+## 97. Curl transport installs both signed boot domains (2026-09-02)
+
+The curl-first successor authenticates product-v2 before requesting its six
+files, verifies all six, then authenticates the embedded guest-v2 before
+requesting its twelve files from the fixed `guest/` transport prefix. Only the
+signed filenames and byte lengths determine requests and stream caps. A forged
+guest signature therefore stops before any large guest artifact download.
+
+After both layers pass, the existing bootable installer re-verifies all
+eighteen staged handles and adopts them as one atomic active version. Staging
+is outside the install root and is removed on success or failure. The CLI
+exposes this as `boole product install-bootable` with separate explicit product
+and guest public trust roots and separate first-install replay floors.
+
+This closes the installation path but does not create a production signing
+key, publish a release or activate any network behavior. The next gate is a
+closed-local installed-bundle E2E using non-production test roots.
+
+```text
+BOOTABLE CURL TRANSPORT GREEN / TWO AUTHENTICATED DOMAINS / ATOMIC 18-FILE INSTALL
+NEXT: INSTALLED CLOSED-LOCAL MAC E2E
 PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
 ```

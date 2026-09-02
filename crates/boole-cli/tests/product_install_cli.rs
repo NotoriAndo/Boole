@@ -376,3 +376,46 @@ fn product_install_reports_a_rejected_release_and_exits_nonzero() {
     assert!(!root.join(CURL_PRODUCT_INSTALL_STATE_FILE).exists());
     assert!(!staging.exists());
 }
+
+#[test]
+fn product_install_bootable_exposes_both_explicit_trust_roots() {
+    let dir = FixtureDir::new("bootable-cli-contract");
+    let root = dir.path("root");
+    let staging = dir.path("download-staging");
+    let output = Command::new(env!("CARGO_BIN_EXE_boole-cli"))
+        .args([
+            "product",
+            "install-bootable",
+            "--base-url",
+            "file:///untrusted",
+            "--install-root",
+            &root.display().to_string(),
+            "--download-staging",
+            &staging.display().to_string(),
+            "--product-trust-root-key-id",
+            KAT_KEY_ID,
+            "--product-trust-root-public-key",
+            &"11".repeat(32),
+            "--guest-trust-root-key-id",
+            "guest-kat",
+            "--guest-trust-root-public-key",
+            &"22".repeat(32),
+            "--first-product-minimum",
+            "1",
+            "--first-guest-minimum",
+            "1",
+        ])
+        .output()
+        .expect("spawn boole-cli");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success(), "stderr: {stderr}");
+    assert!(
+        stderr.contains("\"command\":\"product.install-bootable\""),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("\"reason\":\"url-rejected\""),
+        "stderr: {stderr}"
+    );
+}
