@@ -789,10 +789,26 @@ enum ProductCommand {
         guest_trust_root_key_id: String,
         #[arg(long = "guest-trust-root-public-key")]
         guest_trust_root_public_key: String,
+        /// First-release product floor. Mutually exclusive with the two
+        /// installed product floor arguments.
         #[arg(long = "first-product-minimum")]
-        first_product_minimum: u64,
+        first_product_minimum: Option<u64>,
+        /// Highest product release already accepted by the publisher.
+        #[arg(long = "product-floor-sequence")]
+        product_floor_sequence: Option<u64>,
+        /// Manifest SHA-256 of that highest accepted product release.
+        #[arg(long = "product-floor-manifest-sha256")]
+        product_floor_manifest_sha256: Option<String>,
+        /// First-release guest floor. Mutually exclusive with the two
+        /// installed guest floor arguments.
         #[arg(long = "first-guest-minimum")]
-        first_guest_minimum: u64,
+        first_guest_minimum: Option<u64>,
+        /// Highest guest release already accepted by the publisher.
+        #[arg(long = "guest-floor-sequence")]
+        guest_floor_sequence: Option<u64>,
+        /// Manifest SHA-256 of that highest accepted guest release.
+        #[arg(long = "guest-floor-manifest-sha256")]
+        guest_floor_manifest_sha256: Option<String>,
     },
     /// Download and install a verified release bundle from a base URL.
     /// Downloaded bytes live only in the transient download staging
@@ -1148,7 +1164,11 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 guest_trust_root_key_id,
                 guest_trust_root_public_key,
                 first_product_minimum,
+                product_floor_sequence,
+                product_floor_manifest_sha256,
                 first_guest_minimum,
+                guest_floor_sequence,
+                guest_floor_manifest_sha256,
             } => product_package_direct_boot(
                 &source_root,
                 &output_root,
@@ -1157,7 +1177,11 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 &guest_trust_root_key_id,
                 &guest_trust_root_public_key,
                 first_product_minimum,
+                product_floor_sequence,
+                product_floor_manifest_sha256.as_deref(),
                 first_guest_minimum,
+                guest_floor_sequence,
+                guest_floor_manifest_sha256.as_deref(),
             ),
             ProductCommand::Install {
                 base_url,
@@ -2479,8 +2503,12 @@ fn product_package_direct_boot(
     product_trust_root_public_key: &str,
     guest_trust_root_key_id: &str,
     guest_trust_root_public_key: &str,
-    first_product_minimum: u64,
-    first_guest_minimum: u64,
+    first_product_minimum: Option<u64>,
+    product_floor_sequence: Option<u64>,
+    product_floor_manifest_sha256: Option<&str>,
+    first_guest_minimum: Option<u64>,
+    guest_floor_sequence: Option<u64>,
+    guest_floor_manifest_sha256: Option<&str>,
 ) -> anyhow::Result<()> {
     let command = "product.package-direct-boot";
     let reject = |message: String| -> ! {
@@ -2496,10 +2524,40 @@ fn product_package_direct_boot(
         guest_trust_root_public_key,
     )
     .unwrap_or_else(|error| reject(error.to_string()));
-    let product_floor = boole_core::CurlProductReleaseFloor::first_install(first_product_minimum)
-        .unwrap_or_else(|error| reject(error.to_string()));
-    let guest_floor = boole_core::NativeShadowUpdateFloor::first_install(first_guest_minimum)
-        .unwrap_or_else(|error| reject(error.to_string()));
+    let product_floor = match (
+        first_product_minimum,
+        product_floor_sequence,
+        product_floor_manifest_sha256,
+    ) {
+        (Some(minimum), None, None) => {
+            boole_core::CurlProductReleaseFloor::first_install(minimum)
+        }
+        (None, Some(sequence), Some(manifest_sha256)) => {
+            boole_core::CurlProductReleaseFloor::installed(sequence, manifest_sha256)
+        }
+        _ => Err(boole_core::CurlProductReleaseVerifyError::VersionChain(
+            "choose exactly one product floor mode: first minimum or installed sequence plus manifest digest"
+                .to_string(),
+        )),
+    }
+    .unwrap_or_else(|error| reject(error.to_string()));
+    let guest_floor = match (
+        first_guest_minimum,
+        guest_floor_sequence,
+        guest_floor_manifest_sha256,
+    ) {
+        (Some(minimum), None, None) => {
+            boole_core::NativeShadowUpdateFloor::first_install(minimum)
+        }
+        (None, Some(sequence), Some(manifest_sha256)) => {
+            boole_core::NativeShadowUpdateFloor::installed(sequence, manifest_sha256)
+        }
+        _ => Err(boole_core::NativeShadowUpdateVerifyError::VersionChain(
+            "choose exactly one guest floor mode: first minimum or installed sequence plus manifest digest"
+                .to_string(),
+        )),
+    }
+    .unwrap_or_else(|error| reject(error.to_string()));
     let packaged = boole_cli::curl_product_package::package_direct_boot_curl_product_release(
         source_root,
         output_root,

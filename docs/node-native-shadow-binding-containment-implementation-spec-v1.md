@@ -5087,3 +5087,18 @@ that inode during copying. A real CLI test fixes both outcomes: an accepted
 tree has the exact signed bytes, and a tampered guest artifact leaves no
 output and does not mutate a prior package. This is release-input integrity,
 not operational signing, upload, production authority or network activation.
+
+## Authenticated successor release packaging (2026-09-03)
+
+Offline packaging now represents both version-chain states explicitly. Each
+of the product and guest domains accepts either a nonzero first-install
+minimum or a nonzero installed sequence paired with its exact active manifest
+digest. Supplying both forms, neither form, or half an installed pair is a
+typed rejection before staging exists.
+
+The real CLI successor test binds a signed sequence-two product and guest to
+their independent sequence-one manifest digests, then proves that a wrong
+product predecessor cannot produce an output. The release packager therefore
+covers already-signed first and successor releases while remaining unable to
+create signing keys, choose operational trust roots, upload artifacts or grant
+production authority.
