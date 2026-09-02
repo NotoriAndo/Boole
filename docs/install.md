@@ -1,13 +1,35 @@
 # Boole installer
 
-Status: **SOURCE-BOOTSTRAP — NOT THE CURL PRODUCT INSTALLER**.
+Status: **SOURCE BOOTSTRAP AVAILABLE / CURL PRODUCT PATH IMPLEMENTED — NO PUBLIC SIGNED RELEASE**.
 
 The command below is the current developer/source bootstrap. It clones or updates the repository
-and installs development toolchains. It **must not be presented as the finished Mac product installer**.
-The curl-first product successor will instead install immutable, prebuilt macOS arm64
-CLI/controller artifacts and a separately verified Linux/arm64 guest without requiring Git, Rust,
-Lean, Python, Homebrew or other build tools on the user's Mac. That successor is not implemented
-yet.
+and installs development toolchains. It is the only public one-line install command today and
+**must not be presented as the finished Mac product installer**.
+
+The curl-first product path is now implemented and closed-local tested. It verifies independent
+product and Linux-guest signatures, installs immutable prebuilt macOS arm64 host binaries plus the
+guest atomically, runs and checks the hidden guest, updates and rolls back without lowering either
+security floor, recovers from a corrupt active release, preserves the journal and wallet across a
+runtime reset, inspects installed bytes, and packages already-signed first or successor releases.
+Its main command surface is:
+
+```text
+boole product package-direct-boot
+boole product install-direct-boot
+boole product run-direct-boot
+boole product status-direct-boot
+boole product inspect-direct-boot
+boole product rollback-direct-boot
+boole product recover-direct-boot
+boole product reset-direct-boot
+```
+
+This is not yet a public product release. No operational private signing keys or public trust roots
+have been chosen, and no official signed bundle or production one-line entrypoint has been
+published. The implemented commands require explicit public trust-root inputs and already-signed
+release material; they do not infer trust from a download URL. Use `boole product --help` for their
+current development interface. Do not substitute the test keys used by closed-local tests for an
+operational release identity.
 
 Boole currently provides a one-line source bootstrapper for developers and local evaluators who
 do not want to clone the repository or prepare every toolchain manually.

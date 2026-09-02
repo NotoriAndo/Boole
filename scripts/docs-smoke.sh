@@ -1734,9 +1734,11 @@ require_text docs/native-submission-shadow-verification-v1.md "that pattern fire
 
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED"
 require_text docs/native-submission-shadow-verification-v1.md "DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED"
-require_text docs/install.md "SOURCE-BOOTSTRAP — NOT THE CURL PRODUCT INSTALLER"
+require_text docs/install.md "CURL PRODUCT PATH IMPLEMENTED — NO PUBLIC SIGNED RELEASE"
 require_text docs/install.md "must not be presented as the finished Mac product installer"
-require_text README.md "current command is a source/developer bootstrap"
+require_text docs/install.md "boole product package-direct-boot"
+forbid_text docs/install.md "That successor is not implemented yet."
+require_text README.md "only public one-line install command today"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md '"rootfsContentEntryCount": 4216'
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md '| accepted | 0.39 | 139,296 |'
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md '| accepted replay | 0.39 | 139,168 |'
