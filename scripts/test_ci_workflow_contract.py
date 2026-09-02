@@ -1325,6 +1325,12 @@ class NativeShadowArm64LauncherBuildWorkflowContractTest(unittest.TestCase):
             job,
             "the workspace channel, not the guest checker nightly",
         )
+        self.assertIn(
+            "ref: c740be697b2a2e9437b3304f6c852bcc6afd5171",
+            job,
+            "a historical reproducibility job must rebuild the historical source, "
+            "not require today's unrelated source files to stay frozen forever",
+        )
 
     def test_launcher_build_executes_the_frozen_double_build(self):
         job = self._job("native-shadow-launcher-build-arm64")
@@ -1355,6 +1361,11 @@ class NativeShadowArm64LauncherBuildWorkflowContractTest(unittest.TestCase):
             job,
         )
         self.assertIn("toolchain: 1.95.0", job)
+        self.assertIn(
+            "ref: 94b2a15500bf1e8f8f2c2797e9e37381ea8ce1a3",
+            job,
+            "launcher v2 must be re-proved from the commit that sealed it",
+        )
 
     def test_successor_launcher_build_executes_the_frozen_double_build(self):
         job = self._job("native-shadow-launcher-build-arm64-v2")

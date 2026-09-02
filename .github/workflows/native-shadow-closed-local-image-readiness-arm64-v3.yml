@@ -35,6 +35,15 @@ jobs:
           fetch-tags: false
           persist-credentials: false
 
+      - name: Checkout the sealed launcher v2 source generation
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: 94b2a15500bf1e8f8f2c2797e9e37381ea8ce1a3
+          path: _historical-launcher-v2
+          fetch-depth: 1
+          fetch-tags: false
+          persist-credentials: false
+
       - name: Verify the reversible lane and historical production separation
         shell: bash
         run: |
@@ -81,7 +90,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/launcher-v2"
           launcher="$RUNNER_TEMP/launcher-v2/boole-native-shadow-launcher"
           seal=native/containment/native-shadow-launcher-build-result-arm64-v2.json
-          python3 -I -S scripts/native_shadow_launcher_emit_arm64_v2.py emit --out "$launcher"
+          python3 -I -S "$GITHUB_WORKSPACE/_historical-launcher-v2/scripts/native_shadow_launcher_emit_arm64_v2.py" emit --out "$launcher"
           expected_sha="$(python3 -I -S -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["launcher"]["sha256"])' "$seal")"
           expected_size="$(python3 -I -S -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["launcher"]["sizeBytes"])' "$seal")"
           test "$(sha256sum "$launcher" | awk '{print $1}')" = "$expected_sha"
@@ -123,6 +132,7 @@ jobs:
           mac4_relay="$run_root/boole-native-shadow-mac4-relay"
           unit="boole-closed-local-image-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-r${REPLICA}.service"
           test ! -e "$run_root"
+          python3 -I -S -c 'import pathlib,shutil,sys; shutil.rmtree(pathlib.Path(sys.argv[1]))' "$GITHUB_WORKSPACE/_historical-launcher-v2"
           sudo install -d -o root -g root -m 0700 "$run_root" "$scratch"
           sudo cp -a -- "$GITHUB_WORKSPACE/." "$repo"
           sudo chown -R 0:0 -- "$repo"
