@@ -3252,4 +3252,11 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'REAL CLI UPDATE -
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'NEXT: CRASH WINDOWS AROUND VERSION ADOPTION + STATE REPLACEMENT'
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Real-process update/rollback/recovery command closure'
 
+# Real CLI failure injection and SIGKILL now cover both sides of the atomic
+# installed-release state replacement without granting a production failpoint.
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'INSTALLED UPDATE PRE-STATE FAILURE PRESERVES OLD STATE BYTE-FOR-BYTE'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'POST-STATE SIGKILL REOPENS COMMITTED RELEASE / VERIFIED ROLLBACK CLEANS RESIDUE'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'NEXT: SERIALIZE CONCURRENT PRODUCT MUTATIONS + ISOLATE DOWNLOAD STAGING'
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Installed update interruption convergence'
+
 printf 'docs-smoke: PASS\n' >&2

@@ -5016,3 +5016,20 @@ mocked state transition, but it is not yet a process-kill experiment at the
 version-directory or state-file rename boundaries. No guest starts and no
 production, testnet, mining, reward, consensus, P2P or activation authority is
 created.
+
+## Installed update interruption convergence (2026-09-03)
+
+The real CLI update E2E now observes the two durable adoption sides directly.
+A forced write failure after version-directory rename but before state rename
+leaves the prior state byte-identical, and the same signed update can replace
+that orphan safely. A later update is SIGKILLed after its sequence-three state
+is externally visible but while unreferenced-directory pruning is still in
+progress; reopening the state yields the complete sequence-three release and
+unchanged product/guest floors.
+
+Verified rollback now prunes against its complete retained set before state
+replacement. This ordering is safe because both the pre-rollback and
+post-rollback states retain the rollback target and previous active release.
+It converges any validly named post-commit residue without lowering either
+security floor. The next boundary is cross-process mutation serialization and
+per-attempt transport staging, not production or network activation.
