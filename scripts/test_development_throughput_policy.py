@@ -60,10 +60,13 @@ class DevelopmentThroughputPolicyContract(unittest.TestCase):
             with self.subTest(relative=relative):
                 normalized = " ".join(text.split())
                 self.assertIn("CURRENT-CURSOR-2026-09-02", normalized)
-                self.assertIn("SECOND MAC.4 OBSERVATION FAILED CLOSED", normalized)
-                self.assertIn("VSOCK LOADED", normalized)
-                self.assertIn("PRIVATE-TMP ROOT CAUSE REPRODUCED", normalized)
-                self.assertIn("ADDITIVE SUCCESSOR IMPLEMENTED", normalized)
+                self.assertIn(
+                    "MAC.4 AUTHENTICATED TRANSPORT + GUEST READINESS PASS",
+                    normalized,
+                )
+                self.assertIn(
+                    "NODE-OWNED EXECUTION ROUTE NOT YET CONNECTED", normalized
+                )
 
     def test_lessons_are_advisory_until_promoted(self) -> None:
         text = read(ROOT / "tasks/lessons.md")

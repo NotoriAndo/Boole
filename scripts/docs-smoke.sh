@@ -3167,4 +3167,23 @@ require_text "$MAC4_CHANNEL_RESULT_V2" '"mac4Complete": false'
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'SECOND MAC.4 OBSERVATION: MODULES LOADED / RELAY BLOCKED BY ABSENT /var/tmp'
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Second MAC.4 observation: PrivateTmp required an absent directory'
 
+# The corrected disposable lane completed one authenticated host/guest round
+# trip and observed exact guest readiness. Preserve the evidence while keeping
+# node-owned execution, testnet and activation outside the claim.
+MAC4_CHANNEL_RESULT_V3=native/containment/native-shadow-mac4-authenticated-channel-result-arm64-v3.json
+MAC4_CHANNEL_GATE_V3=scripts/test_native_shadow_mac4_authenticated_channel_result_v3.py
+require_file "$MAC4_CHANNEL_RESULT_V3"
+require_file "$MAC4_CHANNEL_GATE_V3"
+require_text scripts/self-test.sh "$MAC4_CHANNEL_GATE_V3"
+require_text "$MAC4_CHANNEL_RESULT_V3" '"status": "MAC4-AUTHENTICATED-TRANSPORT-AND-READINESS-PASS"'
+require_text "$MAC4_CHANNEL_RESULT_V3" '"runId": 33584005767'
+require_text "$MAC4_CHANNEL_RESULT_V3" '"comparisonStatus": "TWO-REPLICAS-BYTE-IDENTICAL"'
+require_text "$MAC4_CHANNEL_RESULT_V3" '"roundTrips": 1'
+require_text "$MAC4_CHANNEL_RESULT_V3" '"channelAuthenticated": true'
+require_text "$MAC4_CHANNEL_RESULT_V3" '"mac4Complete": false'
+require_text "$MAC4_CHANNEL_RESULT_V3" '"nodeExecutionConnected": false'
+require_text "$MAC4_CHANNEL_RESULT_V3" '"recommendation": "MAC4-NODE-ROUTE-BINDING"'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'MAC.4 AUTHENTICATED TRANSPORT + GUEST READINESS PASS'
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Third MAC.4 observation: authenticated transport and readiness passed'
+
 printf 'docs-smoke: PASS\n' >&2

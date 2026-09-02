@@ -9,12 +9,11 @@
 > activation authority; code that still enforces the historical chain must be
 > changed by normal TDD before it is used.
 
-> **CURRENT-CURSOR-2026-09-02:** `SECOND MAC.4 OBSERVATION FAILED CLOSED /
-> VSOCK LOADED / PRIVATE-TMP ROOT CAUSE REPRODUCED / ADDITIVE SUCCESSOR IMPLEMENTED`.
-> The next coherent development milestone is the successor's zero-image ARM64
-> preflight. A fresh image and Mac observation may follow only after that gate
-> is green. No v5 production, testnet, mining, reward, consensus, P2P or
-> activation run is authorized by this cursor.
+> **CURRENT-CURSOR-2026-09-02:** `MAC.4 AUTHENTICATED TRANSPORT + GUEST READINESS PASS / NODE-OWNED EXECUTION ROUTE NOT YET CONNECTED`.
+> The next coherent development milestone is to bind the existing node-owned
+> challenge, durable journal, replay and terminal-evidence path to the bounded
+> authenticated relay. No production, testnet, mining, reward, consensus, P2P
+> or activation run is authorized by this cursor.
 
 Status: **MAC.0 COMPLETE (closed-local Linux baseline, 2026-08-24, section 9);
 MAC.1-PARTIAL — CURL-FIRST MODE FROZEN; UPDATE TRUST POLICY AND MEASUREMENT PROTOCOL OPEN
@@ -6645,4 +6644,38 @@ READ-ONLY DIFFERENTIAL: ABSENT = 226/NAMESPACE / PRESENT = RELAY READY
 ADDITIVE V2 IMAGE LANE IMPLEMENTED / V1 BYTE-PRESERVED
 NEXT: ZERO-IMAGE ARM64 V2 PREFLIGHT
 MAC.4 ROUND TRIPS 0 / PRODUCTION / TESTNET / MINING / REWARD / ACTIVATION CLOSED
+```
+
+## 89. Authenticated transport and guest readiness passed; node execution remains open (2026-09-02)
+
+Free ARM64 preflight run
+[`33583707702`](https://github.com/NotoriAndo/Boole/actions/runs/33583707702)
+returned `READY-NO-IMAGE-CREATED`, created no image and started no machine. The
+separately approved disposable build run
+[`33584005767`](https://github.com/NotoriAndo/Boole/actions/runs/33584005767)
+then produced two replicas whose kernel, initrd and root disk were byte
+identical. Across both replicas the three raw outputs totalled 7,747,741,352
+bytes.
+
+A host preflight started no machine. Exactly one Apple
+Virtualization.framework VM then started and stopped with no network or shared
+directory, one read-only root disk and one vsock device. The relay completed
+one authenticated round trip. The same boot reported the exact launcher
+identity, all fixed launcher prerequisites, the complete root-supervisor
+privilege shape and readiness with no failed unit. All three image identities
+remained unchanged and no related host process remained after shutdown.
+
+The append-only evidence is
+`native-shadow-mac4-authenticated-channel-result-arm64-v3.json`. This closes
+the authenticated transport substrate, not the full node execution path. The
+node has not yet sent its own registered challenge through this relay, nor
+committed the resulting verdict through its durable journal, replay and
+terminal-evidence state machine. Therefore `mac4Complete=false` and
+`nodeExecutionConnected=false` remain exact.
+
+```text
+MAC.4 AUTHENTICATED TRANSPORT + GUEST READINESS PASS
+ONE DISPOSABLE BUILD DISPATCH / TWO BYTE-IDENTICAL REPLICAS / ONE CLOSED MAC VM
+NEXT: NODE-OWNED CHALLENGE + JOURNAL + REPLAY + EVIDENCE ROUTE BINDING
+PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
 ```

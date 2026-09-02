@@ -1,0 +1,231 @@
+{
+  "appendOnly": true,
+  "artifactClass": "DISPOSABLE-DEVELOPMENT",
+  "boundaries": {
+    "activationAllowed": false,
+    "authenticatedTransportObserved": true,
+    "consensusTouched": false,
+    "guestReadinessObserved": true,
+    "mac4Complete": false,
+    "miningActivated": false,
+    "nodeExecutionConnected": false,
+    "p2pTouched": false,
+    "productionRelease": false,
+    "publicMining": false,
+    "rewardReady": false,
+    "testnetClaim": false
+  },
+  "contract": {
+    "path": "native/containment/native-shadow-mac4-authenticated-channel-contract-v1.json",
+    "sha256": "4f2ec110d72f628207ac383668daff7bda6b568449fd315d8376aeb20ae08bbd"
+  },
+  "implementation": [
+    {
+      "path": "scripts/native_shadow_closed_local_image_to_readiness_arm64_v3.py",
+      "sha256": "c9fa3833b0f7fc23b1a4a1cb58e7f7d8813556dda24d6c45f19b5fcfe14f2572",
+      "sizeBytes": 3378
+    },
+    {
+      "path": ".github/workflows/native-shadow-closed-local-image-readiness-arm64-v3.yml",
+      "sha256": "d12909009c0c899d7063da668ab99f7669189bff899af251172e63e39ad3383b",
+      "sizeBytes": 11647
+    },
+    {
+      "path": "scripts/native_shadow_mac4_authenticated_channel_arm64_v1.py",
+      "sha256": "14887d4b910833a313cb493bb5cf0b07e2e59b37d0dc7a0e9d14f7a687f7ec77",
+      "sizeBytes": 10267
+    },
+    {
+      "path": "native/mac4/boole-mac4-auth-channel.swift",
+      "sha256": "c8464f37403477a4f8afab356a0caa562a2acc78b8c57baa917318a71118ec",
+      "sizeBytes": 13604
+    }
+  ],
+  "imageBuild": {
+    "artifacts": [
+      {
+        "artifactId": 9829516074,
+        "compressedSizeBytes": 1376320852,
+        "digest": "sha256:631a0d0133ae1f475d3c5fea11f93e185f136b858de02acfcc5432571b6a85a3",
+        "expiresAt": "2026-09-09T02:44:08Z",
+        "name": "closed-local-image-readiness-v3-build-replica-1"
+      },
+      {
+        "artifactId": 9829630356,
+        "compressedSizeBytes": 1376320852,
+        "digest": "sha256:36feff09c5ae4f4e6908b2706854b554e9673b9a864c4e4e32238514bd5005c9",
+        "expiresAt": "2026-09-09T02:48:57Z",
+        "name": "closed-local-image-readiness-v3-build-replica-2"
+      },
+      {
+        "artifactId": 9829667894,
+        "compressedSizeBytes": 575,
+        "digest": "sha256:6b036a3dbc4cd0a04f43c9efeadbdd0e03ffaacb1714594f877991ec8c9196ff",
+        "expiresAt": "2026-09-09T02:51:16Z",
+        "name": "closed-local-image-readiness-v3-build-comparison"
+      }
+    ],
+    "comparisonReceipt": {
+      "sha256": "57d1df41ec94baf92ebfef860bdc5c693dbc35fbf3963c36c9291d96b828886a",
+      "sizeBytes": 749
+    },
+    "comparisonStatus": "TWO-REPLICAS-BYTE-IDENTICAL",
+    "headSha": "9c42ac4a7ebf5b0bc29ba715bdc16d106b8084d0",
+    "jobs": [
+      {
+        "conclusion": "success",
+        "jobId": 100104193663,
+        "name": "closed-local build replica 1"
+      },
+      {
+        "conclusion": "success",
+        "jobId": 100104193891,
+        "name": "closed-local build replica 2"
+      },
+      {
+        "conclusion": "success",
+        "jobId": 100106205617,
+        "name": "compare disposable image replicas"
+      }
+    ],
+    "manualReplicas": 0,
+    "outputs": [
+      {
+        "name": "guest-kernel",
+        "replicasByteIdentical": true,
+        "sha256": "d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336",
+        "sizeBytes": 57860488
+      },
+      {
+        "name": "guest-initrd",
+        "replicasByteIdentical": true,
+        "sha256": "e9e6f7a1ac668ab9272ab955efee777ce1ab56431b3e58bf1f69b460cca28a71",
+        "sizeBytes": 1778266572
+      },
+      {
+        "name": "guest-root-disk",
+        "replicasByteIdentical": true,
+        "sha256": "bc63b07a1a2dd17c49a6be0befa54b6aa48e8a2a635bffa434cb38c8f189d4f6",
+        "sizeBytes": 2037743616
+      }
+    ],
+    "rawOutputBytesAcrossTwoReplicas": 7747741352,
+    "replicas": 2,
+    "runAttempt": 1,
+    "runId": 33584005767,
+    "runUrl": "https://github.com/NotoriAndo/Boole/actions/runs/33584005767",
+    "workflowDispatches": 1,
+    "workflowReruns": 0
+  },
+  "macObservation": {
+    "aggregateResult": {
+      "sha256": "762a65aabdd797bc860060b4927780ac5a8a442e9cbcc5f32dfc49b9beda069c",
+      "sizeBytes": 3607
+    },
+    "bootAttempts": 1,
+    "bootTupleBindingHex": "d771107e36cfc46f60e0b64177cd2d357028858f1bab843af4fe3f11d2b7f41c",
+    "channelAuthenticated": true,
+    "console": {
+      "lines": 233,
+      "sha256": "d71f48105dab5c9a06a5f5505cd18c8d62eb81d4d7fb370e222e7d696c500b02",
+      "sizeBytes": 21654
+    },
+    "contractSha256": "4f2ec110d72f628207ac383668daff7bda6b568449fd315d8376aeb20ae08bbd",
+    "dryRun": {
+      "aggregate": {
+        "sha256": "00cfcdbf3b385d52ae752d27915118fee030f7cfca6681ceaa18cf741932a6c7",
+        "sizeBytes": 3572
+      },
+      "machinesStarted": 0,
+      "status": "MAC4-CHANNEL-PREFLIGHT-PASS"
+    },
+    "host": {
+      "chip": "Apple M4 Max",
+      "macOS": "26.5.2",
+      "model": "Mac Studio",
+      "modelIdentifier": "Mac16,9"
+    },
+    "hostReceipt": {
+      "nonceHex": "39af47b3df1b59cfa4abeeccef1d0bc30f24f34a1dab91010a641851105691f5",
+      "outcome": "authenticated-channel-pass",
+      "sha256": "18682b1358d9f89260ec9300b5bb2dd4a7dcf1cca038752491bd2766470862dd",
+      "sizeBytes": 1214
+    },
+    "imagesUnchanged": true,
+    "machineStopped": true,
+    "machinesStarted": 1,
+    "ranForSeconds": 11.123239994049072,
+    "readinessEvidence": {
+      "checks": {
+        "launcher-executable": {
+          "detail": "the guest observed the exact sealed launcher path and digest",
+          "met": true
+        },
+        "launcher-prerequisites": {
+          "detail": "the guest observed all exact launcher-v2 prerequisites as resolved",
+          "met": true
+        },
+        "readiness": {
+          "detail": "the launcher reached readiness and observed no failed systemd units",
+          "met": true
+        },
+        "supervisor-privilege": {
+          "detail": "the guest observed the complete fixed root-supervisor privilege shape",
+          "met": true
+        }
+      },
+      "conflicting": [],
+      "malformed": [],
+      "missing": [],
+      "unknownRecordIds": []
+    },
+    "remainingHostProcesses": 0,
+    "vmShape": {
+      "networkDevices": 0,
+      "rootDiskReadOnly": true,
+      "sharedDirectories": 0,
+      "socketDevices": 1,
+      "storageDevices": 1
+    },
+    "vsock": {
+      "port": 4050,
+      "roundTrips": 1
+    }
+  },
+  "nextStep": {
+    "activationAuthorized": false,
+    "recommendation": "MAC4-NODE-ROUTE-BINDING",
+    "recommendationDetail": "Connect the already implemented node-owned challenge, journal, replay and evidence route to this bounded authenticated relay without moving ownership into the guest. Keep guest unavailability retryable and preserve exactly-once terminal evidence.",
+    "testnetAuthorized": false
+  },
+  "predecessor": {
+    "path": "native/containment/native-shadow-mac4-authenticated-channel-result-arm64-v2.json",
+    "sha256": "b2f4efdc8f002b992104578847cdcb0d98fc0e53c55cfdf08b1588b301f266ce"
+  },
+  "preflight": {
+    "artifact": {
+      "artifactId": 9829362214,
+      "compressedSizeBytes": 1497,
+      "digest": "sha256:6827dac8d257bdfc9523a337e4bdb97217282d502005e316aa79018cdf12af82",
+      "expiresAt": "2026-09-09T02:37:55Z",
+      "name": "closed-local-image-readiness-v3-preflight-replica-1"
+    },
+    "effects": {
+      "imagesCreated": 0,
+      "machinesStarted": 0
+    },
+    "privateTmp": {
+      "mode": "1777",
+      "path": "/var/tmp"
+    },
+    "result": {
+      "sha256": "1d3889d0d6d8b1daaf2301bcf6e6886684be3be970fc406b4b69053329dae383",
+      "sizeBytes": 3384
+    },
+    "runId": 33583707702,
+    "runUrl": "https://github.com/NotoriAndo/Boole/actions/runs/33583707702",
+    "status": "READY-NO-IMAGE-CREATED"
+  },
+  "schema": "boole.native-shadow.mac4-authenticated-channel-observation.arm64.v3",
+  "status": "MAC4-AUTHENTICATED-TRANSPORT-AND-READINESS-PASS"
+}

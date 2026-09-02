@@ -7,11 +7,11 @@
 > activation boundaries in this specification remain unchanged, and no A7,
 > production, boot, mining or reward authority is created here.
 
-> **CURRENT-CURSOR-2026-09-02:** `SECOND MAC.4 OBSERVATION FAILED CLOSED /
-> VSOCK LOADED / PRIVATE-TMP ROOT CAUSE REPRODUCED / ADDITIVE SUCCESSOR IMPLEMENTED`.
-> Next is the successor's zero-image ARM64 preflight. This cursor is status,
-> not production, testnet, mining, reward, consensus, P2P or activation
-> permission.
+> **CURRENT-CURSOR-2026-09-02:** `MAC.4 AUTHENTICATED TRANSPORT + GUEST READINESS PASS / NODE-OWNED EXECUTION ROUTE NOT YET CONNECTED`.
+> Next is the node-side binding from the existing challenge, durable journal,
+> replay and terminal-evidence path to the bounded authenticated relay. This
+> cursor is status, not production, testnet, mining, reward, consensus, P2P or
+> activation permission.
 
 Status: **CLOSED-LOCAL QUALIFICATION GREEN — tracked checker, named-Linux containment, loopback
 node raw-answer HTTP adjudication and durable replay landed; production activation, P2P, block,
