@@ -881,6 +881,43 @@ enum ProductCommand {
         #[arg(long = "timeout-seconds", default_value_t = 2)]
         timeout_seconds: u64,
     },
+    /// Re-authenticate and select the retained direct-boot generation while
+    /// preserving the highest accepted product and guest update floors.
+    RollbackDirectBoot {
+        #[arg(long = "install-root")]
+        install_root: PathBuf,
+        #[arg(long = "product-trust-root-key-id")]
+        product_trust_root_key_id: String,
+        #[arg(long = "product-trust-root-public-key")]
+        product_trust_root_public_key: String,
+        #[arg(long = "guest-trust-root-key-id")]
+        guest_trust_root_key_id: String,
+        #[arg(long = "guest-trust-root-public-key")]
+        guest_trust_root_public_key: String,
+    },
+    /// Verify the active direct-boot generation and select the retained
+    /// generation only if the active product or guest bytes are corrupt.
+    RecoverDirectBoot {
+        #[arg(long = "install-root")]
+        install_root: PathBuf,
+        #[arg(long = "product-trust-root-key-id")]
+        product_trust_root_key_id: String,
+        #[arg(long = "product-trust-root-public-key")]
+        product_trust_root_public_key: String,
+        #[arg(long = "guest-trust-root-key-id")]
+        guest_trust_root_key_id: String,
+        #[arg(long = "guest-trust-root-public-key")]
+        guest_trust_root_public_key: String,
+    },
+    /// Remove disposable controller and materialized-host runtime state after
+    /// proving no controller owns the runtime lease. The exactly-once journal
+    /// and independently located wallet vaults are retained.
+    ResetDirectBoot {
+        /// Optional product state root. Defaults to
+        /// ~/Library/Application Support/Boole/native-shadow.
+        #[arg(long = "state-root")]
+        state_root: Option<PathBuf>,
+    },
 }
 
 fn main() {
@@ -1148,6 +1185,37 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             ),
             ProductCommand::StatusDirectBoot { timeout_seconds } => {
                 product_status_direct_boot(timeout_seconds)
+            }
+            ProductCommand::RollbackDirectBoot {
+                install_root,
+                product_trust_root_key_id,
+                product_trust_root_public_key,
+                guest_trust_root_key_id,
+                guest_trust_root_public_key,
+            } => product_change_direct_boot_release(
+                true,
+                &install_root,
+                &product_trust_root_key_id,
+                &product_trust_root_public_key,
+                &guest_trust_root_key_id,
+                &guest_trust_root_public_key,
+            ),
+            ProductCommand::RecoverDirectBoot {
+                install_root,
+                product_trust_root_key_id,
+                product_trust_root_public_key,
+                guest_trust_root_key_id,
+                guest_trust_root_public_key,
+            } => product_change_direct_boot_release(
+                false,
+                &install_root,
+                &product_trust_root_key_id,
+                &product_trust_root_public_key,
+                &guest_trust_root_key_id,
+                &guest_trust_root_public_key,
+            ),
+            ProductCommand::ResetDirectBoot { state_root } => {
+                product_reset_direct_boot(state_root.as_deref())
             }
         },
         Some(Command::Keys { command }) => match command {
@@ -2620,6 +2688,96 @@ fn product_status_direct_boot(timeout_seconds: u64) -> anyhow::Result<()> {
         product_lifecycle_emit_err(command, "service-unavailable", error.to_string())
     });
     println!("{}", boole_cli::cli_envelope::encode_ok(command, status));
+    Ok(())
+}
+
+fn product_change_direct_boot_release(
+    rollback: bool,
+    install_root: &Path,
+    product_trust_root_key_id: &str,
+    product_trust_root_public_key: &str,
+    guest_trust_root_key_id: &str,
+    guest_trust_root_public_key: &str,
+) -> anyhow::Result<()> {
+    let command = if rollback {
+        "product.rollback-direct-boot"
+    } else {
+        "product.recover-direct-boot"
+    };
+    let product_trust_root = boole_core::CurlProductReleaseTrustRoot::new(
+        product_trust_root_key_id,
+        product_trust_root_public_key,
+    )
+    .unwrap_or_else(|error| {
+        product_lifecycle_emit_err(command, "product-trust-root-rejected", error.to_string())
+    });
+    let guest_trust_root = boole_core::NativeShadowUpdateTrustRoot::new(
+        guest_trust_root_key_id,
+        guest_trust_root_public_key,
+    )
+    .unwrap_or_else(|error| {
+        product_lifecycle_emit_err(command, "guest-trust-root-rejected", error.to_string())
+    });
+    let state = if rollback {
+        boole_core::rollback_installed_direct_boot_curl_product_release(
+            install_root,
+            &product_trust_root,
+            &guest_trust_root,
+        )
+    } else {
+        boole_core::recover_corrupt_installed_direct_boot_curl_product_release(
+            install_root,
+            &product_trust_root,
+            &guest_trust_root,
+        )
+    }
+    .unwrap_or_else(|error| {
+        product_lifecycle_emit_err(command, "lifecycle-rejected", error.to_string())
+    });
+    println!(
+        "{}",
+        boole_cli::cli_envelope::encode_ok(
+            command,
+            serde_json::json!({
+                "activeReleaseSequence": state.release_sequence(),
+                "releaseFloorSequence": state.release_floor_sequence(),
+                "guestReleaseFloorSequence": state.guest_release_floor_sequence(),
+                "rollbackReleaseSequence": state.rollback_release_sequence(),
+            }),
+        )
+    );
+    Ok(())
+}
+
+fn product_reset_direct_boot(state_root: Option<&Path>) -> anyhow::Result<()> {
+    let command = "product.reset-direct-boot";
+    let default_state_root = state_root.is_none().then(|| {
+        boole_cli::installed_product_lifecycle::default_installed_mac_state_root().unwrap_or_else(
+            |error| product_lifecycle_emit_err(command, "lifecycle-rejected", error.to_string()),
+        )
+    });
+    let state_root = state_root.unwrap_or_else(|| {
+        default_state_root
+            .as_deref()
+            .expect("default state root exists without an override")
+    });
+    let reset =
+        boole_cli::installed_product_lifecycle::reset_installed_direct_boot_runtime(state_root)
+            .unwrap_or_else(|error| {
+                product_lifecycle_emit_err(command, "lifecycle-rejected", error.to_string())
+            });
+    println!(
+        "{}",
+        boole_cli::cli_envelope::encode_ok(
+            command,
+            serde_json::json!({
+                "controllerRemoved": reset.controller_removed(),
+                "hostRuntimeRemoved": reset.host_runtime_removed(),
+                "journalPreserved": reset.journal_preserved(),
+                "walletStateTouched": false,
+            }),
+        )
+    );
     Ok(())
 }
 

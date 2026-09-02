@@ -95,11 +95,13 @@ pub use curl_product_install::{
     open_verified_installed_bootable_curl_product_release,
     open_verified_installed_curl_product_release,
     open_verified_installed_direct_boot_curl_product_release, read_installed_curl_product_state,
-    CurlProductInstallError, CurlProductInstallState, InstalledBootableCurlProduct,
-    InstalledCurlProduct, VerifiedInstalledBootableCurlProductRelease,
-    CURL_PRODUCT_INSTALLED_GUEST_DIRECTORY, CURL_PRODUCT_INSTALLED_MANIFEST_FILE,
-    CURL_PRODUCT_INSTALLED_SIGNATURE_FILE, CURL_PRODUCT_INSTALL_STAGING_DIRECTORY,
-    CURL_PRODUCT_INSTALL_STATE_FILE, CURL_PRODUCT_INSTALL_STATE_SCHEMA,
+    recover_corrupt_installed_direct_boot_curl_product_release,
+    rollback_installed_direct_boot_curl_product_release, CurlProductInstallError,
+    CurlProductInstallState, InstalledBootableCurlProduct, InstalledCurlProduct,
+    VerifiedInstalledBootableCurlProductRelease, CURL_PRODUCT_INSTALLED_GUEST_DIRECTORY,
+    CURL_PRODUCT_INSTALLED_MANIFEST_FILE, CURL_PRODUCT_INSTALLED_SIGNATURE_FILE,
+    CURL_PRODUCT_INSTALL_STAGING_DIRECTORY, CURL_PRODUCT_INSTALL_STATE_FILE,
+    CURL_PRODUCT_INSTALL_STATE_SCHEMA, CURL_PRODUCT_INSTALL_STATE_SCHEMA_V2,
     CURL_PRODUCT_INSTALL_STATE_TEMP_FILE, CURL_PRODUCT_INSTALL_VERSIONS_DIRECTORY,
 };
 pub use curl_product_release::{

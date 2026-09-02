@@ -21,7 +21,7 @@
 //! - No transport: this module never downloads. Fetching the bundle is a
 //!   separate gate; URLs and GitHub Releases stay transport, not trust.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
 use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::PermissionsExt;
@@ -67,6 +67,7 @@ impl InstalledGuestContract {
 use crate::release_contract_util::{self, ContractJsonError};
 
 pub const CURL_PRODUCT_INSTALL_STATE_SCHEMA: &str = "boole.curl-product-install-state.v1";
+pub const CURL_PRODUCT_INSTALL_STATE_SCHEMA_V2: &str = "boole.curl-product-install-state.v2";
 pub const CURL_PRODUCT_INSTALL_STATE_FILE: &str = "installed-release.json";
 pub const CURL_PRODUCT_INSTALL_STATE_TEMP_FILE: &str = "installed-release.json.tmp";
 pub const CURL_PRODUCT_INSTALL_VERSIONS_DIRECTORY: &str = "versions";
@@ -98,6 +99,9 @@ pub struct CurlProductInstallState {
     release_version: String,
     manifest_sha256: String,
     version_directory: String,
+    release_floor: InstalledReleaseIdentity,
+    guest_release_floor: Option<InstalledGuestReleaseIdentity>,
+    rollback_release: Option<InstalledReleaseIdentity>,
 }
 
 impl CurlProductInstallState {
@@ -116,6 +120,59 @@ impl CurlProductInstallState {
     pub fn version_directory(&self) -> &str {
         &self.version_directory
     }
+
+    /// Highest authenticated release ever adopted. This never moves
+    /// backwards when the active release is rolled back.
+    pub fn release_floor_sequence(&self) -> u64 {
+        self.release_floor.release_sequence
+    }
+
+    pub fn release_floor_manifest_sha256(&self) -> &str {
+        &self.release_floor.manifest_sha256
+    }
+
+    pub fn rollback_release_sequence(&self) -> Option<u64> {
+        self.rollback_release
+            .as_ref()
+            .map(|release| release.release_sequence)
+    }
+
+    pub fn guest_release_floor_sequence(&self) -> Option<u64> {
+        self.guest_release_floor
+            .as_ref()
+            .map(|release| release.release_sequence)
+    }
+
+    pub fn guest_release_floor_manifest_sha256(&self) -> Option<&str> {
+        self.guest_release_floor
+            .as_ref()
+            .map(|release| release.manifest_sha256.as_str())
+    }
+
+    fn active_identity(&self) -> InstalledReleaseIdentity {
+        InstalledReleaseIdentity {
+            release_sequence: self.release_sequence,
+            release_version: self.release_version.clone(),
+            manifest_sha256: self.manifest_sha256.clone(),
+            version_directory: self.version_directory.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct InstalledReleaseIdentity {
+    release_sequence: u64,
+    release_version: String,
+    manifest_sha256: String,
+    version_directory: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct InstalledGuestReleaseIdentity {
+    release_sequence: u64,
+    manifest_sha256: String,
 }
 
 /// Success result of one install: the adopted release identity plus the
@@ -217,14 +274,21 @@ pub fn install_curl_product_release(
     first_install_minimum_sequence: u64,
     artifact_source_dir: &Path,
 ) -> Result<InstalledCurlProduct, CurlProductInstallError> {
-    let floor = match read_installed_curl_product_state(install_root)? {
+    let state = read_installed_curl_product_state(install_root)?;
+    let floor = match state.as_ref() {
         Some(state) => {
-            CurlProductReleaseFloor::installed(state.release_sequence, &state.manifest_sha256)
-                .map_err(|error| {
-                    CurlProductInstallError::State(format!(
-                        "{CURL_PRODUCT_INSTALL_STATE_FILE} is internally inconsistent: {error}"
-                    ))
-                })?
+            // Product-only updates may not replace a bootable/direct-boot
+            // installation through a weaker signing context.
+            open_verified_installed_curl_product_release(install_root, trust_root)?;
+            CurlProductReleaseFloor::installed(
+                state.release_floor.release_sequence,
+                &state.release_floor.manifest_sha256,
+            )
+            .map_err(|error| {
+                CurlProductInstallError::State(format!(
+                    "{CURL_PRODUCT_INSTALL_STATE_FILE} is internally inconsistent: {error}"
+                ))
+            })?
         }
         None => CurlProductReleaseFloor::first_install(first_install_minimum_sequence)?,
     };
@@ -330,21 +394,37 @@ fn install_bootable_curl_product_release_for_contract(
     contract: InstalledGuestContract,
 ) -> Result<InstalledBootableCurlProduct, CurlProductInstallError> {
     let state = read_installed_curl_product_state(install_root)?;
-    let (product_floor, guest_floor) = match state {
+    let (product_floor, guest_floor, rollback_target) = match state.as_ref() {
         Some(state) => {
-            let product_floor =
-                CurlProductReleaseFloor::installed(state.release_sequence, &state.manifest_sha256)
-                    .map_err(|error| {
-                        CurlProductInstallError::State(format!(
-                            "{CURL_PRODUCT_INSTALL_STATE_FILE} is internally inconsistent: {error}"
-                        ))
-                    })?;
-            let guest_floor =
-                match open_verified_installed_bootable_curl_product_release_for_contract(
+            let product_floor = CurlProductReleaseFloor::installed(
+                state.release_floor.release_sequence,
+                &state.release_floor.manifest_sha256,
+            )
+            .map_err(|error| {
+                CurlProductInstallError::State(format!(
+                    "{CURL_PRODUCT_INSTALL_STATE_FILE} is internally inconsistent: {error}"
+                ))
+            })?;
+            let verified_active =
+                open_verified_installed_bootable_curl_product_release_for_identity(
                     install_root,
                     product_trust_root,
                     guest_trust_root,
                     contract,
+                    &state.active_identity(),
+                );
+            let guest_floor = if let Some(guest_floor) = &state.guest_release_floor {
+                NativeShadowUpdateFloor::installed(
+                    guest_floor.release_sequence,
+                    &guest_floor.manifest_sha256,
+                )?
+            } else {
+                match open_verified_installed_bootable_curl_product_release_for_identity(
+                    install_root,
+                    product_trust_root,
+                    guest_trust_root,
+                    contract,
+                    &state.active_identity(),
                 ) {
                     Ok(active) => NativeShadowUpdateFloor::installed(
                         active.guest().release_sequence(),
@@ -360,12 +440,21 @@ fn install_bootable_curl_product_release_for_contract(
                         NativeShadowUpdateFloor::first_install(first_guest_sequence)?
                     }
                     Err(error) => return Err(error),
-                };
-            (product_floor, guest_floor)
+                }
+            };
+            let rollback_target = match verified_active {
+                Ok(_) => Some(state.active_identity()),
+                Err(CurlProductInstallError::Verify(
+                    CurlProductReleaseVerifyError::InvalidSignatureContext,
+                )) if state.guest_release_floor.is_none() => None,
+                Err(error) => return Err(error),
+            };
+            (product_floor, guest_floor, rollback_target)
         }
         None => (
             CurlProductReleaseFloor::first_install(first_product_sequence)?,
             NativeShadowUpdateFloor::first_install(first_guest_sequence)?,
+            None,
         ),
     };
 
@@ -387,7 +476,11 @@ fn install_bootable_curl_product_release_for_contract(
         &product,
         &guest,
         &guest_files,
-        contract.roles(),
+        BootableAdoptionPlan {
+            guest_roles: contract.roles(),
+            previous_state: state.as_ref(),
+            rollback_target,
+        },
     )
 }
 
@@ -649,6 +742,91 @@ pub fn open_verified_installed_direct_boot_curl_product_release(
     )
 }
 
+/// Switch the active direct-boot release to the one retained rollback
+/// generation while keeping the highest accepted release as the immutable
+/// update floor. Both the current and target generations are authenticated
+/// through the product and guest trust roots before the single durable state
+/// file is replaced.
+pub fn rollback_installed_direct_boot_curl_product_release(
+    install_root: &Path,
+    product_trust_root: &CurlProductReleaseTrustRoot,
+    guest_trust_root: &NativeShadowUpdateTrustRoot,
+) -> Result<CurlProductInstallState, CurlProductInstallError> {
+    let state = read_installed_curl_product_state(install_root)?.ok_or_else(|| {
+        CurlProductInstallError::State("installed release state is absent".to_string())
+    })?;
+    let target = state.rollback_release.clone().ok_or_else(|| {
+        CurlProductInstallError::State("no verified rollback generation is retained".to_string())
+    })?;
+
+    open_verified_installed_bootable_curl_product_release_for_identity(
+        install_root,
+        product_trust_root,
+        guest_trust_root,
+        InstalledGuestContract::DirectBootV3,
+        &state.active_identity(),
+    )?;
+    open_verified_installed_bootable_curl_product_release_for_identity(
+        install_root,
+        product_trust_root,
+        guest_trust_root,
+        InstalledGuestContract::DirectBootV3,
+        &target,
+    )?;
+
+    let previous_active = state.active_identity();
+    let rolled_back = state_from_identities(
+        target,
+        state.release_floor,
+        state.guest_release_floor,
+        Some(previous_active),
+    );
+    write_install_state(install_root, &rolled_back, true)?;
+    Ok(rolled_back)
+}
+
+/// Reopen the active direct-boot generation and, only when that verification
+/// fails, atomically select the independently verified rollback generation.
+/// A malformed durable state or an unverifiable rollback target remains a
+/// hard failure. The accepted product and guest floors never move backwards.
+pub fn recover_corrupt_installed_direct_boot_curl_product_release(
+    install_root: &Path,
+    product_trust_root: &CurlProductReleaseTrustRoot,
+    guest_trust_root: &NativeShadowUpdateTrustRoot,
+) -> Result<CurlProductInstallState, CurlProductInstallError> {
+    let state = read_installed_curl_product_state(install_root)?.ok_or_else(|| {
+        CurlProductInstallError::State("installed release state is absent".to_string())
+    })?;
+    if open_verified_installed_bootable_curl_product_release_for_identity(
+        install_root,
+        product_trust_root,
+        guest_trust_root,
+        InstalledGuestContract::DirectBootV3,
+        &state.active_identity(),
+    )
+    .is_ok()
+    {
+        return Ok(state);
+    }
+
+    let target = state.rollback_release.clone().ok_or_else(|| {
+        CurlProductInstallError::State(
+            "active release is invalid and no verified rollback generation is retained".to_string(),
+        )
+    })?;
+    open_verified_installed_bootable_curl_product_release_for_identity(
+        install_root,
+        product_trust_root,
+        guest_trust_root,
+        InstalledGuestContract::DirectBootV3,
+        &target,
+    )?;
+    let recovered =
+        state_from_identities(target, state.release_floor, state.guest_release_floor, None);
+    write_install_state(install_root, &recovered, true)?;
+    Ok(recovered)
+}
+
 fn open_verified_installed_bootable_curl_product_release_for_contract(
     install_root: &Path,
     product_trust_root: &CurlProductReleaseTrustRoot,
@@ -658,19 +836,35 @@ fn open_verified_installed_bootable_curl_product_release_for_contract(
     let state = read_installed_curl_product_state(install_root)?.ok_or_else(|| {
         CurlProductInstallError::State("installed release state is absent".to_string())
     })?;
+    open_verified_installed_bootable_curl_product_release_for_identity(
+        install_root,
+        product_trust_root,
+        guest_trust_root,
+        contract,
+        &state.active_identity(),
+    )
+}
+
+fn open_verified_installed_bootable_curl_product_release_for_identity(
+    install_root: &Path,
+    product_trust_root: &CurlProductReleaseTrustRoot,
+    guest_trust_root: &NativeShadowUpdateTrustRoot,
+    contract: InstalledGuestContract,
+    identity: &InstalledReleaseIdentity,
+) -> Result<VerifiedInstalledBootableCurlProductRelease, CurlProductInstallError> {
     let expected_directory = format!(
         "{:012}-{}",
-        state.release_sequence,
-        &state.manifest_sha256[..12]
+        identity.release_sequence,
+        &identity.manifest_sha256[..12]
     );
-    if state.version_directory != expected_directory {
+    if identity.version_directory != expected_directory {
         return Err(CurlProductInstallError::State(
             "versionDirectory differs from the active sequence and manifest digest".to_string(),
         ));
     }
     let version_directory = install_root
         .join(CURL_PRODUCT_INSTALL_VERSIONS_DIRECTORY)
-        .join(&state.version_directory);
+        .join(&identity.version_directory);
     let manifest_raw = read_bounded_installed_file(
         &version_directory.join(CURL_PRODUCT_INSTALLED_MANIFEST_FILE),
         MAX_CURL_PRODUCT_RELEASE_MANIFEST_BYTES,
@@ -686,20 +880,20 @@ fn open_verified_installed_bootable_curl_product_release_for_contract(
             &manifest_raw,
             &signature_raw,
             product_trust_root,
-            state.release_sequence,
-            &state.manifest_sha256,
+            identity.release_sequence,
+            &identity.manifest_sha256,
         )?,
         InstalledGuestContract::DirectBootV3 => {
             authenticate_active_direct_boot_curl_product_release(
                 &manifest_raw,
                 &signature_raw,
                 product_trust_root,
-                state.release_sequence,
-                &state.manifest_sha256,
+                identity.release_sequence,
+                &identity.manifest_sha256,
             )?
         }
     };
-    if authenticated.release_version() != state.release_version {
+    if authenticated.release_version() != identity.release_version {
         return Err(CurlProductInstallError::State(
             "releaseVersion differs from the authenticated active manifest".to_string(),
         ));
@@ -823,6 +1017,16 @@ struct CurlProductInstallStateFile {
     version_directory: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CurlProductInstallStateFileV2 {
+    schema: String,
+    active_release: InstalledReleaseIdentity,
+    release_floor: InstalledReleaseIdentity,
+    guest_release_floor: InstalledGuestReleaseIdentity,
+    rollback_release: Option<InstalledReleaseIdentity>,
+}
+
 fn parse_install_state(raw: &[u8]) -> Result<CurlProductInstallState, CurlProductInstallError> {
     let value = release_contract_util::parse_canonical_json(
         CURL_PRODUCT_INSTALL_STATE_FILE,
@@ -835,30 +1039,216 @@ fn parse_install_state(raw: &[u8]) -> Result<CurlProductInstallState, CurlProduc
             CurlProductInstallError::State(format!("{name} must be canonical JSON"))
         }
     })?;
-    let parsed: CurlProductInstallStateFile = serde_json::from_value(value)
-        .map_err(|error| CurlProductInstallError::State(error.to_string()))?;
-    if parsed.schema != CURL_PRODUCT_INSTALL_STATE_SCHEMA {
-        return Err(CurlProductInstallError::State(
+    match value.get("schema").and_then(serde_json::Value::as_str) {
+        Some(CURL_PRODUCT_INSTALL_STATE_SCHEMA) => {
+            let parsed: CurlProductInstallStateFile = serde_json::from_value(value)
+                .map_err(|error| CurlProductInstallError::State(error.to_string()))?;
+            if parsed.schema != CURL_PRODUCT_INSTALL_STATE_SCHEMA {
+                return Err(CurlProductInstallError::State(
+                    "unexpected install state schema".to_string(),
+                ));
+            }
+            let active = InstalledReleaseIdentity {
+                release_sequence: parsed.release_sequence,
+                release_version: parsed.release_version,
+                manifest_sha256: parsed.manifest_sha256,
+                version_directory: parsed.version_directory,
+            };
+            validate_installed_release_identity("activeRelease", &active)?;
+            Ok(state_from_identities(active.clone(), active, None, None))
+        }
+        Some(CURL_PRODUCT_INSTALL_STATE_SCHEMA_V2) => {
+            let parsed: CurlProductInstallStateFileV2 = serde_json::from_value(value)
+                .map_err(|error| CurlProductInstallError::State(error.to_string()))?;
+            if parsed.schema != CURL_PRODUCT_INSTALL_STATE_SCHEMA_V2 {
+                return Err(CurlProductInstallError::State(
+                    "unexpected install state schema".to_string(),
+                ));
+            }
+            validate_installed_release_identity("activeRelease", &parsed.active_release)?;
+            validate_installed_release_identity("releaseFloor", &parsed.release_floor)?;
+            validate_installed_guest_release_identity(&parsed.guest_release_floor)?;
+            if let Some(rollback) = &parsed.rollback_release {
+                validate_installed_release_identity("rollbackRelease", rollback)?;
+            }
+            if parsed.active_release.release_sequence > parsed.release_floor.release_sequence {
+                return Err(CurlProductInstallError::State(
+                    "activeRelease cannot exceed releaseFloor".to_string(),
+                ));
+            }
+            require_same_sequence_identity(
+                "activeRelease",
+                &parsed.active_release,
+                "releaseFloor",
+                &parsed.release_floor,
+            )?;
+            if let Some(rollback) = &parsed.rollback_release {
+                if rollback.release_sequence > parsed.release_floor.release_sequence {
+                    return Err(CurlProductInstallError::State(
+                        "rollbackRelease cannot exceed releaseFloor".to_string(),
+                    ));
+                }
+                require_same_sequence_identity(
+                    "rollbackRelease",
+                    rollback,
+                    "releaseFloor",
+                    &parsed.release_floor,
+                )?;
+                require_same_sequence_identity(
+                    "activeRelease",
+                    &parsed.active_release,
+                    "rollbackRelease",
+                    rollback,
+                )?;
+            }
+            Ok(state_from_identities(
+                parsed.active_release,
+                parsed.release_floor,
+                Some(parsed.guest_release_floor),
+                parsed.rollback_release,
+            ))
+        }
+        _ => Err(CurlProductInstallError::State(
             "unexpected install state schema".to_string(),
-        ));
+        )),
     }
-    if parsed.release_sequence == 0 {
+}
+
+fn state_from_identities(
+    active: InstalledReleaseIdentity,
+    release_floor: InstalledReleaseIdentity,
+    guest_release_floor: Option<InstalledGuestReleaseIdentity>,
+    rollback_release: Option<InstalledReleaseIdentity>,
+) -> CurlProductInstallState {
+    CurlProductInstallState {
+        release_sequence: active.release_sequence,
+        release_version: active.release_version,
+        manifest_sha256: active.manifest_sha256,
+        version_directory: active.version_directory,
+        release_floor,
+        guest_release_floor,
+        rollback_release,
+    }
+}
+
+fn validate_installed_guest_release_identity(
+    identity: &InstalledGuestReleaseIdentity,
+) -> Result<(), CurlProductInstallError> {
+    if identity.release_sequence == 0 {
         return Err(CurlProductInstallError::State(
-            "releaseSequence must be a non-zero sequence".to_string(),
+            "guestReleaseFloor.releaseSequence must be non-zero".to_string(),
         ));
     }
-    release_contract_util::check_safe_identifier("releaseVersion", &parsed.release_version)
-        .map_err(CurlProductInstallError::State)?;
-    release_contract_util::check_sha256("manifestSha256", &parsed.manifest_sha256)
-        .map_err(CurlProductInstallError::State)?;
-    release_contract_util::check_safe_identifier("versionDirectory", &parsed.version_directory)
-        .map_err(CurlProductInstallError::State)?;
-    Ok(CurlProductInstallState {
-        release_sequence: parsed.release_sequence,
-        release_version: parsed.release_version,
-        manifest_sha256: parsed.manifest_sha256,
-        version_directory: parsed.version_directory,
+    release_contract_util::check_sha256(
+        "guestReleaseFloor.manifestSha256",
+        &identity.manifest_sha256,
+    )
+    .map_err(CurlProductInstallError::State)
+}
+
+fn validate_installed_release_identity(
+    label: &str,
+    identity: &InstalledReleaseIdentity,
+) -> Result<(), CurlProductInstallError> {
+    if identity.release_sequence == 0 {
+        return Err(CurlProductInstallError::State(format!(
+            "{label}.releaseSequence must be non-zero"
+        )));
+    }
+    release_contract_util::check_safe_identifier(
+        &format!("{label}.releaseVersion"),
+        &identity.release_version,
+    )
+    .map_err(CurlProductInstallError::State)?;
+    release_contract_util::check_sha256(
+        &format!("{label}.manifestSha256"),
+        &identity.manifest_sha256,
+    )
+    .map_err(CurlProductInstallError::State)?;
+    release_contract_util::check_safe_identifier(
+        &format!("{label}.versionDirectory"),
+        &identity.version_directory,
+    )
+    .map_err(CurlProductInstallError::State)?;
+    let expected = format!(
+        "{:012}-{}",
+        identity.release_sequence,
+        &identity.manifest_sha256[..12]
+    );
+    if identity.version_directory != expected {
+        return Err(CurlProductInstallError::State(format!(
+            "{label}.versionDirectory differs from its sequence and manifest digest"
+        )));
+    }
+    Ok(())
+}
+
+fn require_same_sequence_identity(
+    left_label: &str,
+    left: &InstalledReleaseIdentity,
+    right_label: &str,
+    right: &InstalledReleaseIdentity,
+) -> Result<(), CurlProductInstallError> {
+    if left.release_sequence == right.release_sequence && left != right {
+        return Err(CurlProductInstallError::State(format!(
+            "{left_label} and {right_label} disagree at the same release sequence"
+        )));
+    }
+    Ok(())
+}
+
+fn release_identity_json(identity: &InstalledReleaseIdentity) -> serde_json::Value {
+    json!({
+        "releaseSequence": identity.release_sequence,
+        "releaseVersion": identity.release_version,
+        "manifestSha256": identity.manifest_sha256,
+        "versionDirectory": identity.version_directory,
     })
+}
+
+fn write_install_state(
+    install_root: &Path,
+    state: &CurlProductInstallState,
+    lifecycle_v2: bool,
+) -> Result<(), CurlProductInstallError> {
+    let active = state.active_identity();
+    let state_bytes = if lifecycle_v2 {
+        let guest_floor = state.guest_release_floor.as_ref().ok_or_else(|| {
+            CurlProductInstallError::State(
+                "guestReleaseFloor is required by lifecycle state v2".to_string(),
+            )
+        })?;
+        canonicalize(&json!({
+            "schema": CURL_PRODUCT_INSTALL_STATE_SCHEMA_V2,
+            "activeRelease": release_identity_json(&active),
+            "releaseFloor": release_identity_json(&state.release_floor),
+            "guestReleaseFloor": {
+                "releaseSequence": guest_floor.release_sequence,
+                "manifestSha256": guest_floor.manifest_sha256,
+            },
+            "rollbackRelease": state.rollback_release.as_ref().map(release_identity_json),
+        }))
+    } else {
+        canonicalize(&json!({
+            "schema": CURL_PRODUCT_INSTALL_STATE_SCHEMA,
+            "releaseSequence": active.release_sequence,
+            "releaseVersion": active.release_version,
+            "manifestSha256": active.manifest_sha256,
+            "versionDirectory": active.version_directory,
+        }))
+    };
+    let temp_path = install_root.join(CURL_PRODUCT_INSTALL_STATE_TEMP_FILE);
+    let state_path = install_root.join(CURL_PRODUCT_INSTALL_STATE_FILE);
+    write_durable(&temp_path, &state_bytes)?;
+    fs::rename(&temp_path, &state_path)
+        .map_err(|error| io_error("adopt install state", &state_path, error))?;
+    sync_dir(install_root)
+}
+
+struct BootableAdoptionPlan<'a> {
+    guest_roles: &'static [GuestArtifactRole],
+    previous_state: Option<&'a CurlProductInstallState>,
+    rollback_target: Option<InstalledReleaseIdentity>,
 }
 
 fn adopt_verified_bootable_release(
@@ -868,7 +1258,7 @@ fn adopt_verified_bootable_release(
     product: &VerifiedCurlProductRelease,
     guest: &VerifiedStagedNativeShadowUpdate,
     guest_files: &BTreeMap<GuestArtifactRole, File>,
-    guest_roles: &[GuestArtifactRole],
+    plan: BootableAdoptionPlan<'_>,
 ) -> Result<InstalledBootableCurlProduct, CurlProductInstallError> {
     let manifest_sha256 = product.manifest_sha256().to_string();
     let version_directory_name = format!(
@@ -933,7 +1323,7 @@ fn adopt_verified_bootable_release(
     fs::create_dir(&guest_dir)
         .map_err(|error| io_error("create staged guest directory", &guest_dir, error))?;
     let mut guest_file_names = BTreeMap::new();
-    for &role in guest_roles {
+    for &role in plan.guest_roles {
         let file_name = guest
             .artifact_file_name(role)
             .expect("a verified guest release declares every role")
@@ -956,19 +1346,26 @@ fn adopt_verified_bootable_release(
         .map_err(|error| io_error("adopt bootable version directory", &final_dir, error))?;
     sync_dir(&versions_dir)?;
 
-    let state_bytes = canonicalize(&json!({
-        "schema": CURL_PRODUCT_INSTALL_STATE_SCHEMA,
-        "releaseSequence": product.release_sequence(),
-        "releaseVersion": product.release_version(),
-        "manifestSha256": manifest_sha256,
-        "versionDirectory": version_directory_name,
-    }));
-    let temp_path = install_root.join(CURL_PRODUCT_INSTALL_STATE_TEMP_FILE);
-    let state_path = install_root.join(CURL_PRODUCT_INSTALL_STATE_FILE);
-    write_durable(&temp_path, &state_bytes)?;
-    fs::rename(&temp_path, &state_path)
-        .map_err(|error| io_error("adopt install state", &state_path, error))?;
-    sync_dir(install_root)?;
+    let active = InstalledReleaseIdentity {
+        release_sequence: product.release_sequence(),
+        release_version: product.release_version().to_string(),
+        manifest_sha256: manifest_sha256.clone(),
+        version_directory: version_directory_name.clone(),
+    };
+    let state = match plan.previous_state {
+        Some(_previous) => state_from_identities(
+            active.clone(),
+            active,
+            Some(InstalledGuestReleaseIdentity {
+                release_sequence: guest.release_sequence(),
+                manifest_sha256: guest.manifest_sha256().to_string(),
+            }),
+            plan.rollback_target,
+        ),
+        None => state_from_identities(active.clone(), active, None, None),
+    };
+    write_install_state(install_root, &state, plan.previous_state.is_some())?;
+    prune_unreferenced_version_directories(install_root, &state)?;
     let _ = fs::remove_dir_all(&staging_root);
 
     Ok(InstalledBootableCurlProduct {
@@ -983,6 +1380,70 @@ fn adopt_verified_bootable_release(
         guest_release_version: guest.release_version().to_string(),
         guest_artifact_file_names: guest_file_names,
     })
+}
+
+fn prune_unreferenced_version_directories(
+    install_root: &Path,
+    state: &CurlProductInstallState,
+) -> Result<(), CurlProductInstallError> {
+    let retained: BTreeSet<&str> = [
+        Some(state.version_directory.as_str()),
+        Some(state.release_floor.version_directory.as_str()),
+        state
+            .rollback_release
+            .as_ref()
+            .map(|release| release.version_directory.as_str()),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    let versions = install_root.join(CURL_PRODUCT_INSTALL_VERSIONS_DIRECTORY);
+    for entry in fs::read_dir(&versions)
+        .map_err(|error| io_error("read versions directory", &versions, error))?
+    {
+        let entry = entry.map_err(|error| {
+            CurlProductInstallError::Io(format!("read version directory entry: {error}"))
+        })?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if retained.contains(name.as_str()) {
+            continue;
+        }
+        if !is_version_directory_name(&name) {
+            return Err(CurlProductInstallError::State(format!(
+                "unrecognized entry in versions directory: {name}"
+            )));
+        }
+        let metadata = fs::symlink_metadata(entry.path()).map_err(|error| {
+            io_error(
+                "inspect unreferenced version directory",
+                &entry.path(),
+                error,
+            )
+        })?;
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+            return Err(CurlProductInstallError::State(format!(
+                "unreferenced version entry is not a directory: {name}"
+            )));
+        }
+        fs::remove_dir_all(entry.path()).map_err(|error| {
+            io_error(
+                "remove unreferenced version directory",
+                &entry.path(),
+                error,
+            )
+        })?;
+    }
+    sync_dir(&versions)
+}
+
+fn is_version_directory_name(name: &str) -> bool {
+    let bytes = name.as_bytes();
+    bytes.len() == 25
+        && bytes[..12].iter().all(u8::is_ascii_digit)
+        && bytes[12] == b'-'
+        && bytes[13..]
+            .iter()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(byte))
 }
 
 fn copy_retained_file(
