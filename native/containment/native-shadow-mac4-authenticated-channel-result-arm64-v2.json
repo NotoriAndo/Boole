@@ -1,0 +1,220 @@
+{
+  "appendOnly": true,
+  "artifactClass": "DISPOSABLE-DEVELOPMENT",
+  "boundaries": {
+    "activationAllowed": false,
+    "consensusTouched": false,
+    "mac4Complete": false,
+    "miningActivated": false,
+    "nodeExecutionConnected": false,
+    "p2pTouched": false,
+    "productionRelease": false,
+    "publicMining": false,
+    "rewardReady": false,
+    "testnetClaim": false
+  },
+  "contract": {
+    "path": "native/containment/native-shadow-mac4-authenticated-channel-contract-v1.json",
+    "sha256": "4f2ec110d72f628207ac383668daff7bda6b568449fd315d8376aeb20ae08bbd"
+  },
+  "correction": {
+    "imageBuilt": false,
+    "implementation": [
+      {
+        "path": "scripts/native_shadow_closed_local_image_to_readiness_arm64_v2.py",
+        "sha256": "ba599a187dce106d12090252c59dacfba474d3e1f0743c58f8163f04dd1c39e1",
+        "sizeBytes": 5615
+      },
+      {
+        "path": ".github/workflows/native-shadow-closed-local-image-readiness-arm64-v2.yml",
+        "sha256": "ed103e827de3e77a8794d5581f71e4f44ff1001da6010eec301e824330250ce5",
+        "sizeBytes": 11565
+      }
+    ],
+    "mode": "1777",
+    "mountedReadbackRequired": true,
+    "path": "/var/tmp",
+    "predecessorBytePreserved": true,
+    "status": "IMPLEMENTED-NOT-IMAGE-OR-BOOT-VERIFIED",
+    "vmBooted": false
+  },
+  "imageBuild": {
+    "artifacts": [
+      {
+        "artifactId": 9824445284,
+        "compressedSizeBytes": 1376320829,
+        "digest": "sha256:3b1205c8bb5f558d91cc2a1b51e1a4ee452d70e727e58ce13abb05cf0c9a96d9",
+        "expiresAt": "2026-09-08T23:08:16Z",
+        "name": "closed-local-image-readiness-build-replica-1"
+      },
+      {
+        "artifactId": 9824579098,
+        "compressedSizeBytes": 1376320829,
+        "digest": "sha256:ca1237807236729fb3db9fc53d60d22fceb392b67fde0cca3520a241dbe83465",
+        "expiresAt": "2026-09-08T23:13:11Z",
+        "name": "closed-local-image-readiness-build-replica-2"
+      },
+      {
+        "artifactId": 9824610948,
+        "compressedSizeBytes": 576,
+        "digest": "sha256:3e566c507d1df66b563570d6d2382637dd2e1cf129d1d70ffdee78769f1e2a07",
+        "expiresAt": "2026-09-08T23:15:01Z",
+        "name": "closed-local-image-readiness-build-comparison"
+      }
+    ],
+    "comparisonReceipt": {
+      "sha256": "c0d2a49d0f9cddd1eda67cdaeee41fc505becf87124c6afb1cd61f21059ebc01",
+      "sizeBytes": 749
+    },
+    "comparisonStatus": "TWO-REPLICAS-BYTE-IDENTICAL",
+    "headSha": "c5074b0935e84e466debe416adf37e06ee4081cb",
+    "jobs": [
+      {
+        "conclusion": "success",
+        "jobId": 100059325284,
+        "name": "closed-local build replica 1"
+      },
+      {
+        "conclusion": "success",
+        "jobId": 100059324937,
+        "name": "closed-local build replica 2"
+      },
+      {
+        "conclusion": "success",
+        "jobId": 100061855075,
+        "name": "compare disposable image replicas"
+      }
+    ],
+    "manualReplicas": 0,
+    "outputs": [
+      {
+        "name": "guest-kernel",
+        "replicasByteIdentical": true,
+        "sha256": "d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336",
+        "sizeBytes": 57860488
+      },
+      {
+        "name": "guest-initrd",
+        "replicasByteIdentical": true,
+        "sha256": "cd4b70916f6bebc31dafa109cbc5ea1920b92116b81c77c54e55b6500c0172c3",
+        "sizeBytes": 1778266452
+      },
+      {
+        "name": "guest-root-disk",
+        "replicasByteIdentical": true,
+        "sha256": "a4d7693f789e35df9e48d59f3c25f5675038da76ed490dcfb447ee523eaecd07",
+        "sizeBytes": 2037739520
+      }
+    ],
+    "rawOutputBytesAcrossTwoReplicas": 7747732920,
+    "replicas": 2,
+    "runAttempt": 1,
+    "runId": 33569233592,
+    "runUrl": "https://github.com/NotoriAndo/Boole/actions/runs/33569233592",
+    "workflowDispatches": 1,
+    "workflowReruns": 0
+  },
+  "macObservation": {
+    "bootAttempts": 1,
+    "bootTupleBindingHex": "7a70715f19c464cade7d4472f509ea6b52728fc771cf8426f9d307f87151f17d",
+    "channelAuthenticated": false,
+    "contractSha256": "4f2ec110d72f628207ac383668daff7bda6b568449fd315d8376aeb20ae08bbd",
+    "evidence": {
+      "console": {
+        "lines": 230,
+        "sha256": "fe2f05f330a447ec6348373862ce149efbef625a344ba91bd9d74cda8bc05f67",
+        "sizeBytes": 21355
+      },
+      "dryRunAggregate": {
+        "sha256": "eadda6c338e3a6f40767b67f4d2f776716295931c970b9ae1df667834f0e29cb",
+        "sizeBytes": 3540
+      },
+      "dryRunReceipt": {
+        "sha256": "4ac37c55838caa6eb10b7fcc332cbffded3040021413574bfb77563fc733dd40",
+        "sizeBytes": 1170
+      },
+      "launcherReadinessWasTrue": true,
+      "relayReadyMarkerObserved": false,
+      "relayServiceFailed": true,
+      "receipt": {
+        "sha256": "3cb78810e1fc658ae1ccb3c6a6d3140a6f0c89248376fe8b009d6d600668f4c5",
+        "sizeBytes": 1196
+      },
+      "systemdModulesLoadSucceeded": true,
+      "systemdReachedMultiUser": true,
+      "vsockProtocolRegistered": true
+    },
+    "host": {
+      "chip": "Apple M4 Max",
+      "macOS": "26.5.2",
+      "model": "Mac Studio",
+      "modelIdentifier": "Mac16,9"
+    },
+    "imagesUnchanged": true,
+    "machineStopped": true,
+    "machinesStarted": 1,
+    "nonceHex": "7b61b4a64848c99cf8bcb1c35f56d130189f78ba7d8b74b9cb7a57eabf87d6c4",
+    "ranForSeconds": 100.24528408050537,
+    "resultFileWritten": false,
+    "resultFileNote": "The outer driver stopped on the host program's non-zero exit before writing its aggregate result. The host receipt and serial console were preserved and hash-bound above.",
+    "timeoutSeconds": 90,
+    "vmShape": {
+      "networkDevices": 0,
+      "rootDiskReadOnly": true,
+      "sharedDirectories": 0,
+      "socketDevices": 1,
+      "storageDevices": 1
+    },
+    "vsock": {
+      "port": 4050,
+      "roundTrips": 0
+    }
+  },
+  "nextStep": {
+    "newBootAuthorityRequired": true,
+    "newImageAuthorityRequired": true,
+    "recommendation": "PRIVATE-TMP-SUCCESSOR-PREFLIGHT",
+    "recommendationDetail": "Merge the additive successor, run its zero-image ARM64 preflight, and only after GREEN consider another disposable pair and closed Mac observation.",
+    "retryAuthorizedByThisRecord": false
+  },
+  "predecessor": {
+    "path": "native/containment/native-shadow-mac4-authenticated-channel-result-arm64-v1.json",
+    "sha256": "87935a25ad32b3dac6e4e99f3afb7035272fad0936642a792fd7cf8a8e44c373"
+  },
+  "rootCause": {
+    "baselineUnitProbe": {
+      "effects": {
+        "imagesCreated": 0,
+        "machinesStarted": 0
+      },
+      "headSha": "29eccf2d2b768cc6adc39793d7f5ddd314f76033",
+      "relayReady": true,
+      "runId": 33571558493,
+      "systemdResult": "success"
+    },
+    "explanation": "The corrected guest loaded AF_VSOCK, but its read-only root lacked /var/tmp. The relay unit uses PrivateTmp=yes, so systemd failed before exec while creating the mount namespace. A read-only-root differential reproduced status 226/NAMESPACE when /var/tmp was absent and started the same relay when exactly that directory was present.",
+    "missingPath": "/var/tmp",
+    "readOnlyRootDifferential": {
+      "effects": {
+        "imagesCreated": 0,
+        "machinesStarted": 0
+      },
+      "headSha": "2b7e13869caec343557ba7885ad679a9f5410c8b",
+      "missingVarTmp": {
+        "message": "Failed to set up mount namespacing: /var/tmp: No such file or directory",
+        "relayReady": false,
+        "systemdResult": "exit-code",
+        "systemdStatus": "226/NAMESPACE"
+      },
+      "presentVarTmp": {
+        "relayReady": true,
+        "systemdResult": "success",
+        "systemdStatus": "0"
+      },
+      "runId": 33572058564
+    },
+    "status": "EXACT-ROOT-CAUSE-REPRODUCED"
+  },
+  "schema": "boole.native-shadow.mac4-authenticated-channel-observation.arm64.v2",
+  "status": "MAC4-AUTHENTICATED-CHANNEL-OBSERVED-FAIL-CLOSED"
+}

@@ -8,11 +8,10 @@
 > PR for every reversible retry. This note grants no A7, production, boot,
 > MAC.4 or activation effect.
 
-> **CURRENT-CURSOR-2026-09-01:** `ARM64 REPLICAS BYTE-IDENTICAL / MAC CLOSED READINESS PASS /
-> MAC.4 VSOCK ROUND TRIP FAILED CLOSED / SUFFICIENT ROOT CAUSE IDENTIFIED / A7 NOT CREATED`.
-> Next is deterministic guest module indexing/loading and a free readback
-> preflight. A fresh image pair and Mac boot require new authority. Existing
-> runtime exactly-once and containment contracts remain the acceptance boundary.
+> **CURRENT-CURSOR-2026-09-02:** `SECOND MAC.4 OBSERVATION FAILED CLOSED /
+> VSOCK LOADED / PRIVATE-TMP ROOT CAUSE REPRODUCED / ADDITIVE SUCCESSOR IMPLEMENTED`.
+> Next is the successor's zero-image ARM64 preflight. Existing runtime
+> exactly-once and containment contracts remain the acceptance boundary.
 
 Status: **CLOSED-LOCAL IMPLEMENTATION GREEN.** Registry/state durability, named-Linux containment,
 actual checker execution and the feature-gated loopback HTTP route are on `main`. Production
@@ -4708,3 +4707,23 @@ free probe `33518658937` exposed and then preserved the depmod multicall-name
 bug without consuming an image or boot boundary. The append-only result is
 `native-shadow-mac4-vsock-module-preflight-result-arm64-v1.json`. A fresh image
 pair and another Mac boot remain separate effects, and MAC.4 remains partial.
+
+## Second MAC.4 observation: PrivateTmp required an absent directory (2026-09-02)
+
+The next disposable pair was byte-identical and one closed Mac VM kept the
+read-only, no-network, no-share shape. AF_VSOCK registered, module loading
+succeeded and the launcher stayed ready. The relay still completed zero
+authenticated round trips because systemd failed its pre-exec namespace setup.
+
+The exact relay unit was then exercised on a read-only ARM64 Linux root without
+creating an image or VM. Missing `/var/tmp` deterministically produced
+`226/NAMESPACE` and `No such file or directory`; adding only root-owned mode
+`01777` `/var/tmp` made the same unit active and produced its ready marker. The
+cause is therefore the image tree, not relay logic, vsock transport or host
+Virtualization.framework.
+
+The successor implementation wraps the hash-pinned historical producer for one
+call, adds exactly `/var/tmp`, extends mounted readback by the same contract and
+restores all predecessor globals afterward. The v1 file and workflow are not
+edited. No successor image or VM has yet been created; MAC.4, node execution,
+testnet, mining, reward, consensus, P2P and activation remain closed.

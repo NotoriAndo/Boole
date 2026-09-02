@@ -3139,4 +3139,27 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'VSOCK MODULE OBJE
 require_text docs/native-submission-shadow-verification-v1.md 'MAC.4 vsock module preflight closure addendum'
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'MAC.4 module discovery correction: zero-image preflight green'
 
+# The second MAC.4 observation proved that module loading was fixed and then
+# isolated the remaining relay failure to PrivateTmp on a read-only root.  Pin
+# the failed-closed evidence and the additive successor without treating the
+# unbuilt correction as a successful channel.
+MAC4_CHANNEL_RESULT_V2=native/containment/native-shadow-mac4-authenticated-channel-result-arm64-v2.json
+MAC4_CHANNEL_GATE_V2=scripts/test_native_shadow_mac4_authenticated_channel_result_v2.py
+MAC4_PRIVATE_TMP_SUCCESSOR=scripts/native_shadow_closed_local_image_to_readiness_arm64_v2.py
+MAC4_PRIVATE_TMP_WORKFLOW=.github/workflows/native-shadow-closed-local-image-readiness-arm64-v2.yml
+require_file "$MAC4_CHANNEL_RESULT_V2"
+require_file "$MAC4_CHANNEL_GATE_V2"
+require_file "$MAC4_PRIVATE_TMP_SUCCESSOR"
+require_file "$MAC4_PRIVATE_TMP_WORKFLOW"
+require_text scripts/self-test.sh "$MAC4_CHANNEL_GATE_V2"
+require_text scripts/self-test.sh 'test_native_shadow_closed_local_image_to_readiness_arm64_v2.py'
+require_text "$MAC4_CHANNEL_RESULT_V2" '"runId": 33569233592'
+require_text "$MAC4_CHANNEL_RESULT_V2" '"missingPath": "/var/tmp"'
+require_text "$MAC4_CHANNEL_RESULT_V2" '"runId": 33572058564'
+require_text "$MAC4_CHANNEL_RESULT_V2" '"systemdStatus": "226/NAMESPACE"'
+require_text "$MAC4_CHANNEL_RESULT_V2" '"status": "IMPLEMENTED-NOT-IMAGE-OR-BOOT-VERIFIED"'
+require_text "$MAC4_CHANNEL_RESULT_V2" '"mac4Complete": false'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'SECOND MAC.4 OBSERVATION: MODULES LOADED / RELAY BLOCKED BY ABSENT /var/tmp'
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Second MAC.4 observation: PrivateTmp required an absent directory'
+
 printf 'docs-smoke: PASS\n' >&2
