@@ -7130,3 +7130,35 @@ PRODUCT/GUEST FLOORS STAY AT 2 / JOURNAL + WALLET SURVIVE RESET
 NEXT: CRASH WINDOWS AROUND VERSION ADOPTION + STATE REPLACEMENT
 PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
 ```
+
+## 105. Interrupted installed updates converge at both durable boundaries (2026-09-03)
+
+One real-process E2E now crosses both sides of the installed-release state
+replacement without adding a production failpoint. First, a filesystem fault
+is placed at the fixed temporary state path. Release two is fully copied and
+renamed into its immutable version directory, but state replacement fails;
+the release-one state remains byte-identical. Removing the fault and invoking
+the same signed update again replaces that orphan safely and adopts release
+two.
+
+Second, release three is allowed to replace the durable state while a large
+unreferenced version tree keeps post-commit pruning in progress. The test
+observes sequence three from the atomic state file and sends SIGKILL to that
+exact CLI child. The committed release reopens with both product and guest
+floors at three. A subsequent verified rollback selects release two, keeps
+both floors at three, and removes the post-commit residue before replacing
+the state. Pruning is safe at that point because both the old and rolled-back
+states retain the same two verified generations.
+
+This closes the local install interruption boundary. It does not grant a
+production trust root, run a guest, satisfy the deferred clean-Mac canary or
+open testnet, mining, reward, consensus, P2P or activation. The next product
+boundary is serialization of concurrent install/update mutations and safe
+per-attempt download staging.
+
+```text
+INSTALLED UPDATE PRE-STATE FAILURE PRESERVES OLD STATE BYTE-FOR-BYTE
+POST-STATE SIGKILL REOPENS COMMITTED RELEASE / VERIFIED ROLLBACK CLEANS RESIDUE
+NEXT: SERIALIZE CONCURRENT PRODUCT MUTATIONS + ISOLATE DOWNLOAD STAGING
+PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
+```

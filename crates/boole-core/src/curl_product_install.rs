@@ -781,6 +781,13 @@ pub fn rollback_installed_direct_boot_curl_product_release(
         state.guest_release_floor,
         Some(previous_active),
     );
+    // The rolled-back state still retains both the selected target and the
+    // previous active generation. Pruning against that complete retained set
+    // before the atomic state replacement is therefore crash-safe: the old
+    // state and the new state both reference every directory that survives.
+    // This also converges residue left when an earlier install was killed
+    // after its state swap but before its best-effort cleanup completed.
+    prune_unreferenced_version_directories(install_root, &rolled_back)?;
     write_install_state(install_root, &rolled_back, true)?;
     Ok(rolled_back)
 }

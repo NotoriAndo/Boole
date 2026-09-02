@@ -9,12 +9,13 @@ use std::fs;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::os::unix::fs::PermissionsExt;
+use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use boole_core::{
     read_installed_curl_product_state, GuestArtifactRole, ProductArtifactRole,
@@ -421,5 +422,181 @@ fn real_cli_update_rollback_corrupt_recovery_and_reset_preserve_security_state()
     assert_eq!(
         fs::read(state_root.join("wallet-state-must-survive")).expect("wallet survives"),
         b"wallet-sentinel"
+    );
+}
+
+#[test]
+fn interrupted_update_converges_before_and_after_the_state_swap() {
+    let fixture = FixtureDir::new();
+    let first_release = BootableCurlProductKatRelease::default();
+    let (first_bundle, roots) = build_bundle(&fixture, "crash-first", first_release);
+    let first_product_digest = digest(&first_bundle.join(CURL_PRODUCT_INSTALLED_MANIFEST_FILE));
+    let first_guest_digest = digest(&first_bundle.join("guest-update-manifest"));
+    let second_release = BootableCurlProductKatRelease {
+        product_sequence: 2,
+        product_version: "0.0.1-installed-mac-crash-kat".to_string(),
+        product_previous_manifest_sha256: Some(first_product_digest),
+        guest_sequence: 2,
+        guest_version: "0.0.1-installed-mac-crash-kat".to_string(),
+        guest_previous_manifest_sha256: Some(first_guest_digest),
+    };
+    let (second_bundle, second_roots) = build_bundle(&fixture, "crash-second", second_release);
+    assert_eq!(roots, second_roots);
+    let second_product_digest = digest(&second_bundle.join(CURL_PRODUCT_INSTALLED_MANIFEST_FILE));
+    let second_guest_digest = digest(&second_bundle.join("guest-update-manifest"));
+    let third_release = BootableCurlProductKatRelease {
+        product_sequence: 3,
+        product_version: "0.0.2-installed-mac-crash-kat".to_string(),
+        product_previous_manifest_sha256: Some(second_product_digest),
+        guest_sequence: 3,
+        guest_version: "0.0.2-installed-mac-crash-kat".to_string(),
+        guest_previous_manifest_sha256: Some(second_guest_digest),
+    };
+    let (third_bundle, third_roots) = build_bundle(&fixture, "crash-third", third_release);
+    assert_eq!(roots, third_roots);
+
+    let install_root = fixture.join("crash-install");
+    let staging = fixture.join("crash-download-staging");
+    let first_server = StaticLoopbackServer::start(&first_bundle);
+    let (first, first_output) = run_cli(&install_args(
+        &first_server.base_url(),
+        &install_root,
+        &staging,
+        &roots,
+    ));
+    assert!(first_output.status.success(), "first install: {first}");
+    drop(first_server);
+
+    let first_state = read_installed_curl_product_state(&install_root)
+        .expect("read first state")
+        .expect("first state exists");
+    let first_version_directory = first_state.version_directory().to_string();
+    let state_path = install_root.join(CURL_PRODUCT_INSTALL_STATE_FILE);
+    let state_before_precommit_failure = fs::read(&state_path).expect("first durable state");
+
+    // A directory at the fixed temporary-state path forces the installer to
+    // fail after adopting the complete version directory but before the
+    // atomic state-file replacement. The prior state must remain exact.
+    let state_temp_blocker = install_root.join("installed-release.json.tmp");
+    fs::create_dir(&state_temp_blocker).expect("state temp blocker");
+    let second_server = StaticLoopbackServer::start(&second_bundle);
+    let (precommit_failure, precommit_output) = run_cli(&install_args(
+        &second_server.base_url(),
+        &install_root,
+        &staging,
+        &roots,
+    ));
+    assert!(
+        !precommit_output.status.success(),
+        "pre-commit failure was accepted: {precommit_failure}"
+    );
+    assert_eq!(precommit_failure["error"]["reason"], "install-rejected");
+    assert_eq!(
+        fs::read(&state_path).expect("state after pre-commit failure"),
+        state_before_precommit_failure,
+        "a failure before state replacement must preserve the prior state byte-for-byte"
+    );
+    let second_version_directory = format!(
+        "{:012}-{}",
+        2,
+        &digest(&second_bundle.join(CURL_PRODUCT_INSTALLED_MANIFEST_FILE))[..12]
+    );
+    assert!(
+        install_root
+            .join(CURL_PRODUCT_INSTALL_VERSIONS_DIRECTORY)
+            .join(&second_version_directory)
+            .is_dir(),
+        "the test must reach the adopted-version/pre-state window"
+    );
+    drop(second_server);
+    fs::remove_dir(&state_temp_blocker).expect("remove state temp blocker");
+
+    let second_server = StaticLoopbackServer::start(&second_bundle);
+    let (second, second_output) = run_cli(&install_args(
+        &second_server.base_url(),
+        &install_root,
+        &staging,
+        &roots,
+    ));
+    assert!(
+        second_output.status.success(),
+        "retry second install: {second}"
+    );
+    drop(second_server);
+
+    // Keep the child alive after the state swap by giving post-commit pruning
+    // a large, contract-shaped but unreferenced directory to remove. The
+    // parent observes sequence three in the atomic state file, then sends a
+    // real SIGKILL to the actual CLI process.
+    let junk = install_root
+        .join(CURL_PRODUCT_INSTALL_VERSIONS_DIRECTORY)
+        .join("000000000999-aaaaaaaaaaaa");
+    fs::create_dir(&junk).expect("post-commit pruning fixture");
+    for index in 0..50_000_u32 {
+        fs::write(junk.join(format!("residue-{index:05}")), []).expect("pruning residue");
+    }
+    let third_server = StaticLoopbackServer::start(&third_bundle);
+    let third_args = install_args(&third_server.base_url(), &install_root, &staging, &roots);
+    let mut child = Command::new(env!("CARGO_BIN_EXE_boole-cli"))
+        .args(&third_args)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn third install");
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        let sequence = read_installed_curl_product_state(&install_root)
+            .ok()
+            .flatten()
+            .map(|state| state.release_sequence());
+        if sequence == Some(3) {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "third state was not adopted in time"
+        );
+        assert!(
+            child.try_wait().expect("poll third install").is_none(),
+            "third install exited before its committed state could be interrupted"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    child
+        .kill()
+        .expect("SIGKILL the exact spawned install child");
+    let killed = child.wait().expect("reap killed install");
+    assert_eq!(killed.signal(), Some(libc::SIGKILL));
+    drop(third_server);
+
+    let committed = read_installed_curl_product_state(&install_root)
+        .expect("read committed state after kill")
+        .expect("committed state after kill");
+    assert_eq!(committed.release_sequence(), 3);
+    assert_eq!(committed.release_floor_sequence(), 3);
+    assert_eq!(committed.guest_release_floor_sequence(), Some(3));
+
+    let (rollback, rollback_output) = run_cli(&lifecycle_args(
+        "rollback-direct-boot",
+        &install_root,
+        &roots,
+    ));
+    assert!(
+        rollback_output.status.success(),
+        "rollback after kill: {rollback}"
+    );
+    assert_eq!(rollback["result"]["activeReleaseSequence"], 2);
+    assert_eq!(rollback["result"]["releaseFloorSequence"], 3);
+    assert_eq!(rollback["result"]["guestReleaseFloorSequence"], 3);
+    assert!(
+        !junk.exists(),
+        "the next verified mutation must reconcile post-commit crash residue"
+    );
+    assert!(
+        !install_root
+            .join(CURL_PRODUCT_INSTALL_VERSIONS_DIRECTORY)
+            .join(first_version_directory)
+            .exists(),
+        "the next verified mutation must prune the now-unreferenced first generation"
     );
 }
