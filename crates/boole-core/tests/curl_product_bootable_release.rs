@@ -2,13 +2,16 @@
 
 use std::collections::BTreeMap;
 use std::fs::{self, File};
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use boole_core::{
-    authenticate_bootable_curl_product_release, canonicalize, install_curl_product_release,
-    CurlProductInstallError, CurlProductReleaseFloor, CurlProductReleaseTrustRoot,
-    CurlProductReleaseVerifyError, GuestArtifactRole, ProductArtifactRole, SigningKeyV2,
+    authenticate_bootable_curl_product_release, canonicalize,
+    install_bootable_curl_product_release, install_curl_product_release,
+    open_verified_installed_bootable_curl_product_release, CurlProductInstallError,
+    CurlProductReleaseFloor, CurlProductReleaseTrustRoot, CurlProductReleaseVerifyError,
+    GuestArtifactRole, NativeShadowUpdateTrustRoot, ProductArtifactRole, SigningKeyV2,
     CURL_PRODUCT_RELEASE_MANIFEST_SCHEMA_V2, CURL_PRODUCT_RELEASE_SIGNING_CONTEXT,
     CURL_PRODUCT_RELEASE_SIGNING_CONTEXT_V2, GUEST_UPDATE_MANIFEST_SCHEMA_V2,
     NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT, NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT_V2,
@@ -66,10 +69,11 @@ fn signature_bytes(
 }
 
 fn guest_manifest_bytes() -> Vec<u8> {
+    let artifacts = guest_artifact_bytes();
     let descriptors: Vec<_> = GuestArtifactRole::BOOTABLE_ALL
         .into_iter()
         .map(|role| {
-            let bytes = format!("bootable-fixture:{}", role.as_str()).into_bytes();
+            let bytes = &artifacts[&role];
             json!({
                 "role": role.as_str(),
                 "fileName": format!("{}.bin", role.as_str()),
@@ -89,6 +93,23 @@ fn guest_manifest_bytes() -> Vec<u8> {
         "previousManifestSha256": null,
         "artifacts": descriptors,
     }))
+}
+
+fn guest_artifact_bytes() -> BTreeMap<GuestArtifactRole, Vec<u8>> {
+    GuestArtifactRole::BOOTABLE_ALL
+        .into_iter()
+        .map(|role| {
+            (
+                role,
+                format!("bootable-fixture:{}", role.as_str()).into_bytes(),
+            )
+        })
+        .collect()
+}
+
+fn guest_trust_root() -> NativeShadowUpdateTrustRoot {
+    let key = SigningKeyV2::from_dev_id(GUEST_KEY_ID);
+    NativeShadowUpdateTrustRoot::new(GUEST_KEY_ID, &key.pk_hex()).expect("guest v2 KAT trust root")
 }
 
 fn product_fixture_with_guest_manifest(
@@ -368,4 +389,128 @@ fn frozen_v1_installer_rejects_v2_without_mutating_the_install_root() {
         !install_root.exists(),
         "v1 installer must leave no trace when given a v2 contract"
     );
+}
+
+#[test]
+fn bootable_installer_adopts_and_reopens_both_signed_layers_from_retained_handles() {
+    let product_source = TestDir::new();
+    let guest_source = TestDir::new();
+    let install_parent = TestDir::new();
+    let install_root = install_parent.path().join("bootable-product");
+    let (product_trust, manifest, signature, product_artifacts) = product_fixture();
+    let guest_artifacts = guest_artifact_bytes();
+    for role in ProductArtifactRole::ALL {
+        fs::write(
+            product_source.path().join(format!("{}.bin", role.as_str())),
+            &product_artifacts[&role],
+        )
+        .expect("write product artifact");
+    }
+    for role in GuestArtifactRole::BOOTABLE_ALL {
+        fs::write(
+            guest_source.path().join(format!("{}.bin", role.as_str())),
+            &guest_artifacts[&role],
+        )
+        .expect("write guest artifact");
+    }
+
+    let installed = install_bootable_curl_product_release(
+        &install_root,
+        &manifest,
+        &signature,
+        &product_trust,
+        1,
+        product_source.path(),
+        &guest_trust_root(),
+        1,
+        guest_source.path(),
+    )
+    .expect("install bootable product");
+    assert_eq!(installed.guest_release_sequence(), 1);
+    assert_eq!(installed.guest_release_version(), "2.0.0");
+    for role in GuestArtifactRole::BOOTABLE_ALL {
+        assert_eq!(
+            fs::read(installed.guest_artifact_path(role).expect("guest path"))
+                .expect("read installed guest artifact"),
+            guest_artifacts[&role]
+        );
+    }
+
+    let active = open_verified_installed_bootable_curl_product_release(
+        &install_root,
+        &product_trust,
+        &guest_trust_root(),
+    )
+    .expect("reopen active bootable product");
+    assert_eq!(active.product().release_sequence(), 1);
+    assert_eq!(active.guest().release_sequence(), 1);
+    for role in GuestArtifactRole::BOOTABLE_ALL {
+        assert!(active.guest_artifact_file(role).is_some());
+    }
+    let root_disk_path = installed
+        .guest_artifact_path(GuestArtifactRole::GuestRootDisk)
+        .expect("installed root-disk path");
+    let replacement = root_disk_path.with_extension("replacement");
+    fs::write(&replacement, b"path-replaced-after-open").expect("write replacement");
+    fs::rename(&replacement, &root_disk_path).expect("replace installed path");
+    let mut retained = active
+        .guest_artifact_file(GuestArtifactRole::GuestRootDisk)
+        .expect("retained root-disk handle");
+    retained
+        .seek(SeekFrom::Start(0))
+        .expect("rewind retained root-disk");
+    let mut bytes = Vec::new();
+    retained
+        .read_to_end(&mut bytes)
+        .expect("read retained root-disk");
+    assert_eq!(bytes, guest_artifacts[&GuestArtifactRole::GuestRootDisk]);
+    assert!(open_verified_installed_bootable_curl_product_release(
+        &install_root,
+        &product_trust,
+        &guest_trust_root(),
+    )
+    .is_err());
+}
+
+#[test]
+fn bootable_installer_rejects_guest_drift_before_creating_the_install_root() {
+    let product_source = TestDir::new();
+    let guest_source = TestDir::new();
+    let install_parent = TestDir::new();
+    let install_root = install_parent.path().join("rejected-product");
+    let (product_trust, manifest, signature, product_artifacts) = product_fixture();
+    let guest_artifacts = guest_artifact_bytes();
+    for role in ProductArtifactRole::ALL {
+        fs::write(
+            product_source.path().join(format!("{}.bin", role.as_str())),
+            &product_artifacts[&role],
+        )
+        .expect("write product artifact");
+    }
+    for role in GuestArtifactRole::BOOTABLE_ALL {
+        let bytes = if role == GuestArtifactRole::GuestRootDisk {
+            b"tampered-root-disk".to_vec()
+        } else {
+            guest_artifacts[&role].clone()
+        };
+        fs::write(
+            guest_source.path().join(format!("{}.bin", role.as_str())),
+            bytes,
+        )
+        .expect("write guest artifact");
+    }
+
+    assert!(install_bootable_curl_product_release(
+        &install_root,
+        &manifest,
+        &signature,
+        &product_trust,
+        1,
+        product_source.path(),
+        &guest_trust_root(),
+        1,
+        guest_source.path(),
+    )
+    .is_err());
+    assert!(!install_root.exists());
 }

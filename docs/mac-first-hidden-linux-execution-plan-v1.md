@@ -9,7 +9,7 @@
 > activation authority; code that still enforces the historical chain must be
 > changed by normal TDD before it is used.
 
-> **CURRENT-CURSOR-2026-09-02:** `MAC.4 HANDLE-BOUND HOST-CONTROLLER SPAWN GREEN / INSTALLED MAC AUTHORITY + JOURNAL ENTRYPOINT NEXT`.
+> **CURRENT-CURSOR-2026-09-02:** `MAC.4 BOOTABLE PRODUCT INSTALL + ACTIVE REOPEN GREEN / INSTALLED MAC AUTHORITY + JOURNAL ENTRYPOINT NEXT`.
 > The next coherent development milestone is to start the retained verified
 > host-controller handle without reopening a swappable path, then compose it
 > with the installed Mac replay-service entrypoint. No production, testnet,
@@ -6777,6 +6777,32 @@ and grants no node listener, mining, reward, consensus or activation effect.
 ```text
 MAC.4 HANDLE-BOUND HOST-CONTROLLER SPAWN GREEN
 INSTALLED PATH IS NOT REOPENED / PRIVATE COPY IS REMOVED AFTER PROCESS REAP
+NEXT: INSTALLED MAC AUTHORITY + JOURNAL ENTRYPOINT
+PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
+```
+
+## 94. The curl installer can adopt the complete bootable product (2026-09-02)
+
+The frozen v1 installer still rejects product v2. A separate successor now
+authenticates the product signature domain and all six product roles, then the
+embedded guest signature domain and all twelve bootable guest roles, before it
+creates the install root. It retains every opened handle, copies only those
+handles into one staging tree, and atomically adopts the product and guest as
+one version. Guest drift leaves no install trace.
+
+Runtime reopen follows the same two layers. Durable product state chooses one
+exact version; product and guest manifests, signatures and all eighteen files
+are reverified, and the returned object retains all handles. Replacing a guest
+pathname after reopen cannot change the bytes supplied to the VM owner, while
+a fresh reopen detects the replacement and fails closed.
+
+This enables an installed constructor but does not provide production keys,
+download a release, start a controller or open a listener. Authority and
+journal location remain the next node-owned boundary.
+
+```text
+MAC.4 BOOTABLE PRODUCT INSTALL + ACTIVE REOPEN GREEN
+TWO SIGNATURE DOMAINS / EIGHTEEN RETAINED HANDLES / ONE ATOMIC VERSION
 NEXT: INSTALLED MAC AUTHORITY + JOURNAL ENTRYPOINT
 PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
 ```

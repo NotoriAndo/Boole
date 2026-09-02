@@ -8,7 +8,7 @@
 > PR for every reversible retry. This note grants no A7, production, boot,
 > MAC.4 or activation effect.
 
-> **CURRENT-CURSOR-2026-09-02:** `MAC.4 HANDLE-BOUND HOST-CONTROLLER SPAWN GREEN / INSTALLED MAC AUTHORITY + JOURNAL ENTRYPOINT NEXT`.
+> **CURRENT-CURSOR-2026-09-02:** `MAC.4 BOOTABLE PRODUCT INSTALL + ACTIVE REOPEN GREEN / INSTALLED MAC AUTHORITY + JOURNAL ENTRYPOINT NEXT`.
 > Next is starting the retained verified host-controller handle and wiring an
 > installed Mac replay-service entrypoint. Existing runtime exactly-once and
 > containment contracts remain the acceptance boundary.
@@ -4813,3 +4813,18 @@ arguments are rejected. Graceful shutdown is bounded, while every error and
 drop path kills and reaps the child before removing the private executable.
 Authority selection, durable journal paths and the installed route remain a
 separate next slice. This process owner has no verdict or activation authority.
+
+## MAC.4 atomic bootable-product install and reopen (2026-09-02)
+
+The product-v2 installer verifies the product envelope and six product files,
+then independently authenticates the embedded guest-v2 envelope and twelve
+guest files. All handles remain open until both layers pass. Only then are the
+eighteen files copied into one staging directory and atomically adopted under
+one durable active-product record. Frozen product v1 remains a separate entry
+point and continues to reject v2.
+
+The active bootable reopen authenticates the exact selected product rather than
+a successor, derives the exact guest identity from that product, verifies all
+guest files below the selected version and retains their handles. This is the
+only acceptable source for later VM image and host-controller consumption.
+No trust root or runtime path is inferred from transport input.

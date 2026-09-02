@@ -225,6 +225,12 @@ enum GuestUpdateContract {
     BootableV2,
 }
 
+#[derive(Clone, Copy)]
+enum UpdateVersionExpectation<'a> {
+    Successor(&'a NativeShadowUpdateFloor),
+    ExactActive { release_sequence: u64 },
+}
+
 impl GuestUpdateContract {
     const fn manifest_schema(self) -> &'static str {
         match self {
@@ -430,7 +436,7 @@ pub fn authenticate_staged_native_shadow_update(
         manifest_raw,
         detached_signature_raw,
         trust_root,
-        floor,
+        UpdateVersionExpectation::Successor(floor),
         GuestUpdateContract::FrozenV1,
     )
 }
@@ -449,7 +455,34 @@ pub fn authenticate_staged_bootable_native_shadow_update(
         manifest_raw,
         detached_signature_raw,
         trust_root,
-        floor,
+        UpdateVersionExpectation::Successor(floor),
+        GuestUpdateContract::BootableV2,
+    )
+}
+
+pub(crate) fn authenticate_active_staged_bootable_native_shadow_update(
+    manifest_raw: &[u8],
+    detached_signature_raw: &[u8],
+    trust_root: &NativeShadowUpdateTrustRoot,
+    expected_release_sequence: u64,
+    expected_manifest_sha256: &str,
+) -> Result<AuthenticatedStagedNativeShadowUpdate, NativeShadowUpdateVerifyError> {
+    if expected_release_sequence == 0 {
+        return Err(NativeShadowUpdateVerifyError::VersionChain(
+            "the active guest release sequence must be non-zero".to_string(),
+        ));
+    }
+    require_sha256("active manifest digest", expected_manifest_sha256)?;
+    if hex::encode(Sha256::digest(manifest_raw)) != expected_manifest_sha256 {
+        return Err(NativeShadowUpdateVerifyError::ManifestDigestMismatch);
+    }
+    authenticate_staged_native_shadow_update_for_contract(
+        manifest_raw,
+        detached_signature_raw,
+        trust_root,
+        UpdateVersionExpectation::ExactActive {
+            release_sequence: expected_release_sequence,
+        },
         GuestUpdateContract::BootableV2,
     )
 }
@@ -458,7 +491,7 @@ fn authenticate_staged_native_shadow_update_for_contract(
     manifest_raw: &[u8],
     detached_signature_raw: &[u8],
     trust_root: &NativeShadowUpdateTrustRoot,
-    floor: &NativeShadowUpdateFloor,
+    version_expectation: UpdateVersionExpectation<'_>,
     contract: GuestUpdateContract,
 ) -> Result<AuthenticatedStagedNativeShadowUpdate, NativeShadowUpdateVerifyError> {
     let manifest_value = parse_canonical_json("manifest", manifest_raw, MAX_MANIFEST_BYTES)?;
@@ -498,7 +531,7 @@ fn authenticate_staged_native_shadow_update_for_contract(
 
     let manifest: NativeShadowUpdateManifest = serde_json::from_value(manifest_value)
         .map_err(|error| NativeShadowUpdateVerifyError::Malformed(error.to_string()))?;
-    validate_manifest(&manifest, floor, contract)?;
+    validate_manifest(&manifest, version_expectation, contract)?;
     let descriptors = manifest
         .artifacts
         .into_iter()
@@ -532,7 +565,7 @@ fn parse_canonical_json(
 
 fn validate_manifest(
     manifest: &NativeShadowUpdateManifest,
-    floor: &NativeShadowUpdateFloor,
+    version_expectation: UpdateVersionExpectation<'_>,
     contract: GuestUpdateContract,
 ) -> Result<(), NativeShadowUpdateVerifyError> {
     if manifest.schema != contract.manifest_schema() {
@@ -562,37 +595,49 @@ fn validate_manifest(
     }
     require_safe_identifier("releaseVersion", &manifest.release_version)?;
 
-    match (
-        floor.highest_accepted_sequence,
-        floor.active_manifest_sha256,
-        floor.minimum_first_install_sequence,
-        &manifest.previous_manifest_sha256.0,
-    ) {
-        (0, None, Some(minimum), None) if manifest.release_sequence >= minimum => {}
-        (0, None, Some(_), _) => {
-            return Err(NativeShadowUpdateVerifyError::VersionChain(
-                "candidate is below the pinned first-install minimum (which must be non-zero), or declares a predecessor"
-                    .to_string(),
-            ));
-        }
-        (sequence, Some(active), None, Some(previous)) => {
-            require_sha256("previousManifestSha256", previous)?;
-            if sequence == u64::MAX {
+    match version_expectation {
+        UpdateVersionExpectation::Successor(floor) => match (
+            floor.highest_accepted_sequence,
+            floor.active_manifest_sha256,
+            floor.minimum_first_install_sequence,
+            &manifest.previous_manifest_sha256.0,
+        ) {
+            (0, None, Some(minimum), None) if manifest.release_sequence >= minimum => {}
+            (0, None, Some(_), _) => {
                 return Err(NativeShadowUpdateVerifyError::VersionChain(
-                    "release sequence space exhausted".to_string(),
-                ));
-            }
-            if manifest.release_sequence <= sequence || previous != &active.to_hex() {
-                return Err(NativeShadowUpdateVerifyError::VersionChain(
-                    "candidate must advance the sequence and bind the exact active manifest"
+                    "candidate is below the pinned first-install minimum (which must be non-zero), or declares a predecessor"
                         .to_string(),
                 ));
             }
-        }
-        _ => {
-            return Err(NativeShadowUpdateVerifyError::VersionChain(
-                "update floor is internally inconsistent".to_string(),
-            ));
+            (sequence, Some(active), None, Some(previous)) => {
+                require_sha256("previousManifestSha256", previous)?;
+                if sequence == u64::MAX {
+                    return Err(NativeShadowUpdateVerifyError::VersionChain(
+                        "release sequence space exhausted".to_string(),
+                    ));
+                }
+                if manifest.release_sequence <= sequence || previous != &active.to_hex() {
+                    return Err(NativeShadowUpdateVerifyError::VersionChain(
+                        "candidate must advance the sequence and bind the exact active manifest"
+                            .to_string(),
+                    ));
+                }
+            }
+            _ => {
+                return Err(NativeShadowUpdateVerifyError::VersionChain(
+                    "update floor is internally inconsistent".to_string(),
+                ));
+            }
+        },
+        UpdateVersionExpectation::ExactActive { release_sequence } => {
+            if manifest.release_sequence != release_sequence {
+                return Err(NativeShadowUpdateVerifyError::VersionChain(
+                    "releaseSequence differs from the active guest state".to_string(),
+                ));
+            }
+            if let Some(previous) = &manifest.previous_manifest_sha256.0 {
+                require_sha256("previousManifestSha256", previous)?;
+            }
         }
     }
 

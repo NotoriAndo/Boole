@@ -7,7 +7,7 @@
 > activation boundaries in this specification remain unchanged, and no A7,
 > production, boot, mining or reward authority is created here.
 
-> **CURRENT-CURSOR-2026-09-02:** `MAC.4 HANDLE-BOUND HOST-CONTROLLER SPAWN GREEN / INSTALLED MAC AUTHORITY + JOURNAL ENTRYPOINT NEXT`.
+> **CURRENT-CURSOR-2026-09-02:** `MAC.4 BOOTABLE PRODUCT INSTALL + ACTIVE REOPEN GREEN / INSTALLED MAC AUTHORITY + JOURNAL ENTRYPOINT NEXT`.
 > Next is starting the retained verified host-controller handle and wiring an
 > installed Mac replay-service entrypoint. This cursor is status, not
 > production, testnet, mining, reward, consensus, P2P or activation permission.
@@ -2822,3 +2822,15 @@ This closes executable identity and lifecycle ownership, not the installed Mac
 route. The next constructor must still select the node-owned authority and
 durable journal paths and reverify the guest inputs. No submission, reward,
 consensus, P2P or activation boundary changes here.
+
+### MAC.4 bootable product install and active-reopen addendum (2026-09-02)
+
+The curl product successor now installs one product-v2 and its embedded
+bootable guest-v2 as a single atomic version. Both signature domains and all
+eighteen artifacts pass before any install directory is created; adoption
+copies only retained handles. Active runtime reopen repeats both signature and
+artifact checks and returns retained product and guest handles.
+
+This addendum creates no trust roots or release and starts no VM or node route.
+It only closes the missing installed-byte ownership prerequisite for the next
+Mac authority and journal constructor.

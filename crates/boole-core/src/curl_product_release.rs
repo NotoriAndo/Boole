@@ -373,6 +373,7 @@ impl AuthenticatedCurlProductRelease {
             source_revision: self.source_revision,
             guest_release_sequence: self.guest_release_sequence,
             guest_release_version: self.guest_release_version,
+            guest_manifest_sha256: self.guest_manifest_sha256,
             manifest_sha256: self.manifest_sha256,
             descriptors: self.descriptors,
             verified_files: self.verified_files,
@@ -491,6 +492,7 @@ pub struct VerifiedCurlProductRelease {
     source_revision: String,
     guest_release_sequence: u64,
     guest_release_version: String,
+    guest_manifest_sha256: String,
     manifest_sha256: String,
     descriptors: BTreeMap<ProductArtifactRole, ProductArtifactDescriptor>,
     verified_files: BTreeMap<ProductArtifactRole, File>,
@@ -523,6 +525,10 @@ impl VerifiedCurlProductRelease {
 
     pub fn guest_release_version(&self) -> &str {
         &self.guest_release_version
+    }
+
+    pub fn guest_manifest_sha256(&self) -> &str {
+        &self.guest_manifest_sha256
     }
 
     pub fn manifest_sha256(&self) -> &str {
@@ -574,6 +580,41 @@ pub(crate) fn authenticate_active_curl_product_release(
     expected_release_sequence: u64,
     expected_manifest_sha256: &str,
 ) -> Result<AuthenticatedCurlProductRelease, CurlProductReleaseVerifyError> {
+    authenticate_active_curl_product_release_for_contract(
+        manifest_raw,
+        detached_signature_raw,
+        trust_root,
+        expected_release_sequence,
+        expected_manifest_sha256,
+        ProductReleaseContract::FrozenV1,
+    )
+}
+
+pub(crate) fn authenticate_active_bootable_curl_product_release(
+    manifest_raw: &[u8],
+    detached_signature_raw: &[u8],
+    trust_root: &CurlProductReleaseTrustRoot,
+    expected_release_sequence: u64,
+    expected_manifest_sha256: &str,
+) -> Result<AuthenticatedCurlProductRelease, CurlProductReleaseVerifyError> {
+    authenticate_active_curl_product_release_for_contract(
+        manifest_raw,
+        detached_signature_raw,
+        trust_root,
+        expected_release_sequence,
+        expected_manifest_sha256,
+        ProductReleaseContract::BootableV2,
+    )
+}
+
+fn authenticate_active_curl_product_release_for_contract(
+    manifest_raw: &[u8],
+    detached_signature_raw: &[u8],
+    trust_root: &CurlProductReleaseTrustRoot,
+    expected_release_sequence: u64,
+    expected_manifest_sha256: &str,
+    contract: ProductReleaseContract,
+) -> Result<AuthenticatedCurlProductRelease, CurlProductReleaseVerifyError> {
     if expected_release_sequence == 0 {
         return Err(CurlProductReleaseVerifyError::VersionChain(
             "the active release sequence must be non-zero".to_string(),
@@ -595,7 +636,7 @@ pub(crate) fn authenticate_active_curl_product_release(
         ProductReleaseVersionExpectation::ExactActive {
             release_sequence: expected_release_sequence,
         },
-        ProductReleaseContract::FrozenV1,
+        contract,
     )
 }
 

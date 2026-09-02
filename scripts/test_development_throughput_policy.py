@@ -61,7 +61,7 @@ class DevelopmentThroughputPolicyContract(unittest.TestCase):
                 normalized = " ".join(text.split())
                 self.assertIn("CURRENT-CURSOR-2026-09-02", normalized)
                 self.assertIn(
-                    "MAC.4 HANDLE-BOUND HOST-CONTROLLER SPAWN GREEN",
+                    "MAC.4 BOOTABLE PRODUCT INSTALL + ACTIVE REOPEN GREEN",
                     normalized,
                 )
                 self.assertIn(
