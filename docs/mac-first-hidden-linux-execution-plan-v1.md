@@ -7195,3 +7195,31 @@ DOWNLOAD BYTES LIVE IN A UNIQUE ATTEMPT SIBLING / CALLER PATH UNCHANGED
 NEXT: VERIFIED INSTALLED-RELEASE STATUS + OPERATOR DIAGNOSTICS
 PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
 ```
+
+## 107. Installed release inspection re-authenticates bytes without repairing them (2026-09-03)
+
+`boole product inspect-direct-boot` is the read-only counterpart to the live
+service health command. It strictly opens the durable install state, verifies
+the selected product and guest bytes through the explicitly supplied trust
+roots, and independently verifies the retained rollback generation when one
+exists. Only after those checks succeed does it report the active versions,
+the monotonic product and guest security floors, rollback identity, and counts
+of retained, unreferenced or unrecognized version-store entries.
+
+Inspection takes no mutation lease because the durable state replacement is
+atomic and every state-visible generation remains retained across an update
+or rollback boundary. A concurrent change can cause a typed verification
+failure or a conservative dirty-residue report, but it cannot make an
+unverified generation appear authenticated. The command does not repair
+corrupt bytes, select another generation or delete residue. One
+real-process E2E proves both the healthy rolled-back report and the fail-closed
+response after an active guest artifact is corrupted, with the state file
+byte-identical across both inspections. Trust-root key material is never
+echoed in the result.
+
+```text
+INSPECT = RE-AUTHENTICATE ACTIVE + ROLLBACK / REPORT FLOORS + RESIDUE
+CORRUPT RELEASE = TYPED FAILURE / NO REPAIR / NO STATE CHANGE
+NEXT: CURL-FIRST USER WORKFLOW + RELEASE INPUT PACKAGING
+PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
+```

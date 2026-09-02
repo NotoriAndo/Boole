@@ -338,6 +338,47 @@ fn real_cli_update_rollback_corrupt_recovery_and_reset_preserve_security_state()
     assert_eq!(rollback["result"]["guestReleaseFloorSequence"], 2);
     assert_eq!(rollback["result"]["rollbackReleaseSequence"], 2);
 
+    let state_before_inspect =
+        fs::read(install_root.join(CURL_PRODUCT_INSTALL_STATE_FILE)).expect("state before inspect");
+    let (inspect, inspect_output) = run_cli(&lifecycle_args(
+        "inspect-direct-boot",
+        &install_root,
+        &roots,
+    ));
+    assert!(inspect_output.status.success(), "inspect: {inspect}");
+    assert_eq!(inspect["command"], "product.inspect-direct-boot");
+    assert_eq!(inspect["result"]["activeRelease"]["releaseSequence"], 1);
+    assert_eq!(
+        inspect["result"]["activeRelease"]["guestReleaseSequence"],
+        1
+    );
+    assert_eq!(
+        inspect["result"]["securityFloors"]["productReleaseSequence"],
+        2
+    );
+    assert_eq!(
+        inspect["result"]["securityFloors"]["guestReleaseSequence"],
+        2
+    );
+    assert_eq!(inspect["result"]["rollbackRelease"]["releaseSequence"], 2);
+    assert_eq!(
+        inspect["result"]["rollbackRelease"]["guestReleaseSequence"],
+        2
+    );
+    assert_eq!(inspect["result"]["storage"]["versionDirectoryCount"], 2);
+    assert_eq!(
+        inspect["result"]["storage"]["unreferencedVersionDirectoryCount"],
+        0
+    );
+    assert_eq!(inspect["result"]["storage"]["unexpectedEntryCount"], 0);
+    assert_eq!(inspect["result"]["storage"]["clean"], true);
+    assert_eq!(
+        fs::read(install_root.join(CURL_PRODUCT_INSTALL_STATE_FILE))
+            .expect("state after read-only inspect"),
+        state_before_inspect,
+        "inspection must not mutate durable install state"
+    );
+
     let state_before_replay =
         fs::read(install_root.join(CURL_PRODUCT_INSTALL_STATE_FILE)).expect("state before replay");
     let replay_server = StaticLoopbackServer::start(&second_bundle);
@@ -373,6 +414,28 @@ fn real_cli_update_rollback_corrupt_recovery_and_reset_preserve_security_state()
         .join(GuestArtifactRole::GuestRootDisk.as_str());
     fs::write(&corrupt_path, b"deliberately corrupt active generation")
         .expect("corrupt active generation");
+
+    let corrupt_state_before_inspect =
+        fs::read(install_root.join(CURL_PRODUCT_INSTALL_STATE_FILE)).expect("corrupt state");
+    let (rejected_inspect, rejected_inspect_output) = run_cli(&lifecycle_args(
+        "inspect-direct-boot",
+        &install_root,
+        &roots,
+    ));
+    assert!(
+        !rejected_inspect_output.status.success(),
+        "corrupt release inspected as healthy: {rejected_inspect}"
+    );
+    assert_eq!(
+        rejected_inspect["error"]["reason"],
+        "installed-release-rejected"
+    );
+    assert_eq!(
+        fs::read(install_root.join(CURL_PRODUCT_INSTALL_STATE_FILE))
+            .expect("state after rejected inspect"),
+        corrupt_state_before_inspect,
+        "inspection must not repair or replace a corrupt release"
+    );
 
     let (recovered, recovery_output) = run_cli(&lifecycle_args(
         "recover-direct-boot",

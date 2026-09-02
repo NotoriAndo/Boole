@@ -5051,3 +5051,21 @@ across a competing CLI invocation, checks zero loopback requests and unchanged
 state, then proves the same update succeeds after lease release. This contract
 does not serialize unrelated runtime reset state and grants no production or
 network activation authority.
+
+## Verified installed-product inspection (2026-09-03)
+
+The read-only `product.inspect-direct-boot` command authenticates the active
+product and guest generation and any retained rollback generation from their
+exact installed bytes before emitting status. Its report contains selected
+versions, product and guest anti-rollback floors, and aggregate version-store
+residue counts; it never echoes the supplied trust roots. Unknown entries are
+counted rather than deleted or named.
+
+Inspection does not acquire the mutation lease and performs no repair. Atomic
+state replacement plus retained old/new generations keep a concurrent read
+safe; a race may fail verification or conservatively report storage residue,
+but cannot report an unverified generation as authenticated. A corrupt active
+artifact therefore yields `installed-release-rejected` and leaves the durable
+state byte-identical. This status surface grants no runtime
+start, production, network, mining, reward, consensus, P2P or activation
+authority.

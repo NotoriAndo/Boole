@@ -90,6 +90,7 @@ pub use config::{
     validate_calibration_report, CalibrationPolicy, CalibrationReport, CalibrationThresholds,
 };
 pub use curl_product_install::{
+    inspect_verified_installed_direct_boot_curl_product_release,
     install_bootable_curl_product_release, install_curl_product_release,
     install_direct_boot_curl_product_release,
     open_verified_installed_bootable_curl_product_release,
@@ -98,7 +99,8 @@ pub use curl_product_install::{
     recover_corrupt_installed_direct_boot_curl_product_release,
     rollback_installed_direct_boot_curl_product_release, CurlProductInstallError,
     CurlProductInstallState, InstalledBootableCurlProduct, InstalledCurlProduct,
-    VerifiedInstalledBootableCurlProductRelease, CURL_PRODUCT_INSTALLED_GUEST_DIRECTORY,
+    VerifiedInstalledBootableCurlProductRelease, VerifiedInstalledDirectBootGeneration,
+    VerifiedInstalledDirectBootStatus, CURL_PRODUCT_INSTALLED_GUEST_DIRECTORY,
     CURL_PRODUCT_INSTALLED_MANIFEST_FILE, CURL_PRODUCT_INSTALLED_SIGNATURE_FILE,
     CURL_PRODUCT_INSTALL_STAGING_DIRECTORY, CURL_PRODUCT_INSTALL_STATE_FILE,
     CURL_PRODUCT_INSTALL_STATE_SCHEMA, CURL_PRODUCT_INSTALL_STATE_SCHEMA_V2,
