@@ -29,6 +29,10 @@ pub(crate) const CONTROLLER_FRAME_CAP_BYTES: usize = 524_288;
 const CONTROLLER_FRAME_COUNT_CAP: usize = 3;
 const CONTROLLER_PAYLOAD_CAP_BYTES: usize =
     CONTROLLER_FRAME_COUNT_CAP * (CONTROLLER_FRAME_CAP_BYTES + 4);
+// The Swift owner gives the VM 10 seconds for graceful stop and another 10
+// seconds for bounded forced stop after acknowledging the shutdown command.
+// Keep a small process-exit margin beyond both windows.
+const CONTROLLER_EXIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(25);
 #[cfg(target_os = "macos")]
 const CONTROLLER_FAILURE_DIAGNOSTIC_CAP_BYTES: usize = 32 * 1024;
 const CONTROLLER_CONTRACT_DIGEST: [u8; 32] = [
@@ -601,7 +605,7 @@ impl SpawnedMac4Controller {
             self.kill_and_wait();
             return Err(error);
         }
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + CONTROLLER_EXIT_TIMEOUT;
         loop {
             let Some(child) = self.child.as_mut() else {
                 return Ok(());
@@ -996,6 +1000,14 @@ mod tests {
     use std::io::{Cursor, Write};
     use std::os::unix::fs::PermissionsExt;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn controller_owner_wait_covers_the_hosts_graceful_and_forced_vm_stop_windows() {
+        assert!(
+            super::CONTROLLER_EXIT_TIMEOUT > std::time::Duration::from_secs(20),
+            "the owner must not kill the controller while its 10s graceful + 10s forced VM stop is still bounded"
+        );
+    }
 
     struct FixtureDirectory(std::path::PathBuf);
 

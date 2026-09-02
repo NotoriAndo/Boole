@@ -4900,3 +4900,29 @@ the Unix socket needed to reach the launcher. The current v3 image lane now
 consumes the existing v2 service with both `AF_VSOCK` and `AF_UNIX`, while the
 hash-bound v1/v2 predecessor lanes remain unchanged. No old image is eligible
 as evidence for this correction; a fresh deterministic pair is next.
+
+## Installed Mac E2E: the signed product route passed end to end (2026-09-03)
+
+Run `33652402930` built two byte-identical disposable ARM64 replicas containing
+the bounded launcher-socket startup retry. The real product path authenticated
+and installed four host plus eleven guest roles, reopened retained handles,
+derived the existing one-shot authority, opened the private durable journal,
+qualified one persistent VM controller and exposed the fixed loopback route.
+
+The frozen matrix passed through that installed route: ACCEPT for the real
+answer, deterministic reject for tampered and constant answers, and precheck
+reject for the empty answer. The final controller and node shutdown were clean
+and the runtime directory was empty. The evidence record is
+`native/containment/native-shadow-installed-mac-e2e-result-arm64-v1.json`.
+
+Two bounded harness retries were used under unchanged acceptance. The first
+corrected the harness's stale empty-answer reason code; the second aligned the
+node's 25-second child wait with the controller's existing 10-second graceful
+and 10-second forced VM-stop windows. Neither change altered challenge,
+verdict, authority, containment or activation semantics.
+
+MAC.4 remains partial at the crash boundary. This result did not kill the
+installed node, controller or guest during InFlight and therefore does not yet
+show terminal redelivery without a second checker execution on macOS. That
+installed crash/restart matrix is next. Production, testnet, mining, reward,
+consensus, P2P and activation remain closed.

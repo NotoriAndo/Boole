@@ -10,8 +10,8 @@ mod linux {
     use std::thread;
 
     use boole_native_shadow_mac4_relay::{
-        decode_hello, encode_ready, serve_proxy_connection_with_half_close, GuestReady,
-        FRAME_BYTES, HOST_CID, PROXY_VSOCK_PORT, VSOCK_PORT,
+        decode_hello, encode_ready, retry_startup_connect, serve_proxy_connection_with_half_close,
+        GuestReady, FRAME_BYTES, HOST_CID, PROXY_VSOCK_PORT, VSOCK_PORT,
     };
 
     const AF_VSOCK: i32 = 40;
@@ -23,6 +23,8 @@ mod linux {
     const SO_PEERCRED: i32 = 17;
     const VMADDR_CID_ANY: u32 = u32::MAX;
     const LAUNCHER_SOCKET_PATH: &str = "/run/boole/native-shadow/launcher.sock";
+    const LAUNCHER_CONNECT_ATTEMPTS: usize = 101;
+    const LAUNCHER_CONNECT_RETRY_MILLIS: u64 = 100;
 
     #[repr(C)]
     #[derive(Clone, Copy)]
@@ -299,8 +301,16 @@ mod linux {
     fn serve_execution_proxy(connection: &mut Descriptor) -> io::Result<()> {
         set_timeout(connection, SO_RCVTIMEO, 120)?;
         set_timeout(connection, SO_SNDTIMEO, 120)?;
-        let mut launcher = UnixStream::connect(LAUNCHER_SOCKET_PATH)
-            .map_err(|error| io::Error::new(error.kind(), format!("connect launcher: {error}")))?;
+        let mut launcher = retry_startup_connect(
+            || UnixStream::connect(LAUNCHER_SOCKET_PATH),
+            LAUNCHER_CONNECT_ATTEMPTS,
+            || {
+                thread::sleep(std::time::Duration::from_millis(
+                    LAUNCHER_CONNECT_RETRY_MILLIS,
+                ));
+            },
+        )
+        .map_err(|error| io::Error::new(error.kind(), format!("connect launcher: {error}")))?;
         launcher.set_read_timeout(Some(std::time::Duration::from_secs(120)))?;
         launcher.set_write_timeout(Some(std::time::Duration::from_secs(120)))?;
         let (pid, uid, gid) = launcher_peer(&launcher)?;

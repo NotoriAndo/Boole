@@ -38,7 +38,7 @@ EXPECTED_CASE_RESULTS = {
     "accepted": (200, "accepted", "accepted"),
     "tampered": (200, "deterministic_reject", "checker_rejected"),
     "constant": (200, "deterministic_reject", "checker_rejected"),
-    "empty": (400, "precheck_reject", "empty_response"),
+    "empty": (400, "precheck_reject", "intake_rejected"),
 }
 
 PRODUCT_ARTIFACT_ROLES = {

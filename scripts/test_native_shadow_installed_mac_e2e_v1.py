@@ -45,7 +45,7 @@ class InstalledMacCaseMatrixTests(unittest.TestCase):
                         "reasonCode": "checker_rejected",
                     },
                 ),
-                (400, {"outcome": "precheck_reject", "reasonCode": "empty_response"}),
+                (400, {"outcome": "precheck_reject", "reasonCode": "intake_rejected"}),
             ]
         )
 
@@ -222,7 +222,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
           0: (200, 'accepted', 'accepted'),
           1: (200, 'deterministic_reject', 'checker_rejected'),
           2: (200, 'deterministic_reject', 'checker_rejected'),
-          3: (400, 'precheck_reject', 'empty_response'),
+          3: (400, 'precheck_reject', 'intake_rejected'),
         }
         status, outcome, reason = rows[epoch]
         body = json.dumps({'outcome': outcome, 'reasonCode': reason}).encode()
@@ -275,7 +275,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *args): pass
     def do_POST(self):
         size = int(self.headers['Content-Length']); epoch = json.loads(self.rfile.read(size))['epoch']
-        rows = {0:(200,'accepted','accepted'),1:(200,'deterministic_reject','checker_rejected'),2:(200,'deterministic_reject','checker_rejected'),3:(400,'precheck_reject','empty_response')}
+        rows = {0:(200,'accepted','accepted'),1:(200,'deterministic_reject','checker_rejected'),2:(200,'deterministic_reject','checker_rejected'),3:(400,'precheck_reject','intake_rejected')}
         status, outcome, reason = rows[epoch]; body = json.dumps({'outcome':outcome,'reasonCode':reason}).encode()
         self.send_response(status); self.send_header('Content-Type','application/json'); self.send_header('Content-Length',str(len(body))); self.end_headers(); self.wfile.write(body)
 server=http.server.ThreadingHTTPServer(('127.0.0.1',8082),Handler)
