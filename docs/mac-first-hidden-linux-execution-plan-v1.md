@@ -9,11 +9,11 @@
 > activation authority; code that still enforces the historical chain must be
 > changed by normal TDD before it is used.
 
-> **CURRENT-CURSOR-2026-09-02:** `MAC.4 RETAINED GUEST AUTHORITY + PRIVATE JOURNAL OPENER GREEN / HANDLE-BOUND BOOT INPUTS NEXT`.
-> The next coherent development milestone is to materialize the verified
-> kernel and root-disk handles into the controller's private runtime and remove
-> caller-selected boot paths from the installed route. No production, testnet,
-> mining, reward, consensus, P2P or activation run is authorized by this cursor.
+> **CURRENT-CURSOR-2026-09-02:** `MAC.4 INSTALLED MAC REPLAY ENTRYPOINT GREEN / BOOTABLE CURL TRANSPORT + CLOSED-LOCAL E2E NEXT`.
+> The next coherent milestone is downloading the already-defined signed
+> bootable bundle into the atomic installer, then exercising this loopback-only
+> route end to end. No production, testnet, mining, reward, consensus, P2P or
+> activation run is authorized by this cursor.
 
 Status: **MAC.0 COMPLETE (closed-local Linux baseline, 2026-08-24, section 9);
 MAC.1-PARTIAL — CURL-FIRST MODE FROZEN; UPDATE TRUST POLICY AND MEASUREMENT PROTOCOL OPEN
@@ -6830,5 +6830,33 @@ retained-handle materialization already applied to the controller executable.
 MAC.4 RETAINED GUEST AUTHORITY + PRIVATE JOURNAL OPENER GREEN
 NO AUTHORITY PATH REOPEN / SAME ONE-SHOT GRANT / SAME DURABLE LOCK
 NEXT: HANDLE-BOUND BOOT INPUTS
+PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
+```
+
+## 96. The installed Mac route owns verified boot bytes and node state (2026-09-02)
+
+The Mac controller now copies its kernel and read-only root disk from the
+active product's retained verified handles into the same private runtime used
+for the verified controller executable. Copying rechecks signed length and
+SHA-256, syncs the files and fixes them at mode 0400. The node derives the boot
+tuple from all three signed image digests and constructs every VM argument;
+callers cannot substitute a kernel or disk pathname.
+
+The installed Mac entrypoint reopens both product and guest signature domains,
+derives the replay authority from eight retained guest handles, opens the
+pre-provisioned private journal, performs recovery, starts one persistent VM,
+qualifies the same launcher identity and exposes only the existing fixed
+loopback adjudication route. Unresolved durable InFlight state still fails
+closed after the startup cleanup/readiness barrier.
+
+A dedicated macOS binary accepts only explicit install, runtime, journal and
+public trust-root inputs. It does not infer trust from a URL or carry a built-in
+production key. This is a completed construction path, not a production or
+testnet activation and not yet an end-to-end installed-bundle run.
+
+```text
+MAC.4 INSTALLED MAC REPLAY ENTRYPOINT GREEN
+VERIFIED CONTROLLER + KERNEL + ROOT DISK / NODE-OWNED JOURNAL + VERDICT
+NEXT: BOOTABLE CURL TRANSPORT + CLOSED-LOCAL E2E
 PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
 ```

@@ -61,10 +61,10 @@ class DevelopmentThroughputPolicyContract(unittest.TestCase):
                 normalized = " ".join(text.split())
                 self.assertIn("CURRENT-CURSOR-2026-09-02", normalized)
                 self.assertIn(
-                    "MAC.4 RETAINED GUEST AUTHORITY + PRIVATE JOURNAL OPENER GREEN",
+                    "MAC.4 INSTALLED MAC REPLAY ENTRYPOINT GREEN",
                     normalized,
                 )
-                self.assertIn("HANDLE-BOUND BOOT INPUTS NEXT", normalized)
+                self.assertIn("BOOTABLE CURL TRANSPORT + CLOSED-LOCAL E2E NEXT", normalized)
 
     def test_lessons_are_advisory_until_promoted(self) -> None:
         text = read(ROOT / "tasks/lessons.md")

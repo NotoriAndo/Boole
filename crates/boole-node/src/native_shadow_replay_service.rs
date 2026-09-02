@@ -5,6 +5,8 @@
 //! dependency.
 
 use std::future::Future;
+#[cfg(target_os = "macos")]
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -39,6 +41,53 @@ const LAUNCHER_CONNECT_TIMEOUT: Duration = Duration::from_secs(1);
 const LAUNCHER_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 #[cfg(any(target_os = "linux", target_os = "macos", test))]
 const LAUNCHER_EXECUTION_TIMEOUT: Duration = Duration::from_secs(115);
+
+/// Explicit inputs for the installed Mac closed-local replay route.
+///
+/// No trust root or mutable path is inferred from a download URL. The state
+/// and runtime parents must be provisioned privately before startup.
+#[cfg(target_os = "macos")]
+#[derive(Debug, Clone)]
+pub struct InstalledMacReplayConfig {
+    install_root: PathBuf,
+    runtime_root: PathBuf,
+    journal_path: PathBuf,
+    product_trust_root: boole_core::CurlProductReleaseTrustRoot,
+    guest_trust_root: boole_core::NativeShadowUpdateTrustRoot,
+    expected_uid: u32,
+    expected_gid: u32,
+}
+
+#[cfg(target_os = "macos")]
+impl InstalledMacReplayConfig {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        install_root: PathBuf,
+        runtime_root: PathBuf,
+        journal_path: PathBuf,
+        product_trust_root: boole_core::CurlProductReleaseTrustRoot,
+        guest_trust_root: boole_core::NativeShadowUpdateTrustRoot,
+        expected_uid: u32,
+        expected_gid: u32,
+    ) -> anyhow::Result<Self> {
+        anyhow::ensure!(install_root.is_absolute(), "install root must be absolute");
+        anyhow::ensure!(runtime_root.is_absolute(), "runtime root must be absolute");
+        anyhow::ensure!(journal_path.is_absolute(), "journal path must be absolute");
+        anyhow::ensure!(
+            journal_path.parent().is_some(),
+            "journal path must have a private parent"
+        );
+        Ok(Self {
+            install_root,
+            runtime_root,
+            journal_path,
+            product_trust_root,
+            guest_trust_root,
+            expected_uid,
+            expected_gid,
+        })
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BodyReadFailure {
@@ -617,6 +666,27 @@ fn mac4_runtime_authorities_from_active_product(
     .map_err(Into::into)
 }
 
+#[cfg(target_os = "macos")]
+fn mac4_qualification_hello_frame(
+    installed: &boole_native_shadow_protocol::installed_authority::VerifiedClosedLocalReplayExecutionAuthorities,
+) -> anyhow::Result<Vec<u8>> {
+    use boole_native_shadow_protocol::{encode_qualification_hello_frame, QualificationHello};
+
+    let hello = QualificationHello::try_new(
+        fresh_nonce_hex()?,
+        installed
+            .execution_authority()
+            .base_execution_policy_sha256()
+            .to_string(),
+        sha256_hex(boole_native_shadow_protocol::TRACKED_TOOLCHAIN_IDENTITY_BYTES),
+        installed
+            .grant()
+            .production_registry_digest_hex()
+            .to_string(),
+    )?;
+    encode_qualification_hello_frame(&hello).map_err(Into::into)
+}
+
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 impl ReplayAuthority for InstalledReplayAuthority {
     type CheckerPrepared = boole_native_shadow_protocol::VerifiedClosedLocalReplayPreparedCase;
@@ -668,7 +738,7 @@ impl ReplayAuthority for InstalledReplayAuthority {
                 submission_source_digest_hex: source.digest_hex(),
             })
             .map_err(|_| "grant_case_mismatch")?;
-        let nonce_hex = linux_fresh_nonce_hex().map_err(|_| "nonce_unavailable")?;
+        let nonce_hex = fresh_nonce_hex().map_err(|_| "nonce_unavailable")?;
         let request = prepared
             .build_execution_request(
                 &nonce_hex,
@@ -1185,7 +1255,7 @@ mod installed_launcher_transport {
 
 #[cfg(target_os = "linux")]
 #[allow(unsafe_code)]
-fn linux_fresh_nonce_hex() -> std::io::Result<String> {
+fn fresh_nonce_hex() -> std::io::Result<String> {
     let mut bytes = [0_u8; 32];
     // SAFETY: `bytes` is writable for exactly its live 32-byte extent. The
     // kernel neither retains the pointer nor aliases a Rust reference.
@@ -1199,6 +1269,19 @@ fn linux_fresh_nonce_hex() -> std::io::Result<String> {
             std::io::ErrorKind::UnexpectedEof,
             format!("getrandom returned {actual} bytes instead of 32"),
         ));
+    }
+    Ok(hex::encode(bytes))
+}
+
+#[cfg(target_os = "macos")]
+#[allow(unsafe_code)]
+fn fresh_nonce_hex() -> std::io::Result<String> {
+    let mut bytes = [0_u8; 32];
+    // SAFETY: `bytes` is writable for exactly its live 32-byte extent. The
+    // kernel neither retains the pointer nor aliases a Rust reference.
+    let status = unsafe { libc::getentropy(bytes.as_mut_ptr().cast(), bytes.len()) };
+    if status != 0 {
+        return Err(std::io::Error::last_os_error());
     }
     Ok(hex::encode(bytes))
 }
@@ -2043,9 +2126,112 @@ pub async fn serve_installed_closed_local_native_shadow_replay() -> anyhow::Resu
     Ok(())
 }
 
+/// Serve the same durable closed-local adjudication route on macOS through
+/// the installed, signed bootable product and one persistent private VM.
+#[cfg(target_os = "macos")]
+pub async fn serve_installed_mac_closed_local_native_shadow_replay(
+    config: InstalledMacReplayConfig,
+) -> anyhow::Result<()> {
+    use boole_core::open_verified_installed_bootable_curl_product_release;
+
+    let active = open_verified_installed_bootable_curl_product_release(
+        &config.install_root,
+        &config.product_trust_root,
+        &config.guest_trust_root,
+    )?;
+    let installed = mac4_runtime_authorities_from_active_product(&active)?;
+    anyhow::ensure!(
+        installed.grant().loopback_only()
+            && !installed.grant().p2p_allowed()
+            && !installed.grant().consensus_allowed()
+            && !installed.grant().reward_allowed()
+            && !installed.grant().mineable_now()
+            && !installed.grant().activation_allowed()
+            && installed.grant().non_issuable(),
+        "closed-local Mac replay refuses any issuance, P2P, consensus, reward or activation authority"
+    );
+    let registry_version = installed.grant().registry_version().to_string();
+    let registry_digest = installed.grant().registry_digest_hex().to_string();
+    let production_registry_digest = installed
+        .grant()
+        .production_registry_digest_hex()
+        .to_string();
+    let execution_policy_digest =
+        crate::native_shadow::NativeShadowExecutionPolicyDigest::try_from(
+            installed
+                .execution_authority()
+                .base_execution_policy_sha256(),
+        )
+        .map_err(anyhow::Error::msg)?;
+    let mut journal_authority = NativeShadowJournalAuthority::open_prepared_production(
+        &config.journal_path,
+        config.expected_uid,
+        config.expected_gid,
+    )?;
+    let recovery = crate::native_shadow::recover_verified_closed_local_replay_state(
+        &registry_version,
+        &registry_digest,
+        &execution_policy_digest,
+        &mut journal_authority,
+    )?;
+    recovery
+        .attempts
+        .validate_against_closed_local_grant(installed.grant(), &execution_policy_digest)?;
+
+    let controller =
+        crate::native_shadow_mac4_controller::SpawnedMac4Controller::spawn_bootable_product(
+            &active,
+            &config.runtime_root,
+        )?;
+    let qualification_hello = mac4_qualification_hello_frame(&installed)?;
+    let controller_client = controller.client();
+    let (readiness, launcher) = qualify_and_validate_before_recovery_refusal(
+        &recovery.stuck_in_flight,
+        || {
+            qualify_mac4_controller(controller_client, &qualification_hello)
+                .map_err(anyhow::Error::msg)
+        },
+        |(readiness, _)| {
+            anyhow::ensure!(
+                readiness.registry_digest_hex() == production_registry_digest,
+                "qualified Mac launcher registry digest differs from the installed replay grant"
+            );
+            anyhow::ensure!(
+                readiness.execution_policy_digest_hex() == execution_policy_digest.as_str(),
+                "qualified Mac launcher execution-policy digest differs from the installed replay authority"
+            );
+            anyhow::ensure!(
+                readiness.toolchain_identity_digest_hex()
+                    == sha256_hex(boole_native_shadow_protocol::TRACKED_TOOLCHAIN_IDENTITY_BYTES),
+                "qualified Mac launcher toolchain digest differs from the installed replay authority"
+            );
+            Ok(())
+        },
+    )?;
+    debug_assert_eq!(readiness.registry_digest_hex(), production_registry_digest);
+    let service = Arc::new(ClosedLocalReplayService {
+        replay_authority: InstalledReplayAuthority::new(installed),
+        launcher,
+        execution_gate: Arc::new(NativeShadowExecutionGate::new()),
+        journal: Mutex::new(ReplayJournalState {
+            authority: journal_authority,
+            store: recovery.store,
+            exhaustion: recovery.exhaustion_ledger,
+            attempts: recovery.attempts,
+        }),
+        poisoned: Arc::new(AtomicBool::new(false)),
+    });
+    let listener = tokio::net::TcpListener::bind(fixed_http_listener_address()).await?;
+    let serve_result = axum::serve(listener, build_router(service)).await;
+    let shutdown_result = controller.shutdown();
+    serve_result?;
+    shutdown_result?;
+    Ok(())
+}
+
 #[cfg(not(target_os = "linux"))]
 pub async fn serve_installed_closed_local_native_shadow_replay() -> anyhow::Result<()> {
-    anyhow::bail!("closed-local native-shadow replay requires Linux")
+    anyhow::bail!("the no-argument closed-local replay entrypoint requires Linux")
 }
 
 #[cfg(test)]
@@ -2059,6 +2245,32 @@ mod tests {
     use tower::ServiceExt;
 
     use crate::native_shadow::NativeShadowExecutionPolicyDigest;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn installed_mac_entrypoint_refuses_relative_mutable_roots() {
+        let product = boole_core::CurlProductReleaseTrustRoot::new(
+            "product-root",
+            "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        )
+        .expect("product trust root");
+        let guest = boole_core::NativeShadowUpdateTrustRoot::new(
+            "guest-root",
+            "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        )
+        .expect("guest trust root");
+        let error = InstalledMacReplayConfig::new(
+            "relative-install".into(),
+            "/private/runtime".into(),
+            "/private/state/journal.jsonl".into(),
+            product,
+            guest,
+            501,
+            20,
+        )
+        .expect_err("relative install root is rejected");
+        assert!(error.to_string().contains("install root must be absolute"));
+    }
 
     #[derive(Debug)]
     struct TestRequest {

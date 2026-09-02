@@ -7,10 +7,11 @@
 > activation boundaries in this specification remain unchanged, and no A7,
 > production, boot, mining or reward authority is created here.
 
-> **CURRENT-CURSOR-2026-09-02:** `MAC.4 RETAINED GUEST AUTHORITY + PRIVATE JOURNAL OPENER GREEN / HANDLE-BOUND BOOT INPUTS NEXT`.
-> Next is materializing verified guest boot handles into the private controller
-> runtime before wiring the installed Mac replay-service entrypoint. This cursor is status, not
-> production, testnet, mining, reward, consensus, P2P or activation permission.
+> **CURRENT-CURSOR-2026-09-02:** `MAC.4 INSTALLED MAC REPLAY ENTRYPOINT GREEN / BOOTABLE CURL TRANSPORT + CLOSED-LOCAL E2E NEXT`.
+> Next is carrying the signed bootable bundle through curl transport and the
+> atomic installer, then running this node-owned route closed-locally. This
+> cursor is status, not production, testnet, mining, reward, consensus, P2P or
+> activation permission.
 
 Status: **CLOSED-LOCAL QUALIFICATION GREEN — tracked checker, named-Linux containment, loopback
 node raw-answer HTTP adjudication and durable replay landed; production activation, P2P, block,
@@ -2842,3 +2843,13 @@ active release's retained authority handles. It does not reopen guest artifact
 paths. The existing production journal checks are also available for an
 already-provisioned user-owned 0700 directory and a single locked 0600 journal.
 No route or VM is started; verified boot inputs remain the next boundary.
+
+### MAC.4 installed Mac replay entrypoint addendum (2026-09-02)
+
+The active product's retained controller, kernel and root-disk handles now feed
+one private controller runtime without reopening their installed paths. The
+node constructs the boot arguments, recovers and locks its durable journal,
+qualifies the persistent guest launcher and opens only the existing fixed
+loopback submission route. All verdict, replay and terminal evidence decisions
+remain host-owned, while the signed grant continues to forbid issuance,
+mining, reward, consensus, P2P and activation effects.

@@ -8,10 +8,10 @@
 > PR for every reversible retry. This note grants no A7, production, boot,
 > MAC.4 or activation effect.
 
-> **CURRENT-CURSOR-2026-09-02:** `MAC.4 RETAINED GUEST AUTHORITY + PRIVATE JOURNAL OPENER GREEN / HANDLE-BOUND BOOT INPUTS NEXT`.
-> Next is materializing verified kernel and root-disk handles before wiring the
-> installed Mac replay-service entrypoint. Existing runtime exactly-once and
-> containment contracts remain the acceptance boundary.
+> **CURRENT-CURSOR-2026-09-02:** `MAC.4 INSTALLED MAC REPLAY ENTRYPOINT GREEN / BOOTABLE CURL TRANSPORT + CLOSED-LOCAL E2E NEXT`.
+> Next is carrying the signed bootable bundle through curl transport and the
+> atomic installer, then running this node-owned route closed-locally. Existing
+> runtime exactly-once and containment contracts remain the acceptance boundary.
 
 Status: **CLOSED-LOCAL IMPLEMENTATION GREEN.** Registry/state durability, named-Linux containment,
 actual checker execution and the feature-gated loopback HTTP route are on `main`. Production
@@ -4842,3 +4842,20 @@ path whose parent was provisioned beforehand. No directory creation or repair
 occurs: uid, gid, 0700 parent, 0600 regular journal, link count one, stable
 inode and exclusive lifetime lock remain mandatory. Boot inputs and listener
 ownership are deliberately not claimed by this slice.
+
+## MAC.4 installed Mac replay entrypoint (2026-09-02)
+
+The active product's retained controller, kernel and root-disk handles are the
+only executable and boot inputs. Each is streamed into one private runtime
+while its signed length and digest are rechecked; the kernel and disk become
+0400 files, the controller becomes 0500, and the VM argument vector is created
+inside the node. The boot binding includes kernel, initrd and root-disk signed
+digests even though the direct Linux loader consumes only kernel and disk.
+
+Startup explicitly reopens both trust domains, derives all runtime authority
+from retained guest handles, obtains the existing strict journal lock, recovers
+durable state and qualifies one persistent controller before the fixed
+127.0.0.1 adjudication listener opens. The guest still owns no challenge,
+journal, replay, terminal evidence or verdict. The entrypoint rejects all
+issuance, mining, reward, consensus, P2P and activation authority and requires
+caller-provisioned 0700 runtime and journal parents.
