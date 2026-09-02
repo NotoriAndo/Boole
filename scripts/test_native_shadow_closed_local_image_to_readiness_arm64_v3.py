@@ -70,7 +70,7 @@ class ClosedLocalImageIsolatedCliSuccessorTests(unittest.TestCase):
     def test_manual_workflow_rebuilds_the_sealed_launcher_from_its_historical_tree(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn(
-            "ref: 94b2a15500bf1e8f8f2c2797e9e37381ea8ce1a3",
+            "ref: ff7982e9fd4583a4a7dd22825f647cea170cc3fe",
             workflow,
         )
         self.assertIn("path: _historical-launcher-v2", workflow)

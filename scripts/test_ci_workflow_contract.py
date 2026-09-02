@@ -1362,9 +1362,10 @@ class NativeShadowArm64LauncherBuildWorkflowContractTest(unittest.TestCase):
         )
         self.assertIn("toolchain: 1.95.0", job)
         self.assertIn(
-            "ref: 94b2a15500bf1e8f8f2c2797e9e37381ea8ce1a3",
+            "ref: ff7982e9fd4583a4a7dd22825f647cea170cc3fe",
             job,
-            "launcher v2 must be re-proved from the commit that sealed it",
+            "launcher v2 must be re-proved from the historical generation "
+            "that contains both its sealed source and emitter",
         )
 
     def test_successor_launcher_build_executes_the_frozen_double_build(self):

@@ -38,7 +38,7 @@ jobs:
       - name: Checkout the sealed launcher v2 source generation
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
-          ref: 94b2a15500bf1e8f8f2c2797e9e37381ea8ce1a3
+          ref: ff7982e9fd4583a4a7dd22825f647cea170cc3fe
           path: _historical-launcher-v2
           fetch-depth: 1
           fetch-tags: false
