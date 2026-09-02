@@ -13,10 +13,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
-use boole_core::{
-    open_verified_installed_direct_boot_curl_product_release, CurlProductReleaseTrustRoot,
-    NativeShadowUpdateTrustRoot, ProductArtifactRole,
-};
+use boole_core::{CurlProductReleaseTrustRoot, NativeShadowUpdateTrustRoot};
 use sha2::{Digest, Sha256};
 
 const HOST_NODE_BASENAME: &str = "boole-mac-native-shadow-replay-node";
@@ -375,13 +372,13 @@ pub fn run_installed_direct_boot_product(
     use std::os::unix::process::CommandExt;
 
     let plan = plan_installed_mac_lifecycle(state_root)?;
-    let active = open_verified_installed_direct_boot_curl_product_release(
+    let active = boole_core::open_verified_installed_direct_boot_curl_product_release(
         install_root,
         product_trust_root,
         guest_trust_root,
     )
     .map_err(|error| InstalledProductLifecycleError::Verify(error.to_string()))?;
-    let role = ProductArtifactRole::HostNode;
+    let role = boole_core::ProductArtifactRole::HostNode;
     let source = active.product().artifact_file(role).ok_or_else(|| {
         InstalledProductLifecycleError::Verify("active product lacks host-node handle".to_string())
     })?;
