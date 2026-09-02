@@ -9,11 +9,11 @@
 > activation authority; code that still enforces the historical chain must be
 > changed by normal TDD before it is used.
 
-> **CURRENT-CURSOR-2026-09-02:** `MAC.4 PERSISTENT CONTROLLER PROTOCOL + NODE REPLAY COMPOSITION GREEN / VERIFIED PROCESS SPAWN + INSTALLED MAC ROUTE NEXT`.
-> The next coherent development milestone is to start the verified
-> host-controller artifact as one child process and compose it with the
-> installed Mac replay-service entrypoint. No production, testnet, mining,
-> reward, consensus, P2P or activation run is authorized by this cursor.
+> **CURRENT-CURSOR-2026-09-02:** `MAC.4 VERIFIED ACTIVE RELEASE REOPEN GREEN / HANDLE-BOUND HOST-CONTROLLER SPAWN + INSTALLED MAC ROUTE NEXT`.
+> The next coherent development milestone is to start the retained verified
+> host-controller handle without reopening a swappable path, then compose it
+> with the installed Mac replay-service entrypoint. No production, testnet,
+> mining, reward, consensus, P2P or activation run is authorized by this cursor.
 
 Status: **MAC.0 COMPLETE (closed-local Linux baseline, 2026-08-24, section 9);
 MAC.1-PARTIAL — CURL-FIRST MODE FROZEN; UPDATE TRUST POLICY AND MEASUREMENT PROTOCOL OPEN
@@ -6534,6 +6534,28 @@ reward, consensus, P2P or activation authority.
 FIFTH ARM64 REPLICA PAIR BYTE-IDENTICAL / CLOSED MAC READINESS PASS
 EXACT LAUNCHER + 9 PREREQUISITES + ROOT SUPERVISOR + FAILED UNITS 0
 NEXT: MAC.4 HOST-GUEST AUTHENTICATED CHANNEL, STILL CLOSED-LOCAL
+PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
+```
+
+## 92. The active installed release is reverified before runtime use (2026-09-02)
+
+The durable install state now selects exactly one active version directory.
+Runtime reopening reads its stored manifest and signature within fixed caps,
+authenticates the exact active sequence and manifest digest, checks the state
+version and directory identity, and streams all six installed artifacts
+through the signed size and SHA-256 contract again.
+
+Success retains the exact open artifact handles. Replacing an artifact path
+after verification does not change the bytes visible through those handles;
+tampered bytes, a forged signature, a corrupt state or a directory mismatch
+fail closed. This closes runtime release re-verification only. Starting the
+controller from its retained handle and selecting installed authority/journal
+paths remain next.
+
+```text
+MAC.4 VERIFIED ACTIVE RELEASE REOPEN GREEN / ALL SIX ARTIFACTS RECHECKED
+RUNTIME CONSUMER RECEIVES RETAINED VERIFIED HANDLES / PATH SWAP DOES NOT FOLLOW
+NEXT: HANDLE-BOUND HOST-CONTROLLER SPAWN + INSTALLED MAC REPLAY-SERVICE ENTRYPOINT
 PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
 ```
 

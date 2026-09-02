@@ -210,6 +210,11 @@ enum ProductReleaseContract {
     BootableV2,
 }
 
+enum ProductReleaseVersionExpectation<'a> {
+    Successor(&'a CurlProductReleaseFloor),
+    ExactActive { release_sequence: u64 },
+}
+
 impl ProductReleaseContract {
     const fn manifest_schema(self) -> &'static str {
         match self {
@@ -255,6 +260,14 @@ pub struct AuthenticatedCurlProductRelease {
 }
 
 impl AuthenticatedCurlProductRelease {
+    pub fn release_sequence(&self) -> u64 {
+        self.release_sequence
+    }
+
+    pub fn release_version(&self) -> &str {
+        &self.release_version
+    }
+
     pub fn artifact_file_name(&self, role: ProductArtifactRole) -> Option<&str> {
         self.descriptors
             .get(&role)
@@ -549,7 +562,39 @@ pub fn authenticate_curl_product_release(
         manifest_raw,
         detached_signature_raw,
         trust_root,
-        floor,
+        ProductReleaseVersionExpectation::Successor(floor),
+        ProductReleaseContract::FrozenV1,
+    )
+}
+
+pub(crate) fn authenticate_active_curl_product_release(
+    manifest_raw: &[u8],
+    detached_signature_raw: &[u8],
+    trust_root: &CurlProductReleaseTrustRoot,
+    expected_release_sequence: u64,
+    expected_manifest_sha256: &str,
+) -> Result<AuthenticatedCurlProductRelease, CurlProductReleaseVerifyError> {
+    if expected_release_sequence == 0 {
+        return Err(CurlProductReleaseVerifyError::VersionChain(
+            "the active release sequence must be non-zero".to_string(),
+        ));
+    }
+    let expected_manifest_sha256 = Hex32::from_hex(expected_manifest_sha256).map_err(|_| {
+        CurlProductReleaseVerifyError::Malformed(
+            "active manifest digest must be lowercase SHA-256".to_string(),
+        )
+    })?;
+    let observed_manifest_sha256 = Hex32::from_bytes(Sha256::digest(manifest_raw).into());
+    if observed_manifest_sha256 != expected_manifest_sha256 {
+        return Err(CurlProductReleaseVerifyError::ManifestDigestMismatch);
+    }
+    authenticate_curl_product_release_for_contract(
+        manifest_raw,
+        detached_signature_raw,
+        trust_root,
+        ProductReleaseVersionExpectation::ExactActive {
+            release_sequence: expected_release_sequence,
+        },
         ProductReleaseContract::FrozenV1,
     )
 }
@@ -567,7 +612,7 @@ pub fn authenticate_bootable_curl_product_release(
         manifest_raw,
         detached_signature_raw,
         trust_root,
-        floor,
+        ProductReleaseVersionExpectation::Successor(floor),
         ProductReleaseContract::BootableV2,
     )
 }
@@ -576,7 +621,7 @@ fn authenticate_curl_product_release_for_contract(
     manifest_raw: &[u8],
     detached_signature_raw: &[u8],
     trust_root: &CurlProductReleaseTrustRoot,
-    floor: &CurlProductReleaseFloor,
+    version_expectation: ProductReleaseVersionExpectation<'_>,
     contract: ProductReleaseContract,
 ) -> Result<AuthenticatedCurlProductRelease, CurlProductReleaseVerifyError> {
     let manifest_value = parse_canonical_json(
@@ -620,7 +665,7 @@ fn authenticate_curl_product_release_for_contract(
 
     let manifest: CurlProductReleaseManifest = serde_json::from_value(manifest_value)
         .map_err(|error| CurlProductReleaseVerifyError::Malformed(error.to_string()))?;
-    validate_manifest(&manifest, floor, contract)?;
+    validate_manifest(&manifest, version_expectation, contract)?;
     let descriptors = manifest
         .artifacts
         .into_iter()
@@ -642,7 +687,7 @@ fn authenticate_curl_product_release_for_contract(
 
 fn validate_manifest(
     manifest: &CurlProductReleaseManifest,
-    floor: &CurlProductReleaseFloor,
+    version_expectation: ProductReleaseVersionExpectation<'_>,
     contract: ProductReleaseContract,
 ) -> Result<(), CurlProductReleaseVerifyError> {
     if manifest.schema != contract.manifest_schema() {
@@ -675,37 +720,51 @@ fn validate_manifest(
     require_safe_identifier("guestReleaseVersion", &manifest.guest_release_version)?;
     require_sha256("guestManifestSha256", &manifest.guest_manifest_sha256)?;
 
-    match (
-        floor.highest_accepted_sequence,
-        floor.active_manifest_sha256,
-        floor.minimum_first_install_sequence,
-        &manifest.previous_manifest_sha256.0,
-    ) {
-        (0, None, Some(minimum), None) if manifest.release_sequence >= minimum => {}
-        (0, None, Some(_), _) => {
-            return Err(CurlProductReleaseVerifyError::VersionChain(
-                "candidate is below the pinned first-install minimum (which must be non-zero), or declares a predecessor"
-                    .to_string(),
-            ));
+    match version_expectation {
+        ProductReleaseVersionExpectation::Successor(floor) => {
+            match (
+                floor.highest_accepted_sequence,
+                floor.active_manifest_sha256,
+                floor.minimum_first_install_sequence,
+                &manifest.previous_manifest_sha256.0,
+            ) {
+                (0, None, Some(minimum), None) if manifest.release_sequence >= minimum => {}
+                (0, None, Some(_), _) => {
+                    return Err(CurlProductReleaseVerifyError::VersionChain(
+                        "candidate is below the pinned first-install minimum (which must be non-zero), or declares a predecessor"
+                            .to_string(),
+                    ));
+                }
+                (sequence, Some(active), None, Some(previous)) => {
+                    require_sha256("previousManifestSha256", previous)?;
+                    if sequence == u64::MAX {
+                        return Err(CurlProductReleaseVerifyError::VersionChain(
+                            "release sequence space exhausted".to_string(),
+                        ));
+                    }
+                    if manifest.release_sequence <= sequence || previous != &active.to_hex() {
+                        return Err(CurlProductReleaseVerifyError::VersionChain(
+                            "candidate must advance the sequence and bind the exact active manifest"
+                                .to_string(),
+                        ));
+                    }
+                }
+                _ => {
+                    return Err(CurlProductReleaseVerifyError::VersionChain(
+                        "release floor is internally inconsistent".to_string(),
+                    ));
+                }
+            }
         }
-        (sequence, Some(active), None, Some(previous)) => {
-            require_sha256("previousManifestSha256", previous)?;
-            if sequence == u64::MAX {
+        ProductReleaseVersionExpectation::ExactActive { release_sequence } => {
+            if manifest.release_sequence != release_sequence {
                 return Err(CurlProductReleaseVerifyError::VersionChain(
-                    "release sequence space exhausted".to_string(),
+                    "active manifest sequence differs from installed state".to_string(),
                 ));
             }
-            if manifest.release_sequence <= sequence || previous != &active.to_hex() {
-                return Err(CurlProductReleaseVerifyError::VersionChain(
-                    "candidate must advance the sequence and bind the exact active manifest"
-                        .to_string(),
-                ));
+            if let Some(previous) = &manifest.previous_manifest_sha256.0 {
+                require_sha256("previousManifestSha256", previous)?;
             }
-        }
-        _ => {
-            return Err(CurlProductReleaseVerifyError::VersionChain(
-                "release floor is internally inconsistent".to_string(),
-            ));
         }
     }
 

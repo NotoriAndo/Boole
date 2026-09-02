@@ -61,11 +61,11 @@ class DevelopmentThroughputPolicyContract(unittest.TestCase):
                 normalized = " ".join(text.split())
                 self.assertIn("CURRENT-CURSOR-2026-09-02", normalized)
                 self.assertIn(
-                    "MAC.4 PERSISTENT CONTROLLER PROTOCOL + NODE REPLAY COMPOSITION GREEN",
+                    "MAC.4 VERIFIED ACTIVE RELEASE REOPEN GREEN",
                     normalized,
                 )
                 self.assertIn(
-                    "VERIFIED PROCESS SPAWN + INSTALLED MAC ROUTE NEXT", normalized
+                    "HANDLE-BOUND HOST-CONTROLLER SPAWN + INSTALLED MAC ROUTE NEXT", normalized
                 )
 
     def test_lessons_are_advisory_until_promoted(self) -> None:

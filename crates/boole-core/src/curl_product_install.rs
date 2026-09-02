@@ -23,7 +23,7 @@
 
 use std::collections::BTreeMap;
 use std::fs::{self, File};
-use std::io::{ErrorKind, Seek, SeekFrom, Write};
+use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
@@ -32,8 +32,10 @@ use thiserror::Error;
 
 use crate::canonicalize;
 use crate::curl_product_release::{
-    authenticate_curl_product_release, CurlProductReleaseFloor, CurlProductReleaseTrustRoot,
-    CurlProductReleaseVerifyError, ProductArtifactRole, VerifiedCurlProductRelease,
+    authenticate_active_curl_product_release, authenticate_curl_product_release,
+    CurlProductReleaseFloor, CurlProductReleaseTrustRoot, CurlProductReleaseVerifyError,
+    ProductArtifactRole, VerifiedCurlProductRelease,
+    MAX_CURL_PRODUCT_RELEASE_DETACHED_SIGNATURE_BYTES, MAX_CURL_PRODUCT_RELEASE_MANIFEST_BYTES,
 };
 use crate::release_contract_util::{self, ContractJsonError};
 
@@ -190,6 +192,101 @@ pub fn read_installed_curl_product_state(
         }
     };
     parse_install_state(&raw).map(Some)
+}
+
+/// Re-authenticate the exact active release and retain verified artifact file
+/// handles for a runtime consumer.
+///
+/// The durable state chooses the only admissible version directory. The
+/// stored manifest and signature are authenticated again, every installed
+/// artifact is streamed through the signed size/digest contract, and the
+/// returned verifier object retains those exact open handles. The caller must
+/// consume those handles rather than reopening a swappable path.
+pub fn open_verified_installed_curl_product_release(
+    install_root: &Path,
+    trust_root: &CurlProductReleaseTrustRoot,
+) -> Result<VerifiedCurlProductRelease, CurlProductInstallError> {
+    let state = read_installed_curl_product_state(install_root)?.ok_or_else(|| {
+        CurlProductInstallError::State("installed release state is absent".to_string())
+    })?;
+    let expected_directory = format!(
+        "{:012}-{}",
+        state.release_sequence,
+        &state.manifest_sha256[..12]
+    );
+    if state.version_directory != expected_directory {
+        return Err(CurlProductInstallError::State(
+            "versionDirectory differs from the active sequence and manifest digest".to_string(),
+        ));
+    }
+    let version_directory = install_root
+        .join(CURL_PRODUCT_INSTALL_VERSIONS_DIRECTORY)
+        .join(&state.version_directory);
+    let manifest_path = version_directory.join(CURL_PRODUCT_INSTALLED_MANIFEST_FILE);
+    let signature_path = version_directory.join(CURL_PRODUCT_INSTALLED_SIGNATURE_FILE);
+    let manifest_raw = read_bounded_installed_file(
+        &manifest_path,
+        MAX_CURL_PRODUCT_RELEASE_MANIFEST_BYTES,
+        "installed release manifest",
+    )?;
+    let signature_raw = read_bounded_installed_file(
+        &signature_path,
+        MAX_CURL_PRODUCT_RELEASE_DETACHED_SIGNATURE_BYTES,
+        "installed release signature",
+    )?;
+    let mut authenticated = authenticate_active_curl_product_release(
+        &manifest_raw,
+        &signature_raw,
+        trust_root,
+        state.release_sequence,
+        &state.manifest_sha256,
+    )?;
+    if authenticated.release_version() != state.release_version {
+        return Err(CurlProductInstallError::State(
+            "releaseVersion differs from the authenticated active manifest".to_string(),
+        ));
+    }
+    for role in ProductArtifactRole::ALL {
+        let file_name = authenticated
+            .artifact_file_name(role)
+            .expect("an authenticated release declares every role");
+        let path = version_directory.join(file_name);
+        let file = File::open(&path).map_err(|error| {
+            CurlProductInstallError::ArtifactSource(format!(
+                "installed {} cannot be opened at {}: {error}",
+                role.as_str(),
+                path.display()
+            ))
+        })?;
+        authenticated.verify_artifact(role, file)?;
+    }
+    authenticated.finish().map_err(Into::into)
+}
+
+fn read_bounded_installed_file(
+    path: &Path,
+    cap: usize,
+    name: &str,
+) -> Result<Vec<u8>, CurlProductInstallError> {
+    let file = File::open(path).map_err(|error| io_error(&format!("open {name}"), path, error))?;
+    let metadata = file
+        .metadata()
+        .map_err(|error| io_error(&format!("inspect {name}"), path, error))?;
+    if !metadata.is_file() || metadata.len() > cap as u64 {
+        return Err(CurlProductInstallError::ArtifactSource(format!(
+            "{name} is not a regular file within its byte cap"
+        )));
+    }
+    let mut raw = Vec::with_capacity(metadata.len() as usize);
+    file.take(cap as u64 + 1)
+        .read_to_end(&mut raw)
+        .map_err(|error| io_error(&format!("read {name}"), path, error))?;
+    if raw.len() > cap {
+        return Err(CurlProductInstallError::ArtifactSource(format!(
+            "{name} exceeds its byte cap while being read"
+        )));
+    }
+    Ok(raw)
 }
 
 #[derive(Debug, Deserialize)]

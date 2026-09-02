@@ -7,8 +7,8 @@
 > activation boundaries in this specification remain unchanged, and no A7,
 > production, boot, mining or reward authority is created here.
 
-> **CURRENT-CURSOR-2026-09-02:** `MAC.4 PERSISTENT CONTROLLER PROTOCOL + NODE REPLAY COMPOSITION GREEN / VERIFIED PROCESS SPAWN + INSTALLED MAC ROUTE NEXT`.
-> Next is fail-closed ownership of the verified host-controller process and an
+> **CURRENT-CURSOR-2026-09-02:** `MAC.4 VERIFIED ACTIVE RELEASE REOPEN GREEN / HANDLE-BOUND HOST-CONTROLLER SPAWN + INSTALLED MAC ROUTE NEXT`.
+> Next is starting the retained verified host-controller handle and wiring an
 > installed Mac replay-service entrypoint. This cursor is status, not
 > production, testnet, mining, reward, consensus, P2P or activation permission.
 
@@ -2796,3 +2796,16 @@ surface, while the Rust composition test reused the existing node replay route
 for multiple exchanges. This does not yet start the verified product artifact
 or expose an installed Mac route. Challenge, journal, replay, terminal evidence
 and verdict ownership remain exclusively in the node.
+
+### MAC.4 active installed-release reverification addendum (2026-09-02)
+
+Runtime use no longer trusts `installed-release.json` or an installed path by
+itself. The active state selects one exact sequence, manifest digest and version
+directory; the stored manifest and signature are re-authenticated and every
+installed artifact is rehashed from an open file handle. The verified result
+retains those handles, so a later path replacement cannot change the bytes a
+runtime consumer receives.
+
+This addendum starts no process and grants no route or activation authority.
+The next boundary is executing the retained host-controller handle without
+falling back to a path reopen.

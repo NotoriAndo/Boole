@@ -8,8 +8,8 @@
 > PR for every reversible retry. This note grants no A7, production, boot,
 > MAC.4 or activation effect.
 
-> **CURRENT-CURSOR-2026-09-02:** `MAC.4 PERSISTENT CONTROLLER PROTOCOL + NODE REPLAY COMPOSITION GREEN / VERIFIED PROCESS SPAWN + INSTALLED MAC ROUTE NEXT`.
-> Next is fail-closed ownership of the verified host-controller process and an
+> **CURRENT-CURSOR-2026-09-02:** `MAC.4 VERIFIED ACTIVE RELEASE REOPEN GREEN / HANDLE-BOUND HOST-CONTROLLER SPAWN + INSTALLED MAC ROUTE NEXT`.
+> Next is starting the retained verified host-controller handle and wiring an
 > installed Mac replay-service entrypoint. Existing runtime exactly-once and
 > containment contracts remain the acceptance boundary.
 
@@ -4787,3 +4787,14 @@ proxy-ready identity, launcher qualification frame and all later execution
 frames before the existing node adjudicator classifies them. This is a tested
 composition boundary, not an installed constructor: verified process spawn and
 Mac authority/journal path selection remain next.
+
+## MAC.4 active installed-release reverification (2026-09-02)
+
+Before a Mac runtime can consume an installed product role, the durable active
+state, stored signed manifest and all six installed artifact bytes are checked
+again. The active sequence, release version, manifest digest and deterministic
+version-directory name must agree. Verification retains each open file handle;
+runtime code must consume that handle instead of reopening its pathname.
+
+This is the trust input for the next process-owner slice. No controller was
+started and no VM, node listener, challenge or activation state changed.

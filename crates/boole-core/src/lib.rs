@@ -90,8 +90,9 @@ pub use config::{
     validate_calibration_report, CalibrationPolicy, CalibrationReport, CalibrationThresholds,
 };
 pub use curl_product_install::{
-    install_curl_product_release, read_installed_curl_product_state, CurlProductInstallError,
-    CurlProductInstallState, InstalledCurlProduct, CURL_PRODUCT_INSTALLED_MANIFEST_FILE,
+    install_curl_product_release, open_verified_installed_curl_product_release,
+    read_installed_curl_product_state, CurlProductInstallError, CurlProductInstallState,
+    InstalledCurlProduct, CURL_PRODUCT_INSTALLED_MANIFEST_FILE,
     CURL_PRODUCT_INSTALLED_SIGNATURE_FILE, CURL_PRODUCT_INSTALL_STAGING_DIRECTORY,
     CURL_PRODUCT_INSTALL_STATE_FILE, CURL_PRODUCT_INSTALL_STATE_SCHEMA,
     CURL_PRODUCT_INSTALL_STATE_TEMP_FILE, CURL_PRODUCT_INSTALL_VERSIONS_DIRECTORY,

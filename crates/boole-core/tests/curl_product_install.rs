@@ -1,13 +1,14 @@
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use boole_core::{
-    canonicalize, install_curl_product_release, read_installed_curl_product_state,
-    CurlProductInstallError, CurlProductReleaseTrustRoot, CurlProductReleaseVerifyError,
-    GuestArtifactRole, InstalledCurlProduct, ProductArtifactRole, SigningKeyV2,
-    CURL_PRODUCT_INSTALLED_MANIFEST_FILE, CURL_PRODUCT_INSTALLED_SIGNATURE_FILE,
+    canonicalize, install_curl_product_release, open_verified_installed_curl_product_release,
+    read_installed_curl_product_state, CurlProductInstallError, CurlProductReleaseTrustRoot,
+    CurlProductReleaseVerifyError, GuestArtifactRole, InstalledCurlProduct, ProductArtifactRole,
+    SigningKeyV2, CURL_PRODUCT_INSTALLED_MANIFEST_FILE, CURL_PRODUCT_INSTALLED_SIGNATURE_FILE,
     CURL_PRODUCT_INSTALL_STAGING_DIRECTORY, CURL_PRODUCT_INSTALL_STATE_FILE,
     CURL_PRODUCT_INSTALL_STATE_SCHEMA, CURL_PRODUCT_INSTALL_STATE_TEMP_FILE,
     CURL_PRODUCT_INSTALL_VERSIONS_DIRECTORY, CURL_PRODUCT_RELEASE_SIGNING_CONTEXT,
@@ -834,4 +835,120 @@ fn the_install_root_is_created_when_missing() {
 
     assert!(root.join(CURL_PRODUCT_INSTALL_STATE_FILE).is_file());
     assert!(installed.version_directory().is_dir());
+}
+
+#[test]
+fn the_active_install_reopens_with_every_artifact_handle_reverified() {
+    let fixture = signed_product_fixture();
+    let dir = FixtureDir::new("reopen-active");
+    let root = dir.path("root");
+    let source = dir.path("source");
+    write_source_artifacts(&source, &fixture.3);
+    install(&root, &fixture, 1, &source).expect("first install succeeds");
+
+    let verified = open_verified_installed_curl_product_release(&root, &fixture.0)
+        .expect("active release reopens");
+
+    assert_eq!(verified.release_sequence(), 1);
+    assert_eq!(verified.release_version(), "1.0.0");
+    assert_eq!(verified.manifest_sha256(), manifest_sha256_hex(&fixture));
+    for role in ProductArtifactRole::ALL {
+        let mut handle = verified
+            .artifact_file(role)
+            .expect("verified active artifact retains its handle")
+            .try_clone()
+            .expect("clone retained handle");
+        handle.seek(SeekFrom::Start(0)).expect("rewind handle");
+        let mut bytes = Vec::new();
+        handle
+            .read_to_end(&mut bytes)
+            .expect("read retained handle");
+        assert_eq!(bytes, fixture.3[&role]);
+    }
+}
+
+#[test]
+fn reopening_a_successor_accepts_the_exact_active_release_not_a_new_successor() {
+    let first = signed_product_fixture();
+    let dir = FixtureDir::new("reopen-successor");
+    let root = dir.path("root");
+    let source = dir.path("source");
+    write_source_artifacts(&source, &first.3);
+    install(&root, &first, 1, &source).expect("first install succeeds");
+    let successor = signed_successor_fixture(&manifest_sha256_hex(&first));
+    install(&root, &successor, 1, &source).expect("successor install succeeds");
+
+    let verified = open_verified_installed_curl_product_release(&root, &successor.0)
+        .expect("active successor reopens");
+
+    assert_eq!(verified.release_sequence(), 2);
+    assert_eq!(verified.release_version(), "1.0.1");
+    assert_eq!(verified.manifest_sha256(), manifest_sha256_hex(&successor));
+}
+
+#[test]
+fn reopening_fails_closed_on_active_artifact_or_state_path_drift() {
+    let fixture = signed_product_fixture();
+    let dir = FixtureDir::new("reopen-drift");
+    let root = dir.path("root");
+    let source = dir.path("source");
+    write_source_artifacts(&source, &fixture.3);
+    let installed = install(&root, &fixture, 1, &source).expect("first install succeeds");
+    fs::write(
+        installed
+            .artifact_path(ProductArtifactRole::HostController)
+            .expect("controller path"),
+        b"tampered-controller",
+    )
+    .expect("tamper active controller");
+
+    let tampered = open_verified_installed_curl_product_release(&root, &fixture.0)
+        .expect_err("tampered active artifact is rejected");
+    assert!(matches!(
+        tampered,
+        CurlProductInstallError::Verify(CurlProductReleaseVerifyError::ArtifactMismatch(_))
+    ));
+
+    let state_path = root.join(CURL_PRODUCT_INSTALL_STATE_FILE);
+    let mut state: serde_json::Value =
+        serde_json::from_slice(&fs::read(&state_path).expect("read state")).expect("state JSON");
+    state["versionDirectory"] = json!("wrong-active-directory");
+    fs::write(&state_path, canonicalize(&state)).expect("write drifted state");
+    let drifted = open_verified_installed_curl_product_release(&root, &fixture.0)
+        .expect_err("state path drift is rejected");
+    assert!(matches!(drifted, CurlProductInstallError::State(_)));
+}
+
+#[test]
+fn retained_verified_handle_does_not_follow_a_later_path_replacement() {
+    let fixture = signed_product_fixture();
+    let dir = FixtureDir::new("reopen-toctou");
+    let root = dir.path("root");
+    let source = dir.path("source");
+    write_source_artifacts(&source, &fixture.3);
+    let installed = install(&root, &fixture, 1, &source).expect("first install succeeds");
+    let verified = open_verified_installed_curl_product_release(&root, &fixture.0)
+        .expect("active release reopens");
+    let controller_path = installed
+        .artifact_path(ProductArtifactRole::HostController)
+        .expect("controller path");
+    let replacement = installed.version_directory().join("replacement-controller");
+    fs::write(&replacement, b"replacement").expect("write replacement");
+    fs::rename(&replacement, &controller_path).expect("replace controller path");
+
+    let mut handle = verified
+        .artifact_file(ProductArtifactRole::HostController)
+        .expect("retained controller handle")
+        .try_clone()
+        .expect("clone controller handle");
+    handle.seek(SeekFrom::Start(0)).expect("rewind handle");
+    let mut bytes = Vec::new();
+    handle
+        .read_to_end(&mut bytes)
+        .expect("read retained handle");
+    assert_eq!(bytes, fixture.3[&ProductArtifactRole::HostController]);
+    assert_eq!(
+        fs::read(controller_path).expect("read replacement"),
+        b"replacement"
+    );
 }
