@@ -27,9 +27,10 @@ Boundary: the linked sample artifact demonstrates the verifier/replay benchmark 
 
 ## Quick install
 
-Developer/source bootstrap — the current command is a source/developer bootstrap, not the finished
-curl-first Mac product installer. It installs local dependencies, clones/updates Boole, and runs
-the setup doctor:
+Developer/source bootstrap — this is the only public one-line install command today. It installs
+local dependencies, clones/updates Boole, and runs the setup doctor. The verified curl-first Mac
+product path is implemented and closed-local tested, but no operational trust roots or official
+signed release have been published, so this command is not the finished product installer:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/NotoriAndo/Boole/main/install.sh | bash
