@@ -8,10 +8,12 @@
 > PR for every reversible retry. This note grants no A7, production, boot,
 > MAC.4 or activation effect.
 
-> **CURRENT-CURSOR-2026-09-02:** `SECOND MAC.4 OBSERVATION FAILED CLOSED /
-> VSOCK LOADED / PRIVATE-TMP ROOT CAUSE REPRODUCED / ADDITIVE SUCCESSOR IMPLEMENTED`.
-> Next is the successor's zero-image ARM64 preflight. Existing runtime
-> exactly-once and containment contracts remain the acceptance boundary.
+> **CURRENT-CURSOR-2026-09-02:** `MAC.4 AUTHENTICATED TRANSPORT + GUEST
+> READINESS PASS / NODE-OWNED EXECUTION ROUTE NOT YET CONNECTED`.
+> Next is the node-side binding from the existing challenge, durable journal,
+> replay and terminal-evidence path to the bounded authenticated relay.
+> Existing runtime exactly-once and containment contracts remain the
+> acceptance boundary.
 
 Status: **CLOSED-LOCAL IMPLEMENTATION GREEN.** Registry/state durability, named-Linux containment,
 actual checker execution and the feature-gated loopback HTTP route are on `main`. Production
@@ -4727,3 +4729,27 @@ call, adds exactly `/var/tmp`, extends mounted readback by the same contract and
 restores all predecessor globals afterward. The v1 file and workflow are not
 edited. No successor image or VM has yet been created; MAC.4, node execution,
 testnet, mining, reward, consensus, P2P and activation remain closed.
+
+## Third MAC.4 observation: authenticated transport and readiness passed (2026-09-02)
+
+Run `33584005767` produced two byte-identical disposable ARM64 replicas after
+zero-image preflight run `33583707702` passed. Exactly one closed Apple
+Virtualization.framework VM then completed one authenticated vsock round trip
+and reported all four readiness records. It had no network or shared
+directory, attached the root disk read-only, stopped normally, preserved every
+image identity and left no related host process behind.
+
+The append-only result
+`native-shadow-mac4-authenticated-channel-result-arm64-v3.json` binds the
+build jobs, artifacts, exact output identities, host preflight, boot receipt,
+console identity and readiness assessment. It deliberately leaves
+`mac4Complete=false` and `nodeExecutionConnected=false`: this observation
+exercised the bounded authenticated relay, but did not submit a node-owned
+challenge or commit a verdict through the node's durable journal, replay and
+terminal-evidence path.
+
+The next implementation slice is therefore a node-side route binding. The
+trusted host retains challenge, policy, journal, replay and evidence ownership;
+guest unavailability remains retryable and cannot consume the challenge. No
+production, testnet, mining, reward, consensus, P2P or activation authority is
+created by this observation.
