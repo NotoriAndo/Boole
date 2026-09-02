@@ -7018,3 +7018,44 @@ TERMINAL REDELIVERY: CHECKER 0 AFTER RESTART / UNRESOLVED INFLIGHT: FAIL CLOSED
 NEXT: CURL-INSTALLED HOST LIFECYCLE + HEALTH SURFACE
 PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
 ```
+
+## 102. The curl-installed product owns start, health and bounded stop (2026-09-03)
+
+The direct-boot product now has one foreground user command that reopens the
+installed release through both explicit public trust roots, derives every VM
+and journal path from one private application state root, and executes only a
+fresh private copy made from the retained verified host-node handle. The user
+does not provide kernel, root-disk, controller, launcher or journal paths. The
+node continues to own signals and the already bounded controller/guest shutdown
+protocol.
+
+The fixed loopback service exposes separate `/live` and `/ready` probes. Both
+responses identify the closed-local health schema and affirm
+`loopbackOnly=true`, `mineableNow=false` and `activationAllowed=false`.
+Readiness additionally fails with HTTP 503 if the durable replay service is
+poisoned. `boole product status-direct-boot` validates those response fields
+instead of trusting a successful HTTP status alone.
+
+The real Mac lifecycle E2E authenticated and installed the four host and eleven
+guest roles, started the product through `product run-direct-boot`, observed
+both health probes, completed the unchanged ACCEPT/tampered/constant/empty
+matrix and stopped the node/controller/guest cleanly. The first harness run
+found a test-only envelope decoder still reading the historical `data` field
+instead of the repository-wide `result` field. A behavioral regression test
+reproduced that failure before the decoder was corrected; the unchanged product
+run then passed. The exact compact result is bound in
+`native/containment/native-shadow-installed-product-lifecycle-result-arm64-v1.json`.
+
+This completes the installed start/status/stop product boundary. It does not
+satisfy the unavailable clean-Mac gate, create a production trust root or open
+testnet, mining, reward, consensus, P2P or activation. The next reversible
+product boundary is the remaining MAC.3 update lifecycle: signed update,
+one-generation rollback, corrupt-image recovery and reset/uninstall cleanup
+without deleting wallet state.
+
+```text
+CURL-INSTALLED HOST LIFECYCLE + LIVE/READY HEALTH PASS
+ONE VERIFIED FOREGROUND COMMAND / HIDDEN VM PATHS / BOUNDED CLEAN STOP
+NEXT: SIGNED UPDATE + ROLLBACK + CORRUPT-IMAGE/RESET RECOVERY E2E
+PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
+```

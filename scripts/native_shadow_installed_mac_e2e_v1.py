@@ -238,7 +238,9 @@ def install_direct_boot_bundle(
     if (
         not isinstance(envelope, dict)
         or envelope.get("ok") is not True
+        or envelope.get("version") != "v1"
         or envelope.get("command") != "product.install-direct-boot"
+        or not isinstance(envelope.get("result"), dict)
     ):
         raise ValueError("installed Mac E2E product install envelope drifted")
     if staging.exists():
@@ -279,9 +281,11 @@ def _require_product_health(cli: Path) -> dict[str, Any]:
     if (
         not isinstance(envelope, dict)
         or envelope.get("ok") is not True
+        or envelope.get("version") != "v1"
         or envelope.get("command") != "product.status-direct-boot"
-        or envelope.get("data", {}).get("live", {}).get("live") is not True
-        or envelope.get("data", {}).get("ready", {}).get("ready") is not True
+        or not isinstance(envelope.get("result"), dict)
+        or envelope.get("result", {}).get("live", {}).get("live") is not True
+        or envelope.get("result", {}).get("ready", {}).get("ready") is not True
     ):
         raise ValueError("installed Mac E2E product health envelope drifted")
     return envelope
@@ -347,7 +351,7 @@ def run_installed_node_matrix(
     fixture_dir: Path,
     *,
     startup_timeout_seconds: int,
-) -> list[dict[str, object]]:
+) -> tuple[list[dict[str, object]], dict[str, Any]]:
     """Run the installed product command, health probe, matrix and clean stop."""
 
     if state_root.exists() or work_root.exists():
@@ -374,6 +378,7 @@ def run_installed_node_matrix(
     ]
     process: subprocess.Popen[bytes] | None = None
     matrix: list[dict[str, object]] | None = None
+    health: dict[str, Any] | None = None
     with stdout_path.open("xb") as stdout, stderr_path.open("xb") as stderr:
         try:
             process = subprocess.Popen(
@@ -383,7 +388,7 @@ def run_installed_node_matrix(
                 start_new_session=True,
             )
             _wait_for_node(process, startup_timeout_seconds)
-            _require_product_health(cli)
+            health = _require_product_health(cli)
             matrix = run_case_matrix(grant_path, fixture_dir, _post_submission)
             process.send_signal(signal.SIGTERM)
             try:
@@ -400,7 +405,7 @@ def run_installed_node_matrix(
             if process is not None and process.poll() is None:
                 os.killpg(process.pid, signal.SIGKILL)
                 process.wait(timeout=10)
-    if matrix is None:
+    if matrix is None or health is None:
         raise ValueError("installed Mac E2E matrix did not run")
     require_controller_runtime_clean(state_root / "controller")
     materialized_node = state_root / "host" / "boole-mac-native-shadow-replay-node"
@@ -414,7 +419,7 @@ def run_installed_node_matrix(
         or metadata.st_mode & 0o7777 != 0o500
     ):
         raise ValueError("installed Mac E2E materialized host-node metadata drifted")
-    return matrix
+    return matrix, health
 
 
 def _write_json_atomic(path: Path, value: dict[str, Any]) -> None:
@@ -481,7 +486,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
             roots,
             timeout_seconds=args.install_timeout_seconds,
         )
-        cases = run_installed_node_matrix(
+        cases, health = run_installed_node_matrix(
             cli,
             work_root / "install-root",
             work_root / "state",
@@ -498,9 +503,10 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
             "transportLayout": layout,
             "install": {
                 "command": install["command"],
-                "releaseSequence": install.get("data", {}).get("releaseSequence"),
-                "guestReleaseSequence": install.get("data", {}).get("guestReleaseSequence"),
+                "releaseSequence": install.get("result", {}).get("releaseSequence"),
+                "guestReleaseSequence": install.get("result", {}).get("guestReleaseSequence"),
             },
+            "health": health["result"],
             "cases": cases,
             "loopbackOnly": True,
             "production": False,

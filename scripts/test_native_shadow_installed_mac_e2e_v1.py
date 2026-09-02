@@ -181,7 +181,7 @@ assert urllib.request.urlopen(value('--base-url') + '/release-manifest.json').re
 install = pathlib.Path(value('--install-root'))
 install.mkdir()
 (install / 'observed.json').write_text(json.dumps({'args': args}))
-print(json.dumps({'ok': True, 'version': 'v1', 'command': 'product.install-direct-boot', 'data': {'releaseSequence': 1, 'guestReleaseSequence': 1}}))
+print(json.dumps({'ok': True, 'version': 'v1', 'command': 'product.install-direct-boot', 'result': {'releaseSequence': 1, 'guestReleaseSequence': 1}}))
 """,
                 encoding="utf-8",
             )
@@ -271,7 +271,7 @@ if a[:2] == ['product','status-direct-boot']:
   data={}
   for probe in ('live','ready'):
     with urllib.request.urlopen('http://127.0.0.1:8082/'+probe) as response: data[probe]=json.loads(response.read())
-  print(json.dumps({'ok':True,'command':'product.status-direct-boot','data':data})); raise SystemExit(0)
+  print(json.dumps({'ok':True,'version':'v1','command':'product.status-direct-boot','result':data})); raise SystemExit(0)
 raise SystemExit(2)
 """,
                 encoding="utf-8",
@@ -286,7 +286,7 @@ raise SystemExit(2)
                 "guestPublicKeyHex": "22" * 32,
             }
 
-            result = e2e.run_installed_node_matrix(
+            result, health = e2e.run_installed_node_matrix(
                 cli,
                 install,
                 state,
@@ -298,6 +298,8 @@ raise SystemExit(2)
             )
 
             self.assertEqual([row["caseId"] for row in result], list(e2e.CASE_FILES))
+            self.assertTrue(health["result"]["live"]["live"])
+            self.assertTrue(health["result"]["ready"]["ready"])
             self.assertEqual(list((state / "controller").iterdir()), [])
             self.assertTrue((work / "node.stdout").is_file())
             self.assertTrue((work / "node.stderr").is_file())
@@ -341,7 +343,7 @@ if a[:2] == ['product','install-direct-boot']:
   with urllib.request.urlopen(v('--base-url')+'/host-node') as r, (version/'host-node').open('wb') as w: shutil.copyfileobj(r,w)
   (version/'host-node').chmod(0o700)
   (install/'installed-release.json').write_text(json.dumps({'schema':'boole.curl-product-install-state.v1','releaseSequence':1,'releaseVersion':'test','manifestSha256':'11'*32,'versionDirectory':version.name}))
-  print(json.dumps({'ok':True,'command':'product.install-direct-boot','data':{'releaseSequence':1,'guestReleaseSequence':1}})); raise SystemExit(0)
+  print(json.dumps({'ok':True,'version':'v1','command':'product.install-direct-boot','result':{'releaseSequence':1,'guestReleaseSequence':1}})); raise SystemExit(0)
 if a[:2] == ['product','run-direct-boot']:
   install=pathlib.Path(v('--install-root')); state=pathlib.Path(v('--state-root'))
   version=json.loads((install/'installed-release.json').read_text())['versionDirectory']; source=install/'versions'/version/'host-node'
@@ -351,7 +353,7 @@ if a[:2] == ['product','status-direct-boot']:
   data={}
   for probe in ('live','ready'):
     with urllib.request.urlopen('http://127.0.0.1:8082/'+probe) as response: data[probe]=json.loads(response.read())
-  print(json.dumps({'ok':True,'command':'product.status-direct-boot','data':data})); raise SystemExit(0)
+  print(json.dumps({'ok':True,'version':'v1','command':'product.status-direct-boot','result':data})); raise SystemExit(0)
 raise SystemExit(2)
 """,
                 encoding="utf-8",
@@ -429,6 +431,10 @@ for name in ('release-manifest.json','release-signature.json','guest-update-mani
             )
             result = json.loads(result_path.read_text(encoding="utf-8"))
             self.assertEqual(result["status"], "INSTALLED-MAC-CLOSED-LOCAL-E2E-PASS")
+            self.assertEqual(result["install"]["releaseSequence"], 1)
+            self.assertEqual(result["install"]["guestReleaseSequence"], 1)
+            self.assertTrue(result["health"]["live"]["live"])
+            self.assertTrue(result["health"]["ready"]["ready"])
             self.assertEqual([row["caseId"] for row in result["cases"]], list(e2e.CASE_FILES))
             self.assertFalse((work / "http-root").exists())
             self.assertFalse((work / "install-root").exists())

@@ -3219,4 +3219,22 @@ require_text "$INSTALLED_MAC_CRASH_RESULT" '"activationAllowed": false'
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'INSTALLED MAC CRASH/RESTART EXACTLY-ONCE E2E PASS'
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Installed Mac crash/restart exactly-once closure'
 
+# The curl-installed product now owns one verified foreground lifecycle and a
+# typed live/ready surface. Pin the real Mac result without widening any
+# production or network boundary.
+INSTALLED_PRODUCT_LIFECYCLE_RESULT=native/containment/native-shadow-installed-product-lifecycle-result-arm64-v1.json
+INSTALLED_PRODUCT_LIFECYCLE_GATE=scripts/test_native_shadow_installed_product_lifecycle_result_v1.py
+require_file "$INSTALLED_PRODUCT_LIFECYCLE_RESULT"
+require_file "$INSTALLED_PRODUCT_LIFECYCLE_GATE"
+require_text scripts/self-test.sh "$INSTALLED_PRODUCT_LIFECYCLE_GATE"
+require_text "$INSTALLED_PRODUCT_LIFECYCLE_RESULT" '"status": "INSTALLED-MAC-CLOSED-LOCAL-E2E-PASS"'
+require_text "$INSTALLED_PRODUCT_LIFECYCLE_RESULT" '"schema": "boole.native-shadow.service-health.v1"'
+require_text "$INSTALLED_PRODUCT_LIFECYCLE_RESULT" '"live": true'
+require_text "$INSTALLED_PRODUCT_LIFECYCLE_RESULT" '"ready": true'
+require_text "$INSTALLED_PRODUCT_LIFECYCLE_RESULT" '"mineableNow": false'
+require_text "$INSTALLED_PRODUCT_LIFECYCLE_RESULT" '"activationAllowed": false'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'CURL-INSTALLED HOST LIFECYCLE + LIVE/READY HEALTH PASS'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'NEXT: SIGNED UPDATE + ROLLBACK + CORRUPT-IMAGE/RESET RECOVERY E2E'
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Curl-installed host lifecycle and health closure'
+
 printf 'docs-smoke: PASS\n' >&2
