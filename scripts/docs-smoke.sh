@@ -3273,4 +3273,11 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'CORRUPT RELEASE =
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'NEXT: CURL-FIRST USER WORKFLOW + RELEASE INPUT PACKAGING'
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Verified installed-product inspection'
 
+# An already-signed direct-boot product can now become one exact atomic
+# transport tree without giving the CLI a private key or upload capability.
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'SIGNED PRODUCT + SIGNED GUEST -> VERIFY ALL -> COPY VERIFIED HANDLES -> VERIFY AGAIN -> ATOMIC TREE'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'TAMPER / EXTRA / UNSAFE ENTRY = REJECT / OUTPUT ABSENT / PRIOR PACKAGE UNCHANGED'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'NEXT: SUCCESSOR RELEASE PACKAGING + OPERATIONAL SIGNING/TRUST-ROOT DECISION'
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Verified offline direct-boot release packaging'
+
 printf 'docs-smoke: PASS\n' >&2

@@ -7223,3 +7223,36 @@ CORRUPT RELEASE = TYPED FAILURE / NO REPAIR / NO STATE CHANGE
 NEXT: CURL-FIRST USER WORKFLOW + RELEASE INPUT PACKAGING
 PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
 ```
+
+## 108. Signed direct-boot inputs become one verified offline transport tree (2026-09-03)
+
+`boole product package-direct-boot` closes the release-input side of the curl
+workflow without becoming a signer or publisher. The operator supplies an
+already-signed product-v3 envelope, its direct-root guest-v3 payload, two
+explicit public trust roots and the two first-install floors. The command
+authenticates both signature domains, verifies every declared file through an
+open no-follow descriptor, and rejects missing, extra, repeated or non-regular
+entries before creating any output tree.
+
+Accepted bytes are copied only from the verified descriptors into a unique
+sibling directory. The complete staged tree is authenticated a second time,
+made read-only and fsynced before one rename exposes the requested output.
+This second pass prevents an in-place source mutation during copying from
+becoming a published byte. A real CLI E2E proves that the resulting transport
+tree is byte-for-byte equal to the signed input set, while a tampered guest
+disk creates no output and cannot alter an already accepted package.
+
+The package command generates no key, signs nothing, performs no network
+request and uploads nothing. Its KAT roots are non-production test material.
+Success therefore means only that an operator-provided signed first release
+can be turned into the exact tree consumed by the existing curl installer.
+Successor-floor packaging, operational key custody, hosted release upload,
+clean-Mac acceptance, production, testnet, mining, reward, consensus, P2P and
+activation remain outside this boundary.
+
+```text
+SIGNED PRODUCT + SIGNED GUEST -> VERIFY ALL -> COPY VERIFIED HANDLES -> VERIFY AGAIN -> ATOMIC TREE
+TAMPER / EXTRA / UNSAFE ENTRY = REJECT / OUTPUT ABSENT / PRIOR PACKAGE UNCHANGED
+NEXT: SUCCESSOR RELEASE PACKAGING + OPERATIONAL SIGNING/TRUST-ROOT DECISION
+PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
+```

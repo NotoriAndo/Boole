@@ -773,6 +773,27 @@ enum FaucetCommand {
 
 #[derive(Debug, Subcommand)]
 enum ProductCommand {
+    /// Verify an already-signed direct-boot product and guest release, then
+    /// atomically emit the exact offline transport tree. This command owns no
+    /// signing key and performs no upload or network request.
+    PackageDirectBoot {
+        #[arg(long = "source-root")]
+        source_root: PathBuf,
+        #[arg(long = "output-root")]
+        output_root: PathBuf,
+        #[arg(long = "product-trust-root-key-id")]
+        product_trust_root_key_id: String,
+        #[arg(long = "product-trust-root-public-key")]
+        product_trust_root_public_key: String,
+        #[arg(long = "guest-trust-root-key-id")]
+        guest_trust_root_key_id: String,
+        #[arg(long = "guest-trust-root-public-key")]
+        guest_trust_root_public_key: String,
+        #[arg(long = "first-product-minimum")]
+        first_product_minimum: u64,
+        #[arg(long = "first-guest-minimum")]
+        first_guest_minimum: u64,
+    },
     /// Download and install a verified release bundle from a base URL.
     /// Downloaded bytes live only in the transient download staging
     /// directory until the CURL.1 verification and the verified installer
@@ -1119,6 +1140,25 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             } => faucet_claim(network, &address, faucet_url.as_deref(), json),
         },
         Some(Command::Product { command }) => match command {
+            ProductCommand::PackageDirectBoot {
+                source_root,
+                output_root,
+                product_trust_root_key_id,
+                product_trust_root_public_key,
+                guest_trust_root_key_id,
+                guest_trust_root_public_key,
+                first_product_minimum,
+                first_guest_minimum,
+            } => product_package_direct_boot(
+                &source_root,
+                &output_root,
+                &product_trust_root_key_id,
+                &product_trust_root_public_key,
+                &guest_trust_root_key_id,
+                &guest_trust_root_public_key,
+                first_product_minimum,
+                first_guest_minimum,
+            ),
             ProductCommand::Install {
                 base_url,
                 install_root,
@@ -2429,6 +2469,63 @@ fn product_download_attempt_staging(requested: &Path) -> Result<std::path::PathB
         std::process::id()
     ));
     Ok(requested.with_file_name(attempt_name))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn product_package_direct_boot(
+    source_root: &Path,
+    output_root: &Path,
+    product_trust_root_key_id: &str,
+    product_trust_root_public_key: &str,
+    guest_trust_root_key_id: &str,
+    guest_trust_root_public_key: &str,
+    first_product_minimum: u64,
+    first_guest_minimum: u64,
+) -> anyhow::Result<()> {
+    let command = "product.package-direct-boot";
+    let reject = |message: String| -> ! {
+        product_install_bootable_emit_err(command, "release-package-rejected", message)
+    };
+    let product_trust_root = boole_core::CurlProductReleaseTrustRoot::new(
+        product_trust_root_key_id,
+        product_trust_root_public_key,
+    )
+    .unwrap_or_else(|error| reject(error.to_string()));
+    let guest_trust_root = boole_core::NativeShadowUpdateTrustRoot::new(
+        guest_trust_root_key_id,
+        guest_trust_root_public_key,
+    )
+    .unwrap_or_else(|error| reject(error.to_string()));
+    let product_floor = boole_core::CurlProductReleaseFloor::first_install(first_product_minimum)
+        .unwrap_or_else(|error| reject(error.to_string()));
+    let guest_floor = boole_core::NativeShadowUpdateFloor::first_install(first_guest_minimum)
+        .unwrap_or_else(|error| reject(error.to_string()));
+    let packaged = boole_cli::curl_product_package::package_direct_boot_curl_product_release(
+        source_root,
+        output_root,
+        &product_trust_root,
+        &product_floor,
+        &guest_trust_root,
+        &guest_floor,
+    )
+    .unwrap_or_else(|error| reject(error.to_string()));
+    println!(
+        "{}",
+        boole_cli::cli_envelope::encode_ok(
+            command,
+            serde_json::json!({
+                "releaseSequence": packaged.release_sequence(),
+                "releaseVersion": packaged.release_version(),
+                "manifestSha256": packaged.manifest_sha256(),
+                "guestReleaseSequence": packaged.guest_release_sequence(),
+                "guestReleaseVersion": packaged.guest_release_version(),
+                "guestManifestSha256": packaged.guest_manifest_sha256(),
+                "fileCount": packaged.file_count(),
+                "outputRoot": packaged.output_root().display().to_string(),
+            }),
+        )
+    );
+    Ok(())
 }
 
 fn product_install(
