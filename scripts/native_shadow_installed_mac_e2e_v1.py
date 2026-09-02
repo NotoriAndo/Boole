@@ -62,6 +62,8 @@ GUEST_ARTIFACT_ROLES = {
     "closed-local-replay-execution-authority",
 }
 
+CONTROLLER_RUNTIME_LEASE_BASENAME = ".controller-runtime.lock"
+
 
 def _strict_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
@@ -307,6 +309,22 @@ def _prepare_private_directory(path: Path) -> None:
         raise ValueError(f"installed Mac E2E directory is not private 0700: {path}")
 
 
+def require_controller_runtime_clean(runtime_root: Path) -> None:
+    """Permit only the durable recovery lease after the VM owner exits."""
+
+    entries = list(runtime_root.iterdir())
+    if not entries:
+        return
+    lease = runtime_root / CONTROLLER_RUNTIME_LEASE_BASENAME
+    if entries != [lease] or lease.is_symlink() or not lease.is_file():
+        raise ValueError("installed Mac E2E runtime root retained controller residue")
+    metadata = lease.stat()
+    if metadata.st_uid != os.geteuid() or metadata.st_gid != os.getegid():
+        raise ValueError("installed Mac E2E runtime lease owner drifted")
+    if metadata.st_mode & 0o7777 != 0o600:
+        raise ValueError("installed Mac E2E runtime lease mode drifted")
+
+
 def run_installed_node_matrix(
     install_root: Path,
     runtime_root: Path,
@@ -374,8 +392,7 @@ def run_installed_node_matrix(
                 process.wait(timeout=10)
     if matrix is None:
         raise ValueError("installed Mac E2E matrix did not run")
-    if any(runtime_root.iterdir()):
-        raise ValueError("installed Mac E2E runtime root was not cleaned")
+    require_controller_runtime_clean(runtime_root)
     return matrix
 
 

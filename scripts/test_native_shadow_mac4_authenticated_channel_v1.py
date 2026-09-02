@@ -197,6 +197,8 @@ class Mac4AuthenticatedChannelBehaviorTests(unittest.TestCase):
         self.assertIn("func runPersistentController()", source)
         self.assertIn("nonceBase: request.requestID", source)
         self.assertIn("controller input ended before explicit shutdown", source)
+        self.assertIn("--controller-stdio requires the inherited runtime lease", source)
+        self.assertIn("boole-mac4-controller-command:execution", source)
 
     def test_standalone_relay_does_not_change_the_root_cargo_workspace(self):
         root_manifest = (ROOT / "Cargo.toml").read_text(encoding="utf-8")

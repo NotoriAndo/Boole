@@ -1,7 +1,8 @@
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::fd::{AsRawFd, RawFd};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -33,6 +34,11 @@ const CONTROLLER_PAYLOAD_CAP_BYTES: usize =
 // seconds for bounded forced stop after acknowledging the shutdown command.
 // Keep a small process-exit margin beyond both windows.
 const CONTROLLER_EXIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(25);
+const CONTROLLER_RUNTIME_LEASE_BASENAME: &str = ".controller-runtime.lock";
+const CONTROLLER_RUNTIME_DIRECTORY_BASENAME: &str = "active-controller";
+const CONTROLLER_RUNTIME_LEASE_MODE: u32 = 0o600;
+const CONTROLLER_RUNTIME_DIRECTORY_MODE: u32 = 0o700;
+const CONTROLLER_RUNTIME_RECOVERY_WAIT: std::time::Duration = std::time::Duration::from_secs(25);
 #[cfg(target_os = "macos")]
 const CONTROLLER_FAILURE_DIAGNOSTIC_CAP_BYTES: usize = 32 * 1024;
 const CONTROLLER_CONTRACT_DIGEST: [u8; 32] = [
@@ -211,6 +217,7 @@ struct MaterializedControllerFile {
     runtime_directory: PathBuf,
     path: PathBuf,
     auxiliary_paths: Vec<PathBuf>,
+    _lease: ControllerRuntimeLease,
 }
 
 impl MaterializedControllerFile {
@@ -221,6 +228,196 @@ impl MaterializedControllerFile {
     fn runtime_directory(&self) -> &Path {
         &self.runtime_directory
     }
+}
+
+#[derive(Debug)]
+struct ControllerRuntimeLease {
+    file: File,
+    runtime_root: PathBuf,
+}
+
+impl ControllerRuntimeLease {
+    #[allow(unsafe_code)]
+    fn try_acquire(runtime_root: &Path) -> Result<Self, ControllerError> {
+        let path = runtime_root.join(CONTROLLER_RUNTIME_LEASE_BASENAME);
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .mode(CONTROLLER_RUNTIME_LEASE_MODE)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(&path)
+            .map_err(|error| ControllerError(format!("open controller runtime lease: {error}")))?;
+        let metadata = file.metadata().map_err(|error| {
+            ControllerError(format!("inspect controller runtime lease: {error}"))
+        })?;
+        // SAFETY: these calls read only immutable process credentials.
+        let (uid, gid) = unsafe { (libc::geteuid(), libc::getegid()) };
+        if !metadata.file_type().is_file()
+            || metadata.nlink() != 1
+            || metadata.uid() != uid
+            || metadata.gid() != gid
+            || metadata.mode() & 0o7777 != CONTROLLER_RUNTIME_LEASE_MODE
+        {
+            return Err(ControllerError(
+                "controller runtime lease metadata is unsafe".into(),
+            ));
+        }
+        // SAFETY: `file` owns this live descriptor for the entire call.
+        let locked = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+        if locked != 0 {
+            let error = std::io::Error::last_os_error();
+            if error.raw_os_error() == Some(libc::EWOULDBLOCK) {
+                return Err(ControllerError("controller runtime lease is busy".into()));
+            }
+            return Err(ControllerError(format!(
+                "lock controller runtime lease: {error}"
+            )));
+        }
+        Ok(Self {
+            file,
+            runtime_root: runtime_root.to_path_buf(),
+        })
+    }
+
+    fn acquire(runtime_root: &Path) -> Result<Self, ControllerError> {
+        let deadline = std::time::Instant::now() + CONTROLLER_RUNTIME_RECOVERY_WAIT;
+        loop {
+            match Self::try_acquire(runtime_root) {
+                Ok(lease) => return Ok(lease),
+                Err(error)
+                    if error.0 == "controller runtime lease is busy"
+                        && std::time::Instant::now() < deadline =>
+                {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
+
+    #[allow(unsafe_code)]
+    fn make_inheritable_for_controller(&mut self) -> Result<RawFd, ControllerError> {
+        let fd = self.file.as_raw_fd();
+        // SAFETY: `fd` is live and retained by `self`.
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+        if flags < 0 {
+            return Err(ControllerError(format!(
+                "read controller runtime lease descriptor flags: {}",
+                std::io::Error::last_os_error()
+            )));
+        }
+        // SAFETY: this changes only the close-on-exec flag of the owned fd.
+        if unsafe { libc::fcntl(fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC) } != 0 {
+            return Err(ControllerError(format!(
+                "make controller runtime lease inheritable: {}",
+                std::io::Error::last_os_error()
+            )));
+        }
+        Ok(fd)
+    }
+
+    #[allow(unsafe_code)]
+    fn restore_close_on_exec(&mut self) -> Result<(), ControllerError> {
+        let fd = self.file.as_raw_fd();
+        // SAFETY: `fd` is live and retained by `self`.
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+        if flags < 0 {
+            return Err(ControllerError(format!(
+                "read controller runtime lease descriptor flags: {}",
+                std::io::Error::last_os_error()
+            )));
+        }
+        // SAFETY: this changes only the close-on-exec flag of the owned fd.
+        if unsafe { libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC) } != 0 {
+            return Err(ControllerError(format!(
+                "restore controller runtime lease close-on-exec: {}",
+                std::io::Error::last_os_error()
+            )));
+        }
+        Ok(())
+    }
+}
+
+#[allow(unsafe_code)]
+fn recover_stale_controller_runtime(
+    runtime_root: &Path,
+    lease: &ControllerRuntimeLease,
+) -> Result<(), ControllerError> {
+    if lease.runtime_root != runtime_root {
+        return Err(ControllerError(
+            "controller runtime recovery lease is bound to another root".into(),
+        ));
+    }
+    let runtime_directory = runtime_root.join(CONTROLLER_RUNTIME_DIRECTORY_BASENAME);
+    let metadata = match fs::symlink_metadata(&runtime_directory) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(ControllerError(format!(
+                "inspect stale controller runtime: {error}"
+            )))
+        }
+    };
+    // SAFETY: these calls read only immutable process credentials.
+    let (uid, gid) = unsafe { (libc::geteuid(), libc::getegid()) };
+    if !metadata.is_dir()
+        || metadata.file_type().is_symlink()
+        || metadata.uid() != uid
+        || metadata.gid() != gid
+        || metadata.mode() & 0o7777 != CONTROLLER_RUNTIME_DIRECTORY_MODE
+    {
+        return Err(ControllerError(
+            "stale controller runtime directory metadata is unsafe".into(),
+        ));
+    }
+    const KNOWN_FILES: [&str; 5] = [
+        "guest-console.log",
+        "guest-kernel",
+        "guest-receipt.json",
+        "guest-root-disk",
+        "host-controller",
+    ];
+    let mut entries = fs::read_dir(&runtime_directory)
+        .map_err(|error| ControllerError(format!("read stale controller runtime: {error}")))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| ControllerError(format!("read stale controller entry: {error}")))?;
+    entries.sort_by_key(|entry| entry.file_name());
+    for entry in &entries {
+        let name = entry
+            .file_name()
+            .into_string()
+            .map_err(|_| ControllerError("stale controller runtime name is not UTF-8".into()))?;
+        if !KNOWN_FILES.contains(&name.as_str()) {
+            return Err(ControllerError(format!(
+                "stale controller runtime contains unexpected entry: {name}"
+            )));
+        }
+        let metadata = fs::symlink_metadata(entry.path()).map_err(|error| {
+            ControllerError(format!("inspect stale controller entry {name}: {error}"))
+        })?;
+        if !metadata.file_type().is_file()
+            || metadata.file_type().is_symlink()
+            || metadata.nlink() != 1
+            || metadata.uid() != uid
+            || metadata.gid() != gid
+        {
+            return Err(ControllerError(format!(
+                "stale controller runtime entry metadata is unsafe: {name}"
+            )));
+        }
+    }
+    for entry in entries {
+        fs::remove_file(entry.path()).map_err(|error| {
+            ControllerError(format!("remove known stale controller file: {error}"))
+        })?;
+    }
+    fs::remove_dir(&runtime_directory)
+        .map_err(|error| ControllerError(format!("remove stale controller runtime: {error}")))?;
+    File::open(runtime_root)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|error| ControllerError(format!("sync recovered controller runtime: {error}")))?;
+    Ok(())
 }
 
 impl Drop for MaterializedControllerFile {
@@ -361,7 +558,9 @@ fn materialize_verified_controller_file(
         ));
     }
 
-    let runtime_directory = runtime_root.join("active-controller");
+    let lease = ControllerRuntimeLease::acquire(runtime_root)?;
+    recover_stale_controller_runtime(runtime_root, &lease)?;
+    let runtime_directory = runtime_root.join(CONTROLLER_RUNTIME_DIRECTORY_BASENAME);
     fs::create_dir(&runtime_directory).map_err(|error| {
         ControllerError(format!("create private controller directory: {error}"))
     })?;
@@ -375,6 +574,7 @@ fn materialize_verified_controller_file(
         path: runtime_directory.join("host-controller"),
         runtime_directory,
         auxiliary_paths: Vec::new(),
+        _lease: lease,
     };
 
     materialize_verified_runtime_file(
@@ -546,19 +746,35 @@ impl SpawnedMac4Controller {
     }
 
     fn spawn_materialized(
-        materialized: MaterializedControllerFile,
+        mut materialized: MaterializedControllerFile,
         controller_arguments: &[OsString],
     ) -> Result<Self, ControllerError> {
-        let mut child = Command::new(materialized.path())
+        let lease_fd = materialized._lease.make_inheritable_for_controller()?;
+        let spawn_result = Command::new(materialized.path())
             .args(controller_arguments)
+            .arg("--runtime-lease-fd")
+            .arg(lease_fd.to_string())
             .arg("--controller-stdio")
             .current_dir(materialized.runtime_directory())
             .env_clear()
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
-            .spawn()
-            .map_err(|error| ControllerError(format!("spawn verified host-controller: {error}")))?;
+            .spawn();
+        let restore_result = materialized._lease.restore_close_on_exec();
+        let mut child = match (spawn_result, restore_result) {
+            (Ok(child), Ok(())) => child,
+            (Ok(mut child), Err(error)) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(error);
+            }
+            (Err(error), _) => {
+                return Err(ControllerError(format!(
+                    "spawn verified host-controller: {error}"
+                )))
+            }
+        };
         let (Some(stdout), Some(stdin)) = (child.stdout.take(), child.stdin.take()) else {
             let _ = child.kill();
             let _ = child.wait();
@@ -1007,6 +1223,98 @@ mod tests {
             super::CONTROLLER_EXIT_TIMEOUT > std::time::Duration::from_secs(20),
             "the owner must not kill the controller while its 10s graceful + 10s forced VM stop is still bounded"
         );
+    }
+
+    #[test]
+    fn controller_runtime_lease_blocks_a_second_owner_until_the_first_drops() {
+        let fixture = FixtureDirectory::new("runtime-lease");
+        let first = super::ControllerRuntimeLease::acquire(&fixture.0)
+            .expect("first controller runtime lease");
+        let error = super::ControllerRuntimeLease::try_acquire(&fixture.0)
+            .expect_err("second controller owner is refused");
+        assert!(error.to_string().contains("busy"));
+        drop(first);
+        super::ControllerRuntimeLease::try_acquire(&fixture.0)
+            .expect("lease becomes available after the owner exits");
+    }
+
+    #[test]
+    fn exclusive_runtime_lease_recovers_only_the_fixed_stale_controller_files() {
+        let fixture = FixtureDirectory::new("runtime-recovery");
+        let stale = fixture.0.join("active-controller");
+        fs::create_dir(&stale).expect("create stale controller directory");
+        fs::set_permissions(&stale, fs::Permissions::from_mode(0o700))
+            .expect("protect stale controller directory");
+        for name in [
+            "host-controller",
+            "guest-kernel",
+            "guest-root-disk",
+            "guest-console.log",
+            "guest-receipt.json",
+        ] {
+            fs::write(stale.join(name), b"stale").expect("write known stale file");
+        }
+
+        let _lease = super::ControllerRuntimeLease::try_acquire(&fixture.0)
+            .expect("exclusive recovery lease");
+        super::recover_stale_controller_runtime(&fixture.0, &_lease)
+            .expect("known stale runtime is recovered");
+        assert!(!stale.exists());
+
+        fs::create_dir(&stale).expect("recreate stale controller directory");
+        fs::set_permissions(&stale, fs::Permissions::from_mode(0o700))
+            .expect("protect recreated stale controller directory");
+        fs::write(stale.join("unexpected"), b"do not delete").expect("write unexpected stale file");
+        let error = super::recover_stale_controller_runtime(&fixture.0, &_lease)
+            .expect_err("unknown residue is fail closed");
+        assert!(error.to_string().contains("unexpected"));
+        assert!(stale.join("unexpected").exists());
+
+        fs::remove_file(stale.join("unexpected")).expect("remove unexpected fixture");
+        let outside = fixture.0.join("outside");
+        fs::write(&outside, b"must survive").expect("write outside fixture");
+        std::os::unix::fs::symlink(&outside, stale.join("guest-kernel"))
+            .expect("create known-name symlink");
+        let error = super::recover_stale_controller_runtime(&fixture.0, &_lease)
+            .expect_err("known-name symlink is fail closed");
+        assert!(error.to_string().contains("metadata is unsafe"));
+        assert_eq!(
+            fs::read(&outside).expect("read outside fixture"),
+            b"must survive"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn runtime_lease_descriptor_survives_only_the_controller_exec() {
+        use std::os::fd::AsRawFd;
+        use std::process::Command;
+
+        let fixture = FixtureDirectory::new("runtime-lease-exec");
+        let mut lease =
+            super::ControllerRuntimeLease::acquire(&fixture.0).expect("controller runtime lease");
+        lease
+            .make_inheritable_for_controller()
+            .expect("lease can cross the controller exec");
+        let mut child = Command::new("/bin/sleep")
+            .arg("1")
+            .env(
+                "BOOLE_TEST_RUNTIME_LEASE_FD",
+                lease.file.as_raw_fd().to_string(),
+            )
+            .spawn()
+            .expect("spawn child inheriting lease");
+        lease
+            .restore_close_on_exec()
+            .expect("parent restores close-on-exec");
+        drop(lease);
+
+        let error = super::ControllerRuntimeLease::try_acquire(&fixture.0)
+            .expect_err("child keeps inherited lease alive");
+        assert!(error.to_string().contains("busy"));
+        child.wait().expect("child exits");
+        super::ControllerRuntimeLease::try_acquire(&fixture.0)
+            .expect("lease releases with child exit");
     }
 
     struct FixtureDirectory(std::path::PathBuf);

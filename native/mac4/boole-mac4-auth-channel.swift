@@ -478,6 +478,7 @@ let proxyExecutionRequestPath: String?
 let proxyQualificationReadyPath: String?
 let proxyExecutionReadyPath: String?
 let proxyExecutionReportPath: String?
+let runtimeLeaseFD: Int32?
 
 do {
     kernelPath = try option("kernel", arguments)
@@ -498,6 +499,14 @@ do {
     proxyQualificationReadyPath = try optionalOption("proxy-qualification-ready-out", arguments)
     proxyExecutionReadyPath = try optionalOption("proxy-execution-ready-out", arguments)
     proxyExecutionReportPath = try optionalOption("proxy-execution-report-out", arguments)
+    if let rawLeaseFD = try optionalOption("runtime-lease-fd", arguments) {
+        guard let parsed = Int32(rawLeaseFD), parsed >= 3 else {
+            throw HostError("--runtime-lease-fd is not a valid inherited descriptor")
+        }
+        runtimeLeaseFD = parsed
+    } else {
+        runtimeLeaseFD = nil
+    }
 } catch {
     fail("\(error)")
 }
@@ -539,6 +548,34 @@ if !proxyConfigured && proxyOutputPaths.contains(where: { $0 != nil }) {
 }
 if controllerStdio && (dryRun || proxyConfigured || proxyOutputPaths.contains(where: { $0 != nil })) {
     fail("--controller-stdio cannot be combined with dry-run or one-shot proxy paths")
+}
+if controllerStdio && runtimeLeaseFD == nil {
+    fail("--controller-stdio requires the inherited runtime lease")
+}
+if !controllerStdio && runtimeLeaseFD != nil {
+    fail("--runtime-lease-fd is reserved for the persistent controller")
+}
+let runtimeLeaseHandle: FileHandle?
+if let leaseFD = runtimeLeaseFD {
+    if fcntl(leaseFD, F_GETFD) < 0 {
+        fail("inherited runtime lease descriptor is not open")
+    }
+    var leaseMetadata = stat()
+    if fstat(leaseFD, &leaseMetadata) != 0
+        || (leaseMetadata.st_mode & S_IFMT) != S_IFREG
+        || leaseMetadata.st_nlink != 1
+        || leaseMetadata.st_uid != geteuid()
+        || leaseMetadata.st_gid != getegid()
+        || (leaseMetadata.st_mode & 0o7777) != 0o600
+    {
+        fail("inherited runtime lease metadata is unsafe")
+    }
+    if flock(leaseFD, LOCK_EX | LOCK_NB) != 0 {
+        fail("inherited runtime lease is not exclusively held")
+    }
+    runtimeLeaseHandle = FileHandle(fileDescriptor: leaseFD, closeOnDealloc: false)
+} else {
+    runtimeLeaseHandle = nil
 }
 if proxyConfigured {
     do {
@@ -785,6 +822,9 @@ func runPersistentController() throws -> LauncherPeer? {
             try validateEmbeddedLauncherFrame(
                 request.frames[1], cap: 131_072, named: "execution request"
             )
+            FileHandle.standardError.write(
+                Data("boole-mac4-controller-command:execution\n".utf8)
+            )
             let (connection, peer, proxyReady) = try openProxy(
                 phase: 2, nonceBase: request.requestID
             )
@@ -947,4 +987,5 @@ writeReceipt(
     stoppedAt: stoppedAt
 )
 if !handshakeComplete || !proxyComplete { fail(handshakeDetail) }
+_ = runtimeLeaseHandle
 if !controllerStdio { print("mac4-channel: authenticated handshake complete") }

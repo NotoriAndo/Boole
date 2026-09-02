@@ -1,0 +1,87 @@
+{
+  "boundary": {
+    "activationAllowed": false,
+    "consensus": false,
+    "mining": false,
+    "p2p": false,
+    "production": false,
+    "reward": false,
+    "testnet": false
+  },
+  "evidence": {
+    "installedHappyPathRecord": {
+      "path": "native/containment/native-shadow-installed-mac-e2e-result-arm64-v1.json",
+      "sha256": "76a742a10395450c2c6c3e968864e2684805bee8ba20ab56b9de102e963bb414"
+    },
+    "resultSha256": "2c590eea257d71c0c68831dda8754dca83244fc2536e22b2d45febc5ec259eb8",
+    "terminalJournalSha256": "79d742a54f3c8e6e63644d44328c4752e7b86d5111dde6038f8927eb01e60be4",
+    "terminalNodeBeforeStderrSha256": "80929a7e5c381eb080aab2342a9aee40a55ae597f7d5cd9a29fa15ef612a7f7b",
+    "unresolvedJournalSha256": "915bf0cbd6b3a63ae9cecca498128383d70ae0e4b106e485977cb8afb9a3bda9",
+    "unresolvedNodeAfterStderrSha256": "c3811b68f12c80b2c03ccd39b3d6ec5827d21780e234c0eedd2f2014099f2ab8"
+  },
+  "guestImage": {
+    "imageBuildRunId": 33652402930,
+    "initrdSha256": "1d50697dd890512815a3cd008f3b3d8a7330464e21cdce6aec9d93962b1a09c7",
+    "kernelSha256": "d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336",
+    "newImageBuilds": 0,
+    "rootDiskSha256": "3693d5bbaa85b6c5106aa8f89c3d9f6c523aa31528f312c07bca661f2a360150"
+  },
+  "harnessAccounting": {
+    "attempts": [
+      {
+        "classification": "HARNESS-ENTRYPOINT-DEFECT",
+        "detail": "Direct script execution did not add the repository root to Python's module path.",
+        "machinesStarted": 0,
+        "outcome": "REFUSED-BEFORE-KAT-OR-PRODUCT-STATE"
+      },
+      {
+        "classification": "PASS",
+        "machinesStarted": 4,
+        "outcome": "INSTALLED-MAC-CRASH-RESTART-EXACTLY-ONCE-PASS"
+      }
+    ],
+    "harnessRetries": 1,
+    "productRuns": 1
+  },
+  "host": {
+    "architecture": "arm64",
+    "cleanMacCanary": false,
+    "macosVersion": "26.5.2"
+  },
+  "installedProduct": {
+    "artifactSha256": {
+      "host-cli": "ada629789926d06105886349b70000078b09f73d89a142c9fc02386ed38fbfa8",
+      "host-controller": "e511eb892422cd6f61ad173b5cf7a438cb1d050b1d22dcc2fc5475521c915876",
+      "host-node": "bb9d518a093c0433d8392dfd026e9b8119b7f8ca1942bf5c4098e713fca3d33e",
+      "host-wallet-agent": "8df838ddc40c0da2b933d5d84dde203c10967b27b3717e22c5dd0dcc2538bc4"
+    },
+    "manifestSha256": "85dd6fde255df6e2b8f7d19064a3548606afd5eb62169ea0799878a1a76a2ef4",
+    "productSourceRevision": "18f6d9f41f31cf1ea26d89d62643abc9a91eeafc",
+    "trustRoots": "DETERMINISTIC-NON-PRODUCTION-KAT"
+  },
+  "recordedAt": "2026-09-03",
+  "scenarios": [
+    {
+      "acceptedRedeliveryByteIdentical": true,
+      "checkerExecutionsAfterRestart": 0,
+      "checkerExecutionsBeforeCrash": 2,
+      "journalBytesUnchangedAfterRestart": true,
+      "journalRows": 10,
+      "nodePidChanged": true,
+      "runtimeClean": true,
+      "scenario": "terminal-redelivery-across-node-controller-guest-loss",
+      "tamperedRedeliveryFlagOnlyDelta": true
+    },
+    {
+      "checkerExecutions": 0,
+      "failClosedMessageObserved": true,
+      "journalRows": 3,
+      "listenerRefused": true,
+      "restartRefused": true,
+      "runtimeClean": true,
+      "scenario": "unresolved-inflight-fail-closed-after-node-controller-guest-loss"
+    }
+  ],
+  "schema": "boole.native-shadow.installed-mac-crash-restart-result.v1",
+  "status": "INSTALLED-MAC-CRASH-RESTART-EXACTLY-ONCE-PASS"
+}

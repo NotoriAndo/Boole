@@ -17,6 +17,19 @@ FIXTURES = ROOT / "fixtures/native-shadow/a-rooted-native-mining-e2e-v1-real-his
 
 
 class InstalledMacCaseMatrixTests(unittest.TestCase):
+    def test_runtime_cleanup_allows_only_the_private_durable_lease(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            runtime = Path(temporary)
+            e2e.require_controller_runtime_clean(runtime)
+            lease = runtime / e2e.CONTROLLER_RUNTIME_LEASE_BASENAME
+            lease.write_bytes(b"")
+            lease.chmod(0o600)
+            e2e.require_controller_runtime_clean(runtime)
+
+            (runtime / "active-controller").mkdir()
+            with self.assertRaisesRegex(ValueError, "retained controller residue"):
+                e2e.require_controller_runtime_clean(runtime)
+
     def test_private_directory_repairs_tmp_group_inheritance(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "private"
