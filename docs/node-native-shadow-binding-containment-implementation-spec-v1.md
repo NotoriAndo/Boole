@@ -4997,3 +4997,22 @@ until a recoverable removal design is separately approved. The next evidence
 boundary is process-crash testing around update adoption and rollback; this
 section creates no production, testnet, mining, reward, consensus, P2P or
 activation authority.
+
+## Real-process update/rollback/recovery command closure (2026-09-03)
+
+The test-only release writer now accepts an explicit product and guest
+successor identity while keeping sequence-one plans backward compatible. A
+real `boole-cli` subprocess E2E installs release one and signed release two
+through loopback transport, selects release one through verified rollback,
+and proves that replaying release two cannot move the state or trigger artifact
+downloads. After the selected release-one guest disk is corrupted, the real
+recovery command verifies and selects retained release two while both floors
+remain at two.
+
+The same E2E invokes runtime reset and verifies that only controller and
+materialized-host runtime are removed. The replay journal and a wallet
+sentinel remain byte-identical. This is the real command surface rather than a
+mocked state transition, but it is not yet a process-kill experiment at the
+version-directory or state-file rename boundaries. No guest starts and no
+production, testnet, mining, reward, consensus, P2P or activation authority is
+created.

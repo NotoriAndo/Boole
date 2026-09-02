@@ -7099,3 +7099,34 @@ PRODUCT/GUEST FLOORS NEVER DECREASE / JOURNAL + WALLET SURVIVE RUNTIME RESET
 NEXT: INSTALLED UPDATE/ROLLBACK PROCESS-CRASH E2E
 PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
 ```
+
+## 104. The real CLI preserves both security floors through update and recovery (2026-09-03)
+
+The non-production testkit can now issue one explicit successor in both the
+product and guest signature domains. The predecessor digests, sequences and
+versions are caller-visible test inputs; a successor with a missing or
+malformed predecessor is refused before any metadata is signed. Existing
+single-release KAT plans retain their original sequence-one bytes.
+
+One behavior-level integration test drives separate real `boole-cli`
+processes through the complete reversible lifecycle. A loopback-only byte
+server supplies release one and its signed successor. The CLI installs both,
+rolls the active selection back to release one without lowering either release
+floor, rejects replay of release two after reading only its signed manifest
+and signature, detects deliberate corruption of the selected guest disk and
+recovers to the independently verified retained release two.
+
+The same flow runs the product reset command against disposable controller and
+host runtime material. It proves that the durable replay journal and a wallet
+sentinel outside those two fixed subtrees remain byte-identical. This closes
+the real-command update/rollback/recovery behavior, not the process-crash
+windows around durable state replacement. No guest image is rebuilt or
+booted, the KAT roots are not production roots, and production, testnet,
+mining, reward, consensus, P2P and activation remain closed.
+
+```text
+REAL CLI UPDATE -> ROLLBACK -> REPLAY REJECT -> CORRUPT-ACTIVE RECOVERY PASS
+PRODUCT/GUEST FLOORS STAY AT 2 / JOURNAL + WALLET SURVIVE RESET
+NEXT: CRASH WINDOWS AROUND VERSION ADOPTION + STATE REPLACEMENT
+PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
+```

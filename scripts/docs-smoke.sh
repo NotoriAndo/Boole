@@ -3246,4 +3246,10 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'NEXT: INSTALLED U
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Installed direct-boot update, rollback and reset lifecycle'
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Permanent uninstall remains outside this contract'
 
+# The real CLI now crosses the full reversible update lifecycle with two
+# signed KAT generations; process-kill adoption windows remain the next gate.
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'REAL CLI UPDATE -> ROLLBACK -> REPLAY REJECT -> CORRUPT-ACTIVE RECOVERY PASS'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'NEXT: CRASH WINDOWS AROUND VERSION ADOPTION + STATE REPLACEMENT'
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Real-process update/rollback/recovery command closure'
+
 printf 'docs-smoke: PASS\n' >&2
