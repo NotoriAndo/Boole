@@ -5069,3 +5069,21 @@ artifact therefore yields `installed-release-rejected` and leaves the durable
 state byte-identical. This status surface grants no runtime
 start, production, network, mining, reward, consensus, P2P or activation
 authority.
+
+## Verified offline direct-boot release packaging (2026-09-03)
+
+The curl-first product now has an offline boundary between signed release
+inputs and hostable transport bytes. `product.package-direct-boot` accepts no
+private key and has no network or upload capability. It authenticates the
+product-v3 and guest-v3 envelopes against separately injected public roots and
+first-install floors, verifies the complete exact file set, and refuses unsafe
+or surplus directory entries before allocating its output.
+
+The packager copies from the verifier-retained descriptors, re-authenticates
+the complete staged tree, fsyncs it and exposes it with one directory rename.
+The second verification is required because retaining a descriptor prevents a
+path replacement but does not by itself prevent another writer from changing
+that inode during copying. A real CLI test fixes both outcomes: an accepted
+tree has the exact signed bytes, and a tampered guest artifact leaves no
+output and does not mutate a prior package. This is release-input integrity,
+not operational signing, upload, production authority or network activation.
