@@ -319,6 +319,7 @@ dependencies = [
  "clap",
  "ed25519-dalek",
  "hex",
+ "libc",
  "rand_core 0.6.4",
  "reqwest",
  "serde",

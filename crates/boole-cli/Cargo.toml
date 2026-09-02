@@ -24,6 +24,7 @@ boole-miner = { path = "../boole-miner" }
 boole-node = { path = "../boole-node" }
 clap.workspace = true
 hex.workspace = true
+libc.workspace = true
 rand_core.workspace = true
 # CURL.2-TRANSPORT — bundle download for `boole product install`. Reuses the
 # workspace-pinned reqwest (blocking + rustls-tls) already linked by
@@ -31,6 +32,7 @@ rand_core.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
@@ -53,7 +55,6 @@ ed25519-dalek.workspace = true
 # --blocks` against the repo's canonical checker, mirroring
 # `boole-node/tests/deep_verify_block_roundtrip.rs`.
 boole-lean-runner = { path = "../boole-lean-runner" }
-sha2.workspace = true
 
 # P0.6b — inherit `[workspace.lints]` so the workspace-wide deny set
 # (currently `unsafe_code = "deny"`) is enforced uniformly on this crate.

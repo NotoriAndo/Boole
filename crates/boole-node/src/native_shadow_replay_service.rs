@@ -15,7 +15,7 @@ use axum::body::{to_bytes, Body, Bytes};
 use axum::extract::State;
 use axum::http::{header, HeaderMap, Request, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::post;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde_json::{json, Value};
 
@@ -1465,8 +1465,48 @@ where
     L: LauncherTransport<A::Request>,
 {
     Router::new()
+        .route("/live", get(live))
+        .route("/ready", get(ready::<A, L>))
         .route(SUBMISSION_ROUTE, post(submit::<A, L>))
         .with_state(service)
+}
+
+async fn live() -> Response {
+    json_response(
+        StatusCode::OK,
+        json!({
+            "schema": "boole.native-shadow.service-health.v1",
+            "probe": "live",
+            "live": true,
+            "loopbackOnly": true,
+            "mineableNow": false,
+            "activationAllowed": false,
+        }),
+    )
+}
+
+async fn ready<A, L>(State(service): State<Arc<ClosedLocalReplayService<A, L>>>) -> Response
+where
+    A: ReplayAuthority,
+    L: LauncherTransport<A::Request>,
+{
+    let poisoned = service.poisoned.load(Ordering::Acquire);
+    json_response(
+        if poisoned {
+            StatusCode::SERVICE_UNAVAILABLE
+        } else {
+            StatusCode::OK
+        },
+        json!({
+            "schema": "boole.native-shadow.service-health.v1",
+            "probe": "ready",
+            "ready": !poisoned,
+            "reason": if poisoned { "service_poisoned" } else { "ready" },
+            "loopbackOnly": true,
+            "mineableNow": false,
+            "activationAllowed": false,
+        }),
+    )
 }
 
 async fn serve_router_until_shutdown<F>(
@@ -2667,6 +2707,82 @@ mod tests {
             "127.0.0.1:8082".parse().expect("fixed address")
         );
         assert_eq!(SUBMISSION_ROUTE, "/native-shadow/submissions");
+    }
+
+    #[tokio::test]
+    async fn installed_route_exposes_live_and_ready_only_after_startup_barriers() {
+        let service = test_service("health-ready", TestLauncher::new(vec![]));
+        let router = build_router(Arc::clone(&service));
+
+        let live = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/live")
+                    .body(Body::empty())
+                    .expect("live request"),
+            )
+            .await
+            .expect("live response");
+        assert_eq!(live.status(), StatusCode::OK);
+        let live = response_json(live).await;
+        assert_eq!(live["schema"], "boole.native-shadow.service-health.v1");
+        assert_eq!(live["probe"], "live");
+        assert_eq!(live["live"], true);
+        assert_eq!(live["loopbackOnly"], true);
+        assert_eq!(live["mineableNow"], false);
+        assert_eq!(live["activationAllowed"], false);
+
+        let ready = router
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/ready")
+                    .body(Body::empty())
+                    .expect("ready request"),
+            )
+            .await
+            .expect("ready response");
+        assert_eq!(ready.status(), StatusCode::OK);
+        let ready = response_json(ready).await;
+        assert_eq!(ready["probe"], "ready");
+        assert_eq!(ready["ready"], true);
+    }
+
+    #[tokio::test]
+    async fn poisoned_installed_route_stays_live_but_is_not_ready() {
+        let service = test_service("health-poisoned", TestLauncher::new(vec![]));
+        service.poisoned.store(true, Ordering::Release);
+        let router = build_router(service);
+
+        let live = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/live")
+                    .body(Body::empty())
+                    .expect("live request"),
+            )
+            .await
+            .expect("live response");
+        assert_eq!(live.status(), StatusCode::OK);
+
+        let ready = router
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/ready")
+                    .body(Body::empty())
+                    .expect("ready request"),
+            )
+            .await
+            .expect("ready response");
+        assert_eq!(ready.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let ready = response_json(ready).await;
+        assert_eq!(ready["ready"], false);
+        assert_eq!(ready["reason"], "service_poisoned");
     }
 
     #[test]

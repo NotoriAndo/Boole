@@ -4950,3 +4950,24 @@ Evidence:
 This is a closed-local recovery property only. It changes no challenge rule,
 verdict, consensus, reward, P2P or activation state and does not assert the
 deferred clean-Mac canary.
+
+## Curl-installed host lifecycle and health closure (2026-09-03)
+
+The installed direct-boot CLI now reopens both signed release domains and
+materializes the retained verified host-node handle into a private 0500 runtime
+file below one application state root. It derives the controller runtime and
+0600 journal path internally, then replaces itself with that verified node.
+Kernel, disk, controller, launcher and journal path selection are not exposed
+on the user command surface.
+
+The node serves typed `/live` and `/ready` probes only on the existing fixed
+loopback service. Both pin the closed-local, non-mining and non-activation
+state; readiness returns unavailable when replay state is poisoned. The status
+command validates those fields and byte caps before reporting success.
+
+The real installed Mac E2E observed install sequence 1 for both signature
+domains, live and ready true, the unchanged four-verdict matrix and bounded
+clean shutdown. Its compact result is
+`native/containment/native-shadow-installed-product-lifecycle-result-arm64-v1.json`.
+This closes product start/status/stop, not clean-Mac acceptance, production,
+testnet, mining, reward, consensus, P2P or activation.

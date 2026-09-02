@@ -1,0 +1,72 @@
+{
+  "activationAllowed": false,
+  "cases": [
+    {
+      "caseId": "accepted",
+      "outcome": "accepted",
+      "passed": true,
+      "reasonCode": "accepted",
+      "status": 200
+    },
+    {
+      "caseId": "tampered",
+      "outcome": "deterministic_reject",
+      "passed": true,
+      "reasonCode": "checker_rejected",
+      "status": 200
+    },
+    {
+      "caseId": "constant",
+      "outcome": "deterministic_reject",
+      "passed": true,
+      "reasonCode": "checker_rejected",
+      "status": 200
+    },
+    {
+      "caseId": "empty",
+      "outcome": "precheck_reject",
+      "passed": true,
+      "reasonCode": "intake_rejected",
+      "status": 400
+    }
+  ],
+  "consensus": false,
+  "health": {
+    "endpoint": "http://127.0.0.1:8082",
+    "live": {
+      "activationAllowed": false,
+      "live": true,
+      "loopbackOnly": true,
+      "mineableNow": false,
+      "probe": "live",
+      "schema": "boole.native-shadow.service-health.v1"
+    },
+    "ready": {
+      "activationAllowed": false,
+      "loopbackOnly": true,
+      "mineableNow": false,
+      "probe": "ready",
+      "ready": true,
+      "reason": "ready",
+      "schema": "boole.native-shadow.service-health.v1"
+    }
+  },
+  "install": {
+    "command": "product.install-direct-boot",
+    "guestReleaseSequence": 1,
+    "releaseSequence": 1
+  },
+  "loopbackOnly": true,
+  "mining": false,
+  "p2p": false,
+  "production": false,
+  "reward": false,
+  "schema": "boole.native-shadow.installed-mac-e2e.v1",
+  "sourceRevision": "5b9dd421d2d7ae6834f35fdb3dbd8ddcd0d18bc6",
+  "status": "INSTALLED-MAC-CLOSED-LOCAL-E2E-PASS",
+  "testnet": false,
+  "transportLayout": {
+    "guestArtifacts": 11,
+    "hostArtifacts": 4
+  }
+}

@@ -181,7 +181,7 @@ assert urllib.request.urlopen(value('--base-url') + '/release-manifest.json').re
 install = pathlib.Path(value('--install-root'))
 install.mkdir()
 (install / 'observed.json').write_text(json.dumps({'args': args}))
-print(json.dumps({'ok': True, 'version': 'v1', 'command': 'product.install-direct-boot', 'data': {'releaseSequence': 1, 'guestReleaseSequence': 1}}))
+print(json.dumps({'ok': True, 'version': 'v1', 'command': 'product.install-direct-boot', 'result': {'releaseSequence': 1, 'guestReleaseSequence': 1}}))
 """,
                 encoding="utf-8",
             )
@@ -228,6 +228,12 @@ print(json.dumps({'ok': True, 'version': 'v1', 'command': 'product.install-direc
 import http.server, json, signal, threading
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *args): pass
+    def do_GET(self):
+        probe = self.path.lstrip('/')
+        if probe not in ('live', 'ready'): self.send_error(404); return
+        body = json.dumps({'schema':'boole.native-shadow.service-health.v1','probe':probe,probe:True,'loopbackOnly':True,'mineableNow':False,'activationAllowed':False}).encode()
+        self.send_response(200); self.send_header('Content-Type','application/json')
+        self.send_header('Content-Length',str(len(body))); self.end_headers(); self.wfile.write(body)
     def do_POST(self):
         length = int(self.headers['Content-Length'])
         epoch = json.loads(self.rfile.read(length))['epoch']
@@ -249,8 +255,29 @@ server.serve_forever(); server.server_close()
                 encoding="utf-8",
             )
             node.chmod(0o700)
-            runtime = root / "runtime"
-            journal = root / "state" / "replay.ndjson"
+            cli = root / "boole"
+            cli.write_text(
+                """#!/usr/bin/env python3
+import json, os, pathlib, shutil, sys, urllib.request
+a=sys.argv[1:]
+def v(name): return a[a.index(name)+1]
+if a[:2] == ['product','run-direct-boot']:
+  install=pathlib.Path(v('--install-root')); state=pathlib.Path(v('--state-root'))
+  version=json.loads((install/'installed-release.json').read_text())['versionDirectory']
+  source=install/'versions'/version/'host-node'; target=state/'host'/'boole-mac-native-shadow-replay-node'
+  target.parent.mkdir(parents=True,mode=0o700); (state/'controller').mkdir(parents=True,mode=0o700); (state/'journal').mkdir(parents=True,mode=0o700)
+  shutil.copyfile(source,target); target.chmod(0o500); os.execv(target,[str(target)])
+if a[:2] == ['product','status-direct-boot']:
+  data={}
+  for probe in ('live','ready'):
+    with urllib.request.urlopen('http://127.0.0.1:8082/'+probe) as response: data[probe]=json.loads(response.read())
+  print(json.dumps({'ok':True,'version':'v1','command':'product.status-direct-boot','result':data})); raise SystemExit(0)
+raise SystemExit(2)
+""",
+                encoding="utf-8",
+            )
+            cli.chmod(0o700)
+            state = root / "state"
             work = root / "work"
             roots = {
                 "productKeyId": "product-kat",
@@ -259,10 +286,10 @@ server.serve_forever(); server.server_close()
                 "guestPublicKeyHex": "22" * 32,
             }
 
-            result = e2e.run_installed_node_matrix(
+            result, health = e2e.run_installed_node_matrix(
+                cli,
                 install,
-                runtime,
-                journal,
+                state,
                 work,
                 roots,
                 GRANT,
@@ -271,7 +298,9 @@ server.serve_forever(); server.server_close()
             )
 
             self.assertEqual([row["caseId"] for row in result], list(e2e.CASE_FILES))
-            self.assertEqual(list(runtime.iterdir()), [])
+            self.assertTrue(health["result"]["live"]["live"])
+            self.assertTrue(health["result"]["ready"]["ready"])
+            self.assertEqual(list((state / "controller").iterdir()), [])
             self.assertTrue((work / "node.stdout").is_file())
             self.assertTrue((work / "node.stderr").is_file())
 
@@ -286,6 +315,11 @@ server.serve_forever(); server.server_close()
 import http.server, json, signal, threading
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *args): pass
+    def do_GET(self):
+        probe=self.path.lstrip('/')
+        if probe not in ('live','ready'): self.send_error(404); return
+        body=json.dumps({'schema':'boole.native-shadow.service-health.v1','probe':probe,probe:True,'loopbackOnly':True,'mineableNow':False,'activationAllowed':False}).encode()
+        self.send_response(200); self.send_header('Content-Type','application/json'); self.send_header('Content-Length',str(len(body))); self.end_headers(); self.wfile.write(body)
     def do_POST(self):
         size = int(self.headers['Content-Length']); epoch = json.loads(self.rfile.read(size))['epoch']
         rows = {0:(200,'accepted','accepted'),1:(200,'deterministic_reject','checker_rejected'),2:(200,'deterministic_reject','checker_rejected'),3:(400,'precheck_reject','intake_rejected')}
@@ -301,14 +335,26 @@ signal.signal(signal.SIGTERM,stop); signal.signal(signal.SIGINT,stop); server.se
             cli = sources / "host-cli"
             cli.write_text(
                 """#!/usr/bin/env python3
-import json, pathlib, shutil, sys, urllib.request
+import json, os, pathlib, shutil, sys, urllib.request
 a=sys.argv[1:]
 def v(name): return a[a.index(name)+1]
-install=pathlib.Path(v('--install-root')); version=install/'versions'/'000000000001-test'; version.mkdir(parents=True)
-with urllib.request.urlopen(v('--base-url')+'/host-node') as r, (version/'host-node').open('wb') as w: shutil.copyfileobj(r,w)
-(version/'host-node').chmod(0o700)
-(install/'installed-release.json').write_text(json.dumps({'schema':'boole.curl-product-install-state.v1','releaseSequence':1,'releaseVersion':'test','manifestSha256':'11'*32,'versionDirectory':version.name}))
-print(json.dumps({'ok':True,'command':'product.install-direct-boot','data':{'releaseSequence':1,'guestReleaseSequence':1}}))
+if a[:2] == ['product','install-direct-boot']:
+  install=pathlib.Path(v('--install-root')); version=install/'versions'/'000000000001-test'; version.mkdir(parents=True)
+  with urllib.request.urlopen(v('--base-url')+'/host-node') as r, (version/'host-node').open('wb') as w: shutil.copyfileobj(r,w)
+  (version/'host-node').chmod(0o700)
+  (install/'installed-release.json').write_text(json.dumps({'schema':'boole.curl-product-install-state.v1','releaseSequence':1,'releaseVersion':'test','manifestSha256':'11'*32,'versionDirectory':version.name}))
+  print(json.dumps({'ok':True,'version':'v1','command':'product.install-direct-boot','result':{'releaseSequence':1,'guestReleaseSequence':1}})); raise SystemExit(0)
+if a[:2] == ['product','run-direct-boot']:
+  install=pathlib.Path(v('--install-root')); state=pathlib.Path(v('--state-root'))
+  version=json.loads((install/'installed-release.json').read_text())['versionDirectory']; source=install/'versions'/version/'host-node'
+  target=state/'host'/'boole-mac-native-shadow-replay-node'; target.parent.mkdir(parents=True,mode=0o700); (state/'controller').mkdir(parents=True,mode=0o700); (state/'journal').mkdir(parents=True,mode=0o700)
+  shutil.copyfile(source,target); target.chmod(0o500); os.execv(target,[str(target)])
+if a[:2] == ['product','status-direct-boot']:
+  data={}
+  for probe in ('live','ready'):
+    with urllib.request.urlopen('http://127.0.0.1:8082/'+probe) as response: data[probe]=json.loads(response.read())
+  print(json.dumps({'ok':True,'version':'v1','command':'product.status-direct-boot','result':data})); raise SystemExit(0)
+raise SystemExit(2)
 """,
                 encoding="utf-8",
             )
@@ -385,6 +431,10 @@ for name in ('release-manifest.json','release-signature.json','guest-update-mani
             )
             result = json.loads(result_path.read_text(encoding="utf-8"))
             self.assertEqual(result["status"], "INSTALLED-MAC-CLOSED-LOCAL-E2E-PASS")
+            self.assertEqual(result["install"]["releaseSequence"], 1)
+            self.assertEqual(result["install"]["guestReleaseSequence"], 1)
+            self.assertTrue(result["health"]["live"]["live"])
+            self.assertTrue(result["health"]["ready"]["ready"])
             self.assertEqual([row["caseId"] for row in result["cases"]], list(e2e.CASE_FILES))
             self.assertFalse((work / "http-root").exists())
             self.assertFalse((work / "install-root").exists())

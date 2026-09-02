@@ -7,3 +7,4 @@
 // envelope shape on the proxy side).
 pub mod cli_envelope;
 pub mod curl_product_transport;
+pub mod installed_product_lifecycle;
