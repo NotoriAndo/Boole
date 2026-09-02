@@ -7,12 +7,11 @@
 > activation boundaries in this specification remain unchanged, and no A7,
 > production, boot, mining or reward authority is created here.
 
-> **CURRENT-CURSOR-2026-09-01:** `ARM64 REPLICAS BYTE-IDENTICAL / MAC CLOSED READINESS PASS /
-> MAC.4 VSOCK ROUND TRIP FAILED CLOSED / SUFFICIENT ROOT CAUSE IDENTIFIED / A7 NOT CREATED`.
-> Next is deterministic guest module indexing and loading plus a free
-> readback/preflight. A fresh image pair and Mac boot require new authority.
-> This cursor is status, not production, testnet, mining, reward, consensus,
-> P2P or activation permission.
+> **CURRENT-CURSOR-2026-09-02:** `SECOND MAC.4 OBSERVATION FAILED CLOSED /
+> VSOCK LOADED / PRIVATE-TMP ROOT CAUSE REPRODUCED / ADDITIVE SUCCESSOR IMPLEMENTED`.
+> Next is the successor's zero-image ARM64 preflight. This cursor is status,
+> not production, testnet, mining, reward, consensus, P2P or activation
+> permission.
 
 Status: **CLOSED-LOCAL QUALIFICATION GREEN — tracked checker, named-Linux containment, loopback
 node raw-answer HTTP adjudication and durable replay landed; production activation, P2P, block,

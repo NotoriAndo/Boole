@@ -59,12 +59,11 @@ class DevelopmentThroughputPolicyContract(unittest.TestCase):
             text = read(ROOT / relative)
             with self.subTest(relative=relative):
                 normalized = " ".join(text.split())
-                self.assertIn("CURRENT-CURSOR-2026-09-01", normalized)
-                self.assertIn("ARM64 REPLICAS BYTE-IDENTICAL", normalized)
-                self.assertIn("MAC CLOSED READINESS PASS", normalized)
-                self.assertIn("MAC.4 VSOCK ROUND TRIP FAILED CLOSED", normalized)
-                self.assertIn("SUFFICIENT ROOT CAUSE IDENTIFIED", normalized)
-                self.assertIn("A7 NOT CREATED", normalized)
+                self.assertIn("CURRENT-CURSOR-2026-09-02", normalized)
+                self.assertIn("SECOND MAC.4 OBSERVATION FAILED CLOSED", normalized)
+                self.assertIn("VSOCK LOADED", normalized)
+                self.assertIn("PRIVATE-TMP ROOT CAUSE REPRODUCED", normalized)
+                self.assertIn("ADDITIVE SUCCESSOR IMPLEMENTED", normalized)
 
     def test_lessons_are_advisory_until_promoted(self) -> None:
         text = read(ROOT / "tasks/lessons.md")
