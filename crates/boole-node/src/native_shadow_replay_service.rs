@@ -2185,7 +2185,7 @@ pub async fn serve_installed_mac_closed_local_native_shadow_replay(
         )?;
     let qualification_hello = mac4_qualification_hello_frame(&installed)?;
     let controller_client = controller.client();
-    let (readiness, launcher) = qualify_and_validate_before_recovery_refusal(
+    let qualification = qualify_and_validate_before_recovery_refusal(
         &recovery.stuck_in_flight,
         || {
             qualify_mac4_controller(controller_client, &qualification_hello)
@@ -2207,7 +2207,13 @@ pub async fn serve_installed_mac_closed_local_native_shadow_replay(
             );
             Ok(())
         },
-    )?;
+    );
+    let (readiness, launcher) = match qualification {
+        Ok(qualified) => qualified,
+        Err(error) => {
+            anyhow::bail!("{error}; {}", controller.failure_diagnostics());
+        }
+    };
     debug_assert_eq!(readiness.registry_digest_hex(), production_registry_digest);
     let service = Arc::new(ClosedLocalReplayService {
         replay_authority: InstalledReplayAuthority::new(installed),

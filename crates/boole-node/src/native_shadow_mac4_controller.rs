@@ -29,6 +29,8 @@ pub(crate) const CONTROLLER_FRAME_CAP_BYTES: usize = 524_288;
 const CONTROLLER_FRAME_COUNT_CAP: usize = 3;
 const CONTROLLER_PAYLOAD_CAP_BYTES: usize =
     CONTROLLER_FRAME_COUNT_CAP * (CONTROLLER_FRAME_CAP_BYTES + 4);
+#[cfg(target_os = "macos")]
+const CONTROLLER_FAILURE_DIAGNOSTIC_CAP_BYTES: usize = 32 * 1024;
 const CONTROLLER_CONTRACT_DIGEST: [u8; 32] = [
     0x98, 0x09, 0x5a, 0xbd, 0xe0, 0xcb, 0x32, 0xcb, 0x5f, 0xb2, 0x7e, 0xde, 0xaf, 0x5b, 0xc6, 0xc6,
     0x7f, 0x3d, 0xf7, 0x96, 0xad, 0x3c, 0xda, 0x07, 0xb1, 0x6f, 0x8b, 0x44, 0x84, 0xb9, 0xb7, 0x13,
@@ -382,6 +384,31 @@ fn materialize_verified_controller_file(
     Ok(materialized)
 }
 
+#[cfg(any(target_os = "macos", test))]
+fn read_bounded_runtime_diagnostic(path: &Path, cap: usize) -> std::io::Result<String> {
+    let mut file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "controller diagnostic is not a regular file",
+        ));
+    }
+    let start = metadata.len().saturating_sub(cap as u64);
+    file.seek(SeekFrom::Start(start))?;
+    let mut bytes = Vec::with_capacity((metadata.len() - start) as usize);
+    file.take(cap as u64).read_to_end(&mut bytes)?;
+    if start > 0 {
+        if let Some(boundary) = bytes.iter().position(|byte| *byte == b'\n') {
+            bytes.drain(..=boundary);
+        }
+    }
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
 #[cfg(target_os = "macos")]
 type SpawnedControllerClient = Mac4ControllerClient<ChildStdout, ChildStdin>;
 
@@ -544,6 +571,29 @@ impl SpawnedMac4Controller {
 
     pub fn client(&self) -> Arc<SpawnedControllerClient> {
         Arc::clone(&self.client)
+    }
+
+    /// Return bounded startup-only evidence before this private runtime is
+    /// removed. This is called only when launcher qualification failed, before
+    /// any submission bytes could reach the guest.
+    pub fn failure_diagnostics(&self) -> String {
+        let mut parts = Vec::new();
+        for (name, label) in [
+            ("guest-console.log", "guest-console-tail"),
+            ("guest-receipt.json", "guest-receipt-tail"),
+        ] {
+            let path = self._materialized.runtime_directory().join(name);
+            if let Ok(value) =
+                read_bounded_runtime_diagnostic(&path, CONTROLLER_FAILURE_DIAGNOSTIC_CAP_BYTES)
+            {
+                parts.push(format!("{label}={value:?}"));
+            }
+        }
+        if parts.is_empty() {
+            "controller startup diagnostics unavailable".to_owned()
+        } else {
+            parts.join("; ")
+        }
     }
 
     pub fn shutdown(mut self) -> Result<(), ControllerError> {
@@ -1179,6 +1229,22 @@ mod tests {
         )
         .expect_err("nonprivate runtime root is rejected");
         assert!(error.to_string().contains("private"));
+    }
+
+    #[test]
+    fn failed_controller_diagnostics_keep_only_the_bounded_console_tail() {
+        let fixture = FixtureDirectory::new("failure-diagnostic-tail");
+        let console = fixture.0.join("guest-console.log");
+        fs::write(
+            &console,
+            b"prefix-that-must-be-cut\nlauncher-refused-policy\n",
+        )
+        .expect("write guest console");
+
+        assert_eq!(
+            super::read_bounded_runtime_diagnostic(&console, 25).expect("read bounded diagnostic"),
+            "launcher-refused-policy\n"
+        );
     }
 
     #[test]
