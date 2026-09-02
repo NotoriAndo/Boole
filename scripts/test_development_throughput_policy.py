@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import re
 import unittest
 from pathlib import Path
@@ -98,6 +99,41 @@ class DevelopmentThroughputPolicyContract(unittest.TestCase):
             self.assertNotIn(digest, docs_smoke)
         self.assertIn("LOCAL-MIRROR-DIGEST-SYNC-RETIRED", shadow)
         self.assertRegex(shadow, re.compile(r"historical snapshot", re.IGNORECASE))
+
+    def test_historical_native_shadow_records_do_not_freeze_current_source_bytes(self) -> None:
+        historical_gates = {
+            "scripts/test_native_shadow_boot_rootfs_source_lock_plan_arm64_v2.py": (
+                "NamedFileTests",
+                "test_the_three_historical_starting_files_keep_their_recorded_identities",
+                {"digest_of"},
+            ),
+            "scripts/test_native_shadow_mac3_successor_image_production_criteria_arm64_v1.py": (
+                "TheSuccessorChainTests",
+                "test_every_historical_step_keeps_the_identity_recorded_before_the_run",
+                {"digest"},
+            ),
+        }
+        for relative, (class_name, method_name, forbidden_calls) in historical_gates.items():
+            tree = ast.parse(read(ROOT / relative), filename=relative)
+            classes = [
+                node
+                for node in tree.body
+                if isinstance(node, ast.ClassDef) and node.name == class_name
+            ]
+            self.assertEqual(len(classes), 1, relative)
+            methods = [
+                node
+                for node in classes[0].body
+                if isinstance(node, ast.FunctionDef) and node.name == method_name
+            ]
+            self.assertEqual(len(methods), 1, relative)
+            observed_calls = {
+                node.func.id
+                for node in ast.walk(methods[0])
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+            }
+            with self.subTest(relative=relative, method=method_name):
+                self.assertTrue(forbidden_calls.isdisjoint(observed_calls))
 
 
 if __name__ == "__main__":

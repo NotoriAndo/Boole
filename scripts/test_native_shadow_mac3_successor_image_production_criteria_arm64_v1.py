@@ -264,10 +264,40 @@ class TheSuccessorChainTests(unittest.TestCase):
         steps = document()["successorChainForStaging"]["steps"]
         self.assertEqual([row["order"] for row in steps], [1, 2, 3, 4])
 
-    def test_every_step_digest_is_recomputed_from_the_file_it_names(self) -> None:
-        for row in document()["successorChainForStaging"]["steps"]:
-            with self.subTest(path=row["path"]):
-                self.assertEqual(row["sha256"], digest(row["path"]))
+    def test_every_historical_step_keeps_the_identity_recorded_before_the_run(self) -> None:
+        observed = [
+            (row["order"], row["path"], row["sha256"], row["sizeBytes"])
+            for row in document()["successorChainForStaging"]["steps"]
+        ]
+        self.assertEqual(
+            observed,
+            [
+                (
+                    1,
+                    "native/containment/native-shadow-boot-rootfs-source-lock-plan-arm64-v1.json",
+                    "c047c20144167a4f28f222c4026a33e2d70b89340ee13cba79c207b7c92dc583",
+                    14_099,
+                ),
+                (
+                    2,
+                    "scripts/native_shadow_boot_rootfs_source_lock_arm64_v1.py",
+                    "02cc8917c19a7f07810645cde70cf388e7a9ed7dd1b0814028fbcf9ae407577a",
+                    25_470,
+                ),
+                (
+                    3,
+                    "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v1.json",
+                    "9eb70e05e0daf8cc56c0741c5c8ca266cad819d059ca28bcadeaecf84c0531cf",
+                    357_104,
+                ),
+                (
+                    4,
+                    "scripts/native_shadow_rootfs_builder_boot_arm64_v1.py",
+                    "a5dd54198878473c162ec306fbccd6edac8b22f036d9cf84d244b5f010f96d87",
+                    37_435,
+                ),
+            ],
+        )
 
     def test_the_builder_is_changed_last(self) -> None:
         steps = {row["order"]: row["path"] for row in document()["successorChainForStaging"]["steps"]}
