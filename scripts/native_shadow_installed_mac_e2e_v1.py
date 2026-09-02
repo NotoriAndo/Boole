@@ -246,22 +246,6 @@ def install_direct_boot_bundle(
     return envelope
 
 
-def _installed_host_node(install_root: Path) -> Path:
-    state = _read_object(install_root / "installed-release.json")
-    version = state.get("versionDirectory")
-    if (
-        not isinstance(version, str)
-        or not version
-        or version in {".", ".."}
-        or "/" in version
-    ):
-        raise ValueError("installed Mac E2E active version directory is unsafe")
-    node = install_root / "versions" / version / "host-node"
-    if node.is_symlink() or not node.is_file() or not os.access(node, os.X_OK):
-        raise ValueError("installed Mac E2E active host-node is not executable")
-    return node
-
-
 def _wait_for_node(process: subprocess.Popen[bytes], timeout_seconds: int) -> None:
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
@@ -273,6 +257,34 @@ def _wait_for_node(process: subprocess.Popen[bytes], timeout_seconds: int) -> No
         except OSError:
             time.sleep(0.05)
     raise ValueError("installed Mac E2E node did not open its route before the deadline")
+
+
+def _require_product_health(cli: Path) -> dict[str, Any]:
+    completed = subprocess.run(
+        [str(cli), "product", "status-direct-boot", "--timeout-seconds", "2"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+        timeout=5,
+    )
+    if completed.returncode != 0:
+        raise ValueError(
+            "installed Mac E2E product health failed: " + completed.stderr.strip()
+        )
+    try:
+        envelope = json.loads(completed.stdout, object_pairs_hook=_strict_object)
+    except json.JSONDecodeError as error:
+        raise ValueError("installed Mac E2E product health is not JSON") from error
+    if (
+        not isinstance(envelope, dict)
+        or envelope.get("ok") is not True
+        or envelope.get("command") != "product.status-direct-boot"
+        or envelope.get("data", {}).get("live", {}).get("live") is not True
+        or envelope.get("data", {}).get("ready", {}).get("ready") is not True
+    ):
+        raise ValueError("installed Mac E2E product health envelope drifted")
+    return envelope
 
 
 def _post_submission(payload: dict[str, object]) -> tuple[int, bytes]:
@@ -326,9 +338,9 @@ def require_controller_runtime_clean(runtime_root: Path) -> None:
 
 
 def run_installed_node_matrix(
+    cli: Path,
     install_root: Path,
-    runtime_root: Path,
-    journal_path: Path,
+    state_root: Path,
     work_root: Path,
     trust_roots: dict[str, Any],
     grant_path: Path,
@@ -336,24 +348,21 @@ def run_installed_node_matrix(
     *,
     startup_timeout_seconds: int,
 ) -> list[dict[str, object]]:
-    """Start only the installed node, run the matrix, and require clean stop."""
+    """Run the installed product command, health probe, matrix and clean stop."""
 
-    if runtime_root.exists() or work_root.exists() or journal_path.parent.exists():
+    if state_root.exists() or work_root.exists():
         raise ValueError("installed Mac E2E mutable roots must start absent")
-    node = _installed_host_node(install_root)
-    _prepare_private_directory(runtime_root)
-    _prepare_private_directory(journal_path.parent)
     _prepare_private_directory(work_root)
     stdout_path = work_root / "node.stdout"
     stderr_path = work_root / "node.stderr"
     command = [
-        str(node),
+        str(cli),
+        "product",
+        "run-direct-boot",
         "--install-root",
         str(install_root),
-        "--runtime-root",
-        str(runtime_root),
-        "--journal-path",
-        str(journal_path),
+        "--state-root",
+        str(state_root),
         "--product-trust-root-key-id",
         str(trust_roots["productKeyId"]),
         "--product-trust-root-public-key",
@@ -374,6 +383,7 @@ def run_installed_node_matrix(
                 start_new_session=True,
             )
             _wait_for_node(process, startup_timeout_seconds)
+            _require_product_health(cli)
             matrix = run_case_matrix(grant_path, fixture_dir, _post_submission)
             process.send_signal(signal.SIGTERM)
             try:
@@ -392,7 +402,18 @@ def run_installed_node_matrix(
                 process.wait(timeout=10)
     if matrix is None:
         raise ValueError("installed Mac E2E matrix did not run")
-    require_controller_runtime_clean(runtime_root)
+    require_controller_runtime_clean(state_root / "controller")
+    materialized_node = state_root / "host" / "boole-mac-native-shadow-replay-node"
+    metadata = materialized_node.lstat()
+    if (
+        materialized_node.is_symlink()
+        or not materialized_node.is_file()
+        or metadata.st_uid != os.geteuid()
+        or metadata.st_gid != os.getegid()
+        or metadata.st_nlink != 1
+        or metadata.st_mode & 0o7777 != 0o500
+    ):
+        raise ValueError("installed Mac E2E materialized host-node metadata drifted")
     return matrix
 
 
@@ -461,9 +482,9 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
             timeout_seconds=args.install_timeout_seconds,
         )
         cases = run_installed_node_matrix(
+            cli,
             work_root / "install-root",
-            work_root / "runtime",
-            work_root / "state" / "replay.ndjson",
+            work_root / "state",
             work_root / "node-logs",
             roots,
             Path(args.grant).resolve(),

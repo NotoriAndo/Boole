@@ -854,6 +854,33 @@ enum ProductCommand {
         #[arg(long = "timeout-seconds", default_value_t = 30)]
         timeout_seconds: u64,
     },
+    /// Run the installed direct-boot Mac product in the foreground. The
+    /// command verifies the active release, derives the controller and
+    /// journal paths from one private state root, then replaces itself with
+    /// the verified installed host-node. Ctrl-C/SIGTERM use the node's
+    /// bounded guest shutdown path.
+    RunDirectBoot {
+        #[arg(long = "install-root")]
+        install_root: PathBuf,
+        /// Optional product state root. Defaults to
+        /// ~/Library/Application Support/Boole/native-shadow.
+        #[arg(long = "state-root")]
+        state_root: Option<PathBuf>,
+        #[arg(long = "product-trust-root-key-id")]
+        product_trust_root_key_id: String,
+        #[arg(long = "product-trust-root-public-key")]
+        product_trust_root_public_key: String,
+        #[arg(long = "guest-trust-root-key-id")]
+        guest_trust_root_key_id: String,
+        #[arg(long = "guest-trust-root-public-key")]
+        guest_trust_root_public_key: String,
+    },
+    /// Query the fixed loopback liveness and readiness endpoints exposed by
+    /// the installed direct-boot product.
+    StatusDirectBoot {
+        #[arg(long = "timeout-seconds", default_value_t = 2)]
+        timeout_seconds: u64,
+    },
 }
 
 fn main() {
@@ -1104,6 +1131,24 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 first_guest_minimum,
                 timeout_seconds,
             ),
+            ProductCommand::RunDirectBoot {
+                install_root,
+                state_root,
+                product_trust_root_key_id,
+                product_trust_root_public_key,
+                guest_trust_root_key_id,
+                guest_trust_root_public_key,
+            } => product_run_direct_boot(
+                &install_root,
+                state_root.as_deref(),
+                &product_trust_root_key_id,
+                &product_trust_root_public_key,
+                &guest_trust_root_key_id,
+                &guest_trust_root_public_key,
+            ),
+            ProductCommand::StatusDirectBoot { timeout_seconds } => {
+                product_status_direct_boot(timeout_seconds)
+            }
         },
         Some(Command::Keys { command }) => match command {
             KeysCommand::New { id, dev, dry_run } => keys_new(&id, dev, dry_run),
@@ -2508,6 +2553,73 @@ fn product_install_boot_contract(
             }),
         )
     );
+    Ok(())
+}
+
+fn product_lifecycle_emit_err(command: &str, reason: &str, message: String) -> ! {
+    let envelope = boole_cli::cli_envelope::encode_err(
+        command,
+        reason,
+        serde_json::json!({ "message": message }),
+    );
+    eprintln!("{envelope}");
+    std::process::exit(1);
+}
+
+fn product_run_direct_boot(
+    install_root: &Path,
+    state_root: Option<&Path>,
+    product_trust_root_key_id: &str,
+    product_trust_root_public_key: &str,
+    guest_trust_root_key_id: &str,
+    guest_trust_root_public_key: &str,
+) -> anyhow::Result<()> {
+    let command = "product.run-direct-boot";
+    let product_trust_root = boole_core::CurlProductReleaseTrustRoot::new(
+        product_trust_root_key_id,
+        product_trust_root_public_key,
+    )
+    .unwrap_or_else(|error| {
+        product_lifecycle_emit_err(command, "product-trust-root-rejected", error.to_string())
+    });
+    let guest_trust_root = boole_core::NativeShadowUpdateTrustRoot::new(
+        guest_trust_root_key_id,
+        guest_trust_root_public_key,
+    )
+    .unwrap_or_else(|error| {
+        product_lifecycle_emit_err(command, "guest-trust-root-rejected", error.to_string())
+    });
+    let default_state_root = state_root.is_none().then(|| {
+        boole_cli::installed_product_lifecycle::default_installed_mac_state_root().unwrap_or_else(
+            |error| product_lifecycle_emit_err(command, "lifecycle-rejected", error.to_string()),
+        )
+    });
+    let state_root = state_root.unwrap_or_else(|| {
+        default_state_root
+            .as_deref()
+            .expect("default state root exists without an override")
+    });
+    boole_cli::installed_product_lifecycle::run_installed_direct_boot_product(
+        install_root,
+        state_root,
+        &product_trust_root,
+        &guest_trust_root,
+    )
+    .unwrap_or_else(|error| {
+        product_lifecycle_emit_err(command, "lifecycle-rejected", error.to_string())
+    });
+    Ok(())
+}
+
+fn product_status_direct_boot(timeout_seconds: u64) -> anyhow::Result<()> {
+    let command = "product.status-direct-boot";
+    let status = boole_cli::installed_product_lifecycle::query_installed_direct_boot_health(
+        std::time::Duration::from_secs(timeout_seconds),
+    )
+    .unwrap_or_else(|error| {
+        product_lifecycle_emit_err(command, "service-unavailable", error.to_string())
+    });
+    println!("{}", boole_cli::cli_envelope::encode_ok(command, status));
     Ok(())
 }
 
