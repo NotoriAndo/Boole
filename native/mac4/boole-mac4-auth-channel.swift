@@ -12,13 +12,27 @@ import Virtualization
 let FIXED_CPU_COUNT = 2
 let FIXED_MEMORY_BYTES: UInt64 = 2 * 1024 * 1024 * 1024
 let VSOCK_PORT: UInt32 = 4050
+let PROXY_VSOCK_PORT: UInt32 = 4051
 let FRAME_BYTES = 108
 let MAGIC = Data("BOOLE4V1".utf8)
 let CONTRACT_DIGEST_HEX = "4f2ec110d72f628207ac383668daff7bda6b568449fd315d8376aeb20ae08bbd"
+let PROXY_MAGIC = Data("BOOLE4P1".utf8)
+let PROXY_FRAME_BYTES = 120
+let PROXY_CONTRACT_DIGEST_HEX = "74d2f8c0be187a0b3ff0c9a1272bd5cef6943222448b4c6e7f7a97f209763613"
 
 struct HostError: Error, CustomStringConvertible {
     let description: String
     init(_ description: String) { self.description = description }
+}
+
+struct LauncherPeer: Equatable {
+    let pid: UInt32
+    let uid: UInt32
+    let gid: UInt32
+
+    var json: [String: Any] {
+        ["pid": pid, "uid": uid, "gid": gid]
+    }
 }
 
 func fail(_ message: String) -> Never {
@@ -34,6 +48,23 @@ func option(_ name: String, _ arguments: [String]) throws -> String {
     let value = arguments[index + 1]
     if value.hasPrefix("--") { throw HostError("--\(name) has no value") }
     return value
+}
+
+func optionalOption(_ name: String, _ arguments: [String]) throws -> String? {
+    guard let index = arguments.firstIndex(of: "--\(name)") else { return nil }
+    guard index + 1 < arguments.count else { throw HostError("--\(name) has no value") }
+    let value = arguments[index + 1]
+    if value.hasPrefix("--") { throw HostError("--\(name) has no value") }
+    return value
+}
+
+func exactFrame(at path: String, cap: Int, named name: String) throws -> Data {
+    let frame = try Data(contentsOf: URL(fileURLWithPath: path))
+    guard frame.count >= 4 else { throw HostError("\(name) frame header is truncated") }
+    let declared = frame.prefix(4).reduce(0) { ($0 << 8) | Int($1) }
+    guard declared <= cap else { throw HostError("\(name) frame exceeds cap") }
+    guard frame.count == declared + 4 else { throw HostError("\(name) frame length differs") }
+    return frame
 }
 
 func dataFromHex(_ value: String, named name: String) throws -> Data {
@@ -99,6 +130,50 @@ func validateReady(_ response: Data, nonce: Data, bootBinding: Data) throws {
     }
 }
 
+func proxyNonce(base: Data, phase: UInt8) -> Data {
+    var value = Data(base)
+    value.append(phase)
+    return Data(SHA256.hash(data: value))
+}
+
+func proxyOpenFrame(nonce: Data, bootBinding: Data, phase: UInt8) throws -> Data {
+    guard phase == 1 || phase == 2 else { throw HostError("proxy phase differs") }
+    var frame = Data()
+    frame.append(PROXY_MAGIC)
+    frame.append(1)
+    frame.append(phase)
+    frame.append(contentsOf: [0, 0])
+    frame.append(try dataFromHex(PROXY_CONTRACT_DIGEST_HEX, named: "proxy contract digest"))
+    frame.append(nonce)
+    frame.append(bootBinding)
+    frame.append(contentsOf: [UInt8](repeating: 0, count: 12))
+    guard frame.count == PROXY_FRAME_BYTES else { throw HostError("proxy open size differs") }
+    return frame
+}
+
+func validateProxyReady(
+    _ response: Data, nonce: Data, bootBinding: Data, phase: UInt8
+) throws -> LauncherPeer {
+    guard response.count == PROXY_FRAME_BYTES else { throw HostError("proxy ready size differs") }
+    guard response[0..<8] == PROXY_MAGIC, response[8] == 2, response[9] == phase else {
+        throw HostError("proxy ready identity differs")
+    }
+    guard response[10..<12] == Data([0, 0]) else { throw HostError("proxy reserved bytes differ") }
+    let contract = try dataFromHex(PROXY_CONTRACT_DIGEST_HEX, named: "proxy contract digest")
+    guard response[12..<44] == contract else { throw HostError("proxy contract differs") }
+    guard response[44..<76] == nonce, response[76..<108] == bootBinding else {
+        throw HostError("proxy response belongs to another attempt or boot")
+    }
+    func word(_ offset: Int) -> UInt32 {
+        response[offset..<(offset + 4)].reduce(0) { ($0 << 8) | UInt32($1) }
+    }
+    let peer = LauncherPeer(pid: word(108), uid: word(112), gid: word(116))
+    guard peer.pid != 0, peer.uid == 0, peer.gid == 0 else {
+        throw HostError("proxy launcher peer is not the root supervisor")
+    }
+    return peer
+}
+
 func writeAll(_ descriptor: Int32, data: Data) throws {
     try data.withUnsafeBytes { raw in
         guard let base = raw.baseAddress else { throw HostError("empty frame") }
@@ -133,8 +208,29 @@ func readExact(_ descriptor: Int32, count: Int) throws -> Data {
     return output
 }
 
+func readFrame(_ descriptor: Int32, cap: Int, named name: String) throws -> Data {
+    let header = try readExact(descriptor, count: 4)
+    let declared = header.reduce(0) { ($0 << 8) | Int($1) }
+    guard declared <= cap else { throw HostError("\(name) frame exceeds cap") }
+    var frame = Data(header)
+    frame.append(try readExact(descriptor, count: declared))
+    return frame
+}
+
+func requireSocketEOF(_ descriptor: Int32, named name: String) throws {
+    var byte: UInt8 = 0
+    while true {
+        let count = Darwin.read(descriptor, &byte, 1)
+        if count == 0 { return }
+        if count < 0, errno == EINTR { continue }
+        if count < 0 { throw HostError("\(name) EOF read failed: \(String(cString: strerror(errno)))") }
+        throw HostError("\(name) returned trailing bytes")
+    }
+}
+
 let arguments = Array(CommandLine.arguments.dropFirst())
 let dryRun = arguments.contains("--dry-run")
+let proxyDryRun = arguments.contains("--proxy-dry-run")
 
 let kernelPath: String
 let rootDiskPath: String
@@ -146,6 +242,12 @@ let expectedRootDiskDigest: String
 let nonce: Data
 let bootBinding: Data
 let timeoutSeconds: Double
+let proxyQualificationHelloPath: String?
+let proxyExecutionHelloPath: String?
+let proxyExecutionRequestPath: String?
+let proxyQualificationReadyPath: String?
+let proxyExecutionReadyPath: String?
+let proxyExecutionReportPath: String?
 
 do {
     kernelPath = try option("kernel", arguments)
@@ -160,6 +262,12 @@ do {
         try option("boot-binding-hex", arguments), named: "boot binding"
     )
     timeoutSeconds = Double(try option("timeout", arguments)) ?? 0
+    proxyQualificationHelloPath = try optionalOption("proxy-qualification-hello", arguments)
+    proxyExecutionHelloPath = try optionalOption("proxy-execution-hello", arguments)
+    proxyExecutionRequestPath = try optionalOption("proxy-execution-request", arguments)
+    proxyQualificationReadyPath = try optionalOption("proxy-qualification-ready-out", arguments)
+    proxyExecutionReadyPath = try optionalOption("proxy-execution-ready-out", arguments)
+    proxyExecutionReportPath = try optionalOption("proxy-execution-report-out", arguments)
 } catch {
     fail("\(error)")
 }
@@ -175,6 +283,65 @@ do {
 }
 if kernelDigest != expectedKernelDigest { fail("kernel digest differs") }
 if rootDiskDigest != expectedRootDiskDigest { fail("root disk digest differs") }
+
+let proxyPaths = [
+    proxyQualificationHelloPath,
+    proxyExecutionHelloPath,
+    proxyExecutionRequestPath,
+]
+let proxyConfigured = proxyPaths.allSatisfy { $0 != nil }
+if proxyPaths.contains(where: { $0 != nil }) && !proxyConfigured {
+    fail("all three proxy frame paths must be supplied together")
+}
+if proxyDryRun && (!dryRun || !proxyConfigured) {
+    fail("--proxy-dry-run requires --dry-run and all proxy frame paths")
+}
+let proxyOutputPaths = [
+    proxyQualificationReadyPath,
+    proxyExecutionReadyPath,
+    proxyExecutionReportPath,
+]
+if proxyConfigured && !proxyDryRun && !proxyOutputPaths.allSatisfy({ $0 != nil }) {
+    fail("a real proxy run requires all three proxy output paths")
+}
+if !proxyConfigured && proxyOutputPaths.contains(where: { $0 != nil }) {
+    fail("proxy output paths require all three proxy input frames")
+}
+if proxyConfigured {
+    do {
+        _ = try exactFrame(
+            at: proxyQualificationHelloPath!, cap: 131_072, named: "qualification hello"
+        )
+        _ = try exactFrame(
+            at: proxyExecutionHelloPath!, cap: 131_072, named: "execution hello"
+        )
+        _ = try exactFrame(
+            at: proxyExecutionRequestPath!, cap: 131_072, named: "execution request"
+        )
+    } catch {
+        fail("\(error)")
+    }
+}
+
+if proxyDryRun {
+    let value: [String: Any] = [
+        "schema": "boole.native-shadow.mac4-authenticated-channel-run.v1",
+        "outcome": "proxy-dry-run-inputs-valid",
+        "dryRun": true,
+        "executionProxy": [
+            "configured": true,
+            "port": PROXY_VSOCK_PORT,
+            "sessions": ["qualification", "execution"],
+        ],
+    ]
+    if let data = try? JSONSerialization.data(
+        withJSONObject: value, options: [.prettyPrinted, .sortedKeys]
+    ) {
+        try? data.write(to: URL(fileURLWithPath: receiptPath))
+    }
+    print("mac4-channel: proxy dry run ok")
+    exit(0)
+}
 
 let configuration = VZVirtualMachineConfiguration()
 let bootLoader = VZLinuxBootLoader(kernelURL: URL(fileURLWithPath: kernelPath))
@@ -213,7 +380,17 @@ if configuration.socketDevices.count != 1 { fail("expected exactly one vsock dev
 if configuration.storageDevices.count != 1 { fail("expected exactly one read-only disk") }
 do { try configuration.validate() } catch { fail("invalid VM configuration: \(error)") }
 
+var proxyLauncherPeer: LauncherPeer?
+
 func writeReceipt(outcome: String, detail: String, startedAt: Date?, stoppedAt: Date?) {
+    var executionProxy: [String: Any] = [
+        "configured": proxyConfigured,
+        "port": PROXY_VSOCK_PORT,
+        "sessions": proxyConfigured ? ["qualification", "execution"] : [],
+    ]
+    if let peer = proxyLauncherPeer {
+        executionProxy["launcherPeer"] = peer.json
+    }
     var value: [String: Any] = [
         "schema": "boole.native-shadow.mac4-authenticated-channel-run.v1",
         "outcome": outcome,
@@ -234,6 +411,7 @@ func writeReceipt(outcome: String, detail: String, startedAt: Date?, stoppedAt: 
             "serialPorts": configuration.serialPorts.count,
         ],
         "vsock": ["port": VSOCK_PORT, "handshakeComplete": outcome == "authenticated-channel-pass"],
+        "executionProxy": executionProxy,
         "timeoutSeconds": timeoutSeconds,
     ]
     if let start = startedAt, let stop = stoppedAt {
@@ -289,13 +467,7 @@ if let startError {
     fail("VM did not start: \(startError)")
 }
 
-let deadline = startedAt.addingTimeInterval(timeoutSeconds)
-let request: Data
-do { request = try helloFrame(nonce: nonce, bootBinding: bootBinding) } catch { fail("\(error)") }
-var handshakeComplete = false
-var handshakeDetail = "guest relay did not accept before timeout"
-
-while Date() < deadline && !queue.sync(execute: { watcher.stopped }) && !handshakeComplete {
+func connectGuest(port: UInt32) throws -> VZVirtioSocketConnection {
     let completed = DispatchSemaphore(value: 0)
     var connectionResult: Result<VZVirtioSocketConnection, Error>?
     queue.async {
@@ -304,26 +476,122 @@ while Date() < deadline && !queue.sync(execute: { watcher.stopped }) && !handsha
             completed.signal()
             return
         }
-        socket.connect(toPort: VSOCK_PORT) { result in
+        socket.connect(toPort: port) { result in
             connectionResult = result
             completed.signal()
         }
     }
-    _ = completed.wait(timeout: .now() + 3)
-    if case .success(let connection) = connectionResult {
-        do {
-            try writeAll(connection.fileDescriptor, data: request)
-            let response = try readExact(connection.fileDescriptor, count: FRAME_BYTES)
-            try validateReady(response, nonce: nonce, bootBinding: bootBinding)
-            handshakeComplete = true
-            handshakeDetail = "fresh nonce, boot tuple and protocol binding matched"
-        } catch {
-            handshakeDetail = "guest response refused: \(error)"
-        }
+    guard completed.wait(timeout: .now() + 3) == .success else {
+        throw HostError("guest vsock port \(port) did not connect before timeout")
+    }
+    guard let result = connectionResult else { throw HostError("guest connection has no result") }
+    return try result.get()
+}
+
+func openProxy(phase: UInt8) throws -> (VZVirtioSocketConnection, LauncherPeer) {
+    let connection = try connectGuest(port: PROXY_VSOCK_PORT)
+    do {
+        let fresh = proxyNonce(base: nonce, phase: phase)
+        try writeAll(
+            connection.fileDescriptor,
+            data: try proxyOpenFrame(nonce: fresh, bootBinding: bootBinding, phase: phase)
+        )
+        let ready = try readExact(connection.fileDescriptor, count: PROXY_FRAME_BYTES)
+        let peer = try validateProxyReady(
+            ready, nonce: fresh, bootBinding: bootBinding, phase: phase
+        )
+        return (connection, peer)
+    } catch {
         connection.close()
+        throw error
+    }
+}
+
+func closeWrite(_ connection: VZVirtioSocketConnection, named name: String) throws {
+    if Darwin.shutdown(connection.fileDescriptor, SHUT_WR) != 0 {
+        throw HostError("\(name) write shutdown failed: \(String(cString: strerror(errno)))")
+    }
+}
+
+func atomicWrite(_ data: Data, to path: String) throws {
+    try data.write(to: URL(fileURLWithPath: path), options: .atomic)
+}
+
+let deadline = startedAt.addingTimeInterval(timeoutSeconds)
+let request: Data
+do { request = try helloFrame(nonce: nonce, bootBinding: bootBinding) } catch { fail("\(error)") }
+var handshakeComplete = false
+var handshakeDetail = "guest relay did not accept before timeout"
+
+while Date() < deadline && !queue.sync(execute: { watcher.stopped }) && !handshakeComplete {
+    do {
+        let connection = try connectGuest(port: VSOCK_PORT)
+        try writeAll(connection.fileDescriptor, data: request)
+        let response = try readExact(connection.fileDescriptor, count: FRAME_BYTES)
+        try validateReady(response, nonce: nonce, bootBinding: bootBinding)
+        handshakeComplete = true
+        handshakeDetail = "fresh nonce, boot tuple and protocol binding matched"
+        connection.close()
+    } catch {
+        handshakeDetail = "guest response refused: \(error)"
     }
     if !handshakeComplete {
         RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+    }
+}
+
+var proxyComplete = !proxyConfigured
+if handshakeComplete && proxyConfigured {
+    do {
+        let (qualification, qualificationPeer) = try openProxy(phase: 1)
+        try writeAll(
+            qualification.fileDescriptor,
+            data: try exactFrame(
+                at: proxyQualificationHelloPath!, cap: 131_072, named: "qualification hello"
+            )
+        )
+        try closeWrite(qualification, named: "qualification")
+        let qualificationReady = try readFrame(
+            qualification.fileDescriptor, cap: 65_536, named: "qualification ready"
+        )
+        try requireSocketEOF(qualification.fileDescriptor, named: "qualification proxy")
+        qualification.close()
+        try atomicWrite(qualificationReady, to: proxyQualificationReadyPath!)
+
+        let (execution, executionPeer) = try openProxy(phase: 2)
+        guard qualificationPeer == executionPeer else {
+            execution.close()
+            throw HostError("proxy launcher peer changed after qualification")
+        }
+        proxyLauncherPeer = qualificationPeer
+        try writeAll(
+            execution.fileDescriptor,
+            data: try exactFrame(
+                at: proxyExecutionHelloPath!, cap: 131_072, named: "execution hello"
+            )
+        )
+        let executionReady = try readFrame(
+            execution.fileDescriptor, cap: 65_536, named: "execution ready"
+        )
+        try writeAll(
+            execution.fileDescriptor,
+            data: try exactFrame(
+                at: proxyExecutionRequestPath!, cap: 131_072, named: "execution request"
+            )
+        )
+        try closeWrite(execution, named: "execution")
+        let executionReport = try readFrame(
+            execution.fileDescriptor, cap: 65_536, named: "execution report"
+        )
+        try requireSocketEOF(execution.fileDescriptor, named: "execution proxy")
+        execution.close()
+        try atomicWrite(executionReady, to: proxyExecutionReadyPath!)
+        try atomicWrite(executionReport, to: proxyExecutionReportPath!)
+        proxyComplete = true
+        handshakeDetail += "; qualification and execution proxy frames completed"
+    } catch {
+        proxyComplete = false
+        handshakeDetail += "; execution proxy failed: \(error)"
     }
 }
 
@@ -346,10 +614,11 @@ if !queue.sync(execute: { watcher.stopped }) {
 let stoppedAt = Date()
 try? consoleWriter.close()
 writeReceipt(
-    outcome: handshakeComplete ? "authenticated-channel-pass" : "authenticated-channel-fail",
+    outcome: handshakeComplete && proxyComplete
+        ? "authenticated-channel-pass" : "authenticated-channel-fail",
     detail: handshakeDetail,
     startedAt: startedAt,
     stoppedAt: stoppedAt
 )
-if !handshakeComplete { fail(handshakeDetail) }
+if !handshakeComplete || !proxyComplete { fail(handshakeDetail) }
 print("mac4-channel: authenticated handshake complete")

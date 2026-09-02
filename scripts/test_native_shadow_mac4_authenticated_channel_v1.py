@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import pathlib
 import subprocess
 import sys
@@ -18,6 +19,10 @@ from scripts import native_shadow_closed_local_image_to_readiness_arm64_v1 as im
 CONTRACT = (
     ROOT
     / "native/containment/native-shadow-mac4-authenticated-channel-contract-v1.json"
+)
+PROXY_CONTRACT = (
+    ROOT
+    / "native/containment/native-shadow-mac4-execution-proxy-contract-v1.json"
 )
 RELAY_MANIFEST = ROOT / "native/mac4/relay/Cargo.toml"
 SERVICE = ROOT / "native/systemd/boole-native-shadow-mac4-relay.service"
@@ -47,13 +52,17 @@ class Mac4AuthenticatedChannelBehaviorTests(unittest.TestCase):
             check=False,
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
-        self.assertIn("5 passed", completed.stdout)
+        self.assertIn("8 passed", completed.stdout)
 
     def test_protocol_binary_is_bound_to_the_complete_tracked_contract(self):
         digest = hashlib.sha256(CONTRACT.read_bytes()).hexdigest()
         source = (ROOT / "native/mac4/relay/src/lib.rs").read_text(encoding="utf-8")
         self.assertIn(f'"{digest}"', source)
         self.assertEqual(digest, image.MAC4_CONTRACT_SHA256)
+
+        proxy_digest = hashlib.sha256(PROXY_CONTRACT.read_bytes()).hexdigest()
+        self.assertIn(f'"{proxy_digest}"', source)
+        self.assertEqual(proxy_digest, image.MAC4_PROXY_CONTRACT_SHA256)
 
     def test_development_overlay_installs_relay_service_and_exact_vsock_load_contract(self):
         relay = b"arm64-linux-relay"
@@ -65,6 +74,7 @@ class Mac4AuthenticatedChannelBehaviorTests(unittest.TestCase):
                 image.MAC4_SERVICE_STAGING_PATH,
                 image.MAC4_SERVICE_ENABLEMENT_PATH,
                 image.MAC4_CONTRACT_STAGING_PATH,
+                image.MAC4_PROXY_CONTRACT_STAGING_PATH,
                 image.MAC4_MODULE_LOAD_STAGING_PATH,
             },
         )
@@ -76,6 +86,10 @@ class Mac4AuthenticatedChannelBehaviorTests(unittest.TestCase):
         self.assertEqual(entries[image.MAC4_SERVICE_STAGING_PATH]["mode"], 0o444)
         self.assertEqual(
             entries[image.MAC4_CONTRACT_STAGING_PATH]["raw"], CONTRACT.read_bytes()
+        )
+        self.assertEqual(
+            entries[image.MAC4_PROXY_CONTRACT_STAGING_PATH]["raw"],
+            PROXY_CONTRACT.read_bytes(),
         )
         self.assertEqual(
             entries[image.MAC4_SERVICE_ENABLEMENT_PATH]["target"],
@@ -101,7 +115,7 @@ class Mac4AuthenticatedChannelBehaviorTests(unittest.TestCase):
         self.assertEqual(help_result.returncode, 0, help_result.stderr)
         self.assertIn("--mac4-relay", help_result.stdout)
 
-    def test_service_is_nonprivileged_vsock_only_and_cannot_write_the_guest(self):
+    def test_service_is_nonprivileged_vsock_and_fixed_unix_proxy_only(self):
         unit = SERVICE.read_text(encoding="utf-8")
         for required in (
             "User=boole-node",
@@ -109,14 +123,20 @@ class Mac4AuthenticatedChannelBehaviorTests(unittest.TestCase):
             "NoNewPrivileges=yes",
             "CapabilityBoundingSet=",
             "ProtectSystem=strict",
-            "RestrictAddressFamilies=AF_VSOCK",
+            "RestrictAddressFamilies=AF_VSOCK AF_UNIX",
             "IPAddressDeny=any",
             "ReadOnlyPaths=/usr/share/boole/native-shadow/mac4-channel-contract-v1.json",
+            "ReadOnlyPaths=/usr/share/boole/native-shadow/mac4-execution-proxy-contract-v1.json",
         ):
             self.assertIn(required, unit)
         self.assertNotIn("ReadWritePaths=", unit)
         self.assertNotIn("AF_INET", unit)
-        self.assertNotIn("AF_UNIX", unit)
+
+    def test_mac_host_binds_qualification_and_execution_to_one_launcher_peer(self):
+        source = MAC_HOST.read_text(encoding="utf-8")
+        self.assertIn("qualificationPeer == executionPeer", source)
+        self.assertIn("proxy launcher peer changed after qualification", source)
+        self.assertIn('"launcherPeer"', source)
 
     def test_standalone_relay_does_not_change_the_root_cargo_workspace(self):
         root_manifest = (ROOT / "Cargo.toml").read_text(encoding="utf-8")
@@ -156,7 +176,8 @@ class Mac4AuthenticatedChannelBehaviorTests(unittest.TestCase):
     @unittest.skipUnless(sys.platform == "darwin", "Swift Virtualization host is macOS-only")
     def test_mac_host_compiles_and_has_one_vsock_without_ip_or_shares(self):
         with tempfile.TemporaryDirectory() as temporary:
-            output = pathlib.Path(temporary) / "mac4-host"
+            temporary_path = pathlib.Path(temporary)
+            output = temporary_path / "mac4-host"
             compatible = pathlib.Path(
                 "/Library/Developer/CommandLineTools/SDKs/MacOSX15.4.sdk"
             )
@@ -192,9 +213,90 @@ class Mac4AuthenticatedChannelBehaviorTests(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(completed.returncode, 0, completed.stderr)
+            signed = subprocess.run(
+                [
+                    "codesign",
+                    "--force",
+                    "--sign",
+                    "-",
+                    "--entitlements",
+                    str(
+                        ROOT
+                        / "native/mac3/boole-mac3-closed-local-boot.entitlements"
+                    ),
+                    str(output),
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(signed.returncode, 0, signed.stderr)
+            kernel = temporary_path / "kernel"
+            root_disk = temporary_path / "root-disk"
+            console = temporary_path / "console"
+            receipt = temporary_path / "receipt.json"
+            qualification = temporary_path / "qualification.frame"
+            execution_hello = temporary_path / "execution-hello.frame"
+            execution_request = temporary_path / "execution-request.frame"
+            kernel.write_bytes(b"kernel")
+            root_disk.write_bytes(b"\0" * (1024 * 1024))
+            for path, payload in (
+                (qualification, b"qualification"),
+                (execution_hello, b"execution-hello"),
+                (execution_request, b"execution-request"),
+            ):
+                path.write_bytes(len(payload).to_bytes(4, "big") + payload)
+            dry_run = subprocess.run(
+                [
+                    str(output),
+                    "--dry-run",
+                    "--proxy-dry-run",
+                    "--kernel",
+                    str(kernel),
+                    "--root-disk",
+                    str(root_disk),
+                    "--console",
+                    str(console),
+                    "--receipt",
+                    str(receipt),
+                    "--cmdline",
+                    "console=hvc0",
+                    "--kernel-sha256",
+                    hashlib.sha256(kernel.read_bytes()).hexdigest(),
+                    "--root-disk-sha256",
+                    hashlib.sha256(root_disk.read_bytes()).hexdigest(),
+                    "--nonce-hex",
+                    "11" * 32,
+                    "--boot-binding-hex",
+                    "22" * 32,
+                    "--timeout",
+                    "10",
+                    "--proxy-qualification-hello",
+                    str(qualification),
+                    "--proxy-execution-hello",
+                    str(execution_hello),
+                    "--proxy-execution-request",
+                    str(execution_request),
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(dry_run.returncode, 0, dry_run.stderr)
+            self.assertEqual(
+                json.loads(receipt.read_text(encoding="utf-8"))["executionProxy"],
+                {
+                    "configured": True,
+                    "port": 4051,
+                    "sessions": ["qualification", "execution"],
+                },
+            )
         source = MAC_HOST.read_text(encoding="utf-8")
         self.assertIn("VZVirtioSocketDeviceConfiguration()", source)
-        self.assertIn("connect(toPort: VSOCK_PORT", source)
+        self.assertIn("connectGuest(port: VSOCK_PORT)", source)
+        self.assertIn("connect(toPort: port)", source)
         self.assertIn("configuration.networkDevices = []", source)
         self.assertIn("configuration.directorySharingDevices = []", source)
 

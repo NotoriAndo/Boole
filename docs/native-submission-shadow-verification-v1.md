@@ -7,11 +7,11 @@
 > activation boundaries in this specification remain unchanged, and no A7,
 > production, boot, mining or reward authority is created here.
 
-> **CURRENT-CURSOR-2026-09-02:** `MAC.4 AUTHENTICATED TRANSPORT + GUEST READINESS PASS / NODE-OWNED EXECUTION ROUTE NOT YET CONNECTED`.
-> Next is the node-side binding from the existing challenge, durable journal,
-> replay and terminal-evidence path to the bounded authenticated relay. This
-> cursor is status, not production, testnet, mining, reward, consensus, P2P or
-> activation permission.
+> **CURRENT-CURSOR-2026-09-02:** `MAC.4 EXECUTION PROXY + NODE SESSION VALIDATION GREEN / PERSISTENT HOST CONTROLLER + REAL NODE ROUTE COMPOSITION NEXT`.
+> Next is one persistent Mac controller that owns one hidden-guest lifecycle
+> and composes the existing node replay service with the bounded proxy adapter.
+> This cursor is status, not production, testnet, mining, reward, consensus,
+> P2P or activation permission.
 
 Status: **CLOSED-LOCAL QUALIFICATION GREEN — tracked checker, named-Linux containment, loopback
 node raw-answer HTTP adjudication and durable replay landed; production activation, P2P, block,
@@ -2767,3 +2767,18 @@ its zero-effect accounting are retained in the same record. This addendum
 changes no node ledger or submission state and grants no fresh build, boot,
 testnet, mining, reward, consensus, P2P or activation authority. MAC.4 remains
 partial until a later closed VM demonstrates the authenticated round trip.
+
+### MAC.4 execution-proxy and node-session validation addendum (2026-09-02)
+
+The fixed guest relay now carries bounded qualification and execution frames
+between the Mac host and the existing launcher socket. Kernel-observed launcher
+credentials are reported to the host, and qualification plus execution must
+name the same root supervisor. The node adapter independently decodes and
+validates the launcher's ready and report frames, binds them to the qualified
+PID and launcher instance, and reuses the existing node adjudication function.
+
+This addendum does not claim a live node route. A persistent Mac controller and
+the real replay-service constructor still have to compose the adapter into one
+VM lifecycle. The guest remains unable to own a challenge, journal, replay,
+terminal evidence or verdict, and all production and network activation
+boundaries remain closed.

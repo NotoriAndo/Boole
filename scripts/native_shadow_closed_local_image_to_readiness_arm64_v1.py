@@ -79,14 +79,25 @@ MAC4_CONTRACT_SOURCE = (
 MAC4_CONTRACT_STAGING_PATH = (
     AUTHORITY_STAGING_PATH + "/mac4-channel-contract-v1.json"
 )
+MAC4_PROXY_CONTRACT_SOURCE = (
+    "native/containment/"
+    "native-shadow-mac4-execution-proxy-contract-v1.json"
+)
+MAC4_PROXY_CONTRACT_STAGING_PATH = (
+    AUTHORITY_STAGING_PATH + "/mac4-execution-proxy-contract-v1.json"
+)
 MAC4_CONTRACT_SHA256 = (
     "4f2ec110d72f628207ac383668daff7bda6b568449fd315d8376aeb20ae08bbd"
 )
+MAC4_PROXY_CONTRACT_SHA256 = (
+    "74d2f8c0be187a0b3ff0c9a1272bd5cef6943222448b4c6e7f7a97f209763613"
+)
+MAC4_PROXY_CONTRACT_SIZE_BYTES = 2_597
 MAC4_CONTRACT_SIZE_BYTES = 1_977
 MAC4_SERVICE_SHA256 = (
-    "394195d0ad7a5bbe3a74f5ffa3a490e617327d21bf054e554327d884f1ef73c4"
+    "35fdd6a0ec3fa5ac585c3b1702576d057fa873f272890bc4c38f7df8894dd5b7"
 )
-MAC4_SERVICE_SIZE_BYTES = 938
+MAC4_SERVICE_SIZE_BYTES = 1_029
 MAC4_KERNEL_RELEASE = "6.8.0-31-generic"
 MAC4_MODULE_DIRECTORY = "usr/lib/modules/" + MAC4_KERNEL_RELEASE
 MAC4_MODULE_LOAD_STAGING_PATH = "etc/modules"
@@ -120,6 +131,7 @@ MAC4_OVERLAY_PATHS = (
     MAC4_SERVICE_STAGING_PATH,
     MAC4_SERVICE_ENABLEMENT_PATH,
     MAC4_CONTRACT_STAGING_PATH,
+    MAC4_PROXY_CONTRACT_STAGING_PATH,
     MAC4_MODULE_LOAD_STAGING_PATH,
 )
 
@@ -307,6 +319,12 @@ def _development_mac4_entries(
         sha256=MAC4_CONTRACT_SHA256,
         size_bytes=MAC4_CONTRACT_SIZE_BYTES,
     )
+    proxy_contract = _pinned_mac4_source(
+        repository_root,
+        MAC4_PROXY_CONTRACT_SOURCE,
+        sha256=MAC4_PROXY_CONTRACT_SHA256,
+        size_bytes=MAC4_PROXY_CONTRACT_SIZE_BYTES,
+    )
     return {
         MAC4_RELAY_STAGING_PATH: {
             "path": MAC4_RELAY_STAGING_PATH,
@@ -331,6 +349,14 @@ def _development_mac4_entries(
             "uid": 0,
             "gid": 0,
             "raw": contract,
+        },
+        MAC4_PROXY_CONTRACT_STAGING_PATH: {
+            "path": MAC4_PROXY_CONTRACT_STAGING_PATH,
+            "kind": "file",
+            "mode": 0o444,
+            "uid": 0,
+            "gid": 0,
+            "raw": proxy_contract,
         },
         MAC4_SERVICE_ENABLEMENT_PATH: {
             "path": MAC4_SERVICE_ENABLEMENT_PATH,

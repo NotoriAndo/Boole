@@ -9,11 +9,11 @@
 > activation authority; code that still enforces the historical chain must be
 > changed by normal TDD before it is used.
 
-> **CURRENT-CURSOR-2026-09-02:** `MAC.4 AUTHENTICATED TRANSPORT + GUEST READINESS PASS / NODE-OWNED EXECUTION ROUTE NOT YET CONNECTED`.
-> The next coherent development milestone is to bind the existing node-owned
-> challenge, durable journal, replay and terminal-evidence path to the bounded
-> authenticated relay. No production, testnet, mining, reward, consensus, P2P
-> or activation run is authorized by this cursor.
+> **CURRENT-CURSOR-2026-09-02:** `MAC.4 EXECUTION PROXY + NODE SESSION VALIDATION GREEN / PERSISTENT HOST CONTROLLER + REAL NODE ROUTE COMPOSITION NEXT`.
+> The next coherent development milestone is one persistent Mac controller
+> owning one hidden-guest lifecycle and composing the existing node replay
+> service with the bounded proxy adapter. No production, testnet, mining,
+> reward, consensus, P2P or activation run is authorized by this cursor.
 
 Status: **MAC.0 COMPLETE (closed-local Linux baseline, 2026-08-24, section 9);
 MAC.1-PARTIAL — CURL-FIRST MODE FROZEN; UPDATE TRUST POLICY AND MEASUREMENT PROTOCOL OPEN
@@ -6677,5 +6677,33 @@ terminal-evidence state machine. Therefore `mac4Complete=false` and
 MAC.4 AUTHENTICATED TRANSPORT + GUEST READINESS PASS
 ONE DISPOSABLE BUILD DISPATCH / TWO BYTE-IDENTICAL REPLICAS / ONE CLOSED MAC VM
 NEXT: NODE-OWNED CHALLENGE + JOURNAL + REPLAY + EVIDENCE ROUTE BINDING
+PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
+```
+
+## 90. The bounded execution proxy reaches the existing node adjudicator (2026-09-02)
+
+The authenticated transport now has a separate, fixed execution-proxy port and
+contract. The guest relay accepts only the exact qualification or execution
+opening frame, obtains the launcher's kernel-reported Unix-socket credentials,
+requires the root supervisor, and forwards bounded launcher-protocol frames to
+the fixed launcher socket. It owns no challenge, journal, replay or verdict.
+
+The Mac host requires qualification and execution to report the same launcher
+PID, UID and GID. The node-side adapter then decodes the exact launcher ready
+and report frames, checks that PID and launcher instance against the qualified
+startup identity, validates all session bindings and calls the same node-owned
+adjudicator used by the Linux path. Any proxy, peer or frame ambiguity fails
+closed; no guest receipt is trusted as a verdict.
+
+This is a reversible protocol and adapter milestone, not the live product
+route. The node still lacks a persistent Mac controller that owns one VM
+lifecycle and supplies this adapter to the real durable replay service. No VM,
+image, production, testnet, mining, reward, consensus, P2P or activation effect
+is granted by this section.
+
+```text
+MAC.4 EXECUTION PROXY + SAME-LAUNCHER BINDING + NODE SESSION VALIDATION GREEN
+NODE ADJUDICATOR REUSED / GUEST OWNS NO VERDICT OR DURABLE STATE
+NEXT: PERSISTENT HOST CONTROLLER + REAL NODE REPLAY-SERVICE COMPOSITION
 PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
 ```
