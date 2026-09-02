@@ -9,10 +9,10 @@
 > activation authority; code that still enforces the historical chain must be
 > changed by normal TDD before it is used.
 
-> **CURRENT-CURSOR-2026-09-02:** `MAC.4 EXECUTION PROXY + NODE SESSION VALIDATION GREEN / PERSISTENT HOST CONTROLLER + REAL NODE ROUTE COMPOSITION NEXT`.
-> The next coherent development milestone is one persistent Mac controller
-> owning one hidden-guest lifecycle and composing the existing node replay
-> service with the bounded proxy adapter. No production, testnet, mining,
+> **CURRENT-CURSOR-2026-09-02:** `MAC.4 PERSISTENT CONTROLLER PROTOCOL + NODE REPLAY COMPOSITION GREEN / VERIFIED PROCESS SPAWN + INSTALLED MAC ROUTE NEXT`.
+> The next coherent development milestone is to start the verified
+> host-controller artifact as one child process and compose it with the
+> installed Mac replay-service entrypoint. No production, testnet, mining,
 > reward, consensus, P2P or activation run is authorized by this cursor.
 
 Status: **MAC.0 COMPLETE (closed-local Linux baseline, 2026-08-24, section 9);
@@ -6705,5 +6705,33 @@ is granted by this section.
 MAC.4 EXECUTION PROXY + SAME-LAUNCHER BINDING + NODE SESSION VALIDATION GREEN
 NODE ADJUDICATOR REUSED / GUEST OWNS NO VERDICT OR DURABLE STATE
 NEXT: PERSISTENT HOST CONTROLLER + REAL NODE REPLAY-SERVICE COMPOSITION
+PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
+```
+
+## 91. One persistent controller can serve the node-owned replay path (2026-09-02)
+
+The host controller now has one bounded binary stdio protocol for one
+qualification, zero or more sequential executions and one explicit shutdown.
+It owns one VM lifecycle, derives a fresh proxy nonce from every request ID,
+requires every guest proxy response to report the same kernel-observed root
+launcher peer and writes no verdict or durable challenge state.
+
+The node owns the other end of the pipe. It serializes controller requests,
+checks exact response kind, request binding, frame count, frame caps and root
+peer identity, performs qualification once, and supplies the resulting
+transport to the existing replay-service validator and adjudicator. A compiled
+Swift protocol dry run and Rust in-memory composition cover qualification,
+multiple sequential executions and shutdown without starting a VM.
+
+This is not yet an installed product route. The verified `host-controller`
+artifact still needs a fail-closed process owner, and the Mac replay-service
+entrypoint still needs to obtain its installed authority and journal paths.
+No image or VM was created, and no production or network activation boundary
+changed.
+
+```text
+MAC.4 PERSISTENT CONTROLLER PROTOCOL + NODE REPLAY COMPOSITION GREEN
+ONE QUALIFICATION / SEQUENTIAL EXECUTIONS / EXPLICIT SHUTDOWN / ONE VM CONTRACT
+NEXT: VERIFIED PROCESS SPAWN + INSTALLED MAC REPLAY-SERVICE ENTRYPOINT
 PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
 ```

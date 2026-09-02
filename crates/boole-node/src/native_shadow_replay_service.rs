@@ -367,6 +367,118 @@ trait Mac4ExecutionProxy: Send + Sync + 'static {
     ) -> Result<Mac4ExecutionProxyOutput, ()>;
 }
 
+#[cfg(any(target_os = "macos", test))]
+fn validate_mac4_proxy_ready_frame(
+    frame: &[u8],
+    phase: u8,
+    peer: LauncherPeerIdentity,
+) -> Result<(), &'static str> {
+    const MAGIC: &[u8; 8] = b"BOOLE4P1";
+    const PROTOCOL: [u8; 32] = [
+        0x74, 0xd2, 0xf8, 0xc0, 0xbe, 0x18, 0x7a, 0x0b, 0x3f, 0xf0, 0xc9, 0xa1, 0x27, 0x2b, 0xd5,
+        0xce, 0xf6, 0x94, 0x32, 0x22, 0x44, 0x8b, 0x4c, 0x6e, 0x7f, 0x7a, 0x97, 0xf2, 0x09, 0x76,
+        0x36, 0x13,
+    ];
+    if frame.len() != 120
+        || &frame[..8] != MAGIC
+        || frame[8] != 2
+        || frame[9] != phase
+        || frame[10..12] != [0, 0]
+        || frame[12..44] != PROTOCOL
+        || frame[44..76].iter().all(|byte| *byte == 0)
+        || frame[76..108].iter().all(|byte| *byte == 0)
+    {
+        return Err("mac4_proxy_ready_invalid");
+    }
+    let observed = LauncherPeerIdentity {
+        pid: u32::from_be_bytes(frame[108..112].try_into().expect("fixed proxy peer range")),
+        uid: u32::from_be_bytes(frame[112..116].try_into().expect("fixed proxy peer range")),
+        gid: u32::from_be_bytes(frame[116..120].try_into().expect("fixed proxy peer range")),
+    };
+    if observed != peer || peer.pid == 0 || peer.uid != 0 || peer.gid != 0 {
+        return Err("mac4_proxy_ready_peer_differs");
+    }
+    Ok(())
+}
+
+#[cfg(any(target_os = "macos", test))]
+impl<R, W> Mac4ExecutionProxy
+    for Arc<crate::native_shadow_mac4_controller::Mac4ControllerClient<R, W>>
+where
+    R: std::io::Read + Send + 'static,
+    W: std::io::Write + Send + 'static,
+{
+    fn exchange(
+        &self,
+        hello_frame: &[u8],
+        request_frame: &[u8],
+    ) -> Result<Mac4ExecutionProxyOutput, ()> {
+        let output = self.execute(hello_frame, request_frame).map_err(|_| ())?;
+        let launcher_peer = LauncherPeerIdentity {
+            pid: output.launcher_peer.pid,
+            uid: output.launcher_peer.uid,
+            gid: output.launcher_peer.gid,
+        };
+        validate_mac4_proxy_ready_frame(&output.proxy_ready_frame, 2, launcher_peer)
+            .map_err(|_| ())?;
+        Ok(Mac4ExecutionProxyOutput {
+            launcher_peer,
+            ready_frame: output.launcher_ready_frame,
+            report_frame: output.launcher_report_frame,
+        })
+    }
+}
+
+#[cfg(any(target_os = "macos", test))]
+type QualifiedMac4ControllerTransport<R, W> = (
+    boole_native_shadow_protocol::QualificationReady,
+    Mac4LauncherTransport<Arc<crate::native_shadow_mac4_controller::Mac4ControllerClient<R, W>>>,
+);
+
+#[cfg(any(target_os = "macos", test))]
+fn qualify_mac4_controller<R, W>(
+    controller: Arc<crate::native_shadow_mac4_controller::Mac4ControllerClient<R, W>>,
+    hello_frame: &[u8],
+) -> Result<QualifiedMac4ControllerTransport<R, W>, &'static str>
+where
+    R: std::io::Read + Send + 'static,
+    W: std::io::Write + Send + 'static,
+{
+    use boole_native_shadow_protocol::{
+        decode_complete_qualification_hello_frame, decode_complete_qualification_ready_frame,
+    };
+
+    let hello = decode_complete_qualification_hello_frame(hello_frame)
+        .map_err(|_| "mac4_qualification_hello_invalid")?;
+    let output = controller
+        .qualify(hello_frame)
+        .map_err(|_| "mac4_controller_qualification_failed")?;
+    let launcher_peer = LauncherPeerIdentity {
+        pid: output.launcher_peer.pid,
+        uid: output.launcher_peer.uid,
+        gid: output.launcher_peer.gid,
+    };
+    validate_mac4_proxy_ready_frame(&output.proxy_ready_frame, 1, launcher_peer)?;
+    let ready = decode_complete_qualification_ready_frame(&output.launcher_ready_frame)
+        .map_err(|_| "mac4_qualification_ready_invalid")?;
+    if ready.nonce_hex() != hello.nonce_hex()
+        || ready.execution_policy_digest_hex() != hello.execution_policy_digest_hex()
+        || ready.toolchain_identity_digest_hex() != hello.toolchain_identity_digest_hex()
+        || ready.registry_digest_hex() != hello.registry_digest_hex()
+        || ready.launcher_pid() != launcher_peer.pid
+        || ready.launcher_uid() != launcher_peer.uid
+        || ready.launcher_gid() != launcher_peer.gid
+    {
+        return Err("mac4_qualification_binding_differs");
+    }
+    let transport = Mac4LauncherTransport::new(
+        controller,
+        ready.launcher_pid(),
+        ready.launcher_instance_id_hex().to_string(),
+    );
+    Ok((ready, transport))
+}
+
 /// Mac transport adapter for the existing node-owned replay state machine.
 ///
 /// It does not decide a verdict. It accepts only the exact typed launcher
@@ -2918,6 +3030,24 @@ mod tests {
         }
     }
 
+    fn mac4_proxy_ready_frame(phase: u8, peer: LauncherPeerIdentity) -> Vec<u8> {
+        let mut frame = vec![0_u8; 120];
+        frame[..8].copy_from_slice(b"BOOLE4P1");
+        frame[8] = 2;
+        frame[9] = phase;
+        frame[12..44].copy_from_slice(&[
+            0x74, 0xd2, 0xf8, 0xc0, 0xbe, 0x18, 0x7a, 0x0b, 0x3f, 0xf0, 0xc9, 0xa1, 0x27, 0x2b,
+            0xd5, 0xce, 0xf6, 0x94, 0x32, 0x22, 0x44, 0x8b, 0x4c, 0x6e, 0x7f, 0x7a, 0x97, 0xf2,
+            0x09, 0x76, 0x36, 0x13,
+        ]);
+        frame[44..76].fill(0x11);
+        frame[76..108].fill(0x22);
+        frame[108..112].copy_from_slice(&peer.pid.to_be_bytes());
+        frame[112..116].copy_from_slice(&peer.uid.to_be_bytes());
+        frame[116..120].copy_from_slice(&peer.gid.to_be_bytes());
+        frame
+    }
+
     #[derive(Debug)]
     struct TestMac4ExecutionProxy {
         output: Mutex<Option<Mac4ExecutionProxyOutput>>,
@@ -2973,6 +3103,113 @@ mod tests {
             ValidatedLauncherOutcome::Ambiguous {
                 reason_code: "mac4_execution_peer_not_qualified"
             }
+        ));
+    }
+
+    #[test]
+    fn persistent_mac4_controller_qualifies_once_then_reuses_the_node_route() {
+        use crate::native_shadow_mac4_controller::{
+            encode_response_for_test, request_id, ControllerCommand, ControllerLauncherPeer,
+            Mac4ControllerClient,
+        };
+        use boole_native_shadow_protocol::{
+            encode_qualification_hello_frame, encode_qualification_ready_frame, QualificationHello,
+            QualificationReady, QualificationReadyFields,
+        };
+        use std::io::Cursor;
+
+        let peer = LauncherPeerIdentity {
+            pid: 4242,
+            uid: 0,
+            gid: 0,
+        };
+        let controller_peer = ControllerLauncherPeer {
+            pid: peer.pid,
+            uid: peer.uid,
+            gid: peer.gid,
+        };
+        let qualification_hello =
+            QualificationHello::try_new(digest('1'), digest('d'), digest('c'), digest('5'))
+                .expect("qualification hello");
+        let qualification_hello_frame =
+            encode_qualification_hello_frame(&qualification_hello).expect("qualification frame");
+        let qualification_ready = QualificationReady::try_new(QualificationReadyFields {
+            nonce_hex: digest('1'),
+            execution_policy_digest_hex: digest('d'),
+            toolchain_identity_digest_hex: digest('c'),
+            registry_digest_hex: digest('5'),
+            launcher_pid: peer.pid,
+            launcher_uid: peer.uid,
+            launcher_gid: peer.gid,
+            node_uid: 990,
+            node_gid: 990,
+            checker_uid: 991,
+            checker_gid: 991,
+            startup_recovery_complete: true,
+            active_execution_leaves: 0,
+            unexpected_direct_cgroup_children: 0,
+            manager_subgroup_verified: true,
+            launcher_instance_id_hex: digest('9'),
+            activation_allowed: false,
+            ready: true,
+        })
+        .expect("qualification ready");
+        let qualification_ready_frame =
+            encode_qualification_ready_frame(&qualification_ready).expect("ready frame");
+        let request = exact_mac4_execution_request();
+        let accepted = accepted_mac4_proxy_output(&request);
+        let request_frame = boole_native_shadow_protocol::encode_execution_request_frame(&request)
+            .expect("execution request");
+        let execution_hello =
+            boole_native_shadow_protocol::ExecutionHello::try_from_execution_request_frame(
+                &request_frame,
+            )
+            .expect("execution hello");
+        let execution_hello_frame =
+            boole_native_shadow_protocol::encode_execution_hello_frame(&execution_hello)
+                .expect("execution hello frame");
+
+        let qualification_id = request_id(
+            ControllerCommand::Qualification,
+            &[qualification_hello_frame.as_slice()],
+        );
+        let execution_id = request_id(
+            ControllerCommand::Execution,
+            &[execution_hello_frame.as_slice(), request_frame.as_slice()],
+        );
+        let input = [
+            encode_response_for_test(
+                ControllerCommand::Qualification,
+                qualification_id,
+                Some(controller_peer),
+                &[
+                    mac4_proxy_ready_frame(1, peer).as_slice(),
+                    qualification_ready_frame.as_slice(),
+                ],
+            ),
+            encode_response_for_test(
+                ControllerCommand::Execution,
+                execution_id,
+                Some(controller_peer),
+                &[
+                    mac4_proxy_ready_frame(2, peer).as_slice(),
+                    accepted.ready_frame.as_slice(),
+                    accepted.report_frame.as_slice(),
+                ],
+            ),
+        ]
+        .concat();
+        let controller = Arc::new(Mac4ControllerClient::new(Cursor::new(input), Vec::new()));
+        let (readiness, transport) =
+            qualify_mac4_controller(controller, &qualification_hello_frame)
+                .expect("one controller qualification");
+        assert_eq!(readiness.launcher_instance_id_hex(), digest('9'));
+        assert!(matches!(
+            transport.execute(&request),
+            ValidatedLauncherOutcome::Terminal(ValidatedLauncherTerminal {
+                verdict: ValidatedLauncherVerdict::Accepted,
+                reason_code: "accepted"
+            })
         ));
     }
 

@@ -1,0 +1,71 @@
+{
+  "activationAllowed": false,
+  "boundaries": {
+    "controllerOwnsVerdict": false,
+    "guestOwnsChallengeJournalReplayOrEvidence": false,
+    "mac4Complete": false,
+    "miningEnabled": false,
+    "productionRelease": false,
+    "testnetEnabled": false
+  },
+  "lifecycle": {
+    "guestInstancesPerController": 1,
+    "qualificationCount": 1,
+    "executionCount": "zero-or-more-sequential",
+    "shutdown": "explicit-request-or-parent-pipe-eof",
+    "surviveParentExit": false
+  },
+  "protocol": {
+    "byteOrder": "network-big-endian-for-numeric-fields",
+    "commandKinds": {
+      "execution": 2,
+      "qualification": 1,
+      "shutdown": 3
+    },
+    "contractDigestBytes": 32,
+    "fixedHeaderBytes": 96,
+    "frameCapBytes": 524288,
+    "frameCountCap": 3,
+    "magicAscii": "BOOLE4C1",
+    "requestId": "sha256(command-kind || each-frame-length || each-frame-bytes)",
+    "requestIdBytes": 32,
+    "responseKinds": {
+      "execution": 130,
+      "qualification": 129,
+      "shutdown": 131
+    },
+    "stdio": {
+      "input": "controller-stdin-owned-by-node",
+      "output": "controller-stdout-owned-by-node",
+      "trailingBytesWithinEnvelopeAllowed": false
+    },
+    "version": 1
+  },
+  "sequences": {
+    "executionRequestFrames": [
+      "launcher-execution-hello",
+      "launcher-execution-request"
+    ],
+    "executionResponseFrames": [
+      "guest-proxy-ready",
+      "launcher-execution-ready",
+      "launcher-execution-report"
+    ],
+    "qualificationRequestFrames": [
+      "launcher-qualification-hello"
+    ],
+    "qualificationResponseFrames": [
+      "guest-proxy-ready",
+      "launcher-qualification-ready"
+    ],
+    "shutdownFrames": []
+  },
+  "schema": "boole.native-shadow.mac4-host-controller-contract.v1",
+  "status": "MAC4-PERSISTENT-HOST-CONTROLLER-CONTRACT-FROZEN-NOT-YET-OBSERVED",
+  "trust": {
+    "controllerBinary": "must-be-the-verified-host-controller-role-from-the-active-product-release",
+    "launcherPeer": "each qualification/execution response carries the kernel-observed root launcher PID UID and GID",
+    "node": "sole-owner-of-challenge-journal-replay-evidence-and-adjudication",
+    "transport": "private-parent-child-pipes-no-listener"
+  }
+}
