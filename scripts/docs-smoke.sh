@@ -3259,4 +3259,11 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'POST-STATE SIGKIL
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'NEXT: SERIALIZE CONCURRENT PRODUCT MUTATIONS + ISOLATE DOWNLOAD STAGING'
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Installed update interruption convergence'
 
+# Product state mutations are single-writer and each CLI download uses an
+# attempt-local sibling instead of a caller-shared staging tree.
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'ONE INSTALL ROOT = ONE OWNER-HELD MUTATION LEASE / LOSER SENDS ZERO HTTP'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'DOWNLOAD BYTES LIVE IN A UNIQUE ATTEMPT SIBLING / CALLER PATH UNCHANGED'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'NEXT: VERIFIED INSTALLED-RELEASE STATUS + OPERATOR DIAGNOSTICS'
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Installed product mutation serialization'
+
 printf 'docs-smoke: PASS\n' >&2

@@ -17,6 +17,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use boole_cli::installed_product_lifecycle::acquire_installed_product_mutation_lease;
 use boole_core::{
     read_installed_curl_product_state, GuestArtifactRole, ProductArtifactRole,
     CURL_PRODUCT_INSTALLED_GUEST_DIRECTORY, CURL_PRODUCT_INSTALLED_MANIFEST_FILE,
@@ -598,5 +599,95 @@ fn interrupted_update_converges_before_and_after_the_state_swap() {
             .join(first_version_directory)
             .exists(),
         "the next verified mutation must prune the now-unreferenced first generation"
+    );
+}
+
+#[test]
+fn an_active_product_mutation_lease_rejects_a_competing_cli_before_network_io() {
+    let fixture = FixtureDir::new();
+    let first_release = BootableCurlProductKatRelease::default();
+    let (first_bundle, roots) = build_bundle(&fixture, "lease-first", first_release);
+    let second_release = BootableCurlProductKatRelease {
+        product_sequence: 2,
+        product_version: "0.0.1-installed-mac-lease-kat".to_string(),
+        product_previous_manifest_sha256: Some(digest(
+            &first_bundle.join(CURL_PRODUCT_INSTALLED_MANIFEST_FILE),
+        )),
+        guest_sequence: 2,
+        guest_version: "0.0.1-installed-mac-lease-kat".to_string(),
+        guest_previous_manifest_sha256: Some(digest(&first_bundle.join("guest-update-manifest"))),
+    };
+    let (second_bundle, second_roots) = build_bundle(&fixture, "lease-second", second_release);
+    assert_eq!(roots, second_roots);
+
+    let install_root = fixture.join("lease-install");
+    let staging = fixture.join("shared-download-staging");
+    let first_server = StaticLoopbackServer::start(&first_bundle);
+    let (first, first_output) = run_cli(&install_args(
+        &first_server.base_url(),
+        &install_root,
+        &staging,
+        &roots,
+    ));
+    assert!(first_output.status.success(), "first install: {first}");
+    drop(first_server);
+    let state_before_competitor =
+        fs::read(install_root.join(CURL_PRODUCT_INSTALL_STATE_FILE)).expect("state before lease");
+
+    let lease = acquire_installed_product_mutation_lease(&install_root)
+        .expect("test process acquires mutation lease");
+    let second_server = StaticLoopbackServer::start(&second_bundle);
+    let (busy, busy_output) = run_cli(&install_args(
+        &second_server.base_url(),
+        &install_root,
+        &staging,
+        &roots,
+    ));
+    assert!(!busy_output.status.success(), "competing install: {busy}");
+    assert_eq!(busy["error"]["reason"], "product-busy");
+    assert!(
+        second_server.requests().is_empty(),
+        "the losing command must not make even a manifest request"
+    );
+    assert_eq!(
+        fs::read(install_root.join(CURL_PRODUCT_INSTALL_STATE_FILE))
+            .expect("state after rejected competitor"),
+        state_before_competitor
+    );
+    assert!(!staging.exists(), "the losing command creates no staging");
+
+    drop(lease);
+    fs::create_dir(&staging).expect("caller-owned staging anchor");
+    fs::write(staging.join("caller-owned"), b"do not clear this directory")
+        .expect("caller-owned staging sentinel");
+    let (second, second_output) = run_cli(&install_args(
+        &second_server.base_url(),
+        &install_root,
+        &staging,
+        &roots,
+    ));
+    assert!(
+        second_output.status.success(),
+        "install after lease release: {second}"
+    );
+    assert_eq!(second["result"]["releaseSequence"], 2);
+    assert_eq!(second_server.requests().len(), 19);
+    assert_eq!(
+        fs::read(staging.join("caller-owned")).expect("staging sentinel survives"),
+        b"do not clear this directory"
+    );
+    let attempt_prefix = format!(
+        "{}.boole-attempt-",
+        staging.file_name().expect("staging name").to_string_lossy()
+    );
+    assert!(
+        fs::read_dir(staging.parent().expect("staging parent"))
+            .expect("read staging parent")
+            .all(|entry| !entry
+                .expect("staging sibling")
+                .file_name()
+                .to_string_lossy()
+                .starts_with(&attempt_prefix)),
+        "the successful command removes its unique attempt staging"
     );
 }
