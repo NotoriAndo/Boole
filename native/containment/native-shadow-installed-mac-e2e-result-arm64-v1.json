@@ -1,0 +1,182 @@
+{
+  "boundary": {
+    "activationAllowed": false,
+    "consensus": false,
+    "leaderboardClaim": false,
+    "mining": false,
+    "p2p": false,
+    "paidApiBenchmark": false,
+    "production": false,
+    "reward": false,
+    "testnet": false
+  },
+  "executionAccounting": {
+    "harnessRetries": 2,
+    "imageBuildDispatches": 1,
+    "macHarnessRuns": 3,
+    "runs": [
+      {
+        "acceptanceChanged": false,
+        "classification": "HARNESS-CONTRACT-DEFECT",
+        "detail": "The installed route returned its authority-level intake_rejected code for the empty response, while the harness incorrectly expected the miner-internal empty_response detail.",
+        "imageBuildReused": true,
+        "outcome": "REFUSED-BEFORE-RESULT-PUBLISH"
+      },
+      {
+        "acceptanceChanged": false,
+        "classification": "TOOLING-SHUTDOWN-CONTRACT-DEFECT",
+        "detail": "All four verdicts passed, but the node allowed 5 seconds for a controller whose bounded VM shutdown protocol allows 10 seconds graceful plus 10 seconds forced stop.",
+        "imageBuildReused": true,
+        "outcome": "REFUSED-BEFORE-RESULT-PUBLISH"
+      },
+      {
+        "acceptanceChanged": false,
+        "classification": "PASS",
+        "imageBuildReused": true,
+        "outcome": "INSTALLED-MAC-CLOSED-LOCAL-E2E-PASS"
+      }
+    ]
+  },
+  "host": {
+    "architecture": "arm64",
+    "cleanMacCanary": false,
+    "macosVersion": "26.5.2"
+  },
+  "imageBuild": {
+    "artifacts": [
+      {
+        "digest": "sha256:e452dfbb74a68f020bc64cbe81aebfbb4754a200caf5fe162f0755213cc3806c",
+        "expiresAt": "2026-09-09T16:07:53Z",
+        "id": 9855544756,
+        "name": "closed-local-image-readiness-v3-build-replica-1",
+        "sizeBytes": 1376380045
+      },
+      {
+        "digest": "sha256:491f90cf7034edd09e33be5a5c2a3b8f7c3465dc9bfbc3dbee192503311497db",
+        "expiresAt": "2026-09-09T16:13:23Z",
+        "id": 9855772878,
+        "name": "closed-local-image-readiness-v3-build-replica-2",
+        "sizeBytes": 1376380045
+      },
+      {
+        "digest": "sha256:93327657298999f3ea81b5ab64023b994153a80a15519e8803026ec61c841413",
+        "expiresAt": "2026-09-09T16:17:30Z",
+        "id": 9855915101,
+        "name": "closed-local-image-readiness-v3-build-comparison",
+        "sizeBytes": 577
+      }
+    ],
+    "comparisonReceiptSha256": "48d9cb42a23268885f43e9e81c8699782d37e56e7998956abbed6b67be5a540a",
+    "comparisonStatus": "TWO-REPLICAS-BYTE-IDENTICAL",
+    "headSha": "6fc29d20c15072bd02337e6cb7af865cff8c59b7",
+    "jobs": [
+      {
+        "conclusion": "success",
+        "id": 100322442829,
+        "name": "closed-local build replica 1"
+      },
+      {
+        "conclusion": "success",
+        "id": 100322442499,
+        "name": "closed-local build replica 2"
+      },
+      {
+        "conclusion": "success",
+        "id": 100326644964,
+        "name": "compare disposable image replicas"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "guest-kernel",
+        "sha256": "d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336",
+        "sizeBytes": 57860488
+      },
+      {
+        "name": "guest-initrd",
+        "sha256": "1d50697dd890512815a3cd008f3b3d8a7330464e21cdce6aec9d93962b1a09c7",
+        "sizeBytes": 1778359384
+      },
+      {
+        "name": "guest-root-disk",
+        "sha256": "3693d5bbaa85b6c5106aa8f89c3d9f6c523aa31528f312c07bca661f2a360150",
+        "sizeBytes": 2037846016
+      }
+    ],
+    "replicaOneReceiptSha256": "97bb2b744a790379387a6c1288012b45069a2a8e4509726443cfff6a476e6439",
+    "runId": 33652402930,
+    "runUrl": "https://github.com/NotoriAndo/Boole/actions/runs/33652402930"
+  },
+  "installedRoute": {
+    "cases": [
+      {
+        "caseId": "accepted",
+        "httpStatus": 200,
+        "outcome": "accepted",
+        "passed": true,
+        "reasonCode": "accepted"
+      },
+      {
+        "caseId": "tampered",
+        "httpStatus": 200,
+        "outcome": "deterministic_reject",
+        "passed": true,
+        "reasonCode": "checker_rejected"
+      },
+      {
+        "caseId": "constant",
+        "httpStatus": 200,
+        "outcome": "deterministic_reject",
+        "passed": true,
+        "reasonCode": "checker_rejected"
+      },
+      {
+        "caseId": "empty",
+        "httpStatus": 400,
+        "outcome": "precheck_reject",
+        "passed": true,
+        "reasonCode": "intake_rejected"
+      }
+    ],
+    "cleanShutdown": true,
+    "installedCommand": "product.install-direct-boot",
+    "loopbackOnly": true,
+    "resultSha256": "c4a815ebf4ff415f536024c2335f08cecb7d76c969242e476767395a1ebd2310",
+    "runtimeCleaned": true,
+    "sourceRevision": "7c8870b55e0c5fc156d69a428bd2ea44c22b89c7",
+    "transportLayout": {
+      "guestArtifacts": 11,
+      "hostArtifacts": 4
+    }
+  },
+  "observedAt": "2026-09-02T16:39:37Z",
+  "productInputs": [
+    {
+      "name": "boole-cli",
+      "sha256": "1750bbf9962529ffe7034e954795a7adc4010d840a0623a0d8ddabedfa334669",
+      "sizeBytes": 6272528
+    },
+    {
+      "name": "boole-wallet-agent",
+      "sha256": "25163d41ae5a84debcae510c616ec79bec90107bd2647b34f68c6a5fd4874088",
+      "sizeBytes": 1042736
+    },
+    {
+      "name": "boole-installed-mac-e2e-kat-bundle",
+      "sha256": "6bfb5e33ce8cdf3dd12edd3f7580de35e31f1aef6e740e39e7075c4fb9702f8d",
+      "sizeBytes": 784576
+    },
+    {
+      "name": "boole-mac-native-shadow-replay-node",
+      "sha256": "66ffec0bac0275b9647edbce1029ed04e0300c1bc07b7cfed5969af0cfcbf5ba",
+      "sizeBytes": 3594240
+    },
+    {
+      "name": "host-controller",
+      "sha256": "6e67907e1f3a43ffc62a529f57fc4ba764b3980eb0199b92cc7f88e85108d4a1",
+      "sizeBytes": 208560
+    }
+  ],
+  "schema": "boole.native-shadow.installed-mac-e2e-result.v1",
+  "status": "INSTALLED-MAC-CLOSED-LOCAL-E2E-PASS"
+}

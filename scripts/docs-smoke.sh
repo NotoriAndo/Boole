@@ -3186,4 +3186,22 @@ require_text "$MAC4_CHANNEL_RESULT_V3" '"recommendation": "MAC4-NODE-ROUTE-BINDI
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'MAC.4 AUTHENTICATED TRANSPORT + GUEST READINESS PASS'
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Third MAC.4 observation: authenticated transport and readiness passed'
 
+# The real curl-installed route now crosses the signed product boundary, one
+# persistent closed Mac VM and the frozen four-case adjudication matrix. Keep
+# the exact result while preserving every production/network boundary.
+INSTALLED_MAC_E2E_RESULT=native/containment/native-shadow-installed-mac-e2e-result-arm64-v1.json
+INSTALLED_MAC_E2E_GATE=scripts/test_native_shadow_installed_mac_e2e_result_v1.py
+require_file "$INSTALLED_MAC_E2E_RESULT"
+require_file "$INSTALLED_MAC_E2E_GATE"
+require_text scripts/self-test.sh "$INSTALLED_MAC_E2E_GATE"
+require_text "$INSTALLED_MAC_E2E_RESULT" '"status": "INSTALLED-MAC-CLOSED-LOCAL-E2E-PASS"'
+require_text "$INSTALLED_MAC_E2E_RESULT" '"runId": 33652402930'
+require_text "$INSTALLED_MAC_E2E_RESULT" '"comparisonStatus": "TWO-REPLICAS-BYTE-IDENTICAL"'
+require_text "$INSTALLED_MAC_E2E_RESULT" '"caseId": "accepted"'
+require_text "$INSTALLED_MAC_E2E_RESULT" '"reasonCode": "intake_rejected"'
+require_text "$INSTALLED_MAC_E2E_RESULT" '"macHarnessRuns": 3'
+require_text "$INSTALLED_MAC_E2E_RESULT" '"activationAllowed": false'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'INSTALLED MAC CLOSED-LOCAL E2E PASS / REAL CURL INSTALL + FOUR VERDICTS'
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Installed Mac E2E: the signed product route passed end to end'
+
 printf 'docs-smoke: PASS\n' >&2

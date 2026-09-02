@@ -6944,3 +6944,37 @@ KNOWN RELAY V1 IMAGE DEFECT CORRECTED TO V2 / OLD IMAGE NOT ELIGIBLE
 NEXT: FRESH ARM64 REPLICAS -> BYTE COMPARE -> INSTALLED CLOSED-LOCAL MAC E2E
 PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
 ```
+
+## 100. The curl-installed closed Mac route passed its real four-case E2E (2026-09-03)
+
+Disposable build run `33652402930` produced two byte-identical ARM64 image
+replicas from the relay startup correction. The locally downloaded replica
+matched the comparison receipt for kernel, initrd and root disk. The real curl
+transport then authenticated both KAT signature domains, atomically installed
+the exact four host and eleven guest roles, reopened the active product and
+started the installed node with one Apple Virtualization.framework guest.
+
+The node-owned route returned the frozen matrix exactly: accepted was ACCEPT,
+tampered and constant were deterministic checker rejects, and empty input was
+an intake reject before guest execution. The controller stopped cleanly and
+the mutable VM/runtime roots were removed. The first two harness runs exposed
+two tooling defects rather than product acceptance failures: a miner-internal
+empty-response label was incorrectly expected at the public node boundary,
+and the node waited only five seconds for a controller whose already-bounded VM
+shutdown protocol permits ten seconds graceful plus ten seconds forced stop.
+Both were fixed under the unchanged four-case acceptance rule; the final run
+used the allowed second and last harness retry.
+
+This closes the ordinary installed-path MAC.4 happy path, but not all of MAC.4.
+The next functional boundary is the installed Mac crash matrix: guest
+unavailability must remain retryable, durable InFlight must fail closed, and a
+terminal result must redeliver without a second checker execution across node,
+controller and guest loss. Clean-Mac acceptance remains deferred and no
+production or network authority follows from this local result.
+
+```text
+INSTALLED MAC CLOSED-LOCAL E2E PASS / REAL CURL INSTALL + FOUR VERDICTS
+MAC.4 HAPPY PATH GREEN / CRASH + REDELIVERY MATRIX STILL OPEN
+NEXT: INSTALLED MAC CRASH/RESTART EXACTLY-ONCE E2E
+PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
+```
