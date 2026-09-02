@@ -384,6 +384,7 @@ pub struct SpawnedMac4Controller {
 
 #[cfg(target_os = "macos")]
 impl SpawnedMac4Controller {
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn spawn(
         verified_release: &VerifiedCurlProductRelease,
         runtime_root: &Path,
@@ -599,6 +600,7 @@ impl Drop for SpawnedMac4Controller {
 }
 
 #[cfg(target_os = "macos")]
+#[cfg_attr(not(test), allow(dead_code))]
 fn require_production_controller_arguments(arguments: &[OsString]) -> Result<(), ControllerError> {
     const FORBIDDEN: [&str; 4] = [
         "--controller-stdio",
