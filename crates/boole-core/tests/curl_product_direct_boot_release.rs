@@ -20,6 +20,14 @@ use sha2::{Digest, Sha256};
 const PRODUCT_KEY_ID: &str = "non-production-product-v3-kat";
 const GUEST_KEY_ID: &str = "non-production-guest-v3-kat";
 
+type DirectBootProductFixture = (
+    CurlProductReleaseTrustRoot,
+    Vec<u8>,
+    Vec<u8>,
+    BTreeMap<ProductArtifactRole, Vec<u8>>,
+    BTreeMap<GuestArtifactRole, Vec<u8>>,
+);
+
 fn signature(key: &SigningKeyV2, key_id: &str, raw: &[u8], context: &str) -> Vec<u8> {
     let payload = serde_json::from_slice(raw).expect("payload JSON");
     let envelope = key
@@ -35,13 +43,7 @@ fn signature(key: &SigningKeyV2, key_id: &str, raw: &[u8], context: &str) -> Vec
     }))
 }
 
-fn fixture() -> (
-    CurlProductReleaseTrustRoot,
-    Vec<u8>,
-    Vec<u8>,
-    BTreeMap<ProductArtifactRole, Vec<u8>>,
-    BTreeMap<GuestArtifactRole, Vec<u8>>,
-) {
+fn fixture() -> DirectBootProductFixture {
     let guest_files: BTreeMap<_, _> = GuestArtifactRole::DIRECT_BOOT_ALL
         .into_iter()
         .map(|role| (role, format!("guest-v3:{}", role.as_str()).into_bytes()))
