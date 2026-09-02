@@ -33,11 +33,11 @@ const HTTP_BODY_LIMIT_BYTES: usize = 131_072;
 const HTTP_BODY_TIMEOUT: Duration = Duration::from_secs(5);
 const HTTP_TOTAL_RESPONSE_TIMEOUT: Duration = Duration::from_secs(115);
 const FIXED_HTTP_LISTENER_PORT: u16 = 8082;
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
 const LAUNCHER_CONNECT_TIMEOUT: Duration = Duration::from_secs(1);
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
 const LAUNCHER_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
 const LAUNCHER_EXECUTION_TIMEOUT: Duration = Duration::from_secs(115);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -561,18 +561,18 @@ where
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[derive(Debug)]
 struct InstalledReplayAuthority {
     installed: Arc<
-        boole_native_shadow_protocol::installed_authority::VerifiedInstalledClosedLocalReplayExecutionAuthorities,
+        boole_native_shadow_protocol::installed_authority::VerifiedClosedLocalReplayExecutionAuthorities,
     >,
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 impl InstalledReplayAuthority {
     fn new(
-        installed: boole_native_shadow_protocol::installed_authority::VerifiedInstalledClosedLocalReplayExecutionAuthorities,
+        installed: boole_native_shadow_protocol::installed_authority::VerifiedClosedLocalReplayExecutionAuthorities,
     ) -> Self {
         Self {
             installed: Arc::new(installed),
@@ -580,7 +580,44 @@ impl InstalledReplayAuthority {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(target_os = "macos")]
+fn mac4_runtime_authorities_from_active_product(
+    active: &boole_core::VerifiedInstalledBootableCurlProductRelease,
+) -> anyhow::Result<
+    boole_native_shadow_protocol::installed_authority::VerifiedClosedLocalReplayExecutionAuthorities,
+>{
+    use boole_core::GuestArtifactRole;
+    use boole_native_shadow_protocol::installed_authority::{
+        verify_closed_local_replay_execution_authorities_from_retained_files,
+        RetainedClosedLocalReplayAuthorityFiles,
+    };
+
+    let required = |role| {
+        active.guest_artifact_file(role).ok_or_else(|| {
+            anyhow::anyhow!(
+                "verified active guest lacks retained {} handle",
+                role.as_str()
+            )
+        })
+    };
+    verify_closed_local_replay_execution_authorities_from_retained_files(
+        RetainedClosedLocalReplayAuthorityFiles {
+            registry: required(GuestArtifactRole::Registry)?,
+            execution_policy: required(GuestArtifactRole::ExecutionPolicy)?,
+            toolchain_identity: required(GuestArtifactRole::ToolchainIdentity)?,
+            replay_grant: required(GuestArtifactRole::ClosedLocalReplayGrant)?,
+            registry_overlay: required(GuestArtifactRole::RegistryOverlay)?,
+            local_execution_authority: required(GuestArtifactRole::LocalExecutionAuthority)?,
+            replay_execution_authority: required(
+                GuestArtifactRole::ClosedLocalReplayExecutionAuthority,
+            )?,
+            checker_release_manifest: required(GuestArtifactRole::CheckerReleaseManifest)?,
+        },
+    )
+    .map_err(Into::into)
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 impl ReplayAuthority for InstalledReplayAuthority {
     type CheckerPrepared = boole_native_shadow_protocol::VerifiedClosedLocalReplayPreparedCase;
     type PreIntakePrepared =
@@ -1990,7 +2027,7 @@ pub async fn serve_installed_closed_local_native_shadow_replay() -> anyhow::Resu
     )?;
     let launcher = installed_launcher_transport::InstalledLauncherTransport::new(readiness);
     let service = Arc::new(ClosedLocalReplayService {
-        replay_authority: InstalledReplayAuthority::new(installed),
+        replay_authority: InstalledReplayAuthority::new(installed.into_runtime_authorities()),
         launcher,
         execution_gate: Arc::new(NativeShadowExecutionGate::new()),
         journal: Mutex::new(ReplayJournalState {

@@ -6,7 +6,7 @@
 
 use std::ffi::CString;
 use std::fs::{File, OpenOptions};
-use std::io::{self, Read};
+use std::io::{self, Read, Seek, SeekFrom};
 use std::os::fd::{AsRawFd, FromRawFd};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 
@@ -19,7 +19,8 @@ use crate::{
     },
     verify_authority_bundle, verify_closed_local_replay_execution_authority_bytes,
     verify_local_execution_authority_bytes, AuthorityError,
-    ClosedLocalReplayExecutionAuthorityError, ClosedLocalReplayGrantError, VerifiedAuthorityBundle,
+    ClosedLocalReplayExecutionAuthorityError, ClosedLocalReplayGrantError,
+    LocalExecutionAuthorityError, VerifiedAuthorityBundle,
     VerifiedClosedLocalReplayExecutionAuthority, VerifiedClosedLocalReplayGrant,
     VerifiedLocalExecutionAuthority, TRACKED_CHECKER_BYTES, TRACKED_CHECKER_POLICY_BYTES,
     TRACKED_CHECKER_RELEASE_MANIFEST_BYTES, TRACKED_CLOSED_LOCAL_REPLAY_EXECUTION_AUTHORITY_BYTES,
@@ -48,17 +49,58 @@ pub enum InstalledAuthorityError {
     ReplayGrant(#[from] ClosedLocalReplayGrantError),
     #[error(transparent)]
     ReplayExecutionAuthority(#[from] ClosedLocalReplayExecutionAuthorityError),
+    #[error(transparent)]
+    LocalExecutionAuthority(#[from] LocalExecutionAuthorityError),
 }
 
 /// Exact installed grant, execution authority, checker, checker policy and
 /// checker release proven through fixed descriptor-relative paths.
 #[derive(Debug)]
 pub struct VerifiedInstalledClosedLocalReplayExecutionAuthorities {
-    grant: VerifiedClosedLocalReplayGrant,
-    execution_authority: VerifiedClosedLocalReplayExecutionAuthority,
+    runtime: VerifiedClosedLocalReplayExecutionAuthorities,
     material_root: File,
     required_uid: u32,
     required_gid: u32,
+}
+
+/// Path-independent replay authority created only after every retained,
+/// signed release handle has been checked against the compiled contract.
+/// This is the authority shape consumed by both the fixed Linux install and
+/// the curl-installed Mac host route.
+#[derive(Debug)]
+pub struct VerifiedClosedLocalReplayExecutionAuthorities {
+    grant: VerifiedClosedLocalReplayGrant,
+    local_execution_authority: VerifiedLocalExecutionAuthority,
+    execution_authority: VerifiedClosedLocalReplayExecutionAuthority,
+}
+
+impl VerifiedClosedLocalReplayExecutionAuthorities {
+    pub fn grant(&self) -> &VerifiedClosedLocalReplayGrant {
+        &self.grant
+    }
+
+    pub fn local_execution_authority(&self) -> &VerifiedLocalExecutionAuthority {
+        &self.local_execution_authority
+    }
+
+    pub fn execution_authority(&self) -> &VerifiedClosedLocalReplayExecutionAuthority {
+        &self.execution_authority
+    }
+}
+
+/// Exact retained handles required to reconstruct the closed-local replay
+/// authority without reopening any pathname selected by a request or by the
+/// surrounding process environment.
+#[derive(Debug, Clone, Copy)]
+pub struct RetainedClosedLocalReplayAuthorityFiles<'a> {
+    pub registry: &'a File,
+    pub execution_policy: &'a File,
+    pub toolchain_identity: &'a File,
+    pub replay_grant: &'a File,
+    pub registry_overlay: &'a File,
+    pub local_execution_authority: &'a File,
+    pub replay_execution_authority: &'a File,
+    pub checker_release_manifest: &'a File,
 }
 
 /// Per-request proof that the installed checker release and replay fixture
@@ -83,11 +125,15 @@ impl VerifiedInstalledClosedLocalReplayExecutionMaterials {
 
 impl VerifiedInstalledClosedLocalReplayExecutionAuthorities {
     pub fn grant(&self) -> &VerifiedClosedLocalReplayGrant {
-        &self.grant
+        self.runtime.grant()
     }
 
     pub fn execution_authority(&self) -> &VerifiedClosedLocalReplayExecutionAuthority {
-        &self.execution_authority
+        self.runtime.execution_authority()
+    }
+
+    pub fn into_runtime_authorities(self) -> VerifiedClosedLocalReplayExecutionAuthorities {
+        self.runtime
     }
 
     pub fn reverify_execution_materials(
@@ -99,6 +145,96 @@ impl VerifiedInstalledClosedLocalReplayExecutionAuthorities {
             self.required_gid,
         )
     }
+}
+
+/// Verify authority files already retained by a signed release verifier.
+/// File ownership and install-path selection are intentionally outside this
+/// function: the caller has already authenticated those handles. This layer
+/// proves that their bytes are the exact closed-local, non-issuable contract.
+pub fn verify_closed_local_replay_execution_authorities_from_retained_files(
+    files: RetainedClosedLocalReplayAuthorityFiles<'_>,
+) -> Result<VerifiedClosedLocalReplayExecutionAuthorities, InstalledAuthorityError> {
+    let registry =
+        read_retained_exact(files.registry, "retained registry", TRACKED_REGISTRY_BYTES)?;
+    let execution_policy = read_retained_exact(
+        files.execution_policy,
+        "retained execution policy",
+        TRACKED_EXECUTION_POLICY_BYTES,
+    )?;
+    let toolchain_identity = read_retained_exact(
+        files.toolchain_identity,
+        "retained toolchain identity",
+        TRACKED_TOOLCHAIN_IDENTITY_BYTES,
+    )?;
+    let authority = verify_authority_bundle(&registry, &execution_policy, &toolchain_identity)?;
+    let replay_grant = read_retained_exact(
+        files.replay_grant,
+        "retained replay grant",
+        TRACKED_CLOSED_LOCAL_REPLAY_GRANT_BYTES,
+    )?;
+    let registry_overlay = read_retained_exact(
+        files.registry_overlay,
+        "retained registry overlay",
+        TRACKED_CLOSED_LOCAL_REPLAY_REGISTRY_OVERLAY_BYTES,
+    )?;
+    let grant =
+        verify_closed_local_replay_grant_bytes(&replay_grant, &registry_overlay, &authority)?;
+    let local_execution_authority = read_retained_exact(
+        files.local_execution_authority,
+        "retained local execution authority",
+        TRACKED_LOCAL_EXECUTION_AUTHORITY_BYTES,
+    )?;
+    let local_execution_authority =
+        verify_local_execution_authority_bytes(&local_execution_authority)?;
+    let replay_execution_authority = read_retained_exact(
+        files.replay_execution_authority,
+        "retained replay execution authority",
+        TRACKED_CLOSED_LOCAL_REPLAY_EXECUTION_AUTHORITY_BYTES,
+    )?;
+    let execution_authority =
+        verify_closed_local_replay_execution_authority_bytes(&replay_execution_authority)?;
+    read_retained_exact(
+        files.checker_release_manifest,
+        "retained checker release manifest",
+        TRACKED_CHECKER_RELEASE_MANIFEST_BYTES,
+    )?;
+    Ok(VerifiedClosedLocalReplayExecutionAuthorities {
+        grant,
+        local_execution_authority,
+        execution_authority,
+    })
+}
+
+fn read_retained_exact(
+    file: &File,
+    label: &str,
+    expected: &[u8],
+) -> Result<Vec<u8>, InstalledAuthorityError> {
+    let mut file = file
+        .try_clone()
+        .map_err(|source| io_failure(label, source))?;
+    file.seek(SeekFrom::Start(0))
+        .map_err(|source| io_failure(label, source))?;
+    let metadata = file
+        .metadata()
+        .map_err(|source| io_failure(label, source))?;
+    if !metadata.is_file() || metadata.len() != expected.len() as u64 {
+        return Err(unsafe_metadata(
+            label,
+            "retained authority is not a regular file of the tracked length",
+        ));
+    }
+    let mut bytes = Vec::with_capacity(expected.len());
+    file.take(expected.len() as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|source| io_failure(label, source))?;
+    if bytes != expected {
+        return Err(unsafe_metadata(
+            label,
+            "retained authority bytes differ from the compiled contract",
+        ));
+    }
+    Ok(bytes)
 }
 
 struct ExpectedAuthorityFile {
@@ -188,6 +324,8 @@ fn open_verified_closed_local_replay_execution_authorities_beneath(
         .try_clone()
         .map_err(|source| io_failure("duplicate installed material root", source))?;
     let grant = open_verified_closed_local_replay_grant_beneath(root, required_uid, required_gid)?;
+    let local_execution_authority =
+        open_verified_local_execution_authority_beneath(root, required_uid, required_gid)?;
     let (directory, display_path) =
         open_verified_authority_directory(root, required_uid, required_gid)?;
     let basename = "closed-local-replay-execution-authority-v1.json";
@@ -208,8 +346,11 @@ fn open_verified_closed_local_replay_execution_authorities_beneath(
         required_gid,
     )?;
     Ok(VerifiedInstalledClosedLocalReplayExecutionAuthorities {
-        grant,
-        execution_authority,
+        runtime: VerifiedClosedLocalReplayExecutionAuthorities {
+            grant,
+            local_execution_authority,
+            execution_authority,
+        },
         material_root,
         required_uid,
         required_gid,
@@ -608,7 +749,7 @@ fn unsafe_metadata(label: impl Into<String>, reason: &'static str) -> InstalledA
 
 #[cfg(test)]
 mod tests {
-    use std::fs::{self, OpenOptions};
+    use std::fs::{self, File, OpenOptions};
     use std::os::unix::fs::{symlink, MetadataExt, PermissionsExt};
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -632,7 +773,9 @@ mod tests {
         open_verified_closed_local_replay_grant_beneath, open_verified_installed_authority_bundle,
         open_verified_installed_closed_local_replay_grant,
         open_verified_installed_local_execution_authority,
-        open_verified_local_execution_authority_beneath, InstalledAuthorityError,
+        open_verified_local_execution_authority_beneath,
+        verify_closed_local_replay_execution_authorities_from_retained_files,
+        InstalledAuthorityError, RetainedClosedLocalReplayAuthorityFiles,
     };
 
     static NEXT_TEST_TREE: AtomicU64 = AtomicU64::new(0);
@@ -844,6 +987,59 @@ mod tests {
                 "{relative}"
             );
         }
+    }
+
+    #[test]
+    fn retained_release_handles_create_runtime_authority_without_reopening_paths() {
+        let tree = TestAuthorityTree::new();
+        let registry = File::open(tree.path("registry-v1.json")).expect("registry handle");
+        let execution_policy =
+            File::open(tree.path("execution-policy-v1.json")).expect("execution-policy handle");
+        let toolchain_identity =
+            File::open(tree.path("toolchain-identity-v1.json")).expect("toolchain handle");
+        let replay_grant =
+            File::open(tree.path("closed-local-replay-grant-v1.json")).expect("grant handle");
+        let registry_overlay =
+            File::open(tree.path("closed-local-replay-registry-overlay-v1.json"))
+                .expect("overlay handle");
+        let local_execution_authority = File::open(tree.path("local-execution-authority-v1.json"))
+            .expect("local execution authority handle");
+        let replay_execution_authority =
+            File::open(tree.path("closed-local-replay-execution-authority-v1.json"))
+                .expect("replay execution authority handle");
+        let checker_release_manifest =
+            File::open(tree.path("checkers/rust-tuple-struct-project-v1/RELEASE-MANIFEST.json"))
+                .expect("checker release handle");
+
+        tree.make_authority_dir_writable();
+        fs::rename(
+            tree.path("closed-local-replay-grant-v1.json"),
+            tree.path("retained-original-grant.json"),
+        )
+        .expect("move retained grant path");
+        fs::write(
+            tree.path("closed-local-replay-grant-v1.json"),
+            b"replacement",
+        )
+        .expect("replace grant path");
+
+        let runtime = verify_closed_local_replay_execution_authorities_from_retained_files(
+            RetainedClosedLocalReplayAuthorityFiles {
+                registry: &registry,
+                execution_policy: &execution_policy,
+                toolchain_identity: &toolchain_identity,
+                replay_grant: &replay_grant,
+                registry_overlay: &registry_overlay,
+                local_execution_authority: &local_execution_authority,
+                replay_execution_authority: &replay_execution_authority,
+                checker_release_manifest: &checker_release_manifest,
+            },
+        )
+        .expect("retained verified bytes must create runtime authority");
+        assert_eq!(runtime.grant().max_checker_executions_total(), 3);
+        assert!(runtime
+            .execution_authority()
+            .requires_runtime_rootfs_replay());
     }
 
     #[test]

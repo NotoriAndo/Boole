@@ -9,10 +9,10 @@
 > activation authority; code that still enforces the historical chain must be
 > changed by normal TDD before it is used.
 
-> **CURRENT-CURSOR-2026-09-02:** `MAC.4 BOOTABLE PRODUCT INSTALL + ACTIVE REOPEN GREEN / INSTALLED MAC AUTHORITY + JOURNAL ENTRYPOINT NEXT`.
-> The next coherent development milestone is to start the retained verified
-> host-controller handle without reopening a swappable path, then compose it
-> with the installed Mac replay-service entrypoint. No production, testnet,
+> **CURRENT-CURSOR-2026-09-02:** `MAC.4 RETAINED GUEST AUTHORITY + PRIVATE JOURNAL OPENER GREEN / HANDLE-BOUND BOOT INPUTS NEXT`.
+> The next coherent development milestone is to materialize the verified
+> kernel and root-disk handles into the controller's private runtime and remove
+> caller-selected boot paths from the installed route. No production, testnet,
 > mining, reward, consensus, P2P or activation run is authorized by this cursor.
 
 Status: **MAC.0 COMPLETE (closed-local Linux baseline, 2026-08-24, section 9);
@@ -6804,5 +6804,31 @@ journal location remain the next node-owned boundary.
 MAC.4 BOOTABLE PRODUCT INSTALL + ACTIVE REOPEN GREEN
 TWO SIGNATURE DOMAINS / EIGHTEEN RETAINED HANDLES / ONE ATOMIC VERSION
 NEXT: INSTALLED MAC AUTHORITY + JOURNAL ENTRYPOINT
+PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
+```
+
+## 95. The Mac node can derive authority and open its journal without path reopen (2026-09-02)
+
+The protocol now accepts the eight authority handles retained by the signed
+guest release: registry, policy, toolchain, replay overlay and grant, both
+execution authorities, and checker release manifest. It rewinds cloned handles
+and requires exact tracked lengths and bytes before returning the same opaque,
+one-shot replay authority used on Linux. Replacing an installed pathname after
+active-product reopen cannot redirect this derivation.
+
+The replay journal exposes the existing production descriptor-relative opener
+for a caller-provisioned private path on Unix. The directory must already be
+owned by the expected user and group with mode 0700; the journal remains one
+0600 regular inode, one hard link and one lifetime-held nonblocking flock. The
+opener neither creates nor repairs a permissive state directory.
+
+The Mac replay grant methods are now compiled for macOS as well as Linux. This
+does not start a VM or listener. Kernel and root-disk inputs still need the same
+retained-handle materialization already applied to the controller executable.
+
+```text
+MAC.4 RETAINED GUEST AUTHORITY + PRIVATE JOURNAL OPENER GREEN
+NO AUTHORITY PATH REOPEN / SAME ONE-SHOT GRANT / SAME DURABLE LOCK
+NEXT: HANDLE-BOUND BOOT INPUTS
 PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
 ```

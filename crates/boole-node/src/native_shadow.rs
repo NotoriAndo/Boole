@@ -1160,6 +1160,26 @@ impl NativeShadowJournalAuthority {
         )
     }
 
+    /// Open a caller-provisioned private journal location through the same
+    /// descriptor-relative production checks as the fixed Linux service.
+    /// This is the user-scoped curl-install entrypoint on macOS; it never
+    /// creates, repairs or relaxes the supplied state directory.
+    #[cfg(unix)]
+    pub(crate) fn open_prepared_production(
+        path: impl AsRef<Path>,
+        expected_uid: u32,
+        expected_gid: u32,
+    ) -> Result<Self, NativeShadowJournalAuthorityError> {
+        let path = path.as_ref();
+        let directory = path
+            .parent()
+            .ok_or_else(|| NativeShadowJournalAuthorityError::UnsafePath(path.to_path_buf()))?;
+        let file_name = path
+            .file_name()
+            .ok_or_else(|| NativeShadowJournalAuthorityError::UnsafePath(path.to_path_buf()))?;
+        Self::open_prepared_production_dir(directory, file_name, expected_uid, expected_gid)
+    }
+
     #[cfg(not(target_os = "linux"))]
     pub(crate) fn open_production(
         _expected_node_uid: u32,
@@ -5545,13 +5565,9 @@ mod tests {
         let uid = directory_metadata.uid();
         let gid = directory_metadata.gid();
 
-        let authority = NativeShadowJournalAuthority::open_prepared_production_dir(
-            directory,
-            journal_path.file_name().expect("journal name"),
-            uid,
-            gid,
-        )
-        .expect("prepared production journal opens");
+        let authority =
+            NativeShadowJournalAuthority::open_prepared_production(&journal_path, uid, gid)
+                .expect("prepared production journal opens");
         let metadata = std::fs::metadata(&journal_path).expect("journal metadata");
         assert_eq!(metadata.mode() & 0o7777, 0o600);
         assert_eq!(metadata.uid(), uid);

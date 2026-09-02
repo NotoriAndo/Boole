@@ -7,9 +7,9 @@
 > activation boundaries in this specification remain unchanged, and no A7,
 > production, boot, mining or reward authority is created here.
 
-> **CURRENT-CURSOR-2026-09-02:** `MAC.4 BOOTABLE PRODUCT INSTALL + ACTIVE REOPEN GREEN / INSTALLED MAC AUTHORITY + JOURNAL ENTRYPOINT NEXT`.
-> Next is starting the retained verified host-controller handle and wiring an
-> installed Mac replay-service entrypoint. This cursor is status, not
+> **CURRENT-CURSOR-2026-09-02:** `MAC.4 RETAINED GUEST AUTHORITY + PRIVATE JOURNAL OPENER GREEN / HANDLE-BOUND BOOT INPUTS NEXT`.
+> Next is materializing verified guest boot handles into the private controller
+> runtime before wiring the installed Mac replay-service entrypoint. This cursor is status, not
 > production, testnet, mining, reward, consensus, P2P or activation permission.
 
 Status: **CLOSED-LOCAL QUALIFICATION GREEN — tracked checker, named-Linux containment, loopback
@@ -2834,3 +2834,11 @@ artifact checks and returns retained product and guest handles.
 This addendum creates no trust roots or release and starts no VM or node route.
 It only closes the missing installed-byte ownership prerequisite for the next
 Mac authority and journal constructor.
+
+### MAC.4 retained guest authority and private-journal addendum (2026-09-02)
+
+The Mac node can now derive the exact non-issuable replay capability from the
+active release's retained authority handles. It does not reopen guest artifact
+paths. The existing production journal checks are also available for an
+already-provisioned user-owned 0700 directory and a single locked 0600 journal.
+No route or VM is started; verified boot inputs remain the next boundary.

@@ -8,8 +8,8 @@
 > PR for every reversible retry. This note grants no A7, production, boot,
 > MAC.4 or activation effect.
 
-> **CURRENT-CURSOR-2026-09-02:** `MAC.4 BOOTABLE PRODUCT INSTALL + ACTIVE REOPEN GREEN / INSTALLED MAC AUTHORITY + JOURNAL ENTRYPOINT NEXT`.
-> Next is starting the retained verified host-controller handle and wiring an
+> **CURRENT-CURSOR-2026-09-02:** `MAC.4 RETAINED GUEST AUTHORITY + PRIVATE JOURNAL OPENER GREEN / HANDLE-BOUND BOOT INPUTS NEXT`.
+> Next is materializing verified kernel and root-disk handles before wiring the
 > installed Mac replay-service entrypoint. Existing runtime exactly-once and
 > containment contracts remain the acceptance boundary.
 
@@ -4828,3 +4828,17 @@ a successor, derives the exact guest identity from that product, verifies all
 guest files below the selected version and retains their handles. This is the
 only acceptable source for later VM image and host-controller consumption.
 No trust root or runtime path is inferred from transport input.
+
+## MAC.4 retained authority and Mac production-journal preparation (2026-09-02)
+
+The runtime replay capability is now path-independent after the signed product
+has opened its guest files. Eight retained authority handles must match the
+compiled closed-local contract before the one-shot grant can be used on macOS.
+The Linux fixed-root opener consumes the same runtime capability after its
+stricter installed-tree verification.
+
+The journal's descriptor-relative production checks now also accept a full
+path whose parent was provisioned beforehand. No directory creation or repair
+occurs: uid, gid, 0700 parent, 0600 regular journal, link count one, stable
+inode and exclusive lifetime lock remain mandatory. Boot inputs and listener
+ownership are deliberately not claimed by this slice.
