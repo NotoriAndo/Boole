@@ -1469,6 +1469,31 @@ where
         .with_state(service)
 }
 
+async fn serve_router_until_shutdown<F>(
+    listener: tokio::net::TcpListener,
+    router: Router,
+    shutdown: F,
+) -> std::io::Result<()>
+where
+    F: Future<Output = ()> + Send + 'static,
+{
+    axum::serve(listener, router)
+        .with_graceful_shutdown(shutdown)
+        .await
+}
+
+#[cfg(target_os = "macos")]
+fn installed_mac_signal_streams(
+) -> anyhow::Result<(tokio::signal::unix::Signal, tokio::signal::unix::Signal)> {
+    use tokio::signal::unix::{signal, SignalKind};
+
+    let terminate = signal(SignalKind::terminate())
+        .map_err(|error| anyhow::anyhow!("register installed Mac SIGTERM handler: {error}"))?;
+    let interrupt = signal(SignalKind::interrupt())
+        .map_err(|error| anyhow::anyhow!("register installed Mac SIGINT handler: {error}"))?;
+    Ok((terminate, interrupt))
+}
+
 async fn submit<A, L>(
     State(service): State<Arc<ClosedLocalReplayService<A, L>>>,
     request: Request<Body>,
@@ -2134,6 +2159,11 @@ pub async fn serve_installed_mac_closed_local_native_shadow_replay(
 ) -> anyhow::Result<()> {
     use boole_core::open_verified_installed_direct_boot_curl_product_release;
 
+    // Register both handlers before any verified controller process or VM is
+    // started. Otherwise SIGTERM during startup takes the kernel default path
+    // and bypasses the controller's explicit shutdown/cleanup protocol.
+    let (mut terminate, mut interrupt) = installed_mac_signal_streams()?;
+
     let active = open_verified_installed_direct_boot_curl_product_release(
         &config.install_root,
         &config.product_trust_root,
@@ -2228,7 +2258,13 @@ pub async fn serve_installed_mac_closed_local_native_shadow_replay(
         poisoned: Arc::new(AtomicBool::new(false)),
     });
     let listener = tokio::net::TcpListener::bind(fixed_http_listener_address()).await?;
-    let serve_result = axum::serve(listener, build_router(service)).await;
+    let serve_result = serve_router_until_shutdown(listener, build_router(service), async move {
+        tokio::select! {
+            _ = terminate.recv() => {},
+            _ = interrupt.recv() => {},
+        }
+    })
+    .await;
     let shutdown_result = controller.shutdown();
     serve_result?;
     shutdown_result?;
@@ -2276,6 +2312,28 @@ mod tests {
         )
         .expect_err("relative install root is rejected");
         assert!(error.to_string().contains("install root must be absolute"));
+    }
+
+    #[tokio::test]
+    async fn installed_mac_route_stops_serving_when_its_shutdown_future_fires() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind test listener");
+        let (shutdown_send, shutdown_receive) = tokio::sync::oneshot::channel::<()>();
+        let server = tokio::spawn(super::serve_router_until_shutdown(
+            listener,
+            Router::new(),
+            async move {
+                let _ = shutdown_receive.await;
+            },
+        ));
+
+        shutdown_send.send(()).expect("send shutdown");
+        tokio::time::timeout(Duration::from_secs(2), server)
+            .await
+            .expect("server stopped before deadline")
+            .expect("server task joined")
+            .expect("server stopped cleanly");
     }
 
     #[derive(Debug)]

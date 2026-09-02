@@ -9,9 +9,10 @@
 > activation authority; code that still enforces the historical chain must be
 > changed by normal TDD before it is used.
 
-> **CURRENT-CURSOR-2026-09-02:** `INSTALLED E2E KAT METADATA GREEN / CLOSED-LOCAL HARNESS NEXT`.
-> The next coherent milestone is exercising the installed, signed bootable
-> bundle through the Mac loopback adjudication route end to end. No production,
+> **CURRENT-CURSOR-2026-09-02:** `INSTALLED E2E HARNESS GREEN / RELAY V2 IMAGE CORRECTION READY / FRESH ARM64 IMAGE NEXT`.
+> The installed-route harness is ready, and the next coherent milestone is a
+> fresh deterministic ARM64 image pair containing the proxy-capable relay,
+> followed by the same closed-local Mac route. No production,
 > testnet, mining, reward, consensus, P2P or activation run is authorized by
 > this cursor.
 
@@ -6887,8 +6888,8 @@ PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
 
 ## 98. Installed E2E metadata is generated only by the non-production testkit (2026-09-02)
 
-The next closed-local run needs one product-v2 envelope and one guest-v2
-envelope over the exact four host and twelve guest roles. A workspace-internal,
+The next closed-local run needs one product-v3 envelope and one direct-boot
+guest-v3 envelope over the exact four host and eleven guest roles. A workspace-internal,
 non-publishable testkit writer now hashes caller-supplied regular files,
 canonicalizes both manifests and signs them with two deterministic KAT domains.
 It emits only signed metadata and injected public roots; it does not copy,
@@ -6902,13 +6903,44 @@ cannot be confused with a production root.
 
 This is preparation, not the installed E2E result. The next slice must assemble
 a transient HTTP layout from exact host binaries and guest inputs, exercise the
-real `product install-bootable` command and then start the installed closed-local
+real `product install-direct-boot` command and then start the installed closed-local
 route. It remains forbidden to infer trust from that server or to activate any
 network, mining, reward, consensus or P2P behavior.
 
 ```text
-INSTALLED E2E KAT METADATA GREEN / EXACT 4+12 INPUT ROLES
+INSTALLED E2E KAT METADATA GREEN / EXACT 4+11 DIRECT-BOOT INPUT ROLES
 TESTKIT-ONLY PRIVATE KEYS / NO PRODUCTION ROOT / NO ARTIFACT EXECUTION
 NEXT: TRANSIENT BUNDLE LAYOUT + REAL INSTALL + CLOSED-LOCAL ROUTE HARNESS
+PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
+```
+
+## 99. The installed-route harness found the stale relay service before adjudication (2026-09-02)
+
+The developer harness now composes the deterministic KAT metadata, an exact
+transient loopback transport layout, the real direct-boot installer, the
+installed node entrypoint and the frozen accepted/tampered/constant/empty
+submission matrix. It keeps only compact results and node logs after a run and
+requires SIGTERM to complete the controller shutdown and runtime cleanup path.
+
+The first real run exposed inherited `/private/tmp` group ownership before a VM
+could start; the harness now provisions its private roots with the caller's uid
+and gid as well as mode 0700. The same-basis retry reached guest readiness but
+the relay could not connect to the launcher's Unix socket. The image builder
+was still installing the historical service restricted to `AF_VSOCK`, while
+the already-defined v2 service permits the required `AF_VSOCK AF_UNIX` pair.
+The current v3 image lane now pins that v2 service while the hash-bound v1/v2
+predecessor lanes remain byte-for-byte unchanged. This is an image-input
+correction, not a successful installed E2E claim.
+
+The installed node also registers SIGTERM and SIGINT before it starts the
+verified controller, stops its loopback server gracefully, and then runs the
+existing controller shutdown protocol. The next milestone must build a fresh
+ARM64 replica pair from these exact inputs; reusing the old root disk would
+reproduce the known relay failure.
+
+```text
+INSTALLED E2E HARNESS GREEN / REAL INSTALL + FOUR-CASE ROUTE CONTRACT
+KNOWN RELAY V1 IMAGE DEFECT CORRECTED TO V2 / OLD IMAGE NOT ELIGIBLE
+NEXT: FRESH ARM64 REPLICAS -> BYTE COMPARE -> INSTALLED CLOSED-LOCAL MAC E2E
 PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
 ```

@@ -16,6 +16,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from scripts import native_shadow_closed_local_image_to_readiness_arm64_v1 as image
+from scripts import native_shadow_closed_local_image_to_readiness_arm64_v3 as current_image
 
 CONTRACT = (
     ROOT
@@ -30,7 +31,6 @@ CONTROLLER_CONTRACT = (
     / "native/containment/native-shadow-mac4-host-controller-contract-v1.json"
 )
 RELAY_MANIFEST = ROOT / "native/mac4/relay/Cargo.toml"
-HISTORICAL_SERVICE = ROOT / "native/systemd/boole-native-shadow-mac4-relay.service"
 SERVICE = ROOT / "native/systemd/boole-native-shadow-mac4-relay-v2.service"
 MAC_HOST = ROOT / "native/mac4/boole-mac4-auth-channel.swift"
 WORKFLOW = (
@@ -121,9 +121,10 @@ class Mac4AuthenticatedChannelBehaviorTests(unittest.TestCase):
         controller_digest = hashlib.sha256(CONTROLLER_CONTRACT.read_bytes()).hexdigest()
         self.assertIn(f'"{controller_digest}"', MAC_HOST.read_text(encoding="utf-8"))
 
-    def test_development_overlay_installs_relay_service_and_exact_vsock_load_contract(self):
+    def test_development_overlay_installs_the_proxy_capable_relay_service(self):
         relay = b"arm64-linux-relay"
-        entries = image._development_mac4_entries(ROOT, relay)
+        with current_image._proxy_relay_service_contract():
+            entries = image._development_mac4_entries(ROOT, relay)
         self.assertEqual(
             set(entries),
             {
@@ -137,7 +138,11 @@ class Mac4AuthenticatedChannelBehaviorTests(unittest.TestCase):
         self.assertEqual(entries[image.MAC4_RELAY_STAGING_PATH]["raw"], relay)
         self.assertEqual(entries[image.MAC4_RELAY_STAGING_PATH]["mode"], 0o555)
         self.assertEqual(
-            entries[image.MAC4_SERVICE_STAGING_PATH]["raw"], HISTORICAL_SERVICE.read_bytes()
+            entries[image.MAC4_SERVICE_STAGING_PATH]["raw"], SERVICE.read_bytes()
+        )
+        self.assertIn(
+            b"RestrictAddressFamilies=AF_VSOCK AF_UNIX",
+            entries[image.MAC4_SERVICE_STAGING_PATH]["raw"],
         )
         self.assertEqual(entries[image.MAC4_SERVICE_STAGING_PATH]["mode"], 0o444)
         self.assertEqual(

@@ -61,8 +61,9 @@ class DevelopmentThroughputPolicyContract(unittest.TestCase):
             with self.subTest(relative=relative):
                 normalized = " ".join(text.split())
                 self.assertIn("CURRENT-CURSOR-2026-09-02", normalized)
-                self.assertIn("INSTALLED E2E KAT METADATA GREEN", normalized)
-                self.assertIn("CLOSED-LOCAL HARNESS NEXT", normalized)
+                self.assertIn("INSTALLED E2E HARNESS GREEN", normalized)
+                self.assertIn("RELAY V2 IMAGE CORRECTION READY", normalized)
+                self.assertIn("FRESH ARM64 IMAGE NEXT", normalized)
 
     def test_lessons_are_advisory_until_promoted(self) -> None:
         text = read(ROOT / "tasks/lessons.md")
