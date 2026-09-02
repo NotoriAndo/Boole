@@ -41,6 +41,32 @@ pub struct BootableCurlProductKatInput {
     pub source_revision: String,
     pub product_artifacts: BTreeMap<ProductArtifactRole, PathBuf>,
     pub guest_artifacts: BTreeMap<GuestArtifactRole, PathBuf>,
+    #[serde(default)]
+    pub release: BootableCurlProductKatRelease,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BootableCurlProductKatRelease {
+    pub product_sequence: u64,
+    pub product_version: String,
+    pub product_previous_manifest_sha256: Option<String>,
+    pub guest_sequence: u64,
+    pub guest_version: String,
+    pub guest_previous_manifest_sha256: Option<String>,
+}
+
+impl Default for BootableCurlProductKatRelease {
+    fn default() -> Self {
+        Self {
+            product_sequence: 1,
+            product_version: "0.0.0-installed-mac-e2e-kat".to_string(),
+            product_previous_manifest_sha256: None,
+            guest_sequence: 1,
+            guest_version: "0.0.0-installed-mac-e2e-kat".to_string(),
+            guest_previous_manifest_sha256: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -118,6 +144,45 @@ fn write_new(path: &Path, bytes: &[u8]) -> io::Result<()> {
     file.sync_all()
 }
 
+fn validate_kat_release_link(
+    label: &str,
+    sequence: u64,
+    version: &str,
+    previous_manifest_sha256: Option<&str>,
+) -> io::Result<()> {
+    if sequence == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("KAT {label} sequence must be non-zero"),
+        ));
+    }
+    if version.is_empty()
+        || version.len() > 128
+        || !version
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_' | b'+'))
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("KAT {label} version is not a safe identifier"),
+        ));
+    }
+    let previous_is_valid = previous_manifest_sha256.is_some_and(|digest| {
+        digest.len() == 64
+            && digest
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    });
+    if (sequence == 1 && previous_manifest_sha256.is_some()) || (sequence > 1 && !previous_is_valid)
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("KAT {label} predecessor does not match its sequence"),
+        ));
+    }
+    Ok(())
+}
+
 /// Write only the signed metadata for a closed-local installed-Mac E2E
 /// bundle. The caller supplies real artifact paths and later exposes those
 /// bytes under the signed basenames. This helper lives in `boole-testkit`, so
@@ -169,6 +234,18 @@ pub fn write_bootable_curl_product_kat_metadata(
             "KAT guest inputs must contain the exact eleven direct-boot roles",
         ));
     }
+    validate_kat_release_link(
+        "product",
+        input.release.product_sequence,
+        &input.release.product_version,
+        input.release.product_previous_manifest_sha256.as_deref(),
+    )?;
+    validate_kat_release_link(
+        "guest",
+        input.release.guest_sequence,
+        &input.release.guest_version,
+        input.release.guest_previous_manifest_sha256.as_deref(),
+    )?;
     fs::create_dir(&input.output_dir)?;
     let result = (|| {
         let guest_descriptors = GuestArtifactRole::DIRECT_BOOT_ALL
@@ -181,11 +258,11 @@ pub fn write_bootable_curl_product_kat_metadata(
             "schema": GUEST_UPDATE_MANIFEST_SCHEMA_V3,
             "bootFormatVersion": 2,
             "channel": "stable",
-            "releaseSequence": 1,
-            "releaseVersion": "0.0.0-installed-mac-e2e-kat",
+            "releaseSequence": input.release.guest_sequence,
+            "releaseVersion": input.release.guest_version,
             "targetOs": "linux",
             "targetArch": "aarch64",
-            "previousManifestSha256": null,
+            "previousManifestSha256": input.release.guest_previous_manifest_sha256,
             "artifacts": guest_descriptors,
         }));
         let guest_key = SigningKeyV2::from_dev_id(INSTALLED_MAC_E2E_GUEST_KAT_KEY_ID);
@@ -230,17 +307,17 @@ pub fn write_bootable_curl_product_kat_metadata(
         let product_manifest = canonicalize(&json!({
             "schema": CURL_PRODUCT_RELEASE_MANIFEST_SCHEMA_V3,
             "channel": "stable",
-            "releaseSequence": 1,
-            "releaseVersion": "0.0.0-installed-mac-e2e-kat",
+            "releaseSequence": input.release.product_sequence,
+            "releaseVersion": input.release.product_version,
             "sourceRevision": input.source_revision,
             "targetOs": "macos",
             "targetArch": "arm64",
             "minimumMacOs": "14.0",
-            "previousManifestSha256": null,
+            "previousManifestSha256": input.release.product_previous_manifest_sha256,
             "controllerProtocolVersion": 1,
             "guestManifestSha256": hex::encode(Sha256::digest(&guest_manifest)),
-            "guestReleaseSequence": 1,
-            "guestReleaseVersion": "0.0.0-installed-mac-e2e-kat",
+            "guestReleaseSequence": input.release.guest_sequence,
+            "guestReleaseVersion": input.release.guest_version,
             "artifacts": product_descriptors,
         }));
         let product_key = SigningKeyV2::from_dev_id(INSTALLED_MAC_E2E_PRODUCT_KAT_KEY_ID);
@@ -282,7 +359,10 @@ pub fn write_bootable_curl_product_kat_metadata(
 
 #[cfg(test)]
 mod bootable_curl_product_kat_tests {
-    use super::{write_bootable_curl_product_kat_metadata, BootableCurlProductKatInput};
+    use super::{
+        write_bootable_curl_product_kat_metadata, BootableCurlProductKatInput,
+        BootableCurlProductKatRelease,
+    };
     use boole_core::{
         GuestArtifactRole, ProductArtifactRole, CURL_PRODUCT_INSTALLED_MANIFEST_FILE,
         CURL_PRODUCT_INSTALLED_SIGNATURE_FILE, CURL_PRODUCT_RELEASE_MANIFEST_SCHEMA_V3,
@@ -316,6 +396,7 @@ mod bootable_curl_product_kat_tests {
             source_revision: "12".repeat(20),
             product_artifacts: product,
             guest_artifacts: BTreeMap::new(),
+            release: BootableCurlProductKatRelease::default(),
         })
         .expect_err("incomplete direct-boot guest set must fail");
 
@@ -357,6 +438,7 @@ mod bootable_curl_product_kat_tests {
             source_revision: "12".repeat(20),
             product_artifacts: product,
             guest_artifacts: guest,
+            release: BootableCurlProductKatRelease::default(),
         })
         .expect("write KAT metadata");
 
@@ -400,6 +482,63 @@ mod bootable_curl_product_kat_tests {
                 fs::read(output.join("guest-update-manifest")).unwrap()
             ))
         );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn kat_metadata_can_chain_one_explicit_successor_in_both_trust_domains() {
+        let root = std::env::temp_dir().join(format!(
+            "boole-bootable-kat-successor-{}-{}",
+            std::process::id(),
+            super::rand_suffix()
+        ));
+        fs::create_dir(&root).expect("fixture root");
+        let mut product = BTreeMap::new();
+        for role in [
+            ProductArtifactRole::HostCli,
+            ProductArtifactRole::HostNode,
+            ProductArtifactRole::HostWalletAgent,
+            ProductArtifactRole::HostController,
+        ] {
+            let path = root.join(role.as_str());
+            fs::write(&path, format!("product:{}", role.as_str())).expect("product fixture");
+            product.insert(role, path);
+        }
+        let mut guest = BTreeMap::new();
+        for role in GuestArtifactRole::DIRECT_BOOT_ALL {
+            let path = root.join(role.as_str());
+            fs::write(&path, format!("guest:{}", role.as_str())).expect("guest fixture");
+            guest.insert(role, path);
+        }
+        let output = root.join("metadata");
+        write_bootable_curl_product_kat_metadata(BootableCurlProductKatInput {
+            output_dir: output.clone(),
+            source_revision: "34".repeat(20),
+            product_artifacts: product,
+            guest_artifacts: guest,
+            release: BootableCurlProductKatRelease {
+                product_sequence: 2,
+                product_version: "0.0.1-installed-mac-e2e-kat".to_string(),
+                product_previous_manifest_sha256: Some("11".repeat(32)),
+                guest_sequence: 2,
+                guest_version: "0.0.1-installed-mac-e2e-kat".to_string(),
+                guest_previous_manifest_sha256: Some("22".repeat(32)),
+            },
+        })
+        .expect("write successor KAT metadata");
+
+        let product_manifest: serde_json::Value = serde_json::from_slice(
+            &fs::read(output.join(CURL_PRODUCT_INSTALLED_MANIFEST_FILE)).unwrap(),
+        )
+        .unwrap();
+        let guest_manifest: serde_json::Value =
+            serde_json::from_slice(&fs::read(output.join("guest-update-manifest")).unwrap())
+                .unwrap();
+        assert_eq!(product_manifest["releaseSequence"], 2);
+        assert_eq!(product_manifest["previousManifestSha256"], "11".repeat(32));
+        assert_eq!(product_manifest["guestReleaseSequence"], 2);
+        assert_eq!(guest_manifest["releaseSequence"], 2);
+        assert_eq!(guest_manifest["previousManifestSha256"], "22".repeat(32));
         let _ = fs::remove_dir_all(root);
     }
 }
