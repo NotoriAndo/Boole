@@ -8,7 +8,7 @@
 > PR for every reversible retry. This note grants no A7, production, boot,
 > MAC.4 or activation effect.
 
-> **CURRENT-CURSOR-2026-09-02:** `MAC.4 VERIFIED ACTIVE RELEASE REOPEN GREEN / HANDLE-BOUND HOST-CONTROLLER SPAWN + INSTALLED MAC ROUTE NEXT`.
+> **CURRENT-CURSOR-2026-09-02:** `MAC.4 HANDLE-BOUND HOST-CONTROLLER SPAWN GREEN / INSTALLED MAC AUTHORITY + JOURNAL ENTRYPOINT NEXT`.
 > Next is starting the retained verified host-controller handle and wiring an
 > installed Mac replay-service entrypoint. Existing runtime exactly-once and
 > containment contracts remain the acceptance boundary.
@@ -4798,3 +4798,18 @@ runtime code must consume that handle instead of reopening its pathname.
 
 This is the trust input for the next process-owner slice. No controller was
 started and no VM, node listener, challenge or activation state changed.
+
+## MAC.4 handle-bound controller process owner (2026-09-02)
+
+The Mac process owner consumes the reverified `host-controller` file handle,
+not its installed pathname. It copies and simultaneously rehashes that handle
+into a fixed 0700 runtime directory, requires the signed length and digest,
+sets the resulting file to 0500, syncs it, and launches only that copy through
+private pipes. Installed-path replacement after the active-release check
+therefore cannot redirect execution.
+
+Only the owner appends `--controller-stdio`; dry-run and duplicate-mode
+arguments are rejected. Graceful shutdown is bounded, while every error and
+drop path kills and reaps the child before removing the private executable.
+Authority selection, durable journal paths and the installed route remain a
+separate next slice. This process owner has no verdict or activation authority.

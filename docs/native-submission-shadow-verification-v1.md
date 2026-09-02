@@ -7,7 +7,7 @@
 > activation boundaries in this specification remain unchanged, and no A7,
 > production, boot, mining or reward authority is created here.
 
-> **CURRENT-CURSOR-2026-09-02:** `MAC.4 VERIFIED ACTIVE RELEASE REOPEN GREEN / HANDLE-BOUND HOST-CONTROLLER SPAWN + INSTALLED MAC ROUTE NEXT`.
+> **CURRENT-CURSOR-2026-09-02:** `MAC.4 HANDLE-BOUND HOST-CONTROLLER SPAWN GREEN / INSTALLED MAC AUTHORITY + JOURNAL ENTRYPOINT NEXT`.
 > Next is starting the retained verified host-controller handle and wiring an
 > installed Mac replay-service entrypoint. This cursor is status, not
 > production, testnet, mining, reward, consensus, P2P or activation permission.
@@ -2809,3 +2809,16 @@ runtime consumer receives.
 This addendum starts no process and grants no route or activation authority.
 The next boundary is executing the retained host-controller handle without
 falling back to a path reopen.
+
+### MAC.4 verified controller process-owner addendum (2026-09-02)
+
+The node-side owner now streams the retained, reverified host-controller handle
+into a private 0700 runtime directory while independently checking its signed
+length and digest. It starts only the resulting 0500 file with private pipes,
+never reopens the installed pathname, and reaps the child before deleting the
+copy. Dry-run and duplicate protocol-mode overrides are rejected.
+
+This closes executable identity and lifecycle ownership, not the installed Mac
+route. The next constructor must still select the node-owned authority and
+durable journal paths and reverify the guest inputs. No submission, reward,
+consensus, P2P or activation boundary changes here.

@@ -9,7 +9,7 @@
 > activation authority; code that still enforces the historical chain must be
 > changed by normal TDD before it is used.
 
-> **CURRENT-CURSOR-2026-09-02:** `MAC.4 VERIFIED ACTIVE RELEASE REOPEN GREEN / HANDLE-BOUND HOST-CONTROLLER SPAWN + INSTALLED MAC ROUTE NEXT`.
+> **CURRENT-CURSOR-2026-09-02:** `MAC.4 HANDLE-BOUND HOST-CONTROLLER SPAWN GREEN / INSTALLED MAC AUTHORITY + JOURNAL ENTRYPOINT NEXT`.
 > The next coherent development milestone is to start the retained verified
 > host-controller handle without reopening a swappable path, then compose it
 > with the installed Mac replay-service entrypoint. No production, testnet,
@@ -6755,5 +6755,28 @@ changed.
 MAC.4 PERSISTENT CONTROLLER PROTOCOL + NODE REPLAY COMPOSITION GREEN
 ONE QUALIFICATION / SEQUENTIAL EXECUTIONS / EXPLICIT SHUTDOWN / ONE VM CONTRACT
 NEXT: VERIFIED PROCESS SPAWN + INSTALLED MAC REPLAY-SERVICE ENTRYPOINT
+PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
+```
+
+## 93. The verified controller handle is the only executable source (2026-09-02)
+
+The node can now materialize the active release's already-open and reverified
+`host-controller` handle into one fixed private runtime directory. It streams
+the handle while rechecking the signed byte length and SHA-256 digest, writes a
+new 0500 executable below a 0700 root, syncs it, and starts that exact copy with
+private stdin/stdout pipes. Replacing the installed pathname after verification
+cannot change the launched bytes.
+
+The process owner appends the sole production `--controller-stdio` flag,
+rejects dry-run or duplicate-mode overrides, serializes access through the
+existing controller client, requires explicit bounded shutdown, and kills and
+reaps the child on error or owner drop before removing the private copy. This
+is process ownership only: it does not select authority, journal or image paths
+and grants no node listener, mining, reward, consensus or activation effect.
+
+```text
+MAC.4 HANDLE-BOUND HOST-CONTROLLER SPAWN GREEN
+INSTALLED PATH IS NOT REOPENED / PRIVATE COPY IS REMOVED AFTER PROCESS REAP
+NEXT: INSTALLED MAC AUTHORITY + JOURNAL ENTRYPOINT
 PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
 ```
