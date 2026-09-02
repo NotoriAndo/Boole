@@ -29,7 +29,8 @@ mod local_node;
 mod native_shadow;
 #[cfg(feature = "native-shadow-closed-local-replay")]
 #[cfg(any(target_os = "macos", test))]
-pub mod native_shadow_mac4_controller;
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod native_shadow_mac4_controller;
 #[allow(dead_code)]
 mod native_shadow_qualification;
 #[cfg(feature = "native-shadow-closed-local-replay")]
