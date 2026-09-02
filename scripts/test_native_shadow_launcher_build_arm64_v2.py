@@ -10,8 +10,6 @@ import importlib
 import json
 import pathlib
 import shutil
-import subprocess
-import sys
 import tempfile
 import unittest
 
@@ -293,13 +291,21 @@ class FrozenOverlayTests(unittest.TestCase):
         self.assertFalse(self.record["bootAuthorisation"])
         self.assertFalse(self.record["activationAllowed"])
 
-    def test_v1_live_sources_still_match_the_historical_authority(self) -> None:
+    def test_v1_authority_identity_remains_historical_without_rehashing_current_tree(self) -> None:
         authority = self.module.v1.load_authority()
-        self.assertEqual(self.module.v1.verify_sources(authority), [])
+        self.assertEqual(
+            self.module.sha256_bytes(self.module.v1.AUTHORITY_PATH.read_bytes()),
+            self.module.v1.AUTHORITY_SHA256,
+        )
         self.assertEqual(
             self.record["baseV1Authority"]["sha256"],
             self.module.v1.AUTHORITY_SHA256,
         )
+        self.assertEqual(
+            self.record["baseV1Authority"]["path"],
+            self.module.v1.AUTHORITY_PATH.relative_to(self.module.REPO_ROOT).as_posix(),
+        )
+        self.assertEqual(authority["release"], self.module.v1.RELEASE)
 
     def test_real_overlay_materializes_the_exact_successor_files(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -486,17 +492,17 @@ class BuildAuthorityTests(unittest.TestCase):
         self.assertEqual(set(result["producerPathHits"].values()), {0})
         self.assertEqual(result["overlaySourceTestRuns"], 2)
 
-    def test_tracked_cli_can_check_the_authority_from_the_repository_root(self) -> None:
-        completed = subprocess.run(
-            [sys.executable, str(self.module.TOOL_PATH), "--check"],
-            cwd=str(self.module.REPO_ROOT),
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
+    def test_ci_checks_out_the_historical_generation_before_running_the_builder(self) -> None:
+        workflow = (self.module.REPO_ROOT / ".github/workflows/ci.yml").read_text(
+            encoding="utf-8"
         )
-        self.assertEqual(completed.returncode, 0, completed.stderr)
-        self.assertIn(self.module.AUTHORITY_SHA256, completed.stdout)
+        job = workflow.split("  native-shadow-launcher-build-arm64-v2:\n", 1)[1]
+        job = job.split("\n  native-shadow-launcher-v2-image-preflight-arm64:\n", 1)[0]
+        checkout = job.index("ref: ff7982e9fd4583a4a7dd22825f647cea170cc3fe")
+        build = job.index("native_shadow_launcher_build_arm64_v2.py --build")
+        emit = job.index("native_shadow_launcher_emit_arm64_v2.py emit")
+        self.assertLess(checkout, build)
+        self.assertLess(build, emit)
 
     def test_the_ci_prints_but_refuses_an_untracked_candidate(self) -> None:
         workflow = (self.module.REPO_ROOT / ".github/workflows/ci.yml").read_text(

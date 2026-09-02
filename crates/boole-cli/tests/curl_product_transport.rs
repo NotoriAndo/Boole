@@ -18,16 +18,20 @@ use std::thread::JoinHandle;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use boole_cli::curl_product_transport::{
-    download_and_install_curl_product_release, CurlProductTransportError,
+    download_and_install_bootable_curl_product_release, download_and_install_curl_product_release,
+    CurlProductTransportError,
 };
 use boole_core::{
     canonicalize, read_installed_curl_product_state, CurlProductInstallError,
     CurlProductReleaseTrustRoot, CurlProductReleaseVerifyError, GuestArtifactRole,
-    InstalledCurlProduct, ProductArtifactRole, SigningKeyV2, CURL_PRODUCT_INSTALLED_MANIFEST_FILE,
-    CURL_PRODUCT_INSTALLED_SIGNATURE_FILE, CURL_PRODUCT_INSTALL_STAGING_DIRECTORY,
-    CURL_PRODUCT_INSTALL_STATE_FILE, CURL_PRODUCT_INSTALL_STATE_TEMP_FILE,
-    CURL_PRODUCT_INSTALL_VERSIONS_DIRECTORY, CURL_PRODUCT_RELEASE_SIGNING_CONTEXT,
+    InstalledCurlProduct, NativeShadowUpdateTrustRoot, ProductArtifactRole, SigningKeyV2,
+    CURL_PRODUCT_INSTALLED_MANIFEST_FILE, CURL_PRODUCT_INSTALLED_SIGNATURE_FILE,
+    CURL_PRODUCT_INSTALL_STAGING_DIRECTORY, CURL_PRODUCT_INSTALL_STATE_FILE,
+    CURL_PRODUCT_INSTALL_STATE_TEMP_FILE, CURL_PRODUCT_INSTALL_VERSIONS_DIRECTORY,
+    CURL_PRODUCT_RELEASE_MANIFEST_SCHEMA_V2, CURL_PRODUCT_RELEASE_SIGNING_CONTEXT,
+    CURL_PRODUCT_RELEASE_SIGNING_CONTEXT_V2, GUEST_UPDATE_MANIFEST_SCHEMA_V2,
     MAX_CURL_PRODUCT_RELEASE_MANIFEST_BYTES, NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT,
+    NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT_V2,
 };
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -401,6 +405,228 @@ fn assert_root_untouched(root: &Path) {
     assert!(!root.join(CURL_PRODUCT_INSTALL_STATE_TEMP_FILE).exists());
     assert!(!root.join(CURL_PRODUCT_INSTALL_VERSIONS_DIRECTORY).exists());
     assert!(!root.join(CURL_PRODUCT_INSTALL_STAGING_DIRECTORY).exists());
+}
+
+type BootableFixture = (
+    CurlProductReleaseTrustRoot,
+    NativeShadowUpdateTrustRoot,
+    Vec<u8>,
+    Vec<u8>,
+    BTreeMap<ProductArtifactRole, Vec<u8>>,
+    BTreeMap<GuestArtifactRole, Vec<u8>>,
+);
+
+fn signed_bootable_fixture() -> BootableFixture {
+    signed_bootable_fixture_with_guest_signer(true)
+}
+
+fn signed_bootable_fixture_with_guest_signer(trusted: bool) -> BootableFixture {
+    let product_key_id = "non-production-product-v2-transport-kat";
+    let guest_key_id = "non-production-guest-v2-transport-kat";
+    let product_key = SigningKeyV2::from_dev_id(product_key_id);
+    let guest_key = SigningKeyV2::from_dev_id(guest_key_id);
+    let guest_signer = if trusted {
+        SigningKeyV2::from_dev_id(guest_key_id)
+    } else {
+        SigningKeyV2::from_dev_id("non-production-guest-v2-transport-attacker")
+    };
+    let guest_artifacts = GuestArtifactRole::BOOTABLE_ALL
+        .into_iter()
+        .map(|role| {
+            (
+                role,
+                format!("bootable-transport-fixture:{}", role.as_str()).into_bytes(),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let guest_descriptors = GuestArtifactRole::BOOTABLE_ALL
+        .into_iter()
+        .map(|role| {
+            let bytes = &guest_artifacts[&role];
+            json!({
+                "role": role.as_str(),
+                "fileName": format!("{}.bin", role.as_str()),
+                "byteLength": bytes.len(),
+                "sha256": hex::encode(Sha256::digest(bytes)),
+            })
+        })
+        .collect::<Vec<_>>();
+    let guest_manifest = canonicalize(&json!({
+        "schema": GUEST_UPDATE_MANIFEST_SCHEMA_V2,
+        "bootFormatVersion": 1,
+        "channel": "stable",
+        "releaseSequence": 1,
+        "releaseVersion": "2.0.0",
+        "targetOs": "linux",
+        "targetArch": "aarch64",
+        "previousManifestSha256": null,
+        "artifacts": guest_descriptors,
+    }));
+    let guest_signature = envelope_for(
+        &guest_signer,
+        guest_key_id,
+        &guest_manifest,
+        NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT_V2,
+    );
+    let mut product_artifacts = [
+        ProductArtifactRole::HostCli,
+        ProductArtifactRole::HostNode,
+        ProductArtifactRole::HostWalletAgent,
+        ProductArtifactRole::HostController,
+    ]
+    .into_iter()
+    .map(|role| {
+        (
+            role,
+            format!("bootable-host-transport-fixture:{}", role.as_str()).into_bytes(),
+        )
+    })
+    .collect::<BTreeMap<_, _>>();
+    product_artifacts.insert(
+        ProductArtifactRole::GuestUpdateManifest,
+        guest_manifest.clone(),
+    );
+    product_artifacts.insert(ProductArtifactRole::GuestUpdateSignature, guest_signature);
+    let product_descriptors = ProductArtifactRole::ALL
+        .into_iter()
+        .map(|role| {
+            let bytes = &product_artifacts[&role];
+            json!({
+                "role": role.as_str(),
+                "fileName": format!("{}.bin", role.as_str()),
+                "byteLength": bytes.len(),
+                "sha256": hex::encode(Sha256::digest(bytes)),
+            })
+        })
+        .collect::<Vec<_>>();
+    let product_manifest = canonicalize(&json!({
+        "schema": CURL_PRODUCT_RELEASE_MANIFEST_SCHEMA_V2,
+        "channel": "stable",
+        "releaseSequence": 1,
+        "releaseVersion": "2.0.0",
+        "sourceRevision": "44".repeat(20),
+        "targetOs": "macos",
+        "targetArch": "arm64",
+        "minimumMacOs": "14.0",
+        "previousManifestSha256": null,
+        "controllerProtocolVersion": 1,
+        "guestManifestSha256": hex::encode(Sha256::digest(&guest_manifest)),
+        "guestReleaseSequence": 1,
+        "guestReleaseVersion": "2.0.0",
+        "artifacts": product_descriptors,
+    }));
+    let product_signature = envelope_for(
+        &product_key,
+        product_key_id,
+        &product_manifest,
+        CURL_PRODUCT_RELEASE_SIGNING_CONTEXT_V2,
+    );
+    (
+        CurlProductReleaseTrustRoot::new(product_key_id, &product_key.pk_hex())
+            .expect("product trust root"),
+        NativeShadowUpdateTrustRoot::new(guest_key_id, &guest_key.pk_hex())
+            .expect("guest trust root"),
+        product_manifest,
+        product_signature,
+        product_artifacts,
+        guest_artifacts,
+    )
+}
+
+fn serve_bootable_bundle(server: &LoopbackServer, fixture: &BootableFixture) {
+    server.set_route(
+        &format!("{BUNDLE_PATH}/{CURL_PRODUCT_INSTALLED_MANIFEST_FILE}"),
+        200,
+        fixture.2.clone(),
+    );
+    server.set_route(
+        &format!("{BUNDLE_PATH}/{CURL_PRODUCT_INSTALLED_SIGNATURE_FILE}"),
+        200,
+        fixture.3.clone(),
+    );
+    for role in ProductArtifactRole::ALL {
+        server.set_route(
+            &format!("{BUNDLE_PATH}/{}.bin", role.as_str()),
+            200,
+            fixture.4[&role].clone(),
+        );
+    }
+    for role in GuestArtifactRole::BOOTABLE_ALL {
+        server.set_route(
+            &format!("{BUNDLE_PATH}/guest/{}.bin", role.as_str()),
+            200,
+            fixture.5[&role].clone(),
+        );
+    }
+}
+
+#[test]
+fn a_bootable_bundle_authenticates_both_domains_before_atomic_install() {
+    let fixture = signed_bootable_fixture();
+    let server = LoopbackServer::start();
+    serve_bootable_bundle(&server, &fixture);
+    let dir = FixtureDir::new("bootable-happy");
+    let root = dir.path("root");
+    let staging = dir.path("download-staging");
+
+    let installed = download_and_install_bootable_curl_product_release(
+        &server.base_url(),
+        &root,
+        &staging,
+        &fixture.0,
+        1,
+        &fixture.1,
+        1,
+        REQUEST_TIMEOUT,
+    )
+    .expect("bootable bundle installs");
+
+    assert_eq!(installed.product().release_sequence(), 1);
+    assert_eq!(installed.guest_release_sequence(), 1);
+    for role in GuestArtifactRole::BOOTABLE_ALL {
+        assert_eq!(
+            fs::read(installed.guest_artifact_path(role).expect("guest path"))
+                .expect("installed guest bytes"),
+            fixture.5[&role]
+        );
+    }
+    assert!(!staging.exists());
+    assert!(server
+        .requests()
+        .contains(&format!("{BUNDLE_PATH}/guest/guest-root-disk.bin")));
+}
+
+#[test]
+fn a_forged_embedded_guest_signature_stops_before_guest_artifact_downloads() {
+    let fixture = signed_bootable_fixture_with_guest_signer(false);
+    let server = LoopbackServer::start();
+    serve_bootable_bundle(&server, &fixture);
+    let dir = FixtureDir::new("bootable-forged-guest");
+    let root = dir.path("root");
+    let staging = dir.path("download-staging");
+
+    let error = download_and_install_bootable_curl_product_release(
+        &server.base_url(),
+        &root,
+        &staging,
+        &fixture.0,
+        1,
+        &fixture.1,
+        1,
+        REQUEST_TIMEOUT,
+    )
+    .expect_err("forged guest signature is rejected");
+
+    assert!(matches!(
+        error,
+        CurlProductTransportError::Install(CurlProductInstallError::GuestVerify(_))
+    ));
+    assert!(server
+        .requests()
+        .iter()
+        .all(|path| !path.starts_with(&format!("{BUNDLE_PATH}/guest/"))));
+    assert_root_untouched(&root);
+    assert!(!staging.exists());
 }
 
 #[test]

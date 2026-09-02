@@ -6,21 +6,21 @@
 //! file. This module then requires those bytes to equal the bytes compiled into
 //! both node and launcher before producing a non-serializable capability.
 
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
 use base64::Engine as _;
 use serde::Deserialize;
 use std::sync::Arc;
 use thiserror::Error;
 
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
 use crate::{execution_wire::ReplayRequestAuthority, ExecutionRequest, ExecutionRequestFields};
 use crate::{
     sha256_hex, submission_digest_hex, validate_strict_json, AuthorityError, StrictJsonError,
     VerifiedAuthorityBundle, WireError,
 };
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
 use std::sync::atomic::{AtomicBool, Ordering};
 
 #[cfg(not(feature = "linux-arm64-authority"))]
@@ -146,7 +146,7 @@ const CHECKER_ARTIFACT_HASH: &str =
 #[derive(Debug)]
 pub struct VerifiedClosedLocalReplayGrant {
     parsed: Arc<ClosedLocalReplayGrantDto>,
-    #[cfg(any(target_os = "linux", test))]
+    #[cfg(any(target_os = "linux", target_os = "macos", test))]
     authorized_cases: [AtomicBool; 4],
 }
 
@@ -394,7 +394,7 @@ pub(crate) fn verify_closed_local_replay_grant_bytes(
     validate_grant(&parsed, &overlay, authority)?;
     Ok(VerifiedClosedLocalReplayGrant {
         parsed: Arc::new(parsed),
-        #[cfg(any(target_os = "linux", test))]
+        #[cfg(any(target_os = "linux", target_os = "macos", test))]
         authorized_cases: std::array::from_fn(|_| AtomicBool::new(false)),
     })
 }
@@ -841,7 +841,7 @@ fn require_eq(
 }
 
 impl VerifiedClosedLocalReplayGrant {
-    #[cfg(any(target_os = "linux", test))]
+    #[cfg(any(target_os = "linux", target_os = "macos", test))]
     fn match_pre_intake_case(
         &self,
         fields: ClosedLocalReplayPreIntakeFields<'_>,
@@ -887,7 +887,7 @@ impl VerifiedClosedLocalReplayGrant {
     /// authorization. This is the pre-intake counterpart of
     /// `prepare_execution_case` and lets the node durably reserve the frozen
     /// matrix attempt before mutating the in-memory grant.
-    #[cfg(any(target_os = "linux", test))]
+    #[cfg(any(target_os = "linux", target_os = "macos", test))]
     pub fn prepare_pre_intake_case(
         &self,
         fields: ClosedLocalReplayPreIntakeFields<'_>,
@@ -901,7 +901,7 @@ impl VerifiedClosedLocalReplayGrant {
 
     /// Spend one previously prepared proof-intake-only row. Callers must do
     /// their durable attempt reservation before invoking this method.
-    #[cfg(any(target_os = "linux", test))]
+    #[cfg(any(target_os = "linux", target_os = "macos", test))]
     pub fn authorize_prepared_pre_intake_case(
         &self,
         prepared: VerifiedClosedLocalReplayPreparedPreIntakeCase,
@@ -920,7 +920,7 @@ impl VerifiedClosedLocalReplayGrant {
 
     /// Consume the one exact matrix row that is expected to fail frozen
     /// proof-intake. No Execute request or checker authorization is produced.
-    #[cfg(any(target_os = "linux", test))]
+    #[cfg(any(target_os = "linux", target_os = "macos", test))]
     pub fn authorize_pre_intake_case(
         &self,
         fields: ClosedLocalReplayPreIntakeFields<'_>,
@@ -933,7 +933,7 @@ impl VerifiedClosedLocalReplayGrant {
     /// derived by the node. This is intentionally a read-only operation so a
     /// concurrently busy node cannot burn the fixed case merely by looking it
     /// up before acquiring the global execution permit.
-    #[cfg(any(target_os = "linux", test))]
+    #[cfg(any(target_os = "linux", target_os = "macos", test))]
     pub fn prepare_execution_case(
         &self,
         fields: ClosedLocalReplaySubmissionFields<'_>,
@@ -952,7 +952,7 @@ impl VerifiedClosedLocalReplayGrant {
     /// execution permit. The complete Execute frame is still checked here,
     /// so preparation cannot authorize a request whose node-owned authority
     /// fields drifted before journal mutation.
-    #[cfg(any(target_os = "linux", test))]
+    #[cfg(any(target_os = "linux", target_os = "macos", test))]
     pub fn authorize_prepared_execution_request(
         &self,
         prepared: VerifiedClosedLocalReplayPreparedCase,
@@ -974,7 +974,8 @@ impl VerifiedClosedLocalReplayGrant {
     /// executor. Each fixed case can authorize once per loaded grant. Calling
     /// this method, or reopening the fixed file, is not retry authority: the
     /// durable journal must also consume each fixed operation ID exactly once.
-    /// This method does not exist in non-Linux production builds.
+    /// This method exists only on the two closed-local execution hosts
+    /// (Linux launcher service and macOS VM owner), never on other targets.
     #[cfg(test)]
     pub fn authorize_execution_request(
         &self,
@@ -985,7 +986,7 @@ impl VerifiedClosedLocalReplayGrant {
         self.authorize_case_index(case_index)
     }
 
-    #[cfg(any(target_os = "linux", test))]
+    #[cfg(any(target_os = "linux", target_os = "macos", test))]
     fn authorize_case_index(
         &self,
         case_index: usize,
@@ -1087,7 +1088,7 @@ impl VerifiedClosedLocalReplayGrant {
     }
 }
 
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
 fn match_submission(
     grant: &ClosedLocalReplayGrantDto,
     fields: ClosedLocalReplaySubmissionFields<'_>,
@@ -1135,7 +1136,7 @@ impl VerifiedClosedLocalReplayPreparedCase {
     /// fixed case. Only the session nonce is fresh input here; all execution
     /// authority fields come from the verified grant and the supplied answer
     /// bytes must match the case digests before a wire value is produced.
-    #[cfg(any(target_os = "linux", test))]
+    #[cfg(any(target_os = "linux", target_os = "macos", test))]
     pub fn build_execution_request(
         &self,
         nonce_hex: &str,
@@ -1219,7 +1220,7 @@ impl VerifiedClosedLocalReplayPreparedPreIntakeCase {
     }
 }
 
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
 fn match_request(
     grant: &ClosedLocalReplayGrantDto,
     request: &ReplayRequestAuthority<'_>,
@@ -1308,7 +1309,7 @@ fn match_request(
     Ok(case_index)
 }
 
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
 fn require_request(
     actual: &str,
     expected: &str,

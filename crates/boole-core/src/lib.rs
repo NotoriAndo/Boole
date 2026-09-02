@@ -90,19 +90,27 @@ pub use config::{
     validate_calibration_report, CalibrationPolicy, CalibrationReport, CalibrationThresholds,
 };
 pub use curl_product_install::{
-    install_curl_product_release, read_installed_curl_product_state, CurlProductInstallError,
-    CurlProductInstallState, InstalledCurlProduct, CURL_PRODUCT_INSTALLED_MANIFEST_FILE,
+    install_bootable_curl_product_release, install_curl_product_release,
+    install_direct_boot_curl_product_release,
+    open_verified_installed_bootable_curl_product_release,
+    open_verified_installed_curl_product_release,
+    open_verified_installed_direct_boot_curl_product_release, read_installed_curl_product_state,
+    CurlProductInstallError, CurlProductInstallState, InstalledBootableCurlProduct,
+    InstalledCurlProduct, VerifiedInstalledBootableCurlProductRelease,
+    CURL_PRODUCT_INSTALLED_GUEST_DIRECTORY, CURL_PRODUCT_INSTALLED_MANIFEST_FILE,
     CURL_PRODUCT_INSTALLED_SIGNATURE_FILE, CURL_PRODUCT_INSTALL_STAGING_DIRECTORY,
     CURL_PRODUCT_INSTALL_STATE_FILE, CURL_PRODUCT_INSTALL_STATE_SCHEMA,
     CURL_PRODUCT_INSTALL_STATE_TEMP_FILE, CURL_PRODUCT_INSTALL_VERSIONS_DIRECTORY,
 };
 pub use curl_product_release::{
     authenticate_bootable_curl_product_release, authenticate_curl_product_release,
-    AuthenticatedCurlProductRelease, CurlProductReleaseFloor, CurlProductReleaseTrustRoot,
-    CurlProductReleaseVerifyError, ProductArtifactRole, VerifiedCurlProductRelease,
+    authenticate_direct_boot_curl_product_release, AuthenticatedCurlProductRelease,
+    CurlProductReleaseFloor, CurlProductReleaseTrustRoot, CurlProductReleaseVerifyError,
+    ProductArtifactRole, VerifiedCurlProductRelease,
     CURL_PRODUCT_RELEASE_CONTROLLER_PROTOCOL_VERSION, CURL_PRODUCT_RELEASE_MANIFEST_SCHEMA,
-    CURL_PRODUCT_RELEASE_MANIFEST_SCHEMA_V2, CURL_PRODUCT_RELEASE_MINIMUM_MACOS,
-    CURL_PRODUCT_RELEASE_SIGNING_CONTEXT, CURL_PRODUCT_RELEASE_SIGNING_CONTEXT_V2,
+    CURL_PRODUCT_RELEASE_MANIFEST_SCHEMA_V2, CURL_PRODUCT_RELEASE_MANIFEST_SCHEMA_V3,
+    CURL_PRODUCT_RELEASE_MINIMUM_MACOS, CURL_PRODUCT_RELEASE_SIGNING_CONTEXT,
+    CURL_PRODUCT_RELEASE_SIGNING_CONTEXT_V2, CURL_PRODUCT_RELEASE_SIGNING_CONTEXT_V3,
     MAX_CURL_PRODUCT_HOST_PAYLOAD_BYTES, MAX_CURL_PRODUCT_RELEASE_DETACHED_SIGNATURE_BYTES,
     MAX_CURL_PRODUCT_RELEASE_MANIFEST_BYTES,
 };
@@ -134,11 +142,13 @@ pub use hash::{
 };
 pub use lean_bound_canon::{lean_bound_canon_package, lean_bound_verifier_hash};
 pub use native_shadow_update::{
-    authenticate_staged_bootable_native_shadow_update, authenticate_staged_native_shadow_update,
+    authenticate_staged_bootable_native_shadow_update,
+    authenticate_staged_direct_boot_native_shadow_update, authenticate_staged_native_shadow_update,
     AuthenticatedStagedNativeShadowUpdate, GuestArtifactRole, NativeShadowUpdateFloor,
     NativeShadowUpdateTrustRoot, NativeShadowUpdateVerifyError, VerifiedStagedNativeShadowUpdate,
-    GUEST_UPDATE_MANIFEST_SCHEMA, GUEST_UPDATE_MANIFEST_SCHEMA_V2, MAX_GUEST_UPDATE_ARTIFACT_BYTES,
-    NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT, NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT_V2,
+    GUEST_UPDATE_MANIFEST_SCHEMA, GUEST_UPDATE_MANIFEST_SCHEMA_V2, GUEST_UPDATE_MANIFEST_SCHEMA_V3,
+    MAX_GUEST_UPDATE_ARTIFACT_BYTES, NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT,
+    NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT_V2, NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT_V3,
 };
 pub use package_sidecar::{
     CanonicalPackage, PackageFile, PackageRoot, PackageSidecarError, MAX_PACKAGE_CANONICAL_BYTES,

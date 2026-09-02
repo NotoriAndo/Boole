@@ -86,6 +86,10 @@ pub use local_node::{
 };
 #[cfg(feature = "native-shadow-closed-local-replay")]
 pub use native_shadow_replay_service::serve_installed_closed_local_native_shadow_replay;
+#[cfg(all(feature = "native-shadow-closed-local-replay", target_os = "macos"))]
+pub use native_shadow_replay_service::{
+    serve_installed_mac_closed_local_native_shadow_replay, InstalledMacReplayConfig,
+};
 pub use p2p_ingress::{P2pConfig, PackageServingConfig, DEFAULT_P2P_RATE_LIMIT_PER_60S};
 pub use p2p_package_fetch::{
     PackageAvailabilityScaffoldBlock, PackageFetchRequest, PackageFetchingConfig,

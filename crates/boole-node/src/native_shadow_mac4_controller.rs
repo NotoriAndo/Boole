@@ -1,8 +1,26 @@
 use std::fmt;
-use std::io::{Read, Write};
+use std::fs::{self, File, OpenOptions};
+use std::io::{Read, Seek, SeekFrom, Write};
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use sha2::{Digest, Sha256};
+
+#[cfg(target_os = "macos")]
+use std::ffi::{OsStr, OsString};
+#[cfg(target_os = "macos")]
+use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+#[cfg(target_os = "macos")]
+use std::sync::Arc;
+#[cfg(target_os = "macos")]
+use std::time::{Duration, Instant};
+
+#[cfg(target_os = "macos")]
+use boole_core::{
+    GuestArtifactRole, ProductArtifactRole, VerifiedCurlProductRelease,
+    VerifiedInstalledBootableCurlProductRelease,
+};
 
 const CONTROLLER_MAGIC: [u8; 8] = *b"BOOLE4C1";
 const CONTROLLER_VERSION: u8 = 1;
@@ -11,10 +29,105 @@ pub(crate) const CONTROLLER_FRAME_CAP_BYTES: usize = 524_288;
 const CONTROLLER_FRAME_COUNT_CAP: usize = 3;
 const CONTROLLER_PAYLOAD_CAP_BYTES: usize =
     CONTROLLER_FRAME_COUNT_CAP * (CONTROLLER_FRAME_CAP_BYTES + 4);
+#[cfg(target_os = "macos")]
+const CONTROLLER_FAILURE_DIAGNOSTIC_CAP_BYTES: usize = 32 * 1024;
 const CONTROLLER_CONTRACT_DIGEST: [u8; 32] = [
     0x98, 0x09, 0x5a, 0xbd, 0xe0, 0xcb, 0x32, 0xcb, 0x5f, 0xb2, 0x7e, 0xde, 0xaf, 0x5b, 0xc6, 0xc6,
     0x7f, 0x3d, 0xf7, 0x96, 0xad, 0x3c, 0xda, 0x07, 0xb1, 0x6f, 0x8b, 0x44, 0x84, 0xb9, 0xb7, 0x13,
 ];
+
+#[cfg(test)]
+fn boot_tuple_binding_hex(
+    kernel_digest: &str,
+    initrd_digest: &str,
+    root_disk_digest: &str,
+) -> Result<String, ControllerError> {
+    let mut binding = Sha256::new();
+    binding.update(b"boole.mac4.boot-tuple.v1\0");
+    for digest in [kernel_digest, initrd_digest, root_disk_digest] {
+        if digest.len() != 64
+            || !digest
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            return Err(ControllerError(
+                "boot tuple contains a malformed sha256 digest".into(),
+            ));
+        }
+        let bytes = hex::decode(digest)
+            .map_err(|_| ControllerError("boot tuple digest cannot be decoded".into()))?;
+        binding.update(bytes);
+    }
+    Ok(hex::encode(binding.finalize()))
+}
+
+fn direct_boot_binding_hex(
+    kernel_digest: &str,
+    root_disk_digest: &str,
+) -> Result<String, ControllerError> {
+    let mut binding = Sha256::new();
+    binding.update(b"boole.mac4.boot-tuple.v2\0");
+    for digest in [kernel_digest, root_disk_digest] {
+        require_lowercase_sha256(digest, "direct boot tuple digest")?;
+        binding.update(
+            hex::decode(digest)
+                .map_err(|_| ControllerError("boot tuple digest cannot be decoded".into()))?,
+        );
+    }
+    Ok(hex::encode(binding.finalize()))
+}
+
+fn require_lowercase_sha256(value: &str, named: &str) -> Result<(), ControllerError> {
+    if value.len() != 64
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err(ControllerError(format!(
+            "{named} is not a lowercase sha256 digest"
+        )));
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn bootable_controller_arguments(
+    kernel: &Path,
+    root_disk: &Path,
+    console: &Path,
+    receipt: &Path,
+    kernel_digest: &str,
+    root_disk_digest: &str,
+    nonce_hex: &str,
+    boot_binding_hex: &str,
+) -> Result<Vec<OsString>, ControllerError> {
+    require_lowercase_sha256(kernel_digest, "kernel digest")?;
+    require_lowercase_sha256(root_disk_digest, "root disk digest")?;
+    require_lowercase_sha256(nonce_hex, "boot nonce")?;
+    require_lowercase_sha256(boot_binding_hex, "boot tuple binding")?;
+    Ok(vec![
+        "--kernel".into(),
+        kernel.as_os_str().to_owned(),
+        "--kernel-sha256".into(),
+        kernel_digest.into(),
+        "--root-disk".into(),
+        root_disk.as_os_str().to_owned(),
+        "--root-disk-sha256".into(),
+        root_disk_digest.into(),
+        "--cmdline".into(),
+        "console=hvc0 root=/dev/vda ro init=/usr/lib/systemd/systemd".into(),
+        "--nonce-hex".into(),
+        nonce_hex.into(),
+        "--boot-binding-hex".into(),
+        boot_binding_hex.into(),
+        "--console".into(),
+        console.as_os_str().to_owned(),
+        "--receipt".into(),
+        receipt.as_os_str().to_owned(),
+        "--timeout".into(),
+        "115".into(),
+    ])
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ControllerCommand {
@@ -88,6 +201,490 @@ impl fmt::Display for ControllerError {
 }
 
 impl std::error::Error for ControllerError {}
+
+#[derive(Debug)]
+struct MaterializedControllerFile {
+    runtime_directory: PathBuf,
+    path: PathBuf,
+    auxiliary_paths: Vec<PathBuf>,
+}
+
+impl MaterializedControllerFile {
+    fn path(&self) -> &Path {
+        &self.path
+    }
+
+    fn runtime_directory(&self) -> &Path {
+        &self.runtime_directory
+    }
+}
+
+impl Drop for MaterializedControllerFile {
+    fn drop(&mut self) {
+        for path in self.auxiliary_paths.iter().rev() {
+            let _ = fs::remove_file(path);
+        }
+        let _ = fs::remove_file(&self.path);
+        let _ = fs::remove_dir(&self.runtime_directory);
+    }
+}
+
+fn materialize_verified_runtime_file(
+    source: &File,
+    expected_len: u64,
+    expected_digest: &str,
+    runtime_directory: &Path,
+    basename: &str,
+    mode: u32,
+) -> Result<PathBuf, ControllerError> {
+    if basename.is_empty()
+        || basename == "."
+        || basename == ".."
+        || basename.contains('/')
+        || !matches!(mode, 0o400 | 0o500)
+    {
+        return Err(ControllerError(
+            "verified runtime target contract is invalid".into(),
+        ));
+    }
+    if expected_digest.len() != 64
+        || !expected_digest
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err(ControllerError(
+            "verified runtime digest is not lowercase sha256".into(),
+        ));
+    }
+    let metadata = fs::symlink_metadata(runtime_directory)
+        .map_err(|error| ControllerError(format!("inspect private runtime directory: {error}")))?;
+    if !metadata.is_dir()
+        || metadata.file_type().is_symlink()
+        || metadata.permissions().mode() & 0o777 != 0o700
+    {
+        return Err(ControllerError(
+            "verified runtime directory is not private 0700".into(),
+        ));
+    }
+    let path = runtime_directory.join(basename);
+    let result = (|| {
+        let mut target = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(mode)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(&path)
+            .map_err(|error| {
+                ControllerError(format!("create verified runtime copy {basename}: {error}"))
+            })?;
+        let mut source = source.try_clone().map_err(|error| {
+            ControllerError(format!("clone verified runtime handle {basename}: {error}"))
+        })?;
+        source.seek(SeekFrom::Start(0)).map_err(|error| {
+            ControllerError(format!(
+                "rewind verified runtime handle {basename}: {error}"
+            ))
+        })?;
+        let mut digest = Sha256::new();
+        let mut copied = 0_u64;
+        let mut buffer = [0_u8; 64 * 1024];
+        loop {
+            let read = source.read(&mut buffer).map_err(|error| {
+                ControllerError(format!("read verified runtime handle {basename}: {error}"))
+            })?;
+            if read == 0 {
+                break;
+            }
+            copied = copied.checked_add(read as u64).ok_or_else(|| {
+                ControllerError(format!("verified runtime length overflowed for {basename}"))
+            })?;
+            if copied > expected_len {
+                return Err(ControllerError(format!(
+                    "verified runtime byte length differs for {basename}"
+                )));
+            }
+            digest.update(&buffer[..read]);
+            target.write_all(&buffer[..read]).map_err(|error| {
+                ControllerError(format!("write verified runtime copy {basename}: {error}"))
+            })?;
+        }
+        if copied != expected_len {
+            return Err(ControllerError(format!(
+                "verified runtime byte length differs for {basename}"
+            )));
+        }
+        if hex::encode(digest.finalize()) != expected_digest {
+            return Err(ControllerError(format!(
+                "verified runtime digest differs for {basename}"
+            )));
+        }
+        target.sync_all().map_err(|error| {
+            ControllerError(format!("sync verified runtime copy {basename}: {error}"))
+        })?;
+        target
+            .set_permissions(fs::Permissions::from_mode(mode))
+            .map_err(|error| {
+                ControllerError(format!("protect verified runtime copy {basename}: {error}"))
+            })?;
+        target.sync_all().map_err(|error| {
+            ControllerError(format!("sync protected runtime copy {basename}: {error}"))
+        })?;
+        File::open(runtime_directory)
+            .and_then(|directory| directory.sync_all())
+            .map_err(|error| ControllerError(format!("sync private runtime directory: {error}")))?;
+        Ok(path.clone())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&path);
+    }
+    result
+}
+
+fn materialize_verified_controller_file(
+    source: &File,
+    expected_len: u64,
+    expected_digest: &str,
+    runtime_root: &Path,
+) -> Result<MaterializedControllerFile, ControllerError> {
+    let root_metadata = fs::symlink_metadata(runtime_root)
+        .map_err(|error| ControllerError(format!("inspect controller runtime root: {error}")))?;
+    if !root_metadata.is_dir()
+        || root_metadata.file_type().is_symlink()
+        || root_metadata.permissions().mode() & 0o777 != 0o700
+    {
+        return Err(ControllerError(
+            "controller runtime root is not a private 0700 directory".into(),
+        ));
+    }
+
+    let runtime_directory = runtime_root.join("active-controller");
+    fs::create_dir(&runtime_directory).map_err(|error| {
+        ControllerError(format!("create private controller directory: {error}"))
+    })?;
+    fs::set_permissions(&runtime_directory, fs::Permissions::from_mode(0o700)).map_err(
+        |error| {
+            let _ = fs::remove_dir(&runtime_directory);
+            ControllerError(format!("protect private controller directory: {error}"))
+        },
+    )?;
+    let materialized = MaterializedControllerFile {
+        path: runtime_directory.join("host-controller"),
+        runtime_directory,
+        auxiliary_paths: Vec::new(),
+    };
+
+    materialize_verified_runtime_file(
+        source,
+        expected_len,
+        expected_digest,
+        materialized.runtime_directory(),
+        "host-controller",
+        0o500,
+    )?;
+    Ok(materialized)
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn read_bounded_runtime_diagnostic(path: &Path, cap: usize) -> std::io::Result<String> {
+    let mut file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "controller diagnostic is not a regular file",
+        ));
+    }
+    let start = metadata.len().saturating_sub(cap as u64);
+    file.seek(SeekFrom::Start(start))?;
+    let mut bytes = Vec::with_capacity((metadata.len() - start) as usize);
+    file.take(cap as u64).read_to_end(&mut bytes)?;
+    if start > 0 {
+        if let Some(boundary) = bytes.iter().position(|byte| *byte == b'\n') {
+            bytes.drain(..=boundary);
+        }
+    }
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+#[cfg(target_os = "macos")]
+type SpawnedControllerClient = Mac4ControllerClient<ChildStdout, ChildStdin>;
+
+/// One verified host-controller process materialized from the active release's
+/// retained file handle.
+///
+/// The installed pathname is never reopened. The verified bytes are copied to
+/// one private, fixed runtime directory and only that 0500 copy is executed.
+/// The controller remains transport-only and confers no mining, reward,
+/// consensus or activation authority.
+#[cfg(target_os = "macos")]
+pub struct SpawnedMac4Controller {
+    client: Arc<SpawnedControllerClient>,
+    child: Option<Child>,
+    _materialized: MaterializedControllerFile,
+}
+
+#[cfg(target_os = "macos")]
+impl SpawnedMac4Controller {
+    #[allow(dead_code)]
+    pub fn spawn(
+        verified_release: &VerifiedCurlProductRelease,
+        runtime_root: &Path,
+        controller_arguments: &[OsString],
+    ) -> Result<Self, ControllerError> {
+        require_production_controller_arguments(controller_arguments)?;
+        let role = ProductArtifactRole::HostController;
+        let source = verified_release.artifact_file(role).ok_or_else(|| {
+            ControllerError("verified active release lacks host-controller handle".into())
+        })?;
+        let expected_len = verified_release.artifact_byte_length(role).ok_or_else(|| {
+            ControllerError("verified active release lacks host-controller byte length".into())
+        })?;
+        let expected_digest = verified_release.artifact_sha256(role).ok_or_else(|| {
+            ControllerError("verified active release lacks host-controller digest".into())
+        })?;
+        let materialized = materialize_verified_controller_file(
+            source,
+            expected_len,
+            expected_digest,
+            runtime_root,
+        )?;
+        Self::spawn_materialized(materialized, controller_arguments)
+    }
+
+    /// Start the production controller using only bytes retained by the
+    /// fully verified active product. Callers cannot supply kernel, disk or
+    /// digest arguments, so an installed pathname swap cannot redirect the
+    /// VM after verification.
+    pub fn spawn_bootable_product(
+        active: &VerifiedInstalledBootableCurlProductRelease,
+        runtime_root: &Path,
+    ) -> Result<Self, ControllerError> {
+        let mut materialized = {
+            let role = ProductArtifactRole::HostController;
+            materialize_verified_controller_file(
+                active.product().artifact_file(role).ok_or_else(|| {
+                    ControllerError("verified active release lacks host-controller handle".into())
+                })?,
+                active.product().artifact_byte_length(role).ok_or_else(|| {
+                    ControllerError(
+                        "verified active release lacks host-controller byte length".into(),
+                    )
+                })?,
+                active.product().artifact_sha256(role).ok_or_else(|| {
+                    ControllerError("verified active release lacks host-controller digest".into())
+                })?,
+                runtime_root,
+            )?
+        };
+        let guest_descriptor = |role| {
+            let file = active.guest_artifact_file(role).ok_or_else(|| {
+                ControllerError(format!(
+                    "verified active guest lacks {} handle",
+                    role.as_str()
+                ))
+            })?;
+            let len = active.guest().artifact_byte_length(role).ok_or_else(|| {
+                ControllerError(format!(
+                    "verified active guest lacks {} byte length",
+                    role.as_str()
+                ))
+            })?;
+            let digest = active.guest().artifact_sha256(role).ok_or_else(|| {
+                ControllerError(format!(
+                    "verified active guest lacks {} digest",
+                    role.as_str()
+                ))
+            })?;
+            Ok::<_, ControllerError>((file, len, digest))
+        };
+        let (kernel_file, kernel_len, kernel_digest) =
+            guest_descriptor(GuestArtifactRole::GuestKernel)?;
+        let (root_file, root_len, root_digest) =
+            guest_descriptor(GuestArtifactRole::GuestRootDisk)?;
+        let kernel_path = materialize_verified_runtime_file(
+            kernel_file,
+            kernel_len,
+            kernel_digest,
+            materialized.runtime_directory(),
+            "guest-kernel",
+            0o400,
+        )?;
+        materialized.auxiliary_paths.push(kernel_path.clone());
+        let root_path = materialize_verified_runtime_file(
+            root_file,
+            root_len,
+            root_digest,
+            materialized.runtime_directory(),
+            "guest-root-disk",
+            0o400,
+        )?;
+        materialized.auxiliary_paths.push(root_path.clone());
+        let console_path = materialized.runtime_directory().join("guest-console.log");
+        let receipt_path = materialized.runtime_directory().join("guest-receipt.json");
+        materialized.auxiliary_paths.push(console_path.clone());
+        materialized.auxiliary_paths.push(receipt_path.clone());
+        let binding = direct_boot_binding_hex(kernel_digest, root_digest)?;
+        let nonce = macos_fresh_nonce_hex()?;
+        let arguments = bootable_controller_arguments(
+            &kernel_path,
+            &root_path,
+            &console_path,
+            &receipt_path,
+            kernel_digest,
+            root_digest,
+            &nonce,
+            &binding,
+        )?;
+        Self::spawn_materialized(materialized, &arguments)
+    }
+
+    fn spawn_materialized(
+        materialized: MaterializedControllerFile,
+        controller_arguments: &[OsString],
+    ) -> Result<Self, ControllerError> {
+        let mut child = Command::new(materialized.path())
+            .args(controller_arguments)
+            .arg("--controller-stdio")
+            .current_dir(materialized.runtime_directory())
+            .env_clear()
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .map_err(|error| ControllerError(format!("spawn verified host-controller: {error}")))?;
+        let (Some(stdout), Some(stdin)) = (child.stdout.take(), child.stdin.take()) else {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(ControllerError(
+                "host-controller private stdio pipe absent".into(),
+            ));
+        };
+        Ok(Self {
+            client: Arc::new(Mac4ControllerClient::new(stdout, stdin)),
+            child: Some(child),
+            _materialized: materialized,
+        })
+    }
+
+    pub fn client(&self) -> Arc<SpawnedControllerClient> {
+        Arc::clone(&self.client)
+    }
+
+    /// Return bounded startup-only evidence before this private runtime is
+    /// removed. This is called only when launcher qualification failed, before
+    /// any submission bytes could reach the guest.
+    pub fn failure_diagnostics(&self) -> String {
+        let mut parts = Vec::new();
+        for (name, label) in [
+            ("guest-console.log", "guest-console-tail"),
+            ("guest-receipt.json", "guest-receipt-tail"),
+        ] {
+            let path = self._materialized.runtime_directory().join(name);
+            if let Ok(value) =
+                read_bounded_runtime_diagnostic(&path, CONTROLLER_FAILURE_DIAGNOSTIC_CAP_BYTES)
+            {
+                parts.push(format!("{label}={value:?}"));
+            }
+        }
+        if parts.is_empty() {
+            "controller startup diagnostics unavailable".to_owned()
+        } else {
+            parts.join("; ")
+        }
+    }
+
+    pub fn shutdown(mut self) -> Result<(), ControllerError> {
+        if let Err(error) = self.client.shutdown() {
+            self.kill_and_wait();
+            return Err(error);
+        }
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let Some(child) = self.child.as_mut() else {
+                return Ok(());
+            };
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    self.child.take();
+                    if status.success() {
+                        return Ok(());
+                    }
+                    return Err(ControllerError(format!(
+                        "host-controller exited unsuccessfully: {status}"
+                    )));
+                }
+                Ok(None) if Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Ok(None) => {
+                    self.kill_and_wait();
+                    return Err(ControllerError(
+                        "host-controller did not exit after shutdown".into(),
+                    ));
+                }
+                Err(error) => {
+                    self.kill_and_wait();
+                    return Err(ControllerError(format!(
+                        "wait for host-controller failed: {error}"
+                    )));
+                }
+            }
+        }
+    }
+
+    fn kill_and_wait(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[allow(unsafe_code)]
+fn macos_fresh_nonce_hex() -> Result<String, ControllerError> {
+    let mut bytes = [0_u8; 32];
+    // SAFETY: `bytes` is writable for exactly its live 32-byte extent. The
+    // kernel neither retains the pointer nor aliases a Rust reference.
+    if unsafe { libc::getentropy(bytes.as_mut_ptr().cast(), bytes.len()) } != 0 {
+        return Err(ControllerError(format!(
+            "generate fresh controller nonce: {}",
+            std::io::Error::last_os_error()
+        )));
+    }
+    Ok(hex::encode(bytes))
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for SpawnedMac4Controller {
+    fn drop(&mut self) {
+        self.kill_and_wait();
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[cfg_attr(not(test), allow(dead_code))]
+fn require_production_controller_arguments(arguments: &[OsString]) -> Result<(), ControllerError> {
+    const FORBIDDEN: [&str; 4] = [
+        "--controller-stdio",
+        "--controller-protocol-dry-run",
+        "--dry-run",
+        "--proxy-dry-run",
+    ];
+    if arguments.iter().any(|argument| {
+        FORBIDDEN
+            .iter()
+            .any(|forbidden| argument == OsStr::new(forbidden))
+    }) {
+        return Err(ControllerError(
+            "controller arguments contain a forbidden mode override".into(),
+        ));
+    }
+    Ok(())
+}
 
 struct ControllerIo<R, W> {
     reader: R,
@@ -394,7 +991,36 @@ mod tests {
     use super::{
         encode_response_for_test, ControllerCommand, ControllerLauncherPeer, Mac4ControllerClient,
     };
+    use sha2::{Digest, Sha256};
+    use std::fs;
     use std::io::{Cursor, Write};
+    use std::os::unix::fs::PermissionsExt;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct FixtureDirectory(std::path::PathBuf);
+
+    impl FixtureDirectory {
+        fn new(label: &str) -> Self {
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock after epoch")
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!(
+                "boole-mac4-controller-{label}-{}-{nonce}",
+                std::process::id()
+            ));
+            fs::create_dir(&path).expect("create fixture directory");
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o700))
+                .expect("set private fixture mode");
+            Self(path)
+        }
+    }
+
+    impl Drop for FixtureDirectory {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
 
     #[test]
     fn persistent_controller_qualifies_once_and_serves_multiple_executions() {
@@ -541,6 +1167,219 @@ mod tests {
         let oversized = vec![0_u8; super::CONTROLLER_FRAME_CAP_BYTES + 1];
         assert!(
             super::encode_request_for_test(ControllerCommand::Execution, &[&oversized]).is_err()
+        );
+    }
+
+    #[test]
+    fn verified_controller_is_materialized_from_the_retained_handle_not_its_path() {
+        let fixture = FixtureDirectory::new("materialize");
+        let source_path = fixture.0.join("source-controller");
+        let original = b"#!/bin/sh\nexit 0\n";
+        fs::write(&source_path, original).expect("write source controller");
+        let source = fs::File::open(&source_path).expect("open source controller");
+        let replacement = fixture.0.join("replacement");
+        fs::write(&replacement, b"tampered-after-open").expect("write replacement");
+        fs::rename(&replacement, &source_path).expect("replace source path");
+        let expected_digest = hex::encode(Sha256::digest(original));
+
+        let materialized = super::materialize_verified_controller_file(
+            &source,
+            original.len() as u64,
+            &expected_digest,
+            &fixture.0,
+        )
+        .expect("materialize verified controller");
+
+        assert_eq!(
+            fs::read(materialized.path()).expect("read materialized"),
+            original
+        );
+        assert_eq!(
+            fs::metadata(materialized.path())
+                .expect("materialized metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o500
+        );
+        let runtime_directory = materialized.runtime_directory().to_path_buf();
+        drop(materialized);
+        assert!(!runtime_directory.exists());
+    }
+
+    #[test]
+    fn materialization_rejects_digest_drift_and_nonprivate_runtime_root() {
+        let fixture = FixtureDirectory::new("materialize-reject");
+        let source_path = fixture.0.join("source-controller");
+        fs::write(&source_path, b"controller").expect("write source controller");
+        let source = fs::File::open(&source_path).expect("open source controller");
+        let error =
+            super::materialize_verified_controller_file(&source, 10, &"00".repeat(32), &fixture.0)
+                .expect_err("wrong digest is rejected");
+        assert!(error.to_string().contains("digest"));
+        assert!(!fixture.0.join("active-controller").exists());
+
+        fs::set_permissions(&fixture.0, fs::Permissions::from_mode(0o755))
+            .expect("make runtime root too broad");
+        let error = super::materialize_verified_controller_file(
+            &source,
+            10,
+            &hex::encode(Sha256::digest(b"controller")),
+            &fixture.0,
+        )
+        .expect_err("nonprivate runtime root is rejected");
+        assert!(error.to_string().contains("private"));
+    }
+
+    #[test]
+    fn failed_controller_diagnostics_keep_only_the_bounded_console_tail() {
+        let fixture = FixtureDirectory::new("failure-diagnostic-tail");
+        let console = fixture.0.join("guest-console.log");
+        fs::write(
+            &console,
+            b"prefix-that-must-be-cut\nlauncher-refused-policy\n",
+        )
+        .expect("write guest console");
+
+        assert_eq!(
+            super::read_bounded_runtime_diagnostic(&console, 25).expect("read bounded diagnostic"),
+            "launcher-refused-policy\n"
+        );
+    }
+
+    #[test]
+    fn verified_boot_input_is_copied_from_its_retained_handle_as_read_only() {
+        let fixture = FixtureDirectory::new("boot-input");
+        let runtime = fixture.0.join("private-runtime");
+        fs::create_dir(&runtime).expect("create private runtime");
+        fs::set_permissions(&runtime, fs::Permissions::from_mode(0o700))
+            .expect("protect private runtime");
+        let source_path = fixture.0.join("source-kernel");
+        let original = b"verified-kernel-bytes";
+        fs::write(&source_path, original).expect("write source kernel");
+        let source = fs::File::open(&source_path).expect("open retained kernel handle");
+        let replacement = fixture.0.join("replacement-kernel");
+        fs::write(&replacement, b"tampered-after-open").expect("write replacement kernel");
+        fs::rename(&replacement, &source_path).expect("replace kernel path");
+
+        let path = super::materialize_verified_runtime_file(
+            &source,
+            original.len() as u64,
+            &hex::encode(Sha256::digest(original)),
+            &runtime,
+            "guest-kernel",
+            0o400,
+        )
+        .expect("materialize retained kernel");
+        assert_eq!(fs::read(&path).expect("read private kernel"), original);
+        assert_eq!(
+            fs::metadata(&path)
+                .expect("private kernel metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o400
+        );
+    }
+
+    #[test]
+    fn boot_tuple_binding_is_derived_from_all_three_signed_image_digests() {
+        let kernel = "11".repeat(32);
+        let initrd = "22".repeat(32);
+        let root_disk = "33".repeat(32);
+        let mut expected = Sha256::new();
+        expected.update(b"boole.mac4.boot-tuple.v1\0");
+        expected.update([0x11; 32]);
+        expected.update([0x22; 32]);
+        expected.update([0x33; 32]);
+
+        assert_eq!(
+            super::boot_tuple_binding_hex(&kernel, &initrd, &root_disk)
+                .expect("derive boot tuple binding"),
+            hex::encode(expected.finalize())
+        );
+        assert!(super::boot_tuple_binding_hex(&kernel, &initrd, "not-a-digest").is_err());
+    }
+
+    #[test]
+    fn direct_boot_binding_covers_only_the_two_files_supplied_to_the_vm() {
+        let kernel = "11".repeat(32);
+        let root_disk = "33".repeat(32);
+        let mut expected = Sha256::new();
+        expected.update(b"boole.mac4.boot-tuple.v2\0");
+        expected.update([0x11; 32]);
+        expected.update([0x33; 32]);
+
+        assert_eq!(
+            super::direct_boot_binding_hex(&kernel, &root_disk)
+                .expect("derive direct boot binding"),
+            hex::encode(expected.finalize())
+        );
+        assert!(super::direct_boot_binding_hex(&kernel, "not-a-digest").is_err());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn spawned_controller_rejects_dry_run_and_duplicate_stdio_modes() {
+        for forbidden in [
+            "--controller-stdio",
+            "--controller-protocol-dry-run",
+            "--dry-run",
+            "--proxy-dry-run",
+        ] {
+            let error = super::require_production_controller_arguments(&[forbidden.into()])
+                .expect_err("mode override is rejected");
+            assert!(error.to_string().contains("forbidden mode override"));
+        }
+        super::require_production_controller_arguments(&[
+            "--kernel".into(),
+            "/private/runtime/kernel".into(),
+        ])
+        .expect("ordinary production arguments remain available");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn bootable_controller_arguments_are_complete_and_not_caller_selected() {
+        let arguments = super::bootable_controller_arguments(
+            std::path::Path::new("/private/runtime/guest-kernel"),
+            std::path::Path::new("/private/runtime/guest-root-disk"),
+            std::path::Path::new("/private/runtime/guest-console.log"),
+            std::path::Path::new("/private/runtime/guest-receipt.json"),
+            &"11".repeat(32),
+            &"22".repeat(32),
+            &"33".repeat(32),
+            &"44".repeat(32),
+        )
+        .expect("derive fixed production controller arguments");
+        let strings = arguments
+            .iter()
+            .map(|value| value.to_str().expect("UTF-8 argument"))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            strings,
+            vec![
+                "--kernel",
+                "/private/runtime/guest-kernel",
+                "--kernel-sha256",
+                &"11".repeat(32),
+                "--root-disk",
+                "/private/runtime/guest-root-disk",
+                "--root-disk-sha256",
+                &"22".repeat(32),
+                "--cmdline",
+                "console=hvc0 root=/dev/vda ro init=/usr/lib/systemd/systemd",
+                "--nonce-hex",
+                &"33".repeat(32),
+                "--boot-binding-hex",
+                &"44".repeat(32),
+                "--console",
+                "/private/runtime/guest-console.log",
+                "--receipt",
+                "/private/runtime/guest-receipt.json",
+                "--timeout",
+                "115",
+            ]
         );
     }
 }

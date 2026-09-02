@@ -227,6 +227,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: c740be697b2a2e9437b3304f6c852bcc6afd5171
+          fetch-depth: 1
+          persist-credentials: false
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
@@ -262,6 +266,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ff7982e9fd4583a4a7dd22825f647cea170cc3fe
+          fetch-depth: 1
+          persist-credentials: false
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
@@ -319,6 +327,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
+      - name: Checkout the sealed launcher v2 source generation
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ff7982e9fd4583a4a7dd22825f647cea170cc3fe
+          path: _historical-launcher-v2
+          fetch-depth: 1
+          persist-credentials: false
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
         with:
@@ -365,7 +381,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/launcher-v2" "$RUNNER_TEMP/launcher-v2-preflight"
           launcher="$RUNNER_TEMP/launcher-v2/boole-native-shadow-launcher"
           result=native/containment/native-shadow-launcher-build-result-arm64-v2.json
-          python3 scripts/native_shadow_launcher_emit_arm64_v2.py emit --out "$launcher"
+          python3 "$GITHUB_WORKSPACE/_historical-launcher-v2/scripts/native_shadow_launcher_emit_arm64_v2.py" emit --out "$launcher"
           expected_sha="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["launcher"]["sha256"])' "$result")"
           expected_size="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["launcher"]["sizeBytes"])' "$result")"
           actual_sha="$(sha256sum "$launcher" | awk '{print $1}')"
@@ -377,6 +393,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python3 -I -S -c 'import pathlib,shutil,sys; shutil.rmtree(pathlib.Path(sys.argv[1]))' "$GITHUB_WORKSPACE/_historical-launcher-v2"
           sudo ./scripts/native-shadow-launcher-v2-image-preflight-arm64.sh \
             --cas "$PWD/$CAS" \
             --launcher "$RUNNER_TEMP/launcher-v2/boole-native-shadow-launcher" \

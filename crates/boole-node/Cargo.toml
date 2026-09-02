@@ -26,6 +26,11 @@ name = "boole-native-shadow-replay-node"
 path = "src/bin/boole-native-shadow-replay-node.rs"
 required-features = ["native-shadow-closed-local-replay"]
 
+[[bin]]
+name = "boole-mac-native-shadow-replay-node"
+path = "src/bin/boole-mac-native-shadow-replay-node.rs"
+required-features = ["native-shadow-closed-local-replay", "linux-arm64-authority"]
+
 [dependencies]
 anyhow.workspace = true
 axum.workspace = true

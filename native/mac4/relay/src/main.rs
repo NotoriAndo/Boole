@@ -10,8 +10,8 @@ mod linux {
     use std::thread;
 
     use boole_native_shadow_mac4_relay::{
-        decode_hello, encode_ready, serve_proxy_connection, GuestReady, FRAME_BYTES, HOST_CID,
-        PROXY_VSOCK_PORT, VSOCK_PORT,
+        decode_hello, encode_ready, serve_proxy_connection_with_half_close, GuestReady,
+        FRAME_BYTES, HOST_CID, PROXY_VSOCK_PORT, VSOCK_PORT,
     };
 
     const AF_VSOCK: i32 = 40;
@@ -304,8 +304,21 @@ mod linux {
         launcher.set_read_timeout(Some(std::time::Duration::from_secs(120)))?;
         launcher.set_write_timeout(Some(std::time::Duration::from_secs(120)))?;
         let (pid, uid, gid) = launcher_peer(&launcher)?;
-        serve_proxy_connection(connection, &mut launcher, pid, uid, gid)
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+        let launcher_shutdown = launcher.try_clone().map_err(|error| {
+            io::Error::new(
+                error.kind(),
+                format!("clone launcher for half-close: {error}"),
+            )
+        })?;
+        serve_proxy_connection_with_half_close(
+            connection,
+            &mut launcher,
+            pid,
+            uid,
+            gid,
+            move || launcher_shutdown.shutdown(std::net::Shutdown::Write),
+        )
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
     }
 
     pub fn run() -> io::Result<()> {

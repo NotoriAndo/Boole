@@ -22,6 +22,8 @@ pub const GUEST_UPDATE_MANIFEST_SCHEMA: &str = "boole.native-shadow.guest-update
 pub const NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT: &str = "boole-native-shadow-guest-update-v1";
 pub const GUEST_UPDATE_MANIFEST_SCHEMA_V2: &str = "boole.native-shadow.guest-update-manifest.v2";
 pub const NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT_V2: &str = "boole-native-shadow-guest-update-v2";
+pub const GUEST_UPDATE_MANIFEST_SCHEMA_V3: &str = "boole.native-shadow.guest-update-manifest.v3";
+pub const NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT_V3: &str = "boole-native-shadow-guest-update-v3";
 pub const MAX_GUEST_UPDATE_ARTIFACT_BYTES: u64 = 2_147_483_648;
 const MAX_MANIFEST_BYTES: usize = 1_048_576;
 const MAX_DETACHED_SIGNATURE_BYTES: usize = 4_096;
@@ -42,6 +44,20 @@ const GUEST_ARTIFACT_ROLES_V1: [GuestArtifactRole; 10] = [
 const GUEST_ARTIFACT_ROLES_V2: [GuestArtifactRole; 12] = [
     GuestArtifactRole::GuestKernel,
     GuestArtifactRole::GuestInitrd,
+    GuestArtifactRole::GuestRootDisk,
+    GuestArtifactRole::RootfsContentManifest,
+    GuestArtifactRole::Registry,
+    GuestArtifactRole::ExecutionPolicy,
+    GuestArtifactRole::ToolchainIdentity,
+    GuestArtifactRole::CheckerReleaseManifest,
+    GuestArtifactRole::RegistryOverlay,
+    GuestArtifactRole::ClosedLocalReplayGrant,
+    GuestArtifactRole::LocalExecutionAuthority,
+    GuestArtifactRole::ClosedLocalReplayExecutionAuthority,
+];
+
+const GUEST_ARTIFACT_ROLES_V3: [GuestArtifactRole; 11] = [
+    GuestArtifactRole::GuestKernel,
     GuestArtifactRole::GuestRootDisk,
     GuestArtifactRole::RootfsContentManifest,
     GuestArtifactRole::Registry,
@@ -80,6 +96,10 @@ impl GuestArtifactRole {
     /// Bootable v2 runtime-authority set.  The legacy OCI `guest-rootfs` is
     /// replaced by the three host-side files required by VZLinuxBootLoader.
     pub const BOOTABLE_ALL: [Self; 12] = GUEST_ARTIFACT_ROLES_V2;
+
+    /// Direct-root successor. The proven Mac controller never attaches the
+    /// generated initrd, so v3 authenticates only the two supplied boot files.
+    pub const DIRECT_BOOT_ALL: [Self; 11] = GUEST_ARTIFACT_ROLES_V3;
 
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -223,6 +243,13 @@ struct GuestArtifactDescriptor {
 enum GuestUpdateContract {
     FrozenV1,
     BootableV2,
+    DirectBootV3,
+}
+
+#[derive(Clone, Copy)]
+enum UpdateVersionExpectation<'a> {
+    Successor(&'a NativeShadowUpdateFloor),
+    ExactActive { release_sequence: u64 },
 }
 
 impl GuestUpdateContract {
@@ -230,6 +257,7 @@ impl GuestUpdateContract {
         match self {
             Self::FrozenV1 => GUEST_UPDATE_MANIFEST_SCHEMA,
             Self::BootableV2 => GUEST_UPDATE_MANIFEST_SCHEMA_V2,
+            Self::DirectBootV3 => GUEST_UPDATE_MANIFEST_SCHEMA_V3,
         }
     }
 
@@ -237,6 +265,7 @@ impl GuestUpdateContract {
         match self {
             Self::FrozenV1 => NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT,
             Self::BootableV2 => NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT_V2,
+            Self::DirectBootV3 => NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT_V3,
         }
     }
 
@@ -244,6 +273,7 @@ impl GuestUpdateContract {
         match self {
             Self::FrozenV1 => None,
             Self::BootableV2 => Some(1),
+            Self::DirectBootV3 => Some(2),
         }
     }
 
@@ -251,6 +281,7 @@ impl GuestUpdateContract {
         match self {
             Self::FrozenV1 => &GUEST_ARTIFACT_ROLES_V1,
             Self::BootableV2 => &GUEST_ARTIFACT_ROLES_V2,
+            Self::DirectBootV3 => &GUEST_ARTIFACT_ROLES_V3,
         }
     }
 }
@@ -430,7 +461,7 @@ pub fn authenticate_staged_native_shadow_update(
         manifest_raw,
         detached_signature_raw,
         trust_root,
-        floor,
+        UpdateVersionExpectation::Successor(floor),
         GuestUpdateContract::FrozenV1,
     )
 }
@@ -449,7 +480,78 @@ pub fn authenticate_staged_bootable_native_shadow_update(
         manifest_raw,
         detached_signature_raw,
         trust_root,
-        floor,
+        UpdateVersionExpectation::Successor(floor),
+        GuestUpdateContract::BootableV2,
+    )
+}
+
+/// Authenticate the direct-root successor that removes the unused initrd
+/// artifact while retaining the frozen aggregate guest cap.
+pub fn authenticate_staged_direct_boot_native_shadow_update(
+    manifest_raw: &[u8],
+    detached_signature_raw: &[u8],
+    trust_root: &NativeShadowUpdateTrustRoot,
+    floor: &NativeShadowUpdateFloor,
+) -> Result<AuthenticatedStagedNativeShadowUpdate, NativeShadowUpdateVerifyError> {
+    authenticate_staged_native_shadow_update_for_contract(
+        manifest_raw,
+        detached_signature_raw,
+        trust_root,
+        UpdateVersionExpectation::Successor(floor),
+        GuestUpdateContract::DirectBootV3,
+    )
+}
+
+pub(crate) fn authenticate_active_staged_direct_boot_native_shadow_update(
+    manifest_raw: &[u8],
+    detached_signature_raw: &[u8],
+    trust_root: &NativeShadowUpdateTrustRoot,
+    expected_release_sequence: u64,
+    expected_manifest_sha256: &str,
+) -> Result<AuthenticatedStagedNativeShadowUpdate, NativeShadowUpdateVerifyError> {
+    if expected_release_sequence == 0 {
+        return Err(NativeShadowUpdateVerifyError::VersionChain(
+            "the active guest release sequence must be non-zero".to_string(),
+        ));
+    }
+    require_sha256("active manifest digest", expected_manifest_sha256)?;
+    if hex::encode(Sha256::digest(manifest_raw)) != expected_manifest_sha256 {
+        return Err(NativeShadowUpdateVerifyError::ManifestDigestMismatch);
+    }
+    authenticate_staged_native_shadow_update_for_contract(
+        manifest_raw,
+        detached_signature_raw,
+        trust_root,
+        UpdateVersionExpectation::ExactActive {
+            release_sequence: expected_release_sequence,
+        },
+        GuestUpdateContract::DirectBootV3,
+    )
+}
+
+pub(crate) fn authenticate_active_staged_bootable_native_shadow_update(
+    manifest_raw: &[u8],
+    detached_signature_raw: &[u8],
+    trust_root: &NativeShadowUpdateTrustRoot,
+    expected_release_sequence: u64,
+    expected_manifest_sha256: &str,
+) -> Result<AuthenticatedStagedNativeShadowUpdate, NativeShadowUpdateVerifyError> {
+    if expected_release_sequence == 0 {
+        return Err(NativeShadowUpdateVerifyError::VersionChain(
+            "the active guest release sequence must be non-zero".to_string(),
+        ));
+    }
+    require_sha256("active manifest digest", expected_manifest_sha256)?;
+    if hex::encode(Sha256::digest(manifest_raw)) != expected_manifest_sha256 {
+        return Err(NativeShadowUpdateVerifyError::ManifestDigestMismatch);
+    }
+    authenticate_staged_native_shadow_update_for_contract(
+        manifest_raw,
+        detached_signature_raw,
+        trust_root,
+        UpdateVersionExpectation::ExactActive {
+            release_sequence: expected_release_sequence,
+        },
         GuestUpdateContract::BootableV2,
     )
 }
@@ -458,7 +560,7 @@ fn authenticate_staged_native_shadow_update_for_contract(
     manifest_raw: &[u8],
     detached_signature_raw: &[u8],
     trust_root: &NativeShadowUpdateTrustRoot,
-    floor: &NativeShadowUpdateFloor,
+    version_expectation: UpdateVersionExpectation<'_>,
     contract: GuestUpdateContract,
 ) -> Result<AuthenticatedStagedNativeShadowUpdate, NativeShadowUpdateVerifyError> {
     let manifest_value = parse_canonical_json("manifest", manifest_raw, MAX_MANIFEST_BYTES)?;
@@ -498,7 +600,7 @@ fn authenticate_staged_native_shadow_update_for_contract(
 
     let manifest: NativeShadowUpdateManifest = serde_json::from_value(manifest_value)
         .map_err(|error| NativeShadowUpdateVerifyError::Malformed(error.to_string()))?;
-    validate_manifest(&manifest, floor, contract)?;
+    validate_manifest(&manifest, version_expectation, contract)?;
     let descriptors = manifest
         .artifacts
         .into_iter()
@@ -532,7 +634,7 @@ fn parse_canonical_json(
 
 fn validate_manifest(
     manifest: &NativeShadowUpdateManifest,
-    floor: &NativeShadowUpdateFloor,
+    version_expectation: UpdateVersionExpectation<'_>,
     contract: GuestUpdateContract,
 ) -> Result<(), NativeShadowUpdateVerifyError> {
     if manifest.schema != contract.manifest_schema() {
@@ -548,6 +650,9 @@ fn validate_manifest(
             GuestUpdateContract::BootableV2 => {
                 "bootFormatVersion must be 1 for the bootable v2 contract".to_string()
             }
+            GuestUpdateContract::DirectBootV3 => {
+                "bootFormatVersion must be 2 for the direct-boot v3 contract".to_string()
+            }
         }));
     }
     if manifest.channel != "stable" {
@@ -562,37 +667,49 @@ fn validate_manifest(
     }
     require_safe_identifier("releaseVersion", &manifest.release_version)?;
 
-    match (
-        floor.highest_accepted_sequence,
-        floor.active_manifest_sha256,
-        floor.minimum_first_install_sequence,
-        &manifest.previous_manifest_sha256.0,
-    ) {
-        (0, None, Some(minimum), None) if manifest.release_sequence >= minimum => {}
-        (0, None, Some(_), _) => {
-            return Err(NativeShadowUpdateVerifyError::VersionChain(
-                "candidate is below the pinned first-install minimum (which must be non-zero), or declares a predecessor"
-                    .to_string(),
-            ));
-        }
-        (sequence, Some(active), None, Some(previous)) => {
-            require_sha256("previousManifestSha256", previous)?;
-            if sequence == u64::MAX {
+    match version_expectation {
+        UpdateVersionExpectation::Successor(floor) => match (
+            floor.highest_accepted_sequence,
+            floor.active_manifest_sha256,
+            floor.minimum_first_install_sequence,
+            &manifest.previous_manifest_sha256.0,
+        ) {
+            (0, None, Some(minimum), None) if manifest.release_sequence >= minimum => {}
+            (0, None, Some(_), _) => {
                 return Err(NativeShadowUpdateVerifyError::VersionChain(
-                    "release sequence space exhausted".to_string(),
-                ));
-            }
-            if manifest.release_sequence <= sequence || previous != &active.to_hex() {
-                return Err(NativeShadowUpdateVerifyError::VersionChain(
-                    "candidate must advance the sequence and bind the exact active manifest"
+                    "candidate is below the pinned first-install minimum (which must be non-zero), or declares a predecessor"
                         .to_string(),
                 ));
             }
-        }
-        _ => {
-            return Err(NativeShadowUpdateVerifyError::VersionChain(
-                "update floor is internally inconsistent".to_string(),
-            ));
+            (sequence, Some(active), None, Some(previous)) => {
+                require_sha256("previousManifestSha256", previous)?;
+                if sequence == u64::MAX {
+                    return Err(NativeShadowUpdateVerifyError::VersionChain(
+                        "release sequence space exhausted".to_string(),
+                    ));
+                }
+                if manifest.release_sequence <= sequence || previous != &active.to_hex() {
+                    return Err(NativeShadowUpdateVerifyError::VersionChain(
+                        "candidate must advance the sequence and bind the exact active manifest"
+                            .to_string(),
+                    ));
+                }
+            }
+            _ => {
+                return Err(NativeShadowUpdateVerifyError::VersionChain(
+                    "update floor is internally inconsistent".to_string(),
+                ));
+            }
+        },
+        UpdateVersionExpectation::ExactActive { release_sequence } => {
+            if manifest.release_sequence != release_sequence {
+                return Err(NativeShadowUpdateVerifyError::VersionChain(
+                    "releaseSequence differs from the active guest state".to_string(),
+                ));
+            }
+            if let Some(previous) = &manifest.previous_manifest_sha256.0 {
+                require_sha256("previousManifestSha256", previous)?;
+            }
         }
     }
 

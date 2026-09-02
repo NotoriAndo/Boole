@@ -8,10 +8,10 @@
 > PR for every reversible retry. This note grants no A7, production, boot,
 > MAC.4 or activation effect.
 
-> **CURRENT-CURSOR-2026-09-02:** `MAC.4 PERSISTENT CONTROLLER PROTOCOL + NODE REPLAY COMPOSITION GREEN / VERIFIED PROCESS SPAWN + INSTALLED MAC ROUTE NEXT`.
-> Next is fail-closed ownership of the verified host-controller process and an
-> installed Mac replay-service entrypoint. Existing runtime exactly-once and
-> containment contracts remain the acceptance boundary.
+> **CURRENT-CURSOR-2026-09-02:** `INSTALLED E2E KAT METADATA GREEN / CLOSED-LOCAL HARNESS NEXT`.
+> Next is running the installed, signed bootable bundle through the node-owned
+> Mac loopback route. Existing runtime exactly-once and containment contracts
+> remain the acceptance boundary.
 
 Status: **CLOSED-LOCAL IMPLEMENTATION GREEN.** Registry/state durability, named-Linux containment,
 actual checker execution and the feature-gated loopback HTTP route are on `main`. Production
@@ -4787,3 +4787,102 @@ proxy-ready identity, launcher qualification frame and all later execution
 frames before the existing node adjudicator classifies them. This is a tested
 composition boundary, not an installed constructor: verified process spawn and
 Mac authority/journal path selection remain next.
+
+## MAC.4 active installed-release reverification (2026-09-02)
+
+Before a Mac runtime can consume an installed product role, the durable active
+state, stored signed manifest and all six installed artifact bytes are checked
+again. The active sequence, release version, manifest digest and deterministic
+version-directory name must agree. Verification retains each open file handle;
+runtime code must consume that handle instead of reopening its pathname.
+
+This is the trust input for the next process-owner slice. No controller was
+started and no VM, node listener, challenge or activation state changed.
+
+## MAC.4 handle-bound controller process owner (2026-09-02)
+
+The Mac process owner consumes the reverified `host-controller` file handle,
+not its installed pathname. It copies and simultaneously rehashes that handle
+into a fixed 0700 runtime directory, requires the signed length and digest,
+sets the resulting file to 0500, syncs it, and launches only that copy through
+private pipes. Installed-path replacement after the active-release check
+therefore cannot redirect execution.
+
+Only the owner appends `--controller-stdio`; dry-run and duplicate-mode
+arguments are rejected. Graceful shutdown is bounded, while every error and
+drop path kills and reaps the child before removing the private executable.
+Authority selection, durable journal paths and the installed route remain a
+separate next slice. This process owner has no verdict or activation authority.
+
+## MAC.4 atomic bootable-product install and reopen (2026-09-02)
+
+The product-v2 installer verifies the product envelope and six product files,
+then independently authenticates the embedded guest-v2 envelope and twelve
+guest files. All handles remain open until both layers pass. Only then are the
+eighteen files copied into one staging directory and atomically adopted under
+one durable active-product record. Frozen product v1 remains a separate entry
+point and continues to reject v2.
+
+The active bootable reopen authenticates the exact selected product rather than
+a successor, derives the exact guest identity from that product, verifies all
+guest files below the selected version and retains their handles. This is the
+only acceptable source for later VM image and host-controller consumption.
+No trust root or runtime path is inferred from transport input.
+
+## MAC.4 retained authority and Mac production-journal preparation (2026-09-02)
+
+The runtime replay capability is now path-independent after the signed product
+has opened its guest files. Eight retained authority handles must match the
+compiled closed-local contract before the one-shot grant can be used on macOS.
+The Linux fixed-root opener consumes the same runtime capability after its
+stricter installed-tree verification.
+
+The journal's descriptor-relative production checks now also accept a full
+path whose parent was provisioned beforehand. No directory creation or repair
+occurs: uid, gid, 0700 parent, 0600 regular journal, link count one, stable
+inode and exclusive lifetime lock remain mandatory. Boot inputs and listener
+ownership are deliberately not claimed by this slice.
+
+## MAC.4 installed Mac replay entrypoint (2026-09-02)
+
+The active product's retained controller, kernel and root-disk handles are the
+only executable and boot inputs. Each is streamed into one private runtime
+while its signed length and digest are rechecked; the kernel and disk become
+0400 files, the controller becomes 0500, and the VM argument vector is created
+inside the node. The boot binding includes kernel, initrd and root-disk signed
+digests even though the direct Linux loader consumes only kernel and disk.
+
+Startup explicitly reopens both trust domains, derives all runtime authority
+from retained guest handles, obtains the existing strict journal lock, recovers
+durable state and qualifies one persistent controller before the fixed
+127.0.0.1 adjudication listener opens. The guest still owns no challenge,
+journal, replay, terminal evidence or verdict. The entrypoint rejects all
+issuance, mining, reward, consensus, P2P and activation authority and requires
+caller-provisioned 0700 runtime and journal parents.
+
+## Bootable curl transport and CLI (2026-09-02)
+
+Product-v2 and guest-v2 transport verification are sequential trust barriers.
+The product envelope passes before its six artifacts are requested; those
+artifacts pass before the embedded guest envelope is authenticated; only then
+are the twelve guest artifacts requested below the fixed `guest/` prefix.
+Neither URL, HTTP status nor server filename is authority. The bootable
+installer repeats both signature and byte checks before one atomic adoption.
+
+`product install-bootable` takes separate product and guest public roots and
+anti-rollback floors. Failure removes transient staging and cannot create an
+active release. This path contains no built-in production key or activation.
+
+## Installed-E2E KAT metadata boundary (2026-09-02)
+
+The development-only `boole-testkit` writer is the sole source of deterministic
+private keys for the upcoming installed-route E2E. It accepts the exact four
+host roles and twelve bootable guest roles as regular non-symlink files,
+streams their hashes and emits canonical product-v2 and guest-v2 manifests,
+detached signatures and explicit public roots. It performs no install or
+execution and is absent from every release dependency graph.
+
+The next harness must make those exact bytes available under the signed
+basenames, use the real transport and atomic installer, then use the installed
+Mac entrypoint. A successful metadata build is not a VM, verdict, production
+release, testnet or activation claim.

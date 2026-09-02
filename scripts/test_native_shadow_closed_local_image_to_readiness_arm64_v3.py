@@ -67,6 +67,23 @@ class ClosedLocalImageIsolatedCliSuccessorTests(unittest.TestCase):
         self.assertIn("test_native_shadow_closed_local_image_to_readiness_arm64_v3", v3)
         self.assertIn("options: [preflight, build]", v3)
 
+    def test_manual_workflow_rebuilds_the_sealed_launcher_from_its_historical_tree(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn(
+            "ref: ff7982e9fd4583a4a7dd22825f647cea170cc3fe",
+            workflow,
+        )
+        self.assertIn("path: _historical-launcher-v2", workflow)
+        self.assertIn(
+            '"$GITHUB_WORKSPACE/_historical-launcher-v2/scripts/'
+            'native_shadow_launcher_emit_arm64_v2.py"',
+            workflow,
+        )
+        self.assertIn("shutil.rmtree", workflow)
+        cleanup = workflow.index("shutil.rmtree")
+        copy_current = workflow.index('sudo cp -a -- "$GITHUB_WORKSPACE/." "$repo"')
+        self.assertLess(cleanup, copy_current)
+
 
 if __name__ == "__main__":
     unittest.main()

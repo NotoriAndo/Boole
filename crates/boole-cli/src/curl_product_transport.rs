@@ -2,7 +2,8 @@
 //! installer.
 //!
 //! This module fetches a curl-product release bundle over HTTP(S) and hands
-//! it to `boole_core::install_curl_product_release`. Transport is never
+//! it to the frozen v1 installer or the separate bootable-v2 installer.
+//! Transport is never
 //! trust: the URL, the HTTP status code and the server-chosen bytes carry no
 //! authority. Every downloaded byte is verified by the CURL.1 release
 //! verifier (injected Ed25519 trust root, canonical manifest, exact SHA-256
@@ -36,13 +37,36 @@ use std::path::Path;
 use std::time::Duration;
 
 use boole_core::{
-    authenticate_curl_product_release, install_curl_product_release,
-    read_installed_curl_product_state, AuthenticatedCurlProductRelease, CurlProductInstallError,
-    CurlProductReleaseFloor, CurlProductReleaseTrustRoot, CurlProductReleaseVerifyError,
-    InstalledCurlProduct, ProductArtifactRole, CURL_PRODUCT_INSTALLED_MANIFEST_FILE,
+    authenticate_bootable_curl_product_release, authenticate_curl_product_release,
+    authenticate_direct_boot_curl_product_release,
+    authenticate_staged_bootable_native_shadow_update,
+    authenticate_staged_direct_boot_native_shadow_update, install_bootable_curl_product_release,
+    install_curl_product_release, install_direct_boot_curl_product_release,
+    open_verified_installed_bootable_curl_product_release,
+    open_verified_installed_curl_product_release,
+    open_verified_installed_direct_boot_curl_product_release, read_installed_curl_product_state,
+    AuthenticatedCurlProductRelease, CurlProductInstallError, CurlProductReleaseFloor,
+    CurlProductReleaseTrustRoot, CurlProductReleaseVerifyError, GuestArtifactRole,
+    InstalledBootableCurlProduct, InstalledCurlProduct, NativeShadowUpdateFloor,
+    NativeShadowUpdateTrustRoot, ProductArtifactRole, CURL_PRODUCT_INSTALLED_MANIFEST_FILE,
     CURL_PRODUCT_INSTALLED_SIGNATURE_FILE, CURL_PRODUCT_INSTALL_STATE_FILE,
     MAX_CURL_PRODUCT_RELEASE_DETACHED_SIGNATURE_BYTES, MAX_CURL_PRODUCT_RELEASE_MANIFEST_BYTES,
 };
+
+#[derive(Clone, Copy)]
+enum TransportGuestContract {
+    BootableV2,
+    DirectBootV3,
+}
+
+impl TransportGuestContract {
+    const fn roles(self) -> &'static [GuestArtifactRole] {
+        match self {
+            Self::BootableV2 => &GuestArtifactRole::BOOTABLE_ALL,
+            Self::DirectBootV3 => &GuestArtifactRole::DIRECT_BOOT_ALL,
+        }
+    }
+}
 
 /// Transport-layer rejection. `Verify`/`Install` wrap the CURL.1 and
 /// CURL.2-CORE rejections unchanged; the other variants are pure transport
@@ -112,6 +136,175 @@ pub fn download_and_install_curl_product_release(
     );
     let _ = fs::remove_dir_all(download_staging_dir);
     outcome
+}
+
+/// Download and atomically install the product-v2 envelope plus its exact
+/// signed bootable guest-v2 payload. Product artifacts live at `base_url`;
+/// guest artifacts live below the fixed `base_url/guest` transport prefix.
+/// Both signature domains are authenticated before their artifact requests.
+#[allow(clippy::too_many_arguments)]
+pub fn download_and_install_bootable_curl_product_release(
+    base_url: &str,
+    install_root: &Path,
+    download_staging_dir: &Path,
+    product_trust_root: &CurlProductReleaseTrustRoot,
+    first_product_sequence: u64,
+    guest_trust_root: &NativeShadowUpdateTrustRoot,
+    first_guest_sequence: u64,
+    request_timeout: Duration,
+) -> Result<InstalledBootableCurlProduct, CurlProductTransportError> {
+    download_and_install_bootable_curl_product_release_for_contract(
+        base_url,
+        install_root,
+        download_staging_dir,
+        product_trust_root,
+        first_product_sequence,
+        guest_trust_root,
+        first_guest_sequence,
+        request_timeout,
+        TransportGuestContract::BootableV2,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn download_and_install_direct_boot_curl_product_release(
+    base_url: &str,
+    install_root: &Path,
+    download_staging_dir: &Path,
+    product_trust_root: &CurlProductReleaseTrustRoot,
+    first_product_sequence: u64,
+    guest_trust_root: &NativeShadowUpdateTrustRoot,
+    first_guest_sequence: u64,
+    request_timeout: Duration,
+) -> Result<InstalledBootableCurlProduct, CurlProductTransportError> {
+    download_and_install_bootable_curl_product_release_for_contract(
+        base_url,
+        install_root,
+        download_staging_dir,
+        product_trust_root,
+        first_product_sequence,
+        guest_trust_root,
+        first_guest_sequence,
+        request_timeout,
+        TransportGuestContract::DirectBootV3,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn download_and_install_bootable_curl_product_release_for_contract(
+    base_url: &str,
+    install_root: &Path,
+    download_staging_dir: &Path,
+    product_trust_root: &CurlProductReleaseTrustRoot,
+    first_product_sequence: u64,
+    guest_trust_root: &NativeShadowUpdateTrustRoot,
+    first_guest_sequence: u64,
+    request_timeout: Duration,
+    contract: TransportGuestContract,
+) -> Result<InstalledBootableCurlProduct, CurlProductTransportError> {
+    let base_url = validated_base_url(base_url)?;
+    check_staging_layout(install_root, download_staging_dir)?;
+    let product_floor = release_floor(install_root, first_product_sequence)?;
+    let guest_floor = bootable_guest_floor(
+        install_root,
+        product_trust_root,
+        guest_trust_root,
+        first_guest_sequence,
+        contract,
+    )?;
+    let client = reqwest::blocking::Client::builder()
+        .timeout(request_timeout)
+        .build()
+        .map_err(|error| {
+            CurlProductTransportError::Download(format!("http client build failed: {error}"))
+        })?;
+    let manifest_raw = fetch_capped(
+        &client,
+        &base_url,
+        CURL_PRODUCT_INSTALLED_MANIFEST_FILE,
+        MAX_CURL_PRODUCT_RELEASE_MANIFEST_BYTES,
+    )?;
+    let signature_raw = fetch_capped(
+        &client,
+        &base_url,
+        CURL_PRODUCT_INSTALLED_SIGNATURE_FILE,
+        MAX_CURL_PRODUCT_RELEASE_DETACHED_SIGNATURE_BYTES,
+    )?;
+    let authenticated = match contract {
+        TransportGuestContract::BootableV2 => authenticate_bootable_curl_product_release(
+            &manifest_raw,
+            &signature_raw,
+            product_trust_root,
+            &product_floor,
+        )?,
+        TransportGuestContract::DirectBootV3 => authenticate_direct_boot_curl_product_release(
+            &manifest_raw,
+            &signature_raw,
+            product_trust_root,
+            &product_floor,
+        )?,
+    };
+    let outcome = download_bootable_artifacts_and_install(
+        &client,
+        &base_url,
+        authenticated,
+        install_root,
+        download_staging_dir,
+        &manifest_raw,
+        &signature_raw,
+        product_trust_root,
+        first_product_sequence,
+        guest_trust_root,
+        first_guest_sequence,
+        &guest_floor,
+        contract,
+    );
+    let _ = fs::remove_dir_all(download_staging_dir);
+    outcome
+}
+
+fn bootable_guest_floor(
+    install_root: &Path,
+    product_trust_root: &CurlProductReleaseTrustRoot,
+    guest_trust_root: &NativeShadowUpdateTrustRoot,
+    first_guest_sequence: u64,
+    contract: TransportGuestContract,
+) -> Result<NativeShadowUpdateFloor, CurlProductTransportError> {
+    if read_installed_curl_product_state(install_root)?.is_none() {
+        return NativeShadowUpdateFloor::first_install(first_guest_sequence)
+            .map_err(|error| CurlProductTransportError::Install(error.into()));
+    }
+    let active = match contract {
+        TransportGuestContract::BootableV2 => {
+            open_verified_installed_bootable_curl_product_release(
+                install_root,
+                product_trust_root,
+                guest_trust_root,
+            )
+        }
+        TransportGuestContract::DirectBootV3 => {
+            open_verified_installed_direct_boot_curl_product_release(
+                install_root,
+                product_trust_root,
+                guest_trust_root,
+            )
+        }
+    };
+    match active {
+        Ok(active) => NativeShadowUpdateFloor::installed(
+            active.guest().release_sequence(),
+            active.guest().manifest_sha256(),
+        )
+        .map_err(|error| CurlProductTransportError::Install(error.into())),
+        Err(CurlProductInstallError::Verify(
+            CurlProductReleaseVerifyError::InvalidSignatureContext,
+        )) => {
+            open_verified_installed_curl_product_release(install_root, product_trust_root)?;
+            NativeShadowUpdateFloor::first_install(first_guest_sequence)
+                .map_err(|error| CurlProductTransportError::Install(error.into()))
+        }
+        Err(error) => Err(error.into()),
+    }
 }
 
 fn validated_base_url(base_url: &str) -> Result<String, CurlProductTransportError> {
@@ -318,4 +511,187 @@ fn download_artifacts_and_install(
         first_install_minimum_sequence,
         download_staging_dir,
     )?)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn download_bootable_artifacts_and_install(
+    client: &reqwest::blocking::Client,
+    base_url: &str,
+    mut authenticated_product: AuthenticatedCurlProductRelease,
+    install_root: &Path,
+    download_staging_dir: &Path,
+    manifest_raw: &[u8],
+    signature_raw: &[u8],
+    product_trust_root: &CurlProductReleaseTrustRoot,
+    first_product_sequence: u64,
+    guest_trust_root: &NativeShadowUpdateTrustRoot,
+    first_guest_sequence: u64,
+    guest_floor: &NativeShadowUpdateFloor,
+    contract: TransportGuestContract,
+) -> Result<InstalledBootableCurlProduct, CurlProductTransportError> {
+    if download_staging_dir.exists() {
+        fs::remove_dir_all(download_staging_dir).map_err(|error| {
+            CurlProductTransportError::Io(format!(
+                "cannot clear leftover download staging {}: {error}",
+                download_staging_dir.display()
+            ))
+        })?;
+    }
+    let product_staging = download_staging_dir.join("product");
+    let guest_staging = download_staging_dir.join("guest");
+    fs::create_dir_all(&product_staging).map_err(|error| {
+        CurlProductTransportError::Io(format!(
+            "cannot create product download staging {}: {error}",
+            product_staging.display()
+        ))
+    })?;
+    for role in ProductArtifactRole::ALL {
+        let file_name = authenticated_product
+            .artifact_file_name(role)
+            .ok_or_else(|| {
+                CurlProductTransportError::Download(format!(
+                    "the signed product declares no file name for role {}",
+                    role.as_str()
+                ))
+            })?
+            .to_string();
+        let declared_byte_length = authenticated_product
+            .artifact_byte_length(role)
+            .ok_or_else(|| {
+                CurlProductTransportError::Download(format!(
+                    "the signed product declares no byte length for role {}",
+                    role.as_str()
+                ))
+            })?;
+        let path = product_staging.join(&file_name);
+        fetch_artifact(client, base_url, &file_name, declared_byte_length, &path)?;
+        authenticated_product.verify_artifact(
+            role,
+            fs::File::open(&path).map_err(|error| {
+                CurlProductTransportError::Io(format!(
+                    "cannot reopen staged product {}: {error}",
+                    path.display()
+                ))
+            })?,
+        )?;
+    }
+    let verified_product = authenticated_product.finish()?;
+    let guest_manifest_path = product_staging.join(
+        verified_product
+            .artifact_file_name(ProductArtifactRole::GuestUpdateManifest)
+            .expect("verified product contains guest manifest"),
+    );
+    let guest_signature_path = product_staging.join(
+        verified_product
+            .artifact_file_name(ProductArtifactRole::GuestUpdateSignature)
+            .expect("verified product contains guest signature"),
+    );
+    let guest_manifest = fs::read(&guest_manifest_path).map_err(|error| {
+        CurlProductTransportError::Io(format!(
+            "cannot read staged guest manifest {}: {error}",
+            guest_manifest_path.display()
+        ))
+    })?;
+    let guest_signature = fs::read(&guest_signature_path).map_err(|error| {
+        CurlProductTransportError::Io(format!(
+            "cannot read staged guest signature {}: {error}",
+            guest_signature_path.display()
+        ))
+    })?;
+    let mut authenticated_guest = match contract {
+        TransportGuestContract::BootableV2 => authenticate_staged_bootable_native_shadow_update(
+            &guest_manifest,
+            &guest_signature,
+            guest_trust_root,
+            guest_floor,
+        ),
+        TransportGuestContract::DirectBootV3 => {
+            authenticate_staged_direct_boot_native_shadow_update(
+                &guest_manifest,
+                &guest_signature,
+                guest_trust_root,
+                guest_floor,
+            )
+        }
+    }
+    .map_err(|error| {
+        CurlProductTransportError::Install(CurlProductInstallError::GuestVerify(error))
+    })?;
+    fs::create_dir(&guest_staging).map_err(|error| {
+        CurlProductTransportError::Io(format!(
+            "cannot create guest download staging {}: {error}",
+            guest_staging.display()
+        ))
+    })?;
+    let guest_base_url = format!("{base_url}/guest");
+    for &role in contract.roles() {
+        let file_name = authenticated_guest
+            .artifact_file_name(role)
+            .ok_or_else(|| {
+                CurlProductTransportError::Download(format!(
+                    "the signed guest declares no file name for role {}",
+                    role.as_str()
+                ))
+            })?
+            .to_string();
+        let declared_byte_length =
+            authenticated_guest
+                .artifact_byte_length(role)
+                .ok_or_else(|| {
+                    CurlProductTransportError::Download(format!(
+                        "the signed guest declares no byte length for role {}",
+                        role.as_str()
+                    ))
+                })?;
+        let path = guest_staging.join(&file_name);
+        fetch_artifact(
+            client,
+            &guest_base_url,
+            &file_name,
+            declared_byte_length,
+            &path,
+        )?;
+        authenticated_guest
+            .verify_artifact(
+                role,
+                fs::File::open(&path).map_err(|error| {
+                    CurlProductTransportError::Io(format!(
+                        "cannot reopen staged guest {}: {error}",
+                        path.display()
+                    ))
+                })?,
+            )
+            .map_err(|error| {
+                CurlProductTransportError::Install(CurlProductInstallError::GuestVerify(error))
+            })?;
+    }
+    authenticated_guest.finish().map_err(|error| {
+        CurlProductTransportError::Install(CurlProductInstallError::GuestVerify(error))
+    })?;
+
+    match contract {
+        TransportGuestContract::BootableV2 => install_bootable_curl_product_release(
+            install_root,
+            manifest_raw,
+            signature_raw,
+            product_trust_root,
+            first_product_sequence,
+            &product_staging,
+            guest_trust_root,
+            first_guest_sequence,
+            &guest_staging,
+        ),
+        TransportGuestContract::DirectBootV3 => install_direct_boot_curl_product_release(
+            install_root,
+            manifest_raw,
+            signature_raw,
+            product_trust_root,
+            first_product_sequence,
+            &product_staging,
+            guest_trust_root,
+            first_guest_sequence,
+            &guest_staging,
+        ),
+    }
+    .map_err(Into::into)
 }

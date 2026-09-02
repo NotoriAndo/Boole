@@ -107,7 +107,7 @@ class Mac4AuthenticatedChannelBehaviorTests(unittest.TestCase):
             check=False,
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
-        self.assertIn("8 passed", completed.stdout)
+        self.assertIn("9 passed", completed.stdout)
 
     def test_protocol_binary_is_bound_to_the_complete_tracked_contract(self):
         digest = hashlib.sha256(CONTRACT.read_bytes()).hexdigest()

@@ -170,7 +170,7 @@ pub struct ExecutionRequestFields {
 
 /// Crate-private read-only view used by the exact replay-grant matcher. It is
 /// not a wire type and cannot be constructed by launcher callers.
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
 pub(crate) struct ReplayRequestAuthority<'a> {
     pub operation_id_hex: &'a str,
     pub family_version: &'a str,
@@ -1230,7 +1230,7 @@ impl ExecutionRequest {
         &self.intake_version
     }
 
-    #[cfg(any(target_os = "linux", test))]
+    #[cfg(any(target_os = "linux", target_os = "macos", test))]
     pub(crate) fn replay_request_authority(&self) -> ReplayRequestAuthority<'_> {
         ReplayRequestAuthority {
             operation_id_hex: &self.operation_id_hex,

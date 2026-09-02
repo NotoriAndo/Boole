@@ -9,11 +9,11 @@
 > activation authority; code that still enforces the historical chain must be
 > changed by normal TDD before it is used.
 
-> **CURRENT-CURSOR-2026-09-02:** `MAC.4 PERSISTENT CONTROLLER PROTOCOL + NODE REPLAY COMPOSITION GREEN / VERIFIED PROCESS SPAWN + INSTALLED MAC ROUTE NEXT`.
-> The next coherent development milestone is to start the verified
-> host-controller artifact as one child process and compose it with the
-> installed Mac replay-service entrypoint. No production, testnet, mining,
-> reward, consensus, P2P or activation run is authorized by this cursor.
+> **CURRENT-CURSOR-2026-09-02:** `INSTALLED E2E KAT METADATA GREEN / CLOSED-LOCAL HARNESS NEXT`.
+> The next coherent milestone is exercising the installed, signed bootable
+> bundle through the Mac loopback adjudication route end to end. No production,
+> testnet, mining, reward, consensus, P2P or activation run is authorized by
+> this cursor.
 
 Status: **MAC.0 COMPLETE (closed-local Linux baseline, 2026-08-24, section 9);
 MAC.1-PARTIAL — CURL-FIRST MODE FROZEN; UPDATE TRUST POLICY AND MEASUREMENT PROTOCOL OPEN
@@ -6537,6 +6537,28 @@ NEXT: MAC.4 HOST-GUEST AUTHENTICATED CHANNEL, STILL CLOSED-LOCAL
 PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
 ```
 
+## 92. The active installed release is reverified before runtime use (2026-09-02)
+
+The durable install state now selects exactly one active version directory.
+Runtime reopening reads its stored manifest and signature within fixed caps,
+authenticates the exact active sequence and manifest digest, checks the state
+version and directory identity, and streams all six installed artifacts
+through the signed size and SHA-256 contract again.
+
+Success retains the exact open artifact handles. Replacing an artifact path
+after verification does not change the bytes visible through those handles;
+tampered bytes, a forged signature, a corrupt state or a directory mismatch
+fail closed. This closes runtime release re-verification only. Starting the
+controller from its retained handle and selecting installed authority/journal
+paths remain next.
+
+```text
+MAC.4 VERIFIED ACTIVE RELEASE REOPEN GREEN / ALL SIX ARTIFACTS RECHECKED
+RUNTIME CONSUMER RECEIVES RETAINED VERIFIED HANDLES / PATH SWAP DOES NOT FOLLOW
+NEXT: HANDLE-BOUND HOST-CONTROLLER SPAWN + INSTALLED MAC REPLAY-SERVICE ENTRYPOINT
+PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
+```
+
 ## 86. The first authenticated-channel observation failed closed before one round trip (2026-09-01)
 
 The explicitly approved development run
@@ -6733,5 +6755,160 @@ changed.
 MAC.4 PERSISTENT CONTROLLER PROTOCOL + NODE REPLAY COMPOSITION GREEN
 ONE QUALIFICATION / SEQUENTIAL EXECUTIONS / EXPLICIT SHUTDOWN / ONE VM CONTRACT
 NEXT: VERIFIED PROCESS SPAWN + INSTALLED MAC REPLAY-SERVICE ENTRYPOINT
+PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
+```
+
+## 93. The verified controller handle is the only executable source (2026-09-02)
+
+The node can now materialize the active release's already-open and reverified
+`host-controller` handle into one fixed private runtime directory. It streams
+the handle while rechecking the signed byte length and SHA-256 digest, writes a
+new 0500 executable below a 0700 root, syncs it, and starts that exact copy with
+private stdin/stdout pipes. Replacing the installed pathname after verification
+cannot change the launched bytes.
+
+The process owner appends the sole production `--controller-stdio` flag,
+rejects dry-run or duplicate-mode overrides, serializes access through the
+existing controller client, requires explicit bounded shutdown, and kills and
+reaps the child on error or owner drop before removing the private copy. This
+is process ownership only: it does not select authority, journal or image paths
+and grants no node listener, mining, reward, consensus or activation effect.
+
+```text
+MAC.4 HANDLE-BOUND HOST-CONTROLLER SPAWN GREEN
+INSTALLED PATH IS NOT REOPENED / PRIVATE COPY IS REMOVED AFTER PROCESS REAP
+NEXT: INSTALLED MAC AUTHORITY + JOURNAL ENTRYPOINT
+PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
+```
+
+## 94. The curl installer can adopt the complete bootable product (2026-09-02)
+
+The frozen v1 installer still rejects product v2. A separate successor now
+authenticates the product signature domain and all six product roles, then the
+embedded guest signature domain and all twelve bootable guest roles, before it
+creates the install root. It retains every opened handle, copies only those
+handles into one staging tree, and atomically adopts the product and guest as
+one version. Guest drift leaves no install trace.
+
+Runtime reopen follows the same two layers. Durable product state chooses one
+exact version; product and guest manifests, signatures and all eighteen files
+are reverified, and the returned object retains all handles. Replacing a guest
+pathname after reopen cannot change the bytes supplied to the VM owner, while
+a fresh reopen detects the replacement and fails closed.
+
+This enables an installed constructor but does not provide production keys,
+download a release, start a controller or open a listener. Authority and
+journal location remain the next node-owned boundary.
+
+```text
+MAC.4 BOOTABLE PRODUCT INSTALL + ACTIVE REOPEN GREEN
+TWO SIGNATURE DOMAINS / EIGHTEEN RETAINED HANDLES / ONE ATOMIC VERSION
+NEXT: INSTALLED MAC AUTHORITY + JOURNAL ENTRYPOINT
+PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
+```
+
+## 95. The Mac node can derive authority and open its journal without path reopen (2026-09-02)
+
+The protocol now accepts the eight authority handles retained by the signed
+guest release: registry, policy, toolchain, replay overlay and grant, both
+execution authorities, and checker release manifest. It rewinds cloned handles
+and requires exact tracked lengths and bytes before returning the same opaque,
+one-shot replay authority used on Linux. Replacing an installed pathname after
+active-product reopen cannot redirect this derivation.
+
+The replay journal exposes the existing production descriptor-relative opener
+for a caller-provisioned private path on Unix. The directory must already be
+owned by the expected user and group with mode 0700; the journal remains one
+0600 regular inode, one hard link and one lifetime-held nonblocking flock. The
+opener neither creates nor repairs a permissive state directory.
+
+The Mac replay grant methods are now compiled for macOS as well as Linux. This
+does not start a VM or listener. Kernel and root-disk inputs still need the same
+retained-handle materialization already applied to the controller executable.
+
+```text
+MAC.4 RETAINED GUEST AUTHORITY + PRIVATE JOURNAL OPENER GREEN
+NO AUTHORITY PATH REOPEN / SAME ONE-SHOT GRANT / SAME DURABLE LOCK
+NEXT: HANDLE-BOUND BOOT INPUTS
+PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
+```
+
+## 96. The installed Mac route owns verified boot bytes and node state (2026-09-02)
+
+The Mac controller now copies its kernel and read-only root disk from the
+active product's retained verified handles into the same private runtime used
+for the verified controller executable. Copying rechecks signed length and
+SHA-256, syncs the files and fixes them at mode 0400. The node derives the boot
+tuple from all three signed image digests and constructs every VM argument;
+callers cannot substitute a kernel or disk pathname.
+
+The installed Mac entrypoint reopens both product and guest signature domains,
+derives the replay authority from eight retained guest handles, opens the
+pre-provisioned private journal, performs recovery, starts one persistent VM,
+qualifies the same launcher identity and exposes only the existing fixed
+loopback adjudication route. Unresolved durable InFlight state still fails
+closed after the startup cleanup/readiness barrier.
+
+A dedicated macOS binary accepts only explicit install, runtime, journal and
+public trust-root inputs. It does not infer trust from a URL or carry a built-in
+production key. This is a completed construction path, not a production or
+testnet activation and not yet an end-to-end installed-bundle run.
+
+```text
+MAC.4 INSTALLED MAC REPLAY ENTRYPOINT GREEN
+VERIFIED CONTROLLER + KERNEL + ROOT DISK / NODE-OWNED JOURNAL + VERDICT
+NEXT: BOOTABLE CURL TRANSPORT + CLOSED-LOCAL E2E
+PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
+```
+
+## 97. Curl transport installs both signed boot domains (2026-09-02)
+
+The curl-first successor authenticates product-v2 before requesting its six
+files, verifies all six, then authenticates the embedded guest-v2 before
+requesting its twelve files from the fixed `guest/` transport prefix. Only the
+signed filenames and byte lengths determine requests and stream caps. A forged
+guest signature therefore stops before any large guest artifact download.
+
+After both layers pass, the existing bootable installer re-verifies all
+eighteen staged handles and adopts them as one atomic active version. Staging
+is outside the install root and is removed on success or failure. The CLI
+exposes this as `boole product install-bootable` with separate explicit product
+and guest public trust roots and separate first-install replay floors.
+
+This closes the installation path but does not create a production signing
+key, publish a release or activate any network behavior. The next gate is a
+closed-local installed-bundle E2E using non-production test roots.
+
+```text
+BOOTABLE CURL TRANSPORT GREEN / TWO AUTHENTICATED DOMAINS / ATOMIC 18-FILE INSTALL
+NEXT: INSTALLED CLOSED-LOCAL MAC E2E
+PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
+```
+
+## 98. Installed E2E metadata is generated only by the non-production testkit (2026-09-02)
+
+The next closed-local run needs one product-v2 envelope and one guest-v2
+envelope over the exact four host and twelve guest roles. A workspace-internal,
+non-publishable testkit writer now hashes caller-supplied regular files,
+canonicalizes both manifests and signs them with two deterministic KAT domains.
+It emits only signed metadata and injected public roots; it does not copy,
+download, install or execute an artifact.
+
+The writer refuses a missing or extra role, a non-regular or symlink input and
+an invalid source revision. Its deterministic private keys exist only in
+`boole-testkit`, which no release crate links. The resulting public roots are
+explicit inputs to the already implemented installer and node entrypoint; they
+cannot be confused with a production root.
+
+This is preparation, not the installed E2E result. The next slice must assemble
+a transient HTTP layout from exact host binaries and guest inputs, exercise the
+real `product install-bootable` command and then start the installed closed-local
+route. It remains forbidden to infer trust from that server or to activate any
+network, mining, reward, consensus or P2P behavior.
+
+```text
+INSTALLED E2E KAT METADATA GREEN / EXACT 4+12 INPUT ROLES
+TESTKIT-ONLY PRIVATE KEYS / NO PRODUCTION ROOT / NO ARTIFACT EXECUTION
+NEXT: TRANSIENT BUNDLE LAYOUT + REAL INSTALL + CLOSED-LOCAL ROUTE HARNESS
 PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
 ```

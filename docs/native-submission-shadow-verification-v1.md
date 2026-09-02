@@ -7,10 +7,10 @@
 > activation boundaries in this specification remain unchanged, and no A7,
 > production, boot, mining or reward authority is created here.
 
-> **CURRENT-CURSOR-2026-09-02:** `MAC.4 PERSISTENT CONTROLLER PROTOCOL + NODE REPLAY COMPOSITION GREEN / VERIFIED PROCESS SPAWN + INSTALLED MAC ROUTE NEXT`.
-> Next is fail-closed ownership of the verified host-controller process and an
-> installed Mac replay-service entrypoint. This cursor is status, not
-> production, testnet, mining, reward, consensus, P2P or activation permission.
+> **CURRENT-CURSOR-2026-09-02:** `INSTALLED E2E KAT METADATA GREEN / CLOSED-LOCAL HARNESS NEXT`.
+> Next is running the installed, signed bootable bundle through the node-owned
+> Mac loopback route. This cursor is status, not production, testnet, mining,
+> reward, consensus, P2P or activation permission.
 
 Status: **CLOSED-LOCAL QUALIFICATION GREEN — tracked checker, named-Linux containment, loopback
 node raw-answer HTTP adjudication and durable replay landed; production activation, P2P, block,
@@ -2796,3 +2796,76 @@ surface, while the Rust composition test reused the existing node replay route
 for multiple exchanges. This does not yet start the verified product artifact
 or expose an installed Mac route. Challenge, journal, replay, terminal evidence
 and verdict ownership remain exclusively in the node.
+
+### MAC.4 active installed-release reverification addendum (2026-09-02)
+
+Runtime use no longer trusts `installed-release.json` or an installed path by
+itself. The active state selects one exact sequence, manifest digest and version
+directory; the stored manifest and signature are re-authenticated and every
+installed artifact is rehashed from an open file handle. The verified result
+retains those handles, so a later path replacement cannot change the bytes a
+runtime consumer receives.
+
+This addendum starts no process and grants no route or activation authority.
+The next boundary is executing the retained host-controller handle without
+falling back to a path reopen.
+
+### MAC.4 verified controller process-owner addendum (2026-09-02)
+
+The node-side owner now streams the retained, reverified host-controller handle
+into a private 0700 runtime directory while independently checking its signed
+length and digest. It starts only the resulting 0500 file with private pipes,
+never reopens the installed pathname, and reaps the child before deleting the
+copy. Dry-run and duplicate protocol-mode overrides are rejected.
+
+This closes executable identity and lifecycle ownership, not the installed Mac
+route. The next constructor must still select the node-owned authority and
+durable journal paths and reverify the guest inputs. No submission, reward,
+consensus, P2P or activation boundary changes here.
+
+### MAC.4 bootable product install and active-reopen addendum (2026-09-02)
+
+The curl product successor now installs one product-v2 and its embedded
+bootable guest-v2 as a single atomic version. Both signature domains and all
+eighteen artifacts pass before any install directory is created; adoption
+copies only retained handles. Active runtime reopen repeats both signature and
+artifact checks and returns retained product and guest handles.
+
+This addendum creates no trust roots or release and starts no VM or node route.
+It only closes the missing installed-byte ownership prerequisite for the next
+Mac authority and journal constructor.
+
+### MAC.4 retained guest authority and private-journal addendum (2026-09-02)
+
+The Mac node can now derive the exact non-issuable replay capability from the
+active release's retained authority handles. It does not reopen guest artifact
+paths. The existing production journal checks are also available for an
+already-provisioned user-owned 0700 directory and a single locked 0600 journal.
+No route or VM is started; verified boot inputs remain the next boundary.
+
+### MAC.4 installed Mac replay entrypoint addendum (2026-09-02)
+
+The active product's retained controller, kernel and root-disk handles now feed
+one private controller runtime without reopening their installed paths. The
+node constructs the boot arguments, recovers and locks its durable journal,
+qualifies the persistent guest launcher and opens only the existing fixed
+loopback submission route. All verdict, replay and terminal evidence decisions
+remain host-owned, while the signed grant continues to forbid issuance,
+mining, reward, consensus, P2P and activation effects.
+
+### Bootable curl transport addendum (2026-09-02)
+
+The curl transport now authenticates the product and embedded guest signature
+domains separately, downloads only their signed exact files and hands all
+eighteen retained staging inputs to the atomic bootable installer. The CLI
+requires both public trust roots explicitly. A forged guest envelope stops
+before guest artifact requests and leaves the install root unchanged.
+
+### 2026-09-02 installed-E2E KAT metadata addendum
+
+The exact product-v2 and guest-v2 signed metadata needed by the next installed
+Mac E2E is now generated in the non-publishable `boole-testkit` crate. It binds
+four caller-supplied host files and twelve caller-supplied guest files and
+emits the two independent public test roots. No release binary links the
+deterministic KAT private keys. This prepares, but does not claim, an installed
+route or VM execution.
