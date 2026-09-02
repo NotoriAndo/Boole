@@ -7256,3 +7256,29 @@ TAMPER / EXTRA / UNSAFE ENTRY = REJECT / OUTPUT ABSENT / PRIOR PACKAGE UNCHANGED
 NEXT: SUCCESSOR RELEASE PACKAGING + OPERATIONAL SIGNING/TRUST-ROOT DECISION
 PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
 ```
+
+## 109. Successor packages preserve both authenticated histories (2026-09-03)
+
+The same offline command now accepts either a first-release minimum or an
+installed sequence plus manifest digest, independently for the product and
+guest domains. Exactly one mode must be complete in each domain. Mixed,
+partial or zero-valued floors are refused before output creation.
+
+One real CLI E2E builds signed sequence-one product and guest predecessors,
+then packages their signed sequence-two successors against both predecessor
+digests. Replacing only the product predecessor digest with another valid
+SHA-256 value yields the typed package rejection and no output. Thus a
+publisher cannot package an otherwise valid successor onto an unrelated
+product or guest history merely because the signing keys match.
+
+This closes first and successor release packaging from already-signed bytes.
+It still does not choose, generate or store an operational private key, publish
+a trust root, upload a tree or make a production release. Those operational
+authority decisions remain a separate gate.
+
+```text
+FIRST RELEASE = PINNED MINIMUM / SUCCESSOR = PREVIOUS SEQUENCE + EXACT MANIFEST DIGEST
+PRODUCT HISTORY AND GUEST HISTORY BOTH MATCH OR OUTPUT DOES NOT EXIST
+NEXT: OPERATIONAL SIGNING KEY + PUBLIC TRUST-ROOT CUSTODY DECISION
+PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
+```

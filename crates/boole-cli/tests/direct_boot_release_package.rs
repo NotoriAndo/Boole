@@ -15,6 +15,7 @@ use boole_testkit::{
     write_bootable_curl_product_kat_metadata, BootableCurlProductKatInput,
     BootableCurlProductKatRelease,
 };
+use sha2::{Digest, Sha256};
 
 struct FixtureDir(PathBuf);
 
@@ -59,8 +60,12 @@ impl Drop for FixtureDir {
     }
 }
 
-fn bundle(fixture: &FixtureDir) -> (PathBuf, boole_testkit::BootableCurlProductKatRoots) {
-    let sources = fixture.join("sources");
+fn bundle(
+    fixture: &FixtureDir,
+    label: &str,
+    release: BootableCurlProductKatRelease,
+) -> (PathBuf, boole_testkit::BootableCurlProductKatRoots) {
+    let sources = fixture.join(&format!("sources-{label}"));
     fs::create_dir(&sources).expect("sources");
     let mut product_artifacts = BTreeMap::new();
     for role in [
@@ -79,13 +84,13 @@ fn bundle(fixture: &FixtureDir) -> (PathBuf, boole_testkit::BootableCurlProductK
         fs::write(&path, format!("guest:{}", role.as_str())).expect("guest artifact");
         guest_artifacts.insert(role, path);
     }
-    let source_root = fixture.join("signed-source");
+    let source_root = fixture.join(&format!("signed-{label}"));
     let roots = write_bootable_curl_product_kat_metadata(BootableCurlProductKatInput {
         output_dir: source_root.clone(),
         source_revision: "78".repeat(20),
         product_artifacts: product_artifacts.clone(),
         guest_artifacts: guest_artifacts.clone(),
-        release: BootableCurlProductKatRelease::default(),
+        release,
     })
     .expect("KAT metadata");
     // The testkit writes injected public roots beside its fixture for test
@@ -101,6 +106,10 @@ fn bundle(fixture: &FixtureDir) -> (PathBuf, boole_testkit::BootableCurlProductK
         fs::copy(path, guest.join(role.as_str())).expect("guest byte");
     }
     (source_root, roots)
+}
+
+fn digest(path: &Path) -> String {
+    hex::encode(Sha256::digest(fs::read(path).expect("digest input")))
 }
 
 fn tree_bytes(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
@@ -156,7 +165,7 @@ fn assert_tree_is_read_only(root: &Path) {
 #[test]
 fn real_cli_exports_only_a_fully_verified_atomic_transport_tree() {
     let fixture = FixtureDir::new();
-    let (source, roots) = bundle(&fixture);
+    let (source, roots) = bundle(&fixture, "first", BootableCurlProductKatRelease::default());
     let output = fixture.join("published");
     let args = |source: &Path, output: &Path| {
         vec![
@@ -224,4 +233,102 @@ fn real_cli_exports_only_a_fully_verified_atomic_transport_tree() {
         accepted_tree,
         "the accepted immutable package remains unchanged"
     );
+}
+
+#[test]
+fn real_cli_packages_only_a_successor_bound_to_both_authenticated_floors() {
+    let fixture = FixtureDir::new();
+    let (first, _) = bundle(
+        &fixture,
+        "predecessor",
+        BootableCurlProductKatRelease::default(),
+    );
+    let product_predecessor = digest(&first.join("release-manifest.json"));
+    let guest_predecessor = digest(&first.join("guest-update-manifest"));
+    let (successor, roots) = bundle(
+        &fixture,
+        "successor",
+        BootableCurlProductKatRelease {
+            product_sequence: 2,
+            product_version: "0.0.1-package-successor-kat".to_string(),
+            product_previous_manifest_sha256: Some(product_predecessor.clone()),
+            guest_sequence: 2,
+            guest_version: "0.0.1-package-successor-guest-kat".to_string(),
+            guest_previous_manifest_sha256: Some(guest_predecessor.clone()),
+        },
+    );
+    let output = fixture.join("successor-package");
+    let packaged = Command::new(env!("CARGO_BIN_EXE_boole-cli"))
+        .args([
+            "product",
+            "package-direct-boot",
+            "--source-root",
+            successor.to_str().expect("successor path"),
+            "--output-root",
+            output.to_str().expect("output path"),
+            "--product-trust-root-key-id",
+            &roots.product_key_id,
+            "--product-trust-root-public-key",
+            &roots.product_public_key_hex,
+            "--guest-trust-root-key-id",
+            &roots.guest_key_id,
+            "--guest-trust-root-public-key",
+            &roots.guest_public_key_hex,
+            "--product-floor-sequence",
+            "1",
+            "--product-floor-manifest-sha256",
+            &product_predecessor,
+            "--guest-floor-sequence",
+            "1",
+            "--guest-floor-manifest-sha256",
+            &guest_predecessor,
+        ])
+        .output()
+        .expect("package successor through real CLI");
+    assert!(
+        packaged.status.success(),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&packaged.stdout),
+        String::from_utf8_lossy(&packaged.stderr)
+    );
+    let result: serde_json::Value =
+        serde_json::from_slice(&packaged.stdout).expect("successor result JSON");
+    assert_eq!(result["result"]["releaseSequence"], 2);
+    assert_eq!(result["result"]["guestReleaseSequence"], 2);
+    assert_eq!(tree_bytes(&output), tree_bytes(&successor));
+    assert_tree_is_read_only(&output);
+
+    let wrong_output = fixture.join("wrong-predecessor-output");
+    let rejected = Command::new(env!("CARGO_BIN_EXE_boole-cli"))
+        .args([
+            "product",
+            "package-direct-boot",
+            "--source-root",
+            successor.to_str().expect("successor path"),
+            "--output-root",
+            wrong_output.to_str().expect("wrong output path"),
+            "--product-trust-root-key-id",
+            &roots.product_key_id,
+            "--product-trust-root-public-key",
+            &roots.product_public_key_hex,
+            "--guest-trust-root-key-id",
+            &roots.guest_key_id,
+            "--guest-trust-root-public-key",
+            &roots.guest_public_key_hex,
+            "--product-floor-sequence",
+            "1",
+            "--product-floor-manifest-sha256",
+            &"00".repeat(32),
+            "--guest-floor-sequence",
+            "1",
+            "--guest-floor-manifest-sha256",
+            &guest_predecessor,
+        ])
+        .output()
+        .expect("reject wrong predecessor through real CLI");
+    assert!(!rejected.status.success());
+    let rejection: serde_json::Value =
+        serde_json::from_slice(&rejected.stderr).expect("successor rejection JSON");
+    assert_eq!(rejection["error"]["reason"], "release-package-rejected");
+    assert!(!wrong_output.exists());
 }

@@ -3280,4 +3280,11 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'TAMPER / EXTRA / 
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'NEXT: SUCCESSOR RELEASE PACKAGING + OPERATIONAL SIGNING/TRUST-ROOT DECISION'
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Verified offline direct-boot release packaging'
 
+# Product and guest successor histories are independently pinned; packaging
+# still owns no private key and creates no production authority.
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'FIRST RELEASE = PINNED MINIMUM / SUCCESSOR = PREVIOUS SEQUENCE + EXACT MANIFEST DIGEST'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'PRODUCT HISTORY AND GUEST HISTORY BOTH MATCH OR OUTPUT DOES NOT EXIST'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'NEXT: OPERATIONAL SIGNING KEY + PUBLIC TRUST-ROOT CUSTODY DECISION'
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Authenticated successor release packaging'
+
 printf 'docs-smoke: PASS\n' >&2
