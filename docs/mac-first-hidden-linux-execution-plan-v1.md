@@ -9,8 +9,7 @@
 > activation authority; code that still enforces the historical chain must be
 > changed by normal TDD before it is used.
 
-> **CURRENT-CURSOR-2026-09-02:** `MAC.4 AUTHENTICATED TRANSPORT + GUEST
-> READINESS PASS / NODE-OWNED EXECUTION ROUTE NOT YET CONNECTED`.
+> **CURRENT-CURSOR-2026-09-02:** `MAC.4 AUTHENTICATED TRANSPORT + GUEST READINESS PASS / NODE-OWNED EXECUTION ROUTE NOT YET CONNECTED`.
 > The next coherent development milestone is to bind the existing node-owned
 > challenge, durable journal, replay and terminal-evidence path to the bounded
 > authenticated relay. No production, testnet, mining, reward, consensus, P2P

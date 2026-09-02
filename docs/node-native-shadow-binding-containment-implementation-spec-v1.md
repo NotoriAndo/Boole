@@ -8,8 +8,7 @@
 > PR for every reversible retry. This note grants no A7, production, boot,
 > MAC.4 or activation effect.
 
-> **CURRENT-CURSOR-2026-09-02:** `MAC.4 AUTHENTICATED TRANSPORT + GUEST
-> READINESS PASS / NODE-OWNED EXECUTION ROUTE NOT YET CONNECTED`.
+> **CURRENT-CURSOR-2026-09-02:** `MAC.4 AUTHENTICATED TRANSPORT + GUEST READINESS PASS / NODE-OWNED EXECUTION ROUTE NOT YET CONNECTED`.
 > Next is the node-side binding from the existing challenge, durable journal,
 > replay and terminal-evidence path to the bounded authenticated relay.
 > Existing runtime exactly-once and containment contracts remain the
