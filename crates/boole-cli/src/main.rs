@@ -881,6 +881,20 @@ enum ProductCommand {
         #[arg(long = "timeout-seconds", default_value_t = 2)]
         timeout_seconds: u64,
     },
+    /// Re-authenticate the selected and retained direct-boot generations,
+    /// then report update floors and storage residue without changing them.
+    InspectDirectBoot {
+        #[arg(long = "install-root")]
+        install_root: PathBuf,
+        #[arg(long = "product-trust-root-key-id")]
+        product_trust_root_key_id: String,
+        #[arg(long = "product-trust-root-public-key")]
+        product_trust_root_public_key: String,
+        #[arg(long = "guest-trust-root-key-id")]
+        guest_trust_root_key_id: String,
+        #[arg(long = "guest-trust-root-public-key")]
+        guest_trust_root_public_key: String,
+    },
     /// Re-authenticate and select the retained direct-boot generation while
     /// preserving the highest accepted product and guest update floors.
     RollbackDirectBoot {
@@ -1186,6 +1200,19 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             ProductCommand::StatusDirectBoot { timeout_seconds } => {
                 product_status_direct_boot(timeout_seconds)
             }
+            ProductCommand::InspectDirectBoot {
+                install_root,
+                product_trust_root_key_id,
+                product_trust_root_public_key,
+                guest_trust_root_key_id,
+                guest_trust_root_public_key,
+            } => product_inspect_direct_boot(
+                &install_root,
+                &product_trust_root_key_id,
+                &product_trust_root_public_key,
+                &guest_trust_root_key_id,
+                &guest_trust_root_public_key,
+            ),
             ProductCommand::RollbackDirectBoot {
                 install_root,
                 product_trust_root_key_id,
@@ -2743,6 +2770,70 @@ fn product_status_direct_boot(timeout_seconds: u64) -> anyhow::Result<()> {
         product_lifecycle_emit_err(command, "service-unavailable", error.to_string())
     });
     println!("{}", boole_cli::cli_envelope::encode_ok(command, status));
+    Ok(())
+}
+
+fn installed_direct_boot_generation_json(
+    generation: &boole_core::VerifiedInstalledDirectBootGeneration,
+) -> serde_json::Value {
+    serde_json::json!({
+        "releaseSequence": generation.release_sequence(),
+        "releaseVersion": generation.release_version(),
+        "manifestSha256": generation.manifest_sha256(),
+        "guestReleaseSequence": generation.guest_release_sequence(),
+        "guestReleaseVersion": generation.guest_release_version(),
+        "guestManifestSha256": generation.guest_manifest_sha256(),
+    })
+}
+
+fn product_inspect_direct_boot(
+    install_root: &Path,
+    product_trust_root_key_id: &str,
+    product_trust_root_public_key: &str,
+    guest_trust_root_key_id: &str,
+    guest_trust_root_public_key: &str,
+) -> anyhow::Result<()> {
+    let command = "product.inspect-direct-boot";
+    let product_trust_root = boole_core::CurlProductReleaseTrustRoot::new(
+        product_trust_root_key_id,
+        product_trust_root_public_key,
+    )
+    .unwrap_or_else(|error| {
+        product_lifecycle_emit_err(command, "product-trust-root-rejected", error.to_string())
+    });
+    let guest_trust_root = boole_core::NativeShadowUpdateTrustRoot::new(
+        guest_trust_root_key_id,
+        guest_trust_root_public_key,
+    )
+    .unwrap_or_else(|error| {
+        product_lifecycle_emit_err(command, "guest-trust-root-rejected", error.to_string())
+    });
+    let status = boole_core::inspect_verified_installed_direct_boot_curl_product_release(
+        install_root,
+        &product_trust_root,
+        &guest_trust_root,
+    )
+    .unwrap_or_else(|error| {
+        product_lifecycle_emit_err(command, "installed-release-rejected", error.to_string())
+    });
+    let rollback = status.rollback().map(installed_direct_boot_generation_json);
+    let result = serde_json::json!({
+        "activeRelease": installed_direct_boot_generation_json(status.active()),
+        "securityFloors": {
+            "productReleaseSequence": status.release_floor_sequence(),
+            "productManifestSha256": status.release_floor_manifest_sha256(),
+            "guestReleaseSequence": status.guest_release_floor_sequence(),
+            "guestManifestSha256": status.guest_release_floor_manifest_sha256(),
+        },
+        "rollbackRelease": rollback,
+        "storage": {
+            "versionDirectoryCount": status.version_directory_count(),
+            "unreferencedVersionDirectoryCount": status.unreferenced_version_directory_count(),
+            "unexpectedEntryCount": status.unexpected_entry_count(),
+            "clean": status.storage_is_clean(),
+        },
+    });
+    println!("{}", boole_cli::cli_envelope::encode_ok(command, result));
     Ok(())
 }
 

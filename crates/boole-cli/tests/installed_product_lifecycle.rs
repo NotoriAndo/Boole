@@ -137,6 +137,7 @@ fn product_cli_exposes_foreground_run_and_status_without_vm_path_flags() {
     let stdout = String::from_utf8_lossy(&help.stdout);
     assert!(stdout.contains("run-direct-boot"), "stdout: {stdout}");
     assert!(stdout.contains("status-direct-boot"), "stdout: {stdout}");
+    assert!(stdout.contains("inspect-direct-boot"), "stdout: {stdout}");
     assert!(stdout.contains("rollback-direct-boot"), "stdout: {stdout}");
     assert!(stdout.contains("recover-direct-boot"), "stdout: {stdout}");
     assert!(stdout.contains("reset-direct-boot"), "stdout: {stdout}");

@@ -262,6 +262,97 @@ impl VerifiedInstalledBootableCurlProductRelease {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedInstalledDirectBootGeneration {
+    release_sequence: u64,
+    release_version: String,
+    manifest_sha256: String,
+    guest_release_sequence: u64,
+    guest_release_version: String,
+    guest_manifest_sha256: String,
+}
+
+impl VerifiedInstalledDirectBootGeneration {
+    pub fn release_sequence(&self) -> u64 {
+        self.release_sequence
+    }
+
+    pub fn release_version(&self) -> &str {
+        &self.release_version
+    }
+
+    pub fn manifest_sha256(&self) -> &str {
+        &self.manifest_sha256
+    }
+
+    pub fn guest_release_sequence(&self) -> u64 {
+        self.guest_release_sequence
+    }
+
+    pub fn guest_release_version(&self) -> &str {
+        &self.guest_release_version
+    }
+
+    pub fn guest_manifest_sha256(&self) -> &str {
+        &self.guest_manifest_sha256
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedInstalledDirectBootStatus {
+    active: VerifiedInstalledDirectBootGeneration,
+    release_floor_sequence: u64,
+    release_floor_manifest_sha256: String,
+    guest_release_floor_sequence: u64,
+    guest_release_floor_manifest_sha256: String,
+    rollback: Option<VerifiedInstalledDirectBootGeneration>,
+    version_directory_count: u64,
+    unreferenced_version_directory_count: u64,
+    unexpected_entry_count: u64,
+}
+
+impl VerifiedInstalledDirectBootStatus {
+    pub fn active(&self) -> &VerifiedInstalledDirectBootGeneration {
+        &self.active
+    }
+
+    pub fn release_floor_sequence(&self) -> u64 {
+        self.release_floor_sequence
+    }
+
+    pub fn release_floor_manifest_sha256(&self) -> &str {
+        &self.release_floor_manifest_sha256
+    }
+
+    pub fn guest_release_floor_sequence(&self) -> u64 {
+        self.guest_release_floor_sequence
+    }
+
+    pub fn guest_release_floor_manifest_sha256(&self) -> &str {
+        &self.guest_release_floor_manifest_sha256
+    }
+
+    pub fn rollback(&self) -> Option<&VerifiedInstalledDirectBootGeneration> {
+        self.rollback.as_ref()
+    }
+
+    pub fn version_directory_count(&self) -> u64 {
+        self.version_directory_count
+    }
+
+    pub fn unreferenced_version_directory_count(&self) -> u64 {
+        self.unreferenced_version_directory_count
+    }
+
+    pub fn unexpected_entry_count(&self) -> u64 {
+        self.unexpected_entry_count
+    }
+
+    pub fn storage_is_clean(&self) -> bool {
+        self.unreferenced_version_directory_count == 0 && self.unexpected_entry_count == 0
+    }
+}
+
 /// Verify a locally staged release bundle end to end and adopt it into the
 /// install root. `first_install_minimum_sequence` pins the floor used only
 /// when no durable state exists yet; once a state record is present it is the
@@ -740,6 +831,121 @@ pub fn open_verified_installed_direct_boot_curl_product_release(
         guest_trust_root,
         InstalledGuestContract::DirectBootV3,
     )
+}
+
+/// Re-authenticate every generation selected by durable direct-boot state and
+/// report its rollback floors plus storage residue without mutating the
+/// installation. Trust-root key material is consumed only for verification
+/// and is never included in the returned status.
+pub fn inspect_verified_installed_direct_boot_curl_product_release(
+    install_root: &Path,
+    product_trust_root: &CurlProductReleaseTrustRoot,
+    guest_trust_root: &NativeShadowUpdateTrustRoot,
+) -> Result<VerifiedInstalledDirectBootStatus, CurlProductInstallError> {
+    let state = read_installed_curl_product_state(install_root)?.ok_or_else(|| {
+        CurlProductInstallError::State("installed release state is absent".to_string())
+    })?;
+    let active_verified = open_verified_installed_bootable_curl_product_release_for_identity(
+        install_root,
+        product_trust_root,
+        guest_trust_root,
+        InstalledGuestContract::DirectBootV3,
+        &state.active_identity(),
+    )?;
+    let active = direct_boot_generation_status(&active_verified);
+    let rollback = state
+        .rollback_release
+        .as_ref()
+        .map(|identity| {
+            open_verified_installed_bootable_curl_product_release_for_identity(
+                install_root,
+                product_trust_root,
+                guest_trust_root,
+                InstalledGuestContract::DirectBootV3,
+                identity,
+            )
+            .map(|verified| direct_boot_generation_status(&verified))
+        })
+        .transpose()?;
+
+    let retained: BTreeSet<&str> = [
+        Some(state.version_directory.as_str()),
+        state
+            .rollback_release
+            .as_ref()
+            .map(|release| release.version_directory.as_str()),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    let versions = install_root.join(CURL_PRODUCT_INSTALL_VERSIONS_DIRECTORY);
+    let mut version_directory_count = 0_u64;
+    let mut unreferenced_version_directory_count = 0_u64;
+    let mut unexpected_entry_count = 0_u64;
+    for entry in fs::read_dir(&versions)
+        .map_err(|error| io_error("read versions directory for inspection", &versions, error))?
+    {
+        let entry = entry.map_err(|error| {
+            CurlProductInstallError::Io(format!(
+                "read version directory entry for inspection: {error}"
+            ))
+        })?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let metadata = fs::symlink_metadata(entry.path()).map_err(|error| {
+            io_error(
+                "inspect version directory entry for status",
+                &entry.path(),
+                error,
+            )
+        })?;
+        if !metadata.is_dir()
+            || metadata.file_type().is_symlink()
+            || !is_version_directory_name(&name)
+        {
+            unexpected_entry_count += 1;
+            continue;
+        }
+        version_directory_count += 1;
+        if !retained.contains(name.as_str()) {
+            unreferenced_version_directory_count += 1;
+        }
+    }
+
+    Ok(VerifiedInstalledDirectBootStatus {
+        active,
+        release_floor_sequence: state.release_floor_sequence(),
+        release_floor_manifest_sha256: state.release_floor_manifest_sha256().to_string(),
+        guest_release_floor_sequence: state.guest_release_floor_sequence().ok_or_else(|| {
+            CurlProductInstallError::State(
+                "direct-boot state is missing its guest release floor".to_string(),
+            )
+        })?,
+        guest_release_floor_manifest_sha256: state
+            .guest_release_floor_manifest_sha256()
+            .ok_or_else(|| {
+                CurlProductInstallError::State(
+                    "direct-boot state is missing its guest release floor digest".to_string(),
+                )
+            })?
+            .to_string(),
+        rollback,
+        version_directory_count,
+        unreferenced_version_directory_count,
+        unexpected_entry_count,
+    })
+}
+
+fn direct_boot_generation_status(
+    verified: &VerifiedInstalledBootableCurlProductRelease,
+) -> VerifiedInstalledDirectBootGeneration {
+    VerifiedInstalledDirectBootGeneration {
+        release_sequence: verified.product().release_sequence(),
+        release_version: verified.product().release_version().to_string(),
+        manifest_sha256: verified.product().manifest_sha256().to_string(),
+        guest_release_sequence: verified.guest().release_sequence(),
+        guest_release_version: verified.guest().release_version().to_string(),
+        guest_manifest_sha256: verified.guest().manifest_sha256().to_string(),
+    }
 }
 
 /// Switch the active direct-boot release to the one retained rollback

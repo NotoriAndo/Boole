@@ -3266,4 +3266,11 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'DOWNLOAD BYTES LI
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'NEXT: VERIFIED INSTALLED-RELEASE STATUS + OPERATOR DIAGNOSTICS'
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Installed product mutation serialization'
 
+# Installed release diagnostics re-authenticate bytes and report floors without
+# repairing or selecting a generation.
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'INSPECT = RE-AUTHENTICATE ACTIVE + ROLLBACK / REPORT FLOORS + RESIDUE'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'CORRUPT RELEASE = TYPED FAILURE / NO REPAIR / NO STATE CHANGE'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'NEXT: CURL-FIRST USER WORKFLOW + RELEASE INPUT PACKAGING'
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Verified installed-product inspection'
+
 printf 'docs-smoke: PASS\n' >&2
