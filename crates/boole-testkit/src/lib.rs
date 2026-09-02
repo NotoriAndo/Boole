@@ -166,7 +166,7 @@ pub fn write_bootable_curl_product_kat_metadata(
     {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "KAT guest inputs must contain the exact twelve bootable roles",
+            "KAT guest inputs must contain the exact eleven direct-boot roles",
         ));
     }
     fs::create_dir(&input.output_dir)?;
@@ -291,6 +291,40 @@ mod bootable_curl_product_kat_tests {
     use sha2::Digest;
     use std::collections::BTreeMap;
     use std::fs;
+
+    #[test]
+    fn direct_boot_kat_rejection_names_the_exact_eleven_role_contract() {
+        let root = std::env::temp_dir().join(format!(
+            "boole-direct-boot-kat-rejection-{}-{}",
+            std::process::id(),
+            super::rand_suffix()
+        ));
+        fs::create_dir(&root).expect("fixture root");
+        let mut product = BTreeMap::new();
+        for role in [
+            ProductArtifactRole::HostCli,
+            ProductArtifactRole::HostNode,
+            ProductArtifactRole::HostWalletAgent,
+            ProductArtifactRole::HostController,
+        ] {
+            let path = root.join(role.as_str());
+            fs::write(&path, role.as_str()).expect("product fixture");
+            product.insert(role, path);
+        }
+        let error = write_bootable_curl_product_kat_metadata(BootableCurlProductKatInput {
+            output_dir: root.join("metadata"),
+            source_revision: "12".repeat(20),
+            product_artifacts: product,
+            guest_artifacts: BTreeMap::new(),
+        })
+        .expect_err("incomplete direct-boot guest set must fail");
+
+        assert_eq!(
+            error.to_string(),
+            "KAT guest inputs must contain the exact eleven direct-boot roles"
+        );
+        let _ = fs::remove_dir_all(root);
+    }
 
     #[test]
     fn kat_metadata_binds_every_real_input_and_emits_both_public_roots() {

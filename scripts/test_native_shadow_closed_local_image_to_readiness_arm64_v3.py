@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import pathlib
 import subprocess
 import sys
@@ -35,6 +36,9 @@ class ClosedLocalImageIsolatedCliSuccessorTests(unittest.TestCase):
             mock.patch.object(
                 v3.v2, "_successor_contract", return_value=contextlib.nullcontext()
             ),
+            mock.patch.object(
+                v3, "_proxy_relay_service_contract", return_value=contextlib.nullcontext()
+            ),
             mock.patch.object(v3.v2.v1, "build", side_effect=fake_predecessor_build),
             mock.patch.object(v3.v2.v1, "_publish_result", side_effect=fake_real_publish),
         ):
@@ -44,6 +48,39 @@ class ClosedLocalImageIsolatedCliSuccessorTests(unittest.TestCase):
         self.assertEqual(published[0][0], result)
         self.assertEqual(published[0][1], document)
         self.assertEqual(document["privateTmpSuccessor"]["path"], "/var/tmp")
+        self.assertEqual(
+            document["proxyRelayServiceSuccessor"]["source"],
+            "native/systemd/boole-native-shadow-mac4-relay-v2.service",
+        )
+
+    def test_current_lane_patches_the_relay_service_without_editing_v1(self):
+        predecessor = ROOT / "scripts/native_shadow_closed_local_image_to_readiness_arm64_v1.py"
+        self.assertEqual(predecessor.stat().st_size, v3.v2.PREDECESSOR_SIZE_BYTES)
+        self.assertEqual(
+            hashlib.sha256(predecessor.read_bytes()).hexdigest(),
+            v3.v2.PREDECESSOR_SHA256,
+        )
+        original = (
+            v3.v2.v1.MAC4_SERVICE_SOURCE,
+            v3.v2.v1.MAC4_SERVICE_SHA256,
+            v3.v2.v1.MAC4_SERVICE_SIZE_BYTES,
+        )
+        with v3._proxy_relay_service_contract():
+            self.assertEqual(v3.v2.v1.MAC4_SERVICE_SOURCE, v3.RELAY_SERVICE_SOURCE)
+            self.assertEqual(v3.v2.v1.MAC4_SERVICE_SHA256, v3.RELAY_SERVICE_SHA256)
+            self.assertEqual(v3.v2.v1.MAC4_SERVICE_SIZE_BYTES, v3.RELAY_SERVICE_SIZE_BYTES)
+        self.assertEqual(
+            (
+                v3.v2.v1.MAC4_SERVICE_SOURCE,
+                v3.v2.v1.MAC4_SERVICE_SHA256,
+                v3.v2.v1.MAC4_SERVICE_SIZE_BYTES,
+            ),
+            original,
+        )
+
+    def test_current_relay_unit_keeps_vsock_and_adds_the_launcher_unix_socket(self):
+        unit = (ROOT / v3.RELAY_SERVICE_SOURCE).read_text(encoding="utf-8")
+        self.assertIn("RestrictAddressFamilies=AF_VSOCK AF_UNIX", unit)
 
     def test_direct_isolated_cli_can_import_the_private_tmp_successor(self):
         completed = subprocess.run(

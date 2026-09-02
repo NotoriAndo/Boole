@@ -8,10 +8,10 @@
 > PR for every reversible retry. This note grants no A7, production, boot,
 > MAC.4 or activation effect.
 
-> **CURRENT-CURSOR-2026-09-02:** `INSTALLED E2E KAT METADATA GREEN / CLOSED-LOCAL HARNESS NEXT`.
-> Next is running the installed, signed bootable bundle through the node-owned
-> Mac loopback route. Existing runtime exactly-once and containment contracts
-> remain the acceptance boundary.
+> **CURRENT-CURSOR-2026-09-02:** `INSTALLED E2E HARNESS GREEN / RELAY V2 IMAGE CORRECTION READY / FRESH ARM64 IMAGE NEXT`.
+> Next is rebuilding the signed direct-boot guest with its proxy-capable relay,
+> then running that installed bundle through the node-owned Mac loopback route.
+> Existing runtime exactly-once and containment contracts remain the acceptance boundary.
 
 Status: **CLOSED-LOCAL IMPLEMENTATION GREEN.** Registry/state durability, named-Linux containment,
 actual checker execution and the feature-gated loopback HTTP route are on `main`. Production
@@ -4877,8 +4877,8 @@ active release. This path contains no built-in production key or activation.
 
 The development-only `boole-testkit` writer is the sole source of deterministic
 private keys for the upcoming installed-route E2E. It accepts the exact four
-host roles and twelve bootable guest roles as regular non-symlink files,
-streams their hashes and emits canonical product-v2 and guest-v2 manifests,
+host roles and eleven direct-boot guest roles as regular non-symlink files,
+streams their hashes and emits canonical product-v3 and guest-v3 manifests,
 detached signatures and explicit public roots. It performs no install or
 execution and is absent from every release dependency graph.
 
@@ -4886,3 +4886,17 @@ The next harness must make those exact bytes available under the signed
 basenames, use the real transport and atomic installer, then use the installed
 Mac entrypoint. A successful metadata build is not a VM, verdict, production
 release, testnet or activation claim.
+
+## Installed Mac E2E harness and relay-service correction (2026-09-02)
+
+The closed-local harness now uses the real signed direct-boot installer and the
+installed node binary for the frozen four-case submission matrix. It requires
+private uid/gid/mode-correct mutable roots, a clean signal-driven node and
+controller shutdown, and an empty controller runtime after exit.
+
+A real same-basis run reached guest readiness and proved that the image still
+contained the historical relay service, whose address-family sandbox omitted
+the Unix socket needed to reach the launcher. The current v3 image lane now
+consumes the existing v2 service with both `AF_VSOCK` and `AF_UNIX`, while the
+hash-bound v1/v2 predecessor lanes remain unchanged. No old image is eligible
+as evidence for this correction; a fresh deterministic pair is next.
