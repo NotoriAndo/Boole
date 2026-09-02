@@ -4926,3 +4926,27 @@ installed node, controller or guest during InFlight and therefore does not yet
 show terminal redelivery without a second checker execution on macOS. That
 installed crash/restart matrix is next. Production, testnet, mining, reward,
 consensus, P2P and activation remain closed.
+
+## Installed Mac crash/restart exactly-once closure (2026-09-03)
+
+The installed node now holds one exclusive 0600 runtime lease and deliberately
+shares that locked descriptor only with its verified host-controller child.
+The child validates and retains it for its complete lifetime. A replacement
+node waits only for the bounded old-controller shutdown window; after exclusive
+acquisition it accepts only the known private runtime files with regular-file,
+single-link and owner checks before removing stale material. Unknown files,
+links or unsafe directory metadata stop recovery.
+
+The installed crash E2E externally counts execution commands rather than
+trusting guest verdict text. Terminal ACCEPT and deterministic reject consumed
+two executions before node/controller/guest SIGKILL, zero after restart, and
+the ten-row journal was byte-identical across redelivery. A controller frozen
+before execution produced exactly reservation/bootstrap/InFlight, then the
+replacement node refused startup with zero executions and no listener. Process
+groups, runtime material and sockets were checked after both scenarios.
+
+Evidence:
+`native/containment/native-shadow-installed-mac-crash-restart-result-arm64-v1.json`.
+This is a closed-local recovery property only. It changes no challenge rule,
+verdict, consensus, reward, P2P or activation state and does not assert the
+deferred clean-Mac canary.

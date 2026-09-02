@@ -6978,3 +6978,43 @@ MAC.4 HAPPY PATH GREEN / CRASH + REDELIVERY MATRIX STILL OPEN
 NEXT: INSTALLED MAC CRASH/RESTART EXACTLY-ONCE E2E
 PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
 ```
+
+## 101. Installed Mac crash recovery preserves exactly-once adjudication (2026-09-03)
+
+The installed route now owns a durable controller-runtime lease. The node
+passes that already-locked descriptor through the verified controller exec, so
+a replacement node cannot remove or reuse live VM state while the old
+controller still exists. Once the lease is exclusively available, startup may
+remove only the fixed, owner-checked files in the private controller directory;
+unknown entries and symlinks remain fail-closed.
+
+The real curl-installed route passed both crash scenarios on Apple Silicon.
+For terminal ACCEPT and deterministic reject, the entire node-owned process
+group (node, controller and guest) was killed and replaced. The durable journal
+did not gain a byte, both responses were redelivered from stored evidence, and
+the checker ran zero times after restart. For unresolved InFlight, the
+controller was stopped before execution and the process group was killed. The
+replacement node recovered the private runtime but refused to open its listener
+because the three-row journal remained unresolved; checker executions were
+zero. Both scenarios left no node, controller or VM process behind.
+
+The first harness invocation found only a direct Python entrypoint defect and
+stopped before KAT metadata, product state or a VM existed. The unchanged
+product scenario then passed once. The result is bound in
+`native/containment/native-shadow-installed-mac-crash-restart-result-arm64-v1.json`.
+It reuses the already byte-identical guest from run `33652402930`; no new guest
+image was produced.
+
+This closes the installed closed-local MAC.4 crash/restart boundary. It does
+not close the clean-Mac canary and grants no production, testnet, mining,
+reward, consensus, P2P or activation authority. The next product boundary is
+host lifecycle integration: one curl-installed command must own startup,
+health/readiness and bounded shutdown without exposing VM details to the Mac
+user.
+
+```text
+INSTALLED MAC CRASH/RESTART EXACTLY-ONCE E2E PASS
+TERMINAL REDELIVERY: CHECKER 0 AFTER RESTART / UNRESOLVED INFLIGHT: FAIL CLOSED
+NEXT: CURL-INSTALLED HOST LIFECYCLE + HEALTH SURFACE
+PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
+```

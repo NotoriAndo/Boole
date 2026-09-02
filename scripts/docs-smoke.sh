@@ -3204,4 +3204,19 @@ require_text "$INSTALLED_MAC_E2E_RESULT" '"activationAllowed": false'
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'INSTALLED MAC CLOSED-LOCAL E2E PASS / REAL CURL INSTALL + FOUR VERDICTS'
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Installed Mac E2E: the signed product route passed end to end'
 
+# The installed Mac route now survives whole node/controller/guest loss without
+# re-executing terminal submissions, and refuses unresolved InFlight on restart.
+INSTALLED_MAC_CRASH_RESULT=native/containment/native-shadow-installed-mac-crash-restart-result-arm64-v1.json
+INSTALLED_MAC_CRASH_GATE=scripts/test_native_shadow_installed_mac_crash_restart_result_v1.py
+require_file "$INSTALLED_MAC_CRASH_RESULT"
+require_file "$INSTALLED_MAC_CRASH_GATE"
+require_text scripts/self-test.sh "$INSTALLED_MAC_CRASH_GATE"
+require_text "$INSTALLED_MAC_CRASH_RESULT" '"status": "INSTALLED-MAC-CRASH-RESTART-EXACTLY-ONCE-PASS"'
+require_text "$INSTALLED_MAC_CRASH_RESULT" '"checkerExecutionsAfterRestart": 0'
+require_text "$INSTALLED_MAC_CRASH_RESULT" '"journalBytesUnchangedAfterRestart": true'
+require_text "$INSTALLED_MAC_CRASH_RESULT" '"restartRefused": true'
+require_text "$INSTALLED_MAC_CRASH_RESULT" '"activationAllowed": false'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'INSTALLED MAC CRASH/RESTART EXACTLY-ONCE E2E PASS'
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Installed Mac crash/restart exactly-once closure'
+
 printf 'docs-smoke: PASS\n' >&2
