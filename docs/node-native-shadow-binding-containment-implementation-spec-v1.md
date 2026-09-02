@@ -8,7 +8,7 @@
 > PR for every reversible retry. This note grants no A7, production, boot,
 > MAC.4 or activation effect.
 
-> **CURRENT-CURSOR-2026-09-02:** `BOOTABLE CURL TRANSPORT GREEN / INSTALLED CLOSED-LOCAL E2E NEXT`.
+> **CURRENT-CURSOR-2026-09-02:** `INSTALLED E2E KAT METADATA GREEN / CLOSED-LOCAL HARNESS NEXT`.
 > Next is running the installed, signed bootable bundle through the node-owned
 > Mac loopback route. Existing runtime exactly-once and containment contracts
 > remain the acceptance boundary.
@@ -4872,3 +4872,17 @@ installer repeats both signature and byte checks before one atomic adoption.
 `product install-bootable` takes separate product and guest public roots and
 anti-rollback floors. Failure removes transient staging and cannot create an
 active release. This path contains no built-in production key or activation.
+
+## Installed-E2E KAT metadata boundary (2026-09-02)
+
+The development-only `boole-testkit` writer is the sole source of deterministic
+private keys for the upcoming installed-route E2E. It accepts the exact four
+host roles and twelve bootable guest roles as regular non-symlink files,
+streams their hashes and emits canonical product-v2 and guest-v2 manifests,
+detached signatures and explicit public roots. It performs no install or
+execution and is absent from every release dependency graph.
+
+The next harness must make those exact bytes available under the signed
+basenames, use the real transport and atomic installer, then use the installed
+Mac entrypoint. A successful metadata build is not a VM, verdict, production
+release, testnet or activation claim.

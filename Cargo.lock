@@ -498,6 +498,13 @@ dependencies = [
 [[package]]
 name = "boole-testkit"
 version = "0.1.0"
+dependencies = [
+ "boole-core",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2",
+]
 
 [[package]]
 name = "boole-wallet-agent"

@@ -9,7 +9,7 @@
 > activation authority; code that still enforces the historical chain must be
 > changed by normal TDD before it is used.
 
-> **CURRENT-CURSOR-2026-09-02:** `BOOTABLE CURL TRANSPORT GREEN / INSTALLED CLOSED-LOCAL E2E NEXT`.
+> **CURRENT-CURSOR-2026-09-02:** `INSTALLED E2E KAT METADATA GREEN / CLOSED-LOCAL HARNESS NEXT`.
 > The next coherent milestone is exercising the installed, signed bootable
 > bundle through the Mac loopback adjudication route end to end. No production,
 > testnet, mining, reward, consensus, P2P or activation run is authorized by
@@ -6882,5 +6882,33 @@ closed-local installed-bundle E2E using non-production test roots.
 ```text
 BOOTABLE CURL TRANSPORT GREEN / TWO AUTHENTICATED DOMAINS / ATOMIC 18-FILE INSTALL
 NEXT: INSTALLED CLOSED-LOCAL MAC E2E
+PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
+```
+
+## 98. Installed E2E metadata is generated only by the non-production testkit (2026-09-02)
+
+The next closed-local run needs one product-v2 envelope and one guest-v2
+envelope over the exact four host and twelve guest roles. A workspace-internal,
+non-publishable testkit writer now hashes caller-supplied regular files,
+canonicalizes both manifests and signs them with two deterministic KAT domains.
+It emits only signed metadata and injected public roots; it does not copy,
+download, install or execute an artifact.
+
+The writer refuses a missing or extra role, a non-regular or symlink input and
+an invalid source revision. Its deterministic private keys exist only in
+`boole-testkit`, which no release crate links. The resulting public roots are
+explicit inputs to the already implemented installer and node entrypoint; they
+cannot be confused with a production root.
+
+This is preparation, not the installed E2E result. The next slice must assemble
+a transient HTTP layout from exact host binaries and guest inputs, exercise the
+real `product install-bootable` command and then start the installed closed-local
+route. It remains forbidden to infer trust from that server or to activate any
+network, mining, reward, consensus or P2P behavior.
+
+```text
+INSTALLED E2E KAT METADATA GREEN / EXACT 4+12 INPUT ROLES
+TESTKIT-ONLY PRIVATE KEYS / NO PRODUCTION ROOT / NO ARTIFACT EXECUTION
+NEXT: TRANSIENT BUNDLE LAYOUT + REAL INSTALL + CLOSED-LOCAL ROUTE HARNESS
 PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
 ```

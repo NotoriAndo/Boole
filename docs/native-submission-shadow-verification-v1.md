@@ -7,7 +7,7 @@
 > activation boundaries in this specification remain unchanged, and no A7,
 > production, boot, mining or reward authority is created here.
 
-> **CURRENT-CURSOR-2026-09-02:** `BOOTABLE CURL TRANSPORT GREEN / INSTALLED CLOSED-LOCAL E2E NEXT`.
+> **CURRENT-CURSOR-2026-09-02:** `INSTALLED E2E KAT METADATA GREEN / CLOSED-LOCAL HARNESS NEXT`.
 > Next is running the installed, signed bootable bundle through the node-owned
 > Mac loopback route. This cursor is status, not production, testnet, mining,
 > reward, consensus, P2P or activation permission.
@@ -2860,3 +2860,12 @@ domains separately, downloads only their signed exact files and hands all
 eighteen retained staging inputs to the atomic bootable installer. The CLI
 requires both public trust roots explicitly. A forged guest envelope stops
 before guest artifact requests and leaves the install root unchanged.
+
+### 2026-09-02 installed-E2E KAT metadata addendum
+
+The exact product-v2 and guest-v2 signed metadata needed by the next installed
+Mac E2E is now generated in the non-publishable `boole-testkit` crate. It binds
+four caller-supplied host files and twelve caller-supplied guest files and
+emits the two independent public test roots. No release binary links the
+deterministic KAT private keys. This prepares, but does not claim, an installed
+route or VM execution.
