@@ -31,7 +31,8 @@ use thiserror::Error;
 
 use crate::native_shadow_update::{
     GuestArtifactRole, GUEST_UPDATE_MANIFEST_SCHEMA, GUEST_UPDATE_MANIFEST_SCHEMA_V2,
-    NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT, NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT_V2,
+    GUEST_UPDATE_MANIFEST_SCHEMA_V3, NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT,
+    NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT_V2, NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT_V3,
 };
 use crate::release_contract_util::{self, ContractJsonError, RequiredPreviousManifestSha256};
 use crate::{verify_signature_with_network, Hex32, SIGNED_ENVELOPE_SCHEMA};
@@ -40,6 +41,8 @@ pub const CURL_PRODUCT_RELEASE_MANIFEST_SCHEMA: &str = "boole.curl-product-relea
 pub const CURL_PRODUCT_RELEASE_SIGNING_CONTEXT: &str = "boole-curl-product-release-v1";
 pub const CURL_PRODUCT_RELEASE_MANIFEST_SCHEMA_V2: &str = "boole.curl-product-release.v2";
 pub const CURL_PRODUCT_RELEASE_SIGNING_CONTEXT_V2: &str = "boole-curl-product-release-v2";
+pub const CURL_PRODUCT_RELEASE_MANIFEST_SCHEMA_V3: &str = "boole.curl-product-release.v3";
+pub const CURL_PRODUCT_RELEASE_SIGNING_CONTEXT_V3: &str = "boole-curl-product-release-v3";
 pub const CURL_PRODUCT_RELEASE_CONTROLLER_PROTOCOL_VERSION: u64 = 1;
 pub const MAX_CURL_PRODUCT_HOST_PAYLOAD_BYTES: u64 = 536_870_912;
 pub const CURL_PRODUCT_RELEASE_MINIMUM_MACOS: &str = "14.0";
@@ -208,6 +211,7 @@ struct ProductArtifactDescriptor {
 enum ProductReleaseContract {
     FrozenV1,
     BootableV2,
+    DirectBootV3,
 }
 
 enum ProductReleaseVersionExpectation<'a> {
@@ -220,6 +224,7 @@ impl ProductReleaseContract {
         match self {
             Self::FrozenV1 => CURL_PRODUCT_RELEASE_MANIFEST_SCHEMA,
             Self::BootableV2 => CURL_PRODUCT_RELEASE_MANIFEST_SCHEMA_V2,
+            Self::DirectBootV3 => CURL_PRODUCT_RELEASE_MANIFEST_SCHEMA_V3,
         }
     }
 
@@ -227,6 +232,7 @@ impl ProductReleaseContract {
         match self {
             Self::FrozenV1 => CURL_PRODUCT_RELEASE_SIGNING_CONTEXT,
             Self::BootableV2 => CURL_PRODUCT_RELEASE_SIGNING_CONTEXT_V2,
+            Self::DirectBootV3 => CURL_PRODUCT_RELEASE_SIGNING_CONTEXT_V3,
         }
     }
 
@@ -234,6 +240,7 @@ impl ProductReleaseContract {
         match self {
             Self::FrozenV1 => GUEST_UPDATE_MANIFEST_SCHEMA,
             Self::BootableV2 => GUEST_UPDATE_MANIFEST_SCHEMA_V2,
+            Self::DirectBootV3 => GUEST_UPDATE_MANIFEST_SCHEMA_V3,
         }
     }
 
@@ -241,6 +248,7 @@ impl ProductReleaseContract {
         match self {
             Self::FrozenV1 => NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT,
             Self::BootableV2 => NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT_V2,
+            Self::DirectBootV3 => NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT_V3,
         }
     }
 }
@@ -405,10 +413,17 @@ impl AuthenticatedCurlProductRelease {
                     "guest-update-manifest v2 bootFormatVersion must be 1".to_string(),
                 ));
             }
+            ProductReleaseContract::DirectBootV3 if value["bootFormatVersion"] != 2 => {
+                return Err(CurlProductReleaseVerifyError::GuestBinding(
+                    "guest-update-manifest v3 bootFormatVersion must be 2".to_string(),
+                ));
+            }
             _ => {}
         }
         if self.contract == ProductReleaseContract::BootableV2 {
             require_bootable_guest_roles(&value)?;
+        } else if self.contract == ProductReleaseContract::DirectBootV3 {
+            require_direct_boot_guest_roles(&value)?;
         }
         if value["targetOs"] != "linux" || value["targetArch"] != "aarch64" {
             return Err(CurlProductReleaseVerifyError::GuestBinding(
@@ -476,6 +491,31 @@ fn require_bootable_guest_roles(
         if descriptor["role"] != expected_role.as_str() {
             return Err(CurlProductReleaseVerifyError::GuestBinding(
                 "guest-update-manifest v2 artifacts must use the fixed bootable role order"
+                    .to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn require_direct_boot_guest_roles(
+    value: &serde_json::Value,
+) -> Result<(), CurlProductReleaseVerifyError> {
+    let artifacts = value["artifacts"].as_array().ok_or_else(|| {
+        CurlProductReleaseVerifyError::GuestBinding(
+            "guest-update-manifest v3 artifacts must be an array".to_string(),
+        )
+    })?;
+    if artifacts.len() != GuestArtifactRole::DIRECT_BOOT_ALL.len() {
+        return Err(CurlProductReleaseVerifyError::GuestBinding(format!(
+            "guest-update-manifest v3 must declare exactly {} artifacts",
+            GuestArtifactRole::DIRECT_BOOT_ALL.len()
+        )));
+    }
+    for (descriptor, expected_role) in artifacts.iter().zip(GuestArtifactRole::DIRECT_BOOT_ALL) {
+        if descriptor["role"] != expected_role.as_str() {
+            return Err(CurlProductReleaseVerifyError::GuestBinding(
+                "guest-update-manifest v3 artifacts must use the fixed direct-boot role order"
                     .to_string(),
             ));
         }
@@ -607,6 +647,23 @@ pub(crate) fn authenticate_active_bootable_curl_product_release(
     )
 }
 
+pub(crate) fn authenticate_active_direct_boot_curl_product_release(
+    manifest_raw: &[u8],
+    detached_signature_raw: &[u8],
+    trust_root: &CurlProductReleaseTrustRoot,
+    expected_release_sequence: u64,
+    expected_manifest_sha256: &str,
+) -> Result<AuthenticatedCurlProductRelease, CurlProductReleaseVerifyError> {
+    authenticate_active_curl_product_release_for_contract(
+        manifest_raw,
+        detached_signature_raw,
+        trust_root,
+        expected_release_sequence,
+        expected_manifest_sha256,
+        ProductReleaseContract::DirectBootV3,
+    )
+}
+
 fn authenticate_active_curl_product_release_for_contract(
     manifest_raw: &[u8],
     detached_signature_raw: &[u8],
@@ -655,6 +712,22 @@ pub fn authenticate_bootable_curl_product_release(
         trust_root,
         ProductReleaseVersionExpectation::Successor(floor),
         ProductReleaseContract::BootableV2,
+    )
+}
+
+/// Authenticate the direct-root product successor that embeds guest v3.
+pub fn authenticate_direct_boot_curl_product_release(
+    manifest_raw: &[u8],
+    detached_signature_raw: &[u8],
+    trust_root: &CurlProductReleaseTrustRoot,
+    floor: &CurlProductReleaseFloor,
+) -> Result<AuthenticatedCurlProductRelease, CurlProductReleaseVerifyError> {
+    authenticate_curl_product_release_for_contract(
+        manifest_raw,
+        detached_signature_raw,
+        trust_root,
+        ProductReleaseVersionExpectation::Successor(floor),
+        ProductReleaseContract::DirectBootV3,
     )
 }
 

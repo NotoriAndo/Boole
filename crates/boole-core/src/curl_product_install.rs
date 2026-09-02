@@ -24,6 +24,7 @@
 use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
@@ -33,16 +34,36 @@ use thiserror::Error;
 use crate::canonicalize;
 use crate::curl_product_release::{
     authenticate_active_bootable_curl_product_release, authenticate_active_curl_product_release,
+    authenticate_active_direct_boot_curl_product_release,
     authenticate_bootable_curl_product_release, authenticate_curl_product_release,
-    CurlProductReleaseFloor, CurlProductReleaseTrustRoot, CurlProductReleaseVerifyError,
-    ProductArtifactRole, VerifiedCurlProductRelease,
-    MAX_CURL_PRODUCT_RELEASE_DETACHED_SIGNATURE_BYTES, MAX_CURL_PRODUCT_RELEASE_MANIFEST_BYTES,
+    authenticate_direct_boot_curl_product_release, CurlProductReleaseFloor,
+    CurlProductReleaseTrustRoot, CurlProductReleaseVerifyError, ProductArtifactRole,
+    VerifiedCurlProductRelease, MAX_CURL_PRODUCT_RELEASE_DETACHED_SIGNATURE_BYTES,
+    MAX_CURL_PRODUCT_RELEASE_MANIFEST_BYTES,
 };
 use crate::native_shadow_update::{
     authenticate_active_staged_bootable_native_shadow_update,
-    authenticate_staged_bootable_native_shadow_update, GuestArtifactRole, NativeShadowUpdateFloor,
-    NativeShadowUpdateTrustRoot, NativeShadowUpdateVerifyError, VerifiedStagedNativeShadowUpdate,
+    authenticate_active_staged_direct_boot_native_shadow_update,
+    authenticate_staged_bootable_native_shadow_update,
+    authenticate_staged_direct_boot_native_shadow_update, GuestArtifactRole,
+    NativeShadowUpdateFloor, NativeShadowUpdateTrustRoot, NativeShadowUpdateVerifyError,
+    VerifiedStagedNativeShadowUpdate,
 };
+
+#[derive(Clone, Copy)]
+enum InstalledGuestContract {
+    BootableV2,
+    DirectBootV3,
+}
+
+impl InstalledGuestContract {
+    const fn roles(self) -> &'static [GuestArtifactRole] {
+        match self {
+            Self::BootableV2 => &GuestArtifactRole::BOOTABLE_ALL,
+            Self::DirectBootV3 => &GuestArtifactRole::DIRECT_BOOT_ALL,
+        }
+    }
+}
 use crate::release_contract_util::{self, ContractJsonError};
 
 pub const CURL_PRODUCT_INSTALL_STATE_SCHEMA: &str = "boole.curl-product-install-state.v1";
@@ -254,6 +275,60 @@ pub fn install_bootable_curl_product_release(
     first_guest_sequence: u64,
     guest_artifact_source_dir: &Path,
 ) -> Result<InstalledBootableCurlProduct, CurlProductInstallError> {
+    install_bootable_curl_product_release_for_contract(
+        install_root,
+        manifest_raw,
+        detached_signature_raw,
+        product_trust_root,
+        first_product_sequence,
+        product_artifact_source_dir,
+        guest_trust_root,
+        first_guest_sequence,
+        guest_artifact_source_dir,
+        InstalledGuestContract::BootableV2,
+    )
+}
+
+/// Verify and atomically install the product-v3 direct-root successor.
+#[allow(clippy::too_many_arguments)]
+pub fn install_direct_boot_curl_product_release(
+    install_root: &Path,
+    manifest_raw: &[u8],
+    detached_signature_raw: &[u8],
+    product_trust_root: &CurlProductReleaseTrustRoot,
+    first_product_sequence: u64,
+    product_artifact_source_dir: &Path,
+    guest_trust_root: &NativeShadowUpdateTrustRoot,
+    first_guest_sequence: u64,
+    guest_artifact_source_dir: &Path,
+) -> Result<InstalledBootableCurlProduct, CurlProductInstallError> {
+    install_bootable_curl_product_release_for_contract(
+        install_root,
+        manifest_raw,
+        detached_signature_raw,
+        product_trust_root,
+        first_product_sequence,
+        product_artifact_source_dir,
+        guest_trust_root,
+        first_guest_sequence,
+        guest_artifact_source_dir,
+        InstalledGuestContract::DirectBootV3,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn install_bootable_curl_product_release_for_contract(
+    install_root: &Path,
+    manifest_raw: &[u8],
+    detached_signature_raw: &[u8],
+    product_trust_root: &CurlProductReleaseTrustRoot,
+    first_product_sequence: u64,
+    product_artifact_source_dir: &Path,
+    guest_trust_root: &NativeShadowUpdateTrustRoot,
+    first_guest_sequence: u64,
+    guest_artifact_source_dir: &Path,
+    contract: InstalledGuestContract,
+) -> Result<InstalledBootableCurlProduct, CurlProductInstallError> {
     let state = read_installed_curl_product_state(install_root)?;
     let (product_floor, guest_floor) = match state {
         Some(state) => {
@@ -264,23 +339,28 @@ pub fn install_bootable_curl_product_release(
                             "{CURL_PRODUCT_INSTALL_STATE_FILE} is internally inconsistent: {error}"
                         ))
                     })?;
-            let guest_floor = match open_verified_installed_bootable_curl_product_release(
-                install_root,
-                product_trust_root,
-                guest_trust_root,
-            ) {
-                Ok(active) => NativeShadowUpdateFloor::installed(
-                    active.guest().release_sequence(),
-                    active.guest().manifest_sha256(),
-                )?,
-                Err(CurlProductInstallError::Verify(
-                    CurlProductReleaseVerifyError::InvalidSignatureContext,
-                )) => {
-                    open_verified_installed_curl_product_release(install_root, product_trust_root)?;
-                    NativeShadowUpdateFloor::first_install(first_guest_sequence)?
-                }
-                Err(error) => return Err(error),
-            };
+            let guest_floor =
+                match open_verified_installed_bootable_curl_product_release_for_contract(
+                    install_root,
+                    product_trust_root,
+                    guest_trust_root,
+                    contract,
+                ) {
+                    Ok(active) => NativeShadowUpdateFloor::installed(
+                        active.guest().release_sequence(),
+                        active.guest().manifest_sha256(),
+                    )?,
+                    Err(CurlProductInstallError::Verify(
+                        CurlProductReleaseVerifyError::InvalidSignatureContext,
+                    )) => {
+                        open_verified_installed_curl_product_release(
+                            install_root,
+                            product_trust_root,
+                        )?;
+                        NativeShadowUpdateFloor::first_install(first_guest_sequence)?
+                    }
+                    Err(error) => return Err(error),
+                };
             (product_floor, guest_floor)
         }
         None => (
@@ -298,6 +378,7 @@ pub fn install_bootable_curl_product_release(
         guest_trust_root,
         &guest_floor,
         guest_artifact_source_dir,
+        contract,
     )?;
     adopt_verified_bootable_release(
         install_root,
@@ -306,6 +387,7 @@ pub fn install_bootable_curl_product_release(
         &product,
         &guest,
         &guest_files,
+        contract.roles(),
     )
 }
 
@@ -319,6 +401,7 @@ fn verify_bootable_release_sources(
     guest_trust_root: &NativeShadowUpdateTrustRoot,
     guest_floor: &NativeShadowUpdateFloor,
     guest_artifact_source_dir: &Path,
+    contract: InstalledGuestContract,
 ) -> Result<
     (
         VerifiedCurlProductRelease,
@@ -327,12 +410,20 @@ fn verify_bootable_release_sources(
     ),
     CurlProductInstallError,
 > {
-    let mut authenticated = authenticate_bootable_curl_product_release(
-        manifest_raw,
-        detached_signature_raw,
-        product_trust_root,
-        product_floor,
-    )?;
+    let mut authenticated = match contract {
+        InstalledGuestContract::BootableV2 => authenticate_bootable_curl_product_release(
+            manifest_raw,
+            detached_signature_raw,
+            product_trust_root,
+            product_floor,
+        )?,
+        InstalledGuestContract::DirectBootV3 => authenticate_direct_boot_curl_product_release(
+            manifest_raw,
+            detached_signature_raw,
+            product_trust_root,
+            product_floor,
+        )?,
+    };
     for role in ProductArtifactRole::ALL {
         let file_name = authenticated
             .artifact_file_name(role)
@@ -362,14 +453,24 @@ fn verify_bootable_release_sources(
         MAX_CURL_PRODUCT_RELEASE_DETACHED_SIGNATURE_BYTES,
         "verified guest signature",
     )?;
-    let mut authenticated_guest = authenticate_staged_bootable_native_shadow_update(
-        &guest_manifest,
-        &guest_signature,
-        guest_trust_root,
-        guest_floor,
-    )?;
+    let mut authenticated_guest = match contract {
+        InstalledGuestContract::BootableV2 => authenticate_staged_bootable_native_shadow_update(
+            &guest_manifest,
+            &guest_signature,
+            guest_trust_root,
+            guest_floor,
+        )?,
+        InstalledGuestContract::DirectBootV3 => {
+            authenticate_staged_direct_boot_native_shadow_update(
+                &guest_manifest,
+                &guest_signature,
+                guest_trust_root,
+                guest_floor,
+            )?
+        }
+    };
     let mut guest_files = BTreeMap::new();
-    for role in GuestArtifactRole::BOOTABLE_ALL {
+    for &role in contract.roles() {
         let file_name = authenticated_guest
             .artifact_file_name(role)
             .expect("an authenticated guest release declares every role")
@@ -527,6 +628,33 @@ pub fn open_verified_installed_bootable_curl_product_release(
     product_trust_root: &CurlProductReleaseTrustRoot,
     guest_trust_root: &NativeShadowUpdateTrustRoot,
 ) -> Result<VerifiedInstalledBootableCurlProductRelease, CurlProductInstallError> {
+    open_verified_installed_bootable_curl_product_release_for_contract(
+        install_root,
+        product_trust_root,
+        guest_trust_root,
+        InstalledGuestContract::BootableV2,
+    )
+}
+
+pub fn open_verified_installed_direct_boot_curl_product_release(
+    install_root: &Path,
+    product_trust_root: &CurlProductReleaseTrustRoot,
+    guest_trust_root: &NativeShadowUpdateTrustRoot,
+) -> Result<VerifiedInstalledBootableCurlProductRelease, CurlProductInstallError> {
+    open_verified_installed_bootable_curl_product_release_for_contract(
+        install_root,
+        product_trust_root,
+        guest_trust_root,
+        InstalledGuestContract::DirectBootV3,
+    )
+}
+
+fn open_verified_installed_bootable_curl_product_release_for_contract(
+    install_root: &Path,
+    product_trust_root: &CurlProductReleaseTrustRoot,
+    guest_trust_root: &NativeShadowUpdateTrustRoot,
+    contract: InstalledGuestContract,
+) -> Result<VerifiedInstalledBootableCurlProductRelease, CurlProductInstallError> {
     let state = read_installed_curl_product_state(install_root)?.ok_or_else(|| {
         CurlProductInstallError::State("installed release state is absent".to_string())
     })?;
@@ -553,13 +681,24 @@ pub fn open_verified_installed_bootable_curl_product_release(
         MAX_CURL_PRODUCT_RELEASE_DETACHED_SIGNATURE_BYTES,
         "installed bootable release signature",
     )?;
-    let mut authenticated = authenticate_active_bootable_curl_product_release(
-        &manifest_raw,
-        &signature_raw,
-        product_trust_root,
-        state.release_sequence,
-        &state.manifest_sha256,
-    )?;
+    let mut authenticated = match contract {
+        InstalledGuestContract::BootableV2 => authenticate_active_bootable_curl_product_release(
+            &manifest_raw,
+            &signature_raw,
+            product_trust_root,
+            state.release_sequence,
+            &state.manifest_sha256,
+        )?,
+        InstalledGuestContract::DirectBootV3 => {
+            authenticate_active_direct_boot_curl_product_release(
+                &manifest_raw,
+                &signature_raw,
+                product_trust_root,
+                state.release_sequence,
+                &state.manifest_sha256,
+            )?
+        }
+    };
     if authenticated.release_version() != state.release_version {
         return Err(CurlProductInstallError::State(
             "releaseVersion differs from the authenticated active manifest".to_string(),
@@ -594,16 +733,29 @@ pub fn open_verified_installed_bootable_curl_product_release(
         MAX_CURL_PRODUCT_RELEASE_DETACHED_SIGNATURE_BYTES,
         "installed guest signature",
     )?;
-    let mut authenticated_guest = authenticate_active_staged_bootable_native_shadow_update(
-        &guest_manifest,
-        &guest_signature,
-        guest_trust_root,
-        product.guest_release_sequence(),
-        product.guest_manifest_sha256(),
-    )?;
+    let mut authenticated_guest = match contract {
+        InstalledGuestContract::BootableV2 => {
+            authenticate_active_staged_bootable_native_shadow_update(
+                &guest_manifest,
+                &guest_signature,
+                guest_trust_root,
+                product.guest_release_sequence(),
+                product.guest_manifest_sha256(),
+            )?
+        }
+        InstalledGuestContract::DirectBootV3 => {
+            authenticate_active_staged_direct_boot_native_shadow_update(
+                &guest_manifest,
+                &guest_signature,
+                guest_trust_root,
+                product.guest_release_sequence(),
+                product.guest_manifest_sha256(),
+            )?
+        }
+    };
     let guest_directory = version_directory.join(CURL_PRODUCT_INSTALLED_GUEST_DIRECTORY);
     let mut guest_files = BTreeMap::new();
-    for role in GuestArtifactRole::BOOTABLE_ALL {
+    for &role in contract.roles() {
         let file_name = authenticated_guest
             .artifact_file_name(role)
             .expect("an authenticated guest release declares every role");
@@ -716,6 +868,7 @@ fn adopt_verified_bootable_release(
     product: &VerifiedCurlProductRelease,
     guest: &VerifiedStagedNativeShadowUpdate,
     guest_files: &BTreeMap<GuestArtifactRole, File>,
+    guest_roles: &[GuestArtifactRole],
 ) -> Result<InstalledBootableCurlProduct, CurlProductInstallError> {
     let manifest_sha256 = product.manifest_sha256().to_string();
     let version_directory_name = format!(
@@ -740,13 +893,31 @@ fn adopt_verified_bootable_release(
             .artifact_file_name(role)
             .expect("a verified product declares every role")
             .to_string();
+        let installed_path = stage_dir.join(&file_name);
         copy_retained_file(
             product
                 .artifact_file(role)
                 .expect("a verified product retains every artifact handle"),
-            &stage_dir.join(&file_name),
+            &installed_path,
             &file_name,
         )?;
+        if matches!(
+            role,
+            ProductArtifactRole::HostCli
+                | ProductArtifactRole::HostNode
+                | ProductArtifactRole::HostWalletAgent
+                | ProductArtifactRole::HostController
+        ) {
+            fs::set_permissions(&installed_path, fs::Permissions::from_mode(0o555)).map_err(
+                |error| {
+                    io_error(
+                        "make installed host artifact executable",
+                        &installed_path,
+                        error,
+                    )
+                },
+            )?;
+        }
         product_file_names.insert(role, file_name);
     }
     write_durable(
@@ -762,7 +933,7 @@ fn adopt_verified_bootable_release(
     fs::create_dir(&guest_dir)
         .map_err(|error| io_error("create staged guest directory", &guest_dir, error))?;
     let mut guest_file_names = BTreeMap::new();
-    for role in GuestArtifactRole::BOOTABLE_ALL {
+    for &role in guest_roles {
         let file_name = guest
             .artifact_file_name(role)
             .expect("a verified guest release declares every role")

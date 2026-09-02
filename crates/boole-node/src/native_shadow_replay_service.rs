@@ -2132,9 +2132,9 @@ pub async fn serve_installed_closed_local_native_shadow_replay() -> anyhow::Resu
 pub async fn serve_installed_mac_closed_local_native_shadow_replay(
     config: InstalledMacReplayConfig,
 ) -> anyhow::Result<()> {
-    use boole_core::open_verified_installed_bootable_curl_product_release;
+    use boole_core::open_verified_installed_direct_boot_curl_product_release;
 
-    let active = open_verified_installed_bootable_curl_product_release(
+    let active = open_verified_installed_direct_boot_curl_product_release(
         &config.install_root,
         &config.product_trust_root,
         &config.guest_trust_root,

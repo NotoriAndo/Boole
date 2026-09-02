@@ -19,8 +19,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use boole_core::{
     canonicalize, GuestArtifactRole, ProductArtifactRole, SigningKeyV2,
     CURL_PRODUCT_INSTALLED_MANIFEST_FILE, CURL_PRODUCT_INSTALLED_SIGNATURE_FILE,
-    CURL_PRODUCT_RELEASE_MANIFEST_SCHEMA_V2, CURL_PRODUCT_RELEASE_SIGNING_CONTEXT_V2,
-    GUEST_UPDATE_MANIFEST_SCHEMA_V2, NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT_V2,
+    CURL_PRODUCT_RELEASE_MANIFEST_SCHEMA_V3, CURL_PRODUCT_RELEASE_SIGNING_CONTEXT_V3,
+    GUEST_UPDATE_MANIFEST_SCHEMA_V3, NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT_V3,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -156,7 +156,7 @@ pub fn write_bootable_curl_product_kat_metadata(
             "KAT product inputs must contain the exact four host roles",
         ));
     }
-    let expected_guest: BTreeSet<_> = GuestArtifactRole::BOOTABLE_ALL.into_iter().collect();
+    let expected_guest: BTreeSet<_> = GuestArtifactRole::DIRECT_BOOT_ALL.into_iter().collect();
     if input
         .guest_artifacts
         .keys()
@@ -171,15 +171,15 @@ pub fn write_bootable_curl_product_kat_metadata(
     }
     fs::create_dir(&input.output_dir)?;
     let result = (|| {
-        let guest_descriptors = GuestArtifactRole::BOOTABLE_ALL
+        let guest_descriptors = GuestArtifactRole::DIRECT_BOOT_ALL
             .into_iter()
             .map(|role| {
                 artifact_descriptor(role.as_str(), role.as_str(), &input.guest_artifacts[&role])
             })
             .collect::<io::Result<Vec<_>>>()?;
         let guest_manifest = canonicalize(&json!({
-            "schema": GUEST_UPDATE_MANIFEST_SCHEMA_V2,
-            "bootFormatVersion": 1,
+            "schema": GUEST_UPDATE_MANIFEST_SCHEMA_V3,
+            "bootFormatVersion": 2,
             "channel": "stable",
             "releaseSequence": 1,
             "releaseVersion": "0.0.0-installed-mac-e2e-kat",
@@ -193,7 +193,7 @@ pub fn write_bootable_curl_product_kat_metadata(
             &guest_key,
             INSTALLED_MAC_E2E_GUEST_KAT_KEY_ID,
             &guest_manifest,
-            NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT_V2,
+            NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT_V3,
         )?;
         write_new(
             &input.output_dir.join("guest-update-manifest"),
@@ -228,7 +228,7 @@ pub fn write_bootable_curl_product_kat_metadata(
             product_descriptors.push(descriptor);
         }
         let product_manifest = canonicalize(&json!({
-            "schema": CURL_PRODUCT_RELEASE_MANIFEST_SCHEMA_V2,
+            "schema": CURL_PRODUCT_RELEASE_MANIFEST_SCHEMA_V3,
             "channel": "stable",
             "releaseSequence": 1,
             "releaseVersion": "0.0.0-installed-mac-e2e-kat",
@@ -248,7 +248,7 @@ pub fn write_bootable_curl_product_kat_metadata(
             &product_key,
             INSTALLED_MAC_E2E_PRODUCT_KAT_KEY_ID,
             &product_manifest,
-            CURL_PRODUCT_RELEASE_SIGNING_CONTEXT_V2,
+            CURL_PRODUCT_RELEASE_SIGNING_CONTEXT_V3,
         )?;
         write_new(
             &input.output_dir.join(CURL_PRODUCT_INSTALLED_MANIFEST_FILE),
@@ -285,7 +285,8 @@ mod bootable_curl_product_kat_tests {
     use super::{write_bootable_curl_product_kat_metadata, BootableCurlProductKatInput};
     use boole_core::{
         GuestArtifactRole, ProductArtifactRole, CURL_PRODUCT_INSTALLED_MANIFEST_FILE,
-        CURL_PRODUCT_INSTALLED_SIGNATURE_FILE,
+        CURL_PRODUCT_INSTALLED_SIGNATURE_FILE, CURL_PRODUCT_RELEASE_MANIFEST_SCHEMA_V3,
+        GUEST_UPDATE_MANIFEST_SCHEMA_V3,
     };
     use sha2::Digest;
     use std::collections::BTreeMap;
@@ -311,7 +312,7 @@ mod bootable_curl_product_kat_tests {
             product.insert(role, path);
         }
         let mut guest = BTreeMap::new();
-        for role in GuestArtifactRole::BOOTABLE_ALL {
+        for role in GuestArtifactRole::DIRECT_BOOT_ALL {
             let path = root.join(role.as_str());
             fs::write(&path, format!("guest:{}", role.as_str())).expect("guest fixture");
             guest.insert(role, path);
@@ -352,7 +353,13 @@ mod bootable_curl_product_kat_tests {
             serde_json::from_slice(&fs::read(output.join("guest-update-manifest")).unwrap())
                 .unwrap();
         assert_eq!(product_manifest["artifacts"].as_array().unwrap().len(), 6);
-        assert_eq!(guest_manifest["artifacts"].as_array().unwrap().len(), 12);
+        assert_eq!(guest_manifest["artifacts"].as_array().unwrap().len(), 11);
+        assert_eq!(
+            product_manifest["schema"],
+            CURL_PRODUCT_RELEASE_MANIFEST_SCHEMA_V3
+        );
+        assert_eq!(guest_manifest["schema"], GUEST_UPDATE_MANIFEST_SCHEMA_V3);
+        assert_eq!(guest_manifest["bootFormatVersion"], 2);
         assert_eq!(
             product_manifest["guestManifestSha256"],
             hex::encode(sha2::Sha256::digest(

@@ -22,6 +22,8 @@ pub const GUEST_UPDATE_MANIFEST_SCHEMA: &str = "boole.native-shadow.guest-update
 pub const NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT: &str = "boole-native-shadow-guest-update-v1";
 pub const GUEST_UPDATE_MANIFEST_SCHEMA_V2: &str = "boole.native-shadow.guest-update-manifest.v2";
 pub const NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT_V2: &str = "boole-native-shadow-guest-update-v2";
+pub const GUEST_UPDATE_MANIFEST_SCHEMA_V3: &str = "boole.native-shadow.guest-update-manifest.v3";
+pub const NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT_V3: &str = "boole-native-shadow-guest-update-v3";
 pub const MAX_GUEST_UPDATE_ARTIFACT_BYTES: u64 = 2_147_483_648;
 const MAX_MANIFEST_BYTES: usize = 1_048_576;
 const MAX_DETACHED_SIGNATURE_BYTES: usize = 4_096;
@@ -42,6 +44,20 @@ const GUEST_ARTIFACT_ROLES_V1: [GuestArtifactRole; 10] = [
 const GUEST_ARTIFACT_ROLES_V2: [GuestArtifactRole; 12] = [
     GuestArtifactRole::GuestKernel,
     GuestArtifactRole::GuestInitrd,
+    GuestArtifactRole::GuestRootDisk,
+    GuestArtifactRole::RootfsContentManifest,
+    GuestArtifactRole::Registry,
+    GuestArtifactRole::ExecutionPolicy,
+    GuestArtifactRole::ToolchainIdentity,
+    GuestArtifactRole::CheckerReleaseManifest,
+    GuestArtifactRole::RegistryOverlay,
+    GuestArtifactRole::ClosedLocalReplayGrant,
+    GuestArtifactRole::LocalExecutionAuthority,
+    GuestArtifactRole::ClosedLocalReplayExecutionAuthority,
+];
+
+const GUEST_ARTIFACT_ROLES_V3: [GuestArtifactRole; 11] = [
+    GuestArtifactRole::GuestKernel,
     GuestArtifactRole::GuestRootDisk,
     GuestArtifactRole::RootfsContentManifest,
     GuestArtifactRole::Registry,
@@ -80,6 +96,10 @@ impl GuestArtifactRole {
     /// Bootable v2 runtime-authority set.  The legacy OCI `guest-rootfs` is
     /// replaced by the three host-side files required by VZLinuxBootLoader.
     pub const BOOTABLE_ALL: [Self; 12] = GUEST_ARTIFACT_ROLES_V2;
+
+    /// Direct-root successor. The proven Mac controller never attaches the
+    /// generated initrd, so v3 authenticates only the two supplied boot files.
+    pub const DIRECT_BOOT_ALL: [Self; 11] = GUEST_ARTIFACT_ROLES_V3;
 
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -223,6 +243,7 @@ struct GuestArtifactDescriptor {
 enum GuestUpdateContract {
     FrozenV1,
     BootableV2,
+    DirectBootV3,
 }
 
 #[derive(Clone, Copy)]
@@ -236,6 +257,7 @@ impl GuestUpdateContract {
         match self {
             Self::FrozenV1 => GUEST_UPDATE_MANIFEST_SCHEMA,
             Self::BootableV2 => GUEST_UPDATE_MANIFEST_SCHEMA_V2,
+            Self::DirectBootV3 => GUEST_UPDATE_MANIFEST_SCHEMA_V3,
         }
     }
 
@@ -243,6 +265,7 @@ impl GuestUpdateContract {
         match self {
             Self::FrozenV1 => NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT,
             Self::BootableV2 => NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT_V2,
+            Self::DirectBootV3 => NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT_V3,
         }
     }
 
@@ -250,6 +273,7 @@ impl GuestUpdateContract {
         match self {
             Self::FrozenV1 => None,
             Self::BootableV2 => Some(1),
+            Self::DirectBootV3 => Some(2),
         }
     }
 
@@ -257,6 +281,7 @@ impl GuestUpdateContract {
         match self {
             Self::FrozenV1 => &GUEST_ARTIFACT_ROLES_V1,
             Self::BootableV2 => &GUEST_ARTIFACT_ROLES_V2,
+            Self::DirectBootV3 => &GUEST_ARTIFACT_ROLES_V3,
         }
     }
 }
@@ -460,6 +485,50 @@ pub fn authenticate_staged_bootable_native_shadow_update(
     )
 }
 
+/// Authenticate the direct-root successor that removes the unused initrd
+/// artifact while retaining the frozen aggregate guest cap.
+pub fn authenticate_staged_direct_boot_native_shadow_update(
+    manifest_raw: &[u8],
+    detached_signature_raw: &[u8],
+    trust_root: &NativeShadowUpdateTrustRoot,
+    floor: &NativeShadowUpdateFloor,
+) -> Result<AuthenticatedStagedNativeShadowUpdate, NativeShadowUpdateVerifyError> {
+    authenticate_staged_native_shadow_update_for_contract(
+        manifest_raw,
+        detached_signature_raw,
+        trust_root,
+        UpdateVersionExpectation::Successor(floor),
+        GuestUpdateContract::DirectBootV3,
+    )
+}
+
+pub(crate) fn authenticate_active_staged_direct_boot_native_shadow_update(
+    manifest_raw: &[u8],
+    detached_signature_raw: &[u8],
+    trust_root: &NativeShadowUpdateTrustRoot,
+    expected_release_sequence: u64,
+    expected_manifest_sha256: &str,
+) -> Result<AuthenticatedStagedNativeShadowUpdate, NativeShadowUpdateVerifyError> {
+    if expected_release_sequence == 0 {
+        return Err(NativeShadowUpdateVerifyError::VersionChain(
+            "the active guest release sequence must be non-zero".to_string(),
+        ));
+    }
+    require_sha256("active manifest digest", expected_manifest_sha256)?;
+    if hex::encode(Sha256::digest(manifest_raw)) != expected_manifest_sha256 {
+        return Err(NativeShadowUpdateVerifyError::ManifestDigestMismatch);
+    }
+    authenticate_staged_native_shadow_update_for_contract(
+        manifest_raw,
+        detached_signature_raw,
+        trust_root,
+        UpdateVersionExpectation::ExactActive {
+            release_sequence: expected_release_sequence,
+        },
+        GuestUpdateContract::DirectBootV3,
+    )
+}
+
 pub(crate) fn authenticate_active_staged_bootable_native_shadow_update(
     manifest_raw: &[u8],
     detached_signature_raw: &[u8],
@@ -580,6 +649,9 @@ fn validate_manifest(
             }
             GuestUpdateContract::BootableV2 => {
                 "bootFormatVersion must be 1 for the bootable v2 contract".to_string()
+            }
+            GuestUpdateContract::DirectBootV3 => {
+                "bootFormatVersion must be 2 for the direct-boot v3 contract".to_string()
             }
         }));
     }

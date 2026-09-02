@@ -34,6 +34,7 @@ const CONTROLLER_CONTRACT_DIGEST: [u8; 32] = [
     0x7f, 0x3d, 0xf7, 0x96, 0xad, 0x3c, 0xda, 0x07, 0xb1, 0x6f, 0x8b, 0x44, 0x84, 0xb9, 0xb7, 0x13,
 ];
 
+#[cfg(test)]
 fn boot_tuple_binding_hex(
     kernel_digest: &str,
     initrd_digest: &str,
@@ -54,6 +55,22 @@ fn boot_tuple_binding_hex(
         let bytes = hex::decode(digest)
             .map_err(|_| ControllerError("boot tuple digest cannot be decoded".into()))?;
         binding.update(bytes);
+    }
+    Ok(hex::encode(binding.finalize()))
+}
+
+fn direct_boot_binding_hex(
+    kernel_digest: &str,
+    root_disk_digest: &str,
+) -> Result<String, ControllerError> {
+    let mut binding = Sha256::new();
+    binding.update(b"boole.mac4.boot-tuple.v2\0");
+    for digest in [kernel_digest, root_disk_digest] {
+        require_lowercase_sha256(digest, "direct boot tuple digest")?;
+        binding.update(
+            hex::decode(digest)
+                .map_err(|_| ControllerError("boot tuple digest cannot be decoded".into()))?,
+        );
     }
     Ok(hex::encode(binding.finalize()))
 }
@@ -384,7 +401,7 @@ pub struct SpawnedMac4Controller {
 
 #[cfg(target_os = "macos")]
 impl SpawnedMac4Controller {
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[allow(dead_code)]
     pub fn spawn(
         verified_release: &VerifiedCurlProductRelease,
         runtime_root: &Path,
@@ -460,7 +477,6 @@ impl SpawnedMac4Controller {
             guest_descriptor(GuestArtifactRole::GuestKernel)?;
         let (root_file, root_len, root_digest) =
             guest_descriptor(GuestArtifactRole::GuestRootDisk)?;
-        let (_, _, initrd_digest) = guest_descriptor(GuestArtifactRole::GuestInitrd)?;
         let kernel_path = materialize_verified_runtime_file(
             kernel_file,
             kernel_len,
@@ -483,7 +499,7 @@ impl SpawnedMac4Controller {
         let receipt_path = materialized.runtime_directory().join("guest-receipt.json");
         materialized.auxiliary_paths.push(console_path.clone());
         materialized.auxiliary_paths.push(receipt_path.clone());
-        let binding = boot_tuple_binding_hex(kernel_digest, initrd_digest, root_digest)?;
+        let binding = direct_boot_binding_hex(kernel_digest, root_digest)?;
         let nonce = macos_fresh_nonce_hex()?;
         let arguments = bootable_controller_arguments(
             &kernel_path,
@@ -1217,6 +1233,23 @@ mod tests {
             hex::encode(expected.finalize())
         );
         assert!(super::boot_tuple_binding_hex(&kernel, &initrd, "not-a-digest").is_err());
+    }
+
+    #[test]
+    fn direct_boot_binding_covers_only_the_two_files_supplied_to_the_vm() {
+        let kernel = "11".repeat(32);
+        let root_disk = "33".repeat(32);
+        let mut expected = Sha256::new();
+        expected.update(b"boole.mac4.boot-tuple.v2\0");
+        expected.update([0x11; 32]);
+        expected.update([0x33; 32]);
+
+        assert_eq!(
+            super::direct_boot_binding_hex(&kernel, &root_disk)
+                .expect("derive direct boot binding"),
+            hex::encode(expected.finalize())
+        );
+        assert!(super::direct_boot_binding_hex(&kernel, "not-a-digest").is_err());
     }
 
     #[cfg(target_os = "macos")]

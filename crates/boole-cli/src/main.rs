@@ -829,6 +829,31 @@ enum ProductCommand {
         #[arg(long = "timeout-seconds", default_value_t = 30)]
         timeout_seconds: u64,
     },
+    /// Download and atomically install the direct-root product-v3 successor.
+    /// It retains the frozen 2 GiB guest cap and omits the initrd that the
+    /// proven Mac controller never attaches to the VM.
+    InstallDirectBoot {
+        #[arg(long = "base-url")]
+        base_url: String,
+        #[arg(long = "install-root")]
+        install_root: PathBuf,
+        #[arg(long = "download-staging")]
+        download_staging: Option<PathBuf>,
+        #[arg(long = "product-trust-root-key-id")]
+        product_trust_root_key_id: String,
+        #[arg(long = "product-trust-root-public-key")]
+        product_trust_root_public_key: String,
+        #[arg(long = "guest-trust-root-key-id")]
+        guest_trust_root_key_id: String,
+        #[arg(long = "guest-trust-root-public-key")]
+        guest_trust_root_public_key: String,
+        #[arg(long = "first-product-minimum")]
+        first_product_minimum: u64,
+        #[arg(long = "first-guest-minimum")]
+        first_guest_minimum: u64,
+        #[arg(long = "timeout-seconds", default_value_t = 30)]
+        timeout_seconds: u64,
+    },
 }
 
 fn main() {
@@ -1045,6 +1070,29 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 first_guest_minimum,
                 timeout_seconds,
             } => product_install_bootable(
+                &base_url,
+                &install_root,
+                download_staging.as_deref(),
+                &product_trust_root_key_id,
+                &product_trust_root_public_key,
+                &guest_trust_root_key_id,
+                &guest_trust_root_public_key,
+                first_product_minimum,
+                first_guest_minimum,
+                timeout_seconds,
+            ),
+            ProductCommand::InstallDirectBoot {
+                base_url,
+                install_root,
+                download_staging,
+                product_trust_root_key_id,
+                product_trust_root_public_key,
+                guest_trust_root_key_id,
+                guest_trust_root_public_key,
+                first_product_minimum,
+                first_guest_minimum,
+                timeout_seconds,
+            } => product_install_direct_boot(
                 &base_url,
                 &install_root,
                 download_staging.as_deref(),
@@ -2297,9 +2345,9 @@ fn product_install(
     Ok(())
 }
 
-fn product_install_bootable_emit_err(reason: &str, message: String) -> ! {
+fn product_install_bootable_emit_err(command: &str, reason: &str, message: String) -> ! {
     let envelope = boole_cli::cli_envelope::encode_err(
-        "product.install-bootable",
+        command,
         reason,
         serde_json::json!({ "message": message }),
     );
@@ -2320,8 +2368,72 @@ fn product_install_bootable(
     first_guest_minimum: u64,
     timeout_seconds: u64,
 ) -> anyhow::Result<()> {
+    product_install_boot_contract(
+        false,
+        base_url,
+        install_root,
+        download_staging,
+        product_trust_root_key_id,
+        product_trust_root_public_key,
+        guest_trust_root_key_id,
+        guest_trust_root_public_key,
+        first_product_minimum,
+        first_guest_minimum,
+        timeout_seconds,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn product_install_direct_boot(
+    base_url: &str,
+    install_root: &Path,
+    download_staging: Option<&Path>,
+    product_trust_root_key_id: &str,
+    product_trust_root_public_key: &str,
+    guest_trust_root_key_id: &str,
+    guest_trust_root_public_key: &str,
+    first_product_minimum: u64,
+    first_guest_minimum: u64,
+    timeout_seconds: u64,
+) -> anyhow::Result<()> {
+    product_install_boot_contract(
+        true,
+        base_url,
+        install_root,
+        download_staging,
+        product_trust_root_key_id,
+        product_trust_root_public_key,
+        guest_trust_root_key_id,
+        guest_trust_root_public_key,
+        first_product_minimum,
+        first_guest_minimum,
+        timeout_seconds,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn product_install_boot_contract(
+    direct_boot: bool,
+    base_url: &str,
+    install_root: &Path,
+    download_staging: Option<&Path>,
+    product_trust_root_key_id: &str,
+    product_trust_root_public_key: &str,
+    guest_trust_root_key_id: &str,
+    guest_trust_root_public_key: &str,
+    first_product_minimum: u64,
+    first_guest_minimum: u64,
+    timeout_seconds: u64,
+) -> anyhow::Result<()> {
     use boole_cli::curl_product_transport::{
-        download_and_install_bootable_curl_product_release, CurlProductTransportError,
+        download_and_install_bootable_curl_product_release,
+        download_and_install_direct_boot_curl_product_release, CurlProductTransportError,
+    };
+
+    let command = if direct_boot {
+        "product.install-direct-boot"
+    } else {
+        "product.install-bootable"
     };
 
     let product_trust_root = boole_core::CurlProductReleaseTrustRoot::new(
@@ -2329,14 +2441,14 @@ fn product_install_bootable(
         product_trust_root_public_key,
     )
     .unwrap_or_else(|error| {
-        product_install_bootable_emit_err("product-trust-root-rejected", error.to_string())
+        product_install_bootable_emit_err(command, "product-trust-root-rejected", error.to_string())
     });
     let guest_trust_root = boole_core::NativeShadowUpdateTrustRoot::new(
         guest_trust_root_key_id,
         guest_trust_root_public_key,
     )
     .unwrap_or_else(|error| {
-        product_install_bootable_emit_err("guest-trust-root-rejected", error.to_string())
+        product_install_bootable_emit_err(command, "guest-trust-root-rejected", error.to_string())
     });
     let default_staging = download_staging.is_none().then(|| {
         let nonce = std::time::SystemTime::now()
@@ -2353,7 +2465,12 @@ fn product_install_bootable(
             .as_deref()
             .expect("default staging exists when no override is given")
     });
-    let installed = download_and_install_bootable_curl_product_release(
+    let install = if direct_boot {
+        download_and_install_direct_boot_curl_product_release
+    } else {
+        download_and_install_bootable_curl_product_release
+    };
+    let installed = install(
         base_url,
         install_root,
         staging,
@@ -2375,12 +2492,12 @@ fn product_install_bootable(
             CurlProductTransportError::Install(_) => "install-rejected",
             CurlProductTransportError::Io(_) => "staging-io-failed",
         };
-        product_install_bootable_emit_err(reason, error.to_string())
+        product_install_bootable_emit_err(command, reason, error.to_string())
     });
     println!(
         "{}",
         boole_cli::cli_envelope::encode_ok(
-            "product.install-bootable",
+            command,
             serde_json::json!({
                 "releaseSequence": installed.product().release_sequence(),
                 "releaseVersion": installed.product().release_version(),
