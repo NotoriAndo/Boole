@@ -1,0 +1,75 @@
+{
+  "activationAllowed": false,
+  "authentication": {
+    "bootBinding": "Every proxy open binds the exact verified kernel, initrd and read-only root-disk tuple of one running VM.",
+    "freshness": "The trusted Mac host supplies a fresh non-zero 32-byte nonce and accepts only an exact echo.",
+    "guestIdentity": "The Mac host reaches this listener only through the VZVirtioSocketDevice owned by the exact verified VM.",
+    "hostIdentity": "The guest accepts only the kernel-reported AF_VSOCK peer CID VMADDR_CID_HOST (2).",
+    "launcherIdentity": "The guest opens only /run/boole/native-shadow/launcher.sock and reports kernel-observed SO_PEERCRED values. PID must be non-zero and UID/GID must both be root.",
+    "protocolBinding": "Every open and ready frame carries the SHA-256 digest of this complete contract."
+  },
+  "boundaries": {
+    "guestMayCreateVerdict": false,
+    "guestMayMutateHostState": false,
+    "guestOwnsChallengeOrReplayState": false,
+    "internetNetworkDeviceRequired": false,
+    "mac4Complete": false,
+    "miningEnabled": false,
+    "productionRelease": false,
+    "rewardEnabled": false,
+    "testnetEnabled": false
+  },
+  "frame": {
+    "bootTupleBindingBytes": 32,
+    "byteOrder": "network-big-endian-for-numeric-fields",
+    "fixedFrameBytes": 120,
+    "frameKinds": {
+      "guestReady": 2,
+      "hostOpen": 1
+    },
+    "launcherPeerFields": {
+      "gidBytes": 4,
+      "pidBytes": 4,
+      "uidBytes": 4
+    },
+    "magicAscii": "BOOLE4P1",
+    "nonceBytes": 32,
+    "phases": {
+      "execution": 2,
+      "qualification": 1
+    },
+    "protocolDigestBytes": 32,
+    "reservedBytes": 2,
+    "trailingBytesAllowed": false
+  },
+  "hostState": {
+    "challengeRegistryReplayJournalEvidenceOwner": "trusted-mac-host-node",
+    "guestRole": "bounded-frame-relay-to-one-fixed-linux-launcher-socket"
+  },
+  "relay": {
+    "executionSequence": [
+      "host-execution-hello",
+      "launcher-ready",
+      "host-execution-request",
+      "launcher-report",
+      "launcher-eof"
+    ],
+    "fixedLauncherSocket": "/run/boole/native-shadow/launcher.sock",
+    "qualificationSequence": [
+      "host-qualification-hello",
+      "launcher-qualification-ready",
+      "launcher-eof"
+    ],
+    "requestFrameCapBytes": 131072,
+    "responseFrameCapBytes": 65536
+  },
+  "schema": "boole.native-shadow.mac4-execution-proxy-contract.v1",
+  "status": "MAC4-EXECUTION-PROXY-CONTRACT-FROZEN-NOT-YET-OBSERVED",
+  "transport": {
+    "addressFamily": "AF_VSOCK",
+    "guestListenerPort": 4051,
+    "hostCid": 2,
+    "ipNetworking": false,
+    "sharedDirectory": false
+  }
+}

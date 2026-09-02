@@ -8,11 +8,11 @@
 > PR for every reversible retry. This note grants no A7, production, boot,
 > MAC.4 or activation effect.
 
-> **CURRENT-CURSOR-2026-09-02:** `MAC.4 AUTHENTICATED TRANSPORT + GUEST READINESS PASS / NODE-OWNED EXECUTION ROUTE NOT YET CONNECTED`.
-> Next is the node-side binding from the existing challenge, durable journal,
-> replay and terminal-evidence path to the bounded authenticated relay.
-> Existing runtime exactly-once and containment contracts remain the
-> acceptance boundary.
+> **CURRENT-CURSOR-2026-09-02:** `MAC.4 EXECUTION PROXY + NODE SESSION VALIDATION GREEN / PERSISTENT HOST CONTROLLER + REAL NODE ROUTE COMPOSITION NEXT`.
+> Next is one persistent Mac controller that owns one hidden-guest lifecycle
+> and composes the existing node replay service with the bounded proxy adapter.
+> Existing runtime exactly-once and containment contracts remain the acceptance
+> boundary.
 
 Status: **CLOSED-LOCAL IMPLEMENTATION GREEN.** Registry/state durability, named-Linux containment,
 actual checker execution and the feature-gated loopback HTTP route are on `main`. Production
@@ -4752,3 +4752,23 @@ trusted host retains challenge, policy, journal, replay and evidence ownership;
 guest unavailability remains retryable and cannot consume the challenge. No
 production, testnet, mining, reward, consensus, P2P or activation authority is
 created by this observation.
+
+## MAC.4 execution-proxy adapter closure (2026-09-02)
+
+The guest relay has a fixed, separately bound execution-proxy port. It accepts
+only qualification and execution openings, reads the launcher's kernel-owned
+Unix peer credentials, requires the root supervisor and forwards bounded
+launcher frames without interpreting a verdict. The Mac host requires both
+phases to identify the same launcher peer.
+
+`boole-node` now has a transport adapter that decodes those exact launcher
+frames, binds them to the startup-qualified PID and launcher instance, applies
+the existing cross-frame session validator and then calls the existing node
+adjudicator. Proxy failure, peer drift and malformed frames become ambiguous
+fail-closed outcomes. The adapter does not add a second challenge, journal,
+replay or evidence authority.
+
+This closure is not yet a production constructor or route. A persistent Mac
+controller must own one verified VM lifecycle and be composed into the real
+durable replay service before MAC.4 can be called complete. No image or VM was
+created by this implementation slice.

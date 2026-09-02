@@ -204,7 +204,7 @@ trait LauncherTransport<R>: Send + Sync + 'static {
     fn execute(&self, request: &R) -> ValidatedLauncherOutcome;
 }
 
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct LauncherPeerIdentity {
     pid: u32,
@@ -212,7 +212,7 @@ struct LauncherPeerIdentity {
     gid: u32,
 }
 
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
 fn validate_qualified_launcher_identity(
     qualified_pid: u32,
     qualified_instance_id_hex: &str,
@@ -232,7 +232,7 @@ fn validate_qualified_launcher_identity(
     Ok(())
 }
 
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
 #[derive(Debug, Clone, Copy)]
 struct LauncherAdjudicationFacts {
     cleanup_complete: bool,
@@ -245,7 +245,7 @@ struct LauncherAdjudicationFacts {
     checker_reason: Option<boole_native_shadow_protocol::CheckerReason>,
 }
 
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
 fn classify_launcher_facts(facts: LauncherAdjudicationFacts) -> ValidatedLauncherOutcome {
     use boole_native_shadow_protocol::{CheckerReason, CheckerVerdict};
 
@@ -328,7 +328,7 @@ fn classify_launcher_facts(facts: LauncherAdjudicationFacts) -> ValidatedLaunche
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
 fn classify_validated_launcher_session(
     session: &boole_native_shadow_protocol::ValidatedClosedLocalReplayExecutionSession,
 ) -> ValidatedLauncherOutcome {
@@ -343,6 +343,110 @@ fn classify_validated_launcher_session(
         checker_verdict: view.checker_verdict,
         checker_reason: view.checker_reason,
     })
+}
+
+/// Exact execution-session bytes returned by the trusted Mac VM controller.
+///
+/// Qualification is a separate startup barrier. This value can be produced
+/// only after that barrier has bound one live launcher PID/instance and the
+/// controller has observed EOF for this one execution exchange.
+#[cfg(any(target_os = "macos", test))]
+#[derive(Debug)]
+struct Mac4ExecutionProxyOutput {
+    launcher_peer: LauncherPeerIdentity,
+    ready_frame: Vec<u8>,
+    report_frame: Vec<u8>,
+}
+
+#[cfg(any(target_os = "macos", test))]
+trait Mac4ExecutionProxy: Send + Sync + 'static {
+    fn exchange(
+        &self,
+        hello_frame: &[u8],
+        request_frame: &[u8],
+    ) -> Result<Mac4ExecutionProxyOutput, ()>;
+}
+
+/// Mac transport adapter for the existing node-owned replay state machine.
+///
+/// It does not decide a verdict. It accepts only the exact typed launcher
+/// frames, checks the kernel-observed root peer against the startup-qualified
+/// launcher, validates all cross-frame bindings, and then delegates to the
+/// same adjudication function used by the Linux Unix-socket transport.
+#[cfg(any(target_os = "macos", test))]
+#[derive(Debug)]
+struct Mac4LauncherTransport<P> {
+    proxy: P,
+    qualified_pid: u32,
+    qualified_instance_id_hex: String,
+}
+
+#[cfg(any(target_os = "macos", test))]
+impl<P> Mac4LauncherTransport<P> {
+    fn new(proxy: P, qualified_pid: u32, qualified_instance_id_hex: String) -> Self {
+        Self {
+            proxy,
+            qualified_pid,
+            qualified_instance_id_hex,
+        }
+    }
+
+    fn execute_session(
+        &self,
+        request: &boole_native_shadow_protocol::ExecutionRequest,
+    ) -> Result<ValidatedLauncherOutcome, &'static str>
+    where
+        P: Mac4ExecutionProxy,
+    {
+        use boole_native_shadow_protocol::{
+            decode_complete_closed_local_replay_execution_ready_frame,
+            decode_complete_execution_report_frame, encode_execution_hello_frame,
+            encode_execution_request_frame, validate_closed_local_replay_execution_session,
+            ExecutionHello,
+        };
+
+        let request_frame =
+            encode_execution_request_frame(request).map_err(|_| "mac4_request_encode_failed")?;
+        let hello = ExecutionHello::try_from_execution_request_frame(&request_frame)
+            .map_err(|_| "mac4_hello_derive_failed")?;
+        let hello_frame =
+            encode_execution_hello_frame(&hello).map_err(|_| "mac4_hello_encode_failed")?;
+        let output = self
+            .proxy
+            .exchange(&hello_frame, &request_frame)
+            .map_err(|_| "mac4_execution_proxy_unavailable")?;
+        let ready = decode_complete_closed_local_replay_execution_ready_frame(&output.ready_frame)
+            .map_err(|_| "mac4_execution_frame_invalid")?;
+        validate_qualified_launcher_identity(
+            self.qualified_pid,
+            &self.qualified_instance_id_hex,
+            output.launcher_peer,
+            ready.launcher_pid(),
+            ready.launcher_instance_id_hex(),
+        )
+        .map_err(|_| "mac4_execution_peer_not_qualified")?;
+        let report = decode_complete_execution_report_frame(&output.report_frame)
+            .map_err(|_| "mac4_execution_frame_invalid")?;
+        let session =
+            validate_closed_local_replay_execution_session(&hello, &ready, &request_frame, &report)
+                .map_err(|_| "mac4_execution_session_invalid")?;
+        Ok(classify_validated_launcher_session(&session))
+    }
+}
+
+#[cfg(any(target_os = "macos", test))]
+impl<P> LauncherTransport<boole_native_shadow_protocol::ExecutionRequest>
+    for Mac4LauncherTransport<P>
+where
+    P: Mac4ExecutionProxy,
+{
+    fn execute(
+        &self,
+        request: &boole_native_shadow_protocol::ExecutionRequest,
+    ) -> ValidatedLauncherOutcome {
+        self.execute_session(request)
+            .unwrap_or_else(|reason_code| ValidatedLauncherOutcome::Ambiguous { reason_code })
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -2649,6 +2753,225 @@ mod tests {
             classify_launcher_facts(incomplete_cleanup_even_with_accept),
             ValidatedLauncherOutcome::Ambiguous {
                 reason_code: "launcher_cleanup_incomplete"
+            }
+        ));
+    }
+
+    fn exact_mac4_execution_request() -> boole_native_shadow_protocol::ExecutionRequest {
+        use boole_native_shadow_protocol::{
+            sha256_hex as protocol_sha256, submission_digest_hex, ExecutionRequest,
+            ExecutionRequestFields,
+        };
+
+        let raw = b"answer";
+        let source = b"source";
+        let family = "TUPLE-STRUCT-PROJECT/RUST-TUPLE-STRUCT-PROJECT-V1";
+        let template = digest('2');
+        let challenge = digest('3');
+        ExecutionRequest::try_new(ExecutionRequestFields {
+            nonce_hex: digest('1'),
+            operation_id_hex: digest('4'),
+            family_version: family.to_string(),
+            template_id: template.clone(),
+            challenge_sha256: challenge.clone(),
+            epoch: 0,
+            raw_answer_base64: "YW5zd2Vy".to_string(),
+            submission_source_base64: "c291cmNl".to_string(),
+            submission_source_digest_hex: protocol_sha256(source),
+            candidate_digest_hex: protocol_sha256(raw),
+            submission_digest_hex: submission_digest_hex(family, &template, &challenge, 0, raw)
+                .expect("submission digest"),
+            registry_version: "closed-local-test-v1".to_string(),
+            registry_digest_hex: digest('5'),
+            anchor_digest_hex: digest('6'),
+            task_digest_hex: digest('7'),
+            checker_artifact_hash_hex: digest('8'),
+            checker_policy_digest_hex: digest('a'),
+            checker_release_manifest_digest_hex: digest('b'),
+            toolchain_identity_digest_hex: digest('c'),
+            execution_policy_digest_hex: digest('d'),
+            intake_version: "RUST-TUPLE-STRUCT-NATIVE-PROOF-INTAKE-V1".to_string(),
+        })
+        .expect("exact request")
+    }
+
+    fn accepted_mac4_proxy_output(
+        request: &boole_native_shadow_protocol::ExecutionRequest,
+    ) -> Mac4ExecutionProxyOutput {
+        use boole_native_shadow_protocol::{
+            encode_closed_local_replay_execution_ready_frame, encode_execution_report_frame,
+            sha256_hex as protocol_sha256, verify_closed_local_replay_execution_authority_bytes,
+            AuthorityBindings, AuthorityBindingsFields, CheckerOutputStatus, CheckerParsedResult,
+            CheckerParsedResultFields, CheckerReason, CheckerResult, CheckerResultFields,
+            CheckerVerdict, Cleanup, CleanupFields, ClosedLocalReplayExecutionReady,
+            ClosedLocalReplayExecutionReadyFields, ExecutionHello, ExecutionReport,
+            ExecutionReportFields, ResourceObservations, ResourceObservationsFields, WaitStatus,
+            TRACKED_CLOSED_LOCAL_REPLAY_EXECUTION_AUTHORITY_BYTES,
+        };
+
+        let request_frame = boole_native_shadow_protocol::encode_execution_request_frame(request)
+            .expect("request frame");
+        let hello = ExecutionHello::try_from_execution_request_frame(&request_frame)
+            .expect("derived hello");
+        let authority = verify_closed_local_replay_execution_authority_bytes(
+            TRACKED_CLOSED_LOCAL_REPLAY_EXECUTION_AUTHORITY_BYTES,
+        )
+        .expect("execution authority");
+        let ready = ClosedLocalReplayExecutionReady::try_new(
+            &hello,
+            &authority,
+            ClosedLocalReplayExecutionReadyFields {
+                launcher_pid: 4242,
+                launcher_uid: 0,
+                launcher_gid: 0,
+                node_uid: 990,
+                node_gid: 990,
+                checker_uid: 991,
+                checker_gid: 991,
+                startup_recovery_complete: true,
+                active_execution_leaves: 0,
+                unexpected_direct_cgroup_children: 0,
+                manager_subgroup_verified: true,
+                launcher_instance_id_hex: digest('9'),
+                installed_replay_authorities_verified: true,
+                runtime_rootfs_replay_verified: true,
+                production_activation_allowed: false,
+            },
+        )
+        .expect("closed-local ready");
+        let authority_bindings = AuthorityBindings::try_new(AuthorityBindingsFields {
+            registry_version: request.registry_version().to_string(),
+            registry_digest_hex: request.registry_digest_hex().to_string(),
+            anchor_digest_hex: request.anchor_digest_hex().to_string(),
+            task_digest_hex: request.task_digest_hex().to_string(),
+            checker_artifact_hash_hex: request.checker_artifact_hash_hex().to_string(),
+            checker_policy_digest_hex: request.checker_policy_digest_hex().to_string(),
+            checker_release_manifest_digest_hex: request
+                .checker_release_manifest_digest_hex()
+                .to_string(),
+            toolchain_identity_digest_hex: request.toolchain_identity_digest_hex().to_string(),
+        })
+        .expect("authority bindings");
+        let parsed = CheckerParsedResult::try_new(CheckerParsedResultFields {
+            verdict: CheckerVerdict::Accepted,
+            reason_code: CheckerReason::Accepted,
+            checker_task_id: Some("real-history-accepted".to_string()),
+            task_digest_hex: Some(request.task_digest_hex().to_string()),
+        })
+        .expect("checker result");
+        let report = ExecutionReport::try_new(ExecutionReportFields {
+            nonce_hex: request.nonce_hex().to_string(),
+            operation_id_hex: request.operation_id_hex().to_string(),
+            request_digest_hex: hello.request_digest_hex().to_string(),
+            execution_policy_digest_hex: request.execution_policy_digest_hex().to_string(),
+            launcher_pid: 4242,
+            launcher_uid: 0,
+            launcher_gid: 0,
+            node_uid: 990,
+            node_gid: 990,
+            checker_uid: 991,
+            checker_gid: 991,
+            authority_bindings,
+            wait_status: WaitStatus::exited(0),
+            timed_out: false,
+            resource_observations: ResourceObservations::try_new(ResourceObservationsFields {
+                memory_events_low_delta: 0,
+                memory_events_high_delta: 0,
+                memory_events_max_delta: 0,
+                memory_events_oom_delta: 0,
+                memory_events_oom_kill_delta: 0,
+                memory_events_oom_group_kill_delta: 0,
+                pids_events_max_delta: 0,
+                cpu_usage_usec_delta: 1,
+                output_limit_exceeded: false,
+            })
+            .expect("resource facts"),
+            cleanup: Cleanup::try_new(CleanupFields {
+                child_reaped: true,
+                cgroup_populated_zero: true,
+                launcher_pidfd_and_namespace_fds_closed: true,
+                cgroup_leaf_removed: true,
+                completed_within_deadline: true,
+            })
+            .expect("cleanup"),
+            checker_result: CheckerResult::try_new(CheckerResultFields {
+                status: CheckerOutputStatus::ValidCheckerResult,
+                stdout_sha256_hex: protocol_sha256(b"accepted\n"),
+                stderr_sha256_hex: protocol_sha256(b""),
+                stdout_bytes: 9,
+                stderr_bytes: 0,
+                parsed: Some(parsed),
+            })
+            .expect("checker output"),
+        })
+        .expect("execution report");
+
+        Mac4ExecutionProxyOutput {
+            launcher_peer: LauncherPeerIdentity {
+                pid: 4242,
+                uid: 0,
+                gid: 0,
+            },
+            ready_frame: encode_closed_local_replay_execution_ready_frame(&ready)
+                .expect("ready frame"),
+            report_frame: encode_execution_report_frame(&report).expect("report frame"),
+        }
+    }
+
+    #[derive(Debug)]
+    struct TestMac4ExecutionProxy {
+        output: Mutex<Option<Mac4ExecutionProxyOutput>>,
+        calls: AtomicUsize,
+    }
+
+    impl Mac4ExecutionProxy for Arc<TestMac4ExecutionProxy> {
+        fn exchange(
+            &self,
+            hello_frame: &[u8],
+            request_frame: &[u8],
+        ) -> Result<Mac4ExecutionProxyOutput, ()> {
+            boole_native_shadow_protocol::decode_complete_execution_hello_frame(hello_frame)
+                .map_err(|_| ())?;
+            boole_native_shadow_protocol::decode_complete_execution_request_frame(request_frame)
+                .map_err(|_| ())?;
+            self.calls.fetch_add(1, AtomicOrdering::SeqCst);
+            self.output.lock().expect("proxy output").take().ok_or(())
+        }
+    }
+
+    #[test]
+    fn mac4_proxy_transport_reuses_node_session_validation_and_adjudication() {
+        let request = exact_mac4_execution_request();
+        let controller = Arc::new(TestMac4ExecutionProxy {
+            output: Mutex::new(Some(accepted_mac4_proxy_output(&request))),
+            calls: AtomicUsize::new(0),
+        });
+        let transport = Mac4LauncherTransport::new(controller.clone(), 4242, digest('9'));
+
+        assert!(matches!(
+            transport.execute(&request),
+            ValidatedLauncherOutcome::Terminal(ValidatedLauncherTerminal {
+                verdict: ValidatedLauncherVerdict::Accepted,
+                reason_code: "accepted"
+            })
+        ));
+        assert_eq!(controller.calls.load(AtomicOrdering::SeqCst), 1);
+    }
+
+    #[test]
+    fn mac4_proxy_transport_fails_closed_on_peer_or_frame_drift() {
+        let request = exact_mac4_execution_request();
+        let mut output = accepted_mac4_proxy_output(&request);
+        output.launcher_peer.uid = 1001;
+        let controller = Arc::new(TestMac4ExecutionProxy {
+            output: Mutex::new(Some(output)),
+            calls: AtomicUsize::new(0),
+        });
+        let transport = Mac4LauncherTransport::new(controller, 4242, digest('9'));
+        assert!(matches!(
+            transport.execute(&request),
+            ValidatedLauncherOutcome::Ambiguous {
+                reason_code: "mac4_execution_peer_not_qualified"
             }
         ));
     }
