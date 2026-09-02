@@ -3147,12 +3147,17 @@ MAC4_CHANNEL_RESULT_V2=native/containment/native-shadow-mac4-authenticated-chann
 MAC4_CHANNEL_GATE_V2=scripts/test_native_shadow_mac4_authenticated_channel_result_v2.py
 MAC4_PRIVATE_TMP_SUCCESSOR=scripts/native_shadow_closed_local_image_to_readiness_arm64_v2.py
 MAC4_PRIVATE_TMP_WORKFLOW=.github/workflows/native-shadow-closed-local-image-readiness-arm64-v2.yml
+MAC4_PRIVATE_TMP_ISOLATED_CLI=scripts/native_shadow_closed_local_image_to_readiness_arm64_v3.py
+MAC4_PRIVATE_TMP_ISOLATED_WORKFLOW=.github/workflows/native-shadow-closed-local-image-readiness-arm64-v3.yml
 require_file "$MAC4_CHANNEL_RESULT_V2"
 require_file "$MAC4_CHANNEL_GATE_V2"
 require_file "$MAC4_PRIVATE_TMP_SUCCESSOR"
 require_file "$MAC4_PRIVATE_TMP_WORKFLOW"
+require_file "$MAC4_PRIVATE_TMP_ISOLATED_CLI"
+require_file "$MAC4_PRIVATE_TMP_ISOLATED_WORKFLOW"
 require_text scripts/self-test.sh "$MAC4_CHANNEL_GATE_V2"
 require_text scripts/self-test.sh 'test_native_shadow_closed_local_image_to_readiness_arm64_v2.py'
+require_text scripts/self-test.sh 'test_native_shadow_closed_local_image_to_readiness_arm64_v3.py'
 require_text "$MAC4_CHANNEL_RESULT_V2" '"runId": 33569233592'
 require_text "$MAC4_CHANNEL_RESULT_V2" '"missingPath": "/var/tmp"'
 require_text "$MAC4_CHANNEL_RESULT_V2" '"runId": 33572058564'
