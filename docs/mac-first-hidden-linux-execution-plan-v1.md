@@ -7324,3 +7324,40 @@ FIRST CONSUMER = OFFLINE PACKAGE-DIRECT-BOOT / KAT KEYS ONLY / NO PRIVATE KEY OR
 NEXT: DURABLE POLICY-CHAIN ADOPTION ACROSS INSTALL / UPDATE / RUN / INSPECT
 PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
 ```
+
+## 111. The installed product owns one durable recovery-authorized policy chain (2026-09-03)
+
+The policy verified by the offline packager now reaches the installed-product lifecycle. A first
+policy-backed `install-direct-boot` durably adopts the out-of-band public recovery root and the
+recovery-authorized generation-one policy before release transport begins. Each accepted policy
+generation is retained as immutable public metadata, while one canonical state file atomically
+selects the chain head. Reopening reconstructs and cryptographically verifies every transition
+from the bootstrap root to that head instead of trusting a cached online release key.
+
+`product update-trust-policy` adopts only the exact next generation under the same product mutation
+lease. It does not download a release, so two-of-three recovery authority can disable a compromised
+product or guest online role before another bundle is considered. A successor still needs both the
+old and new recovery thresholds, an exact predecessor digest and the monotonic retired-key history
+defined in section 110. A replay, skipped generation, modified stored policy or modified recovery
+root fails closed and leaves the selected state unchanged.
+
+Install/update, run, inspect, rollback and corrupt-active recovery now derive product and guest
+public roots from this same verified installed chain. The first direct-boot install also writes the
+full product-and-guest security-floor state, fixing the prior gap where a valid initial direct-boot
+install could not immediately be inspected. If a newly adopted policy rotates an online key, an
+old release that no longer verifies under that key is not retained as a rollback candidate, while
+its anti-rollback sequence and manifest floors remain monotonic.
+
+The four directly injected roots remain a development compatibility mode only. They cannot reopen
+or mutate a policy-backed installation, and an existing direct-root installation cannot silently
+be converted into policy mode. This boundary creates and stores public verification material only.
+No operational private key, public recovery-root distribution, official signed bundle, upload,
+production, testnet, mining, reward, consensus, P2P or activation authority is created.
+
+```text
+BOOTSTRAP = PUBLIC RECOVERY ROOT + GENERATION 1 / PERSIST BEFORE RELEASE TRANSPORT
+SUCCESSOR = EXACT NEXT GENERATION / OLD + NEW 2-OF-3 / ATOMIC CHAIN-HEAD ADOPTION
+ALL INSTALLED LIFECYCLE COMMANDS REOPEN ONE FULLY VERIFIED CHAIN / NO RAW-ROOT FALLBACK
+NEXT: OPERATIONAL KEY-CUSTODY CEREMONY + PUBLIC RECOVERY-ROOT DISTRIBUTION CONTRACT
+PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
+```

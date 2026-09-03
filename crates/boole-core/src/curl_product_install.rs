@@ -441,6 +441,7 @@ pub fn install_bootable_curl_product_release(
         first_guest_sequence,
         guest_artifact_source_dir,
         InstalledGuestContract::BootableV2,
+        false,
     )
 }
 
@@ -468,6 +469,39 @@ pub fn install_direct_boot_curl_product_release(
         first_guest_sequence,
         guest_artifact_source_dir,
         InstalledGuestContract::DirectBootV3,
+        false,
+    )
+}
+
+/// Install a direct-boot release under the currently persisted operational
+/// policy. A policy rotation may make the previously active release
+/// unverifiable under the new online key; in that exact case it is not kept
+/// as rollback material. Release and guest anti-rollback floors still come
+/// from durable state and never move backwards.
+#[allow(clippy::too_many_arguments)]
+pub fn install_direct_boot_curl_product_release_with_policy(
+    install_root: &Path,
+    manifest_raw: &[u8],
+    detached_signature_raw: &[u8],
+    product_trust_root: &CurlProductReleaseTrustRoot,
+    first_product_sequence: u64,
+    product_artifact_source_dir: &Path,
+    guest_trust_root: &NativeShadowUpdateTrustRoot,
+    first_guest_sequence: u64,
+    guest_artifact_source_dir: &Path,
+) -> Result<InstalledBootableCurlProduct, CurlProductInstallError> {
+    install_bootable_curl_product_release_for_contract(
+        install_root,
+        manifest_raw,
+        detached_signature_raw,
+        product_trust_root,
+        first_product_sequence,
+        product_artifact_source_dir,
+        guest_trust_root,
+        first_guest_sequence,
+        guest_artifact_source_dir,
+        InstalledGuestContract::DirectBootV3,
+        true,
     )
 }
 
@@ -483,6 +517,7 @@ fn install_bootable_curl_product_release_for_contract(
     first_guest_sequence: u64,
     guest_artifact_source_dir: &Path,
     contract: InstalledGuestContract,
+    policy_authority: bool,
 ) -> Result<InstalledBootableCurlProduct, CurlProductInstallError> {
     let state = read_installed_curl_product_state(install_root)?;
     let (product_floor, guest_floor, rollback_target) = match state.as_ref() {
@@ -536,6 +571,12 @@ fn install_bootable_curl_product_release_for_contract(
             let rollback_target = match verified_active {
                 Ok(_) => Some(state.active_identity()),
                 Err(CurlProductInstallError::Verify(
+                    CurlProductReleaseVerifyError::UntrustedKey,
+                )) if policy_authority => None,
+                Err(CurlProductInstallError::GuestVerify(
+                    NativeShadowUpdateVerifyError::UntrustedKey,
+                )) if policy_authority => None,
+                Err(CurlProductInstallError::Verify(
                     CurlProductReleaseVerifyError::InvalidSignatureContext,
                 )) if state.guest_release_floor.is_none() => None,
                 Err(error) => return Err(error),
@@ -571,6 +612,7 @@ fn install_bootable_curl_product_release_for_contract(
             guest_roles: contract.roles(),
             previous_state: state.as_ref(),
             rollback_target,
+            lifecycle_v2: matches!(contract, InstalledGuestContract::DirectBootV3),
         },
     )
 }
@@ -1462,6 +1504,7 @@ struct BootableAdoptionPlan<'a> {
     guest_roles: &'static [GuestArtifactRole],
     previous_state: Option<&'a CurlProductInstallState>,
     rollback_target: Option<InstalledReleaseIdentity>,
+    lifecycle_v2: bool,
 }
 
 fn adopt_verified_bootable_release(
@@ -1575,9 +1618,22 @@ fn adopt_verified_bootable_release(
             }),
             plan.rollback_target,
         ),
+        None if plan.lifecycle_v2 => state_from_identities(
+            active.clone(),
+            active,
+            Some(InstalledGuestReleaseIdentity {
+                release_sequence: guest.release_sequence(),
+                manifest_sha256: guest.manifest_sha256().to_string(),
+            }),
+            None,
+        ),
         None => state_from_identities(active.clone(), active, None, None),
     };
-    write_install_state(install_root, &state, plan.previous_state.is_some())?;
+    write_install_state(
+        install_root,
+        &state,
+        plan.previous_state.is_some() || plan.lifecycle_v2,
+    )?;
     prune_unreferenced_version_directories(install_root, &state)?;
     let _ = fs::remove_dir_all(&staging_root);
 

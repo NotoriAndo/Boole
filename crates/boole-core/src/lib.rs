@@ -30,6 +30,7 @@ pub mod hash;
 pub mod lean_bound_canon;
 pub mod native_shadow_update;
 pub mod operational_release_trust_policy;
+pub mod operational_release_trust_store;
 pub mod package_sidecar;
 pub mod package_store;
 pub mod paths;
@@ -93,7 +94,7 @@ pub use config::{
 pub use curl_product_install::{
     inspect_verified_installed_direct_boot_curl_product_release,
     install_bootable_curl_product_release, install_curl_product_release,
-    install_direct_boot_curl_product_release,
+    install_direct_boot_curl_product_release, install_direct_boot_curl_product_release_with_policy,
     open_verified_installed_bootable_curl_product_release,
     open_verified_installed_curl_product_release,
     open_verified_installed_direct_boot_curl_product_release, read_installed_curl_product_state,
@@ -164,6 +165,15 @@ pub use operational_release_trust_policy::{
     OPERATIONAL_RELEASE_RECOVERY_ROOT_SCHEMA, OPERATIONAL_RELEASE_TRUST_POLICY_SCHEMA,
     OPERATIONAL_RELEASE_TRUST_POLICY_SIGNATURES_SCHEMA,
     OPERATIONAL_RELEASE_TRUST_POLICY_SIGNING_CONTEXT,
+};
+pub use operational_release_trust_store::{
+    adopt_operational_release_trust_policy, open_installed_operational_release_trust_policy,
+    prepare_operational_release_trust_policy_update, InstalledOperationalReleaseTrustPolicy,
+    InstalledOperationalReleaseTrustPolicyState, OperationalReleaseTrustStoreError,
+    PreparedOperationalReleaseTrustPolicy, OPERATIONAL_RELEASE_RECOVERY_ROOT_FILE,
+    OPERATIONAL_RELEASE_TRUST_POLICIES_DIRECTORY, OPERATIONAL_RELEASE_TRUST_POLICY_FILE,
+    OPERATIONAL_RELEASE_TRUST_POLICY_SIGNATURES_FILE, OPERATIONAL_RELEASE_TRUST_STATE_FILE,
+    OPERATIONAL_RELEASE_TRUST_STATE_SCHEMA, OPERATIONAL_RELEASE_TRUST_STATE_TEMP_FILE,
 };
 pub use package_sidecar::{
     CanonicalPackage, PackageFile, PackageRoot, PackageSidecarError, MAX_PACKAGE_CANONICAL_BYTES,

@@ -3296,4 +3296,12 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'NEXT: DURABLE POL
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Recovery-authorized operational release policy and first consumer'
 require_text docs/install.md 'operational private signing keys or public recovery root have been created or published'
 
+# One recovery-authorized policy chain now controls the complete installed
+# direct-boot lifecycle without letting direct development roots reopen it.
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'ALL INSTALLED LIFECYCLE COMMANDS REOPEN ONE FULLY VERIFIED CHAIN / NO RAW-ROOT FALLBACK'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'NEXT: OPERATIONAL KEY-CUSTODY CEREMONY + PUBLIC RECOVERY-ROOT DISTRIBUTION CONTRACT'
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Durable installed operational release-policy chain'
+require_text docs/install.md 'boole product update-trust-policy'
+require_text docs/install.md 'A replayed successor, broken chain,'
+
 printf 'docs-smoke: PASS\n' >&2

@@ -5129,3 +5129,30 @@ derived public roots. The old direct-root arguments remain a development
 compatibility mode. Persistent successor-policy adoption by install, update,
 run and inspection is not implemented in this boundary, and no operational
 key, public recovery root, signed production release or upload is created.
+
+## Durable installed operational release-policy chain (2026-09-03)
+
+The direct-boot installed-product surface now persists the public recovery root and every accepted
+operational policy generation below the install root. One canonical state record contains the
+bootstrap-root digest and the ordered generation/digest/predecessor identities. Adoption makes the
+new immutable generation durable before atomically replacing that record. On every reopen, the
+implementation reads through no-follow bounded descriptors and re-verifies the complete signature
+chain from generation one to the selected head. A missing, malformed, modified, replayed or
+discontinuous generation fails closed; no direct-root compatibility fallback is permitted once the
+policy state exists.
+
+The first policy is adopted before release network transport. An exact successor may be adopted
+independently with `product update-trust-policy`, under the same nonblocking mutation lease used by
+installed release changes. This permits recovery-authorized online-role disablement without waiting
+for a new bundle. Install/update, run, inspect, rollback and recovery all derive their product and
+guest trust roots from the verified installed head. A real CLI E2E fixes first install, successor
+recovery-key rotation, restart/reopen, release update without external roots, inspection, rollback,
+policy replay rejection, direct-root fallback rejection and pre-runtime failure after stored-policy
+tampering.
+
+The initial direct-boot adoption now writes the v2 installed-release state with both product and
+guest anti-rollback floors. When policy authority rotates an online key, an old release that cannot
+be verified under the new role is not retained for rollback, but its accepted floors are preserved.
+The state may contain public keys and signatures only. Operational private-key custody, out-of-band
+root publication, an official signed release, production, testnet, mining, reward, consensus, P2P
+and activation remain outside this contract.
