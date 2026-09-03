@@ -13,6 +13,7 @@
 
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::time::{Duration, Instant};
 
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
@@ -163,6 +164,10 @@ fn is_lowercase_hex32(value: &str) -> bool {
 pub enum FrameError {
     #[error("frame exceeds MAX_FRAME_BYTES ({MAX_FRAME_BYTES}): saw at least {seen} bytes")]
     FrameTooLarge { seen: usize },
+    #[error("frame exceeds the caller's remaining wire budget ({cap}): saw at least {seen} bytes")]
+    FrameBudgetExceeded { cap: usize, seen: usize },
+    #[error("frame receive exceeded its absolute peer-round deadline")]
+    ReceiveDeadlineExceeded,
     #[error("malformed frame: {detail}")]
     Malformed { detail: String },
     #[error("GetBlocks range [{from}, {to}] exceeds cap {GET_BLOCKS_RANGE_CAP} or is inverted")]
@@ -223,6 +228,49 @@ impl TcpTransport {
             writer: BufWriter::new(write_half),
         })
     }
+
+    /// Receive and validate one frame together with its actual encoded wire
+    /// size. The count includes all JSON whitespace and the terminating
+    /// newline consumed from the TCP stream.
+    pub fn recv_frame_counted(&self, conn: &mut TcpConn) -> Result<(Frame, usize), FrameError> {
+        let line = read_line_capped(&mut conn.reader, MAX_FRAME_BYTES)?;
+        decode_counted_frame(line)
+    }
+
+    /// Receive one frame without ever growing the userspace line buffer past
+    /// the caller's remaining cumulative budget, and without allowing a peer
+    /// to evade an absolute round deadline by trickling one byte per socket
+    /// timeout. The global wire cap remains an upper bound.
+    pub fn recv_frame_counted_until(
+        &self,
+        conn: &mut TcpConn,
+        remaining_wire_bytes: usize,
+        deadline: Instant,
+    ) -> Result<(Frame, usize), FrameError> {
+        let cap = remaining_wire_bytes.min(MAX_FRAME_BYTES);
+        if cap == 0 {
+            return Err(FrameError::FrameBudgetExceeded { cap, seen: 0 });
+        }
+        let line = match read_line_capped_until(&mut conn.reader, cap, deadline) {
+            Err(FrameError::FrameTooLarge { seen }) if cap < MAX_FRAME_BYTES => {
+                return Err(FrameError::FrameBudgetExceeded { cap, seen });
+            }
+            other => other?,
+        };
+        decode_counted_frame(line)
+    }
+}
+
+fn decode_counted_frame(line: Vec<u8>) -> Result<(Frame, usize), FrameError> {
+    // `read_line_capped` removes exactly one terminating `\n`; every
+    // other byte, including an optional `\r` and JSON whitespace,
+    // remains in `line` and therefore remains part of the wire count.
+    let wire_bytes = line.len() + 1;
+    let frame: Frame = serde_json::from_slice(&line).map_err(|err| FrameError::Malformed {
+        detail: err.to_string(),
+    })?;
+    frame.validate()?;
+    Ok((frame, wire_bytes))
 }
 
 impl Transport for TcpTransport {
@@ -267,12 +315,7 @@ impl Transport for TcpTransport {
     }
 
     fn recv_frame(&self, conn: &mut Self::Conn) -> Result<Frame, FrameError> {
-        let line = read_line_capped(&mut conn.reader, MAX_FRAME_BYTES)?;
-        let frame: Frame = serde_json::from_slice(&line).map_err(|err| FrameError::Malformed {
-            detail: err.to_string(),
-        })?;
-        frame.validate()?;
-        Ok(frame)
+        self.recv_frame_counted(conn).map(|(frame, _)| frame)
     }
 }
 
@@ -305,6 +348,70 @@ fn read_line_capped<R: Read>(reader: &mut BufReader<R>, cap: usize) -> Result<Ve
         let taken = available.len();
         // `+ 1` — the eventual newline counts toward the cap (send-side
         // symmetry: MAX_FRAME_BYTES includes the terminator).
+        if line.len() + taken + 1 > cap {
+            return Err(FrameError::FrameTooLarge {
+                seen: line.len() + taken + 1,
+            });
+        }
+        line.extend_from_slice(available);
+        reader.consume(taken);
+    }
+}
+
+/// TCP-specialized bounded reader used by peer-round sync. It reapplies the
+/// *remaining* absolute deadline before every blocking read, so a sender that
+/// keeps each individual recv alive with a byte trickle still hits one wall.
+fn read_line_capped_until(
+    reader: &mut BufReader<TcpStream>,
+    cap: usize,
+    deadline: Instant,
+) -> Result<Vec<u8>, FrameError> {
+    let configured_timeout = reader.get_ref().read_timeout()?;
+    let mut line = Vec::new();
+    loop {
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .filter(|remaining| !remaining.is_zero())
+            .ok_or(FrameError::ReceiveDeadlineExceeded)?;
+        let timeout = configured_timeout.map_or(remaining, |configured| configured.min(remaining));
+        reader
+            .get_mut()
+            .set_read_timeout(Some(timeout.max(Duration::from_millis(1))))?;
+
+        let available = match reader.fill_buf() {
+            Err(err)
+                if matches!(
+                    err.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) && Instant::now() >= deadline =>
+            {
+                return Err(FrameError::ReceiveDeadlineExceeded);
+            }
+            other => other?,
+        };
+        if Instant::now() >= deadline {
+            return Err(FrameError::ReceiveDeadlineExceeded);
+        }
+        if available.is_empty() {
+            return if line.is_empty() {
+                Err(FrameError::ConnectionClosed)
+            } else {
+                Err(FrameError::Malformed {
+                    detail: "connection closed mid-frame".to_string(),
+                })
+            };
+        }
+        if let Some(newline_at) = available.iter().position(|&b| b == b'\n') {
+            if line.len() + newline_at + 1 > cap {
+                return Err(FrameError::FrameTooLarge {
+                    seen: line.len() + newline_at + 1,
+                });
+            }
+            line.extend_from_slice(&available[..newline_at]);
+            reader.consume(newline_at + 1);
+            return Ok(line);
+        }
+        let taken = available.len();
         if line.len() + taken + 1 > cap {
             return Err(FrameError::FrameTooLarge {
                 seen: line.len() + taken + 1,
@@ -352,5 +459,93 @@ mod tests {
         let mut reader = BufReader::new(&ok[..]);
         let line = read_line_capped(&mut reader, 10).expect("line within cap");
         assert_eq!(line, b"12345678");
+    }
+
+    #[test]
+    fn tcp_transport_reports_actual_wire_bytes_including_whitespace_and_newline() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback listener");
+        let addr = listener.local_addr().expect("listener address");
+        let mut sender = TcpStream::connect(addr).expect("connect sender");
+        let (receiver, _) = listener.accept().expect("accept receiver");
+        let mut conn = TcpTransport::conn_from_stream(receiver).expect("wrap receiver");
+        let transport = TcpTransport::new();
+
+        let wire = b" \t{\"type\":\"getBlocks\",\"from\":7,\"to\":8} \r\n";
+        sender.write_all(wire).expect("write raw wire frame");
+
+        let (frame, wire_bytes) = transport
+            .recv_frame_counted(&mut conn)
+            .expect("receive counted frame");
+
+        assert_eq!(frame, Frame::GetBlocks { from: 7, to: 8 });
+        assert_eq!(wire_bytes, wire.len());
+    }
+
+    #[test]
+    fn limited_receive_rejects_before_buffering_past_remaining_budget() {
+        let transport = TcpTransport::new();
+        let wire = b"{\"type\":\"getBlocks\",\"from\":7,\"to\":8}\n";
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind exact listener");
+        let mut sender = TcpStream::connect(listener.local_addr().expect("exact address"))
+            .expect("connect exact sender");
+        let (receiver, _) = listener.accept().expect("accept exact receiver");
+        let mut conn = TcpTransport::conn_from_stream(receiver).expect("wrap exact receiver");
+        sender.write_all(wire).expect("write exact frame");
+        let (frame, wire_bytes) = transport
+            .recv_frame_counted_until(
+                &mut conn,
+                wire.len(),
+                Instant::now() + Duration::from_secs(1),
+            )
+            .expect("newline-inclusive exact cap passes");
+        assert_eq!(frame, Frame::GetBlocks { from: 7, to: 8 });
+        assert_eq!(wire_bytes, wire.len());
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind short listener");
+        let mut sender = TcpStream::connect(listener.local_addr().expect("short address"))
+            .expect("connect short sender");
+        let (receiver, _) = listener.accept().expect("accept short receiver");
+        let mut conn = TcpTransport::conn_from_stream(receiver).expect("wrap short receiver");
+        sender.write_all(wire).expect("write oversized frame");
+        let err = transport
+            .recv_frame_counted_until(
+                &mut conn,
+                wire.len() - 1,
+                Instant::now() + Duration::from_secs(1),
+            )
+            .expect_err("frame exceeds remaining round budget");
+        assert!(matches!(
+            err,
+            FrameError::FrameBudgetExceeded { cap, .. } if cap == wire.len() - 1
+        ));
+    }
+
+    #[test]
+    fn absolute_receive_deadline_stops_a_byte_trickle() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback listener");
+        let addr = listener.local_addr().expect("listener address");
+        let mut sender = TcpStream::connect(addr).expect("connect sender");
+        let (receiver, _) = listener.accept().expect("accept receiver");
+        let mut conn = TcpTransport::conn_from_stream(receiver).expect("wrap receiver");
+        let transport = TcpTransport::new();
+        let writer = std::thread::spawn(move || {
+            for byte in b"{\"type\":\"getBlocks\",\"from\":7,\"to\":8}\n" {
+                if sender.write_all(&[*byte]).is_err() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        });
+
+        let err = transport
+            .recv_frame_counted_until(
+                &mut conn,
+                MAX_FRAME_BYTES,
+                Instant::now() + Duration::from_millis(100),
+            )
+            .expect_err("trickle must hit the absolute deadline");
+        assert!(matches!(err, FrameError::ReceiveDeadlineExceeded));
+        writer.join().expect("writer joins");
     }
 }

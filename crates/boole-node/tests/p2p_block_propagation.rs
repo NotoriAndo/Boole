@@ -341,8 +341,10 @@ fn block_committed_on_a_is_ingested_and_replayed_identically_on_b() {
         "step0 must commit a block on A: {v0}"
     );
 
-    // The block must cross to B (BlockAnnounce -> GetBlocks -> Blocks),
-    // survive full strict validation, and land as B's new head.
+    // The block must cross to B, survive full strict validation, and land as
+    // B's new head. Announce ingestion and startup catch-up run concurrently,
+    // so either path may win; canonical state and the combined adoption count
+    // are the stable contract.
     wait_until("B to ingest A's block", Duration::from_secs(10), || {
         height(b.addr) == 1
     });
@@ -355,9 +357,10 @@ fn block_committed_on_a_is_ingested_and_replayed_identically_on_b() {
         "B's ingested head block must be identical to A's"
     );
     assert_eq!(
-        metric_value(b.addr, "boole_p2p_ingress_blocks_ingested_total"),
+        metric_value(b.addr, "boole_p2p_ingress_blocks_ingested_total")
+            + metric_value(b.addr, "boole_p2p_sync_blocks_applied_total"),
         1,
-        "B must count exactly one ingested block"
+        "B must count exactly one canonical adoption across both P2P paths"
     );
     // The N3.2-gossiped share was bound to the genesis head; after the block
     // lands it is either pruned (admitted first) or rejected stale — the

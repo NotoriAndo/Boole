@@ -711,16 +711,30 @@ fn restart_before_any_response_recovers_the_durable_intent_without_caller_resupp
     request_seen
         .recv_timeout(Duration::from_secs(5))
         .expect("first node sent GetPackage");
-    first_boot.shutdown.notify_one();
+    let Boot {
+        dir: first_node_dir,
+        shutdown: first_shutdown,
+        handle: first_handle,
+        ..
+    } = first_boot;
+    let (node_exit_tx, node_exit_rx) = mpsc::channel();
+    let node_waiter = thread::spawn(move || {
+        node_exit_tx
+            .send(first_handle.join())
+            .expect("report node exit");
+    });
+    first_shutdown.notify_one();
+    let joined = node_exit_rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("shutdown must interrupt the blocked package socket before peer release");
+    joined
+        .expect("first node thread")
+        .expect("first node exits");
     release_first_peer
         .send(())
         .expect("release response-less peer");
-    first_boot
-        .handle
-        .join()
-        .expect("first node thread")
-        .expect("first node exits");
-    fs::remove_dir_all(first_boot.dir).expect("remove first node directory");
+    node_waiter.join().expect("node waiter joins");
+    fs::remove_dir_all(first_node_dir).expect("remove first node directory");
     first_peer_thread.join().expect("first synthetic peer");
 
     let (second_peer, second_peer_thread) = serve_package_once(package);

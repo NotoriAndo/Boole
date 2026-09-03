@@ -6,11 +6,14 @@ use crate::checker_pin;
 use crate::family_manifest_store::load_family_manifest_registry_from_dir;
 use crate::http_error::HttpError;
 use crate::nonce_ledger::FileNonceLedger;
-use crate::p2p_egress::{spawn_egress_thread, BlockAnnouncement, EgressEvent, ShareAnnouncement};
+use crate::p2p_egress::{
+    spawn_egress_workers, BlockAnnouncement, EgressEvent, P2pEgressFanout, ShareAnnouncement,
+};
 use crate::p2p_ingress::{
     spawn_ingress_thread, spawn_sync_thread, P2pConfig, P2pIdentity, P2pIngressRuntimeConfig,
     P2pMetrics,
 };
+use crate::p2p_lifecycle::P2pLifecycle;
 use crate::p2p_package_fetch::spawn_package_fetch_thread;
 use crate::proof_dedup_ledger::FileProofDedupLedger;
 use crate::receipt_store::FileReceiptStore;
@@ -478,7 +481,7 @@ pub(crate) struct LocalNodeState {
     /// (and dedup-cleared) share and every committed block here and the
     /// egress thread fans them out. Fire-and-forget: a closed/full channel
     /// must never change the local submit outcome.
-    p2p_egress: Option<std::sync::mpsc::Sender<EgressEvent>>,
+    p2p_egress: Option<P2pEgressFanout>,
     /// N3.2 — typed gossip drop/outcome counters (ADR-0009 (e)), shared
     /// with the ingress/egress threads and rendered in `/metrics`.
     p2p_metrics: Arc<P2pMetrics>,
@@ -967,10 +970,10 @@ async fn serve_local_node_async(
     // N3.2 — bring the gossip surface up around the shared node state. Both
     // gossip threads are plain blocking `std::thread`s (the transport is
     // blocking `std::net`, ADR-0009 (a)); they poll `p2p_stop` so shutdown
-    // below is bounded. The egress sender is injected BEFORE the state is
+    // below is bounded. The egress fanout is injected BEFORE the state is
     // wrapped in the lock so `submit_json` observes it from the first
     // request.
-    let p2p_stop = Arc::new(AtomicBool::new(false));
+    let p2p_lifecycle = Arc::new(P2pLifecycle::new());
     let p2p_metrics = state.p2p_metrics.clone();
     let mut p2p_threads: Vec<std::thread::JoinHandle<()>> = Vec::new();
     let mut p2p_ingress: Option<P2pIngressRuntimeConfig> = None;
@@ -982,15 +985,14 @@ async fn serve_local_node_async(
             genesis_hash: state.genesis_spec_hash.clone(),
         };
         if !p2p.peers.is_empty() {
-            let (tx, rx) = std::sync::mpsc::channel();
-            state.p2p_egress = Some(tx);
-            p2p_threads.push(spawn_egress_thread(
-                rx,
+            let (fanout, workers) = spawn_egress_workers(
                 p2p.peers.clone(),
                 identity.clone(),
-                p2p_stop.clone(),
+                p2p_lifecycle.clone(),
                 p2p_metrics.clone(),
-            ));
+            );
+            state.p2p_egress = Some(fanout);
+            p2p_threads.extend(workers);
             // N3.4 — the sync loop dials the same static peer set to pull
             // any chain range this node is missing (fresh-boot catch-up +
             // announce-gap reconciliation).
@@ -1020,7 +1022,7 @@ async fn serve_local_node_async(
         p2p_threads.push(spawn_ingress_thread(
             config,
             app_state.inner.clone(),
-            p2p_stop.clone(),
+            p2p_lifecycle.clone(),
             p2p_metrics.clone(),
         ));
     }
@@ -1029,7 +1031,7 @@ async fn serve_local_node_async(
             peers,
             identity,
             app_state.inner.clone(),
-            p2p_stop.clone(),
+            p2p_lifecycle.clone(),
             p2p_metrics.clone(),
         ));
     }
@@ -1039,7 +1041,7 @@ async fn serve_local_node_async(
             peers,
             identity,
             app_state.inner.clone(),
-            p2p_stop.clone(),
+            p2p_lifecycle.clone(),
             p2p_metrics.clone(),
         ));
     }
@@ -1073,16 +1075,24 @@ async fn serve_local_node_async(
             shutdown: shutdown_notify.clone(),
         }),
     };
-    axum::serve(tokio_listener, make_service)
-        .with_graceful_shutdown(async move { shutdown_notify.notified().await })
-        .await?;
-    // N3.2 — bounded gossip teardown: both threads poll `p2p_stop` (accept
-    // loop at 25ms, egress queue at 100ms), so these joins cannot hang on
-    // a quiet network.
-    p2p_stop.store(true, Ordering::Relaxed);
+    let graceful_p2p_lifecycle = p2p_lifecycle.clone();
+    let serve_result = axum::serve(tokio_listener, make_service)
+        .with_graceful_shutdown(async move {
+            shutdown_notify.notified().await;
+            // Close the P2P boundary as soon as shutdown is requested, not
+            // after HTTP graceful drain completes. A stalled HTTP client must
+            // not keep gossip/sync/package sockets alive in the meantime.
+            graceful_p2p_lifecycle.request_stop();
+        })
+        .await;
+    // N5.3 M3 — close the lifecycle before joining. This wakes every
+    // registered blocking socket as well as idle worker waits, so partial
+    // frames and silent package peers cannot hold shutdown open.
+    p2p_lifecycle.stop();
     for handle in p2p_threads {
         let _ = handle.join();
     }
+    serve_result?;
     Ok(())
 }
 
@@ -2332,6 +2342,16 @@ fn render_prometheus_metrics(state: &LocalNodeState) -> String {
             p2p.sync_peer_failures.load(Ordering::Relaxed),
         ),
         (
+            "boole_p2p_sync_budget_drops_total",
+            "Peer sync rounds deferred before mutation for exceeding the cumulative block, wire-byte, response-count, or absolute-deadline budget.",
+            p2p.sync_budget_drops.load(Ordering::Relaxed),
+        ),
+        (
+            "boole_p2p_sync_over_return_drops_total",
+            "Peer block batches dropped before mutation for returning more blocks than requested.",
+            p2p.sync_over_return_drops.load(Ordering::Relaxed),
+        ),
+        (
             "boole_p2p_egress_announces_total",
             "Share announcements delivered to a peer.",
             p2p.egress_announces.load(Ordering::Relaxed),
@@ -2340,6 +2360,11 @@ fn render_prometheus_metrics(state: &LocalNodeState) -> String {
             "boole_p2p_egress_failures_total",
             "Share announcements that failed to reach a peer.",
             p2p.egress_failures.load(Ordering::Relaxed),
+        ),
+        (
+            "boole_p2p_egress_queue_full_drops_total",
+            "Per-peer egress deliveries shed because only that peer's bounded queue was full.",
+            p2p.egress_queue_full_drops.load(Ordering::Relaxed),
         ),
         (
             "boole_p2p_egress_block_announces_total",
@@ -4992,7 +5017,7 @@ fn announce_admitted_share(
             submission["signedWork"] = value;
         }
     }
-    let _ = sender.send(EgressEvent::Share(ShareAnnouncement {
+    sender.try_send(EgressEvent::Share(ShareAnnouncement {
         submission,
         head: head_summary(state),
     }));
@@ -5026,7 +5051,7 @@ fn announce_committed_block(state: &LocalNodeState, block: &PersistedBlock) {
     let Ok(block_value) = serde_json::to_value(block) else {
         return;
     };
-    let _ = sender.send(EgressEvent::Block(BlockAnnouncement {
+    sender.try_send(EgressEvent::Block(BlockAnnouncement {
         height: block.height,
         c: block.c.clone(),
         block: block_value,

@@ -42,6 +42,7 @@ mod native_shadow_submission;
 mod nonce_ledger;
 mod p2p_egress;
 mod p2p_ingress;
+mod p2p_lifecycle;
 mod p2p_package_fetch;
 mod proof_bridge;
 mod proof_dedup_ledger;

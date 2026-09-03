@@ -432,6 +432,73 @@ fn sync_rejects_tampered_chain_from_peer() {
 
 #[test]
 #[ignore = "needs-multiprocess"]
+fn sync_rejects_an_over_returned_batch_before_first_state_mutation() {
+    let fake_listener = TcpListener::bind("127.0.0.1:0").expect("bind fake peer");
+    let fake_addr = fake_listener.local_addr().expect("fake addr");
+    let genesis_for_peer = scenario_spec_hash();
+    let fake_peer = thread::spawn(move || {
+        let transport = TcpTransport::new();
+        let (stream, _) = fake_listener.accept().expect("accept sync dial");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .expect("read timeout");
+        let mut conn = TcpTransport::conn_from_stream(stream).expect("conn");
+        assert!(matches!(
+            transport.recv_frame(&mut conn).expect("dialer hello"),
+            Frame::Hello { .. }
+        ));
+        transport
+            .send_frame(
+                &mut conn,
+                &Frame::Hello {
+                    protocol_version: PROTOCOL_VERSION,
+                    consensus_rule_version: CONSENSUS_RULE_VERSION,
+                    network_id: "boole-mvp".to_string(),
+                    genesis_hash: genesis_for_peer,
+                    head: HeadSummary {
+                        height: 1,
+                        c: "33".repeat(32),
+                    },
+                },
+            )
+            .expect("send fake hello");
+        assert!(matches!(
+            transport.recv_frame(&mut conn).expect("sync request"),
+            Frame::GetBlocks { from: 0, to: 0 }
+        ));
+        transport
+            .send_frame(
+                &mut conn,
+                &Frame::Blocks {
+                    blocks: vec![json!({"unexpected": 1}), json!({"unexpected": 2})],
+                },
+            )
+            .expect("send one block more than requested");
+    });
+
+    let node = boot_with_p2p("over-return", None, vec![fake_addr], false);
+    wait_until(
+        "sync to count an over-return before replay",
+        Duration::from_secs(10),
+        || metric_value(node.addr, "boole_p2p_sync_over_return_drops_total") == 1,
+    );
+    assert_eq!(
+        height(node.addr),
+        0,
+        "no over-returned block may be applied"
+    );
+    assert_eq!(
+        metric_value(node.addr, "boole_p2p_ingress_blocks_rejected_total"),
+        0,
+        "the batch must be rejected before per-block replay"
+    );
+
+    fake_peer.join().expect("fake peer joins");
+    stop(node);
+}
+
+#[test]
+#[ignore = "needs-multiprocess"]
 fn sync_reorgs_to_heavier_competing_chain() {
     // N4 — the reorg trigger wired into the sync path. Node B boots on its
     // own one-block fork [X0]; node A holds a heavier, genesis-divergent
