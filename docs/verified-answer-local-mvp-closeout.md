@@ -100,14 +100,52 @@ The following stay deferred until a new reviewed plan/batch exists:
 - full passport dashboard;
 - arbitrary natural-language truth verification.
 
-## Recommended next slice
+## Superseded selection record
 
 `NEXT-BATCH.1 — Select the next official batch from operating evidence`
 
-Scope:
+This was the unresolved choice at local-MVP closeout. The 2026-09-03 roadmap
+review has now selected the successor order below; the label remains here so the
+historical closeout gate continues to identify the decision that was open.
+
+## Selected successor sequence (2026-09-03)
+
+The next product work does not jump straight to payment or public operation:
+
+1. Close the existing N5.3 named-network authority, canonical-state and bounded
+   P2P prerequisites, then prove static-bootstrap join and head-synced readiness
+   on a controlled three-node testnet using synthetic/test-only work; this must
+   not consume public-eligible problem inventory.
+2. Close the third-party verifier process boundary before accepting external
+   MCP-submitted code.
+3. Add the `boole.verify_native` MCP vertical: accept only the native service's
+   strict six-field request, use a separately configured loopback native URL,
+   and forward its verdict and BF.3 `VerificationReceipt` without rewriting
+   either into the legacy `ReceiptCommitment` store.
+4. Exercise ACCEPT, deterministic rejection, durable redelivery and MCP restart
+   without a second checker execution. Keep payment, wallet automation, block,
+   reward, BF.7 and activation out of this milestone. Wallet automation, faucet
+   and real payment/reward wiring remain a later economic/operational decision
+   gate rather than an implicit next step.
+
+The implementation milestones are deliberately large functional boundaries:
+one branch, one PR and one full CI run per 4–8 hour milestone, with two to four
+direct behavior tests and no more than three E2E scenarios. Current-code truth
+checks happen inside the implementation milestone rather than as separate audit
+or documentation PRs.
+
+The selected sequence does not change this closeout's claim boundary. The
+existing `/verify-answer` remains a mock/local `ReceiptCommitment` demonstration;
+the native checker and BF.3 receipt are a separate service until the MCP
+successor lands. Real payment, public settlement, production wallet authority,
+rewards and activation remain deferred.
+
+The former selection scope was:
 
 - inspect current tracked docs/tests/gates and local MVP evidence;
 - choose whether the next official batch should prioritize security review, real settlement/testnet design, richer passport indexing, or public operator UX;
 - add the chosen batch to the plan with scope, non-goals, exact RED tests, focused gates, full gate, and public-claim boundaries before implementation.
 
-This next step is deliberately a plan/amendment slice, not a feature expansion. The local MVP is now closed out; the next implementation direction should be selected from evidence, not invented ad hoc.
+That historical selection step was not a feature expansion. The selection is
+now complete: the local MVP remains closed out, and the next implementation
+direction is the ordered successor above.
