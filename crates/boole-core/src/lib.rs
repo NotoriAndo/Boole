@@ -29,6 +29,7 @@ pub mod guest_boot;
 pub mod hash;
 pub mod lean_bound_canon;
 pub mod native_shadow_update;
+pub mod operational_release_key_ceremony;
 pub mod operational_release_trust_policy;
 pub mod operational_release_trust_store;
 pub mod package_sidecar;
@@ -155,6 +156,14 @@ pub use native_shadow_update::{
     GUEST_UPDATE_MANIFEST_SCHEMA, GUEST_UPDATE_MANIFEST_SCHEMA_V2, GUEST_UPDATE_MANIFEST_SCHEMA_V3,
     MAX_GUEST_UPDATE_ARTIFACT_BYTES, NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT,
     NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT_V2, NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT_V3,
+};
+pub use operational_release_key_ceremony::{
+    verify_operational_release_key_ceremony, OperationalReleaseKeyCeremonyError,
+    VerifiedOperationalReleaseKeyCeremony, MAX_OPERATIONAL_RELEASE_KEY_CEREMONY_BYTES,
+    MAX_OPERATIONAL_RELEASE_KEY_CEREMONY_SIGNATURES_BYTES,
+    OPERATIONAL_RELEASE_KEY_CEREMONY_ENVIRONMENT, OPERATIONAL_RELEASE_KEY_CEREMONY_SCHEMA,
+    OPERATIONAL_RELEASE_KEY_CEREMONY_SIGNATURES_SCHEMA,
+    OPERATIONAL_RELEASE_KEY_CEREMONY_SIGNING_CONTEXT,
 };
 pub use operational_release_trust_policy::{
     verify_initial_operational_release_trust_policy,

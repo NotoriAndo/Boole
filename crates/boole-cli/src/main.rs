@@ -773,6 +773,34 @@ enum FaucetCommand {
 
 #[derive(Debug, Subcommand)]
 enum ProductCommand {
+    /// Verify the non-production public key-ceremony transcript and atomically
+    /// emit the exact trust-bootstrap package. This command never reads a
+    /// private key, performs a network request, or grants production authority.
+    PackageTrustBootstrap {
+        #[arg(long = "recovery-root")]
+        recovery_root: PathBuf,
+        #[arg(long = "trust-policy")]
+        trust_policy: PathBuf,
+        #[arg(long = "trust-policy-signatures")]
+        trust_policy_signatures: PathBuf,
+        #[arg(long = "key-ceremony")]
+        key_ceremony: PathBuf,
+        #[arg(long = "key-ceremony-signatures")]
+        key_ceremony_signatures: PathBuf,
+        #[arg(long = "output-root")]
+        output_root: PathBuf,
+    },
+    /// Verify a public trust-bootstrap package against a recovery-root digest
+    /// obtained through an independent channel, then durably adopt generation
+    /// one without downloading a release.
+    AdoptTrustBootstrap {
+        #[arg(long = "bootstrap-root")]
+        bootstrap_root: PathBuf,
+        #[arg(long = "install-root")]
+        install_root: PathBuf,
+        #[arg(long = "expected-recovery-root-sha256")]
+        expected_recovery_root_sha256: String,
+    },
     /// Verify an already-signed direct-boot product and guest release, then
     /// atomically emit the exact offline transport tree. This command owns no
     /// signing key and performs no upload or network request.
@@ -1187,6 +1215,30 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             } => faucet_claim(network, &address, faucet_url.as_deref(), json),
         },
         Some(Command::Product { command }) => match command {
+            ProductCommand::PackageTrustBootstrap {
+                recovery_root,
+                trust_policy,
+                trust_policy_signatures,
+                key_ceremony,
+                key_ceremony_signatures,
+                output_root,
+            } => product_package_trust_bootstrap(
+                &recovery_root,
+                &trust_policy,
+                &trust_policy_signatures,
+                &key_ceremony,
+                &key_ceremony_signatures,
+                &output_root,
+            ),
+            ProductCommand::AdoptTrustBootstrap {
+                bootstrap_root,
+                install_root,
+                expected_recovery_root_sha256,
+            } => product_adopt_trust_bootstrap(
+                &bootstrap_root,
+                &install_root,
+                &expected_recovery_root_sha256,
+            ),
             ProductCommand::PackageDirectBoot {
                 source_root,
                 output_root,
@@ -2679,6 +2731,141 @@ fn read_public_authority_file(path: &Path, cap: usize, label: &str) -> Result<Ve
         return Err(format!("{label} changed beyond its size cap while reading"));
     }
     Ok(raw)
+}
+
+fn product_package_trust_bootstrap(
+    recovery_root_path: &Path,
+    trust_policy_path: &Path,
+    trust_policy_signatures_path: &Path,
+    key_ceremony_path: &Path,
+    key_ceremony_signatures_path: &Path,
+    output_root: &Path,
+) -> anyhow::Result<()> {
+    let command = "product.package-trust-bootstrap";
+    let reject = |message: String| -> ! {
+        product_install_bootable_emit_err(command, "trust-bootstrap-rejected", message)
+    };
+    let files = boole_cli::operational_trust_bootstrap::OperationalTrustBootstrapPublicFiles {
+        recovery_root: read_public_authority_file(
+            recovery_root_path,
+            boole_core::MAX_OPERATIONAL_RELEASE_RECOVERY_ROOT_BYTES,
+            "recovery root",
+        )
+        .unwrap_or_else(|error| reject(error)),
+        trust_policy: read_public_authority_file(
+            trust_policy_path,
+            boole_core::MAX_OPERATIONAL_RELEASE_TRUST_POLICY_BYTES,
+            "trust policy",
+        )
+        .unwrap_or_else(|error| reject(error)),
+        trust_policy_signatures: read_public_authority_file(
+            trust_policy_signatures_path,
+            boole_core::MAX_OPERATIONAL_RELEASE_TRUST_POLICY_SIGNATURES_BYTES,
+            "trust policy signatures",
+        )
+        .unwrap_or_else(|error| reject(error)),
+        key_ceremony: read_public_authority_file(
+            key_ceremony_path,
+            boole_core::MAX_OPERATIONAL_RELEASE_KEY_CEREMONY_BYTES,
+            "key ceremony",
+        )
+        .unwrap_or_else(|error| reject(error)),
+        key_ceremony_signatures: read_public_authority_file(
+            key_ceremony_signatures_path,
+            boole_core::MAX_OPERATIONAL_RELEASE_KEY_CEREMONY_SIGNATURES_BYTES,
+            "key ceremony signatures",
+        )
+        .unwrap_or_else(|error| reject(error)),
+    };
+    let packaged = boole_cli::operational_trust_bootstrap::package_operational_trust_bootstrap(
+        output_root,
+        &files,
+    )
+    .unwrap_or_else(|error| reject(error.to_string()));
+    println!(
+        "{}",
+        boole_cli::cli_envelope::encode_ok(
+            command,
+            serde_json::json!({
+                "ceremonyId": packaged.ceremony_id(),
+                "ceremonySha256": packaged.ceremony_sha256(),
+                "recoveryRootSha256": packaged.recovery_root_sha256(),
+                "trustPolicySha256": packaged.trust_policy_sha256(),
+                "signerCount": packaged.signer_count(),
+                "fileCount": 5,
+                "outputRoot": packaged.output_root().display().to_string(),
+                "environment": boole_core::OPERATIONAL_RELEASE_KEY_CEREMONY_ENVIRONMENT,
+            }),
+        )
+    );
+    Ok(())
+}
+
+fn product_adopt_trust_bootstrap(
+    bootstrap_root: &Path,
+    install_root: &Path,
+    expected_recovery_root_sha256: &str,
+) -> anyhow::Result<()> {
+    let command = "product.adopt-trust-bootstrap";
+    let reject = |message: String| -> ! {
+        product_install_bootable_emit_err(command, "trust-bootstrap-rejected", message)
+    };
+    let bootstrap = boole_cli::operational_trust_bootstrap::open_operational_trust_bootstrap(
+        bootstrap_root,
+        expected_recovery_root_sha256,
+    )
+    .unwrap_or_else(|error| reject(error.to_string()));
+    let _mutation_lease =
+        boole_cli::installed_product_lifecycle::acquire_installed_product_mutation_lease(
+            install_root,
+        )
+        .unwrap_or_else(|error| {
+            let reason = if matches!(
+                error,
+                boole_cli::installed_product_lifecycle::InstalledProductLifecycleError::Busy
+            ) {
+                "product-busy"
+            } else {
+                "trust-bootstrap-rejected"
+            };
+            product_install_bootable_emit_err(command, reason, error.to_string())
+        });
+    if !operational_policy_state_path_exists(install_root).unwrap_or_else(|error| reject(error))
+        && boole_core::read_installed_curl_product_state(install_root)
+            .unwrap_or_else(|error| reject(error.to_string()))
+            .is_some()
+    {
+        reject(
+            "an existing direct-root installation cannot be converted by a trust bootstrap"
+                .to_string(),
+        );
+    }
+    let files = bootstrap.public_files();
+    let prepared = boole_core::prepare_operational_release_trust_policy_update(
+        install_root,
+        Some(&files.recovery_root),
+        Some(&files.trust_policy),
+        Some(&files.trust_policy_signatures),
+    )
+    .unwrap_or_else(|error| reject(error.to_string()));
+    let installed = boole_core::adopt_operational_release_trust_policy(install_root, prepared)
+        .unwrap_or_else(|error| reject(error.to_string()));
+    println!(
+        "{}",
+        boole_cli::cli_envelope::encode_ok(
+            command,
+            serde_json::json!({
+                "ceremonyId": bootstrap.ceremony().ceremony_id(),
+                "ceremonySha256": bootstrap.ceremony().ceremony_sha256(),
+                "recoveryRootSha256": installed.state().recovery_root_sha256(),
+                "generation": installed.state().generation(),
+                "policySha256": installed.state().policy_sha256(),
+                "releaseDownloaded": false,
+                "environment": boole_core::OPERATIONAL_RELEASE_KEY_CEREMONY_ENVIRONMENT,
+            }),
+        )
+    );
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]

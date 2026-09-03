@@ -5156,3 +5156,23 @@ be verified under the new role is not retained for rollback, but its accepted fl
 The state may contain public keys and signatures only. Operational private-key custody, out-of-band
 root publication, an official signed release, production, testnet, mining, reward, consensus, P2P
 and activation remain outside this contract.
+
+## Non-production operational trust-bootstrap rehearsal (2026-09-03)
+
+The public half of release-key bootstrap now has an executable KAT-only boundary. The core verifier
+binds one canonical ceremony transcript to the generation-one recovery root and trust policy, then
+requires proof-of-possession signatures from the product key, guest key and all three recovery keys.
+The CLI publishes exactly those five public documents through a verified, fsynced, read-only atomic
+directory replacement. No private-key material enters either interface, and the ceremony verifier
+rejects every environment other than `non-production-kat`.
+
+Installed adoption is a separate command and requires an independently supplied recovery-root
+SHA-256. It verifies the complete package and external pin before acquiring the existing product
+mutation lease and durably adopting generation one. It performs no release transport and creates
+no installed-release state. An incomplete ceremony, wrong independent pin or existing direct-root
+installation is rejected without bootstrap adoption.
+
+This is cryptographic evidence that five distinct KAT keys signed one transcript, not evidence that
+five physical custodians, devices or locations were separated. Operational key generation,
+physical custody, independent public-root publication, an official signed release and every
+production or network activation boundary remain outside this implementation.

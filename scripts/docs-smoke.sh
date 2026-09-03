@@ -3304,4 +3304,15 @@ require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.
 require_text docs/install.md 'boole product update-trust-policy'
 require_text docs/install.md 'A replayed successor, broken chain,'
 
+# The next boundary is executable only as a five-key non-production rehearsal.
+# The bootstrap package cannot select its own out-of-band recovery trust pin.
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'FIVE PUBLIC PROOFS OF POSSESSION -> EXACT READ-ONLY BOOTSTRAP PACKAGE'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'INDEPENDENT RECOVERY-ROOT SHA-256 -> DURABLE GENERATION-ONE ADOPTION BEFORE DOWNLOAD'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'KAT REHEARSAL ONLY / PHYSICAL CUSTODY + PUBLICATION CHANNEL NOT CLAIMED'
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Non-production operational trust-bootstrap rehearsal'
+require_text docs/install.md 'boole product package-trust-bootstrap'
+require_text docs/install.md 'boole product adopt-trust-bootstrap'
+require_text docs/install.md 'SHA256_FROM_AN_INDEPENDENT_CHANNEL'
+require_text docs/install.md 'it cannot prove that separate'
+
 printf 'docs-smoke: PASS\n' >&2
