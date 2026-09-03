@@ -71,9 +71,9 @@ pub use agent_events::{
 };
 pub use block::{PersistedBlock, SelectedShareEvidence, ShareWorkAuthorization};
 pub use block_builder::{
-    build_block_selection, compare_canonical, BlockBuilderConfig, BuildSelectionResult,
-    BuiltBlockSelection, CandidateShare, CanonicalOrderKey, PromotedBountyCredit,
-    PromotedBountySelection, PromotedBountyShare,
+    build_block_selection, build_block_selection_for_network, compare_canonical,
+    BlockBuilderConfig, BuildSelectionResult, BuiltBlockSelection, CandidateShare,
+    CanonicalOrderKey, PromotedBountyCredit, PromotedBountySelection, PromotedBountyShare,
 };
 pub use bounty_ledger::{validate_bounty_ledger_event, BountyEventLedger};
 pub use bounty_promotion::{
@@ -225,7 +225,8 @@ pub use rules::{
 };
 pub use session_policy::{SessionPolicy, SessionState, SignerRequest};
 pub use share_authorization::{
-    verify_share_work_authorization, VerifiedShareAuthorization, SIGNER_WORK_ROUTE,
+    verify_share_work_authorization, verify_share_work_authorization_for_network,
+    VerifiedShareAuthorization, AUTHORIZATION_REQUIRED_NETWORK_ID, SIGNER_WORK_ROUTE,
     SIGNER_WORK_V2_SCHEMA,
 };
 pub use share_pool::{AcceptResult, PoolShare, SharePool, SharePoolRejectReason};

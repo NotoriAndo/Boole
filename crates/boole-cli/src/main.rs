@@ -206,9 +206,9 @@ enum KeysCommand {
         #[arg(long)]
         id: String,
     },
-    /// Sign a JSON payload with a stored v2 key. Default stdout is the bare
-    /// hex64 ed25519 signature; `--json` emits the full `boole.signed.v1`
-    /// envelope.
+    /// Sign a JSON payload with a stored v2 key. Callers must choose a named
+    /// network or explicitly request the legacy unscoped form. Default stdout
+    /// is the bare hex64 ed25519 signature; `--json` emits the full envelope.
     Sign {
         /// Id of the key to sign with (must be a v2 envelope).
         #[arg(long)]
@@ -217,13 +217,26 @@ enum KeysCommand {
         /// a JSON file.
         #[arg(long)]
         payload: String,
+        /// Bind the signature to a named network so it cannot be replayed
+        /// against another network.
+        #[arg(
+            long,
+            conflicts_with = "legacy_unscoped",
+            required_unless_present = "legacy_unscoped"
+        )]
+        network_id: Option<String>,
+        /// Deliberately produce the pre-network legacy signature shape.
+        /// Named-network nodes reject this form.
+        #[arg(long, conflicts_with = "network_id")]
+        legacy_unscoped: bool,
         /// Emit the full `boole.signed.v1` envelope instead of just the
         /// signature.
         #[arg(long)]
         json: bool,
     },
-    /// Verify a hex64 ed25519 signature against a hex32 public key and a
-    /// JSON payload. Stateless: never touches the keys directory.
+    /// Verify a hex64 ed25519 signature against a hex32 public key and a JSON
+    /// payload in an explicitly selected network or legacy domain. Stateless:
+    /// never touches the keys directory.
     Verify {
         /// 32-byte ed25519 public key (64 lowercase hex chars).
         #[arg(long)]
@@ -234,6 +247,16 @@ enum KeysCommand {
         /// JSON payload to verify against — inline JSON or a file path.
         #[arg(long)]
         payload: String,
+        /// Verify the signature in this named network's domain.
+        #[arg(
+            long,
+            conflicts_with = "legacy_unscoped",
+            required_unless_present = "legacy_unscoped"
+        )]
+        network_id: Option<String>,
+        /// Deliberately verify the pre-network legacy signature shape.
+        #[arg(long, conflicts_with = "network_id")]
+        legacy_unscoped: bool,
         /// Emit the full result as a typed envelope instead of the bare
         /// `valid`/`invalid` word.
         #[arg(long)]
@@ -1425,13 +1448,21 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             KeysCommand::New { id, dev, dry_run } => keys_new(&id, dev, dry_run),
             KeysCommand::List => keys_list(),
             KeysCommand::Show { id } => keys_show(&id),
-            KeysCommand::Sign { id, payload, json } => keys_sign(&id, &payload, json),
+            KeysCommand::Sign {
+                id,
+                payload,
+                network_id,
+                legacy_unscoped: _,
+                json,
+            } => keys_sign(&id, &payload, network_id.as_deref(), json),
             KeysCommand::Verify {
                 pk,
                 signature,
                 payload,
+                network_id,
+                legacy_unscoped: _,
                 json,
-            } => keys_verify(&pk, &signature, &payload, json),
+            } => keys_verify(&pk, &signature, &payload, network_id.as_deref(), json),
             KeysCommand::ExportSecret { id } => keys_export_secret(&id),
         },
         Some(Command::SessionKey { command }) => match command {
@@ -5453,8 +5484,14 @@ fn signer_sign_work_emit_err(reason: &str, code: i32, extras: serde_json::Value)
 /// are refused with `legacy_v1_key` exit 3 — there is no implicit upgrade
 /// path because pk rotation is not safe to do for the operator. Default
 /// stdout is the bare hex64 ed25519 signature; `--json` emits the full
-/// `boole.signed.v1` envelope wrapped in `{ok:true, envelope:...}`.
-fn keys_sign(id: &str, payload_arg: &str, json: bool) -> anyhow::Result<()> {
+/// `boole.signed.v1` envelope wrapped in `{ok:true, envelope:...}`. The caller
+/// must explicitly choose a named network or the legacy unscoped domain.
+fn keys_sign(
+    id: &str,
+    payload_arg: &str,
+    network_id: Option<&str>,
+    json: bool,
+) -> anyhow::Result<()> {
     // P2.5: `--json` mode emits the unified envelope; default mode keeps
     // the bare hex64 signature on stdout and snake_case typed errors on
     // stderr so callers parsing the PlainText shape are unaffected.
@@ -5523,23 +5560,29 @@ fn keys_sign(id: &str, payload_arg: &str, json: bool) -> anyhow::Result<()> {
     let signing_key = boole_core::SigningKeyV2::from_seed_hex(sk_hex)
         .map_err(|err| anyhow::anyhow!("stored sk is not a valid ed25519 seed: {err}"))?;
     let payload = read_json_arg(payload_arg, "payload")?;
-    // P2.10-exempt: user-utility, see ADR-0003. `keys.sign` signs an
-    // arbitrary user-supplied payload with no NetworkPreset context and
-    // stays on the legacy unscoped digest. Any future change that gives
-    // this site a network preset must update ADR-0003.
     let signed = signing_key
-        .sign(&payload) // P2.10-exempt: user-utility, see ADR-0003
+        .sign_for_network(&payload, network_id)
         .map_err(|err| anyhow::anyhow!("ed25519 sign failed: {err}"))?;
     if json {
+        let mut signed_json = serde_json::json!({
+            "schema": signed.schema,
+            "payload": signed.payload,
+            "pk": signed.pk,
+            "signature": signed.signature,
+        });
+        if let Some(network_id) = signed.network_id {
+            signed_json
+                .as_object_mut()
+                .expect("signed envelope is an object")
+                .insert(
+                    "network_id".to_string(),
+                    serde_json::Value::String(network_id),
+                );
+        }
         let envelope = boole_cli::cli_envelope::encode_ok(
             "keys.sign",
             serde_json::json!({
-                "envelope": {
-                    "schema": signed.schema,
-                    "payload": signed.payload,
-                    "pk": signed.pk,
-                    "signature": signed.signature,
-                }
+                "envelope": signed_json,
             }),
         );
         println!("{envelope}");
@@ -5557,12 +5600,19 @@ fn keys_sign_emit_err(reason: &str, code: i32, extras: serde_json::Value) -> ! {
 }
 
 /// Verify a hex64 ed25519 signature against a hex32 public key and a JSON
-/// payload. Stateless — never touches the keys directory. Wire-malformed
+/// payload in the caller-selected network domain. Stateless — never touches
+/// the keys directory. Wire-malformed
 /// inputs (bad hex shape) emit a typed `bad_pk` / `bad_signature` envelope
 /// on stderr with exit 2; cryptographically wrong signatures are NOT errors
 /// — they print `invalid` to stdout and exit 0 because verification ran
 /// successfully.
-fn keys_verify(pk: &str, signature: &str, payload_arg: &str, json: bool) -> anyhow::Result<()> {
+fn keys_verify(
+    pk: &str,
+    signature: &str,
+    payload_arg: &str,
+    network_id: Option<&str>,
+    json: bool,
+) -> anyhow::Result<()> {
     // P2.5: under `--json` every exit path emits the unified envelope
     // (`{"ok":..,"version":"v1","command":"keys.verify",..}`) with
     // kebab-case `reason` tokens. Default (PlainText) mode keeps the
@@ -5606,7 +5656,8 @@ fn keys_verify(pk: &str, signature: &str, payload_arg: &str, json: bool) -> anyh
         );
     }
     let payload = read_json_arg(payload_arg, "payload")?;
-    let valid = match boole_core::verify_signature(pk, signature, &payload) {
+    let valid = match boole_core::verify_signature_with_network(pk, signature, &payload, network_id)
+    {
         Ok(v) => v,
         Err(detail) => {
             // Defensive: shape checks above should have caught wire-malformed
@@ -5619,10 +5670,17 @@ fn keys_verify(pk: &str, signature: &str, payload_arg: &str, json: bool) -> anyh
         }
     };
     if json {
-        let envelope = boole_cli::cli_envelope::encode_ok(
-            "keys.verify",
-            serde_json::json!({ "valid": valid }),
-        );
+        let mut result = serde_json::json!({ "valid": valid });
+        if let Some(network_id) = network_id {
+            result
+                .as_object_mut()
+                .expect("verification result is an object")
+                .insert(
+                    "network_id".to_string(),
+                    serde_json::Value::String(network_id.to_string()),
+                );
+        }
+        let envelope = boole_cli::cli_envelope::encode_ok("keys.verify", result);
         println!("{envelope}");
     } else if valid {
         println!("valid");

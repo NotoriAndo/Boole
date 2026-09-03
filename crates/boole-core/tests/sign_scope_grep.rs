@@ -48,20 +48,19 @@ fn p2_10_no_unannotated_sign_calls_in_production_src() {
 }
 
 #[test]
-fn p2_10_keys_sign_exemption_annotation_is_present() {
-    // ADR-0003 names `keys.sign` at `crates/boole-cli/src/main.rs` as
-    // the binding exemption. If this annotation ever disappears, the
-    // exemption is no longer in the source and the policy must be
-    // re-evaluated.
+fn p2_10_keys_sign_is_no_longer_a_silent_unscoped_exemption() {
+    // H.1 closes the old `keys.sign` exemption: callers now choose a named
+    // network or opt into the legacy form explicitly. Keep the production
+    // signer on the shared network-aware primitive.
     let main_rs = workspace_crates_root().join("boole-cli/src/main.rs");
     let contents = std::fs::read_to_string(&main_rs)
         .unwrap_or_else(|e| panic!("read {}: {}", main_rs.display(), e));
     assert!(
-        contents.contains("P2.10-exempt: user-utility, see ADR-0003"),
-        "expected `keys.sign` site to carry the binding ADR-0003 annotation \
-         `// P2.10-exempt: user-utility, see ADR-0003` in {}",
+        contents.contains(".sign_for_network(&payload, network_id)"),
+        "expected `keys.sign` to use the network-aware signing primitive in {}",
         main_rs.display()
     );
+    assert!(!contents.contains("P2.10-exempt: user-utility, see ADR-0003"));
 }
 
 fn workspace_crates_root() -> PathBuf {

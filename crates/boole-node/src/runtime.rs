@@ -3,10 +3,10 @@ use crate::bounty_event_store::FileBountyEventLedger;
 use crate::durability::write_ndjson_lines_atomic;
 use crate::reward_store::{verify_ledger_matches_replay, FileRewardLedger};
 use boole_core::{
-    admit_parsed_submission_typed, block_hash, build_block_selection, calibration_policy,
-    choose_canonical_head, compute_block_reward_credits, derive_bounty_settlement,
-    difficulty_weight, expected_retarget_difficulty_for_height, head_block_hash,
-    parse_submission_body, replay_blocks_allow_legacy_evidence_less,
+    admit_parsed_submission_typed, block_hash, build_block_selection_for_network,
+    calibration_policy, choose_canonical_head, compute_block_reward_credits,
+    derive_bounty_settlement, difficulty_weight, expected_retarget_difficulty_for_height,
+    head_block_hash, parse_submission_body, replay_blocks_allow_legacy_evidence_less,
     replay_blocks_with_genesis_and_registry,
     replay_blocks_with_retarget_allow_legacy_evidence_less, share_score, AdmissionDecision,
     AdmissionParsedDeps, BlockBuilderConfig, BuildSelectionResult, CalibrationPolicy,
@@ -782,14 +782,27 @@ impl RuntimeAdmissionState {
         // height-aware config instead of static from_policy so selection
         // uses the same t_block the commit/replay/`/head` paths do.
         let config = self.block_builder_config_for_height(self.cached_blocks())?;
-        build_block_selection(
+        build_block_selection_for_network(
             current_c,
             &self.candidate_shares_for_current_c(),
             &config,
             accepted_canon_tags,
             &self.credited_canon_hashes(),
             &[],
+            self.block_selection_network_id(),
         )
+    }
+
+    /// M1-D is introduced on `boole-testnet-2` only. A served node also has a
+    /// genesis spec when the operator did not name a network (the local
+    /// compatibility path uses the internal `boole-mvp` fallback), so the
+    /// mere presence of `boot_genesis` must not turn that fallback into a
+    /// network-scoped authorization requirement.
+    fn block_selection_network_id(&self) -> Option<&str> {
+        self.boot_genesis
+            .as_ref()
+            .map(|genesis| genesis.network_id.as_str())
+            .filter(|network_id| *network_id == boole_core::AUTHORIZATION_REQUIRED_NETWORK_ID)
     }
 
     /// N4-pre.1 (ADR-0012 (d)) — every canon_hash already credited on this
@@ -876,13 +889,14 @@ impl RuntimeAdmissionState {
             .current_c
             .as_deref()
             .ok_or_else(|| anyhow::anyhow!("current chain head is not set"))?;
-        let selection = build_block_selection(
+        let selection = build_block_selection_for_network(
             prev_c,
             &self.candidate_shares_for_current_c(),
             config,
             accepted_canon_tags,
             &self.credited_canon_hashes(),
             promoted_bounty_shares,
+            self.block_selection_network_id(),
         )?;
         let BuildSelectionResult::Ok(selection) = selection else {
             anyhow::bail!("block selection did not produce a single proposer");

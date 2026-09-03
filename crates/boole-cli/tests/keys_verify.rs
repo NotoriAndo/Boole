@@ -1,4 +1,5 @@
-//! S13a — `boole keys verify --pk <hex32> --signature <hex64> --payload <path|inline>`.
+//! S13a/H.1 — `boole keys verify --pk <hex32> --signature <hex64>
+//! --payload <path|inline>` with an explicit network or legacy domain.
 //!
 //! Stateless: never touches BOOLE_KEYS_DIR. Default stdout is the bare
 //! `valid` or `invalid` word; both exit 0 because the verification ran
@@ -31,6 +32,66 @@ fn sign_with_random_key(payload: &Value) -> (String, String) {
 }
 
 #[test]
+fn verify_with_network_id_accepts_only_the_network_scoped_signature() {
+    let payload = serde_json::json!({"k": "network-bound"});
+    let key = SigningKeyV2::from_random().expect("ed25519 key");
+    let signed = key
+        .sign_for_network(&payload, Some("boole-testnet-2"))
+        .expect("network-scoped signature");
+
+    let out = cli()
+        .args([
+            "keys",
+            "verify",
+            "--pk",
+            &signed.pk,
+            "--signature",
+            &signed.signature,
+            "--payload",
+            &payload.to_string(),
+            "--network-id",
+            "boole-testnet-2",
+            "--json",
+        ])
+        .output()
+        .expect("run network-scoped keys verify");
+
+    assert!(
+        out.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let env = parse_json(&out.stdout);
+    assert_eq!(env["result"]["valid"], true);
+    assert_eq!(env["result"]["network_id"], "boole-testnet-2");
+}
+
+#[test]
+fn verify_requires_network_id_or_explicit_legacy_unscoped_mode() {
+    let payload = serde_json::json!({"k": "v"});
+    let (pk, sig) = sign_with_random_key(&payload);
+    let out = cli()
+        .args([
+            "keys",
+            "verify",
+            "--pk",
+            &pk,
+            "--signature",
+            &sig,
+            "--payload",
+            &payload.to_string(),
+        ])
+        .output()
+        .expect("run unscoped keys verify");
+
+    assert_eq!(out.status.code(), Some(2));
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("--network-id"),
+        "CLI must require an explicit verification scope"
+    );
+}
+
+#[test]
 fn verify_valid_signature_prints_valid_exit_zero() {
     let payload = serde_json::json!({"k": "v"});
     let (pk, sig) = sign_with_random_key(&payload);
@@ -44,6 +105,7 @@ fn verify_valid_signature_prints_valid_exit_zero() {
             &sig,
             "--payload",
             &payload.to_string(),
+            "--legacy-unscoped",
         ])
         .output()
         .expect("run keys verify");
@@ -72,6 +134,7 @@ fn verify_tampered_payload_prints_invalid_exit_zero() {
             &sig,
             "--payload",
             &tampered.to_string(),
+            "--legacy-unscoped",
         ])
         .output()
         .expect("run keys verify");
@@ -100,6 +163,7 @@ fn verify_wrong_pk_prints_invalid_exit_zero() {
             &sig,
             "--payload",
             &payload.to_string(),
+            "--legacy-unscoped",
         ])
         .output()
         .expect("run keys verify");
@@ -120,6 +184,7 @@ fn verify_malformed_pk_emits_bad_pk_typed_error() {
             &"0".repeat(128),
             "--payload",
             &payload.to_string(),
+            "--legacy-unscoped",
         ])
         .output()
         .expect("run keys verify");
@@ -149,6 +214,7 @@ fn verify_malformed_signature_emits_bad_signature_typed_error() {
                 &signature,
                 "--payload",
                 &payload.to_string(),
+                "--legacy-unscoped",
             ])
             .output()
             .expect("run keys verify");
@@ -182,6 +248,7 @@ fn verify_valid_signature_emits_unified_envelope_when_json_set() {
             &sig,
             "--payload",
             &payload.to_string(),
+            "--legacy-unscoped",
         ])
         .output()
         .expect("run keys verify --json");
@@ -217,6 +284,7 @@ fn verify_tampered_payload_emits_unified_envelope_when_json_set() {
             &sig,
             "--payload",
             &tampered.to_string(),
+            "--legacy-unscoped",
         ])
         .output()
         .expect("run keys verify --json");
@@ -245,6 +313,7 @@ fn verify_malformed_pk_under_json_emits_unified_error_envelope() {
             &"0".repeat(128),
             "--payload",
             &payload.to_string(),
+            "--legacy-unscoped",
         ])
         .output()
         .expect("run keys verify --json");
@@ -280,6 +349,7 @@ fn verify_malformed_signature_under_json_emits_unified_error_envelope() {
             "way-too-short",
             "--payload",
             &payload.to_string(),
+            "--legacy-unscoped",
         ])
         .output()
         .expect("run keys verify --json");

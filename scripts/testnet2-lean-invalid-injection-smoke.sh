@@ -53,8 +53,9 @@ INVALID_FIXTURE="fixtures/protocol/runtime-smoke/testnet2-lean-invalid.v1.json"
 CHECKER_DIR="lean/checker"
 WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/boole-testnet2-lean-invalid.XXXXXX")"
 
-cargo build -q -p boole-node --locked
+cargo build -q -p boole-node -p boole-cli --locked
 NODE_BIN="$ROOT/target/debug/boole-node"
+CLI_BIN="$ROOT/target/debug/boole-cli"
 
 # Six ephemeral ports (3 HTTP + 3 gossip): the full-mesh peer list needs
 # every gossip address known before the first node boots, so bind port 0
@@ -85,10 +86,12 @@ trap cleanup EXIT
   --scenario "$SCENARIO" \
   --block-store "$WORKDIR/F-blocks.ndjson" \
   --reward-store "$WORKDIR/F-rewards.ndjson" \
+  --session-registry "$WORKDIR/F-sessions.ndjson" \
+  --submit-nonce-ledger "$WORKDIR/F-submit-nonces.ndjson" \
+  --signed-nonce-ledger "$WORKDIR/F-signed-nonces.ndjson" \
   --network-id boole-testnet-2 \
   --lean-checker-disabled \
   --allow-insecure-verifier \
-  --allow-anonymous-submit \
   --p2p-listen "127.0.0.1:${P2P_F}" \
   --peer "127.0.0.1:${P2P_H1}" \
   --peer "127.0.0.1:${P2P_H2}" \
@@ -97,14 +100,22 @@ PIDS+=("$!")
 
 launch_honest() {
   local name="$1" http="$2" p2p="$3" peer_a="$4" peer_b="$5"
+  local session_args=()
+  if [[ "$name" == "H1" ]]; then
+    session_args=(
+      --session-registry "$WORKDIR/H1-sessions.ndjson"
+      --submit-nonce-ledger "$WORKDIR/H1-submit-nonces.ndjson"
+      --signed-nonce-ledger "$WORKDIR/H1-signed-nonces.ndjson"
+    )
+  fi
   "$NODE_BIN" run-local \
     --addr "127.0.0.1:${http}" \
     --scenario "$SCENARIO" \
     --block-store "$WORKDIR/${name}-blocks.ndjson" \
     --reward-store "$WORKDIR/${name}-rewards.ndjson" \
+    "${session_args[@]}" \
     --network-id boole-testnet-2 \
     --lean-checker-dir "$CHECKER_DIR" \
-    --allow-anonymous-submit \
     --p2p-listen "127.0.0.1:${p2p}" \
     --peer "127.0.0.1:${peer_a}" \
     --peer "127.0.0.1:${peer_b}" \
@@ -115,19 +126,26 @@ launch_honest() {
 launch_honest H1 "$HTTP_H1" "$P2P_H1" "$P2P_F" "$P2P_H2"
 launch_honest H2 "$HTTP_H2" "$P2P_H2" "$P2P_F" "$P2P_H1"
 
-python3 - \
+PYTHONPATH="$ROOT/scripts" python3 - \
   "$HTTP_F" "$HTTP_H1" "$HTTP_H2" \
-  "$HONEST_FIXTURE" "$INVALID_FIXTURE" "$WORKDIR" <<'PY'
+  "$HONEST_FIXTURE" "$INVALID_FIXTURE" "$WORKDIR" "$CLI_BIN" <<'PY'
 import http.client
 import json
 import pathlib
 import sys
 import time
 
+from testnet2_session_smoke import (
+    assert_session_receipt,
+    authorized_submit,
+    build_registration_envelope,
+)
+
 http_f, http_h1, http_h2 = (int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3]))
 honest = json.loads(pathlib.Path(sys.argv[4]).read_text())
 invalid = json.loads(pathlib.Path(sys.argv[5]).read_text())
 workdir = pathlib.Path(sys.argv[6])
+cli_bin = sys.argv[7]
 HONEST_PORTS = [http_h1, http_h2]
 
 
@@ -177,6 +195,20 @@ def wait_live(port, deadline_s=200):
 for port in (http_f, http_h1, http_h2):
     wait_live(port)
 
+# SC.1-c — the faulty producer is deliberately checker-off, not
+# authorization-off. Register the invalid fixture's deterministic session
+# through the real network-scoped signing surface before injecting it.
+faulty_registration = build_registration_envelope(
+    cli_bin, workdir, "lean-invalid-F", invalid
+)
+registered_faulty = request_json(
+    http_f, "POST", "/sessions", faulty_registration
+)
+if not registered_faulty.get("ok"):
+    raise SystemExit(
+        f"faulty producer session registration failed: {registered_faulty}"
+    )
+
 # The honest nodes start with a clean rejection counter; snapshot so the
 # assertion proves the invalid block MOVED it (observed rejection).
 baseline_rejects = {p: metric(p, "boole_p2p_ingress_blocks_rejected_total") for p in HONEST_PORTS}
@@ -189,10 +221,11 @@ for p, v in baseline_rejects.items():
 # height 0 on the genesis anchor, then gossips it.
 inject = request_json(
     http_f, "POST", "/submit",
-    {"body": invalid["body"], "canonTag": 0, "ts": int(time.time() * 1000)},
+    authorized_submit(invalid, int(time.time() * 1000)),
 )
 if not inject.get("accepted") or "block" not in inject:
     raise SystemExit(f"faulty producer must admit + self-produce the invalid block: {inject}")
+assert_session_receipt(inject, invalid)
 bad_head = request_json(http_f, "GET", "/head")
 c_bad = bad_head.get("c")
 if bad_head.get("height") != 1 or not c_bad:
@@ -251,12 +284,22 @@ if any(v is not None for v in checkpoint_after_reject.values()):
 # ---- Phase 2: honest differential control. An honest lean-bound share into
 # H1 self-produces a valid block on the same genesis anchor; H2 re-runs real
 # Lean at ingest and accepts, so both honest nodes converge to height 1.
+honest_registration = build_registration_envelope(
+    cli_bin, workdir, "lean-invalid-H1", honest
+)
+registered_honest = request_json(
+    http_h1, "POST", "/sessions", honest_registration
+)
+if not registered_honest.get("ok"):
+    raise SystemExit(f"honest control session registration failed: {registered_honest}")
+
 control = request_json(
     http_h1, "POST", "/submit",
-    {"body": honest["body"], "canonTag": 0, "ts": int(time.time() * 1000)},
+    authorized_submit(honest, int(time.time() * 1000)),
 )
 if not control.get("accepted") or control.get("height") != 1:
     raise SystemExit(f"honest control share must commit a block on H1: {control}")
+assert_session_receipt(control, honest)
 c_good = control.get("c")
 
 deadline = time.monotonic() + 150
@@ -328,6 +371,8 @@ print(json.dumps({
         v is None for v in checkpoint_after_reject.values()
     ),
     "ingesterCheckpointHeight": ingester_checkpoint,
+    "sessionBoundSubmits": 2,
+    "networkScopedSignedWork": True,
 }, separators=(",", ":")))
 PY
 

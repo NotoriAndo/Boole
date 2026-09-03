@@ -35,6 +35,10 @@ fn scenario_path() -> PathBuf {
     repo_root().join("fixtures/protocol/runtime-smoke/v1.json")
 }
 
+fn testnet2_scenario_path() -> PathBuf {
+    repo_root().join("fixtures/protocol/runtime-smoke/testnet2-pinned-highrate.v1.json")
+}
+
 fn scenario_genesis_c() -> String {
     let raw = fs::read_to_string(scenario_path()).expect("scenario fixture");
     let doc: Value = serde_json::from_str(&raw).expect("scenario json");
@@ -79,6 +83,26 @@ fn boot_with_scenario(
     genesis_override: Option<String>,
     p2p_listener: Option<TcpListener>,
 ) -> Boot {
+    boot_with_scenario_and_submit_policy(
+        tag,
+        scenario,
+        state_dir,
+        network_id,
+        genesis_override,
+        p2p_listener,
+        false,
+    )
+}
+
+fn boot_with_scenario_and_submit_policy(
+    tag: &str,
+    scenario: PathBuf,
+    state_dir: Option<PathBuf>,
+    network_id: Option<String>,
+    genesis_override: Option<String>,
+    p2p_listener: Option<TcpListener>,
+    allow_anonymous_submit: bool,
+) -> Boot {
     let dir = std::env::temp_dir().join(format!(
         "boole-n52-binding-{tag}-{}-{}",
         std::process::id(),
@@ -120,7 +144,7 @@ fn boot_with_scenario(
                 lean_checker_dir: None,
                 lean_checker_disabled: true,
                 http_rate_limit_per_60s: None,
-                allow_anonymous_submit: false,
+                allow_anonymous_submit,
             },
             P2pConfig {
                 listener: p2p_listener,
@@ -140,6 +164,28 @@ fn boot_with_scenario(
         shutdown,
         handle,
     }
+}
+
+#[test]
+fn authorization_required_named_network_refuses_anonymous_boot() {
+    let boot = boot_with_scenario_and_submit_policy(
+        "testnet2-anonymous",
+        testnet2_scenario_path(),
+        None,
+        Some("boole-testnet-2".to_string()),
+        None,
+        None,
+        true,
+    );
+    boot.shutdown.notify_one();
+    let joined = boot.handle.join().expect("server thread");
+    let err =
+        joined.expect_err("boole-testnet-2 must refuse to boot when anonymous submit is enabled");
+    assert!(
+        err.to_string().contains("allow-anonymous-submit"),
+        "refusal must name the unsafe operator flag: {err}"
+    );
+    let _ = fs::remove_dir_all(&boot.dir);
 }
 
 fn stop(boot: Boot) {

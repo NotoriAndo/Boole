@@ -30,12 +30,14 @@ use boole_core::{
 };
 use serde_json::{json, Value};
 
+#[path = "support/testnet2_session_fixture.rs"]
+mod testnet2_session_fixture;
+
 const PROFILE: &str = "v1-lenbound";
 /// The boole-testnet-2 genesis anchor (all-zero) — the faulty producer's
 /// head when the smoke injects, identical to the honest iv-b fixture so both
 /// bind to the same chain context.
 const C: &str = "0000000000000000000000000000000000000000000000000000000000000000";
-const PK: &str = "1111111111111111111111111111111111111111111111111111111111111111";
 /// A DISTINCT admission nonce from the honest iv-b fixture (which uses
 /// `aaaa..`). The per-PK admission quota is keyed on the ticket `(pk, c, n)`:
 /// when the faulty producer gossips this share to an honest node it observes
@@ -62,7 +64,7 @@ fn canonical_checker_dir() -> PathBuf {
 /// package: one byte of that canon flipped.
 fn honest_and_tampered_canon() -> (Vec<u8>, Vec<u8>) {
     let c = Hex32::from_hex(C).expect("c");
-    let pk = Hex32::from_hex(PK).expect("pk");
+    let pk = Hex32::from_hex(&testnet2_session_fixture::session_key().pk_hex()).expect("pk");
     let n = Hex32::from_hex(N).expect("n");
     let seed = target_seed(&c, &pk, &n, 0);
     let seed_hex = seed.to_hex();
@@ -80,13 +82,14 @@ fn honest_and_tampered_canon() -> (Vec<u8>, Vec<u8>) {
 
 fn expected_body() -> Value {
     let c = Hex32::from_hex(C).expect("c");
-    let pk = Hex32::from_hex(PK).expect("pk");
+    let pk_hex = testnet2_session_fixture::session_key().pk_hex();
+    let pk = Hex32::from_hex(&pk_hex).expect("pk");
     let n = Hex32::from_hex(N).expect("n");
     let seed = target_seed(&c, &pk, &n, 0);
     let (_, tampered) = honest_and_tampered_canon();
     json!({
         "c": C,
-        "pk": PK,
+        "pk": pk_hex,
         "n": N,
         "j": J,
         "nonceS": NONCE_S,
@@ -116,6 +119,16 @@ fn testnet2_lean_invalid_share_fixture_matches_generator() {
          replace its `body` with:\n{}",
         serde_json::to_string_pretty(&expected).expect("expected body json")
     );
+    assert_eq!(
+        fixture["sessionState"],
+        testnet2_session_fixture::session_state(),
+        "replace the fixture's sessionState with the deterministic testnet-2 session authority"
+    );
+    assert_eq!(
+        fixture["submissionSession"],
+        testnet2_session_fixture::submission_session(&expected, "testnet2-lean-invalid-work-v1"),
+        "replace the fixture's submissionSession with the network-scoped work authorization"
+    );
 }
 
 /// The injection is only meaningful if the tampered share is BOTH admissible
@@ -136,7 +149,7 @@ fn tampered_share_is_admissible_yet_canon_mismatched() {
     // the genesis floor (T_share is max ⇒ min_share_score == 1, and every
     // 256-bit share hash scores >= 1), so the producer admits it.
     let c = Hex32::from_hex(C).expect("c");
-    let pk = Hex32::from_hex(PK).expect("pk");
+    let pk = Hex32::from_hex(&testnet2_session_fixture::session_key().pk_hex()).expect("pk");
     let n = Hex32::from_hex(N).expect("n");
     let j = Hex32::from_hex(J).expect("j");
     let canon_hash = Hex32::from_bytes(sha256(&tampered));

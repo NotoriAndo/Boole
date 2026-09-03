@@ -1,12 +1,13 @@
 use boole_core::{
-    admit_submission_json, replay_blocks, AdmissionDecision, AdmissionError, AdmissionStatus,
-    BuildSelectionResult, CalibrationReport, RateLimitRejectReason, RejectionReason,
-    SharePoolRejectReason,
+    admit_submission_json, canonical_payload_hash_hex, replay_blocks, AdmissionDecision,
+    AdmissionError, AdmissionStatus, BuildSelectionResult, CalibrationReport,
+    RateLimitRejectReason, RejectionReason, SharePoolRejectReason, ShareWorkAuthorization,
+    SigningKeyV2,
 };
 use boole_node::FileBlockStore;
 use boole_node::{RuntimeAdmissionState, RuntimeConfig};
 use serde::Deserialize;
-use serde_json::{Map, Value};
+use serde_json::{json, Map, Value};
 use std::collections::BTreeSet;
 
 #[derive(Debug, Deserialize)]
@@ -163,6 +164,172 @@ fn runtime_builds_block_selection_from_admitted_candidates() {
     assert_eq!(selection.selected[0].pk, fixture.constants.pk);
     assert_eq!(selection.selected[0].canon_tag, 0);
     assert_eq!(selection.proposer_index, 0);
+}
+
+#[test]
+fn runtime_current_c_selection_uses_the_boot_genesis_network() {
+    let mut fixture: Fixture =
+        serde_json::from_str(include_str!("../../../fixtures/protocol/admission/v1.json"))
+            .expect("fixture parses");
+    fixture.cfg.T_share =
+        "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string();
+    fixture.cfg.T_block =
+        "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe".to_string();
+    fixture.cfg.MinShareScoreMultiplier = serde_json::Number::from(1);
+    fixture.cfg.K_max = 4;
+    fixture.cfg.perIpRateLimitPer60s = 10;
+
+    let config = RuntimeConfig::from_calibration_report(fixture.cfg, 60_000)
+        .expect("runtime config boots from report");
+    let genesis = config.genesis_spec("boole-testnet-2", &fixture.constants.c);
+    let dir = std::env::temp_dir().join(format!(
+        "boole-runtime-network-selection-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&dir).expect("tmp dir");
+    let store = dir.join("blocks.ndjson");
+
+    let valid_op = fixture
+        .operations
+        .iter()
+        .find(|op| op.name == "valid_after_bad_not_rate_limited")
+        .expect("valid op");
+    let body = body_for(&fixture.constants, &valid_op.body_patch);
+    let accepted_tags = BTreeSet::from([0]);
+
+    let mut testnet2 = RuntimeAdmissionState::boot_from_store_with_genesis(
+        config.clone(),
+        &store,
+        None,
+        None,
+        boole_core::FamilyManifestRegistry::new(),
+        &genesis,
+    )
+    .expect("empty testnet-2 store boots");
+    testnet2.set_current_c(fixture.constants.c.clone());
+    testnet2
+        .observe_ticket_from_body(&body)
+        .expect("testnet-2 ticket observes");
+    assert!(matches!(
+        testnet2.admit_body_with_canon_tag(1_800_000_000_000, &fixture.constants.ip, &body, 0,),
+        AdmissionDecision::Accepted { .. }
+    ));
+    assert!(matches!(
+        testnet2
+            .build_block_selection_for_current_c(&accepted_tags)
+            .expect("testnet-2 selection runs"),
+        BuildSelectionResult::NoProposer { .. }
+    ));
+    let error = testnet2
+        .produce_block_for_current_c(1, 1_800_000_000_001, &accepted_tags)
+        .expect_err("testnet-2 production must use the same network-scoped selection");
+    assert!(error
+        .to_string()
+        .contains("block selection did not produce a single proposer"));
+
+    // The same anonymous candidate remains selectable through the legacy
+    // runtime constructor, which deliberately has no boot genesis/network.
+    let mut legacy = RuntimeAdmissionState::new(config);
+    legacy.set_current_c(fixture.constants.c.clone());
+    legacy
+        .observe_ticket_from_body(&body)
+        .expect("legacy ticket observes");
+    assert!(matches!(
+        legacy.admit_body_with_canon_tag(1_800_000_000_000, &fixture.constants.ip, &body, 0,),
+        AdmissionDecision::Accepted { .. }
+    ));
+    assert!(matches!(
+        legacy
+            .build_block_selection_for_current_c(&accepted_tags)
+            .expect("legacy selection runs"),
+        BuildSelectionResult::Ok(_)
+    ));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn runtime_default_boot_keeps_legacy_unscoped_authorization_selectable() {
+    let mut fixture: Fixture =
+        serde_json::from_str(include_str!("../../../fixtures/protocol/admission/v1.json"))
+            .expect("fixture parses");
+    fixture.cfg.T_share =
+        "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string();
+    fixture.cfg.T_block =
+        "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe".to_string();
+    fixture.cfg.MinShareScoreMultiplier = serde_json::Number::from(1);
+    fixture.cfg.K_max = 4;
+    fixture.cfg.perIpRateLimitPer60s = 10;
+
+    let config = RuntimeConfig::from_calibration_report(fixture.cfg, 60_000)
+        .expect("runtime config boots from report");
+    let genesis = config.genesis_spec("boole-mvp", &fixture.constants.c);
+    let dir = std::env::temp_dir().join(format!(
+        "boole-runtime-default-network-selection-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&dir).expect("tmp dir");
+
+    let valid_op = fixture
+        .operations
+        .iter()
+        .find(|op| op.name == "valid_after_bad_not_rate_limited")
+        .expect("valid op");
+    let mut body = body_for(&fixture.constants, &valid_op.body_patch);
+    let key = SigningKeyV2::from_dev_id("runtime-default-unscoped-selection");
+    let pk = key.pk_hex();
+    body.insert("pk".to_string(), json!(pk));
+    let work_payload = Value::Object(body.clone());
+    let payload = json!({
+        "schema": "boole.signer.work.v2",
+        "route": "/submit",
+        "requestHash": canonical_payload_hash_hex(&work_payload),
+        "rewardRecipient": pk,
+        "workPayload": work_payload,
+    });
+    let signed = key.sign(&payload).expect("legacy work authorization signs");
+    let authorization = ShareWorkAuthorization {
+        schema: signed.schema.to_string(),
+        payload: signed.payload,
+        pk: signed.pk,
+        signature: signed.signature,
+        network_id: signed.network_id,
+    };
+
+    let mut runtime = RuntimeAdmissionState::boot_from_store_with_genesis(
+        config,
+        dir.join("blocks.ndjson"),
+        None,
+        None,
+        boole_core::FamilyManifestRegistry::new(),
+        &genesis,
+    )
+    .expect("empty default-network store boots");
+    runtime.set_current_c(fixture.constants.c.clone());
+    runtime
+        .observe_ticket_from_body(&body)
+        .expect("legacy ticket observes");
+    assert!(matches!(
+        runtime.admit_body_with_submitter_context(
+            1_800_000_000_000,
+            &fixture.constants.ip,
+            &body,
+            0,
+            Some(&pk),
+            Some(&authorization),
+        ),
+        AdmissionDecision::Accepted { .. }
+    ));
+    let BuildSelectionResult::Ok(selection) = runtime
+        .build_block_selection_for_current_c(&BTreeSet::from([0]))
+        .expect("default-network selection runs")
+    else {
+        panic!("the unnamed local fallback must retain valid unscoped authorization");
+    };
+    assert_eq!(selection.selected.len(), 1);
+    assert_eq!(selection.selected[0].pk, pk);
+
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]

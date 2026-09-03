@@ -30,8 +30,9 @@ HONEST_FIXTURE="fixtures/protocol/runtime-smoke/testnet2-lenbound-share.v1.json"
 CHECKER_DIR="lean/checker"
 WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/boole-testnet2-checkpoint-resync.XXXXXX")"
 
-cargo build -q -p boole-node --locked
+cargo build -q -p boole-node -p boole-cli --locked
 NODE_BIN="$ROOT/target/debug/boole-node"
+CLI_BIN="$ROOT/target/debug/boole-cli"
 
 read -r HTTP_F HTTP_H P2P_F P2P_H <<<"$(python3 -c '
 import socket
@@ -59,8 +60,11 @@ trap cleanup EXIT
   --scenario "$SCENARIO" \
   --block-store "$WORKDIR/F-blocks.ndjson" \
   --reward-store "$WORKDIR/F-rewards.ndjson" \
+  --session-registry "$WORKDIR/F-sessions.ndjson" \
+  --submit-nonce-ledger "$WORKDIR/F-submit-nonces.ndjson" \
+  --signed-nonce-ledger "$WORKDIR/F-signed-nonces.ndjson" \
   --network-id boole-testnet-2 \
-  --lean-checker-disabled --allow-insecure-verifier --allow-anonymous-submit \
+  --lean-checker-disabled --allow-insecure-verifier \
   --p2p-listen "127.0.0.1:${P2P_F}" --peer "127.0.0.1:${P2P_H}" \
   >"$WORKDIR/F.out" 2>"$WORKDIR/F.err" &
 F_PID="$!"
@@ -75,12 +79,13 @@ H_CMD=(
   --reward-store "$WORKDIR/H-rewards.ndjson"
   --network-id boole-testnet-2
   --lean-checker-dir "$CHECKER_DIR"
-  --allow-anonymous-submit
   --p2p-listen "127.0.0.1:${P2P_H}"
   --peer "127.0.0.1:${P2P_F}"
 )
 
-python3 - "$HTTP_F" "$HTTP_H" "$HONEST_FIXTURE" "$WORKDIR" "${H_CMD[@]}" <<'PY'
+PYTHONPATH="$ROOT/scripts" python3 - \
+  "$HTTP_F" "$HTTP_H" "$HONEST_FIXTURE" "$WORKDIR" "$CLI_BIN" \
+  "${H_CMD[@]}" <<'PY'
 import http.client
 import json
 import pathlib
@@ -89,10 +94,17 @@ import subprocess
 import sys
 import time
 
+from testnet2_session_smoke import (
+    assert_session_receipt,
+    authorized_submit,
+    build_registration_envelope,
+)
+
 http_f, http_h = int(sys.argv[1]), int(sys.argv[2])
 honest = json.loads(pathlib.Path(sys.argv[3]).read_text())
 workdir = pathlib.Path(sys.argv[4])
-h_cmd = sys.argv[5:]
+cli_bin = sys.argv[5]
+h_cmd = sys.argv[6:]
 SKIP_METRIC = "boole_p2p_ingress_blocks_reverify_skipped_via_checkpoint_total"
 
 h_blocks = workdir / "H-blocks.ndjson"
@@ -163,11 +175,21 @@ try:
 
     # --- Phase 1: F produces a valid block; H ingests it, runs REAL Lean, and
     # advances its verified-prefix checkpoint to height 1 (no skip yet).
-    submit = request_json(http_f, "POST", "/submit", {
-        "body": honest["body"], "canonTag": 0, "ts": int(time.time() * 1000),
-    })
+    registration = build_registration_envelope(
+        cli_bin, workdir, "checkpoint-resync", honest
+    )
+    registered = request_json(http_f, "POST", "/sessions", registration)
+    if not registered.get("ok"):
+        raise SystemExit(f"producer session registration failed: {registered}")
+    submit = request_json(
+        http_f,
+        "POST",
+        "/submit",
+        authorized_submit(honest, int(time.time() * 1000)),
+    )
     if not submit.get("accepted") or submit.get("height") != 1:
         raise SystemExit(f"producer must commit block 0: {submit}")
+    assert_session_receipt(submit, honest)
     c_good = submit.get("c")
 
     deadline = time.monotonic() + 120
@@ -245,6 +267,8 @@ print(json.dumps({
     "resyncedHeight": resynced_status.get("height"),
     "resyncedHead": resynced_status.get("c"),
     "headMatchesFirstVerified": resynced_status.get("c") == c_good,
+    "sessionBoundSubmits": 1,
+    "networkScopedSignedWork": True,
 }, separators=(",", ":")))
 PY
 

@@ -325,6 +325,29 @@ class SelfTestContractTests(unittest.TestCase):
             "--allow-skips would let a skip-green run pass",
         )
 
+    def test_testnet2_smokes_gate_session_bound_network_scoped_submissions(self) -> None:
+        body = _read(SELF_TEST)
+        self.assertIn(
+            "scripts/test_testnet2_session_smoke.py",
+            body,
+            "the shared testnet-2 session helper contract must run in self-test",
+        )
+        for result_name, count in (
+            ("pinned_boot", 1),
+            ("lean_invalid", 2),
+            ("checkpoint_resync", 1),
+            ("checkpoint_diverge", 1),
+        ):
+            with self.subTest(result=result_name):
+                self.assertIn(
+                    f'{result_name}.get("sessionBoundSubmits") == {count}',
+                    body,
+                )
+                self.assertIn(
+                    f'{result_name}.get("networkScopedSignedWork") is True',
+                    body,
+                )
+
     def test_self_test_runs_testnet2_lean_invalid_injection_smoke(self) -> None:
         # SC.10-iv-c — the SC.10 completion gate (L1 master §SC.10, promoted
         # recommended→MANDATORY by the 2026-07-12 third review): a

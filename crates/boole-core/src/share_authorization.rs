@@ -29,6 +29,12 @@ pub const SIGNER_WORK_V2_SCHEMA: &str = "boole.signer.work.v2";
 /// replayed against `/submit`.
 pub const SIGNER_WORK_ROUTE: &str = "/submit";
 
+/// The first named network whose persisted share evidence requires a
+/// network-scoped submitter authorization. Other named networks keep their
+/// current optional-authorization posture; when they do carry an
+/// authorization, it must still name the replayed network exactly.
+pub const AUTHORIZATION_REQUIRED_NETWORK_ID: &str = "boole-testnet-2";
+
 /// Fields extracted from a verified authorization envelope. All values
 /// are attested by the submitter's signature; callers compare them
 /// against the committed share/block fields they are authorizing.
@@ -131,6 +137,14 @@ pub fn verify_share_work_authorization(
         Err(err) => anyhow::bail!("signedWork signature verification failed: {err}"),
     }
 
+    // Admission compares proof bytes after decoding them, so uppercase and
+    // lowercase hex are the same submitted work. Preserve that equivalence
+    // at selection/replay too instead of stranding an already-admitted share
+    // behind a raw string comparison.
+    let work_bytes_hex = hex::decode(work_payload_str(work_payload, "bytes")?)
+        .map(hex::encode)
+        .map_err(|err| anyhow::anyhow!("signedWork workPayload.bytes is not valid hex: {err}"))?;
+
     Ok(VerifiedShareAuthorization {
         signer_pk: auth.pk.clone(),
         reward_recipient: reward_recipient.to_string(),
@@ -138,7 +152,45 @@ pub fn verify_share_work_authorization(
         work_n: work_payload_str(work_payload, "n")?.to_string(),
         work_j: work_payload_str(work_payload, "j")?.to_string(),
         work_c: work_payload_str(work_payload, "c")?.to_string(),
-        work_bytes_hex: work_payload_str(work_payload, "bytes")?.to_string(),
+        work_bytes_hex,
         network_id: auth.network_id.clone(),
     })
+}
+
+/// Apply the replay network's authorization policy around the intrinsic
+/// envelope verifier.
+///
+/// `expected_network_id: None` is the legacy replay posture: authorization
+/// remains optional and a present envelope is verified using its own scope.
+/// A named-network replay requires any present envelope to be scoped to that
+/// exact network. `boole-testnet-2` additionally requires the envelope to be
+/// present at all.
+pub fn verify_share_work_authorization_for_network(
+    auth: Option<&ShareWorkAuthorization>,
+    expected_network_id: Option<&str>,
+) -> anyhow::Result<Option<VerifiedShareAuthorization>> {
+    let Some(auth) = auth else {
+        if expected_network_id == Some(AUTHORIZATION_REQUIRED_NETWORK_ID) {
+            anyhow::bail!(
+                "signedWork authorization is required on network {}",
+                AUTHORIZATION_REQUIRED_NETWORK_ID
+            );
+        }
+        return Ok(None);
+    };
+
+    let verified = verify_share_work_authorization(auth)?;
+    if let Some(expected_network_id) = expected_network_id {
+        if verified.network_id.as_deref() != Some(expected_network_id) {
+            anyhow::bail!(
+                "signedWork network mismatch: got {}, expected {}",
+                verified
+                    .network_id
+                    .as_deref()
+                    .unwrap_or("<legacy-unscoped>"),
+                expected_network_id
+            );
+        }
+    }
+    Ok(Some(verified))
 }
