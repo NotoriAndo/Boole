@@ -12,7 +12,7 @@ use boole_core::{
     AdmissionParsedDeps, BlockBuilderConfig, BuildSelectionResult, CalibrationPolicy,
     CalibrationReport, CandidateShare, DifficultyEvidence, DifficultyRetargetPolicy,
     FamilyManifestRegistry, LegacyEvidenceOptIn, PersistedBlock, PersistedRewardEvent, PoolShare,
-    RateLimiter, SelectedShareEvidence, SharePool, ShareWorkAuthorization,
+    RateLimiter, ReplayResult, SelectedShareEvidence, SharePool, ShareWorkAuthorization,
 };
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
@@ -93,6 +93,34 @@ pub(crate) fn derive_bounty_events(
         })
         .collect();
     Ok((credits, shares))
+}
+
+/// Reconstruct the exact block-derived portion of the bounty ledger from the
+/// canonical block history while preserving route-owned audit rows in their
+/// original relative order. The block store is authoritative; this projection
+/// is shared by boot recovery and reorg recovery so neither can drift into a
+/// count-only repair policy.
+pub(crate) fn rebuild_bounty_ledger_rows(
+    existing: &[Value],
+    blocks: &[PersistedBlock],
+    registry: &FamilyManifestRegistry,
+) -> anyhow::Result<Vec<Value>> {
+    let mut rows: Vec<Value> = existing
+        .iter()
+        .filter(|event| {
+            matches!(
+                event.get("kind").and_then(Value::as_str),
+                Some("create") | Some("status_change") | Some("proof")
+            )
+        })
+        .cloned()
+        .collect();
+    for block in blocks {
+        let (credits, shares) = derive_bounty_events(block, registry)?;
+        rows.extend(credits);
+        rows.extend(shares);
+    }
+    Ok(rows)
 }
 
 /// BF.0 — runtime-only useful-work scaffold switch. `Disabled` is the
@@ -290,6 +318,32 @@ impl RuntimeAdmissionState {
         &self.family_registry
     }
 
+    /// Replay `blocks` under the exact authority this runtime used at boot.
+    ///
+    /// Served nodes always retain a `GenesisSpec`, so their live health checks
+    /// must not silently downgrade to the historical evidence-tolerant replay.
+    /// Genesis-less fixture embeddings retain the same explicit legacy and
+    /// retarget behavior as their boot path.
+    pub fn replay_under_boot_contract(
+        &self,
+        blocks: &[PersistedBlock],
+    ) -> anyhow::Result<ReplayResult> {
+        if let Some(spec) = self.boot_genesis.as_ref() {
+            return replay_blocks_with_genesis_and_registry(blocks, spec, &self.family_registry);
+        }
+        let opt_in = LegacyEvidenceOptIn::for_legacy_replay_only();
+        match &self.config.difficulty_retarget {
+            Some(policy) => replay_blocks_with_retarget_allow_legacy_evidence_less(
+                blocks,
+                &format!("0x{:064x}", self.config.policy.thresholds.t_block),
+                policy,
+                opt_in,
+                &self.family_registry,
+            ),
+            None => replay_blocks_allow_legacy_evidence_less(blocks, opt_in, &self.family_registry),
+        }
+    }
+
     pub fn boot_from_store(
         config: RuntimeConfig,
         block_path: impl AsRef<Path>,
@@ -386,94 +440,26 @@ impl RuntimeAdmissionState {
         // served node path always passes one. (The pre-SC.5 comment
         // claiming "there is no p2p ingest path in this codebase yet"
         // was stale — N3.3/N4.3 landed ingest and reorg.)
-        let replay = if let Some(spec) = genesis {
-            replay_blocks_with_genesis_and_registry(
-                recovered.blocks(),
-                spec,
-                &runtime.family_registry,
-            )?
-        } else {
-            let opt_in = LegacyEvidenceOptIn::for_legacy_replay_only();
-            match &runtime.config.difficulty_retarget {
-                Some(policy) => replay_blocks_with_retarget_allow_legacy_evidence_less(
-                    recovered.blocks(),
-                    &format!("0x{:064x}", runtime.config.policy.thresholds.t_block),
-                    policy,
-                    opt_in,
-                    &runtime.family_registry,
-                )?,
-                None => replay_blocks_allow_legacy_evidence_less(
-                    recovered.blocks(),
-                    opt_in,
-                    &runtime.family_registry,
-                )?,
-            }
-        };
-        // P1.3b — bounty-event ledger crash-mid-commit heal. The bounty-event
-        // ledger is the LAST store written per block (block → reward →
-        // bounty-event `credit` rows → bounty-event `share_promoted` rows →
-        // receipt), so a crash after the reward append but before the
-        // bounty-event appends leaves it short of the last block's rows, and a
-        // deleted ledger (the documented upgrade-recovery path) leaves it short
-        // of EVERY block's rows. `verify_ledger_matches_replay` below would then
-        // refuse to boot a `--bounty-events` node.
-        //
-        // The ledger INTERLEAVES route-driven events (`create` / `status_change`
-        // / `proof`, written by the announce/status/proof handlers at arbitrary
-        // times) with BLOCK-driven `credit` + `share_promoted` rows (written at
-        // block commit in `submit_json`, credit-rows-then-share-rows per block,
-        // in block order). ONLY the block-driven rows are re-derivable from the
-        // block store (`derive_bounty_events`); the route-driven rows are not and
-        // are left untouched. Filtering the route-driven rows out, the surviving
-        // block-driven rows are a strict PREFIX of the expected
-        // `credit`/`share_promoted` sequence (same block order; `recover` also
-        // truncates any torn trailing line first), so re-append the missing
-        // suffix. Healing the `share_promoted` rows — not just `credit` — is what
-        // stops `rebuild_bounty_side_pool` re-promoting an already-committed
-        // share. A genuine tamper keeps the block-driven count equal, so nothing
-        // is appended and the verify still bails. (A DELETED ledger loses the
-        // route-driven audit rows permanently — only the block-derivable
-        // credit/share rows are restored.)
+        let replay = runtime.replay_under_boot_contract(recovered.blocks())?;
+        // The block store is canonical for `credit` and `share_promoted` rows.
+        // Reconstruct that whole projection on every boot and preserve only the
+        // route-owned audit rows. This closes both crash-trailing and same-count
+        // tamper/drift cases; a row count is not a state commitment.
         if let Some(bounty_path) = bounty_event_ledger_path.as_deref() {
-            let mut expected: Vec<serde_json::Value> = Vec::new();
-            for block in recovered.blocks() {
-                let (credits, shares) = derive_bounty_events(block, &runtime.family_registry)?;
-                expected.extend(credits);
-                expected.extend(shares);
-            }
-            if !expected.is_empty() {
-                let present = if bounty_path.exists() {
-                    FileBountyEventLedger::recover(bounty_path)?
-                } else {
-                    Vec::new()
-                };
-                // Count ONLY the block-driven rows already on disk: the ledger
-                // also holds route-driven `create`/`status_change`/`proof` rows
-                // that `expected` does not, so a raw `present.len()` would be the
-                // wrong basis for the prefix comparison (and would wrongly skip
-                // the heal whenever any route event exists).
-                let present_block_rows = present
-                    .iter()
-                    .filter(|e| {
-                        matches!(
-                            e.get("kind").and_then(serde_json::Value::as_str),
-                            Some("credit") | Some("share_promoted")
-                        )
-                    })
-                    .count();
-                if present_block_rows < expected.len() {
-                    let missing = expected.len() - present_block_rows;
-                    for ev in expected.into_iter().skip(present_block_rows) {
-                        FileBountyEventLedger::append(bounty_path, &ev)?;
-                    }
-                    eprintln!(
-                        "boole-node: bounty-event ledger healed from block store: \
-                         re-derived {} trailing credit/share_promoted event(s) up to \
-                         height {} (crash-mid-commit recovery)",
-                        missing,
-                        recovered.blocks().last().map(|b| b.height).unwrap_or(0),
-                    );
-                }
+            let present = if bounty_path.exists() {
+                FileBountyEventLedger::recover(bounty_path)?
+            } else {
+                Vec::new()
+            };
+            let rebuilt =
+                rebuild_bounty_ledger_rows(&present, recovered.blocks(), &runtime.family_registry)?;
+            if present != rebuilt {
+                FileBountyEventLedger::rewrite_atomic(bounty_path, &rebuilt)?;
+                eprintln!(
+                    "boole-node: bounty-event ledger reconstructed from canonical block history \
+                     through height {}",
+                    recovered.blocks().last().map(|b| b.height).unwrap_or(0),
+                );
             }
         }
         if let Some(path) = reward_ledger_path {

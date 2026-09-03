@@ -2,7 +2,9 @@ use std::path::Path;
 
 use boole_core::PersistedBlock;
 
-use crate::durability::{append_ndjson_line_durable, read_stable_prefix};
+use crate::durability::{
+    append_ndjson_line_durable, read_complete_ndjson_read_only, read_stable_prefix,
+};
 
 #[derive(Debug, Default)]
 pub struct FileBlockStore {
@@ -15,6 +17,23 @@ impl FileBlockStore {
         let Some(raw) = read_stable_prefix(path)? else {
             return Ok(Self::default());
         };
+        Self::parse(&raw)
+    }
+
+    /// Strictly inspect the persisted block log without repairing it.
+    ///
+    /// Unlike [`Self::recover`], this returns an error for a torn final line
+    /// and never opens the path for writing. It is the only suitable entry
+    /// point for live status/readiness and offline verification commands.
+    pub fn inspect(path: impl AsRef<Path>) -> anyhow::Result<Self> {
+        let path = path.as_ref();
+        let Some(raw) = read_complete_ndjson_read_only(path)? else {
+            return Ok(Self::default());
+        };
+        Self::parse(&raw)
+    }
+
+    fn parse(raw: &str) -> anyhow::Result<Self> {
         let mut blocks = Vec::new();
         for (i, line) in raw.lines().filter(|line| !line.is_empty()).enumerate() {
             let block: PersistedBlock = serde_json::from_str(line).map_err(|err| {

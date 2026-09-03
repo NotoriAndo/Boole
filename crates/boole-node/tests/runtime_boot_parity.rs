@@ -215,6 +215,40 @@ fn boot_rejects_chain_rejected_by_live_ingest() {
     }
 }
 
+#[test]
+fn runtime_health_replay_uses_the_exact_boot_genesis_contract() {
+    let genesis = spec(ZEROS, 4, false);
+    let valid = block_at(ZEROS, vec![share_at(ZEROS, PK_A, J_A, 0x11)]);
+    let store = store_with(std::slice::from_ref(&valid));
+    let runtime = RuntimeAdmissionState::boot_from_store_with_genesis(
+        runtime_config(),
+        &store,
+        None,
+        None,
+        boole_core::FamilyManifestRegistry::new(),
+        &genesis,
+    )
+    .expect("strict-valid chain boots");
+
+    // selectedShareEvidence deliberately stays outside the block preimage, so
+    // removing it leaves height/head/hash unchanged. Legacy replay accepts
+    // this historical shape, while the exact served-node boot contract must
+    // reject it. That makes this the minimal corpus for a health check which
+    // would otherwise report a false match.
+    let stripped = evidence_stripped(valid);
+    assert!(boole_core::replay_blocks_allow_legacy_evidence_less(
+        std::slice::from_ref(&stripped),
+        boole_core::LegacyEvidenceOptIn::for_legacy_replay_only(),
+        &boole_core::FamilyManifestRegistry::new(),
+    )
+    .is_ok());
+    assert!(runtime
+        .replay_under_boot_contract(std::slice::from_ref(&stripped))
+        .is_err());
+
+    let _ = std::fs::remove_dir_all(store.parent().expect("store dir"));
+}
+
 /// SC.5 (2nd review item 9, CONFIRMED) — the reorg candidate path must
 /// apply the same ts future-drift guard direct ingest applies: replay's
 /// median-time-past check is RELATIVE, so a divergent heavier fork whose

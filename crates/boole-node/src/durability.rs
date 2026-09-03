@@ -116,6 +116,30 @@ pub(crate) fn read_stable_prefix(path: &Path) -> anyhow::Result<Option<String>> 
     Ok(Some(raw))
 }
 
+/// Read a complete NDJSON file without changing it.
+///
+/// Observation paths (CLI verification, deep verification, `/status`, and
+/// `/ready`) must never reuse crash-repair semantics: a torn final append is
+/// evidence that the live file is not presently stable, not permission for a
+/// reader to truncate bytes owned by another process. Boot/recovery keeps
+/// using [`read_stable_prefix`]; observers use this strict variant and fail
+/// closed when the last line is incomplete.
+pub(crate) fn read_complete_ndjson_read_only(path: &Path) -> anyhow::Result<Option<String>> {
+    if !path.exists() {
+        return Ok(None);
+    }
+    let raw_bytes = fs::read(path)?;
+    let stable_len = stable_jsonl_prefix_len(&raw_bytes);
+    if stable_len < raw_bytes.len() {
+        anyhow::bail!(
+            "torn trailing line at byte {} ({} trailing byte(s)); read-only inspection did not repair the file",
+            stable_len,
+            raw_bytes.len() - stable_len,
+        );
+    }
+    Ok(Some(String::from_utf8(raw_bytes)?))
+}
+
 /// Replay and repair an NDJSON journal through one already-open file
 /// descriptor. A torn tail is truncated and fsynced before the stable prefix
 /// is returned; the descriptor is left positioned at EOF for the next append.
@@ -244,6 +268,25 @@ mod tests {
             stable_len,
             "torn tail must be truncated on disk"
         );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn read_only_inspection_rejects_torn_tail_without_truncating() {
+        let dir = std::env::temp_dir().join(format!(
+            "boole-node-durability-read-only-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("tmp dir");
+        let path = dir.join("ledger.ndjson");
+        let bytes = b"stable\ntorn-partial-without-newline";
+        fs::write(&path, bytes).expect("write fixture");
+
+        let err = read_complete_ndjson_read_only(&path).expect_err("torn tail must fail");
+        assert!(err.to_string().contains("torn trailing line"));
+        assert_eq!(fs::read(&path).expect("read after inspection"), bytes);
 
         let _ = fs::remove_dir_all(&dir);
     }

@@ -374,7 +374,7 @@ pub fn deep_verify_block(
     lean_checker_dir: Option<&Path>,
     profile: &str,
 ) -> Result<DeepVerifyBlockReport, DeepVerifyError> {
-    let blocks = crate::FileBlockStore::recover(block_path).map_err(|err| {
+    let blocks = crate::FileBlockStore::inspect(block_path).map_err(|err| {
         DeepVerifyError::EventsUnreadable {
             path: block_path.to_path_buf(),
             detail: err.to_string(),

@@ -14,7 +14,10 @@ use crate::p2p_ingress::{
 use crate::p2p_package_fetch::spawn_package_fetch_thread;
 use crate::proof_dedup_ledger::FileProofDedupLedger;
 use crate::receipt_store::FileReceiptStore;
-use crate::runtime::{derive_bounty_events, ReorgOutcome, RuntimeAdmissionState, RuntimeConfig};
+use crate::runtime::{
+    derive_bounty_events, rebuild_bounty_ledger_rows, ReorgOutcome, RuntimeAdmissionState,
+    RuntimeConfig,
+};
 use crate::session_store::FileSessionStore;
 use crate::signed_nonce_ledger::FileSignedNonceLedger;
 use crate::state_dir::{self, StateDirGuard, StateManifest};
@@ -29,14 +32,13 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use boole_core::{
     agent_passport_events_for_receipt, canonical_payload_hash_hex, compute_block_reward_credits,
-    parse_submission_body, replay_blocks_allow_legacy_evidence_less,
-    replay_blocks_with_genesis_and_registry, ticket, verify_signature_with_network,
-    AdmissionDecision, BountyProofVerifier, BountyRegistry, BountyShare, BountySidePool,
-    BuildSelectionResult, CalibrationReport, CreateBountyInput, DifficultyRetargetPolicy,
-    FamilyManifestRegistry, Hex32, Hex64, LegacyEvidenceOptIn, PersistedBlock, ReceiptCommitment,
-    ReceiptCommitmentInput, SelectedShareEvidence, SessionState, ShareWorkAuthorization,
-    SubmitProofInput, UpdateStatusInput, VerifyOutcome, WorkManifest, SIGNED_ENVELOPE_SCHEMA,
-    SIGNER_WORK_V2_SCHEMA,
+    parse_submission_body, replay_blocks_with_genesis_and_registry, ticket,
+    verify_signature_with_network, AdmissionDecision, BountyProofVerifier, BountyRegistry,
+    BountyShare, BountySidePool, BuildSelectionResult, CalibrationReport, CreateBountyInput,
+    DifficultyRetargetPolicy, FamilyManifestRegistry, Hex32, Hex64, PersistedBlock,
+    ReceiptCommitment, ReceiptCommitmentInput, SelectedShareEvidence, SessionState,
+    ShareWorkAuthorization, SubmitProofInput, UpdateStatusInput, VerifyOutcome, WorkManifest,
+    SIGNED_ENVELOPE_SCHEMA, SIGNER_WORK_V2_SCHEMA,
 };
 use boole_p2p::HeadSummary;
 use serde::Deserialize;
@@ -3420,21 +3422,16 @@ async fn fallback_handler(method: Method, uri: Uri) -> Response {
 /// of merely reporting the boot snapshot. Returns `false` on any
 /// recover/replay error or shape mismatch.
 fn compute_replay_matches_runtime(state: &LocalNodeState) -> bool {
-    let Ok(recovered) = FileBlockStore::recover(&state.block_path) else {
+    let Ok(recovered) = FileBlockStore::inspect(&state.block_path) else {
         return false;
     };
     if recovered.size() == 0 {
         return state.runtime.cached_block_count() == 0 && state.runtime.current_c().is_some();
     }
-    // N3-pre.1 — this recomputes drift against the node's OWN local block
-    // store (never a peer-supplied chain), so it opts into the legacy
-    // evidence-less path, matching the boot replay in
-    // `RuntimeAdmissionState::boot_from_store_with_bounty_ledger`.
-    let Ok(replay) = replay_blocks_allow_legacy_evidence_less(
-        recovered.blocks(),
-        LegacyEvidenceOptIn::for_legacy_replay_only(),
-        state.runtime.family_registry(),
-    ) else {
+    // Use the runtime's exact boot authority. Served nodes retain their
+    // GenesisSpec, so status/readiness cannot downgrade a strict named or
+    // genesis-bound node to the historical evidence-tolerant replay.
+    let Ok(replay) = state.runtime.replay_under_boot_contract(recovered.blocks()) else {
         return false;
     };
     (replay.height as usize) == state.runtime.cached_block_count()
@@ -5501,29 +5498,6 @@ fn rebuild_proof_dedup_mirror_after_reorg(
 /// original relative order and replace the block-driven rows with those derived
 /// from `adopted` (credit rows then share rows per block, in block order). Pure:
 /// no I/O, so it is unit-testable and the wiring below owns the file swap.
-fn rebuild_bounty_ledger_rows(
-    existing: &[Value],
-    adopted: &[PersistedBlock],
-    family_registry: &boole_core::FamilyManifestRegistry,
-) -> anyhow::Result<Vec<Value>> {
-    let mut rows: Vec<Value> = existing
-        .iter()
-        .filter(|event| {
-            matches!(
-                event.get("kind").and_then(Value::as_str),
-                Some("create") | Some("status_change") | Some("proof")
-            )
-        })
-        .cloned()
-        .collect();
-    for block in adopted {
-        let (credits, shares) = derive_bounty_events(block, family_registry)?;
-        rows.extend(credits);
-        rows.extend(shares);
-    }
-    Ok(rows)
-}
-
 /// N4 — rebuild the node-local bounty state after a reorg has adopted `adopted`
 /// as the new canonical chain. Only block PROJECTIONS change on a reorg:
 /// - the bounty-event ledger's `credit`/`share_promoted` rows, and
