@@ -131,15 +131,19 @@ class RewardLedgerHealContractTests(unittest.TestCase):
         self.runtime = _read(RUNTIME)
 
     def test_boot_re_derives_trailing_reward_events(self) -> None:
+        start, end = _function_span(
+            self.runtime, r"fn\s+boot_from_store_inner\s*\("
+        )
+        span = self.runtime[start:end]
         self.assertIn(
-            "reward ledger healed from block store",
-            self.runtime,
+            "FileRewardLedger::rewrite_atomic",
+            span,
             "P1.3b: boot_from_store_with_bounty_ledger must re-derive trailing "
             "reward events from the block store (crash-mid-commit heal), not bail.",
         )
         self.assertIn(
             "derive_reward_event",
-            self.runtime,
+            span,
             "P1.3b: a single derive_reward_event helper must back both the "
             "absent-ledger re-derive and the trailing-event heal.",
         )
