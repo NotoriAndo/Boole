@@ -5109,9 +5109,10 @@ production authority.
 exact two-of-three offline recovery role. Product and guest release roles use
 separate keys and may not share key identifiers or public material with the
 recovery role. Initial verification requires the injected out-of-band recovery
-root and the policy's recovery role to meet their thresholds. A successor binds
-the exact preceding policy digest and requires both the preceding and successor
-recovery thresholds over the same domain-separated policy digest.
+root and the policy's recovery role to be exactly identical before their
+threshold is accepted. A successor binds the exact preceding policy digest and
+requires both the preceding and successor recovery thresholds over the same
+domain-separated policy digest.
 
 Successor verification maintains an exact append-only retirement set for every
 removed product, guest and recovery key. A retired identifier or public key

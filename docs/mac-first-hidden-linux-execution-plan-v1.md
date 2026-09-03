@@ -7293,12 +7293,14 @@ deterministic non-production KAT keys; it creates, stores and publishes no
 operational private key.
 
 The policy verifier covers both the initial policy and successor transitions.
-A successor binds the exact predecessor digest, advances by one generation,
-and needs the threshold of both the old and new recovery roles. Every removed
-product, guest or recovery key enters an exact monotonic retirement history,
-and neither its identifier nor public key may become active again. The recovery
-role may disable a compromised online release role and later enable only fresh
-key material.
+The initial policy's recovery role must exactly match the injected out-of-band
+root, so generation one cannot silently discard a recovery key before a
+retirement history exists. A successor binds the exact predecessor digest,
+advances by one generation, and needs the threshold of both the old and new
+recovery roles. Every removed product, guest or recovery key enters an exact
+monotonic retirement history, and neither its identifier nor public key may
+become active again. The recovery role may disable a compromised online release
+role and later enable only fresh key material.
 
 `boole product package-direct-boot` is the first real consumer. In policy mode
 it reads a canonical out-of-band recovery root, policy and detached signature
