@@ -29,6 +29,7 @@ pub mod guest_boot;
 pub mod hash;
 pub mod lean_bound_canon;
 pub mod native_shadow_update;
+pub mod operational_release_trust_policy;
 pub mod package_sidecar;
 pub mod package_store;
 pub mod paths;
@@ -153,6 +154,16 @@ pub use native_shadow_update::{
     GUEST_UPDATE_MANIFEST_SCHEMA, GUEST_UPDATE_MANIFEST_SCHEMA_V2, GUEST_UPDATE_MANIFEST_SCHEMA_V3,
     MAX_GUEST_UPDATE_ARTIFACT_BYTES, NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT,
     NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT_V2, NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT_V3,
+};
+pub use operational_release_trust_policy::{
+    verify_initial_operational_release_trust_policy,
+    verify_operational_release_trust_policy_successor, OperationalReleaseRecoveryRoot,
+    OperationalReleaseTrustPolicyError, VerifiedOperationalReleaseTrustPolicy,
+    MAX_OPERATIONAL_RELEASE_RECOVERY_ROOT_BYTES, MAX_OPERATIONAL_RELEASE_TRUST_POLICY_BYTES,
+    MAX_OPERATIONAL_RELEASE_TRUST_POLICY_SIGNATURES_BYTES,
+    OPERATIONAL_RELEASE_RECOVERY_ROOT_SCHEMA, OPERATIONAL_RELEASE_TRUST_POLICY_SCHEMA,
+    OPERATIONAL_RELEASE_TRUST_POLICY_SIGNATURES_SCHEMA,
+    OPERATIONAL_RELEASE_TRUST_POLICY_SIGNING_CONTEXT,
 };
 pub use package_sidecar::{
     CanonicalPackage, PackageFile, PackageRoot, PackageSidecarError, MAX_PACKAGE_CANONICAL_BYTES,

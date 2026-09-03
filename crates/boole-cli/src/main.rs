@@ -782,13 +782,24 @@ enum ProductCommand {
         #[arg(long = "output-root")]
         output_root: PathBuf,
         #[arg(long = "product-trust-root-key-id")]
-        product_trust_root_key_id: String,
+        product_trust_root_key_id: Option<String>,
         #[arg(long = "product-trust-root-public-key")]
-        product_trust_root_public_key: String,
+        product_trust_root_public_key: Option<String>,
         #[arg(long = "guest-trust-root-key-id")]
-        guest_trust_root_key_id: String,
+        guest_trust_root_key_id: Option<String>,
         #[arg(long = "guest-trust-root-public-key")]
-        guest_trust_root_public_key: String,
+        guest_trust_root_public_key: Option<String>,
+        /// Canonical out-of-band public recovery root. Use together with
+        /// --trust-policy and --trust-policy-signatures instead of the four
+        /// direct release-root arguments.
+        #[arg(long = "recovery-root")]
+        recovery_root: Option<PathBuf>,
+        /// Recovery-authorized canonical release trust policy.
+        #[arg(long = "trust-policy")]
+        trust_policy: Option<PathBuf>,
+        /// Detached recovery signature set for --trust-policy.
+        #[arg(long = "trust-policy-signatures")]
+        trust_policy_signatures: Option<PathBuf>,
         /// First-release product floor. Mutually exclusive with the two
         /// installed product floor arguments.
         #[arg(long = "first-product-minimum")]
@@ -1163,6 +1174,9 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 product_trust_root_public_key,
                 guest_trust_root_key_id,
                 guest_trust_root_public_key,
+                recovery_root,
+                trust_policy,
+                trust_policy_signatures,
                 first_product_minimum,
                 product_floor_sequence,
                 product_floor_manifest_sha256,
@@ -1172,10 +1186,13 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             } => product_package_direct_boot(
                 &source_root,
                 &output_root,
-                &product_trust_root_key_id,
-                &product_trust_root_public_key,
-                &guest_trust_root_key_id,
-                &guest_trust_root_public_key,
+                product_trust_root_key_id.as_deref(),
+                product_trust_root_public_key.as_deref(),
+                guest_trust_root_key_id.as_deref(),
+                guest_trust_root_public_key.as_deref(),
+                recovery_root.as_deref(),
+                trust_policy.as_deref(),
+                trust_policy_signatures.as_deref(),
                 first_product_minimum,
                 product_floor_sequence,
                 product_floor_manifest_sha256.as_deref(),
@@ -2495,14 +2512,153 @@ fn product_download_attempt_staging(requested: &Path) -> Result<std::path::PathB
     Ok(requested.with_file_name(attempt_name))
 }
 
+struct PackageAuthority {
+    product: boole_core::CurlProductReleaseTrustRoot,
+    guest: boole_core::NativeShadowUpdateTrustRoot,
+    policy: Option<PackagePolicyIdentity>,
+}
+
+struct PackagePolicyIdentity {
+    generation: u64,
+    sha256: String,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn resolve_package_authority(
+    product_key_id: Option<&str>,
+    product_public_key: Option<&str>,
+    guest_key_id: Option<&str>,
+    guest_public_key: Option<&str>,
+    recovery_root_path: Option<&Path>,
+    policy_path: Option<&Path>,
+    signatures_path: Option<&Path>,
+) -> Result<PackageAuthority, String> {
+    let direct_count = [
+        product_key_id.is_some(),
+        product_public_key.is_some(),
+        guest_key_id.is_some(),
+        guest_public_key.is_some(),
+    ]
+    .into_iter()
+    .filter(|present| *present)
+    .count();
+    let policy_count = [
+        recovery_root_path.is_some(),
+        policy_path.is_some(),
+        signatures_path.is_some(),
+    ]
+    .into_iter()
+    .filter(|present| *present)
+    .count();
+    if direct_count > 0 && policy_count > 0 {
+        return Err(
+            "choose direct release roots or a recovery-authorized trust policy, not both"
+                .to_string(),
+        );
+    }
+    if direct_count == 4 {
+        let product = boole_core::CurlProductReleaseTrustRoot::new(
+            product_key_id.expect("complete direct authority"),
+            product_public_key.expect("complete direct authority"),
+        )
+        .map_err(|error| error.to_string())?;
+        let guest = boole_core::NativeShadowUpdateTrustRoot::new(
+            guest_key_id.expect("complete direct authority"),
+            guest_public_key.expect("complete direct authority"),
+        )
+        .map_err(|error| error.to_string())?;
+        return Ok(PackageAuthority {
+            product,
+            guest,
+            policy: None,
+        });
+    }
+    if direct_count > 0 {
+        return Err("all four direct release-root arguments are required".to_string());
+    }
+    if policy_count != 3 {
+        return Err(
+            "--recovery-root, --trust-policy and --trust-policy-signatures are all required"
+                .to_string(),
+        );
+    }
+    let recovery_root_raw = read_public_authority_file(
+        recovery_root_path.expect("complete policy authority"),
+        boole_core::MAX_OPERATIONAL_RELEASE_RECOVERY_ROOT_BYTES,
+        "recovery root",
+    )?;
+    let policy_raw = read_public_authority_file(
+        policy_path.expect("complete policy authority"),
+        boole_core::MAX_OPERATIONAL_RELEASE_TRUST_POLICY_BYTES,
+        "trust policy",
+    )?;
+    let signatures_raw = read_public_authority_file(
+        signatures_path.expect("complete policy authority"),
+        boole_core::MAX_OPERATIONAL_RELEASE_TRUST_POLICY_SIGNATURES_BYTES,
+        "trust policy signatures",
+    )?;
+    let recovery_root =
+        boole_core::OperationalReleaseRecoveryRoot::from_canonical_json(&recovery_root_raw)
+            .map_err(|error| error.to_string())?;
+    let policy = boole_core::verify_initial_operational_release_trust_policy(
+        &policy_raw,
+        &signatures_raw,
+        &recovery_root,
+    )
+    .map_err(|error| error.to_string())?;
+    let product = policy
+        .product_release_trust_root()
+        .cloned()
+        .ok_or_else(|| "trust policy has disabled the product release role".to_string())?;
+    let guest = policy
+        .guest_release_trust_root()
+        .cloned()
+        .ok_or_else(|| "trust policy has disabled the guest release role".to_string())?;
+    Ok(PackageAuthority {
+        product,
+        guest,
+        policy: Some(PackagePolicyIdentity {
+            generation: policy.generation(),
+            sha256: policy.policy_sha256().to_string(),
+        }),
+    })
+}
+
+fn read_public_authority_file(path: &Path, cap: usize, label: &str) -> Result<Vec<u8>, String> {
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(path)
+        .map_err(|error| format!("open {label} {}: {error}", path.display()))?;
+    let metadata = file
+        .metadata()
+        .map_err(|error| format!("inspect {label} {}: {error}", path.display()))?;
+    if !metadata.is_file() || metadata.len() == 0 || metadata.len() > cap as u64 {
+        return Err(format!(
+            "{label} size or file type is outside its allowed range"
+        ));
+    }
+    let mut raw = Vec::with_capacity(metadata.len() as usize);
+    file.take((cap + 1) as u64)
+        .read_to_end(&mut raw)
+        .map_err(|error| format!("read {label} {}: {error}", path.display()))?;
+    if raw.len() > cap {
+        return Err(format!("{label} changed beyond its size cap while reading"));
+    }
+    Ok(raw)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn product_package_direct_boot(
     source_root: &Path,
     output_root: &Path,
-    product_trust_root_key_id: &str,
-    product_trust_root_public_key: &str,
-    guest_trust_root_key_id: &str,
-    guest_trust_root_public_key: &str,
+    product_trust_root_key_id: Option<&str>,
+    product_trust_root_public_key: Option<&str>,
+    guest_trust_root_key_id: Option<&str>,
+    guest_trust_root_public_key: Option<&str>,
+    recovery_root_path: Option<&Path>,
+    trust_policy_path: Option<&Path>,
+    trust_policy_signatures_path: Option<&Path>,
     first_product_minimum: Option<u64>,
     product_floor_sequence: Option<u64>,
     product_floor_manifest_sha256: Option<&str>,
@@ -2514,16 +2670,16 @@ fn product_package_direct_boot(
     let reject = |message: String| -> ! {
         product_install_bootable_emit_err(command, "release-package-rejected", message)
     };
-    let product_trust_root = boole_core::CurlProductReleaseTrustRoot::new(
+    let authority = resolve_package_authority(
         product_trust_root_key_id,
         product_trust_root_public_key,
-    )
-    .unwrap_or_else(|error| reject(error.to_string()));
-    let guest_trust_root = boole_core::NativeShadowUpdateTrustRoot::new(
         guest_trust_root_key_id,
         guest_trust_root_public_key,
+        recovery_root_path,
+        trust_policy_path,
+        trust_policy_signatures_path,
     )
-    .unwrap_or_else(|error| reject(error.to_string()));
+    .unwrap_or_else(|message| reject(message));
     let product_floor = match (
         first_product_minimum,
         product_floor_sequence,
@@ -2561,28 +2717,27 @@ fn product_package_direct_boot(
     let packaged = boole_cli::curl_product_package::package_direct_boot_curl_product_release(
         source_root,
         output_root,
-        &product_trust_root,
+        &authority.product,
         &product_floor,
-        &guest_trust_root,
+        &authority.guest,
         &guest_floor,
     )
     .unwrap_or_else(|error| reject(error.to_string()));
-    println!(
-        "{}",
-        boole_cli::cli_envelope::encode_ok(
-            command,
-            serde_json::json!({
-                "releaseSequence": packaged.release_sequence(),
-                "releaseVersion": packaged.release_version(),
-                "manifestSha256": packaged.manifest_sha256(),
-                "guestReleaseSequence": packaged.guest_release_sequence(),
-                "guestReleaseVersion": packaged.guest_release_version(),
-                "guestManifestSha256": packaged.guest_manifest_sha256(),
-                "fileCount": packaged.file_count(),
-                "outputRoot": packaged.output_root().display().to_string(),
-            }),
-        )
-    );
+    let mut result = serde_json::json!({
+        "releaseSequence": packaged.release_sequence(),
+        "releaseVersion": packaged.release_version(),
+        "manifestSha256": packaged.manifest_sha256(),
+        "guestReleaseSequence": packaged.guest_release_sequence(),
+        "guestReleaseVersion": packaged.guest_release_version(),
+        "guestManifestSha256": packaged.guest_manifest_sha256(),
+        "fileCount": packaged.file_count(),
+        "outputRoot": packaged.output_root().display().to_string(),
+    });
+    if let Some(policy) = authority.policy {
+        result["trustPolicyGeneration"] = serde_json::json!(policy.generation);
+        result["trustPolicySha256"] = serde_json::json!(policy.sha256);
+    }
+    println!("{}", boole_cli::cli_envelope::encode_ok(command, result));
     Ok(())
 }
 
