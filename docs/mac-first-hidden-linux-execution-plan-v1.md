@@ -7282,3 +7282,45 @@ PRODUCT HISTORY AND GUEST HISTORY BOTH MATCH OR OUTPUT DOES NOT EXIST
 NEXT: OPERATIONAL SIGNING KEY + PUBLIC TRUST-ROOT CUSTODY DECISION
 PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
 ```
+
+## 110. Recovery-authorized release policy reaches the offline packager (2026-09-03)
+
+The release boundary now has a public-policy layer above the separate product
+and guest signing roots. An operational policy is authorized by exactly two of
+three offline recovery keys. Product and guest release keys must be distinct
+from one another and from every recovery key. This repository contains only
+deterministic non-production KAT keys; it creates, stores and publishes no
+operational private key.
+
+The policy verifier covers both the initial policy and successor transitions.
+The initial policy's recovery role must exactly match the injected out-of-band
+root, so generation one cannot silently discard a recovery key before a
+retirement history exists. A successor binds the exact predecessor digest,
+advances by one generation, and needs the threshold of both the old and new
+recovery roles. Every removed product, guest or recovery key enters an exact
+monotonic retirement history, and neither its identifier nor public key may
+become active again. The recovery role may disable a compromised online release
+role and later enable only fresh key material.
+
+`boole product package-direct-boot` is the first real consumer. In policy mode
+it reads a canonical out-of-band recovery root, policy and detached signature
+set through no-follow read-only descriptors, verifies the initial policy, and
+passes only the resulting product and guest public roots to the existing
+packager. A missing signature, mixed authority mode, disabled release role or
+malformed policy produces no package. The direct four-root arguments remain a
+development compatibility mode; their presence is not production authority.
+
+This milestone deliberately does not persist or adopt a successor policy in
+the installer, updater or runtime commands. It also does not decide custody,
+generate keys, distribute an out-of-band recovery root, sign a release or
+upload anything. The next boundary is durable policy-chain adoption across the
+install/update/run/inspect surface. Actual operational key creation and public
+root distribution remain a separate operator-approved release ceremony.
+
+```text
+RECOVERY = EXACTLY 2 OF 3 / PRODUCT KEY != GUEST KEY != RECOVERY KEYS
+ROTATION = EXACT PREDECESSOR + OLD THRESHOLD + NEW THRESHOLD / RETIRED MEANS NEVER ACTIVE AGAIN
+FIRST CONSUMER = OFFLINE PACKAGE-DIRECT-BOOT / KAT KEYS ONLY / NO PRIVATE KEY OR UPLOAD
+NEXT: DURABLE POLICY-CHAIN ADOPTION ACROSS INSTALL / UPDATE / RUN / INSPECT
+PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
+```

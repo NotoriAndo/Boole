@@ -5102,3 +5102,30 @@ product predecessor cannot produce an output. The release packager therefore
 covers already-signed first and successor releases while remaining unable to
 create signing keys, choose operational trust roots, upload artifacts or grant
 production authority.
+
+## Recovery-authorized operational release policy and first consumer (2026-09-03)
+
+`boole-core` now verifies a canonical public release policy authorized by an
+exact two-of-three offline recovery role. Product and guest release roles use
+separate keys and may not share key identifiers or public material with the
+recovery role. Initial verification requires the injected out-of-band recovery
+root and the policy's recovery role to be exactly identical before their
+threshold is accepted. A successor binds the exact preceding policy digest and
+requires both the preceding and successor recovery thresholds over the same
+domain-separated policy digest.
+
+Successor verification maintains an exact append-only retirement set for every
+removed product, guest and recovery key. A retired identifier or public key
+cannot become active again. A recovery-authorized transition can disable an
+online release role and a later transition can enable only fresh key material.
+The verifier owns no private key and performs no file, network or release
+operation.
+
+The offline `product.package-direct-boot` command is the first consumer. Its
+policy mode reads the recovery root, policy and detached signatures from
+bounded no-follow descriptors, verifies generation one, refuses disabled
+product or guest roles, then reuses the existing package verifier with the two
+derived public roots. The old direct-root arguments remain a development
+compatibility mode. Persistent successor-policy adoption by install, update,
+run and inspection is not implemented in this boundary, and no operational
+key, public recovery root, signed production release or upload is created.

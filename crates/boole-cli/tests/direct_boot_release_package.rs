@@ -10,7 +10,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use boole_core::{GuestArtifactRole, ProductArtifactRole};
+use boole_core::{
+    canonicalize, GuestArtifactRole, ProductArtifactRole, SigningKeyV2,
+    OPERATIONAL_RELEASE_TRUST_POLICY_SIGNING_CONTEXT,
+};
 use boole_testkit::{
     write_bootable_curl_product_kat_metadata, BootableCurlProductKatInput,
     BootableCurlProductKatRelease,
@@ -160,6 +163,182 @@ fn assert_tree_is_read_only(root: &Path) {
             assert_tree_is_read_only(&path);
         }
     }
+}
+
+fn write_operational_trust_policy(
+    fixture: &FixtureDir,
+    roots: &boole_testkit::BootableCurlProductKatRoots,
+) -> (PathBuf, PathBuf, PathBuf) {
+    let recovery_ids = [
+        "non-production-package-recovery-kat-a",
+        "non-production-package-recovery-kat-b",
+        "non-production-package-recovery-kat-c",
+    ];
+    let recovery_root = canonicalize(&serde_json::json!({
+        "schema": "boole.operational-release-recovery-root.v1",
+        "threshold": 2,
+        "keys": recovery_ids
+            .iter()
+            .map(|id| serde_json::json!({
+                "keyId": id,
+                "publicKey": SigningKeyV2::from_dev_id(id).pk_hex()
+            }))
+            .collect::<Vec<_>>()
+    }));
+    let policy = canonicalize(&serde_json::json!({
+        "schema": "boole.operational-release-trust-policy.v1",
+        "generation": 1,
+        "previousPolicySha256": null,
+        "productRelease": {
+            "status": "active",
+            "keyId": roots.product_key_id,
+            "publicKey": roots.product_public_key_hex
+        },
+        "guestRelease": {
+            "status": "active",
+            "keyId": roots.guest_key_id,
+            "publicKey": roots.guest_public_key_hex
+        },
+        "recovery": {
+            "threshold": 2,
+            "keys": recovery_ids
+                .iter()
+                .map(|id| serde_json::json!({
+                    "keyId": id,
+                    "publicKey": SigningKeyV2::from_dev_id(id).pk_hex()
+                }))
+                .collect::<Vec<_>>()
+        },
+        "retiredKeys": []
+    }));
+    let policy_sha256 = hex::encode(Sha256::digest(&policy));
+    let signing_payload = serde_json::json!({
+        "context": OPERATIONAL_RELEASE_TRUST_POLICY_SIGNING_CONTEXT,
+        "policySha256": policy_sha256
+    });
+    let signatures = canonicalize(&serde_json::json!({
+        "schema": "boole.operational-release-trust-policy-signatures.v1",
+        "policySha256": policy_sha256,
+        "signatures": recovery_ids[..2]
+            .iter()
+            .map(|id| {
+                let key = SigningKeyV2::from_dev_id(id);
+                let envelope = key.sign(&signing_payload).expect("policy KAT signature");
+                serde_json::json!({
+                    "keyId": id,
+                    "publicKey": envelope.pk,
+                    "signature": envelope.signature
+                })
+            })
+            .collect::<Vec<_>>()
+    }));
+    let recovery_root_path = fixture.join("recovery-root.json");
+    let policy_path = fixture.join("trust-policy.json");
+    let signatures_path = fixture.join("trust-policy-signatures.json");
+    fs::write(&recovery_root_path, recovery_root).expect("write recovery root");
+    fs::write(&policy_path, policy).expect("write trust policy");
+    fs::write(&signatures_path, signatures).expect("write trust policy signatures");
+    (recovery_root_path, policy_path, signatures_path)
+}
+
+#[test]
+fn real_cli_packages_with_recovery_authorized_policy_instead_of_raw_release_roots() {
+    let fixture = FixtureDir::new();
+    let (source, roots) = bundle(
+        &fixture,
+        "policy-authorized",
+        BootableCurlProductKatRelease::default(),
+    );
+    let (recovery_root, policy, policy_signatures) =
+        write_operational_trust_policy(&fixture, &roots);
+    let output = fixture.join("policy-authorized-package");
+
+    let packaged = Command::new(env!("CARGO_BIN_EXE_boole-cli"))
+        .args([
+            "product",
+            "package-direct-boot",
+            "--source-root",
+            source.to_str().expect("source path"),
+            "--output-root",
+            output.to_str().expect("output path"),
+            "--recovery-root",
+            recovery_root.to_str().expect("recovery root path"),
+            "--trust-policy",
+            policy.to_str().expect("trust policy path"),
+            "--trust-policy-signatures",
+            policy_signatures.to_str().expect("policy signatures path"),
+            "--first-product-minimum",
+            "1",
+            "--first-guest-minimum",
+            "1",
+        ])
+        .output()
+        .expect("package through policy-authorized CLI");
+
+    assert!(
+        packaged.status.success(),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&packaged.stdout),
+        String::from_utf8_lossy(&packaged.stderr)
+    );
+    let result: serde_json::Value =
+        serde_json::from_slice(&packaged.stdout).expect("package result JSON");
+    assert_eq!(result["result"]["trustPolicyGeneration"], 1);
+    assert_eq!(result["result"]["trustPolicySha256"], digest(&policy));
+    assert_eq!(tree_bytes(&output), tree_bytes(&source));
+}
+
+#[test]
+fn policy_below_the_recovery_threshold_leaves_no_package() {
+    let fixture = FixtureDir::new();
+    let (source, roots) = bundle(
+        &fixture,
+        "under-authorized-policy",
+        BootableCurlProductKatRelease::default(),
+    );
+    let (recovery_root, policy, policy_signatures) =
+        write_operational_trust_policy(&fixture, &roots);
+    let mut signatures: serde_json::Value =
+        serde_json::from_slice(&fs::read(&policy_signatures).expect("signature bytes"))
+            .expect("signature JSON");
+    signatures["signatures"]
+        .as_array_mut()
+        .expect("signature list")
+        .pop();
+    fs::write(&policy_signatures, canonicalize(&signatures)).expect("under-authorize policy");
+    let output = fixture.join("must-not-exist");
+
+    let rejected = Command::new(env!("CARGO_BIN_EXE_boole-cli"))
+        .args([
+            "product",
+            "package-direct-boot",
+            "--source-root",
+            source.to_str().expect("source path"),
+            "--output-root",
+            output.to_str().expect("output path"),
+            "--recovery-root",
+            recovery_root.to_str().expect("recovery root path"),
+            "--trust-policy",
+            policy.to_str().expect("trust policy path"),
+            "--trust-policy-signatures",
+            policy_signatures.to_str().expect("policy signatures path"),
+            "--first-product-minimum",
+            "1",
+            "--first-guest-minimum",
+            "1",
+        ])
+        .output()
+        .expect("reject under-authorized policy");
+
+    assert!(!rejected.status.success());
+    let result: serde_json::Value =
+        serde_json::from_slice(&rejected.stderr).expect("typed rejection");
+    assert_eq!(result["error"]["reason"], "release-package-rejected");
+    assert!(result["error"]["message"]
+        .as_str()
+        .expect("message")
+        .contains("threshold"));
+    assert!(!output.exists());
 }
 
 #[test]

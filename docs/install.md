@@ -24,12 +24,27 @@ boole product recover-direct-boot
 boole product reset-direct-boot
 ```
 
-This is not yet a public product release. No operational private signing keys or public trust roots
-have been chosen, and no official signed bundle or production one-line entrypoint has been
-published. The implemented commands require explicit public trust-root inputs and already-signed
-release material; they do not infer trust from a download URL. Use `boole product --help` for their
-current development interface. Do not substitute the test keys used by closed-local tests for an
-operational release identity.
+This is not yet a public product release. The offline packager can now verify a canonical release
+policy authorized by exactly two of three recovery keys and derive separate product and guest
+public roots from it. The implementation uses deterministic non-production test keys only. No
+operational private signing keys or public recovery root have been created or published, and no
+official signed bundle or production one-line entrypoint exists.
+
+Policy-backed development packaging supplies all three public files together:
+
+```text
+boole product package-direct-boot \
+  --recovery-root recovery-root.json \
+  --trust-policy trust-policy.json \
+  --trust-policy-signatures trust-policy-signatures.json \
+  ...
+```
+
+The four direct product/guest root arguments remain a development compatibility mode. Neither
+mode infers trust from a download URL, accepts private keys, signs a release or uploads files. The
+installer, updater, runner and inspection commands do not yet persist and adopt a successor policy
+chain. Use `boole product --help` for the current development interface, and never substitute the
+closed-local test keys for an operational release identity.
 
 Boole currently provides a one-line source bootstrapper for developers and local evaluators who
 do not want to clone the repository or prepare every toolchain manually.
