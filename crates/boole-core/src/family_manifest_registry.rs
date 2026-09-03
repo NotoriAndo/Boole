@@ -9,7 +9,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::family_manifest::FamilyManifest;
+use crate::{canonical_json::canonicalize, family_manifest::FamilyManifest, Hex32};
 
 #[derive(Debug, Clone, Default)]
 pub struct FamilyManifestRegistry {
@@ -39,5 +39,20 @@ impl FamilyManifestRegistry {
 
     pub fn iter(&self) -> impl Iterator<Item = &FamilyManifest> {
         self.by_id.values()
+    }
+
+    /// Canonical JSON for the complete manifest set, encoded as one array in
+    /// ascending `family_id` order. This is the exact byte string committed by
+    /// [`Self::root`].
+    pub fn canonical_bytes(&self) -> Vec<u8> {
+        let manifests: Vec<&FamilyManifest> = self.by_id.values().collect();
+        let value = serde_json::to_value(manifests)
+            .expect("a validated FamilyManifest registry always serializes");
+        canonicalize(&value)
+    }
+
+    /// ADR-0015 (c): BLAKE3 over the sorted manifest set's canonical JSON.
+    pub fn root(&self) -> Hex32 {
+        Hex32::from_bytes(*blake3::hash(&self.canonical_bytes()).as_bytes())
     }
 }

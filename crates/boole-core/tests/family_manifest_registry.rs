@@ -70,3 +70,28 @@ fn family_registry_iteration_is_deterministic_across_load_orders() {
         "iteration must be sorted by family_id so every node walks families identically"
     );
 }
+
+#[test]
+fn family_root_matches_golden_vector() {
+    let mut forward = FamilyManifestRegistry::new();
+    forward.register(manifest("test.zeta"));
+    forward.register(manifest("test.alpha"));
+
+    let mut reverse = FamilyManifestRegistry::new();
+    reverse.register(manifest("test.alpha"));
+    reverse.register(manifest("test.zeta"));
+
+    let expected_bytes = concat!(
+        r#"[{"activationHeight":18446744073709551615,"calibrationReportHash":"2323232323232323232323232323232323232323232323232323232323232323","canonicalizerHash":"efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef","familyId":"test.alpha","generatorHash":"abababababababababababababababababababababababababababababababab","promptSpecHash":"0101010101010101010101010101010101010101010101010101010101010101","resourceLimits":{"maxDecls":1024,"maxHeartbeats":400000,"maxProofBytes":16384,"maxRecDepth":512,"verifyTimeoutMs":30000},"rewardPolicy":{"maxBlockRewardShareBps":0,"mode":"no_protocol_reward"},"status":"experimental","testVectorsHash":"4545454545454545454545454545454545454545454545454545454545454545","verifierHash":"cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd","version":"1"},"#,
+        r#"{"activationHeight":18446744073709551615,"calibrationReportHash":"2323232323232323232323232323232323232323232323232323232323232323","canonicalizerHash":"efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef","familyId":"test.zeta","generatorHash":"abababababababababababababababababababababababababababababababab","promptSpecHash":"0101010101010101010101010101010101010101010101010101010101010101","resourceLimits":{"maxDecls":1024,"maxHeartbeats":400000,"maxProofBytes":16384,"maxRecDepth":512,"verifyTimeoutMs":30000},"rewardPolicy":{"maxBlockRewardShareBps":0,"mode":"no_protocol_reward"},"status":"experimental","testVectorsHash":"4545454545454545454545454545454545454545454545454545454545454545","verifierHash":"cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd","version":"1"}]"#,
+    )
+    .as_bytes();
+
+    assert_eq!(forward.canonical_bytes(), expected_bytes);
+    assert_eq!(reverse.canonical_bytes(), expected_bytes);
+    assert_eq!(
+        forward.root().to_hex(),
+        "ba92240514354a09111a350baed799b09f32f0d608c1596c68f5f8b4d99fbcf6"
+    );
+    assert_eq!(reverse.root(), forward.root());
+}

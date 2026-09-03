@@ -1,8 +1,8 @@
 use boole_core::{
-    admit_submission_json, canonical_payload_hash_hex, replay_blocks, AdmissionDecision,
-    AdmissionError, AdmissionStatus, BuildSelectionResult, CalibrationReport,
-    RateLimitRejectReason, RejectionReason, SharePoolRejectReason, ShareWorkAuthorization,
-    SigningKeyV2,
+    admit_submission_json, canonical_payload_hash_hex, parse_family_manifest, replay_blocks,
+    AdmissionDecision, AdmissionError, AdmissionStatus, BuildSelectionResult, CalibrationReport,
+    FamilyManifestParseResult, FamilyManifestRegistry, RateLimitRejectReason, RejectionReason,
+    SharePoolRejectReason, ShareWorkAuthorization, SigningKeyV2,
 };
 use boole_node::FileBlockStore;
 use boole_node::{RuntimeAdmissionState, RuntimeConfig};
@@ -39,6 +39,29 @@ struct Operation {
     #[serde(default)]
     observe_ticket: bool,
     expect: Value,
+}
+
+fn one_family_registry() -> FamilyManifestRegistry {
+    let value = json!({
+        "version": "1",
+        "familyId": "test.named-root",
+        "generatorHash": "abababababababababababababababababababababababababababababababab",
+        "verifierHash": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+        "canonicalizerHash": "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef",
+        "promptSpecHash": "0101010101010101010101010101010101010101010101010101010101010101",
+        "calibrationReportHash": "2323232323232323232323232323232323232323232323232323232323232323",
+        "testVectorsHash": "4545454545454545454545454545454545454545454545454545454545454545",
+        "resourceLimits": { "maxProofBytes": 16384, "verifyTimeoutMs": 30000, "maxDecls": 1024, "maxHeartbeats": 400000, "maxRecDepth": 512 },
+        "rewardPolicy": { "mode": "no_protocol_reward", "maxBlockRewardShareBps": 0 },
+        "activationHeight": u64::MAX,
+        "status": "experimental"
+    });
+    let FamilyManifestParseResult::Ok(manifest) = parse_family_manifest(&value) else {
+        panic!("valid family manifest fixture must parse");
+    };
+    let mut registry = FamilyManifestRegistry::new();
+    registry.register(*manifest);
+    registry
 }
 
 #[test]
@@ -244,6 +267,68 @@ fn runtime_current_c_selection_uses_the_boot_genesis_network() {
             .expect("legacy selection runs"),
         BuildSelectionResult::Ok(_)
     ));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn named_network_boot_rejects_family_manifest_root_mismatch_only_when_pinned() {
+    let fixture: Fixture =
+        serde_json::from_str(include_str!("../../../fixtures/protocol/admission/v1.json"))
+            .expect("fixture parses");
+    let config = RuntimeConfig::from_calibration_report(fixture.cfg, 60_000)
+        .expect("runtime config boots from report");
+    let registry = one_family_registry();
+    let mut genesis = config.genesis_spec("boole-testnet-2", &fixture.constants.c);
+    assert_eq!(
+        genesis.params.family_manifest_root, None,
+        "boole-testnet-2 remains deliberately unpinned until a launch family set is selected"
+    );
+
+    let dir =
+        std::env::temp_dir().join(format!("boole-runtime-family-root-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("tmp dir");
+
+    RuntimeAdmissionState::boot_from_store_with_genesis(
+        config.clone(),
+        dir.join("unpinned-blocks.ndjson"),
+        None,
+        None,
+        registry.clone(),
+        &genesis,
+    )
+    .expect("an unpinned named-network genesis keeps the local registry unrestricted");
+
+    genesis.params.family_manifest_root = Some("00".repeat(32));
+    let error = match RuntimeAdmissionState::boot_from_store_with_genesis(
+        config.clone(),
+        dir.join("mismatch-blocks.ndjson"),
+        None,
+        None,
+        registry.clone(),
+        &genesis,
+    ) {
+        Ok(_) => panic!("a pinned named network must reject a different local manifest set"),
+        Err(error) => error,
+    };
+    let message = error.to_string();
+    assert!(
+        message.contains("family manifest root mismatch"),
+        "{message}"
+    );
+    assert!(message.contains("boole-testnet-2"), "{message}");
+
+    genesis.params.family_manifest_root = Some(registry.root().to_hex());
+    RuntimeAdmissionState::boot_from_store_with_genesis(
+        config,
+        dir.join("matching-blocks.ndjson"),
+        None,
+        None,
+        registry,
+        &genesis,
+    )
+    .expect("the exact genesis-pinned family registry must boot");
 
     let _ = std::fs::remove_dir_all(&dir);
 }

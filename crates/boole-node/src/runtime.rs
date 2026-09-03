@@ -425,6 +425,28 @@ impl RuntimeAdmissionState {
         family_registry: FamilyManifestRegistry,
         genesis: Option<&boole_core::GenesisSpec>,
     ) -> anyhow::Result<Self> {
+        // ADR-0015 (c): a genesis-pinned family set is consensus authority.
+        // Refuse the local registry before replay so settlement can never run
+        // against manifests other than the set the network identity commits.
+        // `None` deliberately retains the unpinned dev/testnet behavior until
+        // a launch family set is selected.
+        if let Some((genesis, expected_root)) = genesis.and_then(|spec| {
+            spec.params
+                .family_manifest_root
+                .as_deref()
+                .map(|root| (spec, root))
+        }) {
+            let actual_root = family_registry.root().to_hex();
+            if actual_root != expected_root {
+                anyhow::bail!(
+                    "family manifest root mismatch for network {}: genesis pins {}, \
+                     local registry derives {} — refusing to boot",
+                    genesis.network_id,
+                    expected_root,
+                    actual_root
+                );
+            }
+        }
         let recovered = FileBlockStore::recover(block_path)?;
         let mut runtime = Self::new(config);
         runtime.family_registry = family_registry;
