@@ -5176,3 +5176,18 @@ This is cryptographic evidence that five distinct KAT keys signed one transcript
 five physical custodians, devices or locations were separated. Operational key generation,
 physical custody, independent public-root publication, an official signed release and every
 production or network activation boundary remain outside this implementation.
+
+## Operational key-custody plan preflight (2026-09-03)
+
+The CLI now validates the public operational plan that must exist before real key creation is
+considered. The pure core contract requires exactly five ordered role assignments, distinct online
+product/guest custodians and devices, and three recovery custodians on distinct offline media and
+sites. Bootstrap distribution and root-pin publication must differ by both HTTPS host and declared
+administrative-control identifier. Every identifier is bounded lowercase ASCII and the canonical
+JSON schema rejects unknown fields, including locations of private key material.
+
+The command emits the canonical plan SHA-256 and readiness counts. It writes no state and has no
+key-generation, signing, upload, release or activation capability. `ceremony-preparation-only` is
+the sole approval scope. A future real ceremony must consume the exact digest after the operator
+replaces the intentionally invalid documentation placeholders with actual opaque custody and
+publication identifiers.

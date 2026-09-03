@@ -773,6 +773,13 @@ enum FaucetCommand {
 
 #[derive(Debug, Subcommand)]
 enum ProductCommand {
+    /// Verify the public custody and independent-publication plan required
+    /// before any operational release key is created. This command grants no
+    /// authority and performs no key, network, release, or state operation.
+    VerifyOperationalCustodyPlan {
+        #[arg(long)]
+        plan: PathBuf,
+    },
     /// Verify the non-production public key-ceremony transcript and atomically
     /// emit the exact trust-bootstrap package. This command never reads a
     /// private key, performs a network request, or grants production authority.
@@ -1215,6 +1222,9 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             } => faucet_claim(network, &address, faucet_url.as_deref(), json),
         },
         Some(Command::Product { command }) => match command {
+            ProductCommand::VerifyOperationalCustodyPlan { plan } => {
+                product_verify_operational_custody_plan(&plan)
+            }
             ProductCommand::PackageTrustBootstrap {
                 recovery_root,
                 trust_policy,
@@ -2731,6 +2741,40 @@ fn read_public_authority_file(path: &Path, cap: usize, label: &str) -> Result<Ve
         return Err(format!("{label} changed beyond its size cap while reading"));
     }
     Ok(raw)
+}
+
+fn product_verify_operational_custody_plan(plan_path: &Path) -> anyhow::Result<()> {
+    let command = "product.verify-operational-custody-plan";
+    let reject = |message: String| -> ! {
+        product_install_bootable_emit_err(command, "custody-plan-rejected", message)
+    };
+    let raw = read_public_authority_file(
+        plan_path,
+        boole_core::MAX_OPERATIONAL_KEY_CUSTODY_PLAN_BYTES,
+        "operational key-custody plan",
+    )
+    .unwrap_or_else(|error| reject(error));
+    let verified = boole_core::verify_operational_key_custody_plan(&raw)
+        .unwrap_or_else(|error| reject(error.to_string()));
+    println!(
+        "{}",
+        boole_cli::cli_envelope::encode_ok(
+            command,
+            serde_json::json!({
+                "planId": verified.plan_id(),
+                "planSha256": verified.plan_sha256(),
+                "operatorApprovalId": verified.operator_approval_id(),
+                "environment": boole_core::OPERATIONAL_KEY_CUSTODY_PLAN_ENVIRONMENT,
+                "assignmentCount": verified.assignment_count(),
+                "recoveryCustodianCount": verified.recovery_custodian_count(),
+                "publicationHostCount": verified.publication_hosts().len(),
+                "ceremonyPreparationReady": true,
+                "keyGenerationPerformed": false,
+                "authorityGranted": false,
+            }),
+        )
+    );
+    Ok(())
 }
 
 fn product_package_trust_bootstrap(

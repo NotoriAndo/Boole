@@ -7400,3 +7400,33 @@ KAT REHEARSAL ONLY / PHYSICAL CUSTODY + PUBLICATION CHANNEL NOT CLAIMED
 NEXT: OPERATOR-APPROVED OPERATIONAL KEY CEREMONY + INDEPENDENT ROOT PUBLICATION
 PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
 ```
+
+## 113. Operational custody and independent publication are machine-checkable before key creation (2026-09-03)
+
+The operator-facing `product verify-operational-custody-plan` command closes the next reversible
+boundary without inventing real people, devices or publication accounts. It accepts one canonical
+public plan and requires the exact product, guest and recovery A/B/C role order. Product and guest
+use distinct custodians and dedicated online-signing devices. The three recovery roles use distinct
+custodians, devices and sites with offline removable media, preserving the practical independence
+needed by the already-frozen two-of-three policy.
+
+The bootstrap and recovery-root pin must use separate channel identifiers, separate HTTPS hosts and
+separate administrative-control identifiers. This prevents two labels or two paths under one
+publisher from being reported as an independent trust channel. The root pin remains lowercase
+SHA-256 and must be public before client adoption. Unknown fields, including a private-key path,
+are rejected rather than copied into public operational metadata.
+
+The verifier returns the canonical plan digest and readiness counts only. It performs no key
+generation, file publication, signing, upload, release installation or activation, and the plan's
+operator approval is narrowly scoped to ceremony preparation. A later operational ceremony must
+bind this exact digest and still requires the operator to supply the real opaque custodian, device,
+site and channel identifiers. This milestone therefore makes the decision complete and testable;
+it does not claim that the real-world resources exist.
+
+```text
+EXACT 5 ROLE ASSIGNMENTS / PRODUCT != GUEST CUSTODIAN / RECOVERY 3 DISTINCT PEOPLE + DEVICES + SITES
+BOOTSTRAP HOST + ADMIN CONTROL != ROOT-PIN HOST + ADMIN CONTROL
+PLAN SHA-256 ONLY / NO PRIVATE KEY / NO PUBLICATION / NO AUTHORITY
+NEXT: OPERATOR SUPPLIES THE REAL CUSTODY PLAN -> BIND ITS DIGEST INTO THE OPERATIONAL CEREMONY
+PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
+```

@@ -15,6 +15,7 @@ Its main command surface is:
 
 ```text
 boole product package-direct-boot
+boole product verify-operational-custody-plan
 boole product package-trust-bootstrap
 boole product adopt-trust-bootstrap
 boole product install-direct-boot
@@ -32,6 +33,18 @@ policy authorized by exactly two of three recovery keys and derive separate prod
 public roots from it. The implementation uses deterministic non-production test keys only. No
 operational private signing keys or public recovery root have been created or published, and no
 official signed bundle or production one-line entrypoint exists.
+
+Before a real key ceremony is prepared, the operator must provide and validate the custody and
+independent-publication plan described in
+[`operational-key-custody-plan-v1.md`](operational-key-custody-plan-v1.md):
+
+```text
+boole product verify-operational-custody-plan \
+  --plan operational-custody-plan.json
+```
+
+This command reads public labels and URLs only. It generates no key, publishes nothing and grants
+no production authority.
 
 The repository also has a **non-production rehearsal** for the public half of an operational key
 ceremony. It verifies that the active product key, guest key and all three recovery keys signed one
