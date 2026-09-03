@@ -46,8 +46,12 @@ scripts/verify-checker-artifact-hash.sh
 
 ```bash
 cd lean/checker
-lake build boole_check
+lake build Boole.Family.V0Helpers boole_check
 ```
+
+The helper target is explicit because a clean checkout has no gitignored
+`V0Helpers.olean`; building only `boole_check` can leave the executable present
+while every proof importing `Boole.Family.V0Helpers` is rejected.
 
 ## Running
 

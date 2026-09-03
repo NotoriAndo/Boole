@@ -576,6 +576,19 @@ class SelfTestContractTests(unittest.TestCase):
                 "the needs-multiprocess lane",
             )
 
+    def test_self_test_runs_controlled_testnet_join_e2e(self) -> None:
+        body = _read(SELF_TEST)
+        self.assertRegex(
+            body,
+            re.compile(
+                r"cargo\s+test\s+-p\s+boole-cli\s+--test\s+node_join_testnet\b.*"
+                r"--ignored\s+--exact\s+join_testnet_syncs_from_bootstrap_to_seed_block_head",
+                re.MULTILINE | re.DOTALL,
+            ),
+            "self-test.sh must execute the named three-node M4 controlled "
+            "bootstrap join test instead of leaving it ignored",
+        )
+
     def test_lean_checker_build_precedes_cargo_test(self) -> None:
         body = _read(SELF_TEST)
         lean_idx = body.find("run_logged lean-checker-build")

@@ -10,8 +10,8 @@ use crate::p2p_egress::{
     spawn_egress_workers, BlockAnnouncement, EgressEvent, P2pEgressFanout, ShareAnnouncement,
 };
 use crate::p2p_ingress::{
-    spawn_ingress_thread, spawn_sync_thread, P2pConfig, P2pIdentity, P2pIngressRuntimeConfig,
-    P2pMetrics,
+    spawn_ingress_thread, spawn_sync_thread, P2pBootstrapReadiness, P2pConfig, P2pIdentity,
+    P2pIngressRuntimeConfig, P2pMetrics,
 };
 use crate::p2p_lifecycle::P2pLifecycle;
 use crate::p2p_package_fetch::spawn_package_fetch_thread;
@@ -485,6 +485,10 @@ pub(crate) struct LocalNodeState {
     /// N3.2 — typed gossip drop/outcome counters (ADR-0009 (e)), shared
     /// with the ingress/egress threads and rendered in `/metrics`.
     p2p_metrics: Arc<P2pMetrics>,
+    /// N5.3 — process-local outbound bootstrap observations. Keeping them
+    /// inside the same lock as the canonical head makes `/ready` compare a
+    /// single race-free snapshot. Restart deliberately begins empty.
+    pub(crate) p2p_bootstrap_readiness: Option<P2pBootstrapReadiness>,
 }
 
 #[derive(Clone)]
@@ -980,6 +984,23 @@ async fn serve_local_node_async(
     let mut p2p_sync: Option<(Vec<SocketAddr>, P2pIdentity)> = None;
     let mut p2p_package_fetch = None;
     if let Some(p2p) = p2p {
+        if p2p.require_head_sync_for_readiness {
+            let readiness =
+                P2pBootstrapReadiness::new(&p2p.peers).map_err(|detail| anyhow::anyhow!(detail))?;
+            if let Some(gossip_listener) = p2p.listener.as_ref() {
+                let listen = gossip_listener.local_addr()?;
+                let contains_self = p2p
+                    .peers
+                    .iter()
+                    .any(|peer| boole_core::bootstrap_peer_is_own_listener(listen, *peer));
+                if contains_self {
+                    anyhow::bail!(
+                        "bootstrap peer set contains this node's own P2P listener {listen}"
+                    );
+                }
+            }
+            state.p2p_bootstrap_readiness = Some(readiness);
+        }
         let identity = P2pIdentity {
             network_id: state.network_id.clone(),
             genesis_hash: state.genesis_spec_hash.clone(),
@@ -1571,6 +1592,7 @@ impl LocalNodeState {
             allow_anonymous_submit: config.allow_anonymous_submit,
             p2p_egress: None,
             p2p_metrics: Arc::new(P2pMetrics::default()),
+            p2p_bootstrap_readiness: None,
         })
     }
 }
@@ -1957,7 +1979,16 @@ async fn ready_handler(State(state): State<AppState>) -> Response {
     // P2.6 e — disk-full sentinel. A positive boolean keeps the wire shape
     // consistent with the other `checks` keys (all are "ok"-form).
     let disk_space_ok = !guard.disk_full.load(Ordering::Acquire);
-    drop(guard);
+    // N5.3 — compare the live canonical head with outbound bootstrap
+    // observations while the same state guard is held. Dropping this guard
+    // between the two reads would permit a concurrent block commit to turn a
+    // stale observation into a transient false-green response.
+    let live_head = head_summary(&guard);
+    let p2p_head_synced = guard
+        .p2p_bootstrap_readiness
+        .as_ref()
+        .map(|readiness| readiness.matches_live_head(&live_head))
+        .unwrap_or(true);
 
     let checks = json!({
         "canonical_state_consistent": canonical_state_consistent,
@@ -1966,6 +1997,7 @@ async fn ready_handler(State(state): State<AppState>) -> Response {
         "lean_checker_configured": lean_checker_configured,
         "ledgers_loaded": ledgers_loaded,
         "disk_space_ok": disk_space_ok,
+        "p2p_head_synced": p2p_head_synced,
     });
 
     // First failing precondition names the reason. Boot-time invariants
@@ -2037,6 +2069,21 @@ async fn ready_handler(State(state): State<AppState>) -> Response {
                 "ok": false,
                 "probe": "ready",
                 "reason": "ledgers_not_loaded",
+                "checks": checks,
+            })),
+        )
+            .into_response();
+    }
+    // Bootstrap convergence is an operational join condition. Preserve the
+    // existing local-safety precedence above it: a missing checker or ledger
+    // must never be masked by a simultaneously unreachable peer.
+    if !p2p_head_synced {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
+                "ok": false,
+                "probe": "ready",
+                "reason": "p2p_head_not_synced",
                 "checks": checks,
             })),
         )

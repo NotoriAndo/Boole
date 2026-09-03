@@ -1,7 +1,8 @@
 use clap::{Parser, Subcommand};
+use std::collections::BTreeSet;
 use std::fs::OpenOptions;
 use std::io::{Read as _, Write as _};
-use std::net::TcpStream;
+use std::net::{SocketAddr, TcpStream};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
@@ -165,6 +166,10 @@ enum ChainCommand {
 enum NodeCommand {
     /// Spawn a local boole-node process bound to --port writing into --data-dir.
     Start {
+        /// Controlled node-network preset. `testnet` selects the compiled
+        /// boole-testnet-2 genesis and its static loopback bootstrap set.
+        #[arg(long, value_enum)]
+        network: Option<NodeNetworkPreset>,
         /// TCP port to bind (env: PORT).
         #[arg(long)]
         port: Option<u16>,
@@ -180,7 +185,32 @@ enum NodeCommand {
         /// Cap requests served before exiting (smoke/test convenience).
         #[arg(long)]
         max_requests: Option<usize>,
+        /// Numeric loopback P2P listener for the controlled network.
+        #[arg(long = "p2p-listen")]
+        p2p_listen: Option<String>,
+        /// Override static bootstrap peers. Repeatable; numeric loopback only.
+        #[arg(long = "bootstrap-peer")]
+        bootstrap_peers: Vec<String>,
+        /// Lean checker directory. Controlled testnet defaults to lean/checker.
+        #[arg(long = "lean-checker-dir")]
+        lean_checker_dir: Option<PathBuf>,
     },
+}
+
+/// Node-runtime presets deliberately stay separate from `NetworkPreset`.
+/// The latter is a legacy wallet/faucet signature domain whose `testnet`
+/// value is `boole-testnet`; node runtime M4 must select the current compiled
+/// chain instance `boole-testnet-2` instead.
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+enum NodeNetworkPreset {
+    Testnet,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ResolvedNodeNetwork {
+    network_id: &'static str,
+    p2p_listen: Option<SocketAddr>,
+    bootstrap_peers: Vec<SocketAddr>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -1108,12 +1138,26 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         },
         Some(Command::Node { command }) => match command {
             NodeCommand::Start {
+                network,
                 port,
                 data_dir,
                 scenario,
                 genesis,
                 max_requests,
-            } => node_start(port, &data_dir, scenario.as_deref(), genesis, max_requests),
+                p2p_listen,
+                bootstrap_peers,
+                lean_checker_dir,
+            } => node_start(NodeStartOptions {
+                network,
+                port,
+                data_dir: &data_dir,
+                scenario: scenario.as_deref(),
+                genesis,
+                max_requests,
+                p2p_listen: p2p_listen.as_deref(),
+                bootstrap_peers: &bootstrap_peers,
+                lean_checker_dir: lean_checker_dir.as_deref(),
+            }),
         },
         Some(Command::Block { command }) => match command {
             BlockCommand::Latest { node, json: _ } => block_latest(node.as_deref()),
@@ -2343,13 +2387,109 @@ fn configure_node_child_environment(command: &mut std::process::Command) {
     configure_node_child_environment_from(command, std::env::vars());
 }
 
-fn node_start(
+fn parse_numeric_loopback_endpoint(raw: &str, label: &str) -> anyhow::Result<SocketAddr> {
+    let endpoint = raw.parse::<SocketAddr>().map_err(|_| {
+        anyhow::anyhow!(
+            "{label} must be a numeric loopback socket address (for example 127.0.0.1:29090), got {raw:?}"
+        )
+    })?;
+    if !endpoint.ip().is_loopback() {
+        anyhow::bail!("{label} must be a numeric loopback socket address, got {raw:?}");
+    }
+    if endpoint.port() == 0 {
+        anyhow::bail!("{label} port must be nonzero, got {raw:?}");
+    }
+    Ok(endpoint)
+}
+
+fn resolve_node_network(
+    network: Option<NodeNetworkPreset>,
+    p2p_listen: Option<&str>,
+    bootstrap_peers: &[String],
+) -> anyhow::Result<Option<ResolvedNodeNetwork>> {
+    let Some(network) = network else {
+        if p2p_listen.is_some() || !bootstrap_peers.is_empty() {
+            anyhow::bail!("--p2p-listen and --bootstrap-peer require an explicit --network preset");
+        }
+        return Ok(None);
+    };
+
+    let preset_name = match network {
+        NodeNetworkPreset::Testnet => "testnet",
+    };
+    let preset = boole_core::network_bootstrap_preset(preset_name)
+        .ok_or_else(|| anyhow::anyhow!("no operational bootstrap preset for {preset_name}"))?;
+
+    let raw_peers = if bootstrap_peers.is_empty() {
+        preset
+            .bootstrap_peers
+            .iter()
+            .map(|peer| (*peer).to_string())
+            .collect::<Vec<_>>()
+    } else {
+        bootstrap_peers.to_vec()
+    };
+    if raw_peers.is_empty() {
+        anyhow::bail!("network {preset_name} has no static bootstrap peer");
+    }
+
+    let mut seen = BTreeSet::new();
+    let mut peers = Vec::with_capacity(raw_peers.len());
+    for raw in raw_peers {
+        let peer = parse_numeric_loopback_endpoint(&raw, "bootstrap peer")?;
+        if !seen.insert(peer) {
+            anyhow::bail!("duplicate bootstrap peer {peer}");
+        }
+        peers.push(peer);
+    }
+
+    let listen = p2p_listen
+        .map(|raw| parse_numeric_loopback_endpoint(raw, "P2P listener"))
+        .transpose()?;
+    if let Some(listen) = listen {
+        if peers
+            .iter()
+            .any(|peer| boole_core::bootstrap_peer_is_own_listener(listen, *peer))
+        {
+            anyhow::bail!("bootstrap peer set contains this node's own P2P listener {listen}");
+        }
+    }
+
+    Ok(Some(ResolvedNodeNetwork {
+        network_id: preset.network_id,
+        p2p_listen: listen,
+        bootstrap_peers: peers,
+    }))
+}
+
+struct NodeStartOptions<'a> {
+    network: Option<NodeNetworkPreset>,
     port: Option<u16>,
-    data_dir: &Path,
-    scenario: Option<&Path>,
+    data_dir: &'a Path,
+    scenario: Option<&'a Path>,
     genesis: Option<String>,
     max_requests: Option<usize>,
-) -> anyhow::Result<()> {
+    p2p_listen: Option<&'a str>,
+    bootstrap_peers: &'a [String],
+    lean_checker_dir: Option<&'a Path>,
+}
+
+fn node_start(options: NodeStartOptions<'_>) -> anyhow::Result<()> {
+    let NodeStartOptions {
+        network,
+        port,
+        data_dir,
+        scenario,
+        genesis,
+        max_requests,
+        p2p_listen,
+        bootstrap_peers,
+        lean_checker_dir,
+    } = options;
+    // Resolve and validate every network address before creating the data
+    // directory. Invalid/DNS/public endpoints therefore fail without any
+    // filesystem side effect and without attempting name resolution.
+    let resolved_network = resolve_node_network(network, p2p_listen, bootstrap_peers)?;
     std::fs::create_dir_all(data_dir)?;
     let block_path = data_dir.join("blocks.ndjson");
     // Anchor the reward ledger inside `data_dir` instead of inheriting the
@@ -2369,6 +2509,11 @@ fn node_start(
     }
     command.arg("--block-store").arg(block_path.as_os_str());
     command.arg("--reward-store").arg(reward_path.as_os_str());
+    let scenario = scenario.or_else(|| {
+        resolved_network
+            .as_ref()
+            .map(|_| Path::new("fixtures/protocol/runtime-smoke/testnet2-pinned-highrate.v1.json"))
+    });
     if let Some(scenario) = scenario {
         command.arg("--scenario").arg(scenario.as_os_str());
     }
@@ -2379,11 +2524,45 @@ fn node_start(
         command.arg("--max-requests").arg(max.to_string());
     }
 
-    let status = command.status()?;
-    if !status.success() {
-        anyhow::bail!("boole-node exited with status {status}");
+    if let Some(network) = resolved_network {
+        command.arg("--state-dir").arg(data_dir.as_os_str());
+        command.arg("--network-id").arg(network.network_id);
+        command
+            .arg("--session-registry")
+            .arg(data_dir.join("sessions.ndjson"));
+        command
+            .arg("--submit-nonce-ledger")
+            .arg(data_dir.join("submit-nonces.ndjson"));
+        command
+            .arg("--signed-nonce-ledger")
+            .arg(data_dir.join("signed-nonces.ndjson"));
+        command
+            .arg("--proof-dedup-ledger")
+            .arg(data_dir.join("proof-dedup.ndjson"));
+        command
+            .arg("--submit-receipt-ledger")
+            .arg(data_dir.join("submit-receipts.ndjson"));
+        command
+            .arg("--receipt-commitment-ledger")
+            .arg(data_dir.join("receipt-commitments.ndjson"));
+        if let Some(listen) = network.p2p_listen {
+            command.arg("--p2p-listen").arg(listen.to_string());
+        }
+        for peer in network.bootstrap_peers {
+            command.arg("--peer").arg(peer.to_string());
+        }
+        command.arg("--require-bootstrap-head-sync");
+        command
+            .arg("--lean-checker-dir")
+            .arg(lean_checker_dir.unwrap_or_else(|| Path::new("lean/checker")));
+    } else if let Some(checker_dir) = lean_checker_dir {
+        command.arg("--lean-checker-dir").arg(checker_dir);
     }
-    Ok(())
+
+    // Replace the façade process with boole-node so SIGTERM/SIGINT target the
+    // real daemon rather than leaving an orphaned child behind.
+    use std::os::unix::process::CommandExt as _;
+    Err(command.exec().into())
 }
 
 // P2.9 — `boole wallet ...` façade. Each subcommand is a thin spawn of
@@ -5706,6 +5885,80 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
     use std::process::Command;
+
+    #[test]
+    fn testnet_node_network_resolves_current_instance_and_static_bootstrap() {
+        let resolved = resolve_node_network(Some(NodeNetworkPreset::Testnet), None, &[])
+            .expect("controlled testnet preset")
+            .expect("network selected");
+        assert_eq!(resolved.network_id, "boole-testnet-2");
+        assert_eq!(resolved.bootstrap_peers.len(), 1);
+        assert!(resolved.bootstrap_peers[0].ip().is_loopback());
+        assert!(resolved.p2p_listen.is_none());
+    }
+
+    #[test]
+    fn controlled_testnet_rejects_dns_and_non_loopback_before_start() {
+        for forbidden in ["localhost:29090", "192.0.2.1:29090"] {
+            let error = resolve_node_network(
+                Some(NodeNetworkPreset::Testnet),
+                None,
+                &[forbidden.to_string()],
+            )
+            .expect_err("M4 must not resolve DNS or dial outside loopback");
+            assert!(error.to_string().contains("numeric loopback"), "{error:#}");
+        }
+    }
+
+    #[test]
+    fn controlled_testnet_rejects_zero_port_endpoints() {
+        for (listen, peers) in [
+            (None, vec!["127.0.0.1:0".to_string()]),
+            (Some("127.0.0.1:0"), vec!["127.0.0.2:29090".to_string()]),
+        ] {
+            let error = resolve_node_network(Some(NodeNetworkPreset::Testnet), listen, &peers)
+                .expect_err("port zero cannot identify a reachable static endpoint");
+            assert!(
+                error.to_string().contains("port must be nonzero"),
+                "{error:#}"
+            );
+        }
+    }
+
+    #[test]
+    fn controlled_testnet_rejects_duplicate_and_self_bootstrap_endpoints() {
+        let duplicate = vec!["127.0.0.1:29091".to_string(), "127.0.0.1:29091".to_string()];
+        let error = resolve_node_network(
+            Some(NodeNetworkPreset::Testnet),
+            Some("127.0.0.1:29092"),
+            &duplicate,
+        )
+        .expect_err("duplicate endpoint");
+        assert!(error.to_string().contains("duplicate bootstrap peer"));
+
+        let error = resolve_node_network(
+            Some(NodeNetworkPreset::Testnet),
+            Some("127.0.0.1:29091"),
+            &["127.0.0.1:29091".to_string()],
+        )
+        .expect_err("self bootstrap");
+        assert!(error.to_string().contains("own P2P listener"));
+    }
+
+    #[test]
+    fn controlled_testnet_allows_distinct_loopback_addresses_on_the_same_port() {
+        let resolved = resolve_node_network(
+            Some(NodeNetworkPreset::Testnet),
+            Some("127.0.0.1:29091"),
+            &["127.0.0.2:29091".to_string()],
+        )
+        .expect("distinct loopback addresses are distinct endpoints")
+        .expect("network selected");
+        assert_eq!(
+            resolved.bootstrap_peers,
+            vec!["127.0.0.2:29091".parse().expect("peer")]
+        );
+    }
 
     fn collect_envs(cmd: &Command) -> HashMap<String, Option<String>> {
         cmd.get_envs()

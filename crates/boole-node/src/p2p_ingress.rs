@@ -9,7 +9,7 @@
 //! pool and the N2.3 proof-dedup ledger can never diverge between the two
 //! ingress surfaces.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io;
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -114,6 +114,60 @@ pub struct P2pConfig {
     /// production default: no package dial, receive, journal, or CAS write can
     /// occur.
     pub package_fetching: Option<PackageFetchingConfig>,
+    /// N5.3 — keep `/ready` closed until every configured static bootstrap
+    /// endpoint has completed an outbound, identity-checked sync round and
+    /// advertised the node's current exact `(height, c)` head. Legacy
+    /// embeddings leave this false and retain their existing readiness
+    /// semantics.
+    pub require_head_sync_for_readiness: bool,
+}
+
+/// N5.3 — process-local observations made only by the outbound sync path.
+///
+/// An endpoint is satisfied only after its authenticated-by-network-identity
+/// `Hello` head and the live local head are exactly equal at the end of a sync
+/// round. The HTTP readiness path compares these observations with the live
+/// head again on every request, so a later local mutation cannot reuse stale
+/// evidence. Socket endpoints are operational identity only; this remains a
+/// controlled-loopback contract, not cryptographic peer authentication.
+#[derive(Debug)]
+pub(crate) struct P2pBootstrapReadiness {
+    observed_heads: BTreeMap<SocketAddr, Option<HeadSummary>>,
+}
+
+impl P2pBootstrapReadiness {
+    pub(crate) fn new(peers: &[SocketAddr]) -> Result<Self, String> {
+        let mut observed_heads = BTreeMap::new();
+        for peer in peers {
+            if observed_heads.insert(*peer, None).is_some() {
+                return Err(format!("duplicate bootstrap peer endpoint: {peer}"));
+            }
+        }
+        if observed_heads.is_empty() {
+            return Err("bootstrap head-sync readiness requires at least one peer".to_string());
+        }
+        Ok(Self { observed_heads })
+    }
+
+    pub(crate) fn observe_exact(&mut self, peer: SocketAddr, head: HeadSummary) {
+        if let Some(slot) = self.observed_heads.get_mut(&peer) {
+            *slot = Some(head);
+        }
+    }
+
+    pub(crate) fn clear(&mut self, peer: SocketAddr) {
+        if let Some(slot) = self.observed_heads.get_mut(&peer) {
+            *slot = None;
+        }
+    }
+
+    pub(crate) fn matches_live_head(&self, live_head: &HeadSummary) -> bool {
+        !self.observed_heads.is_empty()
+            && self
+                .observed_heads
+                .values()
+                .all(|head| head.as_ref() == Some(live_head))
+    }
 }
 
 pub(crate) struct P2pIngressRuntimeConfig {
@@ -832,12 +886,14 @@ fn sync_loop(
                 return;
             }
             match sync_with_peer(peer, &identity, &state, &lifecycle, &metrics) {
-                Ok(()) => {}
+                Ok(peer_head) => record_bootstrap_observation(&state, *peer, Some(peer_head)),
                 Err(SyncRoundError::Budget(error)) => {
+                    record_bootstrap_observation(&state, *peer, None);
                     metrics.sync_budget_drops.fetch_add(1, Ordering::Relaxed);
                     eprintln!("boole-node: peer sync deferred by local round budget: {error:?}");
                 }
                 Err(SyncRoundError::Peer(error)) => {
+                    record_bootstrap_observation(&state, *peer, None);
                     if lifecycle.is_stopped() {
                         return;
                     }
@@ -860,7 +916,7 @@ fn sync_with_peer(
     state: &Arc<RwLock<LocalNodeState>>,
     lifecycle: &Arc<P2pLifecycle>,
     metrics: &Arc<P2pMetrics>,
-) -> Result<(), SyncRoundError> {
+) -> Result<HeadSummary, SyncRoundError> {
     let my_head = head_summary(&state.blocking_read());
     let mut budget = SyncBudget::for_peer_round();
     budget.ensure_before_receive(Instant::now())?;
@@ -886,6 +942,11 @@ fn sync_with_peer(
     };
     let peer_head = validated.peer_head.clone();
     charge_sync_response(&mut budget, 0, 0, validated.peer_hello_wire_bytes, metrics)?;
+    // A peer can advance after a previously exact observation. Invalidate
+    // that old readiness evidence as soon as the new Hello is validated,
+    // before waiting for or verifying any advertised blocks. The caller
+    // records the final exact match again when this round completes.
+    clear_bootstrap_observation_if_mismatched(state, *peer, &peer_head);
     let mut my_height = my_head.height;
     let mut first_probe = true;
     while my_height < peer_head.height && !lifecycle.is_stopped() {
@@ -896,7 +957,7 @@ fn sync_with_peer(
             .min(if first_probe { 1 } else { u64::MAX });
         first_probe = false;
         if requested == 0 {
-            return Ok(());
+            return Ok(peer_head);
         }
         let to = my_height + requested - 1;
         budget.ensure_before_receive(Instant::now())?;
@@ -922,7 +983,7 @@ fn sync_with_peer(
         if blocks.is_empty() {
             // The peer served nothing for a range its Hello claimed to
             // have — stop rather than spin; the next poll retries.
-            return Ok(());
+            return Ok(peer_head);
         }
         for block_value in &blocks {
             // Scope the write guard to the ingest call so it is dropped before
@@ -933,7 +994,7 @@ fn sync_with_peer(
             let outcome = {
                 budget.ensure_before_mutation(Instant::now())?;
                 let Some(_mutation) = lifecycle.begin_mutation() else {
-                    return Ok(());
+                    return Ok(peer_head);
                 };
                 let mut guard = state.blocking_write();
                 budget.ensure_before_mutation(Instant::now())?;
@@ -951,7 +1012,7 @@ fn sync_with_peer(
                     // no progress here, so pull the peer's full chain from
                     // genesis and let fork-choice decide whether it is heavy
                     // enough to reorg onto (N4.2/N4.3).
-                    return reorg_from_peer(
+                    reorg_from_peer(
                         &validated.transport,
                         &mut validated.conn,
                         &peer_head,
@@ -959,7 +1020,8 @@ fn sync_with_peer(
                         lifecycle,
                         &mut budget,
                         metrics,
-                    );
+                    )?;
+                    return Ok(peer_head);
                 }
                 IngressBlockOutcome::Rejected => {
                     // Strict replay refused the peer's block: tampered or
@@ -980,13 +1042,51 @@ fn sync_with_peer(
                     metrics
                         .ingress_blocks_deferred
                         .fetch_add(1, Ordering::Relaxed);
-                    return Ok(());
+                    return Ok(peer_head);
                 }
             }
         }
         my_height = head_summary(&state.blocking_read()).height;
     }
-    Ok(())
+    Ok(peer_head)
+}
+
+/// Store a bootstrap observation under the same lock that owns the live
+/// canonical head. A normal sync return is not itself success: empty,
+/// deferred, peer-behind and incomplete rounds can all end without a transport
+/// error. Only an exact final `(height, c)` match satisfies this endpoint.
+fn record_bootstrap_observation(
+    state: &Arc<RwLock<LocalNodeState>>,
+    peer: SocketAddr,
+    advertised_head: Option<HeadSummary>,
+) {
+    let mut guard = state.blocking_write();
+    let live_head = head_summary(&guard);
+    let Some(readiness) = guard.p2p_bootstrap_readiness.as_mut() else {
+        return;
+    };
+    match advertised_head {
+        Some(head) if head == live_head => readiness.observe_exact(peer, head),
+        _ => readiness.clear(peer),
+    }
+}
+
+/// Invalidate an old exact observation as soon as a validated Hello proves it
+/// stale. A matching Hello does not create new readiness evidence here: the
+/// caller records that only after the whole outbound round returns cleanly.
+fn clear_bootstrap_observation_if_mismatched(
+    state: &Arc<RwLock<LocalNodeState>>,
+    peer: SocketAddr,
+    advertised_head: &HeadSummary,
+) {
+    let mut guard = state.blocking_write();
+    let live_head = head_summary(&guard);
+    if advertised_head == &live_head {
+        return;
+    }
+    if let Some(readiness) = guard.p2p_bootstrap_readiness.as_mut() {
+        readiness.clear(peer);
+    }
 }
 
 /// N4 — a peer advertised a head we cannot reach by extending our own chain
@@ -1151,6 +1251,56 @@ mod tests {
     use super::*;
     use std::io::Write;
     use std::net::{TcpListener, TcpStream};
+
+    #[test]
+    fn bootstrap_readiness_rejects_empty_and_duplicate_peer_sets() {
+        let peer: SocketAddr = "127.0.0.1:30101".parse().expect("peer");
+        assert_eq!(
+            P2pBootstrapReadiness::new(&[]).expect_err("empty peer set"),
+            "bootstrap head-sync readiness requires at least one peer"
+        );
+        assert_eq!(
+            P2pBootstrapReadiness::new(&[peer, peer]).expect_err("duplicate peer set"),
+            "duplicate bootstrap peer endpoint: 127.0.0.1:30101"
+        );
+    }
+
+    #[test]
+    fn bootstrap_readiness_requires_every_unique_peer_to_match_the_live_head() {
+        let peer_a: SocketAddr = "127.0.0.1:30101".parse().expect("peer a");
+        let peer_b: SocketAddr = "127.0.0.1:30102".parse().expect("peer b");
+        let mut readiness =
+            P2pBootstrapReadiness::new(&[peer_a, peer_b]).expect("two distinct bootstrap peers");
+        let genesis = HeadSummary {
+            height: 0,
+            c: "00".repeat(32),
+        };
+        let next = HeadSummary {
+            height: 1,
+            c: "11".repeat(32),
+        };
+
+        assert!(!readiness.matches_live_head(&genesis));
+        readiness.observe_exact(peer_a, genesis.clone());
+        assert!(
+            !readiness.matches_live_head(&genesis),
+            "one observed peer must not satisfy a two-peer bootstrap set"
+        );
+        readiness.observe_exact(peer_b, genesis.clone());
+        assert!(readiness.matches_live_head(&genesis));
+
+        assert!(
+            !readiness.matches_live_head(&next),
+            "a later local head must invalidate stale peer observations"
+        );
+        readiness.observe_exact(peer_a, next.clone());
+        assert!(!readiness.matches_live_head(&next));
+        readiness.observe_exact(peer_b, next.clone());
+        assert!(readiness.matches_live_head(&next));
+
+        readiness.clear(peer_a);
+        assert!(!readiness.matches_live_head(&next));
+    }
 
     #[test]
     fn sync_budget_charges_blocks_and_actual_wire_bytes_atomically() {

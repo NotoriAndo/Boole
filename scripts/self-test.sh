@@ -157,6 +157,15 @@ for mp_test in \
   run_logged "needs-multiprocess-${mp_test}" \
     cargo test -p boole-node --test "$mp_test" --locked -- --include-ignored
 done
+# N5.3 M4 — the supported named-network CLI path starts three real local
+# processes: two stay live-but-not-ready while the static bootstrap is absent,
+# then all three converge to the exact seeded block head and remain ready for
+# longer than the configured inter-cycle sleep. Numeric loopback and a
+# committed synthetic fixture keep this controlled; it is not public-network
+# mining.
+run_logged needs-multiprocess-node-join-testnet \
+  cargo test -p boole-cli --test node_join_testnet --locked -- \
+    --ignored --exact join_testnet_syncs_from_bootstrap_to_seed_block_head
 # SC.9c (ADR-0016 (a)/(a-1)) — the verdict corpus: the three-state Lean
 # verdict must match the committed golden fixture byte-for-byte. The
 # cross-platform four-job matrix lives in verdict-corpus.yml (the required

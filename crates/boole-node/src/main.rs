@@ -179,6 +179,13 @@ struct RunLocalArgs {
     /// addresses outside it are dropped at accept.
     #[arg(long = "peer")]
     peers: Vec<String>,
+    /// N5.3 — require every configured static peer to complete an outbound
+    /// sync round at this node's exact head before `/ready` may return 200.
+    /// Off by default so legacy low-level embeddings keep their prior
+    /// readiness contract; the high-level `boole node start --network
+    /// testnet` path always enables it.
+    #[arg(long = "require-bootstrap-head-sync", default_value_t = false)]
+    require_bootstrap_head_sync: bool,
     /// N3.3 — per-peer gossip ingress frame budget per 60s window
     /// (ADR-0009 (c): the limit's presence is wire-contract-level). The
     /// default leaves an order of magnitude of headroom over honest S7
@@ -388,7 +395,10 @@ fn run_local_command(args: RunLocalArgs) -> anyhow::Result<()> {
     // N3.2 — optional share-gossip surface (ADR-0009): a listen address
     // and/or a static peer set. Resolution failures are boot errors — a
     // node must never come up silently missing a configured peer.
-    let p2p = if args.p2p_listen.is_some() || !args.peers.is_empty() {
+    let p2p = if args.p2p_listen.is_some()
+        || !args.peers.is_empty()
+        || args.require_bootstrap_head_sync
+    {
         let mut peers = Vec::new();
         for raw in &args.peers {
             let resolved = raw
@@ -417,6 +427,7 @@ fn run_local_command(args: RunLocalArgs) -> anyhow::Result<()> {
             rate_limit_per_60s: args.p2p_rate_limit_per_60s,
             package_serving: None,
             package_fetching: None,
+            require_head_sync_for_readiness: args.require_bootstrap_head_sync,
         })
     } else {
         None

@@ -95,6 +95,7 @@ fn boot(peer: SocketAddr, package_fetching: PackageFetchingConfig) -> Boot {
                 rate_limit_per_60s: boole_node::DEFAULT_P2P_RATE_LIMIT_PER_60S,
                 package_serving: None,
                 package_fetching: Some(package_fetching),
+                require_head_sync_for_readiness: false,
             },
             Some(shutdown_for_node),
         )

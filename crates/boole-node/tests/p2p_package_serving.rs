@@ -105,6 +105,7 @@ fn boot(tag: &str, package_serving: Option<PackageServingConfig>) -> Boot {
                 rate_limit_per_60s: boole_node::DEFAULT_P2P_RATE_LIMIT_PER_60S,
                 package_serving,
                 package_fetching: None,
+                require_head_sync_for_readiness: false,
             },
             Some(shutdown_for_node),
         )

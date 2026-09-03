@@ -145,6 +145,7 @@ fn boot_with_p2p(
                 rate_limit_per_60s,
                 package_serving: None,
                 package_fetching: None,
+                require_head_sync_for_readiness: false,
             },
             Some(shutdown_for_node),
         )

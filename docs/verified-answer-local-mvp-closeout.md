@@ -140,7 +140,7 @@ the native checker and BF.3 receipt are a separate service until the MCP
 successor lands. Real payment, public settlement, production wallet authority,
 rewards and activation remain deferred.
 
-## Successor progress (2026-09-03)
+## Successor progress (2026-09-04)
 
 - `N5.3-M1-NAMED-NETWORK-AUTHORITY`: COMPLETE. Explicitly named HTTP nodes
   reject unscoped signed envelopes; `boole-testnet-2` requires a matching
@@ -170,9 +170,28 @@ rewards and activation remain deferred.
   deliberately deferred when it cannot fit the bounded round; resumable deep
   reorg/snapshot sync remains a later pre-long-running-testnet capability, not
   something this closed three-node milestone claims.
-- Current milestone: `M4-CONTROLLED-BOOTSTRAP-JOIN`. It will prove a static
-  three-node synthetic-work bootstrap and head-synced readiness. It remains
-  unstarted and grants no public P2P exposure or activation.
+- `M4-CONTROLLED-BOOTSTRAP-JOIN`: COMPLETE. The supported `boole node start
+  --network testnet` path selects the compiled `boole-testnet-2` identity and
+  a static numeric-loopback bootstrap configuration. The named three-process
+  E2E first commits one network-authorized synthetic fixture block to the
+  seed's durable state, proves that two joiners remain live but return
+  `/ready` 503 while that seed is absent, then restarts the seed and requires
+  all three nodes to converge on the same `(height, c)`, genesis-spec hash and
+  replay-consistent block before readiness opens and remains green longer than
+  the configured five-second inter-cycle sleep on healthy loopback peers.
+  Readiness means that every configured bootstrap
+  peer's last completed outbound observation matches the node's current head;
+  `/ready` rechecks that observation against the live local head, but a peer
+  that advances without an announcement can leave a stale-green window until
+  the next outbound polling cycle reaches that peer; with multiple peers this
+  includes the bounded rounds spent on peers earlier in the cycle. This
+  milestone therefore proves controlled bootstrap/join, not continuous
+  global-head knowledge. It consumes no public-eligible problem inventory and
+  grants no public P2P exposure or activation.
+- Current milestone: `M5-THIRD-PARTY-VERIFIER-BOUNDARY`. It will close the
+  external verifier process boundary before any MCP-submitted code is
+  accepted. The `boole.verify_native` MCP vertical remains the milestone after
+  that.
 
 This progress is closed-local protocol hardening. It neither activates a public
 testnet nor authorizes mining, rewards, payment, consensus, P2P exposure or use

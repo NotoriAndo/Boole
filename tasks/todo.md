@@ -1513,7 +1513,7 @@ plan: /Users/seoyong/.claude/plans/cozy-wiggling-lobster.md (2026-07-18 승인).
       network 승인을 거절하도록 공용 검증 정책 배선. 명시 named HTTP 봉투는
       `network_id` 필수, unnamed local embedding은 명시 legacy 경로 유지.
 
-### N5.3 prerequisite progress (2026-09-03)
+### N5.3 prerequisite progress (2026-09-04)
 
 - [x] N5.3 M1 named-network/reward authority — PR #361, main `a52d5fa`.
 - [x] N5.3 M2 canonical-state safety — PR #362. live status/verify를 무수정 읽기로 분리하고,
@@ -1526,7 +1526,17 @@ plan: /Users/seoyong/.claude/plans/cozy-wiggling-lobster.md (2026-07-18 승인).
       부분 채택 없이 명시적으로 보류(장기 testnet 전 resumable sync 후속 필요). ingress·
       egress·sync·package fetch의 막힌 소켓을 공용 lifecycle 종료가 먼저 깨운 뒤 join.
       직접 시험은 느린 피어 격리, 과다 응답 0 mutation, partial frame/무응답 peer의
-      1초 이내 종료를 고정. 현재 다음 = M4 controlled bootstrap join (미착수).
+      1초 이내 종료를 고정.
+- [x] N5.3 M4 controlled bootstrap join — `boole node start --network testnet`가
+      `boole-testnet-2`와 numeric-loopback bootstrap을 선택한다. 합성·시험 전용 share
+      1건으로 seed의 durable head를 만든 뒤 seed 부재 중 두 joiner가 live이되 `/ready`
+      503을 유지하고, seed 복귀 후 세 프로세스가 동일 `(height,c)`·genesis spec·replay
+      상태로 수렴해야 readiness가 열린다. readiness는 “마지막 완료 outbound 관측이 현재
+      head와 일치”라는 운영 조건이며, peer가 직후 전진했지만 announce/poll 전이면 다음
+      outbound 순회가 그 peer에 닿을 때까지 stale-green 구간이 있을 수 있다. 여러 peer면
+      그 앞의 bounded round 시간도 포함된다. public-eligible 문제 재고·공개 P2P·채굴·
+      보상·activation은 사용하거나 승인하지 않았다. 현재 다음 = M5 third-party verifier
+      process boundary; `boole.verify_native` MCP vertical은 그 다음.
 
 ---
 

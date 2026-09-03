@@ -185,6 +185,7 @@ fn ready_returns_200_with_all_checks_true_on_clean_embedding_boot() {
         "lean_checker_configured",
         "ledgers_loaded",
         "disk_space_ok",
+        "p2p_head_synced",
     ] {
         assert_eq!(
             body.pointer(&format!("/checks/{check}")),
@@ -273,6 +274,7 @@ fn ready_returns_503_when_disk_full_sentinel_is_set() {
         "state_dir_lock_held",
         "lean_checker_configured",
         "ledgers_loaded",
+        "p2p_head_synced",
     ] {
         assert_eq!(
             body.pointer(&format!("/checks/{check}")),
