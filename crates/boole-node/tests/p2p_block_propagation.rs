@@ -413,10 +413,19 @@ fn p2p_partial_projection_adopts_once_then_fail_closes_the_node() {
             && status["canonicalStateConsistent"] == false
             && status["canonicalStateFailurePhase"] == "proof_dedup_publish"
     });
+    // Announce ingress and catch-up sync run independently. Either may win the
+    // race to the same canonical block, but exactly one path must report the
+    // durable adoption and neither may mislabel it rejected.
     assert_eq!(
-        metric_value(b.addr, "boole_p2p_ingress_blocks_ingested_total"),
+        metric_value(b.addr, "boole_p2p_ingress_blocks_ingested_total")
+            + metric_value(b.addr, "boole_p2p_sync_blocks_applied_total"),
         1,
-        "a block already durable on B must not be mislabeled rejected"
+        "a block already durable on B must be counted exactly once"
+    );
+    assert_eq!(
+        metric_value(b.addr, "boole_p2p_ingress_blocks_rejected_total"),
+        0,
+        "partial projection failure is not a peer validation rejection"
     );
     let (ready_status, ready_text) = http_request(
         b.addr,
