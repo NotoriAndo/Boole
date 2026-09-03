@@ -1512,6 +1512,11 @@ plan: /Users/seoyong/.claude/plans/cozy-wiggling-lobster.md (2026-07-18 승인).
       peer-share ingress·top-k 전 selection·genesis-aware replay 네 지점이 누락/타
       network 승인을 거절하도록 공용 검증 정책 배선. 명시 named HTTP 봉투는
       `network_id` 필수, unnamed local embedding은 명시 legacy 경로 유지.
+- [x] N5.3 M1 named-network/reward authority — PR #361, main `a52d5fa`.
+- [x] N5.3 M2 canonical-state safety — live status/verify를 무수정 읽기로 분리하고,
+      family manifest root를 genesis에 결박. canonical block store에서 reward·bounty·
+      proof-dedup 장부를 정확 재유도하며, commit/reorg 뒤 projection 실패 시 readiness를
+      닫고 후속 쓰기를 막은 뒤 재시작 때 복구하도록 구현. 현재 다음 = M3 P2P lifecycle.
 
 ---
 
