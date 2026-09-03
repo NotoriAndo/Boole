@@ -888,13 +888,22 @@ enum ProductCommand {
         #[arg(long = "download-staging")]
         download_staging: Option<PathBuf>,
         #[arg(long = "product-trust-root-key-id")]
-        product_trust_root_key_id: String,
+        product_trust_root_key_id: Option<String>,
         #[arg(long = "product-trust-root-public-key")]
-        product_trust_root_public_key: String,
+        product_trust_root_public_key: Option<String>,
         #[arg(long = "guest-trust-root-key-id")]
-        guest_trust_root_key_id: String,
+        guest_trust_root_key_id: Option<String>,
         #[arg(long = "guest-trust-root-public-key")]
-        guest_trust_root_public_key: String,
+        guest_trust_root_public_key: Option<String>,
+        /// Bootstrap recovery root for the first policy-backed install.
+        #[arg(long = "recovery-root")]
+        recovery_root: Option<PathBuf>,
+        /// Initial or exact successor operational trust policy. An existing
+        /// policy-backed install may omit this to reuse its current policy.
+        #[arg(long = "trust-policy")]
+        trust_policy: Option<PathBuf>,
+        #[arg(long = "trust-policy-signatures")]
+        trust_policy_signatures: Option<PathBuf>,
         #[arg(long = "first-product-minimum")]
         first_product_minimum: u64,
         #[arg(long = "first-guest-minimum")]
@@ -915,13 +924,13 @@ enum ProductCommand {
         #[arg(long = "state-root")]
         state_root: Option<PathBuf>,
         #[arg(long = "product-trust-root-key-id")]
-        product_trust_root_key_id: String,
+        product_trust_root_key_id: Option<String>,
         #[arg(long = "product-trust-root-public-key")]
-        product_trust_root_public_key: String,
+        product_trust_root_public_key: Option<String>,
         #[arg(long = "guest-trust-root-key-id")]
-        guest_trust_root_key_id: String,
+        guest_trust_root_key_id: Option<String>,
         #[arg(long = "guest-trust-root-public-key")]
-        guest_trust_root_public_key: String,
+        guest_trust_root_public_key: Option<String>,
     },
     /// Query the fixed loopback liveness and readiness endpoints exposed by
     /// the installed direct-boot product.
@@ -935,13 +944,13 @@ enum ProductCommand {
         #[arg(long = "install-root")]
         install_root: PathBuf,
         #[arg(long = "product-trust-root-key-id")]
-        product_trust_root_key_id: String,
+        product_trust_root_key_id: Option<String>,
         #[arg(long = "product-trust-root-public-key")]
-        product_trust_root_public_key: String,
+        product_trust_root_public_key: Option<String>,
         #[arg(long = "guest-trust-root-key-id")]
-        guest_trust_root_key_id: String,
+        guest_trust_root_key_id: Option<String>,
         #[arg(long = "guest-trust-root-public-key")]
-        guest_trust_root_public_key: String,
+        guest_trust_root_public_key: Option<String>,
     },
     /// Re-authenticate and select the retained direct-boot generation while
     /// preserving the highest accepted product and guest update floors.
@@ -949,13 +958,13 @@ enum ProductCommand {
         #[arg(long = "install-root")]
         install_root: PathBuf,
         #[arg(long = "product-trust-root-key-id")]
-        product_trust_root_key_id: String,
+        product_trust_root_key_id: Option<String>,
         #[arg(long = "product-trust-root-public-key")]
-        product_trust_root_public_key: String,
+        product_trust_root_public_key: Option<String>,
         #[arg(long = "guest-trust-root-key-id")]
-        guest_trust_root_key_id: String,
+        guest_trust_root_key_id: Option<String>,
         #[arg(long = "guest-trust-root-public-key")]
-        guest_trust_root_public_key: String,
+        guest_trust_root_public_key: Option<String>,
     },
     /// Verify the active direct-boot generation and select the retained
     /// generation only if the active product or guest bytes are corrupt.
@@ -963,13 +972,24 @@ enum ProductCommand {
         #[arg(long = "install-root")]
         install_root: PathBuf,
         #[arg(long = "product-trust-root-key-id")]
-        product_trust_root_key_id: String,
+        product_trust_root_key_id: Option<String>,
         #[arg(long = "product-trust-root-public-key")]
-        product_trust_root_public_key: String,
+        product_trust_root_public_key: Option<String>,
         #[arg(long = "guest-trust-root-key-id")]
-        guest_trust_root_key_id: String,
+        guest_trust_root_key_id: Option<String>,
         #[arg(long = "guest-trust-root-public-key")]
-        guest_trust_root_public_key: String,
+        guest_trust_root_public_key: Option<String>,
+    },
+    /// Verify and durably adopt the exact next recovery-authorized policy.
+    /// This may disable an online release role immediately; it downloads no
+    /// release and grants no runtime or network activation authority.
+    UpdateTrustPolicy {
+        #[arg(long = "install-root")]
+        install_root: PathBuf,
+        #[arg(long = "trust-policy")]
+        trust_policy: PathBuf,
+        #[arg(long = "trust-policy-signatures")]
+        trust_policy_signatures: PathBuf,
     },
     /// Remove disposable controller and materialized-host runtime state after
     /// proving no controller owns the runtime lease. The exactly-once journal
@@ -1248,6 +1268,9 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 product_trust_root_public_key,
                 guest_trust_root_key_id,
                 guest_trust_root_public_key,
+                recovery_root,
+                trust_policy,
+                trust_policy_signatures,
                 first_product_minimum,
                 first_guest_minimum,
                 timeout_seconds,
@@ -1255,10 +1278,13 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 &base_url,
                 &install_root,
                 download_staging.as_deref(),
-                &product_trust_root_key_id,
-                &product_trust_root_public_key,
-                &guest_trust_root_key_id,
-                &guest_trust_root_public_key,
+                product_trust_root_key_id.as_deref(),
+                product_trust_root_public_key.as_deref(),
+                guest_trust_root_key_id.as_deref(),
+                guest_trust_root_public_key.as_deref(),
+                recovery_root.as_deref(),
+                trust_policy.as_deref(),
+                trust_policy_signatures.as_deref(),
                 first_product_minimum,
                 first_guest_minimum,
                 timeout_seconds,
@@ -1273,10 +1299,10 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             } => product_run_direct_boot(
                 &install_root,
                 state_root.as_deref(),
-                &product_trust_root_key_id,
-                &product_trust_root_public_key,
-                &guest_trust_root_key_id,
-                &guest_trust_root_public_key,
+                product_trust_root_key_id.as_deref(),
+                product_trust_root_public_key.as_deref(),
+                guest_trust_root_key_id.as_deref(),
+                guest_trust_root_public_key.as_deref(),
             ),
             ProductCommand::StatusDirectBoot { timeout_seconds } => {
                 product_status_direct_boot(timeout_seconds)
@@ -1289,10 +1315,10 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 guest_trust_root_public_key,
             } => product_inspect_direct_boot(
                 &install_root,
-                &product_trust_root_key_id,
-                &product_trust_root_public_key,
-                &guest_trust_root_key_id,
-                &guest_trust_root_public_key,
+                product_trust_root_key_id.as_deref(),
+                product_trust_root_public_key.as_deref(),
+                guest_trust_root_key_id.as_deref(),
+                guest_trust_root_public_key.as_deref(),
             ),
             ProductCommand::RollbackDirectBoot {
                 install_root,
@@ -1303,10 +1329,10 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             } => product_change_direct_boot_release(
                 true,
                 &install_root,
-                &product_trust_root_key_id,
-                &product_trust_root_public_key,
-                &guest_trust_root_key_id,
-                &guest_trust_root_public_key,
+                product_trust_root_key_id.as_deref(),
+                product_trust_root_public_key.as_deref(),
+                guest_trust_root_key_id.as_deref(),
+                guest_trust_root_public_key.as_deref(),
             ),
             ProductCommand::RecoverDirectBoot {
                 install_root,
@@ -1317,11 +1343,18 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             } => product_change_direct_boot_release(
                 false,
                 &install_root,
-                &product_trust_root_key_id,
-                &product_trust_root_public_key,
-                &guest_trust_root_key_id,
-                &guest_trust_root_public_key,
+                product_trust_root_key_id.as_deref(),
+                product_trust_root_public_key.as_deref(),
+                guest_trust_root_key_id.as_deref(),
+                guest_trust_root_public_key.as_deref(),
             ),
+            ProductCommand::UpdateTrustPolicy {
+                install_root,
+                trust_policy,
+                trust_policy_signatures,
+            } => {
+                product_update_trust_policy(&install_root, &trust_policy, &trust_policy_signatures)
+            }
             ProductCommand::ResetDirectBoot { state_root } => {
                 product_reset_direct_boot(state_root.as_deref())
             }
@@ -2860,10 +2893,13 @@ fn product_install_bootable(
         base_url,
         install_root,
         download_staging,
-        product_trust_root_key_id,
-        product_trust_root_public_key,
-        guest_trust_root_key_id,
-        guest_trust_root_public_key,
+        Some(product_trust_root_key_id),
+        Some(product_trust_root_public_key),
+        Some(guest_trust_root_key_id),
+        Some(guest_trust_root_public_key),
+        None,
+        None,
+        None,
         first_product_minimum,
         first_guest_minimum,
         timeout_seconds,
@@ -2875,10 +2911,13 @@ fn product_install_direct_boot(
     base_url: &str,
     install_root: &Path,
     download_staging: Option<&Path>,
-    product_trust_root_key_id: &str,
-    product_trust_root_public_key: &str,
-    guest_trust_root_key_id: &str,
-    guest_trust_root_public_key: &str,
+    product_trust_root_key_id: Option<&str>,
+    product_trust_root_public_key: Option<&str>,
+    guest_trust_root_key_id: Option<&str>,
+    guest_trust_root_public_key: Option<&str>,
+    recovery_root: Option<&Path>,
+    trust_policy: Option<&Path>,
+    trust_policy_signatures: Option<&Path>,
     first_product_minimum: u64,
     first_guest_minimum: u64,
     timeout_seconds: u64,
@@ -2892,10 +2931,177 @@ fn product_install_direct_boot(
         product_trust_root_public_key,
         guest_trust_root_key_id,
         guest_trust_root_public_key,
+        recovery_root,
+        trust_policy,
+        trust_policy_signatures,
         first_product_minimum,
         first_guest_minimum,
         timeout_seconds,
     )
+}
+
+#[derive(Clone)]
+struct InstalledPolicyStatus {
+    generation: u64,
+    policy_sha256: String,
+    previous_policy_sha256: Option<String>,
+    recovery_root_sha256: String,
+    policy_directory_count: u64,
+    unreferenced_policy_directory_count: u64,
+}
+
+struct DirectBootAuthority {
+    product: boole_core::CurlProductReleaseTrustRoot,
+    guest: boole_core::NativeShadowUpdateTrustRoot,
+    policy: Option<InstalledPolicyStatus>,
+}
+
+fn installed_policy_status(
+    installed: &boole_core::InstalledOperationalReleaseTrustPolicy,
+) -> InstalledPolicyStatus {
+    InstalledPolicyStatus {
+        generation: installed.state().generation(),
+        policy_sha256: installed.state().policy_sha256().to_string(),
+        previous_policy_sha256: installed
+            .state()
+            .previous_policy_sha256()
+            .map(str::to_string),
+        recovery_root_sha256: installed.state().recovery_root_sha256().to_string(),
+        policy_directory_count: installed.policy_directory_count(),
+        unreferenced_policy_directory_count: installed.unreferenced_policy_directory_count(),
+    }
+}
+
+fn operational_policy_state_path_exists(install_root: &Path) -> Result<bool, String> {
+    let path = install_root.join(boole_core::OPERATIONAL_RELEASE_TRUST_STATE_FILE);
+    match std::fs::symlink_metadata(&path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(format!(
+            "cannot inspect installed trust policy state at {}: {error}",
+            path.display()
+        )),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn resolve_direct_boot_install_authority(
+    install_root: &Path,
+    product_key_id: Option<&str>,
+    product_public_key: Option<&str>,
+    guest_key_id: Option<&str>,
+    guest_public_key: Option<&str>,
+    recovery_root_path: Option<&Path>,
+    policy_path: Option<&Path>,
+    signatures_path: Option<&Path>,
+) -> Result<DirectBootAuthority, String> {
+    let direct_count = [
+        product_key_id.is_some(),
+        product_public_key.is_some(),
+        guest_key_id.is_some(),
+        guest_public_key.is_some(),
+    ]
+    .into_iter()
+    .filter(|present| *present)
+    .count();
+    let policy_count = [
+        recovery_root_path.is_some(),
+        policy_path.is_some(),
+        signatures_path.is_some(),
+    ]
+    .into_iter()
+    .filter(|present| *present)
+    .count();
+    if direct_count > 0 && policy_count > 0 {
+        return Err(
+            "choose direct release roots or the installed operational policy, not both".to_string(),
+        );
+    }
+    if direct_count > 0 {
+        if direct_count != 4 {
+            return Err("all four direct release-root arguments are required".to_string());
+        }
+        if operational_policy_state_path_exists(install_root)? {
+            return Err(
+                "direct release roots cannot reopen a policy-backed installation".to_string(),
+            );
+        }
+        return Ok(DirectBootAuthority {
+            product: boole_core::CurlProductReleaseTrustRoot::new(
+                product_key_id.expect("complete direct product key id"),
+                product_public_key.expect("complete direct product key"),
+            )
+            .map_err(|error| error.to_string())?,
+            guest: boole_core::NativeShadowUpdateTrustRoot::new(
+                guest_key_id.expect("complete direct guest key id"),
+                guest_public_key.expect("complete direct guest key"),
+            )
+            .map_err(|error| error.to_string())?,
+            policy: None,
+        });
+    }
+
+    if !operational_policy_state_path_exists(install_root)?
+        && boole_core::read_installed_curl_product_state(install_root)
+            .map_err(|error| error.to_string())?
+            .is_some()
+    {
+        return Err(
+            "an existing direct-root installation cannot be silently converted to policy authority"
+                .to_string(),
+        );
+    }
+    let recovery_root_raw = recovery_root_path
+        .map(|path| {
+            read_public_authority_file(
+                path,
+                boole_core::MAX_OPERATIONAL_RELEASE_RECOVERY_ROOT_BYTES,
+                "recovery root",
+            )
+        })
+        .transpose()?;
+    let policy_raw = policy_path
+        .map(|path| {
+            read_public_authority_file(
+                path,
+                boole_core::MAX_OPERATIONAL_RELEASE_TRUST_POLICY_BYTES,
+                "trust policy",
+            )
+        })
+        .transpose()?;
+    let signatures_raw = signatures_path
+        .map(|path| {
+            read_public_authority_file(
+                path,
+                boole_core::MAX_OPERATIONAL_RELEASE_TRUST_POLICY_SIGNATURES_BYTES,
+                "trust policy signatures",
+            )
+        })
+        .transpose()?;
+    let prepared = boole_core::prepare_operational_release_trust_policy_update(
+        install_root,
+        recovery_root_raw.as_deref(),
+        policy_raw.as_deref(),
+        signatures_raw.as_deref(),
+    )
+    .map_err(|error| error.to_string())?;
+    let installed = boole_core::adopt_operational_release_trust_policy(install_root, prepared)
+        .map_err(|error| error.to_string())?;
+    let product = installed
+        .verified_policy()
+        .product_release_trust_root()
+        .cloned()
+        .ok_or_else(|| "operational policy has disabled the product release role".to_string())?;
+    let guest = installed
+        .verified_policy()
+        .guest_release_trust_root()
+        .cloned()
+        .ok_or_else(|| "operational policy has disabled the guest release role".to_string())?;
+    Ok(DirectBootAuthority {
+        product,
+        guest,
+        policy: Some(installed_policy_status(&installed)),
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2904,17 +3110,22 @@ fn product_install_boot_contract(
     base_url: &str,
     install_root: &Path,
     download_staging: Option<&Path>,
-    product_trust_root_key_id: &str,
-    product_trust_root_public_key: &str,
-    guest_trust_root_key_id: &str,
-    guest_trust_root_public_key: &str,
+    product_trust_root_key_id: Option<&str>,
+    product_trust_root_public_key: Option<&str>,
+    guest_trust_root_key_id: Option<&str>,
+    guest_trust_root_public_key: Option<&str>,
+    recovery_root: Option<&Path>,
+    trust_policy: Option<&Path>,
+    trust_policy_signatures: Option<&Path>,
     first_product_minimum: u64,
     first_guest_minimum: u64,
     timeout_seconds: u64,
 ) -> anyhow::Result<()> {
     use boole_cli::curl_product_transport::{
         download_and_install_bootable_curl_product_release,
-        download_and_install_direct_boot_curl_product_release, CurlProductTransportError,
+        download_and_install_direct_boot_curl_product_release,
+        download_and_install_direct_boot_curl_product_release_with_policy,
+        CurlProductTransportError,
     };
 
     let command = if direct_boot {
@@ -2923,20 +3134,6 @@ fn product_install_boot_contract(
         "product.install-bootable"
     };
 
-    let product_trust_root = boole_core::CurlProductReleaseTrustRoot::new(
-        product_trust_root_key_id,
-        product_trust_root_public_key,
-    )
-    .unwrap_or_else(|error| {
-        product_install_bootable_emit_err(command, "product-trust-root-rejected", error.to_string())
-    });
-    let guest_trust_root = boole_core::NativeShadowUpdateTrustRoot::new(
-        guest_trust_root_key_id,
-        guest_trust_root_public_key,
-    )
-    .unwrap_or_else(|error| {
-        product_install_bootable_emit_err(command, "guest-trust-root-rejected", error.to_string())
-    });
     let _mutation_lease =
         boole_cli::installed_product_lifecycle::acquire_installed_product_mutation_lease(
             install_root,
@@ -2952,6 +3149,47 @@ fn product_install_boot_contract(
             };
             product_install_bootable_emit_err(command, reason, error.to_string())
         });
+    let authority = if direct_boot {
+        resolve_direct_boot_install_authority(
+            install_root,
+            product_trust_root_key_id,
+            product_trust_root_public_key,
+            guest_trust_root_key_id,
+            guest_trust_root_public_key,
+            recovery_root,
+            trust_policy,
+            trust_policy_signatures,
+        )
+        .unwrap_or_else(|error| {
+            product_install_bootable_emit_err(command, "trust-policy-rejected", error)
+        })
+    } else {
+        DirectBootAuthority {
+            product: boole_core::CurlProductReleaseTrustRoot::new(
+                product_trust_root_key_id.expect("bootable product key id"),
+                product_trust_root_public_key.expect("bootable product key"),
+            )
+            .unwrap_or_else(|error| {
+                product_install_bootable_emit_err(
+                    command,
+                    "product-trust-root-rejected",
+                    error.to_string(),
+                )
+            }),
+            guest: boole_core::NativeShadowUpdateTrustRoot::new(
+                guest_trust_root_key_id.expect("bootable guest key id"),
+                guest_trust_root_public_key.expect("bootable guest key"),
+            )
+            .unwrap_or_else(|error| {
+                product_install_bootable_emit_err(
+                    command,
+                    "guest-trust-root-rejected",
+                    error.to_string(),
+                )
+            }),
+            policy: None,
+        }
+    };
     let default_staging = download_staging.is_none().then(|| {
         let nonce = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -2970,18 +3208,18 @@ fn product_install_boot_contract(
     let staging = product_download_attempt_staging(requested_staging).unwrap_or_else(|error| {
         product_install_bootable_emit_err(command, "staging-io-failed", error)
     });
-    let install = if direct_boot {
-        download_and_install_direct_boot_curl_product_release
-    } else {
-        download_and_install_bootable_curl_product_release
+    let install = match (direct_boot, authority.policy.is_some()) {
+        (true, true) => download_and_install_direct_boot_curl_product_release_with_policy,
+        (true, false) => download_and_install_direct_boot_curl_product_release,
+        (false, _) => download_and_install_bootable_curl_product_release,
     };
     let installed = install(
         base_url,
         install_root,
         &staging,
-        &product_trust_root,
+        &authority.product,
         first_product_minimum,
-        &guest_trust_root,
+        &authority.guest,
         first_guest_minimum,
         std::time::Duration::from_secs(timeout_seconds),
     )
@@ -2999,20 +3237,19 @@ fn product_install_boot_contract(
         };
         product_install_bootable_emit_err(command, reason, error.to_string())
     });
-    println!(
-        "{}",
-        boole_cli::cli_envelope::encode_ok(
-            command,
-            serde_json::json!({
-                "releaseSequence": installed.product().release_sequence(),
-                "releaseVersion": installed.product().release_version(),
-                "manifestSha256": installed.product().manifest_sha256(),
-                "versionDirectory": installed.product().version_directory().display().to_string(),
-                "guestReleaseSequence": installed.guest_release_sequence(),
-                "guestReleaseVersion": installed.guest_release_version(),
-            }),
-        )
-    );
+    let mut result = serde_json::json!({
+        "releaseSequence": installed.product().release_sequence(),
+        "releaseVersion": installed.product().release_version(),
+        "manifestSha256": installed.product().manifest_sha256(),
+        "versionDirectory": installed.product().version_directory().display().to_string(),
+        "guestReleaseSequence": installed.guest_release_sequence(),
+        "guestReleaseVersion": installed.guest_release_version(),
+    });
+    if let Some(policy) = authority.policy {
+        result["trustPolicyGeneration"] = serde_json::json!(policy.generation);
+        result["trustPolicySha256"] = serde_json::json!(policy.policy_sha256);
+    }
+    println!("{}", boole_cli::cli_envelope::encode_ok(command, result));
     Ok(())
 }
 
@@ -3026,29 +3263,81 @@ fn product_lifecycle_emit_err(command: &str, reason: &str, message: String) -> !
     std::process::exit(1);
 }
 
+fn resolve_direct_boot_lifecycle_authority(
+    install_root: &Path,
+    product_key_id: Option<&str>,
+    product_public_key: Option<&str>,
+    guest_key_id: Option<&str>,
+    guest_public_key: Option<&str>,
+) -> Result<DirectBootAuthority, String> {
+    let direct_count = [
+        product_key_id.is_some(),
+        product_public_key.is_some(),
+        guest_key_id.is_some(),
+        guest_public_key.is_some(),
+    ]
+    .into_iter()
+    .filter(|present| *present)
+    .count();
+    if direct_count == 4 {
+        if operational_policy_state_path_exists(install_root)? {
+            return Err(
+                "direct release roots cannot reopen a policy-backed installation".to_string(),
+            );
+        }
+        return Ok(DirectBootAuthority {
+            product: boole_core::CurlProductReleaseTrustRoot::new(
+                product_key_id.expect("complete lifecycle product key id"),
+                product_public_key.expect("complete lifecycle product key"),
+            )
+            .map_err(|error| error.to_string())?,
+            guest: boole_core::NativeShadowUpdateTrustRoot::new(
+                guest_key_id.expect("complete lifecycle guest key id"),
+                guest_public_key.expect("complete lifecycle guest key"),
+            )
+            .map_err(|error| error.to_string())?,
+            policy: None,
+        });
+    }
+    if direct_count != 0 {
+        return Err("all four direct release-root arguments are required".to_string());
+    }
+    let installed = boole_core::open_installed_operational_release_trust_policy(install_root)
+        .map_err(|error| error.to_string())?;
+    let product = installed
+        .verified_policy()
+        .product_release_trust_root()
+        .cloned()
+        .ok_or_else(|| "operational policy has disabled the product release role".to_string())?;
+    let guest = installed
+        .verified_policy()
+        .guest_release_trust_root()
+        .cloned()
+        .ok_or_else(|| "operational policy has disabled the guest release role".to_string())?;
+    Ok(DirectBootAuthority {
+        product,
+        guest,
+        policy: Some(installed_policy_status(&installed)),
+    })
+}
+
 fn product_run_direct_boot(
     install_root: &Path,
     state_root: Option<&Path>,
-    product_trust_root_key_id: &str,
-    product_trust_root_public_key: &str,
-    guest_trust_root_key_id: &str,
-    guest_trust_root_public_key: &str,
+    product_trust_root_key_id: Option<&str>,
+    product_trust_root_public_key: Option<&str>,
+    guest_trust_root_key_id: Option<&str>,
+    guest_trust_root_public_key: Option<&str>,
 ) -> anyhow::Result<()> {
     let command = "product.run-direct-boot";
-    let product_trust_root = boole_core::CurlProductReleaseTrustRoot::new(
+    let authority = resolve_direct_boot_lifecycle_authority(
+        install_root,
         product_trust_root_key_id,
         product_trust_root_public_key,
-    )
-    .unwrap_or_else(|error| {
-        product_lifecycle_emit_err(command, "product-trust-root-rejected", error.to_string())
-    });
-    let guest_trust_root = boole_core::NativeShadowUpdateTrustRoot::new(
         guest_trust_root_key_id,
         guest_trust_root_public_key,
     )
-    .unwrap_or_else(|error| {
-        product_lifecycle_emit_err(command, "guest-trust-root-rejected", error.to_string())
-    });
+    .unwrap_or_else(|error| product_lifecycle_emit_err(command, "trust-policy-rejected", error));
     let default_state_root = state_root.is_none().then(|| {
         boole_cli::installed_product_lifecycle::default_installed_mac_state_root().unwrap_or_else(
             |error| product_lifecycle_emit_err(command, "lifecycle-rejected", error.to_string()),
@@ -3062,8 +3351,8 @@ fn product_run_direct_boot(
     boole_cli::installed_product_lifecycle::run_installed_direct_boot_product(
         install_root,
         state_root,
-        &product_trust_root,
-        &guest_trust_root,
+        &authority.product,
+        &authority.guest,
     )
     .unwrap_or_else(|error| {
         product_lifecycle_emit_err(command, "lifecycle-rejected", error.to_string())
@@ -3098,36 +3387,30 @@ fn installed_direct_boot_generation_json(
 
 fn product_inspect_direct_boot(
     install_root: &Path,
-    product_trust_root_key_id: &str,
-    product_trust_root_public_key: &str,
-    guest_trust_root_key_id: &str,
-    guest_trust_root_public_key: &str,
+    product_trust_root_key_id: Option<&str>,
+    product_trust_root_public_key: Option<&str>,
+    guest_trust_root_key_id: Option<&str>,
+    guest_trust_root_public_key: Option<&str>,
 ) -> anyhow::Result<()> {
     let command = "product.inspect-direct-boot";
-    let product_trust_root = boole_core::CurlProductReleaseTrustRoot::new(
+    let authority = resolve_direct_boot_lifecycle_authority(
+        install_root,
         product_trust_root_key_id,
         product_trust_root_public_key,
-    )
-    .unwrap_or_else(|error| {
-        product_lifecycle_emit_err(command, "product-trust-root-rejected", error.to_string())
-    });
-    let guest_trust_root = boole_core::NativeShadowUpdateTrustRoot::new(
         guest_trust_root_key_id,
         guest_trust_root_public_key,
     )
-    .unwrap_or_else(|error| {
-        product_lifecycle_emit_err(command, "guest-trust-root-rejected", error.to_string())
-    });
+    .unwrap_or_else(|error| product_lifecycle_emit_err(command, "trust-policy-rejected", error));
     let status = boole_core::inspect_verified_installed_direct_boot_curl_product_release(
         install_root,
-        &product_trust_root,
-        &guest_trust_root,
+        &authority.product,
+        &authority.guest,
     )
     .unwrap_or_else(|error| {
         product_lifecycle_emit_err(command, "installed-release-rejected", error.to_string())
     });
     let rollback = status.rollback().map(installed_direct_boot_generation_json);
-    let result = serde_json::json!({
+    let mut result = serde_json::json!({
         "activeRelease": installed_direct_boot_generation_json(status.active()),
         "securityFloors": {
             "productReleaseSequence": status.release_floor_sequence(),
@@ -3143,6 +3426,16 @@ fn product_inspect_direct_boot(
             "clean": status.storage_is_clean(),
         },
     });
+    if let Some(policy) = authority.policy {
+        result["trustPolicy"] = serde_json::json!({
+            "generation": policy.generation,
+            "policySha256": policy.policy_sha256,
+            "previousPolicySha256": policy.previous_policy_sha256,
+            "recoveryRootSha256": policy.recovery_root_sha256,
+            "policyDirectoryCount": policy.policy_directory_count,
+            "unreferencedPolicyDirectoryCount": policy.unreferenced_policy_directory_count,
+        });
+    }
     println!("{}", boole_cli::cli_envelope::encode_ok(command, result));
     Ok(())
 }
@@ -3150,30 +3443,24 @@ fn product_inspect_direct_boot(
 fn product_change_direct_boot_release(
     rollback: bool,
     install_root: &Path,
-    product_trust_root_key_id: &str,
-    product_trust_root_public_key: &str,
-    guest_trust_root_key_id: &str,
-    guest_trust_root_public_key: &str,
+    product_trust_root_key_id: Option<&str>,
+    product_trust_root_public_key: Option<&str>,
+    guest_trust_root_key_id: Option<&str>,
+    guest_trust_root_public_key: Option<&str>,
 ) -> anyhow::Result<()> {
     let command = if rollback {
         "product.rollback-direct-boot"
     } else {
         "product.recover-direct-boot"
     };
-    let product_trust_root = boole_core::CurlProductReleaseTrustRoot::new(
+    let authority = resolve_direct_boot_lifecycle_authority(
+        install_root,
         product_trust_root_key_id,
         product_trust_root_public_key,
-    )
-    .unwrap_or_else(|error| {
-        product_lifecycle_emit_err(command, "product-trust-root-rejected", error.to_string())
-    });
-    let guest_trust_root = boole_core::NativeShadowUpdateTrustRoot::new(
         guest_trust_root_key_id,
         guest_trust_root_public_key,
     )
-    .unwrap_or_else(|error| {
-        product_lifecycle_emit_err(command, "guest-trust-root-rejected", error.to_string())
-    });
+    .unwrap_or_else(|error| product_lifecycle_emit_err(command, "trust-policy-rejected", error));
     let _mutation_lease =
         boole_cli::installed_product_lifecycle::acquire_installed_product_mutation_lease(
             install_root,
@@ -3192,28 +3479,95 @@ fn product_change_direct_boot_release(
     let state = if rollback {
         boole_core::rollback_installed_direct_boot_curl_product_release(
             install_root,
-            &product_trust_root,
-            &guest_trust_root,
+            &authority.product,
+            &authority.guest,
         )
     } else {
         boole_core::recover_corrupt_installed_direct_boot_curl_product_release(
             install_root,
-            &product_trust_root,
-            &guest_trust_root,
+            &authority.product,
+            &authority.guest,
         )
     }
     .unwrap_or_else(|error| {
         product_lifecycle_emit_err(command, "lifecycle-rejected", error.to_string())
     });
+    let mut result = serde_json::json!({
+        "activeReleaseSequence": state.release_sequence(),
+        "releaseFloorSequence": state.release_floor_sequence(),
+        "guestReleaseFloorSequence": state.guest_release_floor_sequence(),
+        "rollbackReleaseSequence": state.rollback_release_sequence(),
+    });
+    if let Some(policy) = authority.policy {
+        result["trustPolicyGeneration"] = serde_json::json!(policy.generation);
+        result["trustPolicySha256"] = serde_json::json!(policy.policy_sha256);
+    }
+    println!("{}", boole_cli::cli_envelope::encode_ok(command, result));
+    Ok(())
+}
+
+fn product_update_trust_policy(
+    install_root: &Path,
+    policy_path: &Path,
+    signatures_path: &Path,
+) -> anyhow::Result<()> {
+    let command = "product.update-trust-policy";
+    let _mutation_lease =
+        boole_cli::installed_product_lifecycle::acquire_installed_product_mutation_lease(
+            install_root,
+        )
+        .unwrap_or_else(|error| {
+            let reason = if matches!(
+                error,
+                boole_cli::installed_product_lifecycle::InstalledProductLifecycleError::Busy
+            ) {
+                "product-busy"
+            } else {
+                "trust-policy-rejected"
+            };
+            product_lifecycle_emit_err(command, reason, error.to_string())
+        });
+    let policy_raw = read_public_authority_file(
+        policy_path,
+        boole_core::MAX_OPERATIONAL_RELEASE_TRUST_POLICY_BYTES,
+        "successor trust policy",
+    )
+    .unwrap_or_else(|error| product_lifecycle_emit_err(command, "trust-policy-rejected", error));
+    let signatures_raw = read_public_authority_file(
+        signatures_path,
+        boole_core::MAX_OPERATIONAL_RELEASE_TRUST_POLICY_SIGNATURES_BYTES,
+        "successor trust policy signatures",
+    )
+    .unwrap_or_else(|error| product_lifecycle_emit_err(command, "trust-policy-rejected", error));
+    let prepared = boole_core::prepare_operational_release_trust_policy_update(
+        install_root,
+        None,
+        Some(&policy_raw),
+        Some(&signatures_raw),
+    )
+    .unwrap_or_else(|error| {
+        product_lifecycle_emit_err(command, "trust-policy-rejected", error.to_string())
+    });
+    let installed = boole_core::adopt_operational_release_trust_policy(install_root, prepared)
+        .unwrap_or_else(|error| {
+            product_lifecycle_emit_err(command, "trust-policy-rejected", error.to_string())
+        });
     println!(
         "{}",
         boole_cli::cli_envelope::encode_ok(
             command,
             serde_json::json!({
-                "activeReleaseSequence": state.release_sequence(),
-                "releaseFloorSequence": state.release_floor_sequence(),
-                "guestReleaseFloorSequence": state.guest_release_floor_sequence(),
-                "rollbackReleaseSequence": state.rollback_release_sequence(),
+                "generation": installed.state().generation(),
+                "policySha256": installed.state().policy_sha256(),
+                "previousPolicySha256": installed.state().previous_policy_sha256(),
+                "productReleaseActive": installed
+                    .verified_policy()
+                    .product_release_trust_root()
+                    .is_some(),
+                "guestReleaseActive": installed
+                    .verified_policy()
+                    .guest_release_trust_root()
+                    .is_some(),
             }),
         )
     );

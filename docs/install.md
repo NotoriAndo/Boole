@@ -21,6 +21,7 @@ boole product status-direct-boot
 boole product inspect-direct-boot
 boole product rollback-direct-boot
 boole product recover-direct-boot
+boole product update-trust-policy
 boole product reset-direct-boot
 ```
 
@@ -40,11 +41,54 @@ boole product package-direct-boot \
   ...
 ```
 
-The four direct product/guest root arguments remain a development compatibility mode. Neither
-mode infers trust from a download URL, accepts private keys, signs a release or uploads files. The
-installer, updater, runner and inspection commands do not yet persist and adopt a successor policy
-chain. Use `boole product --help` for the current development interface, and never substitute the
-closed-local test keys for an operational release identity.
+The same policy can now be adopted by the installed product. The first install bootstraps the
+public recovery root and generation-one policy before downloading a release:
+
+```text
+boole product install-direct-boot \
+  --base-url http://127.0.0.1:PORT/ \
+  --install-root PATH \
+  --recovery-root recovery-root.json \
+  --trust-policy trust-policy.json \
+  --trust-policy-signatures trust-policy-signatures.json \
+  --first-product-minimum 1 \
+  --first-guest-minimum 1
+```
+
+After that bootstrap, install/update, run, inspect, rollback and recovery reopen the persisted
+policy chain and need no release-root arguments. The recovery role can adopt the exact next policy
+without downloading a product release, which allows a compromised online role to be disabled
+immediately:
+
+```text
+boole product update-trust-policy \
+  --install-root PATH \
+  --trust-policy successor-policy.json \
+  --trust-policy-signatures successor-signatures.json
+
+boole product install-direct-boot \
+  --base-url http://127.0.0.1:PORT/ \
+  --install-root PATH \
+  --first-product-minimum 1 \
+  --first-guest-minimum 1
+
+boole product inspect-direct-boot --install-root PATH
+boole product rollback-direct-boot --install-root PATH
+boole product recover-direct-boot --install-root PATH
+boole product run-direct-boot --install-root PATH
+```
+
+The recovery root, every accepted policy generation and the small atomic chain-head record are
+stored below the install root. Every lifecycle command reconstructs and cryptographically verifies
+the complete chain before using a product or guest release key. A replayed successor, broken chain,
+changed policy file or attempt to supply direct roots to a policy-backed installation is rejected
+without silently falling back.
+
+The four direct product/guest root arguments remain a development compatibility mode for an
+installation that has never adopted a policy. Neither mode infers trust from a download URL,
+accepts private keys, signs a release or uploads files. Use `boole product --help` for the current
+development interface, and never substitute the closed-local test keys for an operational release
+identity.
 
 Boole currently provides a one-line source bootstrapper for developers and local evaluators who
 do not want to clone the repository or prepare every toolchain manually.

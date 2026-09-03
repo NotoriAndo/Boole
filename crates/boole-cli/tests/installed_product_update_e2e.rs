@@ -19,9 +19,10 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use boole_cli::installed_product_lifecycle::acquire_installed_product_mutation_lease;
 use boole_core::{
-    read_installed_curl_product_state, GuestArtifactRole, ProductArtifactRole,
-    CURL_PRODUCT_INSTALLED_GUEST_DIRECTORY, CURL_PRODUCT_INSTALLED_MANIFEST_FILE,
+    canonicalize, read_installed_curl_product_state, GuestArtifactRole, ProductArtifactRole,
+    SigningKeyV2, CURL_PRODUCT_INSTALLED_GUEST_DIRECTORY, CURL_PRODUCT_INSTALLED_MANIFEST_FILE,
     CURL_PRODUCT_INSTALL_STATE_FILE, CURL_PRODUCT_INSTALL_VERSIONS_DIRECTORY,
+    OPERATIONAL_RELEASE_TRUST_POLICY_SIGNING_CONTEXT, OPERATIONAL_RELEASE_TRUST_STATE_FILE,
 };
 use boole_testkit::{
     write_bootable_curl_product_kat_metadata, BootableCurlProductKatInput,
@@ -206,6 +207,142 @@ fn build_bundle(
     (bundle, roots)
 }
 
+const POLICY_RECOVERY_A: &str = "non-production-installed-policy-recovery-kat-a";
+const POLICY_RECOVERY_B: &str = "non-production-installed-policy-recovery-kat-b";
+const POLICY_RECOVERY_C: &str = "non-production-installed-policy-recovery-kat-c";
+const POLICY_RECOVERY_D: &str = "non-production-installed-policy-recovery-kat-d";
+
+fn policy_key(id: &str) -> SigningKeyV2 {
+    SigningKeyV2::from_dev_id(id)
+}
+
+fn policy_signatures(policy: &[u8], signers: &[&str]) -> Vec<u8> {
+    let policy_sha256 = hex::encode(Sha256::digest(policy));
+    let payload = serde_json::json!({
+        "context": OPERATIONAL_RELEASE_TRUST_POLICY_SIGNING_CONTEXT,
+        "policySha256": policy_sha256
+    });
+    canonicalize(&serde_json::json!({
+        "schema": "boole.operational-release-trust-policy-signatures.v1",
+        "policySha256": policy_sha256,
+        "signatures": signers.iter().map(|id| {
+            let key = policy_key(id);
+            let envelope = key.sign(&payload).expect("policy KAT signature");
+            serde_json::json!({
+                "keyId": id,
+                "publicKey": envelope.pk,
+                "signature": envelope.signature
+            })
+        }).collect::<Vec<_>>()
+    }))
+}
+
+fn write_initial_policy_files(
+    fixture: &FixtureDir,
+    roots: &BootableCurlProductKatRoots,
+) -> (PathBuf, PathBuf, PathBuf, String) {
+    let recovery_root = canonicalize(&serde_json::json!({
+        "schema": "boole.operational-release-recovery-root.v1",
+        "threshold": 2,
+        "keys": ([POLICY_RECOVERY_A, POLICY_RECOVERY_B, POLICY_RECOVERY_C]
+            .iter()
+            .map(|id| serde_json::json!({
+                "keyId": id,
+                "publicKey": policy_key(id).pk_hex()
+            }))
+            .collect::<Vec<_>>())
+    }));
+    let policy = canonicalize(&serde_json::json!({
+        "schema": "boole.operational-release-trust-policy.v1",
+        "generation": 1,
+        "previousPolicySha256": null,
+        "productRelease": {
+            "status": "active",
+            "keyId": roots.product_key_id,
+            "publicKey": roots.product_public_key_hex
+        },
+        "guestRelease": {
+            "status": "active",
+            "keyId": roots.guest_key_id,
+            "publicKey": roots.guest_public_key_hex
+        },
+        "recovery": {
+            "threshold": 2,
+            "keys": ([POLICY_RECOVERY_A, POLICY_RECOVERY_B, POLICY_RECOVERY_C]
+                .iter()
+                .map(|id| serde_json::json!({
+                    "keyId": id,
+                    "publicKey": policy_key(id).pk_hex()
+                }))
+                .collect::<Vec<_>>())
+        },
+        "retiredKeys": []
+    }));
+    let policy_sha256 = hex::encode(Sha256::digest(&policy));
+    let recovery_path = fixture.join("installed-policy-recovery-root.json");
+    let policy_path = fixture.join("installed-policy-v1.json");
+    let signatures_path = fixture.join("installed-policy-v1-signatures.json");
+    fs::write(&recovery_path, recovery_root).expect("recovery root");
+    fs::write(&policy_path, &policy).expect("initial policy");
+    fs::write(
+        &signatures_path,
+        policy_signatures(&policy, &[POLICY_RECOVERY_A, POLICY_RECOVERY_B]),
+    )
+    .expect("initial signatures");
+    (recovery_path, policy_path, signatures_path, policy_sha256)
+}
+
+fn write_successor_policy_files(
+    fixture: &FixtureDir,
+    roots: &BootableCurlProductKatRoots,
+    previous_policy_sha256: &str,
+) -> (PathBuf, PathBuf, String) {
+    let policy = canonicalize(&serde_json::json!({
+        "schema": "boole.operational-release-trust-policy.v1",
+        "generation": 2,
+        "previousPolicySha256": previous_policy_sha256,
+        "productRelease": {
+            "status": "active",
+            "keyId": roots.product_key_id,
+            "publicKey": roots.product_public_key_hex
+        },
+        "guestRelease": {
+            "status": "active",
+            "keyId": roots.guest_key_id,
+            "publicKey": roots.guest_public_key_hex
+        },
+        "recovery": {
+            "threshold": 2,
+            "keys": ([POLICY_RECOVERY_B, POLICY_RECOVERY_C, POLICY_RECOVERY_D]
+                .iter()
+                .map(|id| serde_json::json!({
+                    "keyId": id,
+                    "publicKey": policy_key(id).pk_hex()
+                }))
+                .collect::<Vec<_>>())
+        },
+        "retiredKeys": [{
+            "role": "recovery",
+            "keyId": POLICY_RECOVERY_A,
+            "publicKey": policy_key(POLICY_RECOVERY_A).pk_hex(),
+            "retiredAtGeneration": 2
+        }]
+    }));
+    let policy_sha256 = hex::encode(Sha256::digest(&policy));
+    let policy_path = fixture.join("installed-policy-v2.json");
+    let signatures_path = fixture.join("installed-policy-v2-signatures.json");
+    fs::write(&policy_path, &policy).expect("successor policy");
+    fs::write(
+        &signatures_path,
+        policy_signatures(
+            &policy,
+            &[POLICY_RECOVERY_A, POLICY_RECOVERY_B, POLICY_RECOVERY_C],
+        ),
+    )
+    .expect("successor signatures");
+    (policy_path, signatures_path, policy_sha256)
+}
+
 fn run_cli(args: &[String]) -> (serde_json::Value, Output) {
     let output = Command::new(env!("CARGO_BIN_EXE_boole-cli"))
         .args(args)
@@ -278,6 +415,225 @@ fn lifecycle_args(
     ];
     args.extend(root_args(roots));
     args
+}
+
+#[allow(clippy::too_many_arguments)]
+fn policy_install_args(
+    base_url: &str,
+    install_root: &Path,
+    staging: &Path,
+    recovery_root: Option<&Path>,
+    policy: Option<&Path>,
+    signatures: Option<&Path>,
+) -> Vec<String> {
+    let mut args = vec![
+        "product".into(),
+        "install-direct-boot".into(),
+        "--base-url".into(),
+        base_url.into(),
+        "--install-root".into(),
+        install_root.display().to_string(),
+        "--download-staging".into(),
+        staging.display().to_string(),
+        "--first-product-minimum".into(),
+        "1".into(),
+        "--first-guest-minimum".into(),
+        "1".into(),
+        "--timeout-seconds".into(),
+        "5".into(),
+    ];
+    for (flag, path) in [
+        ("--recovery-root", recovery_root),
+        ("--trust-policy", policy),
+        ("--trust-policy-signatures", signatures),
+    ] {
+        if let Some(path) = path {
+            args.push(flag.into());
+            args.push(path.display().to_string());
+        }
+    }
+    args
+}
+
+#[test]
+fn policy_backed_install_update_inspect_and_rollback_share_one_durable_chain() {
+    let fixture = FixtureDir::new();
+    let first_release = BootableCurlProductKatRelease::default();
+    let (first_bundle, roots) = build_bundle(&fixture, "policy-first", first_release);
+    let first_product_digest = digest(&first_bundle.join(CURL_PRODUCT_INSTALLED_MANIFEST_FILE));
+    let first_guest_digest = digest(&first_bundle.join("guest-update-manifest"));
+    let (recovery_root, first_policy, first_signatures, first_policy_sha256) =
+        write_initial_policy_files(&fixture, &roots);
+
+    let install_root = fixture.join("policy-install");
+    let staging = fixture.join("policy-download-staging");
+    let first_server = StaticLoopbackServer::start(&first_bundle);
+    let (first, first_output) = run_cli(&policy_install_args(
+        &first_server.base_url(),
+        &install_root,
+        &staging,
+        Some(&recovery_root),
+        Some(&first_policy),
+        Some(&first_signatures),
+    ));
+    assert!(
+        first_output.status.success(),
+        "policy first install: {first}"
+    );
+    assert_eq!(first["result"]["trustPolicyGeneration"], 1);
+    assert_eq!(first["result"]["trustPolicySha256"], first_policy_sha256);
+    assert!(install_root
+        .join(OPERATIONAL_RELEASE_TRUST_STATE_FILE)
+        .is_file());
+    drop(first_server);
+
+    let (second_policy, second_signatures, second_policy_sha256) =
+        write_successor_policy_files(&fixture, &roots, &first_policy_sha256);
+    let (policy_update, policy_update_output) = run_cli(&[
+        "product".into(),
+        "update-trust-policy".into(),
+        "--install-root".into(),
+        install_root.display().to_string(),
+        "--trust-policy".into(),
+        second_policy.display().to_string(),
+        "--trust-policy-signatures".into(),
+        second_signatures.display().to_string(),
+    ]);
+    assert!(
+        policy_update_output.status.success(),
+        "policy successor: {policy_update}"
+    );
+    assert_eq!(policy_update["result"]["generation"], 2);
+    assert_eq!(
+        policy_update["result"]["policySha256"],
+        second_policy_sha256
+    );
+    assert_eq!(
+        policy_update["result"]["previousPolicySha256"],
+        first_policy_sha256
+    );
+
+    let policy_state_path = install_root.join(OPERATIONAL_RELEASE_TRUST_STATE_FILE);
+    let policy_state_before_replay = fs::read(&policy_state_path).expect("policy state");
+    let (policy_replay, policy_replay_output) = run_cli(&[
+        "product".into(),
+        "update-trust-policy".into(),
+        "--install-root".into(),
+        install_root.display().to_string(),
+        "--trust-policy".into(),
+        second_policy.display().to_string(),
+        "--trust-policy-signatures".into(),
+        second_signatures.display().to_string(),
+    ]);
+    assert!(
+        !policy_replay_output.status.success(),
+        "policy replay was accepted: {policy_replay}"
+    );
+    assert_eq!(policy_replay["error"]["reason"], "trust-policy-rejected");
+    assert_eq!(
+        fs::read(&policy_state_path).expect("policy state after replay"),
+        policy_state_before_replay,
+        "a rejected policy replay must not change the durable chain"
+    );
+
+    let (direct_reopen, direct_reopen_output) = run_cli(&lifecycle_args(
+        "inspect-direct-boot",
+        &install_root,
+        &roots,
+    ));
+    assert!(
+        !direct_reopen_output.status.success(),
+        "direct roots reopened a policy-backed install: {direct_reopen}"
+    );
+    assert_eq!(direct_reopen["error"]["reason"], "trust-policy-rejected");
+    assert_eq!(
+        fs::read(&policy_state_path).expect("policy state after direct-root attempt"),
+        policy_state_before_replay,
+        "the development compatibility mode must not mutate policy state"
+    );
+
+    let (inspect, inspect_output) = run_cli(&[
+        "product".into(),
+        "inspect-direct-boot".into(),
+        "--install-root".into(),
+        install_root.display().to_string(),
+    ]);
+    assert!(inspect_output.status.success(), "policy inspect: {inspect}");
+    assert_eq!(inspect["result"]["trustPolicy"]["generation"], 2);
+    assert_eq!(
+        inspect["result"]["trustPolicy"]["previousPolicySha256"],
+        first_policy_sha256
+    );
+    assert_eq!(inspect["result"]["trustPolicy"]["policyDirectoryCount"], 2);
+    assert_eq!(
+        inspect["result"]["trustPolicy"]["unreferencedPolicyDirectoryCount"],
+        0
+    );
+
+    let second_release = BootableCurlProductKatRelease {
+        product_sequence: 2,
+        product_version: "0.0.1-policy-chain-kat".to_string(),
+        product_previous_manifest_sha256: Some(first_product_digest),
+        guest_sequence: 2,
+        guest_version: "0.0.1-policy-chain-kat".to_string(),
+        guest_previous_manifest_sha256: Some(first_guest_digest),
+    };
+    let (second_bundle, second_roots) = build_bundle(&fixture, "policy-second", second_release);
+    assert_eq!(roots, second_roots);
+    let second_server = StaticLoopbackServer::start(&second_bundle);
+    let (second, second_output) = run_cli(&policy_install_args(
+        &second_server.base_url(),
+        &install_root,
+        &staging,
+        None,
+        None,
+        None,
+    ));
+    assert!(
+        second_output.status.success(),
+        "policy update install: {second}"
+    );
+    assert_eq!(second["result"]["releaseSequence"], 2);
+    assert_eq!(second["result"]["trustPolicyGeneration"], 2);
+    drop(second_server);
+
+    let (rollback, rollback_output) = run_cli(&[
+        "product".into(),
+        "rollback-direct-boot".into(),
+        "--install-root".into(),
+        install_root.display().to_string(),
+    ]);
+    assert!(
+        rollback_output.status.success(),
+        "policy rollback: {rollback}"
+    );
+    assert_eq!(rollback["result"]["activeReleaseSequence"], 1);
+    assert_eq!(rollback["result"]["trustPolicyGeneration"], 2);
+
+    let installed_policy =
+        boole_core::open_installed_operational_release_trust_policy(&install_root)
+            .expect("installed policy before tamper");
+    fs::set_permissions(
+        installed_policy.policy_path(),
+        fs::Permissions::from_mode(0o644),
+    )
+    .expect("make installed policy writable for attacker simulation");
+    fs::write(installed_policy.policy_path(), b"{}\n").expect("tamper installed policy");
+    let state_root = fixture.join("run-state-must-stay-absent");
+    let (run, run_output) = run_cli(&[
+        "product".into(),
+        "run-direct-boot".into(),
+        "--install-root".into(),
+        install_root.display().to_string(),
+        "--state-root".into(),
+        state_root.display().to_string(),
+    ]);
+    assert!(!run_output.status.success(), "tampered policy ran: {run}");
+    assert_eq!(run["error"]["reason"], "trust-policy-rejected");
+    assert!(
+        !state_root.exists(),
+        "runtime started before policy verification"
+    );
 }
 
 #[test]
