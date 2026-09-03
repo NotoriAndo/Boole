@@ -476,8 +476,8 @@ fn handle_connection(stream: TcpStream, peer: SocketAddr, context: &IngressConne
                             .fetch_add(1, Ordering::Relaxed);
                     }
                     IngressBlockOutcome::Deferred => {
-                        // SC.10-ii-b — the pinned checker could not reach a
-                        // verdict; hold at the current head, do not adopt.
+                        // The pinned checker was unavailable or canonical
+                        // publication is fail-closed; hold at the current head.
                         metrics
                             .ingress_blocks_deferred
                             .fetch_add(1, Ordering::Relaxed);
@@ -678,12 +678,9 @@ fn sync_with_peer(
                     });
                 }
                 IngressBlockOutcome::Deferred => {
-                    // SC.10-ii-b (ADR-0016 (a-3)) — the pinned checker could
-                    // not reach a verdict for this block (availability, not a
-                    // reject). We cannot adopt it, so nothing built on it can
-                    // extend our head either: stop this peer's sync WITHOUT a
-                    // peer failure and hold at the current head. The next poll
-                    // retries once the checker is available again.
+                    // The pinned checker was unavailable or canonical
+                    // publication is fail-closed. Neither is a peer fault:
+                    // stop this sync without adopting or rejecting the block.
                     metrics
                         .ingress_blocks_deferred
                         .fetch_add(1, Ordering::Relaxed);
@@ -735,10 +732,9 @@ fn reorg_from_peer(
         // holds, or a lighter chain). Benign: keep our chain and let the next
         // poll re-check.
         CandidateChainOutcome::KeptCurrent => Ok(()),
-        // SC.10-ii-c — the pinned-checker re-verify hit an availability failure
-        // before fork-choice could adopt. Keep our chain and let the next poll
-        // retry when the checker recovers; this is not a peer fault, so it does
-        // NOT fail the sync round (ADR-0016 (a-3)).
+        // The pinned checker was unavailable or canonical publication is
+        // fail-closed. This is not a peer fault, so it does not fail the sync
+        // round or mutate the current process further.
         CandidateChainOutcome::Deferred => {
             metrics.sync_reorgs_deferred.fetch_add(1, Ordering::Relaxed);
             Ok(())

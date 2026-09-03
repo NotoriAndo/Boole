@@ -15,8 +15,8 @@ use crate::p2p_package_fetch::spawn_package_fetch_thread;
 use crate::proof_dedup_ledger::FileProofDedupLedger;
 use crate::receipt_store::FileReceiptStore;
 use crate::runtime::{
-    derive_bounty_events, rebuild_bounty_ledger_rows, ReorgOutcome, RuntimeAdmissionState,
-    RuntimeConfig,
+    derive_bounty_events, rebuild_bounty_ledger_rows, CanonicalPublishPhase, ReorgOutcome,
+    RuntimeAdmissionState, RuntimeConfig,
 };
 use crate::session_store::FileSessionStore;
 use crate::signed_nonce_ledger::FileSignedNonceLedger;
@@ -237,8 +237,9 @@ pub struct LocalNodeConfig {
     /// server-computed canonical proof hashes already credited on `/submit`.
     /// When `Some`, a second submit carrying the same proof bytes (under any
     /// prover pk) is rejected `duplicate_proof` before any block write, so one
-    /// proof yields at most one credit (anti cross-pk farming). Recovery
-    /// rehydrates the set so the rejection survives a restart. When `None`, no
+    /// proof yields at most one credit (anti cross-pk farming). Boot rebuilds
+    /// the set exactly from canonical block evidence, so the rejection survives
+    /// a restart without trusting the mirror's prior bytes. When `None`, no
     /// cross-pk proof dedup is enforced — legacy embedding behavior.
     pub proof_dedup_ledger_path: Option<PathBuf>,
     /// Optional NDJSON receipt ledger for accepted session-bound `/submit`
@@ -416,7 +417,9 @@ pub(crate) struct LocalNodeState {
     /// N2.3 — on-disk path for the proof-dedup ledger, mirroring the nonce
     /// ledgers. `Some` iff `LocalNodeConfig.proof_dedup_ledger_path` is
     /// `Some`; the `/submit` admit guard records each credited proof's canon
-    /// hash here and rejects a later submit carrying the same proof.
+    /// hash here and rejects a later submit carrying the same proof. Boot
+    /// replaces it from the canonical block store rather than replaying this
+    /// non-authoritative mirror as its own source of truth.
     proof_dedup_ledger_path: Option<PathBuf>,
     /// N2.3 — in-memory mirror of the proof-dedup ledger. `Some` iff
     /// `proof_dedup_ledger_path` is `Some`; absent when the operator has not
@@ -1500,7 +1503,18 @@ impl LocalNodeState {
             None => None,
         };
         let proof_dedup_ledger = match config.proof_dedup_ledger_path.as_ref() {
-            Some(path) => Some(FileProofDedupLedger::recover(path)?),
+            Some(path) => {
+                let canon_hashes = runtime
+                    .cached_blocks()
+                    .iter()
+                    .flat_map(|block| &block.selected_share_evidence)
+                    .map(|evidence| evidence.canon_hash.clone())
+                    .collect::<Vec<_>>();
+                Some(FileProofDedupLedger::rebuild_from_credits(
+                    path,
+                    &canon_hashes,
+                )?)
+            }
             None => None,
         };
         let receipt_store = match config.receipt_commitment_ledger_path.as_ref() {
@@ -1909,6 +1923,8 @@ async fn live_handler() -> Response {
 /// can diagnose without scraping logs.
 async fn ready_handler(State(state): State<AppState>) -> Response {
     let guard = state.inner.read().await;
+    let canonical_state_failure = guard.runtime.canonical_state_failure_code();
+    let canonical_state_consistent = canonical_state_failure.is_none();
     let replay_matches_runtime = compute_replay_matches_runtime(&guard);
     let state_dir_lock_held = compute_state_dir_lock_held(&guard);
     // P2.6 audit: "set" alone is not enough — a typoed --lean-checker-dir
@@ -1934,6 +1950,7 @@ async fn ready_handler(State(state): State<AppState>) -> Response {
     drop(guard);
 
     let checks = json!({
+        "canonical_state_consistent": canonical_state_consistent,
         "replay_matches_runtime": replay_matches_runtime,
         "state_dir_lock_held": state_dir_lock_held,
         "lean_checker_configured": lean_checker_configured,
@@ -1954,6 +1971,19 @@ async fn ready_handler(State(state): State<AppState>) -> Response {
     // The `checks` object always reports every precondition's
     // individual status so operators get the full picture, not just
     // the first failure.
+    if !canonical_state_consistent {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
+                "ok": false,
+                "probe": "ready",
+                "reason": "canonical_state_inconsistent",
+                "phase": canonical_state_failure,
+                "checks": checks,
+            })),
+        )
+            .into_response();
+    }
     if !replay_matches_runtime {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -2429,6 +2459,10 @@ async fn submit_handler(
     body: Bytes,
 ) -> Response {
     let mut guard = state.inner.write().await;
+    if let Some(phase) = guard.runtime.canonical_state_failure_code() {
+        record_submit_outcome(false);
+        return error_response(HttpError::canonical_state_inconsistent(phase));
+    }
     let peer_ip = addr.ip().to_string();
     // N2.1 — agent-wallet session gate runs before the legacy admission
     // path so typed envelopes (`session_unknown` / `session_revoked` /
@@ -2462,7 +2496,11 @@ async fn submit_handler(
         }
         Err(err) => {
             record_submit_outcome(false);
-            error_response(anyhow_to_internal(err))
+            if let Some(phase) = guard.runtime.canonical_state_failure_code() {
+                error_response(HttpError::canonical_state_inconsistent(phase))
+            } else {
+                error_response(anyhow_to_internal(err))
+            }
         }
     }
 }
@@ -3478,6 +3516,8 @@ fn status_json(state: &LocalNodeState) -> anyhow::Result<Value> {
         "replayHeight": height,
         "replayLatestC": head,
         "replayMatchesRuntime": compute_replay_matches_runtime(state),
+        "canonicalStateConsistent": state.runtime.canonical_state_failure_code().is_none(),
+        "canonicalStateFailurePhase": state.runtime.canonical_state_failure_code(),
         "sharePoolSize": state.runtime.pool_size(),
         "familyManifestCount": state.family_manifest_registry.len(),
         "bountySidePoolTotal": state.bounty_side_pool.total_share_count(),
@@ -4800,6 +4840,9 @@ fn submit_json(
     // only after the block is committed, so a NoProposer/Ambiguous accept
     // (which returns earlier without a credit) does not consume the proof's
     // single-credit slot.
+    state
+        .runtime
+        .begin_canonical_publish(CanonicalPublishPhase::ProofDedup);
     if let (Some(path), Some(ledger)) = (
         state.proof_dedup_ledger_path.clone(),
         state.proof_dedup_ledger.as_mut(),
@@ -4809,10 +4852,10 @@ fn submit_json(
     // S23c/P1.5b — mirror the block-driven credit + share_promoted rows
     // into the bounty event ledger (shared with the N3.3 gossip ingest
     // path — see `append_block_bounty_events`).
+    state
+        .runtime
+        .begin_canonical_publish(CanonicalPublishPhase::BountyProjection);
     append_block_bounty_events(state, &committed.block)?;
-    // N3.3 — gossip egress: announce the committed block to the static
-    // peer set (summary announce; peers pull the body). Fire-and-forget.
-    announce_committed_block(state, &committed.block);
     // P1.5a — drop shares already promoted into a committed block so the
     // next block does not re-promote the same proof and double-credit the
     // prover. We drain by the full `selection.shares` slice (not by the
@@ -4821,6 +4864,9 @@ fn submit_json(
     // through the selection gate and consumed the family's per-block
     // share quota.
     state.bounty_side_pool.remove_promoted(&selection.shares);
+    state.runtime.finish_canonical_publish();
+    // N3.3 — only announce after every canonical projection is complete.
+    announce_committed_block(state, &committed.block);
     // After commit_next_block: the runtime head is the new block's c, and the
     // store size is committed.block.height + 1 by construction. We do not need
     // to read the store again or re-replay the chain — apply_produced_block has
@@ -5035,10 +5081,11 @@ pub(crate) enum IngressBlockOutcome {
     Ignored,
     Rejected,
     /// SC.10-ii-b (ADR-0016 (a-3)) — the pinned checker could not reach a
-    /// verdict for at least one share (containment / availability failure)
-    /// and no share deterministically rejected. The block is neither adopted
-    /// nor rejected: the node holds at its current head and may retry later.
-    /// Never a consensus reject, never a fail-open accept.
+    /// verdict for at least one share (containment / availability failure), or
+    /// the local process is already fail-closed after a partial canonical
+    /// publish. The block is neither adopted nor rejected: the node holds at
+    /// its current head until the unavailable checker recovers or the process
+    /// restarts and reconstructs its projections.
     Deferred,
 }
 
@@ -5154,6 +5201,9 @@ pub(crate) fn ingest_announced_block(
     state: &mut LocalNodeState,
     block_value: &Value,
 ) -> IngressBlockOutcome {
+    if state.runtime.ensure_canonical_state_healthy().is_err() {
+        return IngressBlockOutcome::Deferred;
+    }
     let Ok(block) = serde_json::from_value::<PersistedBlock>(block_value.clone()) else {
         return IngressBlockOutcome::Rejected;
     };
@@ -5243,10 +5293,25 @@ pub(crate) fn ingest_announced_block(
     let block_path = state.block_path.clone();
     if let Err(err) = state.runtime.ingest_external_block(&block_path, &block) {
         eprintln!("boole-node: p2p block ingest failed after validation: {err:#}");
-        return IngressBlockOutcome::Rejected;
+        // The block append can be durable even when a later reward projection
+        // fails. Inspect the source-of-truth store before choosing an outcome:
+        // never tell the peer a canonical block was rejected after we stored it.
+        let block_is_durable = state.runtime.canonical_state_failure_code().is_some()
+            && FileBlockStore::inspect(&block_path)
+                .is_ok_and(|store| store.latest() == Some(&block));
+        return if block_is_durable {
+            IngressBlockOutcome::Ingested
+        } else {
+            IngressBlockOutcome::Deferred
+        };
     }
+
+    state
+        .runtime
+        .begin_canonical_publish(CanonicalPublishPhase::BountyProjection);
     if let Err(err) = append_block_bounty_events(state, &block) {
         eprintln!("boole-node: p2p block ingest bounty-event append failed: {err:#}");
+        return IngressBlockOutcome::Ingested;
     }
     // N2.3 parity — the ingested block's proofs consumed their single
     // credit slot on this chain: record their canon hashes so a later
@@ -5254,6 +5319,9 @@ pub(crate) fn ingest_announced_block(
     // head) is rejected `duplicate_proof` here too, not just on the node
     // that produced the block. (Consensus-level dedup is N4-pre.1; this is
     // the node-local operational ledger only.)
+    state
+        .runtime
+        .begin_canonical_publish(CanonicalPublishPhase::ProofDedup);
     if let (Some(path), Some(ledger)) = (
         state.proof_dedup_ledger_path.clone(),
         state.proof_dedup_ledger.as_mut(),
@@ -5261,9 +5329,11 @@ pub(crate) fn ingest_announced_block(
         for evidence in &block.selected_share_evidence {
             if let Err(err) = ledger.append_credit(&path, &evidence.canon_hash) {
                 eprintln!("boole-node: p2p block ingest proof-dedup append failed: {err:#}");
+                return IngressBlockOutcome::Ingested;
             }
         }
     }
+    state.runtime.finish_canonical_publish();
     // SC.10-iii-b — the block is now durably on the chain, so (per the
     // ADR-0016 (c-1) order: Lean success → chain durable write → checkpoint
     // durable write) advance the verified-prefix checkpoint to it. Only when
@@ -5313,9 +5383,9 @@ pub(crate) enum CandidateChainOutcome {
     /// adopted (the current chain is left untouched).
     Rejected,
     /// SC.10-ii-c — the candidate's pinned-checker re-verify hit a containment
-    /// / availability failure, so no adopt/reject verdict could be reached.
-    /// The current chain is left untouched and the next sync poll retries;
-    /// never adopted, never rejected, never fail-open (ADR-0016 (a-3)).
+    /// / availability failure, or the local process is already fail-closed
+    /// after a partial canonical publish. No new candidate is adopted while
+    /// this outcome is returned; never a consensus reject or fail-open adopt.
     Deferred,
 }
 
@@ -5339,8 +5409,8 @@ pub(crate) enum CandidateChainOutcome {
 ///   cache (ADR-0012), so a wholesale rewrite to match the new chain is safe;
 ///   without it, a proof credited only on the abandoned fork would linger and
 ///   wrongly early-reject a resubmission that is creditable again on the new
-///   chain. (The mirror does NOT self-heal on the next boot: `recover` replays
-///   the mirror's own file with no block-store re-derivation.)
+///   chain. Boot independently performs the same exact block-derived rebuild,
+///   so a crash after the reorg's block swap cannot preserve stale mirror rows.
 /// - The bounty-event ledger + `bounty_side_pool` ARE rebuilt in-line here
 ///   (`rebuild_bounty_state_after_reorg`). Both hold block projections: the
 ///   ledger's `credit`/`share_promoted` rows and the side-pool's
@@ -5348,16 +5418,16 @@ pub(crate) enum CandidateChainOutcome {
 ///   (`create`/`status_change`/`proof`) and the whole `bounty_registry` are a
 ///   pure function of the untouched off-chain announce history, so they are
 ///   reorg-INVARIANT and left untouched. Rewriting the ledger to the adopted
-///   chain also keeps a later boot heal correct: that heal is a SUFFIX-append
-///   assuming the on-disk block rows are a PREFIX of the expected sequence, an
-///   assumption a reorg would otherwise break (a `--bounty-events` node could
-///   then fail boot via `verify_ledger_matches_replay`); after the rewrite the
-///   on-disk block rows already match the new chain, so the heal appends
-///   nothing and the verify sums agree.
+///   chain also keeps the live process coherent. Boot no longer relies on a
+///   prefix/suffix assumption: it preserves route-owned rows and reconstructs
+///   every block-derived row exactly from the canonical chain.
 pub(crate) fn ingest_candidate_chain(
     state: &mut LocalNodeState,
     candidate_values: &[Value],
 ) -> CandidateChainOutcome {
+    if state.runtime.ensure_canonical_state_healthy().is_err() {
+        return CandidateChainOutcome::Deferred;
+    }
     let mut candidate = Vec::with_capacity(candidate_values.len());
     for value in candidate_values {
         let Ok(block) = serde_json::from_value::<PersistedBlock>(value.clone()) else {
@@ -5398,22 +5468,31 @@ pub(crate) fn ingest_candidate_chain(
     {
         Ok(ReorgOutcome::Reorged { new_head_height }) => {
             // Rebuild the non-authoritative proof-dedup mirror to the adopted
-            // chain. A failure here does not undo the already-applied reorg
-            // (block store + reward ledger are committed): the mirror is only a
-            // latency cache, so log and continue rather than abort.
+            // chain. A failure cannot undo the already-applied reorg, so keep
+            // the truthful Reorged outcome but leave the process poisoned:
+            // readiness turns red and no later mutation runs until restart.
+            state
+                .runtime
+                .begin_canonical_publish(CanonicalPublishPhase::ProofDedup);
             if let Err(err) = rebuild_proof_dedup_mirror_after_reorg(
                 state.proof_dedup_ledger_path.as_deref(),
                 &mut state.proof_dedup_ledger,
                 &candidate,
             ) {
                 eprintln!("boole-node: proof-dedup mirror rebuild after reorg failed: {err:#}");
+                return CandidateChainOutcome::Reorged { new_head_height };
             }
             // Rebuild the node-local bounty projections (ledger block rows +
             // side pool) onto the adopted chain; the registry and route-driven
             // ledger rows are reorg-invariant. Same log-and-continue stance:
             // the reorg is already committed, so a rebuild failure must not
             // abort it. Disjoint field borrows keep the registry read and the
-            // side-pool write from aliasing.
+            // side-pool write from aliasing. As with proof-dedup, a failure
+            // preserves the already-adopted outcome while the poison gate
+            // makes the process diagnostic-only.
+            state
+                .runtime
+                .begin_canonical_publish(CanonicalPublishPhase::BountyProjection);
             if let Err(err) = rebuild_bounty_state_after_reorg(
                 state.bounty_event_ledger_path.as_deref(),
                 &state.bounty_registry,
@@ -5422,7 +5501,9 @@ pub(crate) fn ingest_candidate_chain(
                 state.runtime.family_registry(),
             ) {
                 eprintln!("boole-node: bounty state rebuild after reorg failed: {err:#}");
+                return CandidateChainOutcome::Reorged { new_head_height };
             }
+            state.runtime.finish_canonical_publish();
             // SC.10-iii-d — a reorg has rewritten the chain. If it diverged
             // below this node's verified-prefix checkpoint (the adopted chain's
             // block at the checkpoint height differs, or the chain is now
@@ -5459,7 +5540,22 @@ pub(crate) fn ingest_candidate_chain(
             eprintln!(
                 "boole-node: p2p competing-chain reorg rejected by strict validation: {err:#}"
             );
-            CandidateChainOutcome::Rejected
+            // As above, a reward publish failure can occur after the atomic
+            // block-store swap. Report what the canonical store now contains,
+            // while the poison gate prevents every later mutation.
+            let publish_failed = state.runtime.canonical_state_failure_code().is_some();
+            let candidate_is_durable = publish_failed
+                && FileBlockStore::inspect(&block_path)
+                    .is_ok_and(|store| store.blocks() == candidate.as_slice());
+            if candidate_is_durable {
+                CandidateChainOutcome::Reorged {
+                    new_head_height: candidate.last().map_or(0, |block| block.height),
+                }
+            } else if state.runtime.canonical_state_failure_code().is_some() {
+                CandidateChainOutcome::Deferred
+            } else {
+                CandidateChainOutcome::Rejected
+            }
         }
     }
 }
@@ -5512,9 +5608,9 @@ fn rebuild_proof_dedup_mirror_after_reorg(
 /// atomically rewrite the ledger → clear and rebuild the side-pool from the
 /// rewritten rows. No-op when no bounty-event ledger is configured (the
 /// registry/side-pool are empty without it). Rewriting the ledger to match the
-/// adopted chain also keeps a later boot heal correct: that heal is a suffix
-/// append assuming the on-disk block rows are a prefix of the expected sequence,
-/// which a reorg would otherwise break.
+/// Boot independently performs the same exact projection from the canonical
+/// block store, so the live rebuild is for immediate coherence rather than the
+/// sole recovery mechanism.
 fn rebuild_bounty_state_after_reorg(
     ledger_path: Option<&Path>,
     registry: &BountyRegistry,
@@ -5562,6 +5658,9 @@ pub(crate) fn ingress_admit_share(
     let rejected = |code: &str| IngressShareOutcome::Rejected {
         code: code.to_string(),
     };
+    if state.runtime.ensure_canonical_state_healthy().is_err() {
+        return rejected("canonical_state_inconsistent");
+    }
     let Some(envelope) = submission.as_object() else {
         return rejected("malformed_submission");
     };

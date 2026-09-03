@@ -257,6 +257,28 @@ pub enum ReorgOutcome {
     KeptCurrent,
 }
 
+/// Stable, path-free phase codes for a partially published canonical-state
+/// transition. Raw I/O errors remain in operator logs; HTTP status surfaces
+/// only these bounded values so local paths never leak to anonymous callers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CanonicalPublishPhase {
+    BlockReward,
+    ReorgReward,
+    ProofDedup,
+    BountyProjection,
+}
+
+impl CanonicalPublishPhase {
+    fn code(self) -> &'static str {
+        match self {
+            Self::BlockReward => "block_reward_publish",
+            Self::ReorgReward => "reorg_reward_publish",
+            Self::ProofDedup => "proof_dedup_publish",
+            Self::BountyProjection => "bounty_projection_publish",
+        }
+    }
+}
+
 pub struct RuntimeAdmissionState {
     pub config: RuntimeConfig,
     rate_limiter: RateLimiter,
@@ -288,6 +310,12 @@ pub struct RuntimeAdmissionState {
     /// cache+block under it BEFORE anything reaches disk, so the node
     /// can never persist a chain its own reboot would refuse.
     boot_genesis: Option<boole_core::GenesisSpec>,
+    /// Set immediately before the first durable write in a multi-store
+    /// canonical transition and cleared only after every projection and
+    /// in-memory mirror is complete. While set, the process is diagnostic-only:
+    /// readiness is red and all further canonical mutation is rejected. A
+    /// restart clears it only by exact reconstruction from the block store.
+    canonical_state_failure: Option<CanonicalPublishPhase>,
 }
 
 impl RuntimeAdmissionState {
@@ -302,8 +330,31 @@ impl RuntimeAdmissionState {
             reward_ledger: None,
             family_registry: FamilyManifestRegistry::new(),
             boot_genesis: None,
+            canonical_state_failure: None,
             config,
         }
+    }
+
+    pub fn canonical_state_failure_code(&self) -> Option<&'static str> {
+        self.canonical_state_failure
+            .map(CanonicalPublishPhase::code)
+    }
+
+    pub(crate) fn ensure_canonical_state_healthy(&self) -> anyhow::Result<()> {
+        if let Some(phase) = self.canonical_state_failure_code() {
+            anyhow::bail!(
+                "canonical_state_inconsistent: prior partial publish phase={phase}; restart required"
+            );
+        }
+        Ok(())
+    }
+
+    pub(crate) fn begin_canonical_publish(&mut self, phase: CanonicalPublishPhase) {
+        self.canonical_state_failure = Some(phase);
+    }
+
+    pub(crate) fn finish_canonical_publish(&mut self) {
+        self.canonical_state_failure = None;
     }
 
     /// §SC reset window — install the family manifest set consensus-path
@@ -485,58 +536,34 @@ impl RuntimeAdmissionState {
             }
         }
         if let Some(path) = reward_ledger_path {
-            let ledger = if path.exists() {
-                let mut recovered_ledger = FileRewardLedger::recover(&path)?;
-                // P1.3b — crash-mid-commit heal. A crash between
-                // `FileBlockStore::append` and `FileRewardLedger::append`
-                // leaves the reward ledger trailing the block store by one (or
-                // more) events. The block store is the source of truth — each
-                // block fully determines its reward event — so re-derive and
-                // append the missing trailing events instead of refusing to
-                // boot, then re-verify. A GENUINE balance tamper (a wrong
-                // amount in an EXISTING event, which does not change the event
-                // count) is NOT healed: the count already matches the block
-                // store, so no event is re-derived and the verify below bails.
-                let blocks = recovered.blocks();
-                if recovered_ledger.size() < blocks.len() {
-                    let from = recovered_ledger.size();
-                    for block in &blocks[from..] {
-                        let event = derive_reward_event(block, &runtime.family_registry)?;
-                        FileRewardLedger::append(&path, &event)?;
-                        recovered_ledger.apply(event)?;
-                    }
-                    eprintln!(
-                        "boole-node: reward ledger healed from block store: re-derived {} \
-                         trailing event(s) up to height {} (crash-mid-commit recovery)",
-                        blocks.len() - from,
-                        blocks.last().map(|b| b.height).unwrap_or(0),
-                    );
-                }
-                // P1.3b — by this point BOTH the reward ledger (heal above) and
-                // the bounty-event ledger (heal before the reward block) have
-                // been brought into agreement with the block store, so this
-                // verify confirms convergence and still bails on a GENUINE
-                // tamper (an existing event whose value is wrong but whose count
-                // matches — neither heal fires for that case).
-                verify_ledger_matches_replay(
-                    &recovered_ledger,
-                    &replay.balances,
-                    bounty_event_ledger_path.as_deref(),
-                    &replay.bounty_credit_by_family,
-                )?;
-                recovered_ledger
+            let expected = recovered
+                .blocks()
+                .iter()
+                .map(|block| derive_reward_event(block, &runtime.family_registry))
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            let present = if path.exists() {
+                FileRewardLedger::recover(&path).ok()
             } else {
-                // Re-derive from blocks: write one event per block to the file
-                // and rebuild the in-memory state from the same source so the
-                // file and the cache cannot drift mid-run.
-                let mut ledger = FileRewardLedger::default();
-                for block in recovered.blocks() {
-                    let event = derive_reward_event(block, &runtime.family_registry)?;
-                    FileRewardLedger::append(&path, &event)?;
-                    ledger.apply(event)?;
-                }
-                ledger
+                None
             };
+            let ledger = match present {
+                Some(ledger) if ledger.events() == expected => ledger,
+                _ => {
+                    let ledger = FileRewardLedger::rewrite_atomic(&path, &expected)?;
+                    eprintln!(
+                        "boole-node: reward ledger reconstructed from canonical block history \
+                         through height {}",
+                        recovered.blocks().last().map(|b| b.height).unwrap_or(0),
+                    );
+                    ledger
+                }
+            };
+            verify_ledger_matches_replay(
+                &ledger,
+                &replay.balances,
+                bounty_event_ledger_path.as_deref(),
+                &replay.bounty_credit_by_family,
+            )?;
             runtime.reward_ledger_path = Some(path);
             runtime.reward_ledger = Some(ledger);
         }
@@ -612,6 +639,7 @@ impl RuntimeAdmissionState {
     }
 
     pub fn apply_produced_block(&mut self, block: &PersistedBlock) -> anyhow::Result<usize> {
+        self.ensure_canonical_state_healthy()?;
         self.check_block_applicable(block)?;
         Ok(self.apply_block_unchecked(block))
     }
@@ -633,18 +661,26 @@ impl RuntimeAdmissionState {
         block_path: impl AsRef<Path>,
         block: &PersistedBlock,
     ) -> anyhow::Result<usize> {
+        self.ensure_canonical_state_healthy()?;
         self.check_block_applicable(block)?;
+        let reward_event = if self.reward_ledger_path.is_some() {
+            Some(derive_reward_event(block, &self.family_registry)?)
+        } else {
+            None
+        };
+        self.begin_canonical_publish(CanonicalPublishPhase::BlockReward);
         FileBlockStore::append(block_path.as_ref(), block)?;
-        if let (Some(ledger_path), Some(ledger)) = (
+        if let (Some(ledger_path), Some(ledger), Some(event)) = (
             self.reward_ledger_path.as_ref(),
             self.reward_ledger.as_mut(),
+            reward_event,
         ) {
-            let event = derive_reward_event(block, &self.family_registry)?;
             FileRewardLedger::append(ledger_path, &event)?;
             ledger.apply(event)?;
         }
         let dropped = self.apply_block_unchecked(block);
         self.block_cache.push(block.clone());
+        self.finish_canonical_publish();
         Ok(dropped)
     }
 
@@ -676,6 +712,7 @@ impl RuntimeAdmissionState {
         candidate: &[PersistedBlock],
         genesis: &boole_core::GenesisSpec,
     ) -> anyhow::Result<ReorgOutcome> {
+        self.ensure_canonical_state_healthy()?;
         let candidate_head = candidate
             .last()
             .ok_or_else(|| anyhow::anyhow!("reorg candidate chain is empty"))?;
@@ -718,17 +755,14 @@ impl RuntimeAdmissionState {
             }
         }
 
-        // 3. Rewrite the block store atomically to the candidate chain.
+        // Prepare every fallible pure transformation before the first durable
+        // write. Once publishing begins, any error intentionally leaves the
+        // poison set until restart reconstruction.
         let block_lines = candidate
             .iter()
             .map(serde_json::to_string)
             .collect::<Result<Vec<_>, _>>()?;
-        write_ndjson_lines_atomic(block_path.as_ref(), &block_lines)?;
-
-        // 4. Rebuild the reward ledger atomically from the candidate — one
-        //    event per block, identical to the boot re-derive path, so the
-        //    next boot's `verify_ledger_matches_replay` stays green.
-        if let Some(ledger_path) = self.reward_ledger_path.clone() {
+        let reward_rebuild = if self.reward_ledger_path.is_some() {
             let mut ledger = FileRewardLedger::default();
             let mut event_lines = Vec::with_capacity(candidate.len());
             for block in candidate {
@@ -736,6 +770,21 @@ impl RuntimeAdmissionState {
                 event_lines.push(serde_json::to_string(&event)?);
                 ledger.apply(event)?;
             }
+            Some((ledger, event_lines))
+        } else {
+            None
+        };
+
+        // 3. Rewrite the block store atomically to the candidate chain.
+        self.begin_canonical_publish(CanonicalPublishPhase::ReorgReward);
+        write_ndjson_lines_atomic(block_path.as_ref(), &block_lines)?;
+
+        // 4. Rebuild the reward ledger atomically from the candidate — one
+        //    event per block, identical to the boot re-derive path, so the
+        //    next boot's `verify_ledger_matches_replay` stays green.
+        if let (Some(ledger_path), Some((ledger, event_lines))) =
+            (self.reward_ledger_path.clone(), reward_rebuild)
+        {
             write_ndjson_lines_atomic(&ledger_path, &event_lines)?;
             self.reward_ledger = Some(ledger);
         }
@@ -748,6 +797,7 @@ impl RuntimeAdmissionState {
         self.pool.prune_to_height(candidate_head.c.clone());
         self.candidates
             .retain(|candidate| candidate.c == candidate_head.c);
+        self.finish_canonical_publish();
 
         Ok(ReorgOutcome::Reorged {
             new_head_height: candidate_head.height,
@@ -1057,6 +1107,7 @@ impl RuntimeAdmissionState {
         accepted_canon_tags: &BTreeSet<u8>,
         promoted_bounty_shares: &[boole_core::PromotedBountyShare],
     ) -> anyhow::Result<RuntimeCommittedBlock> {
+        self.ensure_canonical_state_healthy()?;
         let config = self.block_builder_config_for_height(&self.block_cache)?;
         let block = self.produce_block_for_current_c_with_config(
             height,
@@ -1086,20 +1137,27 @@ impl RuntimeAdmissionState {
                     )
                 })?;
         }
+        let reward_event = if self.reward_ledger_path.is_some() {
+            Some(derive_reward_event(&block, &self.family_registry)?)
+        } else {
+            None
+        };
+        self.begin_canonical_publish(CanonicalPublishPhase::BlockReward);
         FileBlockStore::append(block_path, &block)?;
-        if let (Some(ledger_path), Some(ledger)) = (
+        if let (Some(ledger_path), Some(ledger), Some(event)) = (
             self.reward_ledger_path.as_ref(),
             self.reward_ledger.as_mut(),
+            reward_event,
         ) {
             // ADR-0015 (a) — one derivation for live commit, ingest,
             // reorg, and boot heal: `derive_reward_event` folds base-lane
             // credits and settlement-derived bounty credits.
-            let event = derive_reward_event(&block, &self.family_registry)?;
             FileRewardLedger::append(ledger_path, &event)?;
             ledger.apply(event)?;
         }
         let dropped_stale_shares = self.apply_block_unchecked(&block);
         self.block_cache.push(block.clone());
+        self.finish_canonical_publish();
         Ok(RuntimeCommittedBlock {
             block,
             dropped_stale_shares,

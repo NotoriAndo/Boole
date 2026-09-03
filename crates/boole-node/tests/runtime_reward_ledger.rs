@@ -2,7 +2,7 @@
 //!
 //! Drives the new `boot_from_store(config, block_path, reward_ledger_path)`
 //! signature against three boot scenarios (file present + matches, file
-//! absent → re-derive, file present + tampered → bail) and confirms the
+//! absent → re-derive, file present + tampered → exact reconstruction) and confirms the
 //! ledger advances on every committed block.
 
 use std::path::{Path, PathBuf};
@@ -133,7 +133,7 @@ fn boot_re_derives_ledger_when_file_absent() {
 }
 
 #[test]
-fn boot_bails_on_ledger_divergence() {
+fn boot_reconstructs_same_count_reward_ledger_divergence() {
     let fix = replay_fixture();
     let dir = fresh_dir("divergence");
     let block_path = dir.join("blocks.ndjson");
@@ -149,15 +149,14 @@ fn boot_bails_on_ledger_divergence() {
     }
     seed_ledger(&reward_path, &tampered);
 
-    let result = boot_runtime(&block_path, Some(&reward_path));
-    let err = match result {
-        Ok(_) => panic!("boot must bail on tampered ledger"),
-        Err(err) => err,
-    };
-    let msg = err.to_string();
-    assert!(
-        msg.contains("reward ledger divergence"),
-        "typed prefix expected, got: {msg}"
+    let runtime = boot_runtime(&block_path, Some(&reward_path))
+        .expect("canonical blocks must reconstruct a same-count derived-ledger drift");
+    assert_eq!(runtime.balance_for(PK_1), 1, "canonical credit restored");
+    let recovered = FileRewardLedger::recover(&reward_path).expect("read reconstructed ledger");
+    assert_eq!(
+        recovered.events(),
+        fix.reward_events,
+        "disk projection must exactly equal canonical block-derived events"
     );
     let _ = std::fs::remove_dir_all(&dir);
 }

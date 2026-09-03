@@ -27,6 +27,7 @@ use std::time::Duration;
 use boole_node::{serve_local_node, LocalNodeConfig};
 use boole_testkit::rand_suffix;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -72,6 +73,11 @@ fn boot(max_requests: usize) -> Boot {
         rand_suffix()
     ));
     let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).expect("tmp dir");
+    boot_in(dir, max_requests)
+}
+
+fn boot_in(dir: PathBuf, max_requests: usize) -> Boot {
     fs::create_dir_all(&dir).expect("tmp dir");
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
     let addr = listener.local_addr().expect("addr");
@@ -242,4 +248,106 @@ fn proof_dedup_key_is_server_computed_not_client_field() {
 
     boot.handle.join().expect("server thread").expect("exits");
     let _ = fs::remove_dir_all(&boot.dir);
+}
+
+#[test]
+fn partial_projection_poison_is_safe_and_blocks_every_later_submit() {
+    let steps = multiminer_steps();
+    // First submit reaches a durable block and then fails the proof-dedup
+    // projection. `/ready` and the second submit must both expose only the
+    // bounded poison phase; exactly three HTTP requests are served.
+    let boot = boot(3);
+    let dedup = boot.dir.join("proof-dedup.ndjson");
+    if dedup.exists() {
+        fs::remove_file(&dedup).expect("replace the live projection file");
+    }
+    fs::create_dir(&dedup).expect("make projection append fail deterministically");
+
+    let (first_status, first) = http_post(boot.addr, "/submit", &submit_envelope(&steps[0]));
+    assert_eq!(
+        first_status, 503,
+        "partial publish is not a generic 500: {first}"
+    );
+    assert_eq!(first["reason"], "canonical_state_inconsistent");
+    assert_eq!(first["phase"], "proof_dedup_publish");
+    assert!(
+        first.get("detail").is_none(),
+        "local I/O details and paths must never reach the client: {first}"
+    );
+
+    let (ready_status, ready) = http_get(boot.addr, "/ready");
+    assert_eq!(
+        ready_status, 503,
+        "poisoned node must not be ready: {ready}"
+    );
+    assert_eq!(ready["reason"], "canonical_state_inconsistent");
+    assert_eq!(ready["phase"], "proof_dedup_publish");
+    assert_eq!(ready["checks"]["canonical_state_consistent"], false);
+
+    let (second_status, second) = http_post(boot.addr, "/submit", &submit_envelope(&steps[1]));
+    assert_eq!(
+        second_status, 503,
+        "later writes must fail before admission: {second}"
+    );
+    assert_eq!(second["reason"], "canonical_state_inconsistent");
+    assert_eq!(second["phase"], "proof_dedup_publish");
+
+    boot.handle.join().expect("server thread").expect("exits");
+    let block_rows = fs::read_to_string(boot.dir.join("blocks.ndjson"))
+        .expect("the canonical block was durable before projection failure");
+    assert_eq!(
+        block_rows.lines().filter(|line| !line.is_empty()).count(),
+        1,
+        "the blocked retry must not create a second canonical block"
+    );
+    let _ = fs::remove_dir_all(&boot.dir);
+}
+
+#[test]
+fn restart_rebuilds_proof_dedup_exactly_from_canonical_blocks() {
+    let steps = multiminer_steps();
+    let dir = std::env::temp_dir().join(format!(
+        "boole-n23-proof-dedup-restart-{}-{}",
+        std::process::id(),
+        rand_suffix()
+    ));
+    let _ = fs::remove_dir_all(&dir);
+
+    let first = boot_in(dir.clone(), 1);
+    let (status, accepted) = http_post(first.addr, "/submit", &submit_envelope(&steps[0]));
+    assert_eq!(status, 200, "canonical submit: {accepted}");
+    let head = accepted["c"].as_str().expect("new head").to_string();
+    first.handle.join().expect("first server").expect("exits");
+
+    // Same-count stale content used to survive recovery because the mirror
+    // replayed itself. Restart must replace it from canonical block evidence.
+    let dedup = dir.join("proof-dedup.ndjson");
+    fs::write(
+        &dedup,
+        "{\"kind\":\"credit\",\"canonHash\":\"stale-not-on-chain\"}\n",
+    )
+    .expect("tamper same-count mirror");
+
+    let second = boot_in(dir.clone(), 1);
+    let mut duplicate = submit_envelope(&steps[1]);
+    duplicate["body"]["c"] = json!(head);
+    duplicate["body"]["bytes"] = steps[0]["body"]["bytes"].clone();
+    let (status, rejected) = http_post(second.addr, "/submit", &duplicate);
+    assert_eq!(
+        status, 200,
+        "typed admission result stays on the submit response: {rejected}"
+    );
+    assert_eq!(rejected["reason"], "duplicate_proof");
+    second.handle.join().expect("second server").expect("exits");
+
+    let proof_bytes = hex::decode(steps[0]["body"]["bytes"].as_str().expect("proof bytes hex"))
+        .expect("proof bytes decode");
+    let expected = hex::encode(Sha256::digest(proof_bytes));
+    let rebuilt = fs::read_to_string(&dedup).expect("rebuilt mirror");
+    assert!(rebuilt.contains(&expected), "canonical proof hash restored");
+    assert!(
+        !rebuilt.contains("stale-not-on-chain"),
+        "stale mirror row removed"
+    );
+    let _ = fs::remove_dir_all(&dir);
 }

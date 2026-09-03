@@ -374,6 +374,65 @@ fn block_committed_on_a_is_ingested_and_replayed_identically_on_b() {
 
 #[test]
 #[ignore = "needs-multiprocess"]
+fn p2p_partial_projection_adopts_once_then_fail_closes_the_node() {
+    let steps = multiminer_steps();
+    let a_p2p = TcpListener::bind("127.0.0.1:0").expect("bind a p2p");
+    let b_p2p = TcpListener::bind("127.0.0.1:0").expect("bind b p2p");
+    let a_p2p_addr = a_p2p.local_addr().expect("a p2p addr");
+    let b_p2p_addr = b_p2p.local_addr().expect("b p2p addr");
+    let a = boot_with_p2p(
+        "poison-a",
+        Some(a_p2p),
+        vec![b_p2p_addr],
+        DEFAULT_RATE_LIMIT,
+        true,
+    );
+    let b = boot_with_p2p(
+        "poison-b",
+        Some(b_p2p),
+        vec![a_p2p_addr],
+        DEFAULT_RATE_LIMIT,
+        false,
+    );
+
+    // The receiver's exact-rebuilt mirror is empty at boot, so force its next
+    // append to fail without affecting block/reward durability.
+    let dedup = b.dir.join("proof-dedup.ndjson");
+    if dedup.exists() {
+        fs::remove_file(&dedup).expect("replace receiver dedup file");
+    }
+    fs::create_dir(&dedup).expect("directory forces receiver projection failure");
+
+    let (status, accepted) = http_post(a.addr, "/submit", &submit_envelope(&steps[0]));
+    assert_eq!(status, 200, "producer submit: {accepted}");
+    assert_eq!(accepted["accepted"], true);
+
+    wait_until("B to adopt then poison", Duration::from_secs(10), || {
+        let status = http_get_json(b.addr, "/status");
+        status["height"] == 1
+            && status["canonicalStateConsistent"] == false
+            && status["canonicalStateFailurePhase"] == "proof_dedup_publish"
+    });
+    assert_eq!(
+        metric_value(b.addr, "boole_p2p_ingress_blocks_ingested_total"),
+        1,
+        "a block already durable on B must not be mislabeled rejected"
+    );
+    let (ready_status, ready_text) = http_request(
+        b.addr,
+        "GET /ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+    );
+    assert_eq!(ready_status, 503, "poisoned receiver must fail readiness");
+    let ready: Value = serde_json::from_str(&ready_text).expect("ready JSON");
+    assert_eq!(ready["reason"], "canonical_state_inconsistent");
+    assert_eq!(ready["phase"], "proof_dedup_publish");
+
+    stop(a);
+    stop(b);
+}
+
+#[test]
+#[ignore = "needs-multiprocess"]
 fn ingress_rejects_evidence_less_block() {
     let b_p2p = TcpListener::bind("127.0.0.1:0").expect("bind b p2p");
     let b_p2p_addr = b_p2p.local_addr().expect("b p2p addr");
