@@ -156,7 +156,7 @@ rewards and activation remain deferred.
   block/reorg write now poisons readiness and blocks further mutations until a
   restart performs an exact rebuild. Direct HTTP and P2P fault-injection tests
   cover the partially published state rather than treating it as a clean
-  rejection.
+  rejection. Implemented by PR #362.
 - Current milestone: `M3-P2P-LIFECYCLE`. It owns bounded per-peer delivery,
   slow-peer isolation, cumulative sync budgets and prompt shutdown of blocked
   network work. M4 controlled bootstrap join remains unstarted.
