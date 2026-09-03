@@ -90,8 +90,9 @@ pub use bounty_registry::{
 pub use bounty_side_pool::{BountyShare, BountySidePool};
 pub use canonical_json::canonicalize;
 pub use config::{
-    calibration_policy, calibration_thresholds, hex_to_biguint, parse_decimal_nanos,
-    validate_calibration_report, CalibrationPolicy, CalibrationReport, CalibrationThresholds,
+    bootstrap_peer_is_own_listener, calibration_policy, calibration_thresholds, hex_to_biguint,
+    network_bootstrap_preset, parse_decimal_nanos, validate_calibration_report, CalibrationPolicy,
+    CalibrationReport, CalibrationThresholds, NetworkBootstrapPreset,
 };
 pub use curl_product_install::{
     inspect_verified_installed_direct_boot_curl_product_release,

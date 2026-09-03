@@ -152,6 +152,7 @@ fn boot_with_scenario_and_submit_policy(
                 rate_limit_per_60s: boole_node::DEFAULT_P2P_RATE_LIMIT_PER_60S,
                 package_serving: None,
                 package_fetching: None,
+                require_head_sync_for_readiness: false,
             },
             Some(shutdown_for_node),
         )
@@ -532,6 +533,7 @@ fn boot_testnet2_with_checker(tag: &str, checker_dir: PathBuf) -> Boot {
                 rate_limit_per_60s: boole_node::DEFAULT_P2P_RATE_LIMIT_PER_60S,
                 package_serving: None,
                 package_fetching: None,
+                require_head_sync_for_readiness: false,
             },
             Some(shutdown_for_node),
         )

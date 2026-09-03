@@ -176,6 +176,7 @@ fn boot_with_p2p_seeded(
                 rate_limit_per_60s: DEFAULT_RATE_LIMIT,
                 package_serving: None,
                 package_fetching: None,
+                require_head_sync_for_readiness: false,
             },
             Some(shutdown_for_node),
         )

@@ -2,6 +2,39 @@ use num_bigint::BigUint;
 use num_traits::Zero;
 use serde::{Deserialize, Serialize};
 use serde_json::Number;
+use std::net::SocketAddr;
+
+/// Operational peer bootstrap configuration selected by a user-facing
+/// network preset. This stays separate from `GenesisSpec`: peer locations may
+/// change without changing the consensus identity of an existing chain.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NetworkBootstrapPreset {
+    /// Compiled genesis instance the node must enforce.
+    pub network_id: &'static str,
+    /// Static peer endpoints used only to enter the controlled network.
+    pub bootstrap_peers: &'static [&'static str],
+}
+
+const TESTNET_BOOTSTRAP_PEERS: &[&str] = &["127.0.0.1:29090"];
+
+/// Resolve a user-facing network name to its operational bootstrap settings.
+/// Unknown names fail closed instead of falling back to an unrelated chain.
+pub fn network_bootstrap_preset(network: &str) -> Option<NetworkBootstrapPreset> {
+    match network {
+        "testnet" => Some(NetworkBootstrapPreset {
+            network_id: "boole-testnet-2",
+            bootstrap_peers: TESTNET_BOOTSTRAP_PEERS,
+        }),
+        _ => None,
+    }
+}
+
+/// Return whether a configured bootstrap endpoint is the node's own listener.
+/// A wildcard listener owns every local address on its port; a listener bound
+/// to one concrete loopback address does not own the other loopback aliases.
+pub fn bootstrap_peer_is_own_listener(listener: SocketAddr, peer: SocketAddr) -> bool {
+    listener.port() == peer.port() && (listener.ip().is_unspecified() || listener.ip() == peer.ip())
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[allow(non_snake_case)]
@@ -179,4 +212,53 @@ pub fn validate_calibration_report(report: &CalibrationReport) -> Result<(), Str
 
 fn two_pow_256() -> BigUint {
     BigUint::from(1u8) << 256usize
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+    use std::net::SocketAddr;
+
+    use super::{bootstrap_peer_is_own_listener, network_bootstrap_preset};
+
+    #[test]
+    fn testnet_bootstrap_preset_targets_current_compiled_genesis() {
+        let preset = network_bootstrap_preset("testnet").expect("testnet bootstrap preset");
+
+        assert_eq!(preset.network_id, "boole-testnet-2");
+    }
+
+    #[test]
+    fn testnet_bootstrap_peers_are_nonempty_unique_and_loopback_only() {
+        let preset = network_bootstrap_preset("testnet").expect("testnet bootstrap preset");
+        assert!(!preset.bootstrap_peers.is_empty());
+
+        let parsed = preset
+            .bootstrap_peers
+            .iter()
+            .map(|peer| peer.parse::<SocketAddr>().expect("static socket address"))
+            .collect::<Vec<_>>();
+        assert!(parsed.iter().all(|peer| peer.ip().is_loopback()));
+        assert_eq!(
+            parsed.iter().collect::<BTreeSet<_>>().len(),
+            parsed.len(),
+            "bootstrap endpoints must be unique"
+        );
+    }
+
+    #[test]
+    fn unknown_bootstrap_preset_is_not_invented() {
+        assert!(network_bootstrap_preset("unknown").is_none());
+    }
+
+    #[test]
+    fn own_listener_detection_preserves_distinct_loopback_aliases() {
+        let loopback_one = "127.0.0.1:29090".parse().expect("listener");
+        let loopback_two = "127.0.0.2:29090".parse().expect("peer");
+        let wildcard = "0.0.0.0:29090".parse().expect("wildcard listener");
+
+        assert!(bootstrap_peer_is_own_listener(loopback_one, loopback_one));
+        assert!(!bootstrap_peer_is_own_listener(loopback_one, loopback_two));
+        assert!(bootstrap_peer_is_own_listener(wildcard, loopback_two));
+    }
 }
