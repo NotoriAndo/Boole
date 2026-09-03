@@ -2,7 +2,9 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use crate::bounty_event_store::FileBountyEventLedger;
-use crate::durability::{append_ndjson_line_durable, read_stable_prefix};
+use crate::durability::{
+    append_ndjson_line_durable, read_stable_prefix, write_ndjson_lines_atomic,
+};
 use boole_core::{PersistedCredit, PersistedRewardEvent};
 
 #[derive(Debug, Default)]
@@ -134,6 +136,22 @@ impl FileRewardLedger {
 
     pub fn append(path: impl AsRef<Path>, event: &PersistedRewardEvent) -> anyhow::Result<()> {
         append_ndjson_line_durable(path.as_ref(), &serde_json::to_string(event)?)
+    }
+
+    /// Atomically replace this derived view with the exact events recomputed
+    /// from canonical blocks, returning the matching in-memory ledger.
+    pub fn rewrite_atomic(
+        path: impl AsRef<Path>,
+        events: &[PersistedRewardEvent],
+    ) -> anyhow::Result<Self> {
+        let mut ledger = Self::default();
+        let mut lines = Vec::with_capacity(events.len());
+        for event in events {
+            ledger.apply(event.clone())?;
+            lines.push(serde_json::to_string(event)?);
+        }
+        write_ndjson_lines_atomic(path.as_ref(), &lines)?;
+        Ok(ledger)
     }
 
     /// Apply an event against the in-memory state. Used both during recover

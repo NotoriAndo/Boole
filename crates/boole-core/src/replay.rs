@@ -314,6 +314,10 @@ fn replay_blocks_with_rules(
     // credited so far. Purely re-derived from block data; no new persisted
     // consensus state.
     let mut credited_canon_hashes: BTreeSet<String> = BTreeSet::new();
+    // SC.3 — the bounty lane needs the same chain-level exactly-once rule.
+    // `share_promoted` audit rows are only a node-local projection, so replay
+    // itself owns the durable identity `(family, bounty, proof)`.
+    let mut credited_bounty_proofs: BTreeSet<(String, String, String)> = BTreeSet::new();
 
     for (expected_height, block) in blocks.iter().enumerate() {
         block.validate_shape()?;
@@ -393,9 +397,26 @@ fn replay_blocks_with_rules(
         // producer used; the block declares settlement inputs, never
         // credit outcomes. Structural violations (unknown/ineligible
         // family, rows beyond caps) reject the block; amounts clamp.
-        for credit in
-            derive_bounty_settlement(&block.promoted_bounty_shares, registry, block.height)?
-        {
+        let bounty_credits =
+            derive_bounty_settlement(&block.promoted_bounty_shares, registry, block.height)?;
+        for share in &block.promoted_bounty_shares {
+            let identity = (
+                share.family_id.clone(),
+                share.bounty_id.clone(),
+                share.proof_hash.clone(),
+            );
+            if !credited_bounty_proofs.insert(identity) {
+                anyhow::bail!(
+                    "block {} would credit an already-credited bounty proof: familyId={}, \
+                     bountyId={}, proofHash={} (consensus bounty dedup)",
+                    block.height,
+                    share.family_id,
+                    share.bounty_id,
+                    share.proof_hash,
+                );
+            }
+        }
+        for credit in bounty_credits {
             let amount: u128 = credit.amount.parse()?;
             crate::accounting::checked_credit(&mut balances, &credit.prover, amount)?;
             crate::accounting::checked_credit(

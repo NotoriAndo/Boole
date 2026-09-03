@@ -162,3 +162,25 @@ fn shares_without_checker_dir_are_skipped() {
 
     let _ = std::fs::remove_dir_all(path.parent().unwrap());
 }
+
+#[test]
+fn deep_verify_rejects_a_torn_tail_without_repairing_the_block_store() {
+    let path = temp_block_path("torn-read-only");
+    let bytes = b"{\"height\":0,\"incomplete\":";
+    std::fs::write(&path, bytes).expect("write torn block store");
+
+    let err = deep_verify_block(&path, None, PROFILE)
+        .expect_err("an observation-only deep verification must reject a torn append");
+
+    assert!(
+        err.to_string().contains("torn trailing line"),
+        "typed deep verification error should retain the torn-tail reason: {err}"
+    );
+    assert_eq!(
+        std::fs::read(&path).expect("read after verification"),
+        bytes,
+        "deep verification must not truncate bytes owned by a live node"
+    );
+
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+}

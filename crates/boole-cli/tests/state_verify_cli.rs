@@ -196,3 +196,62 @@ fn cli_state_verify_rejects_missing_block_log_with_typed_bad_request() {
     assert_eq!(env["command"], "state.verify");
     assert_eq!(env["error"]["reason"], "blocks-unreadable");
 }
+
+#[test]
+fn cli_state_verify_rejects_torn_tail_without_repairing_live_state() {
+    let fixture: Fixture =
+        serde_json::from_str(include_str!("../../../fixtures/protocol/replay/v1.json"))
+            .expect("fixture parses");
+    let dir = std::env::temp_dir().join(format!(
+        "boole-cli-state-verify-torn-read-only-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    let blocks_path = dir.join("blocks.ndjson");
+
+    let mut bytes = serde_json::to_vec(
+        fixture
+            .blocks
+            .first()
+            .expect("fixture has at least one block"),
+    )
+    .expect("block json");
+    bytes.push(b'\n');
+    bytes.extend_from_slice(b"{\"height\":1,\"torn\":");
+    std::fs::write(&blocks_path, &bytes).expect("write torn block store");
+
+    let before = std::fs::read(&blocks_path).expect("read before verify");
+    let output = Command::new(env!("CARGO_BIN_EXE_boole-cli"))
+        .args([
+            "state",
+            "verify",
+            "--blocks",
+            blocks_path.to_str().expect("utf8 blocks path"),
+            "--json",
+        ])
+        .output()
+        .expect("run boole-cli");
+    let after = std::fs::read(&blocks_path).expect("read after verify");
+
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "read-only verification must reject a torn tail instead of silently repairing it; stdout={}, stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+    assert_eq!(
+        after, before,
+        "state verify is an observation command and must never truncate live node bytes"
+    );
+
+    let stderr_text = String::from_utf8_lossy(&output.stderr);
+    let env: Value = serde_json::from_str(stderr_text.trim()).expect("stderr JSON envelope");
+    assert_eq!(env["error"]["reason"], "replay-mismatch");
+    assert!(env["error"]["detail"]
+        .as_str()
+        .is_some_and(|detail| detail.contains("torn trailing line")));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

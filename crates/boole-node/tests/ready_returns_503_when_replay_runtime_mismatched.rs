@@ -197,3 +197,75 @@ fn ready_returns_503_when_replay_runtime_diverges_post_boot() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn ready_rejects_torn_tail_without_repairing_the_live_block_store() {
+    let dir = std::env::temp_dir().join(format!(
+        "boole-ready-torn-tail-{}-{}",
+        std::process::id(),
+        rand_suffix()
+    ));
+    std::fs::create_dir_all(&dir).expect("tmp dir");
+    let block_path = dir.join("blocks.ndjson");
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    let (ready_tx, ready_rx) = mpsc::channel();
+    let scenario = scenario_path();
+    let block_for_thread = block_path.clone();
+
+    let handle = thread::spawn(move || {
+        ready_tx.send(()).expect("ready");
+        serve_local_node(
+            listener,
+            LocalNodeConfig {
+                proof_dedup_ledger_path: None,
+                scenario_path: scenario,
+                block_path: block_for_thread,
+                reward_ledger_path: None,
+                work_manifests_path: None,
+                bounties_path: None,
+                bounty_event_ledger_path: None,
+                bounty_verifiers: None,
+                family_manifests_dir: None,
+                max_requests: Some(1),
+                operator_signer_pks: vec![],
+                session_registry_path: None,
+                submit_nonce_ledger_path: None,
+                signed_nonce_ledger_path: None,
+                submit_receipt_ledger_path: None,
+                receipt_commitment_ledger_path: None,
+                genesis_override: None,
+                state_dir: None,
+                network_id: None,
+                lean_checker_dir: None,
+                lean_checker_disabled: true,
+                http_rate_limit_per_60s: None,
+                allow_anonymous_submit: true,
+            },
+        )
+    });
+    ready_rx.recv().expect("server ready");
+    thread::sleep(Duration::from_millis(50));
+
+    std::fs::write(&block_path, b"{\"height\":0").expect("inject an incomplete live append");
+    let before = std::fs::read(&block_path).expect("read before readiness probe");
+    let (status, body) = http_get(addr, "/ready");
+    let after = std::fs::read(&block_path).expect("read after readiness probe");
+
+    assert_eq!(status, 503, "a torn tail must make readiness fail: {body}");
+    assert_eq!(
+        body.get("reason").and_then(Value::as_str),
+        Some("replay_runtime_mismatch")
+    );
+    assert_eq!(
+        after, before,
+        "/ready is an observation endpoint and must not repair or truncate state"
+    );
+
+    handle
+        .join()
+        .expect("server thread joined")
+        .expect("server exits cleanly");
+    let _ = std::fs::remove_dir_all(&dir);
+}

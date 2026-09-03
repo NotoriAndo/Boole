@@ -3,17 +3,17 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::durability::{
-    append_ndjson_line_durable, read_stable_prefix, write_ndjson_lines_atomic,
-};
+#[cfg(test)]
+use crate::durability::read_stable_prefix;
+use crate::durability::{append_ndjson_line_durable, write_ndjson_lines_atomic};
 
 /// N2.3 — append-only NDJSON ledger of server-computed proof-canon hashes
 /// that have already been credited on the `/submit` path. The dedup set is
 /// kept in memory as a `HashSet<String>` of canon hashes so the admit guard
 /// can answer "has this exact proof already been credited?" without
-/// re-reading the file. Recovery replays the ledger from disk so a duplicate
-/// proof — the same canonical bytes resubmitted under any prover pk — still
-/// rejects after a process restart.
+/// re-reading the file. Production boot rebuilds this mirror exactly from
+/// canonical block evidence, so stale, missing, or same-count-tampered mirror
+/// rows cannot survive a restart.
 ///
 /// N4-pre.1 (ADR-0012) — this ledger is an ADMISSION EARLY-REJECT CACHE,
 /// not the source of truth: the consensus rule that one canon_hash is
@@ -48,6 +48,7 @@ pub enum ProofDedupEvent {
 impl FileProofDedupLedger {
     /// Build an in-memory ledger by replaying the NDJSON file at `path`.
     /// Returns an empty ledger if the file does not yet exist.
+    #[cfg(test)]
     pub fn recover(path: impl AsRef<Path>) -> anyhow::Result<Self> {
         let path = path.as_ref();
         let Some(raw) = read_stable_prefix(path)? else {

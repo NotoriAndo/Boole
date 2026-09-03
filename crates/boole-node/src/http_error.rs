@@ -51,6 +51,14 @@ impl HttpError {
         Self::new(401, "unauthenticated_submit")
     }
 
+    /// A prior canonical multi-store publish completed only partially. The
+    /// process stays diagnostic-only until restart reconstruction; expose only
+    /// the bounded phase code, never the underlying OS error or local path.
+    pub fn canonical_state_inconsistent(phase: &'static str) -> Self {
+        Self::new(503, "canonical_state_inconsistent")
+            .with_extra("phase", Value::String(phase.to_string()))
+    }
+
     /// Returned by `/sessions*` routes when the node was booted without
     /// `LocalNodeConfig.session_registry_path`. The agent-wallet plan
     /// keeps the registry opt-in so legacy embeddings can stay quiet.

@@ -13,8 +13,10 @@
 //! the rule (ADR-0012 (c)).
 
 use boole_core::{
-    block_hash, build_block_selection, replay_blocks, share_hash, BlockBuilderConfig,
-    BuildSelectionResult, CandidateShare, Hex32, PersistedBlock, SelectedShareEvidence,
+    block_hash, build_block_selection, replay_blocks, replay_blocks_allow_legacy_evidence_less,
+    share_hash, BlockBuilderConfig, BuildSelectionResult, CandidateShare,
+    FamilyManifestParseResult, FamilyManifestRegistry, Hex32, LegacyEvidenceOptIn, PersistedBlock,
+    PromotedBountyShare, SelectedShareEvidence,
 };
 use num_bigint::BigUint;
 use sha2::{Digest, Sha256};
@@ -30,6 +32,52 @@ const N_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 const N_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const J_A: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
 const J_B: &str = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
+const BOUNTY_PROOF: &str = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+
+fn bounty_registry() -> FamilyManifestRegistry {
+    let manifest = serde_json::json!({
+        "version": "1",
+        "familyId": "fam-dedup",
+        "generatorHash": "abababababababababababababababababababababababababababababababab",
+        "verifierHash": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+        "canonicalizerHash": "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef",
+        "promptSpecHash": "0101010101010101010101010101010101010101010101010101010101010101",
+        "calibrationReportHash": "2323232323232323232323232323232323232323232323232323232323232323",
+        "testVectorsHash": "4545454545454545454545454545454545454545454545454545454545454545",
+        "resourceLimits": {
+            "maxProofBytes": 16384,
+            "verifyTimeoutMs": 30000,
+            "maxDecls": 1024,
+            "maxHeartbeats": 400000,
+            "maxRecDepth": 512
+        },
+        "rewardPolicy": { "mode": "capped_bonus", "maxBlockRewardShareBps": 500 },
+        "activationHeight": 0,
+        "status": "experimental",
+        "caps": {
+            "maxSharesPerBlock": 4,
+            "maxScoreMultiplierBps": 10000,
+            "maxRewardCreditPerBlock": "1000000"
+        }
+    });
+    let parsed = match boole_core::parse_family_manifest(&manifest) {
+        FamilyManifestParseResult::Ok(manifest) => *manifest,
+        FamilyManifestParseResult::Err(err) => panic!("manifest fixture must parse: {err}"),
+    };
+    let mut registry = FamilyManifestRegistry::new();
+    registry.register(parsed);
+    registry
+}
+
+fn promoted_bounty_share() -> PromotedBountyShare {
+    PromotedBountyShare {
+        family_id: "fam-dedup".to_string(),
+        bounty_id: "bounty-1".to_string(),
+        proof_hash: BOUNTY_PROOF.to_string(),
+        prover: PK_A.to_string(),
+        reward: "5".to_string(),
+    }
+}
 
 /// A shape-valid POFP v2 package whose opaque digests are filled with
 /// `fill` — two different fills yield two different canonical byte
@@ -205,6 +253,54 @@ fn replay_accepts_chain_of_distinct_proofs() {
         )],
     );
     replay_blocks(&[block0, block1]).expect("distinct proofs across blocks must replay clean");
+}
+
+#[test]
+fn replay_rejects_duplicate_promoted_bounty_proof_across_blocks() {
+    // Base-lane proofs are distinct, but the same bounty proof is promoted in
+    // two blocks. The canonical chain itself must reject this replay even when
+    // a node-local bounty ledger is absent; otherwise one proof earns twice.
+    let mut block0 = block_at(
+        0,
+        GENESIS,
+        1_700_000_000_000,
+        vec![share_at(
+            GENESIS,
+            PK_A,
+            N_A,
+            J_A,
+            &pofp_v2_package_hex(0x91),
+        )],
+    );
+    block0.promoted_bounty_shares = vec![promoted_bounty_share()];
+    block0.c = block_hash(&block0).to_hex();
+
+    let mut block1 = block_at(
+        1,
+        &block0.c,
+        1_700_000_060_000,
+        vec![share_at(
+            &block0.c,
+            PK_B,
+            N_B,
+            J_B,
+            &pofp_v2_package_hex(0x92),
+        )],
+    );
+    block1.promoted_bounty_shares = vec![promoted_bounty_share()];
+    block1.c = block_hash(&block1).to_hex();
+
+    let err = replay_blocks_allow_legacy_evidence_less(
+        &[block0, block1],
+        LegacyEvidenceOptIn::for_legacy_replay_only(),
+        &bounty_registry(),
+    )
+    .expect_err("one promoted bounty proof may be credited at most once per chain");
+    let msg = err.to_string().to_lowercase();
+    assert!(
+        msg.contains("bounty") && msg.contains("already") && msg.contains("credit"),
+        "error should identify the duplicate bounty credit: {err}"
+    );
 }
 
 #[test]

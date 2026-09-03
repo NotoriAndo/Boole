@@ -147,10 +147,19 @@ rewards and activation remain deferred.
   session-bound work authorization at HTTP boot/submit, peer-share ingress,
   block selection and genesis-aware replay. The four checker-pinned smoke
   paths now submit through network-scoped sessions. Unnamed local embeddings
-  retain an explicit legacy compatibility path.
-- Current milestone: `M2-CANONICAL-STATE-SAFETY`. It owns read-only verification,
-  settlement re-derivation and crash-safe multi-store commit/reorg behavior.
-  M3 P2P lifecycle and M4 controlled bootstrap join remain unstarted.
+  retain an explicit legacy compatibility path. Landed in PR #361 at main
+  `a52d5fa299e5eaf37eb4f72056eede2845acd4f5`.
+- `M2-CANONICAL-STATE-SAFETY`: COMPLETE. Observation-only status/ready/verify
+  paths no longer truncate torn storage; named genesis can bind the canonical
+  family-manifest root; and the block store is the recovery authority for the
+  reward, bounty and proof-dedup projections. A failure after a canonical
+  block/reorg write now poisons readiness and blocks further mutations until a
+  restart performs an exact rebuild. Direct HTTP and P2P fault-injection tests
+  cover the partially published state rather than treating it as a clean
+  rejection. Implemented by PR #362.
+- Current milestone: `M3-P2P-LIFECYCLE`. It owns bounded per-peer delivery,
+  slow-peer isolation, cumulative sync budgets and prompt shutdown of blocked
+  network work. M4 controlled bootstrap join remains unstarted.
 
 This progress is closed-local protocol hardening. It neither activates a public
 testnet nor authorizes mining, rewards, payment, consensus, P2P exposure or use

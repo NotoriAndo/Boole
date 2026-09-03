@@ -1759,7 +1759,7 @@ fn state_verify_deep(
 }
 
 /// P2.8 — `boole state verify --blocks <ndjson>`. Reuses
-/// `FileBlockStore::recover` and `replay_blocks` so the offline check
+/// `FileBlockStore::inspect` and `replay_blocks` so the offline check
 /// exercises the exact same shape contract the node enforces at boot.
 /// No state-dir lock is acquired; the file is opened read-only so this
 /// is safe to run against a live node's blocks file.
@@ -1797,7 +1797,7 @@ fn state_verify(
             }),
         );
     }
-    let store = boole_node::FileBlockStore::recover(blocks_path).unwrap_or_else(|err| {
+    let store = boole_node::FileBlockStore::inspect(blocks_path).unwrap_or_else(|err| {
         if json {
             state_verify_emit_err(
                 "replay-mismatch",

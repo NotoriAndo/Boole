@@ -267,3 +267,56 @@ fn lighter_chain_is_not_adopted() {
     let recovered = FileBlockStore::recover(&block_path).expect("recover unchanged store");
     assert_eq!(recovered.blocks(), chain_full.as_slice());
 }
+
+#[test]
+fn partial_reorg_publish_poison_blocks_mutation_until_exact_restart_rebuild() {
+    let fixture = load_fixture();
+    let config = config_from(&fixture);
+    let chain_b = build_chain(&config, &fixture, 2, "build-partial-reorg");
+    let chain_a = chain_b[..1].to_vec();
+    let (mut node, block_path, reward_path) = boot_node_on(&config, &chain_a, "partial-reorg-node");
+
+    // Make the reward swap fail only after the canonical block-store swap.
+    std::fs::remove_file(&reward_path).expect("replace reward ledger");
+    std::fs::create_dir(&reward_path).expect("directory forces reward rename failure");
+    let err = node
+        .reorg_to_heavier_chain(
+            &block_path,
+            &chain_b,
+            &config.genesis_spec("boole-mvp", GENESIS_C),
+        )
+        .expect_err("reward projection failure must surface");
+    assert!(
+        err.to_string().contains("directory") || err.to_string().contains("Directory"),
+        "unexpected publish failure: {err:#}"
+    );
+    assert_eq!(
+        node.canonical_state_failure_code(),
+        Some("reorg_reward_publish")
+    );
+
+    // The block source of truth already contains B, while the live process is
+    // deliberately frozen before it can publish or mutate anything else.
+    assert_eq!(
+        FileBlockStore::inspect(&block_path)
+            .expect("inspect durable reorg")
+            .blocks(),
+        chain_b.as_slice()
+    );
+    let second = node
+        .reorg_to_heavier_chain(
+            &block_path,
+            &chain_b,
+            &config.genesis_spec("boole-mvp", GENESIS_C),
+        )
+        .expect_err("poisoned process must reject later mutation");
+    assert!(second.to_string().contains("canonical_state_inconsistent"));
+
+    // Restart is the recovery boundary: rebuild the reward projection exactly
+    // from B and return only after the canonical state is healthy again.
+    std::fs::remove_dir(&reward_path).expect("remove injected failure");
+    let restarted = RuntimeAdmissionState::boot_from_store(config, &block_path, Some(reward_path))
+        .expect("restart reconstructs exact reward projection");
+    assert_eq!(restarted.cached_blocks(), chain_b.as_slice());
+    assert_eq!(restarted.canonical_state_failure_code(), None);
+}

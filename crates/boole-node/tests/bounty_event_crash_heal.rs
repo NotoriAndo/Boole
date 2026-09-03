@@ -451,7 +451,56 @@ fn heal_restores_share_promoted_proof_hash_for_side_pool() {
 }
 
 #[test]
-fn boot_still_bails_when_an_existing_credit_event_is_tampered() {
+fn boot_repairs_same_count_tampered_share_projection_from_canonical_blocks() {
+    let dir = tmp_dir("same-count-share-tamper");
+    let (config, block_path, _block) = commit_block_with_promoted(&dir);
+    let reward_path = dir.join("rewards.ndjson");
+    let bounty_path = dir.join("bounty-events.ndjson");
+    establish_consistent_state(&config, &block_path, &reward_path, &bounty_path);
+
+    // Keep the row count unchanged while corrupting only the block-derived
+    // projection. A count-only suffix heal cannot see this drift, but the
+    // canonical block still carries the exact proofHash needed to reconstruct
+    // the row. Boot must make the derived ledger equal to block truth again.
+    let content = std::fs::read_to_string(&bounty_path).expect("read ledger");
+    let tampered: Vec<String> = content
+        .lines()
+        .map(|line| {
+            let mut event: Value = serde_json::from_str(line).expect("event json");
+            if event.get("kind").and_then(Value::as_str) == Some("share_promoted") {
+                event["proofHash"] = Value::String(PROOF_HASH_2.to_string());
+            }
+            serde_json::to_string(&event).expect("reserialize")
+        })
+        .collect();
+    std::fs::write(&bounty_path, format!("{}\n", tampered.join("\n")))
+        .expect("rewrite same-count tamper");
+    assert_eq!(
+        line_count(&bounty_path),
+        2,
+        "row count deliberately unchanged"
+    );
+
+    boot(config, &block_path, reward_path, bounty_path.clone())
+        .expect("boot must reconstruct block-derived rows from canonical blocks");
+
+    let restored = std::fs::read_to_string(&bounty_path)
+        .expect("read reconstructed ledger")
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .find(|event| event.get("kind").and_then(Value::as_str) == Some("share_promoted"))
+        .expect("share projection exists");
+    assert_eq!(
+        restored.get("proofHash").and_then(Value::as_str),
+        Some(PROOF_HASH),
+        "block-derived projection must be rebuilt byte-for-byte from canonical history"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn boot_repairs_same_count_tampered_credit_projection_from_canonical_blocks() {
     let dir = tmp_dir("tamper");
     let (config, block_path, _block) = commit_block_with_promoted(&dir);
     let reward_path = dir.join("rewards.ndjson");
@@ -459,8 +508,8 @@ fn boot_still_bails_when_an_existing_credit_event_is_tampered() {
     establish_consistent_state(&config, &block_path, &reward_path, &bounty_path);
 
     // Tamper the EXISTING credit event's amount. The event COUNT still matches
-    // the block store, so no trailing heal fires; verify_ledger_matches_replay
-    // must catch the wrong per-family total and bail.
+    // the block store, so this specifically proves boot does an exact canonical
+    // reconstruction rather than a trailing-count repair.
     let content = std::fs::read_to_string(&bounty_path).expect("read ledger");
     let tampered: Vec<String> = content
         .lines()
@@ -474,16 +523,15 @@ fn boot_still_bails_when_an_existing_credit_event_is_tampered() {
         .collect();
     std::fs::write(&bounty_path, format!("{}\n", tampered.join("\n"))).expect("rewrite tampered");
 
-    let result = boot(config, &block_path, reward_path, bounty_path);
-    let err = match result {
-        Ok(_) => panic!("a tampered existing credit event must still bail boot, not be healed"),
-        Err(e) => e,
-    };
-    assert!(
-        err.to_string()
-            .contains("bounty ledger family-credit divergence"),
-        "tamper must surface the typed bounty divergence error, got: {err}"
-    );
+    boot(config, &block_path, reward_path, bounty_path.clone())
+        .expect("boot reconstructs the block-derived credit projection");
+    let repaired = std::fs::read_to_string(&bounty_path).expect("read repaired ledger");
+    let credit = repaired
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .find(|event| event.get("kind").and_then(Value::as_str) == Some("credit"))
+        .expect("credit projection exists");
+    assert_eq!(credit.get("amount").and_then(Value::as_str), Some(AMOUNT));
 
     let _ = std::fs::remove_dir_all(&dir);
 }
