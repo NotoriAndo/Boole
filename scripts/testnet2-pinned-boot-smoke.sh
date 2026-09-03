@@ -60,9 +60,11 @@ trap cleanup EXIT
   --scenario "$SCENARIO" \
   --block-store "$WORKDIR/blocks.ndjson" \
   --reward-store "$WORKDIR/rewards.ndjson" \
+  --session-registry "$WORKDIR/sessions.ndjson" \
+  --submit-nonce-ledger "$WORKDIR/submit-nonces.ndjson" \
+  --signed-nonce-ledger "$WORKDIR/signed-nonces.ndjson" \
   --network-id boole-testnet-2 \
   --lean-checker-dir "$CHECKER_DIR" \
-  --allow-anonymous-submit \
   >"$WORKDIR/node.out" 2>"$WORKDIR/node.err" &
 NODE_PID=$!
 
@@ -90,15 +92,23 @@ if ! grep -q "refusing to boot a diverged genesis" "$WORKDIR/diverged.err"; then
   exit 1
 fi
 
-python3 - "$ADDR" "$NODE_PID" "$WORKDIR" "$SHARE_FIXTURE" <<'PY'
+PYTHONPATH="$ROOT/scripts" python3 - \
+  "$ADDR" "$NODE_PID" "$WORKDIR" "$SHARE_FIXTURE" "$CLI_BIN" <<'PY'
 import http.client
 import json
 import pathlib
 import sys
 import time
 
+from testnet2_session_smoke import (
+    assert_session_receipt,
+    authorized_submit,
+    build_registration_envelope,
+)
+
 addr, node_pid, workdir = sys.argv[1], int(sys.argv[2]), pathlib.Path(sys.argv[3])
 share_fixture = json.loads(pathlib.Path(sys.argv[4]).read_text())
+cli_bin = sys.argv[5]
 host, port_raw = addr.rsplit(":", 1)
 port = int(port_raw)
 
@@ -145,18 +155,31 @@ status_code, status = request("GET", "/status")
 if status_code != 200 or status.get("height") != 0 or not status.get("replayMatchesRuntime"):
     raise SystemExit(f"bad pinned node status: {status_code} {status}")
 
+# SC.1-c — register the fixture's deterministic session through the real
+# network-scoped public signing surface before submitting its signed work.
+registration = build_registration_envelope(
+    cli_bin, workdir, "pinned-boot", share_fixture
+)
+register_status, registered = request("POST", "/sessions", registration)
+if register_status != 200 or not registered.get("ok"):
+    raise SystemExit(
+        f"testnet2 fixture session registration failed: "
+        f"{register_status}: {registered}"
+    )
+
 # Live lean-bound flow: the committed fixture share (seed-bound canon
 # against the canonical checker) must clear structural admission and
 # commit block 1 on the pinned network (seed binding is REQUIRED here).
 # The envelope ts must be the real wall clock: the committed block's ts
 # is checked against the N3-pre.3 future-drift bound.
-submit_status, submit = request("POST", "/submit", {
-    "body": share_fixture["body"],
-    "canonTag": 0,
-    "ts": int(time.time() * 1000),
-})
+submit_status, submit = request(
+    "POST",
+    "/submit",
+    authorized_submit(share_fixture, int(time.time() * 1000)),
+)
 if submit_status != 200 or not submit.get("accepted"):
     raise SystemExit(f"lean-bound share must be admitted, got {submit_status}: {submit}")
+assert_session_receipt(submit, share_fixture)
 if not submit.get("replayMatchesRuntime"):
     raise SystemExit(f"commit replay diverged: {submit}")
 if submit.get("height") != 1 or submit.get("block", {}).get("height") != 0:
@@ -220,6 +243,8 @@ print(json.dumps({
     "leanReverified": deep.get("leanReverified"),
     "sharesSkipped": deep.get("sharesSkipped"),
     "leanProofsSkipped": deep.get("leanProofsSkipped"),
+    "sessionBoundSubmits": 1,
+    "networkScopedSignedWork": True,
 }, separators=(",", ":")))
 PY
 

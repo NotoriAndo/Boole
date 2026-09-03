@@ -42,6 +42,10 @@ fn scenario_path() -> PathBuf {
     repo_root().join("fixtures/protocol/runtime-smoke/v1.json")
 }
 
+fn testnet2_scenario_path() -> PathBuf {
+    repo_root().join("fixtures/protocol/runtime-smoke/testnet2-pinned-highrate.v1.json")
+}
+
 /// The genesis `c` pinned by `fixtures/protocol/runtime-smoke/v1.json`; the
 /// `Hello.genesis_hash` both nodes exchange must equal it.
 fn scenario_genesis_c() -> String {
@@ -109,6 +113,26 @@ fn boot_with_p2p_sessions(
     allow_anonymous_submit: bool,
     with_sessions: bool,
 ) -> Boot {
+    boot_with_p2p_network(
+        tag,
+        p2p_listener,
+        peers,
+        allow_anonymous_submit,
+        with_sessions,
+        scenario_path(),
+        None,
+    )
+}
+
+fn boot_with_p2p_network(
+    tag: &str,
+    p2p_listener: Option<TcpListener>,
+    peers: Vec<SocketAddr>,
+    allow_anonymous_submit: bool,
+    with_sessions: bool,
+    scenario: PathBuf,
+    network_id: Option<String>,
+) -> Boot {
     let dir = std::env::temp_dir().join(format!(
         "boole-n32-gossip-{tag}-{}-{}",
         std::process::id(),
@@ -124,7 +148,6 @@ fn boot_with_p2p_sessions(
     let dedup = dir.join("proof-dedup.ndjson");
     let sessions = with_sessions.then(|| dir.join("sessions.ndjson"));
     let nonces = with_sessions.then(|| dir.join("submit-nonces.ndjson"));
-    let scenario = scenario_path();
     let shutdown = Arc::new(Notify::new());
     let shutdown_for_node = shutdown.clone();
     let handle = thread::spawn(move || {
@@ -150,7 +173,7 @@ fn boot_with_p2p_sessions(
                 max_requests: None,
                 genesis_override: None,
                 state_dir: None,
-                network_id: None,
+                network_id,
                 lean_checker_dir: None,
                 lean_checker_disabled: true,
                 http_rate_limit_per_60s: None,
@@ -174,6 +197,34 @@ fn boot_with_p2p_sessions(
         shutdown,
         handle,
     }
+}
+
+fn testnet2_gossip_authorization(body: &Value, network_id: &str) -> Value {
+    let key = boole_core::SigningKeyV2::from_dev_id("testnet2-smoke-session-v1");
+    let reward_recipient =
+        boole_core::SigningKeyV2::from_dev_id("testnet2-smoke-reward-v1").pk_hex();
+    let payload = json!({
+        "schema": "boole.signer.work.v2",
+        "route": "/submit",
+        "familyId": "boole.protocol-invariant.v01",
+        "verifierId": "lean-runner-v01",
+        "fee": "0",
+        "requestHash": boole_core::canonical_payload_hash_hex(body),
+        "nonce": "gossip-auth-policy",
+        "rewardRecipient": reward_recipient,
+        "workPayload": body,
+    });
+    let signed = key
+        .sign_for_network(&payload, Some(network_id))
+        .expect("network-scoped gossip authorization");
+    serde_json::to_value(boole_core::ShareWorkAuthorization {
+        schema: signed.schema.to_string(),
+        payload: signed.payload,
+        pk: signed.pk,
+        signature: signed.signature,
+        network_id: signed.network_id,
+    })
+    .expect("gossip authorization json")
 }
 
 fn stop(boot: Boot) {
@@ -627,6 +678,156 @@ fn ingress_rejects_share_with_invalid_authorization() {
         0,
         "a share with a forged authorization must never reach B's pool"
     );
+
+    stop(b);
+}
+
+#[test]
+#[ignore = "needs-multiprocess"]
+fn testnet2_gossip_requires_matching_network_authorization() {
+    const NETWORK_ID: &str = "boole-testnet-2";
+    let fixture: Value = serde_json::from_str(
+        &fs::read_to_string(
+            repo_root().join("fixtures/protocol/runtime-smoke/testnet2-lenbound-share.v1.json"),
+        )
+        .expect("testnet2 share fixture"),
+    )
+    .expect("testnet2 share fixture json");
+    let body = fixture["body"].clone();
+    let preset = boole_core::network_genesis_preset(NETWORK_ID).expect("testnet2 preset");
+
+    let b_p2p = TcpListener::bind("127.0.0.1:0").expect("bind testnet2 p2p");
+    let b_p2p_addr = b_p2p.local_addr().expect("testnet2 p2p addr");
+    let b = boot_with_p2p_network(
+        "testnet2-auth-policy",
+        Some(b_p2p),
+        vec!["127.0.0.1:1".parse().expect("allowlist addr")],
+        false,
+        false,
+        testnet2_scenario_path(),
+        Some(NETWORK_ID.to_string()),
+    );
+
+    let transport = TcpTransport::new();
+    let mut conn = transport
+        .connect(&b_p2p_addr)
+        .expect("connect to testnet2 node");
+    transport
+        .send_frame(
+            &mut conn,
+            &Frame::Hello {
+                protocol_version: PROTOCOL_VERSION,
+                consensus_rule_version: CONSENSUS_RULE_VERSION,
+                network_id: NETWORK_ID.to_string(),
+                genesis_hash: preset.hash().to_hex(),
+                head: HeadSummary {
+                    height: 0,
+                    c: preset.initial_state.genesis_c,
+                },
+            },
+        )
+        .expect("send matching testnet2 hello");
+    match transport.recv_frame(&mut conn) {
+        Ok(Frame::Hello { .. }) => {}
+        other => panic!("testnet2 node must reply with Hello, got {other:?}"),
+    }
+
+    let submission = |signed_work: Option<Value>| {
+        let mut value = json!({
+            "body": body.clone(),
+            "canonTag": 0,
+            "ts": std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_millis() as u64,
+        });
+        if let Some(auth) = signed_work {
+            value["signedWork"] = auth;
+        }
+        value
+    };
+
+    // A named authorization-required network must not trust the announcing
+    // peer to have checked ownership: missing authorization is rejected at
+    // this node's own gossip ingress too.
+    transport
+        .send_frame(
+            &mut conn,
+            &Frame::ShareAnnounce {
+                submission: submission(None),
+            },
+        )
+        .expect("send authorization-less share");
+    wait_until(
+        "missing auth gossip outcome",
+        Duration::from_secs(10),
+        || {
+            metric_value(b.addr, "boole_p2p_ingress_shares_admitted_total")
+                + metric_value(b.addr, "boole_p2p_ingress_shares_rejected_total")
+                >= 1
+        },
+    );
+    assert_eq!(
+        metric_value(b.addr, "boole_p2p_ingress_shares_rejected_total"),
+        1,
+        "testnet2 gossip must reject a share with no authorization"
+    );
+    assert_eq!(share_pool_size(b.addr), 0);
+
+    // A real signature for another network is still a replay attempt here.
+    transport
+        .send_frame(
+            &mut conn,
+            &Frame::ShareAnnounce {
+                submission: submission(Some(testnet2_gossip_authorization(&body, "boole-dev"))),
+            },
+        )
+        .expect("send foreign-network authorization");
+    wait_until(
+        "foreign auth gossip outcome",
+        Duration::from_secs(10),
+        || {
+            metric_value(b.addr, "boole_p2p_ingress_shares_admitted_total")
+                + metric_value(b.addr, "boole_p2p_ingress_shares_rejected_total")
+                >= 2
+        },
+    );
+    assert_eq!(
+        metric_value(b.addr, "boole_p2p_ingress_shares_rejected_total"),
+        2,
+        "testnet2 gossip must reject a valid authorization scoped elsewhere"
+    );
+    assert_eq!(share_pool_size(b.addr), 0);
+
+    // Differential control: the same share with a testnet2-scoped signature
+    // is admitted, proving the rejection above is the authorization policy.
+    transport
+        .send_frame(
+            &mut conn,
+            &Frame::ShareAnnounce {
+                submission: submission(Some(testnet2_gossip_authorization(&body, NETWORK_ID))),
+            },
+        )
+        .expect("send matching authorization");
+    wait_until(
+        "matching auth gossip outcome",
+        Duration::from_secs(10),
+        || {
+            metric_value(b.addr, "boole_p2p_ingress_shares_admitted_total")
+                + metric_value(b.addr, "boole_p2p_ingress_shares_rejected_total")
+                >= 3
+        },
+    );
+    assert_eq!(
+        metric_value(b.addr, "boole_p2p_ingress_shares_admitted_total"),
+        1,
+        "testnet2 gossip must admit a matching network-scoped authorization"
+    );
+    assert_eq!(
+        metric_value(b.addr, "boole_p2p_ingress_shares_rejected_total"),
+        2
+    );
+    assert_eq!(share_pool_size(b.addr), 1);
 
     stop(b);
 }

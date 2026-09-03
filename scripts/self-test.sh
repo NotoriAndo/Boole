@@ -64,6 +64,7 @@ run_logged native-shadow-raw-scan-correction python3 -m unittest scripts/test_na
 run_logged native-shadow-ext4-secret-reconciliation python3 -m unittest scripts/test_native_shadow_ext4_readonly_owner_map_arm64_v1.py scripts/test_native_shadow_mac3_guest_secret_path_content_reconcile_arm64_v1.py
 run_logged development-throughput-policy python3 -m unittest scripts/test_development_throughput_policy.py
 run_logged ci-change-scope python3 -m unittest scripts/test_ci_change_scope.py
+run_logged testnet2-session-smoke-contract python3 -m unittest scripts/test_testnet2_session_smoke.py
 run_logged docs-smoke ./scripts/docs-smoke.sh
 run_logged wallet-session-receipt-gate ./scripts/wallet-session-receipt-gate.sh
 # P1.8 + P1.9 — clippy verifies both the no-feature production surface
@@ -297,7 +298,9 @@ checks = [
         and pinned_boot.get("bootRefusedOnDivergedGenesis") is True
         and pinned_boot.get("leanReverified", 0) >= 1
         and pinned_boot.get("sharesSkipped") == 0
-        and pinned_boot.get("leanProofsSkipped") == 0,
+        and pinned_boot.get("leanProofsSkipped") == 0
+        and pinned_boot.get("sessionBoundSubmits") == 1
+        and pinned_boot.get("networkScopedSignedWork") is True,
         "claimBoundary": pinned_boot.get("claimBoundary"),
         "publicMiningEvidence": pinned_boot.get("publicMiningEvidence"),
         "networkId": pinned_boot.get("networkId"),
@@ -307,6 +310,8 @@ checks = [
         "leanReverified": pinned_boot.get("leanReverified"),
         "sharesSkipped": pinned_boot.get("sharesSkipped"),
         "leanProofsSkipped": pinned_boot.get("leanProofsSkipped"),
+        "sessionBoundSubmits": pinned_boot.get("sessionBoundSubmits"),
+        "networkScopedSignedWork": pinned_boot.get("networkScopedSignedWork"),
     },
     {
         "name": "testnet2-lean-invalid-injection",
@@ -324,7 +329,9 @@ checks = [
         and lean_invalid.get("honestConvergedHeight") == 1
         and lean_invalid.get("checkpointAdvancedOnIngest") is True
         and lean_invalid.get("checkpointNotAdvancedOnSelfProduce") is True
-        and lean_invalid.get("checkpointNotAdvancedOnReject") is True,
+        and lean_invalid.get("checkpointNotAdvancedOnReject") is True
+        and lean_invalid.get("sessionBoundSubmits") == 2
+        and lean_invalid.get("networkScopedSignedWork") is True,
         "claimBoundary": lean_invalid.get("claimBoundary"),
         "publicMiningEvidence": lean_invalid.get("publicMiningEvidence"),
         "networkId": lean_invalid.get("networkId"),
@@ -337,6 +344,8 @@ checks = [
         "checkpointNotAdvancedOnSelfProduce": lean_invalid.get("checkpointNotAdvancedOnSelfProduce"),
         "checkpointNotAdvancedOnReject": lean_invalid.get("checkpointNotAdvancedOnReject"),
         "ingesterCheckpointHeight": lean_invalid.get("ingesterCheckpointHeight"),
+        "sessionBoundSubmits": lean_invalid.get("sessionBoundSubmits"),
+        "networkScopedSignedWork": lean_invalid.get("networkScopedSignedWork"),
     },
     {
         "name": "testnet2-checkpoint-resync",
@@ -348,7 +357,9 @@ checks = [
         and checkpoint_resync.get("skipCounterAfterFirstIngest") == 0
         and checkpoint_resync.get("reverifySkippedOnResync") is True
         and checkpoint_resync.get("headMatchesFirstVerified") is True
-        and checkpoint_resync.get("resyncedHeight") == 1,
+        and checkpoint_resync.get("resyncedHeight") == 1
+        and checkpoint_resync.get("sessionBoundSubmits") == 1
+        and checkpoint_resync.get("networkScopedSignedWork") is True,
         "claimBoundary": checkpoint_resync.get("claimBoundary"),
         "publicMiningEvidence": checkpoint_resync.get("publicMiningEvidence"),
         "networkId": checkpoint_resync.get("networkId"),
@@ -357,6 +368,8 @@ checks = [
         "skipCounterAfterResync": checkpoint_resync.get("skipCounterAfterResync"),
         "reverifySkippedOnResync": checkpoint_resync.get("reverifySkippedOnResync"),
         "headMatchesFirstVerified": checkpoint_resync.get("headMatchesFirstVerified"),
+        "sessionBoundSubmits": checkpoint_resync.get("sessionBoundSubmits"),
+        "networkScopedSignedWork": checkpoint_resync.get("networkScopedSignedWork"),
     },
     {
         "name": "testnet2-checkpoint-diverge",
@@ -367,7 +380,9 @@ checks = [
         "ok": checkpoint_diverge.get("ok") is True
         and checkpoint_diverge.get("divergentCheckpointNotReused") is True
         and checkpoint_diverge.get("skipCounterAfterResync") == 0
-        and checkpoint_diverge.get("convergedToRealHead") is True,
+        and checkpoint_diverge.get("convergedToRealHead") is True
+        and checkpoint_diverge.get("sessionBoundSubmits") == 1
+        and checkpoint_diverge.get("networkScopedSignedWork") is True,
         "claimBoundary": checkpoint_diverge.get("claimBoundary"),
         "publicMiningEvidence": checkpoint_diverge.get("publicMiningEvidence"),
         "networkId": checkpoint_diverge.get("networkId"),
@@ -375,6 +390,8 @@ checks = [
         "skipCounterAfterResync": checkpoint_diverge.get("skipCounterAfterResync"),
         "divergentCheckpointNotReused": checkpoint_diverge.get("divergentCheckpointNotReused"),
         "convergedToRealHead": checkpoint_diverge.get("convergedToRealHead"),
+        "sessionBoundSubmits": checkpoint_diverge.get("sessionBoundSubmits"),
+        "networkScopedSignedWork": checkpoint_diverge.get("networkScopedSignedWork"),
     },
     {"name": "git-diff-check", "ok": True},
     {"name": "gitleaks", "ok": gitleaks_status in {"pass", "skipped"}, "status": gitleaks_status},

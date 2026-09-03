@@ -13,13 +13,14 @@
 //!
 //! Deliberately NOT required: reward_pk == pk (cold-wallet routing stays).
 //!
-//! Scope (SC.1-a): the invariant is enforced whenever `signed_work` is
-//! PRESENT; evidence without an authorization stays accepted on this
-//! slice (the named-network requirement flip is SC.1-d).
+//! Scope (SC.1-d): legacy replay and `boole-dev` keep optional authorization,
+//! while genesis-aware `boole-testnet-2` replay requires a matching
+//! network-scoped authorization on every selected share.
 
 use boole_core::{
-    block_hash, canonical_payload_hash_hex, replay_blocks, share_hash, Hex32, PersistedBlock,
-    SelectedShareEvidence, ShareWorkAuthorization, SigningKeyV2,
+    block_hash, canonical_payload_hash_hex, replay_blocks, replay_blocks_with_genesis, share_hash,
+    GenesisInitialState, GenesisParams, GenesisSpec, Hex32, PersistedBlock, SelectedShareEvidence,
+    ShareWorkAuthorization, SigningKeyV2, CONSENSUS_RULE_VERSION,
 };
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -73,6 +74,15 @@ fn authorization_for(
     body: &Value,
     reward_recipient: &str,
 ) -> ShareWorkAuthorization {
+    authorization_for_network(key, body, reward_recipient, None)
+}
+
+fn authorization_for_network(
+    key: &SigningKeyV2,
+    body: &Value,
+    reward_recipient: &str,
+    network_id: Option<&str>,
+) -> ShareWorkAuthorization {
     let payload = json!({
         "schema": "boole.signer.work.v2",
         "route": "/submit",
@@ -84,13 +94,36 @@ fn authorization_for(
         "rewardRecipient": reward_recipient,
         "workPayload": body,
     });
-    let envelope = key.sign(&payload).expect("dev key signs the work payload");
+    let envelope = key
+        .sign_for_network(&payload, network_id)
+        .expect("dev key signs the work payload");
     ShareWorkAuthorization {
         schema: envelope.schema.to_string(),
         payload: envelope.payload,
         pk: envelope.pk,
         signature: envelope.signature,
         network_id: envelope.network_id,
+    }
+}
+
+fn genesis_spec(network_id: &str) -> GenesisSpec {
+    GenesisSpec {
+        network_id: network_id.to_string(),
+        params: GenesisParams {
+            consensus_rule_version: CONSENSUS_RULE_VERSION,
+            t_block: "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+                .to_string(),
+            t_share: "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+                .to_string(),
+            k_max: 1,
+            retarget: None,
+            seed_binding_required: false,
+            checker_artifact_hash: None,
+            family_manifest_root: None,
+        },
+        initial_state: GenesisInitialState {
+            genesis_c: PREV_C.to_string(),
+        },
     }
 }
 
@@ -158,6 +191,74 @@ fn assert_replay_rejects(block: PersistedBlock, expected_fragment: &str) {
         err.to_string().contains(expected_fragment),
         "expected error containing {expected_fragment:?}, got: {err}"
     );
+}
+
+#[test]
+fn testnet2_genesis_replay_requires_signed_work() {
+    let err =
+        replay_blocks_with_genesis(&[authorized_block(None)], &genesis_spec("boole-testnet-2"))
+            .expect_err("boole-testnet-2 replay must reject evidence without signedWork");
+    assert!(
+        err.to_string().contains("signedWork") && err.to_string().contains("boole-testnet-2"),
+        "expected a named-network signedWork requirement error, got: {err}"
+    );
+}
+
+#[test]
+fn testnet2_genesis_replay_rejects_foreign_scope_and_accepts_matching_scope() {
+    let key = signer();
+    let body = work_body(&key.pk_hex(), &valid_pofp_v2_package_hex());
+    let foreign = authorization_for_network(&key, &body, RECIPIENT, Some("boole-dev"));
+    let err = replay_blocks_with_genesis(
+        &[authorized_block(Some(foreign))],
+        &genesis_spec("boole-testnet-2"),
+    )
+    .expect_err("boole-testnet-2 replay must reject authorization for another network");
+    assert!(
+        err.to_string().contains("network mismatch") && err.to_string().contains("boole-testnet-2"),
+        "expected a named-network mismatch error, got: {err}"
+    );
+
+    let matching = authorization_for_network(&key, &body, RECIPIENT, Some("boole-testnet-2"));
+    let replay = replay_blocks_with_genesis(
+        &[authorized_block(Some(matching))],
+        &genesis_spec("boole-testnet-2"),
+    )
+    .expect("matching network-scoped signedWork must replay on boole-testnet-2");
+    assert_eq!(replay.height, 1);
+}
+
+#[test]
+fn testnet2_replay_accepts_equivalent_uppercase_work_bytes() {
+    let key = signer();
+    let uppercase_package = valid_pofp_v2_package_hex().to_ascii_uppercase();
+    let body = work_body(&key.pk_hex(), &uppercase_package);
+    let matching = authorization_for_network(&key, &body, RECIPIENT, Some("boole-testnet-2"));
+
+    let replay = replay_blocks_with_genesis(
+        &[authorized_block(Some(matching))],
+        &genesis_spec("boole-testnet-2"),
+    )
+    .expect("equivalent uppercase hex must not be accepted at ingress then stranded at replay");
+    assert_eq!(replay.height, 1);
+}
+
+#[test]
+fn boole_dev_and_legacy_replay_keep_optional_authorization_compatibility() {
+    replay_blocks_with_genesis(&[authorized_block(None)], &genesis_spec("boole-dev"))
+        .expect("boole-dev must keep accepting evidence without signedWork");
+
+    replay_blocks_with_genesis(
+        &[authorized_block(Some(default_authorization()))],
+        &genesis_spec("boole-mvp"),
+    )
+    .expect("the unnamed-node fallback genesis must keep accepting legacy signedWork");
+
+    replay_blocks(&[authorized_block(None)])
+        .expect("legacy replay without a GenesisSpec must keep accepting missing signedWork");
+
+    replay_blocks(&[authorized_block(Some(default_authorization()))])
+        .expect("legacy replay must keep accepting intrinsic legacy-unscoped signedWork");
 }
 
 /// ADR-0015 (b-1) — the identity invariant as one named property: the

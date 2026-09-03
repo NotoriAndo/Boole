@@ -17,9 +17,13 @@
 
 use std::collections::BTreeSet;
 
-use boole_core::{build_block_selection, BlockBuilderConfig, BuildSelectionResult, CandidateShare};
+use boole_core::{
+    build_block_selection, build_block_selection_for_network, canonical_payload_hash_hex,
+    BlockBuilderConfig, BuildSelectionResult, CandidateShare, ShareWorkAuthorization, SigningKeyV2,
+};
 use num_bigint::BigUint;
 use num_traits::Zero;
+use serde_json::json;
 
 const CHAIN: &str = "deadbeef00000000000000000000000000000000000000000000000000000000";
 
@@ -57,6 +61,62 @@ fn make_share(byte: u8, label: &str) -> CandidateShare {
         proof_package: String::new(),
         seed_hex: String::new(),
         signed_work: None,
+    }
+}
+
+fn make_network_authorized_share(
+    byte: u8,
+    label: &str,
+    score: u64,
+    network_id: &str,
+) -> CandidateShare {
+    let key = SigningKeyV2::from_dev_id(&format!("selection-{label}"));
+    let pk = key.pk_hex();
+    let n = format!("{:064x}", byte as u128 + 1);
+    let j = format!("{:064x}", byte as u128 + 2);
+    let proof_package = "00".to_string();
+    let body = json!({
+        "bytes": proof_package,
+        "c": CHAIN,
+        "j": j,
+        "n": n,
+        "nonceS": format!("{:064x}", byte as u128 + 3),
+        "pk": pk,
+    });
+    let payload = json!({
+        "schema": "boole.signer.work.v2",
+        "route": "/submit",
+        "requestHash": canonical_payload_hash_hex(&body),
+        "rewardRecipient": pk,
+        "workPayload": body,
+    });
+    let envelope = key
+        .sign_for_network(&payload, Some(network_id))
+        .expect("test authorization signs");
+
+    CandidateShare {
+        label: label.to_string(),
+        pk,
+        reward_pk: envelope.payload["rewardRecipient"]
+            .as_str()
+            .expect("reward recipient")
+            .to_string(),
+        n,
+        j,
+        c: CHAIN.to_string(),
+        share_hash: format!("{:064x}", byte as u128),
+        score: score.to_string(),
+        canon_tag: 1,
+        canon_hash: String::new(),
+        proof_package,
+        seed_hex: String::new(),
+        signed_work: Some(ShareWorkAuthorization {
+            schema: envelope.schema.to_string(),
+            payload: envelope.payload,
+            pk: envelope.pk,
+            signature: envelope.signature,
+            network_id: envelope.network_id,
+        }),
     }
 }
 
@@ -105,4 +165,71 @@ fn proposer_tie_breaks_by_lowest_share_hash() {
         "the lowest-ranked co-qualifying share (share-a, share_hash 0x10) must win the \
          tie deterministically, not share-b (0x18): got proposer {proposer:?}"
     );
+}
+
+#[test]
+fn testnet2_filters_missing_and_foreign_authorization_before_top_k() {
+    let mut missing =
+        make_network_authorized_share(0x10, "missing-high-score", 3_000, "boole-testnet-2");
+    missing.signed_work = None;
+    let foreign = make_network_authorized_share(0x11, "foreign-mid-score", 2_000, "boole-dev");
+    let mut mismatched =
+        make_network_authorized_share(0x13, "mismatched-work", 2_500, "boole-testnet-2");
+    mismatched.n = format!("{:064x}", 999u64);
+    let matching =
+        make_network_authorized_share(0x12, "matching-low-score", 1_000, "boole-testnet-2");
+    let mut cfg = permissive_cfg();
+    cfg.k_max = 1;
+    let accepted = BTreeSet::from([1u8]);
+
+    let result = build_block_selection_for_network(
+        CHAIN,
+        &[missing, foreign, mismatched, matching],
+        &cfg,
+        &accepted,
+        &BTreeSet::new(),
+        &[],
+        Some("boole-testnet-2"),
+    )
+    .expect("authorization filtering must not fail the whole block build");
+
+    let BuildSelectionResult::Ok(selection) = result else {
+        panic!("the lower-ranked matching authorization must survive before top-k truncation");
+    };
+    assert_eq!(selection.selected.len(), 1);
+    assert_eq!(selection.selected[0].label, "matching-low-score");
+}
+
+#[test]
+fn boole_dev_and_legacy_selection_keep_anonymous_candidates() {
+    let share = make_share(0x10, "anonymous-dev");
+    let cfg = permissive_cfg();
+    let accepted = BTreeSet::from([1u8]);
+
+    let BuildSelectionResult::Ok(dev_selection) = build_block_selection_for_network(
+        CHAIN,
+        std::slice::from_ref(&share),
+        &cfg,
+        &accepted,
+        &BTreeSet::new(),
+        &[],
+        Some("boole-dev"),
+    )
+    .expect("explicit boole-dev selection runs") else {
+        panic!("boole-dev must preserve anonymous candidate selection");
+    };
+    assert_eq!(dev_selection.selected[0].label, "anonymous-dev");
+
+    let BuildSelectionResult::Ok(legacy_selection) = build_block_selection(
+        CHAIN,
+        std::slice::from_ref(&share),
+        &cfg,
+        &accepted,
+        &BTreeSet::new(),
+        &[],
+    )
+    .expect("legacy selection runs") else {
+        panic!("legacy selection must preserve anonymous candidate selection");
+    };
+    assert_eq!(legacy_selection.selected[0].label, "anonymous-dev");
 }

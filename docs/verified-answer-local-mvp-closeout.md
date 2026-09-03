@@ -140,6 +140,22 @@ the native checker and BF.3 receipt are a separate service until the MCP
 successor lands. Real payment, public settlement, production wallet authority,
 rewards and activation remain deferred.
 
+## Successor progress (2026-09-03)
+
+- `N5.3-M1-NAMED-NETWORK-AUTHORITY`: COMPLETE. Explicitly named HTTP nodes
+  reject unscoped signed envelopes; `boole-testnet-2` requires a matching
+  session-bound work authorization at HTTP boot/submit, peer-share ingress,
+  block selection and genesis-aware replay. The four checker-pinned smoke
+  paths now submit through network-scoped sessions. Unnamed local embeddings
+  retain an explicit legacy compatibility path.
+- Current milestone: `M2-CANONICAL-STATE-SAFETY`. It owns read-only verification,
+  settlement re-derivation and crash-safe multi-store commit/reorg behavior.
+  M3 P2P lifecycle and M4 controlled bootstrap join remain unstarted.
+
+This progress is closed-local protocol hardening. It neither activates a public
+testnet nor authorizes mining, rewards, payment, consensus, P2P exposure or use
+of the public-eligible problem inventory.
+
 The former selection scope was:
 
 - inspect current tracked docs/tests/gates and local MVP evidence;

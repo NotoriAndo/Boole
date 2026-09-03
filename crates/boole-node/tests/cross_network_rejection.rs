@@ -5,8 +5,8 @@
 //! three envelope shapes:
 //!
 //! 1. Legacy (no wire `network_id` field, signed with the legacy
-//!    `SigningKeyV2::sign` path) — must keep returning 200 so existing
-//!    clients keep working during the migration window.
+//!    `SigningKeyV2::sign` path) — must return 403 on a named network so
+//!    the same unscoped signature cannot be replayed across networks.
 //! 2. Matching wire `network_id: "boole-testnet"` signed via
 //!    `sign_for_network(payload, Some("boole-testnet"))` — must return
 //!    200 (network-bound digest verifies against the pinned node).
@@ -188,7 +188,7 @@ fn network_signed_envelope(payload: &Value, key: &SigningKeyV2, network_id: &str
 }
 
 #[test]
-fn legacy_envelope_without_network_id_keeps_returning_200() {
+fn named_network_rejects_legacy_unscoped_envelope() {
     let booted = boot(Some(NODE_NETWORK_ID), 1);
     let key = SigningKeyV2::from_dev_id("p2-10-legacy");
     let payload = announce_payload("p2-10-legacy", 1800000300000);
@@ -196,8 +196,27 @@ fn legacy_envelope_without_network_id_keeps_returning_200() {
 
     let (status, resp) = http_post(booted.addr, "/bounties", &envelope);
     assert_eq!(
+        status, 403,
+        "named network must reject an envelope without network_id before crypto: {resp}"
+    );
+    assert_eq!(resp["ok"], false);
+    assert_eq!(resp["reason"], "network_scope_required");
+    assert_eq!(resp["expected"], NODE_NETWORK_ID);
+    booted.handle.join().expect("server").expect("server ok");
+    let _ = std::fs::remove_dir_all(&booted.dir);
+}
+
+#[test]
+fn unnamed_local_embedding_accepts_legacy_unscoped_envelope() {
+    let booted = boot(None, 1);
+    let key = SigningKeyV2::from_dev_id("p2-10-legacy-local");
+    let payload = announce_payload("p2-10-legacy-local", 1800000350000);
+    let envelope = legacy_signed_envelope(&payload, &key);
+
+    let (status, resp) = http_post(booted.addr, "/bounties", &envelope);
+    assert_eq!(
         status, 200,
-        "legacy (no wire network_id) must keep verifying via the absent-id fallback: {resp}"
+        "legacy local embedding must retain the unscoped-signature path: {resp}"
     );
     assert_eq!(resp["ok"], true);
     booted.handle.join().expect("server").expect("server ok");

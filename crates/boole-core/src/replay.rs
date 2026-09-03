@@ -219,11 +219,19 @@ pub fn replay_blocks_with_genesis_and_registry(
     // both difficulty modes; a future t_share schedule would replace
     // this with its own derivation.
     validate_static_t_share(blocks, &spec.params.t_share)?;
+    // SC.1-d is deliberately scoped to boole-testnet-2. An unnamed local
+    // embedding still acquires a fallback GenesisSpec internally; treating
+    // that fallback as an explicit authorization scope would retroactively
+    // reject its legacy evidence.
+    let expected_authorization_network = (spec.network_id
+        == crate::share_authorization::AUTHORIZATION_REQUIRED_NETWORK_ID)
+        .then_some(spec.network_id.as_str());
     replay_blocks_with_rules(
         blocks,
         EvidencePolicy::Strict,
         &spec.initial_state.genesis_c,
         Some(&spec.params),
+        expected_authorization_network,
         registry,
     )
 }
@@ -278,6 +286,7 @@ fn replay_blocks_with_evidence_policy(
         evidence_policy,
         "0000000000000000000000000000000000000000000000000000000000000000",
         None,
+        None,
         registry,
     )
 }
@@ -287,6 +296,7 @@ fn replay_blocks_with_rules(
     evidence_policy: EvidencePolicy,
     genesis_c: &str,
     genesis_params: Option<&crate::GenesisParams>,
+    expected_network_id: Option<&str>,
     registry: &FamilyManifestRegistry,
 ) -> anyhow::Result<ReplayResult> {
     // N3-pre.3 (review #3) — deterministic ts trust gate, upfront and
@@ -325,7 +335,7 @@ fn replay_blocks_with_rules(
         if block.c != expected_c {
             anyhow::bail!("block c mismatch: got {}, expected {}", block.c, expected_c);
         }
-        verify_selected_share_evidence(block, evidence_policy)?;
+        verify_selected_share_evidence(block, evidence_policy, expected_network_id)?;
         // N5.1 (ADR-0014 (c)/(d)) — genesis-committed rules.
         if let Some(params) = genesis_params {
             if block.selected_share_hashes.len() as u64 > params.k_max {

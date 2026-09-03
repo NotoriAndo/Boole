@@ -225,6 +225,14 @@ impl HttpError {
             .with_extra("got", Value::String(got.into()))
     }
 
+    /// H.1 — an explicitly named network requires every signed envelope
+    /// to bind its signature to that network. A legacy unscoped envelope
+    /// is well-formed, but policy-rejected before cryptographic verification.
+    pub fn network_scope_required(expected: impl Into<String>) -> Self {
+        Self::new(403, "network_scope_required")
+            .with_extra("expected", Value::String(expected.into()))
+    }
+
     /// P1.6a — signed inner payload's `validBefore` has slipped past the
     /// server's clock. Carries both `validBefore` (what the signer claimed)
     /// and `now` (the server's current Unix-second view) so the caller can

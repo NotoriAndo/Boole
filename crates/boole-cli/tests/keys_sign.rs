@@ -1,4 +1,5 @@
-//! S13a — `boole keys sign --id <id> --payload <path|inline>`.
+//! S13a/H.1 — `boole keys sign --id <id> --payload <path|inline>` with an
+//! explicit `--network-id` or `--legacy-unscoped` choice.
 //!
 //! Loads a stored v2 key, signs `payload` with ed25519, prints the bare
 //! hex64 signature on stdout (or the full `boole.signed.v1` envelope under
@@ -8,7 +9,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use boole_core::verify_signature;
+use boole_core::{verify_signature, verify_signature_with_network};
 use serde_json::Value;
 
 fn cli() -> Command {
@@ -63,7 +64,15 @@ fn sign_inline_payload_emits_hex64_signature_that_verifies_against_pk() {
 
     let out = cli()
         .env("BOOLE_KEYS_DIR", &dir)
-        .args(["keys", "sign", "--id", "alice", "--payload", payload_str])
+        .args([
+            "keys",
+            "sign",
+            "--id",
+            "alice",
+            "--payload",
+            payload_str,
+            "--legacy-unscoped",
+        ])
         .output()
         .expect("run keys sign");
     assert!(
@@ -100,7 +109,15 @@ fn sign_against_v1_key_returns_legacy_v1_key_typed_error() {
 
     let out = cli()
         .env("BOOLE_KEYS_DIR", &dir)
-        .args(["keys", "sign", "--id", "old-bob", "--payload", "{}"])
+        .args([
+            "keys",
+            "sign",
+            "--id",
+            "old-bob",
+            "--payload",
+            "{}",
+            "--legacy-unscoped",
+        ])
         .output()
         .expect("run keys sign");
     assert!(!out.status.success(), "v1 keys cannot sign");
@@ -123,7 +140,15 @@ fn sign_with_unknown_id_returns_key_not_found() {
     std::fs::create_dir_all(&dir).expect("mkdir");
     let out = cli()
         .env("BOOLE_KEYS_DIR", &dir)
-        .args(["keys", "sign", "--id", "ghost", "--payload", "{}"])
+        .args([
+            "keys",
+            "sign",
+            "--id",
+            "ghost",
+            "--payload",
+            "{}",
+            "--legacy-unscoped",
+        ])
         .output()
         .expect("run keys sign");
     assert!(!out.status.success());
@@ -152,6 +177,7 @@ fn sign_payload_from_file_path_matches_inline_signature() {
             "alice",
             "--payload",
             payload_path.to_str().expect("utf8"),
+            "--legacy-unscoped",
         ])
         .output()
         .expect("run keys sign");
@@ -192,6 +218,7 @@ fn sign_json_flag_emits_unified_envelope_with_signed_envelope_under_result() {
             "alice",
             "--payload",
             &payload.to_string(),
+            "--legacy-unscoped",
             "--json",
         ])
         .output()
@@ -220,6 +247,66 @@ fn sign_json_flag_emits_unified_envelope_with_signed_envelope_under_result() {
 }
 
 #[test]
+fn sign_with_network_id_emits_network_scoped_envelope() {
+    let dir = fresh_tmp("sign-network");
+    let key = make_v2_key(&dir, "alice");
+    let pk_hex = key["pk"].as_str().expect("pk").to_string();
+    let payload = serde_json::json!({"action": "announce", "n": 8});
+
+    let out = cli()
+        .env("BOOLE_KEYS_DIR", &dir)
+        .args([
+            "keys",
+            "sign",
+            "--id",
+            "alice",
+            "--payload",
+            &payload.to_string(),
+            "--network-id",
+            "boole-testnet-2",
+            "--json",
+        ])
+        .output()
+        .expect("run network-scoped keys sign");
+    assert!(
+        out.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let env = parse_json(&out.stdout);
+    let signed = &env["result"]["envelope"];
+    assert_eq!(signed["network_id"], "boole-testnet-2");
+    let signature = signed["signature"].as_str().expect("signature");
+    assert!(
+        verify_signature_with_network(&pk_hex, signature, &payload, Some("boole-testnet-2"))
+            .expect("network signature verification")
+    );
+    assert!(
+        !verify_signature(&pk_hex, signature, &payload).expect("legacy verification"),
+        "network-scoped signature must not verify as legacy unscoped"
+    );
+}
+
+#[test]
+fn sign_requires_network_id_or_explicit_legacy_unscoped_mode() {
+    let dir = fresh_tmp("scope-required");
+    make_v2_key(&dir, "alice");
+
+    let out = cli()
+        .env("BOOLE_KEYS_DIR", &dir)
+        .args(["keys", "sign", "--id", "alice", "--payload", "{}"])
+        .output()
+        .expect("run unscoped keys sign");
+
+    assert_eq!(out.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("--network-id"),
+        "CLI must require the recommended network scope when no explicit choice is made: {stderr}"
+    );
+}
+
+#[test]
 fn sign_against_v1_key_under_json_emits_unified_error_envelope() {
     let dir = fresh_tmp("legacy-sign-json");
     std::fs::create_dir_all(&dir).expect("mkdir");
@@ -240,6 +327,7 @@ fn sign_against_v1_key_under_json_emits_unified_error_envelope() {
             "old-bob",
             "--payload",
             "{}",
+            "--legacy-unscoped",
             "--json",
         ])
         .output()
@@ -265,7 +353,16 @@ fn sign_with_unknown_id_under_json_emits_unified_error_envelope() {
     std::fs::create_dir_all(&dir).expect("mkdir");
     let out = cli()
         .env("BOOLE_KEYS_DIR", &dir)
-        .args(["keys", "sign", "--id", "ghost", "--payload", "{}", "--json"])
+        .args([
+            "keys",
+            "sign",
+            "--id",
+            "ghost",
+            "--payload",
+            "{}",
+            "--legacy-unscoped",
+            "--json",
+        ])
         .output()
         .expect("run keys sign --json");
     assert!(!out.status.success());
@@ -292,6 +389,7 @@ fn sign_with_bad_id_under_json_emits_unified_error_envelope() {
             "../escape",
             "--payload",
             "{}",
+            "--legacy-unscoped",
             "--json",
         ])
         .output()

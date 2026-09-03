@@ -177,6 +177,34 @@ pub fn build_block_selection(
     credited_canon_hashes: &BTreeSet<String>,
     promoted_bounty_shares: &[PromotedBountyShare],
 ) -> anyhow::Result<BuildSelectionResult> {
+    build_block_selection_for_network(
+        chain_head,
+        shares,
+        cfg,
+        accepted_canon_tags,
+        credited_canon_hashes,
+        promoted_bounty_shares,
+        None,
+    )
+}
+
+/// SC.1-d — network-aware selection for served nodes. Every present work
+/// authorization must be valid, describe the candidate exactly, and (when a
+/// network is supplied) be scoped to that network. `boole-testnet-2`
+/// additionally requires an authorization to be present. The filter runs
+/// before sorting/truncation so a high-scoring unauthorized share cannot
+/// occupy a top-k slot or stall an otherwise valid lower-ranked proposer.
+/// Other networks and legacy callers retain the pre-SC.1-d behavior that an
+/// authorization may be absent.
+pub fn build_block_selection_for_network(
+    chain_head: &str,
+    shares: &[CandidateShare],
+    cfg: &BlockBuilderConfig,
+    accepted_canon_tags: &BTreeSet<u8>,
+    credited_canon_hashes: &BTreeSet<String>,
+    promoted_bounty_shares: &[PromotedBountyShare],
+    expected_network_id: Option<&str>,
+) -> anyhow::Result<BuildSelectionResult> {
     let t_block = normalize_hex256(&cfg.t_block)?;
     let mut dropped_below_min_score = 0usize;
     let mut score_survivors = Vec::new();
@@ -192,6 +220,30 @@ pub fn build_block_selection(
         // would reject. Shares without a canon_hash (legacy pool entries)
         // stay outside the rule, matching the replay-side exception.
         if !share.canon_hash.is_empty() && credited_canon_hashes.contains(&share.canon_hash) {
+            continue;
+        }
+        let verified_authorization =
+            match crate::share_authorization::verify_share_work_authorization_for_network(
+                share.signed_work.as_ref(),
+                expected_network_id,
+            ) {
+                Ok(verified) => verified,
+                Err(_) => continue,
+            };
+        if verified_authorization.as_ref().is_some_and(|verified| {
+            let reward_pk = if share.reward_pk.is_empty() {
+                share.pk.as_str()
+            } else {
+                share.reward_pk.as_str()
+            };
+            verified.signer_pk != share.pk
+                || verified.work_pk != share.pk
+                || verified.work_n != share.n
+                || verified.work_j != share.j
+                || verified.work_c != share.c
+                || verified.work_bytes_hex != share.proof_package
+                || verified.reward_recipient != reward_pk
+        }) {
             continue;
         }
         let score = parse_score_decimal(&share.score)?;

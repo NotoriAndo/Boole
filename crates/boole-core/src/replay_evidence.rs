@@ -3,7 +3,9 @@ use sha2::{Digest, Sha256};
 use crate::block::PersistedBlock;
 use crate::block_builder::{compare_canonical, select_qualifying_proposer};
 use crate::rules::{BASE_LANE_MAX_DECLS, BASE_LANE_MAX_PROOF_BYTES};
-use crate::share_authorization::verify_share_work_authorization;
+use crate::share_authorization::{
+    verify_share_work_authorization, verify_share_work_authorization_for_network,
+};
 use crate::{
     find_target_seed_j_index, min_share_score, parse_biguint_hex, share_hash,
     validate_proof_package_with_limits, Hex32, ValidationReason, ValidationResult,
@@ -29,6 +31,7 @@ pub(crate) enum EvidencePolicy {
 pub(crate) fn verify_selected_share_evidence(
     block: &PersistedBlock,
     policy: EvidencePolicy,
+    expected_network_id: Option<&str>,
 ) -> anyhow::Result<()> {
     if block.selected_share_evidence.is_empty() {
         return match policy {
@@ -191,17 +194,18 @@ pub(crate) fn verify_selected_share_evidence(
             );
         }
 
-        // SC.1 (ADR-0015 (b)/(b-1)) — reward ownership binding, enforced
-        // whenever the submitter's signed work.v2 authorization is present
-        // in evidence. The identity chain and the committed reward routing
-        // must be exactly what the winner signed; a block routing a share's
-        // reward anywhere else is excluded. Absent `signed_work` stays
-        // accepted on this slice — requiring it on named networks is the
-        // SC.1-d flip.
-        if let Some(auth) = &evidence.signed_work {
-            let verified = verify_share_work_authorization(auth).map_err(|err| {
-                anyhow::anyhow!("selected share evidence signedWork invalid at index {idx}: {err}")
-            })?;
+        // SC.1 (ADR-0015 (b)/(b-1)) — reward ownership binding. The central
+        // network policy requires signed work on boole-testnet-2 and rejects
+        // any present envelope scoped to a network other than the genesis
+        // network. Legacy replay passes no expected network and retains its
+        // optional, envelope-intrinsic posture.
+        if let Some(verified) = verify_share_work_authorization_for_network(
+            evidence.signed_work.as_ref(),
+            expected_network_id,
+        )
+        .map_err(|err| {
+            anyhow::anyhow!("selected share evidence signedWork invalid at index {idx}: {err}")
+        })? {
             if verified.signer_pk != evidence.pk {
                 anyhow::bail!(
                     "selected share evidence signedWork signer mismatch at index {}: \

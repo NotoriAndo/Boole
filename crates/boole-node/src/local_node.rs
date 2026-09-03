@@ -455,12 +455,14 @@ pub(crate) struct LocalNodeState {
     /// boot from `LocalNodeConfig::network_id`, falling back to
     /// `DEFAULT_NETWORK_ID` when the operator did not set one. Every
     /// `boole.signed.v1` ingest route compares the outer envelope's
-    /// optional `network_id` field against this value: a match (or an
-    /// absent field, for backward compatibility) proceeds to ed25519
-    /// verification; a mismatch returns `HttpError::cross_network_rejected`
-    /// before any crypto runs so a cross-network replay attempt is
-    /// rejected even if the signer's pk is on a session allow-list.
+    /// optional `network_id` field against this value. Explicitly named
+    /// nodes require the field; legacy embeddings that did not configure
+    /// a network id retain the old unscoped-signature behavior.
     network_id: String,
+    /// H.1 — whether signed envelopes must carry `network_id`.
+    /// Derived from the operator explicitly setting `LocalNodeConfig::network_id`,
+    /// rather than from the effective fallback string.
+    require_network_scoped_envelopes: bool,
     /// N2.1 — mirrors `LocalNodeConfig.allow_anonymous_submit`. Read by
     /// `submit_handler` to reject session-less `/submit` envelopes with
     /// `401 unauthenticated_submit` unless the operator explicitly opted
@@ -650,10 +652,10 @@ fn check_signed_envelope_nonce_not_replayed(
 /// `network_id` field and cross-check it against the node's pinned
 /// `network_id`. Backward-compatible by design:
 ///
-///   - `Ok(None)` when the wire envelope has no `network_id` field.
-///     Pre-P2.10 clients keep working: callers pass `None` to
-///     `verify_signature_with_network`, which recomputes the legacy
-///     non-network-bound digest.
+///   - `Ok(None)` when the wire envelope has no `network_id` field and the
+///     node is a legacy embedding that did not explicitly select a network.
+///   - `Err(network_scope_required)` when an explicitly named node receives
+///     an envelope without `network_id`.
 ///   - `Ok(Some(nid))` when the wire `network_id` matches the node's
 ///     pinned id. Callers pass `Some(nid)` so the verifier folds the
 ///     same domain-separation tag the signer used.
@@ -661,11 +663,22 @@ fn check_signed_envelope_nonce_not_replayed(
 ///     but does not match. 403, pre-crypto, so a cross-network replay
 ///     attempt is rejected even if the signer's pk is on a session
 ///     allow-list and the underlying digest would otherwise verify.
+#[derive(Clone, Copy)]
+struct EnvelopeNetworkPolicy<'a> {
+    expected: &'a str,
+    require_scope: bool,
+}
+
 fn parse_envelope_network_id<'a>(
     envelope_obj: &'a serde_json::Map<String, Value>,
-    node_network_id: &str,
+    policy: EnvelopeNetworkPolicy<'_>,
 ) -> Result<Option<&'a str>, HttpError> {
     let Some(field) = envelope_obj.get("network_id") else {
+        if policy.require_scope {
+            return Err(HttpError::network_scope_required(
+                policy.expected.to_string(),
+            ));
+        }
         return Ok(None);
     };
     let Some(nid) = field.as_str() else {
@@ -673,9 +686,9 @@ fn parse_envelope_network_id<'a>(
             "envelope network_id must be a string",
         ));
     };
-    if nid != node_network_id {
+    if nid != policy.expected {
         return Err(HttpError::cross_network_rejected(
-            node_network_id.to_string(),
+            policy.expected.to_string(),
             nid.to_string(),
         ));
     }
@@ -1246,7 +1259,27 @@ where
 }
 
 impl LocalNodeState {
+    fn envelope_network_policy(&self) -> EnvelopeNetworkPolicy<'_> {
+        EnvelopeNetworkPolicy {
+            expected: &self.network_id,
+            require_scope: self.require_network_scoped_envelopes,
+        }
+    }
+
     fn from_config(config: LocalNodeConfig) -> anyhow::Result<Self> {
+        // M1-D — the authorization-required named network must never boot
+        // with the legacy anonymous HTTP escape hatch enabled. Enforce this
+        // before the state-dir lock or any durable store is opened so an
+        // invalid operator configuration leaves no state behind.
+        if config.allow_anonymous_submit
+            && config.network_id.as_deref() == Some(boole_core::AUTHORIZATION_REQUIRED_NETWORK_ID)
+        {
+            anyhow::bail!(
+                "network {} requires session-bound reward authorization; \
+                 --allow-anonymous-submit is not permitted",
+                boole_core::AUTHORIZATION_REQUIRED_NETWORK_ID
+            );
+        }
         // L7 state-dir lock must run first — every per-store open below
         // this line is guarded by the flock, so refusing the lock
         // guarantees a losing process never appends to a peer's ledger and
@@ -1273,6 +1306,7 @@ impl LocalNodeState {
                 .map_err(|err| anyhow::anyhow!(err))?;
         }
         // N5.2 — the node's effective genesis identity (N5.1 spec hash).
+        let require_network_scoped_envelopes = config.network_id.is_some();
         let node_network_id = config
             .network_id
             .clone()
@@ -1505,6 +1539,7 @@ impl LocalNodeState {
             lean_checker_dir: config.lean_checker_dir,
             lean_checker_disabled: config.lean_checker_disabled,
             network_id: node_network_id,
+            require_network_scoped_envelopes,
             state_dir: config.state_dir,
             _state_dir_guard: state_dir_guard,
             allow_anonymous_submit: config.allow_anonymous_submit,
@@ -2536,7 +2571,8 @@ fn receipt_post_json(state: &mut LocalNodeState, body: &[u8]) -> Result<Value, H
 
     // 3) P2.10 — parse optional wire network_id and reject pre-crypto when
     //    it pins a different network than this node.
-    let envelope_network_id = parse_envelope_network_id(envelope_obj, &state.network_id)?;
+    let envelope_network_id =
+        parse_envelope_network_id(envelope_obj, state.envelope_network_policy())?;
 
     // 4) Crypto verification: structural envelope intact but wrong sig is
     //    401, not 400. Network-bound digest when the wire envelope opted
@@ -2766,7 +2802,8 @@ fn session_register_json(state: &mut LocalNodeState, body: &[u8]) -> Result<Valu
     }
 
     // 2) P2.10 — cross-network gate before crypto.
-    let envelope_network_id = parse_envelope_network_id(envelope_obj, &state.network_id)?;
+    let envelope_network_id =
+        parse_envelope_network_id(envelope_obj, state.envelope_network_policy())?;
 
     // 3) Crypto: signature must verify against payload bytes (network-bound
     //    when the wire envelope opted in).
@@ -2901,7 +2938,8 @@ fn session_revoke_json(
     }
 
     // 2) P2.10 — cross-network gate before crypto.
-    let envelope_network_id = parse_envelope_network_id(envelope_obj, &state.network_id)?;
+    let envelope_network_id =
+        parse_envelope_network_id(envelope_obj, state.envelope_network_policy())?;
 
     // 3) Crypto: signature must verify against payload bytes (network-bound
     //    when the wire envelope opted in).
@@ -3146,7 +3184,7 @@ fn submit_session_gate(
         nonce,
         reward_recipient,
         session,
-        &state.network_id,
+        state.envelope_network_policy(),
     )?;
 
     let ledger = state
@@ -3200,7 +3238,7 @@ fn verify_signed_submit_work(
     nonce: &str,
     reward_recipient: &str,
     session: &SessionState,
-    node_network_id: &str,
+    network_policy: EnvelopeNetworkPolicy<'_>,
 ) -> Result<VerifiedSubmitWork, HttpError> {
     let work_body = body_value.ok_or_else(|| HttpError::missing_field("body"))?;
     let signed_work = session_obj
@@ -3238,7 +3276,7 @@ fn verify_signed_submit_work(
     // P2.10 — the nested `boole.signer.work.v2` envelope is in-scope per
     // ADR-0003. Cross-check its optional `network_id` against the node's
     // pinned id before recomputing the network-bound digest.
-    let signed_network_id = parse_envelope_network_id(signed_obj, node_network_id)?;
+    let signed_network_id = parse_envelope_network_id(signed_obj, network_policy)?;
     match verify_signature_with_network(pk, signature, payload, signed_network_id) {
         Ok(true) => {}
         Ok(false) => return Err(HttpError::signature_invalid()),
@@ -3755,7 +3793,8 @@ fn bounty_announce_json(state: &mut LocalNodeState, body: &[u8]) -> Result<Value
     }
 
     // 3) P2.10 — cross-network gate before crypto.
-    let envelope_network_id = parse_envelope_network_id(envelope_obj, &state.network_id)?;
+    let envelope_network_id =
+        parse_envelope_network_id(envelope_obj, state.envelope_network_policy())?;
 
     // 4) Crypto: structurally valid envelope but wrong sig is 401, not 400.
     //    Network-bound digest when the wire envelope opted in via
@@ -3931,7 +3970,8 @@ fn bounty_status_json(
         ));
     }
     // 1b) P2.10 — cross-network gate before crypto.
-    let envelope_network_id = parse_envelope_network_id(envelope_obj, &state.network_id)?;
+    let envelope_network_id =
+        parse_envelope_network_id(envelope_obj, state.envelope_network_policy())?;
     match verify_signature_with_network(pk, signature, payload, envelope_network_id) {
         Ok(true) => {}
         Ok(false) => return Err(HttpError::signature_invalid()),
@@ -4160,7 +4200,8 @@ fn bounty_proof_prepare(
     }
 
     // 3) P2.10 — cross-network gate before crypto.
-    let envelope_network_id = parse_envelope_network_id(outer_obj, &state.network_id)?;
+    let envelope_network_id =
+        parse_envelope_network_id(outer_obj, state.envelope_network_policy())?;
 
     // 4) Crypto: signature must verify against payload bytes (network-bound
     //    when the wire envelope opted in).
@@ -5528,10 +5569,9 @@ fn rebuild_bounty_state_after_reorg(
 /// the dedup ledger cannot diverge between the two ingress surfaces.
 ///
 /// Deliberate differences from the HTTP path:
-/// - no session gate: N2.1's ownership proof is an HTTP-surface policy for
-///   this node's own submitters, not consensus validation; gossiped shares
-///   are validated purely by admission (the announcing node enforced its
-///   own submit policy).
+/// - no session-registry lookup: a peer cannot see another node's registry.
+///   The portable signed-work authorization is nevertheless verified here,
+///   and networks whose core policy requires it reject a missing envelope.
 /// - no nonce burn / receipt: session-bound bookkeeping has no meaning for
 ///   a relayed share (there is no session).
 /// - no block build: block propagation is N3.3; a gossiped share only
@@ -5580,15 +5620,31 @@ pub(crate) fn ingress_admit_share(
     // consensus-level validation must not depend on it. An invalid
     // envelope is a typed reject — a peer must never launder an
     // authorization the submitter did not sign into its candidate set.
+    let signed_work = match envelope.get("signedWork") {
+        Some(raw) => match serde_json::from_value::<ShareWorkAuthorization>(raw.clone()) {
+            Ok(auth) => Some(auth),
+            Err(_) => return rejected("invalid_share_authorization"),
+        },
+        None => None,
+    };
+    let expected_network_id = state
+        .require_network_scoped_envelopes
+        .then_some(state.network_id.as_str());
+    let verified_work = match boole_core::verify_share_work_authorization_for_network(
+        signed_work.as_ref(),
+        expected_network_id,
+    ) {
+        Ok(verified) => verified,
+        Err(_) => {
+            return rejected(if signed_work.is_none() {
+                "missing_share_authorization"
+            } else {
+                "invalid_share_authorization"
+            });
+        }
+    };
     let mut reward_pk: Option<String> = None;
-    let mut signed_work: Option<ShareWorkAuthorization> = None;
-    if let Some(raw) = envelope.get("signedWork") {
-        let Ok(auth) = serde_json::from_value::<ShareWorkAuthorization>(raw.clone()) else {
-            return rejected("invalid_share_authorization");
-        };
-        let Ok(verified) = boole_core::verify_share_work_authorization(&auth) else {
-            return rejected("invalid_share_authorization");
-        };
+    if let Some(verified) = verified_work {
         let body_field = |field: &str| body.get(field).and_then(Value::as_str).unwrap_or("");
         let identity_holds = verified.signer_pk == verified.work_pk
             && verified.work_pk == body_field("pk")
@@ -5600,7 +5656,6 @@ pub(crate) fn ingress_admit_share(
             return rejected("invalid_share_authorization");
         }
         reward_pk = Some(verified.reward_recipient);
-        signed_work = Some(auth);
     }
     if state.runtime.observe_ticket_from_body(&body).is_err() {
         return rejected("ticket_observe_failed");

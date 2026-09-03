@@ -19,11 +19,13 @@ use boole_core::{
 };
 use serde_json::{json, Value};
 
+#[path = "support/testnet2_session_fixture.rs"]
+mod testnet2_session_fixture;
+
 const PROFILE: &str = "v1-lenbound";
 /// The chain context the smoke submits under: the boole-testnet-2 genesis
 /// anchor (all-zero) — the node's head at the moment the smoke submits.
 const C: &str = "0000000000000000000000000000000000000000000000000000000000000000";
-const PK: &str = "1111111111111111111111111111111111111111111111111111111111111111";
 const N: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const J: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 /// Any nonce clears the fixture policy's trivial T_submit; a constant keeps
@@ -39,7 +41,8 @@ fn canonical_checker_dir() -> PathBuf {
 
 fn expected_body() -> Value {
     let c = Hex32::from_hex(C).expect("c");
-    let pk = Hex32::from_hex(PK).expect("pk");
+    let pk_hex = testnet2_session_fixture::session_key().pk_hex();
+    let pk = Hex32::from_hex(&pk_hex).expect("pk");
     let n = Hex32::from_hex(N).expect("n");
     let seed = target_seed(&c, &pk, &n, 0);
     let seed_hex = seed.to_hex();
@@ -52,7 +55,7 @@ fn expected_body() -> Value {
     let canon = lean_bound_canon_package(&verifier_hash, &checker_hash, &lean_source);
     json!({
         "c": C,
-        "pk": PK,
+        "pk": pk_hex,
         "n": N,
         "j": J,
         "nonceS": NONCE_S,
@@ -81,5 +84,15 @@ fn testnet2_lenbound_share_fixture_matches_generator() {
          consensus generator (family render / canon / checker pin moved); \
          replace its `body` with:\n{}",
         serde_json::to_string_pretty(&expected).expect("expected body json")
+    );
+    assert_eq!(
+        fixture["sessionState"],
+        testnet2_session_fixture::session_state(),
+        "replace the fixture's sessionState with the deterministic testnet-2 session authority"
+    );
+    assert_eq!(
+        fixture["submissionSession"],
+        testnet2_session_fixture::submission_session(&expected, "testnet2-lenbound-work-v1"),
+        "replace the fixture's submissionSession with the network-scoped work authorization"
     );
 }

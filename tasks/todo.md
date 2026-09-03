@@ -1505,8 +1505,13 @@ plan: /Users/seoyong/.claude/plans/cozy-wiggling-lobster.md (2026-07-18 승인).
             즉시-블록 시나리오에서 pool 스냅샷이 블록 채택과 경합(구조적 플레이크).
             같은 경합이 잠재해 있던 기존 base 테스트도 단조 admitted 카운터로 견고화
             (pre-N3.3의 height==0 scope pin 제거 — PR 본문 명시)
-- [ ] SC.1-c testnet2 fixture/스모크 세션 이행 (강제 없음, 전면 재생성)
-- [ ] SC.1-d named 강제 반전 (testnet-2 전용 술어, replay에 network_id 스레딩)
+- [x] SC.1-c testnet2 fixture/스모크 세션 이행 — 2026-09-03 M1에서 두 fixture를
+      결정적 세션 키·network-scoped work 봉투로 재생성하고 checker-pinned smoke 4종을
+      세션 등록·제출 경로로 전환; `--allow-anonymous-submit` 제거.
+- [x] SC.1-d named 강제 반전 — 2026-09-03 M1에서 `boole-testnet-2`의 HTTP 부팅·
+      peer-share ingress·top-k 전 selection·genesis-aware replay 네 지점이 누락/타
+      network 승인을 거절하도록 공용 검증 정책 배선. 명시 named HTTP 봉투는
+      `network_id` 필수, unnamed local embedding은 명시 legacy 경로 유지.
 
 ---
 
