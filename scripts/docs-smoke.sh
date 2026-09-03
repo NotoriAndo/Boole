@@ -3315,4 +3315,14 @@ require_text docs/install.md 'boole product adopt-trust-bootstrap'
 require_text docs/install.md 'SHA256_FROM_AN_INDEPENDENT_CHANNEL'
 require_text docs/install.md 'it cannot prove that separate'
 
+# Real-world custody choices are now a machine-checkable public plan, but the
+# verifier remains a no-key, no-publication preparation gate.
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'EXACT 5 ROLE ASSIGNMENTS / PRODUCT != GUEST CUSTODIAN / RECOVERY 3 DISTINCT PEOPLE + DEVICES + SITES'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'BOOTSTRAP HOST + ADMIN CONTROL != ROOT-PIN HOST + ADMIN CONTROL'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'NEXT: OPERATOR SUPPLIES THE REAL CUSTODY PLAN -> BIND ITS DIGEST INTO THE OPERATIONAL CEREMONY'
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Operational key-custody plan preflight'
+require_text docs/operational-key-custody-plan-v1.md 'ceremony-preparation-only'
+require_text docs/operational-key-custody-plan-v1.md 'NO KEY OR AUTHORITY CREATED'
+require_text docs/install.md 'boole product verify-operational-custody-plan'
+
 printf 'docs-smoke: PASS\n' >&2
