@@ -1519,7 +1519,14 @@ plan: /Users/seoyong/.claude/plans/cozy-wiggling-lobster.md (2026-07-18 승인).
 - [x] N5.3 M2 canonical-state safety — PR #362. live status/verify를 무수정 읽기로 분리하고,
       family manifest root를 genesis에 결박. canonical block store에서 reward·bounty·
       proof-dedup 장부를 정확 재유도하며, commit/reorg 뒤 projection 실패 시 readiness를
-      닫고 후속 쓰기를 막은 뒤 재시작 때 복구하도록 구현. 현재 다음 = M3 P2P lifecycle.
+      닫고 후속 쓰기를 막은 뒤 재시작 때 복구하도록 구현.
+- [x] N5.3 M3 P2P lifecycle — 피어별 유한 큐·독립 worker로 느린 피어만 격리하고,
+      동기화 1회당 실제 수신 바이트·블록·응답 수·절대시간 누적 상한을 상태 변경 전에 적용.
+      남은 바이트를 JSON 파싱 전부터 강제하고, 한 회에 안 들어오는 깊은 경쟁 포크는
+      부분 채택 없이 명시적으로 보류(장기 testnet 전 resumable sync 후속 필요). ingress·
+      egress·sync·package fetch의 막힌 소켓을 공용 lifecycle 종료가 먼저 깨운 뒤 join.
+      직접 시험은 느린 피어 격리, 과다 응답 0 mutation, partial frame/무응답 peer의
+      1초 이내 종료를 고정. 현재 다음 = M4 controlled bootstrap join (미착수).
 
 ---
 

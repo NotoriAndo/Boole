@@ -10,16 +10,17 @@
 //! ingress surfaces.
 
 use std::collections::BTreeSet;
+use std::io;
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use boole_core::{LocalPackageStore, LocalPackageStoreError, PackageRoot, CONSENSUS_RULE_VERSION};
 use boole_p2p::{
     Frame, FrameError, HeadSummary, TcpConn, TcpTransport, Transport, GET_BLOCKS_RANGE_CAP,
-    PROTOCOL_VERSION,
+    MAX_FRAME_BYTES, PROTOCOL_VERSION,
 };
 use serde_json::Value;
 use tokio::sync::RwLock;
@@ -29,7 +30,8 @@ use crate::local_node::{
     ingress_admit_share, CandidateChainOutcome, HttpRateLimiter, IngressBlockOutcome,
     IngressShareOutcome, LocalNodeState,
 };
-use crate::p2p_egress::open_validated_conn;
+use crate::p2p_egress::open_validated_conn_until;
+use crate::p2p_lifecycle::P2pLifecycle;
 use crate::p2p_package_fetch::PackageFetchingConfig;
 
 /// How long an accepted connection may sit silent before it is dropped.
@@ -206,8 +208,11 @@ pub(crate) struct P2pMetrics {
     /// and not rejected (ADR-0016 (a-3)).
     pub(crate) sync_reorgs_deferred: AtomicU64,
     pub(crate) sync_peer_failures: AtomicU64,
+    pub(crate) sync_budget_drops: AtomicU64,
+    pub(crate) sync_over_return_drops: AtomicU64,
     pub(crate) egress_announces: AtomicU64,
     pub(crate) egress_failures: AtomicU64,
+    pub(crate) egress_queue_full_drops: AtomicU64,
     pub(crate) egress_block_announces: AtomicU64,
     pub(crate) egress_block_failures: AtomicU64,
 }
@@ -215,19 +220,19 @@ pub(crate) struct P2pMetrics {
 pub(crate) fn spawn_ingress_thread(
     config: P2pIngressRuntimeConfig,
     state: Arc<RwLock<LocalNodeState>>,
-    stop: Arc<AtomicBool>,
+    lifecycle: Arc<P2pLifecycle>,
     metrics: Arc<P2pMetrics>,
 ) -> thread::JoinHandle<()> {
     thread::Builder::new()
         .name("boole-p2p-ingress".to_string())
-        .spawn(move || ingress_loop(config, state, stop, metrics))
+        .spawn(move || ingress_loop(config, state, lifecycle, metrics))
         .expect("spawn boole-p2p-ingress thread")
 }
 
 fn ingress_loop(
     config: P2pIngressRuntimeConfig,
     state: Arc<RwLock<LocalNodeState>>,
-    stop: Arc<AtomicBool>,
+    lifecycle: Arc<P2pLifecycle>,
     metrics: Arc<P2pMetrics>,
 ) {
     let P2pIngressRuntimeConfig {
@@ -246,7 +251,7 @@ fn ingress_loop(
     // budget by reconnecting.
     let rate_limiter =
         (rate_limit_per_60s > 0).then(|| HttpRateLimiter::new(rate_limit_per_60s, 60_000));
-    while !stop.load(Ordering::Relaxed) {
+    while !lifecycle.is_stopped() {
         match listener.accept() {
             Ok((stream, peer)) => {
                 if !allowlist.contains(&peer.ip()) {
@@ -264,7 +269,7 @@ fn ingress_loop(
                 let context = IngressConnectionContext {
                     identity: &identity,
                     state: &state,
-                    stop: &stop,
+                    lifecycle: &lifecycle,
                     metrics: &metrics,
                     rate_limiter: rate_limiter.as_ref(),
                     package_serving: package_serving.as_ref(),
@@ -272,9 +277,11 @@ fn ingress_loop(
                 handle_connection(stream, peer, &context);
             }
             Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
-                thread::sleep(ACCEPT_POLL_INTERVAL);
+                lifecycle.wait_or_stop(ACCEPT_POLL_INTERVAL);
             }
-            Err(_) => thread::sleep(ACCEPT_POLL_INTERVAL),
+            Err(_) => {
+                lifecycle.wait_or_stop(ACCEPT_POLL_INTERVAL);
+            }
         }
     }
 }
@@ -323,7 +330,7 @@ fn now_ms() -> u128 {
 struct IngressConnectionContext<'a> {
     identity: &'a P2pIdentity,
     state: &'a Arc<RwLock<LocalNodeState>>,
-    stop: &'a Arc<AtomicBool>,
+    lifecycle: &'a Arc<P2pLifecycle>,
     metrics: &'a Arc<P2pMetrics>,
     rate_limiter: Option<&'a HttpRateLimiter>,
     package_serving: Option<&'a PackageServingConfig>,
@@ -332,7 +339,7 @@ struct IngressConnectionContext<'a> {
 fn handle_connection(stream: TcpStream, peer: SocketAddr, context: &IngressConnectionContext<'_>) {
     let identity = context.identity;
     let state = context.state;
-    let stop = context.stop;
+    let lifecycle = context.lifecycle;
     let metrics = context.metrics;
     let rate_limiter = context.rate_limiter;
     let package_serving = context.package_serving;
@@ -344,6 +351,10 @@ fn handle_connection(stream: TcpStream, peer: SocketAddr, context: &IngressConne
     {
         return;
     }
+    let _lease = match lifecycle.register(&stream) {
+        Ok(lease) => lease,
+        Err(_) => return,
+    };
     let transport = TcpTransport::new();
     let mut conn = match TcpTransport::conn_from_stream(stream) {
         Ok(conn) => conn,
@@ -378,12 +389,15 @@ fn handle_connection(stream: TcpStream, peer: SocketAddr, context: &IngressConne
         return;
     }
     let peer_ip = peer.ip().to_string();
-    while !stop.load(Ordering::Relaxed) {
+    while !lifecycle.is_stopped() {
         match recv_frame_limited(&transport, &mut conn, &peer, rate_limiter, metrics) {
             Ok(Frame::ShareAnnounce { submission }) => {
                 // The single write guard covers admit + dedup peek exactly
                 // like the HTTP path (`submit_json`) — see
                 // `ingress_admit_share` for the policy notes.
+                let Some(_mutation) = lifecycle.begin_mutation() else {
+                    return;
+                };
                 let mut guard = state.blocking_write();
                 match ingress_admit_share(&mut guard, &submission, &peer_ip) {
                     IngressShareOutcome::Admitted => {
@@ -456,6 +470,9 @@ fn handle_connection(stream: TcpStream, peer: SocketAddr, context: &IngressConne
                         }
                         Err(()) => return,
                     };
+                let Some(_mutation) = lifecycle.begin_mutation() else {
+                    return;
+                };
                 let mut guard = state.blocking_write();
                 match ingest_announced_block(&mut guard, &block_value) {
                     IngressBlockOutcome::Ingested => {
@@ -564,16 +581,234 @@ fn handle_connection(stream: TcpStream, peer: SocketAddr, context: &IngressConne
 /// (2 peers × 1 Hello per interval ≈ nothing against the 600/min budget).
 const SYNC_POLL_INTERVAL: Duration = Duration::from_secs(5);
 
+/// One peer may advance a bounded amount per poll. This prevents an advertised
+/// giant head or competing fork from growing one in-memory `Vec` without bound.
+const MAX_SYNC_BLOCKS_PER_PEER_ROUND: u64 = 4_096;
+const MAX_SYNC_WIRE_BYTES_PER_PEER_ROUND: usize = MAX_FRAME_BYTES * 4;
+const MAX_SYNC_RESPONSES_PER_PEER_ROUND: u64 = 64;
+const MAX_SYNC_PEER_ROUND_DURATION: Duration = Duration::from_secs(30);
+
+#[derive(Debug, PartialEq, Eq)]
+enum SyncBudgetError {
+    ResponseOverReturn { requested: u64, returned: u64 },
+    BlockLimit { attempted: u64, limit: u64 },
+    WireByteLimit { attempted: usize, limit: usize },
+    ResponseLimit { attempted: u64, limit: u64 },
+    DeadlineExceeded,
+}
+
+struct SyncBudget {
+    block_limit: u64,
+    wire_byte_limit: usize,
+    response_limit: u64,
+    deadline: Instant,
+    used_blocks: u64,
+    used_wire_bytes: usize,
+    used_responses: u64,
+}
+
+impl SyncBudget {
+    fn new(
+        block_limit: u64,
+        wire_byte_limit: usize,
+        response_limit: u64,
+        deadline: Instant,
+    ) -> Self {
+        Self {
+            block_limit,
+            wire_byte_limit,
+            response_limit,
+            deadline,
+            used_blocks: 0,
+            used_wire_bytes: 0,
+            used_responses: 0,
+        }
+    }
+
+    fn for_peer_round() -> Self {
+        Self::new(
+            MAX_SYNC_BLOCKS_PER_PEER_ROUND,
+            MAX_SYNC_WIRE_BYTES_PER_PEER_ROUND,
+            MAX_SYNC_RESPONSES_PER_PEER_ROUND,
+            Instant::now() + MAX_SYNC_PEER_ROUND_DURATION,
+        )
+    }
+
+    fn charge_response(
+        &mut self,
+        requested: u64,
+        returned: usize,
+        wire_bytes: usize,
+    ) -> Result<(), SyncBudgetError> {
+        let returned = u64::try_from(returned).unwrap_or(u64::MAX);
+        if returned > requested {
+            return Err(SyncBudgetError::ResponseOverReturn {
+                requested,
+                returned,
+            });
+        }
+        let attempted_blocks = self.used_blocks.saturating_add(returned);
+        if attempted_blocks > self.block_limit {
+            return Err(SyncBudgetError::BlockLimit {
+                attempted: attempted_blocks,
+                limit: self.block_limit,
+            });
+        }
+        let attempted_wire_bytes = self.used_wire_bytes.saturating_add(wire_bytes);
+        if attempted_wire_bytes > self.wire_byte_limit {
+            return Err(SyncBudgetError::WireByteLimit {
+                attempted: attempted_wire_bytes,
+                limit: self.wire_byte_limit,
+            });
+        }
+        let attempted_responses = self.used_responses.saturating_add(1);
+        if attempted_responses > self.response_limit {
+            return Err(SyncBudgetError::ResponseLimit {
+                attempted: attempted_responses,
+                limit: self.response_limit,
+            });
+        }
+        self.used_blocks = attempted_blocks;
+        self.used_wire_bytes = attempted_wire_bytes;
+        self.used_responses = attempted_responses;
+        Ok(())
+    }
+
+    fn ensure_before_receive(&self, now: Instant) -> Result<(), SyncBudgetError> {
+        if now >= self.deadline {
+            return Err(SyncBudgetError::DeadlineExceeded);
+        }
+        if self.used_blocks >= self.block_limit {
+            return Err(SyncBudgetError::BlockLimit {
+                attempted: self.used_blocks.saturating_add(1),
+                limit: self.block_limit,
+            });
+        }
+        if self.used_responses >= self.response_limit {
+            return Err(SyncBudgetError::ResponseLimit {
+                attempted: self.used_responses.saturating_add(1),
+                limit: self.response_limit,
+            });
+        }
+        if self.used_wire_bytes >= self.wire_byte_limit {
+            return Err(SyncBudgetError::WireByteLimit {
+                attempted: self.used_wire_bytes.saturating_add(1),
+                limit: self.wire_byte_limit,
+            });
+        }
+        Ok(())
+    }
+
+    fn ensure_before_mutation(&self, now: Instant) -> Result<(), SyncBudgetError> {
+        if now >= self.deadline {
+            Err(SyncBudgetError::DeadlineExceeded)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn remaining_blocks(&self) -> u64 {
+        self.block_limit.saturating_sub(self.used_blocks)
+    }
+
+    fn used_blocks(&self) -> u64 {
+        self.used_blocks
+    }
+
+    fn remaining_wire_bytes(&self) -> usize {
+        self.wire_byte_limit.saturating_sub(self.used_wire_bytes)
+    }
+
+    fn deadline(&self) -> Instant {
+        self.deadline
+    }
+
+    #[cfg(test)]
+    fn used_wire_bytes(&self) -> usize {
+        self.used_wire_bytes
+    }
+
+    #[cfg(test)]
+    fn used_responses(&self) -> u64 {
+        self.used_responses
+    }
+}
+
+#[derive(Debug)]
+enum SyncRoundError {
+    Peer(FrameError),
+    Budget(SyncBudgetError),
+}
+
+impl From<FrameError> for SyncRoundError {
+    fn from(error: FrameError) -> Self {
+        Self::Peer(error)
+    }
+}
+
+impl From<SyncBudgetError> for SyncRoundError {
+    fn from(error: SyncBudgetError) -> Self {
+        Self::Budget(error)
+    }
+}
+
+fn sync_budget_frame_error(error: SyncBudgetError) -> FrameError {
+    FrameError::Malformed {
+        detail: format!("peer sync budget violation: {error:?}"),
+    }
+}
+
+fn charge_sync_response(
+    budget: &mut SyncBudget,
+    requested: u64,
+    returned: usize,
+    wire_bytes: usize,
+    metrics: &P2pMetrics,
+) -> Result<(), SyncRoundError> {
+    match budget.charge_response(requested, returned, wire_bytes) {
+        Ok(()) => Ok(()),
+        Err(error @ SyncBudgetError::ResponseOverReturn { .. }) => {
+            metrics
+                .sync_over_return_drops
+                .fetch_add(1, Ordering::Relaxed);
+            Err(SyncRoundError::Peer(sync_budget_frame_error(error)))
+        }
+        Err(error) => Err(SyncRoundError::Budget(error)),
+    }
+}
+
+fn recv_sync_frame(
+    transport: &TcpTransport,
+    conn: &mut TcpConn,
+    budget: &SyncBudget,
+) -> Result<(Frame, usize), SyncRoundError> {
+    budget.ensure_before_receive(Instant::now())?;
+    match transport.recv_frame_counted_until(conn, budget.remaining_wire_bytes(), budget.deadline())
+    {
+        Ok(frame) => Ok(frame),
+        Err(FrameError::FrameBudgetExceeded { seen, .. }) => {
+            Err(SyncRoundError::Budget(SyncBudgetError::WireByteLimit {
+                attempted: budget.used_wire_bytes.saturating_add(seen),
+                limit: budget.wire_byte_limit,
+            }))
+        }
+        Err(FrameError::ReceiveDeadlineExceeded) => {
+            Err(SyncRoundError::Budget(SyncBudgetError::DeadlineExceeded))
+        }
+        Err(error) => Err(SyncRoundError::Peer(error)),
+    }
+}
+
 pub(crate) fn spawn_sync_thread(
     peers: Vec<SocketAddr>,
     identity: P2pIdentity,
     state: Arc<RwLock<LocalNodeState>>,
-    stop: Arc<AtomicBool>,
+    lifecycle: Arc<P2pLifecycle>,
     metrics: Arc<P2pMetrics>,
 ) -> thread::JoinHandle<()> {
     thread::Builder::new()
         .name("boole-p2p-sync".to_string())
-        .spawn(move || sync_loop(peers, identity, state, stop, metrics))
+        .spawn(move || sync_loop(peers, identity, state, lifecycle, metrics))
         .expect("spawn boole-p2p-sync thread")
 }
 
@@ -588,26 +823,33 @@ fn sync_loop(
     peers: Vec<SocketAddr>,
     identity: P2pIdentity,
     state: Arc<RwLock<LocalNodeState>>,
-    stop: Arc<AtomicBool>,
+    lifecycle: Arc<P2pLifecycle>,
     metrics: Arc<P2pMetrics>,
 ) {
-    while !stop.load(Ordering::Relaxed) {
+    while !lifecycle.is_stopped() {
         for peer in &peers {
-            if stop.load(Ordering::Relaxed) {
+            if lifecycle.is_stopped() {
                 return;
             }
-            if sync_with_peer(peer, &identity, &state, &stop, &metrics).is_err() {
-                metrics.sync_peer_failures.fetch_add(1, Ordering::Relaxed);
+            match sync_with_peer(peer, &identity, &state, &lifecycle, &metrics) {
+                Ok(()) => {}
+                Err(SyncRoundError::Budget(error)) => {
+                    metrics.sync_budget_drops.fetch_add(1, Ordering::Relaxed);
+                    eprintln!("boole-node: peer sync deferred by local round budget: {error:?}");
+                }
+                Err(SyncRoundError::Peer(error)) => {
+                    if lifecycle.is_stopped() {
+                        return;
+                    }
+                    metrics.sync_peer_failures.fetch_add(1, Ordering::Relaxed);
+                    eprintln!("boole-node: peer sync failed: {error}");
+                }
             }
         }
         // Sleep in short slices so shutdown stays bounded by the accept
         // poll, not by the sync interval.
-        let deadline = std::time::Instant::now() + SYNC_POLL_INTERVAL;
-        while std::time::Instant::now() < deadline {
-            if stop.load(Ordering::Relaxed) {
-                return;
-            }
-            thread::sleep(ACCEPT_POLL_INTERVAL);
+        if lifecycle.wait_or_stop(SYNC_POLL_INTERVAL) {
+            return;
         }
     }
 }
@@ -616,29 +858,67 @@ fn sync_with_peer(
     peer: &SocketAddr,
     identity: &P2pIdentity,
     state: &Arc<RwLock<LocalNodeState>>,
-    stop: &Arc<AtomicBool>,
+    lifecycle: &Arc<P2pLifecycle>,
     metrics: &Arc<P2pMetrics>,
-) -> Result<(), FrameError> {
+) -> Result<(), SyncRoundError> {
     let my_head = head_summary(&state.blocking_read());
-    let (transport, mut conn, peer_head) = open_validated_conn(peer, identity, my_head.clone())?;
+    let mut budget = SyncBudget::for_peer_round();
+    budget.ensure_before_receive(Instant::now())?;
+    let mut validated = match open_validated_conn_until(
+        peer,
+        identity,
+        my_head.clone(),
+        lifecycle,
+        budget.remaining_wire_bytes(),
+        budget.deadline(),
+    ) {
+        Ok(validated) => validated,
+        Err(FrameError::FrameBudgetExceeded { seen, .. }) => {
+            return Err(SyncRoundError::Budget(SyncBudgetError::WireByteLimit {
+                attempted: seen,
+                limit: budget.wire_byte_limit,
+            }));
+        }
+        Err(FrameError::ReceiveDeadlineExceeded) => {
+            return Err(SyncRoundError::Budget(SyncBudgetError::DeadlineExceeded));
+        }
+        Err(error) => return Err(SyncRoundError::Peer(error)),
+    };
+    let peer_head = validated.peer_head.clone();
+    charge_sync_response(&mut budget, 0, 0, validated.peer_hello_wire_bytes, metrics)?;
     let mut my_height = my_head.height;
-    while my_height < peer_head.height && !stop.load(Ordering::Relaxed) {
-        let to = (peer_head.height - 1).min(my_height + GET_BLOCKS_RANGE_CAP - 1);
-        transport.send_frame(
-            &mut conn,
+    let mut first_probe = true;
+    while my_height < peer_head.height && !lifecycle.is_stopped() {
+        budget.ensure_before_receive(Instant::now())?;
+        let requested = (peer_head.height - my_height)
+            .min(GET_BLOCKS_RANGE_CAP)
+            .min(budget.remaining_blocks())
+            .min(if first_probe { 1 } else { u64::MAX });
+        first_probe = false;
+        if requested == 0 {
+            return Ok(());
+        }
+        let to = my_height + requested - 1;
+        budget.ensure_before_receive(Instant::now())?;
+        validated.transport.send_frame(
+            &mut validated.conn,
             &Frame::GetBlocks {
                 from: my_height,
                 to,
             },
         )?;
-        let blocks = match transport.recv_frame(&mut conn)? {
+        let (reply, wire_bytes) =
+            recv_sync_frame(&validated.transport, &mut validated.conn, &budget)?;
+        let blocks = match reply {
             Frame::Blocks { blocks } => blocks,
             _ => {
                 return Err(FrameError::Malformed {
                     detail: "expected Blocks in reply to GetBlocks".to_string(),
-                })
+                }
+                .into())
             }
         };
+        charge_sync_response(&mut budget, requested, blocks.len(), wire_bytes, metrics)?;
         if blocks.is_empty() {
             // The peer served nothing for a range its Hello claimed to
             // have — stop rather than spin; the next poll retries.
@@ -646,10 +926,17 @@ fn sync_with_peer(
         }
         for block_value in &blocks {
             // Scope the write guard to the ingest call so it is dropped before
-            // any reorg path below re-acquires it (same-thread write-write
-            // would deadlock).
+            // any reorg path below re-acquires both the lifecycle permit and
+            // the state lock. Keeping either guard alive across that call can
+            // deadlock when shutdown is concurrently waiting at the mutation
+            // barrier.
             let outcome = {
+                budget.ensure_before_mutation(Instant::now())?;
+                let Some(_mutation) = lifecycle.begin_mutation() else {
+                    return Ok(());
+                };
                 let mut guard = state.blocking_write();
+                budget.ensure_before_mutation(Instant::now())?;
                 ingest_announced_block(&mut guard, block_value)
             };
             match outcome {
@@ -664,7 +951,15 @@ fn sync_with_peer(
                     // no progress here, so pull the peer's full chain from
                     // genesis and let fork-choice decide whether it is heavy
                     // enough to reorg onto (N4.2/N4.3).
-                    return reorg_from_peer(&transport, &mut conn, &peer_head, state, metrics);
+                    return reorg_from_peer(
+                        &validated.transport,
+                        &mut validated.conn,
+                        &peer_head,
+                        state,
+                        lifecycle,
+                        &mut budget,
+                        metrics,
+                    );
                 }
                 IngressBlockOutcome::Rejected => {
                     // Strict replay refused the peer's block: tampered or
@@ -675,7 +970,8 @@ fn sync_with_peer(
                         .fetch_add(1, Ordering::Relaxed);
                     return Err(FrameError::Malformed {
                         detail: "peer served a block that failed strict validation".to_string(),
-                    });
+                    }
+                    .into());
                 }
                 IngressBlockOutcome::Deferred => {
                     // The pinned checker was unavailable or canonical
@@ -705,18 +1001,45 @@ fn reorg_from_peer(
     conn: &mut TcpConn,
     peer_head: &HeadSummary,
     state: &Arc<RwLock<LocalNodeState>>,
+    lifecycle: &Arc<P2pLifecycle>,
+    budget: &mut SyncBudget,
     metrics: &Arc<P2pMetrics>,
-) -> Result<(), FrameError> {
-    let candidate = fetch_block_range(transport, conn, 0, peer_head.height)?;
+) -> Result<(), SyncRoundError> {
+    // A full competing chain is deliberately evaluated as one strict replay.
+    // If it cannot fit this bounded round, defer before downloading it. Deep
+    // resumable reorg sync belongs to the later snapshot/checkpoint track; it
+    // must not be faked with a partial candidate or repeatedly charged as a
+    // peer protocol failure.
+    if peer_head.height > budget.remaining_blocks() {
+        return Err(SyncRoundError::Budget(SyncBudgetError::BlockLimit {
+            attempted: budget.used_blocks().saturating_add(peer_head.height),
+            limit: budget.block_limit,
+        }));
+    }
+    let candidate = fetch_block_range(
+        transport,
+        conn,
+        0,
+        peer_head.height,
+        lifecycle,
+        budget,
+        metrics,
+    )?;
     if candidate.is_empty() {
         // The peer advertised a head but served nothing for its own range —
         // stop rather than spin; the next poll retries.
         return Ok(());
     }
+    validate_complete_candidate(&candidate, peer_head)?;
     // Network I/O is done; take the write guard only for the state mutation,
     // matching the single-writer discipline the HTTP submit path holds.
+    budget.ensure_before_mutation(Instant::now())?;
+    let Some(_mutation) = lifecycle.begin_mutation() else {
+        return Ok(());
+    };
     let outcome = {
         let mut guard = state.blocking_write();
+        budget.ensure_before_mutation(Instant::now())?;
         ingest_candidate_chain(&mut guard, &candidate)
     };
     match outcome {
@@ -745,8 +1068,27 @@ fn reorg_from_peer(
                 .fetch_add(1, Ordering::Relaxed);
             Err(FrameError::Malformed {
                 detail: "peer served a competing chain that failed strict validation".to_string(),
-            })
+            }
+            .into())
         }
+    }
+}
+
+fn validate_complete_candidate(
+    candidate: &[Value],
+    peer_head: &HeadSummary,
+) -> Result<(), FrameError> {
+    let candidate_len = u64::try_from(candidate.len()).unwrap_or(u64::MAX);
+    let candidate_tip = candidate
+        .last()
+        .and_then(|block| block.get("c"))
+        .and_then(Value::as_str);
+    if candidate_len == peer_head.height && candidate_tip == Some(peer_head.c.as_str()) {
+        Ok(())
+    } else {
+        Err(FrameError::Malformed {
+            detail: "peer served an incomplete competing chain".to_string(),
+        })
     }
 }
 
@@ -759,27 +1101,189 @@ fn fetch_block_range(
     conn: &mut TcpConn,
     from: u64,
     upto: u64,
-) -> Result<Vec<Value>, FrameError> {
+    lifecycle: &Arc<P2pLifecycle>,
+    budget: &mut SyncBudget,
+    metrics: &P2pMetrics,
+) -> Result<Vec<Value>, SyncRoundError> {
     let mut collected = Vec::new();
     let mut next = from;
     while next < upto {
-        let to = (upto - 1).min(next + GET_BLOCKS_RANGE_CAP - 1);
+        if lifecycle.is_stopped() {
+            // A partial competing chain is not a candidate. Returning it as
+            // success would let shutdown race with fork-choice and mutate
+            // canonical state after the lifecycle boundary was closed.
+            return Err(SyncRoundError::Peer(FrameError::Io(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "P2P lifecycle stopped during block-range fetch",
+            ))));
+        }
+        budget.ensure_before_receive(Instant::now())?;
+        let requested = (upto - next)
+            .min(GET_BLOCKS_RANGE_CAP)
+            .min(budget.remaining_blocks());
+        let to = next + requested - 1;
+        budget.ensure_before_receive(Instant::now())?;
         transport.send_frame(conn, &Frame::GetBlocks { from: next, to })?;
-        let blocks = match transport.recv_frame(conn)? {
+        let (reply, wire_bytes) = recv_sync_frame(transport, conn, budget)?;
+        let blocks = match reply {
             Frame::Blocks { blocks } => blocks,
             _ => {
                 return Err(FrameError::Malformed {
                     detail: "expected Blocks in reply to GetBlocks".to_string(),
-                })
+                }
+                .into())
             }
         };
+        charge_sync_response(budget, requested, blocks.len(), wire_bytes, metrics)?;
         if blocks.is_empty() {
             // The peer served nothing for a range its Hello claimed — stop
             // rather than spin.
             break;
         }
-        next += blocks.len() as u64;
+        next += u64::try_from(blocks.len()).expect("bounded block response length fits u64");
         collected.extend(blocks);
     }
     Ok(collected)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use std::net::{TcpListener, TcpStream};
+
+    #[test]
+    fn sync_budget_charges_blocks_and_actual_wire_bytes_atomically() {
+        let mut budget = SyncBudget::new(3, 12, 10, Instant::now() + Duration::from_secs(1));
+        budget
+            .charge_response(2, 2, 5)
+            .expect("first response fits");
+        assert_eq!(budget.used_blocks(), 2);
+        assert_eq!(budget.used_wire_bytes(), 5);
+
+        assert_eq!(
+            budget.charge_response(1, 2, 1),
+            Err(SyncBudgetError::ResponseOverReturn {
+                requested: 1,
+                returned: 2,
+            })
+        );
+        assert_eq!((budget.used_blocks(), budget.used_wire_bytes()), (2, 5));
+
+        assert_eq!(
+            budget.charge_response(1, 1, 8),
+            Err(SyncBudgetError::WireByteLimit {
+                attempted: 13,
+                limit: 12,
+            })
+        );
+        assert_eq!((budget.used_blocks(), budget.used_wire_bytes()), (2, 5));
+
+        budget
+            .charge_response(1, 1, 7)
+            .expect("exact remaining budget fits");
+        assert!(budget.ensure_before_receive(Instant::now()).is_err());
+    }
+
+    #[test]
+    fn sync_budget_rejects_block_overflow_before_changing_its_counters() {
+        let mut budget = SyncBudget::new(2, 100, 10, Instant::now() + Duration::from_secs(1));
+        assert_eq!(
+            budget.charge_response(2, 3, 30),
+            Err(SyncBudgetError::ResponseOverReturn {
+                requested: 2,
+                returned: 3,
+            })
+        );
+        assert_eq!((budget.used_blocks(), budget.used_wire_bytes()), (0, 0));
+
+        budget.charge_response(2, 2, 30).expect("at limit");
+        assert_eq!(budget.remaining_blocks(), 0);
+        assert_eq!(
+            budget.charge_response(1, 1, 1),
+            Err(SyncBudgetError::BlockLimit {
+                attempted: 3,
+                limit: 2,
+            })
+        );
+        assert_eq!((budget.used_blocks(), budget.used_wire_bytes()), (2, 30));
+    }
+
+    #[test]
+    fn sync_budget_response_limit_is_atomic_and_deadline_blocks_late_mutation() {
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let mut budget = SyncBudget::new(10, 100, 2, deadline);
+        budget.charge_response(0, 0, 10).expect("hello fits");
+        budget
+            .charge_response(1, 1, 10)
+            .expect("one block response fits");
+        assert_eq!((budget.used_blocks(), budget.used_wire_bytes()), (1, 20));
+        assert_eq!(budget.used_responses(), 2);
+
+        assert_eq!(
+            budget.charge_response(1, 1, 10),
+            Err(SyncBudgetError::ResponseLimit {
+                attempted: 3,
+                limit: 2,
+            })
+        );
+        assert_eq!(
+            (
+                budget.used_blocks(),
+                budget.used_wire_bytes(),
+                budget.used_responses()
+            ),
+            (1, 20, 2)
+        );
+        assert_eq!(
+            budget.ensure_before_receive(Instant::now()),
+            Err(SyncBudgetError::ResponseLimit {
+                attempted: 3,
+                limit: 2,
+            })
+        );
+        assert_eq!(
+            budget.ensure_before_mutation(deadline),
+            Err(SyncBudgetError::DeadlineExceeded)
+        );
+    }
+
+    #[test]
+    fn sync_receive_maps_remaining_wire_cap_to_local_budget_deferral() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let mut sender =
+            TcpStream::connect(listener.local_addr().expect("address")).expect("connect sender");
+        let (receiver, _) = listener.accept().expect("accept receiver");
+        let mut conn = TcpTransport::conn_from_stream(receiver).expect("wrap receiver");
+        let transport = TcpTransport::new();
+        sender
+            .write_all(b"{\"type\":\"blocks\",\"blocks\":[]}\n")
+            .expect("write oversized-for-round frame");
+        let budget = SyncBudget::new(10, 12, 10, Instant::now() + Duration::from_secs(1));
+
+        let error = recv_sync_frame(&transport, &mut conn, &budget)
+            .expect_err("remaining wire budget must stop the frame before parse");
+        assert!(matches!(
+            error,
+            SyncRoundError::Budget(SyncBudgetError::WireByteLimit { limit: 12, .. })
+        ));
+        assert_eq!(budget.used_blocks(), 0);
+        assert_eq!(budget.used_wire_bytes(), 0);
+        assert_eq!(budget.used_responses(), 0);
+    }
+
+    #[test]
+    fn competing_candidate_must_reach_the_advertised_height_and_tip() {
+        let block_a = serde_json::json!({"c": "aa"});
+        let block_b = serde_json::json!({"c": "bb"});
+        let head = HeadSummary {
+            height: 2,
+            c: "bb".to_string(),
+        };
+
+        assert!(validate_complete_candidate(std::slice::from_ref(&block_a), &head).is_err());
+        assert!(validate_complete_candidate(&[block_a.clone(), block_a], &head).is_err());
+        validate_complete_candidate(&[serde_json::json!({"c": "aa"}), block_b], &head)
+            .expect("complete candidate matches advertised head");
+    }
 }

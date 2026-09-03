@@ -157,9 +157,22 @@ rewards and activation remain deferred.
   restart performs an exact rebuild. Direct HTTP and P2P fault-injection tests
   cover the partially published state rather than treating it as a clean
   rejection. Implemented by PR #362.
-- Current milestone: `M3-P2P-LIFECYCLE`. It owns bounded per-peer delivery,
-  slow-peer isolation, cumulative sync budgets and prompt shutdown of blocked
-  network work. M4 controlled bootstrap join remains unstarted.
+- `M3-P2P-LIFECYCLE`: COMPLETE. Outbound gossip now uses a bounded queue and
+  independent worker per peer, so one slow peer cannot retain unbounded work or
+  delay healthy peers. Initial/reorg sync charges exact received wire bytes and
+  returned blocks against one cumulative per-peer round budget before state
+  mutation; response count and an absolute round deadline also bound byte
+  trickles, and the remaining wire allowance caps allocation before JSON parse.
+  One lifecycle registry closes blocked ingress, egress, sync and
+  package-fetch sockets before thread joins. Direct tests cover slow-peer
+  shedding, over-return rejection with zero mutation, and prompt shutdown of
+  partial-frame and response-less peers. Full competing-chain replay is
+  deliberately deferred when it cannot fit the bounded round; resumable deep
+  reorg/snapshot sync remains a later pre-long-running-testnet capability, not
+  something this closed three-node milestone claims.
+- Current milestone: `M4-CONTROLLED-BOOTSTRAP-JOIN`. It will prove a static
+  three-node synthetic-work bootstrap and head-synced readiness. It remains
+  unstarted and grants no public P2P exposure or activation.
 
 This progress is closed-local protocol hardening. It neither activates a public
 testnet nor authorizes mining, rewards, payment, consensus, P2P exposure or use

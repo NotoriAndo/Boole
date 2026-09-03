@@ -9,8 +9,9 @@
 //! any frame is processed (ADR-0009 (d)/(e)).
 //!
 //! Since N3.3 landed, A's committed block may legitimately propagate to B
-//! on a parallel connection, so share-crossing is asserted via the
-//! monotonic admitted counter, never a pool-size or height snapshot.
+//! on a parallel connection. The share is therefore allowed either to be
+//! admitted first or to be rejected as stale after that exact block became
+//! canonical; separate TCP handlers do not promise processing order.
 //!
 //! SC.1-b adds the reward-authorization roundtrip: the signed work.v2
 //! envelope must survive egress → wire → ingress → candidate → evidence.
@@ -190,7 +191,14 @@ fn boot_with_p2p_network(
         )
     });
     rx.recv().expect("server ready");
-    thread::sleep(Duration::from_millis(50));
+    // The channel above only proves that the server thread was scheduled;
+    // it fires before `serve_local_node_with_p2p` has installed the ingress
+    // and egress workers.  A fixed sleep made the first best-effort gossip
+    // event racy when this integration binary ran tests in parallel.  An
+    // actual HTTP response is emitted only after those P2P workers exist.
+    wait_until("HTTP/P2P boot boundary", Duration::from_secs(10), || {
+        http_endpoint_ready(addr)
+    });
     Boot {
         addr,
         dir,
@@ -257,6 +265,24 @@ fn http_request(addr: SocketAddr, raw: &str) -> (u16, String) {
     (status, body_text.to_string())
 }
 
+fn http_endpoint_ready(addr: SocketAddr) -> bool {
+    let Ok(mut stream) = TcpStream::connect(addr) else {
+        return false;
+    };
+    let short = Some(Duration::from_millis(100));
+    if stream.set_read_timeout(short).is_err() || stream.set_write_timeout(short).is_err() {
+        return false;
+    }
+    if stream
+        .write_all(b"GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        .is_err()
+    {
+        return false;
+    }
+    let mut response = Vec::new();
+    stream.read_to_end(&mut response).is_ok() && response.starts_with(b"HTTP/1.1 200")
+}
+
 fn http_post(addr: SocketAddr, path: &str, body: &Value) -> (u16, Value) {
     let body_str = serde_json::to_string(body).expect("body json");
     let raw = format!(
@@ -310,7 +336,7 @@ fn wait_until(what: &str, timeout: Duration, mut check: impl FnMut() -> bool) {
 
 #[test]
 #[ignore = "needs-multiprocess"]
-fn share_submitted_to_a_appears_in_b_candidate_pool() {
+fn share_submitted_to_a_is_processed_or_superseded_by_its_block_on_b() {
     let steps = multiminer_steps();
 
     // Pre-bind both gossip listeners so each node can name the other as a
@@ -330,20 +356,45 @@ fn share_submitted_to_a_appears_in_b_candidate_pool() {
     assert_eq!(status, 200, "submit to A: {v0}");
     assert_eq!(v0["accepted"], json!(true), "A must admit the share: {v0}");
 
-    // The share must cross to B via ShareAnnounce and re-enter B's
-    // admission path. Wait on the ADMITTED counter, not a pool-size
-    // snapshot: A's egress sends the ShareAnnounce and the BlockAnnounce
-    // for its own committed block on separate connections that B handles
-    // concurrently, so B may legitimately adopt A's block (N3.3
-    // announce/pull) and prune the pool entry before a poll observes it.
-    // The counter is monotonic and therefore race-free. (The former
-    // `height == 0` scope pin dated from pre-N3.3, when block propagation
-    // did not exist; it only held by that same timing accident.)
-    wait_until(
-        "B to count the gossip-admitted share",
-        Duration::from_secs(10),
-        || metric_value(b.addr, "boole_p2p_ingress_shares_admitted_total") == 1,
+    // The share must cross to B via ShareAnnounce and enter B's admission
+    // path. A's ShareAnnounce and BlockAnnounce use separate connections;
+    // B may process the exact committed block first and then correctly
+    // reject the now-stale share. Both terminal outcomes prove the share
+    // crossed. A rejection is accepted only after byte-identical canonical
+    // block convergence proves that it was superseded, never on its own.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let admitted = metric_value(b.addr, "boole_p2p_ingress_shares_admitted_total");
+        let rejected = metric_value(b.addr, "boole_p2p_ingress_shares_rejected_total");
+        if admitted + rejected >= 1 {
+            break;
+        }
+        if Instant::now() >= deadline {
+            panic!("timed out waiting for B to process the gossiped share");
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+    let admitted = metric_value(b.addr, "boole_p2p_ingress_shares_admitted_total");
+    let rejected = metric_value(b.addr, "boole_p2p_ingress_shares_rejected_total");
+    assert_eq!(
+        admitted + rejected,
+        1,
+        "share must be processed exactly once"
     );
+    if rejected == 1 {
+        let a_head = http_get_json(a.addr, "/head");
+        wait_until(
+            "B to adopt the block that superseded the share",
+            Duration::from_secs(10),
+            || http_get_json(b.addr, "/head")["height"] == a_head["height"],
+        );
+        let a_latest = http_get_json(a.addr, "/block/latest");
+        let b_latest = http_get_json(b.addr, "/block/latest");
+        assert_eq!(
+            a_latest["block"], b_latest["block"],
+            "a rejected share is valid only after its exact block became canonical"
+        );
+    }
 
     stop(a);
     stop(b);
@@ -975,4 +1026,64 @@ fn hello_mismatched_consensus_rule_version_is_dropped() {
     );
 
     stop(b);
+}
+
+#[test]
+#[ignore = "needs-multiprocess"]
+fn shutdown_interrupts_an_ingress_peer_stalled_mid_frame() {
+    let p2p_listener = TcpListener::bind("127.0.0.1:0").expect("bind p2p");
+    let p2p_addr = p2p_listener.local_addr().expect("p2p address");
+    let node = boot_with_p2p(
+        "shutdown-mid-frame",
+        Some(p2p_listener),
+        vec!["127.0.0.1:1".parse().expect("loopback allowlist")],
+        false,
+    );
+
+    let mut raw = TcpStream::connect(p2p_addr).expect("connect ingress");
+    raw.set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("read timeout");
+    let transport = TcpTransport::new();
+    let mut conn = TcpTransport::conn_from_stream(raw.try_clone().expect("clone raw stream"))
+        .expect("framed connection");
+    transport
+        .send_frame(
+            &mut conn,
+            &Frame::Hello {
+                protocol_version: PROTOCOL_VERSION,
+                consensus_rule_version: CONSENSUS_RULE_VERSION,
+                network_id: "boole-mvp".to_string(),
+                genesis_hash: scenario_spec_hash(),
+                head: HeadSummary {
+                    height: 0,
+                    c: scenario_genesis_c(),
+                },
+            },
+        )
+        .expect("send valid hello");
+    assert!(matches!(
+        transport.recv_frame(&mut conn).expect("node hello reply"),
+        Frame::Hello { .. }
+    ));
+    raw.write_all(b"{\"type\":\"shareAnnounce\",\"submission\":")
+        .expect("write deliberately incomplete next frame");
+
+    let Boot {
+        dir,
+        shutdown,
+        handle,
+        ..
+    } = node;
+    let (exit_tx, exit_rx) = mpsc::channel();
+    let waiter = thread::spawn(move || exit_tx.send(handle.join()).expect("report node exit"));
+    shutdown.notify_one();
+    let joined = exit_rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("shutdown must wake the incomplete ingress frame");
+    joined.expect("node thread").expect("node exits");
+
+    drop(conn);
+    drop(raw);
+    waiter.join().expect("waiter joins");
+    fs::remove_dir_all(dir).expect("remove node directory");
 }

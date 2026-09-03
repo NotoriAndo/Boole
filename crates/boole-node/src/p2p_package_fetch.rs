@@ -6,7 +6,7 @@
 
 use std::collections::{BTreeSet, VecDeque};
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
@@ -23,6 +23,7 @@ use tokio::sync::RwLock;
 use crate::local_node::{head_summary, LocalNodeState};
 use crate::p2p_egress::open_validated_conn;
 use crate::p2p_ingress::{P2pIdentity, P2pMetrics};
+use crate::p2p_lifecycle::P2pLifecycle;
 
 const FETCH_RETRY_INTERVAL: Duration = Duration::from_secs(1);
 const FETCH_STOP_POLL_INTERVAL: Duration = Duration::from_millis(25);
@@ -228,12 +229,12 @@ pub(crate) fn spawn_package_fetch_thread(
     peers: Vec<SocketAddr>,
     identity: P2pIdentity,
     state: Arc<RwLock<LocalNodeState>>,
-    stop: Arc<AtomicBool>,
+    lifecycle: Arc<P2pLifecycle>,
     metrics: Arc<P2pMetrics>,
 ) -> thread::JoinHandle<()> {
     thread::Builder::new()
         .name("boole-p2p-package-fetch".to_string())
-        .spawn(move || package_fetch_loop(config, peers, identity, state, stop, metrics))
+        .spawn(move || package_fetch_loop(config, peers, identity, state, lifecycle, metrics))
         .expect("spawn boole-p2p package fetch thread")
 }
 
@@ -242,48 +243,57 @@ fn package_fetch_loop(
     peers: Vec<SocketAddr>,
     identity: P2pIdentity,
     state: Arc<RwLock<LocalNodeState>>,
-    stop: Arc<AtomicBool>,
+    lifecycle: Arc<P2pLifecycle>,
     metrics: Arc<P2pMetrics>,
 ) {
     let mut queue = VecDeque::from(std::mem::take(&mut config.requests));
-    while !stop.load(Ordering::Relaxed) {
+    while !lifecycle.is_stopped() {
         let Some(request) = queue.pop_front() else {
-            sleep_until_retry_or_stop(config.retry_interval, &stop);
+            lifecycle.wait_or_stop(config.retry_interval);
             continue;
         };
 
         match already_staged(&config.store, &request) {
-            Ok(true) => match complete_intent(&mut config.store, &request) {
-                Ok(()) => {
-                    metrics
-                        .package_fetch_recovered
-                        .fetch_add(1, Ordering::Relaxed);
-                    continue;
+            Ok(true) => {
+                let Some(mutation) = lifecycle.begin_mutation() else {
+                    return;
+                };
+                match complete_intent(&mut config.store, &request) {
+                    Ok(()) => {
+                        metrics
+                            .package_fetch_recovered
+                            .fetch_add(1, Ordering::Relaxed);
+                        continue;
+                    }
+                    Err(_) => {
+                        metrics
+                            .package_fetch_store_errors
+                            .fetch_add(1, Ordering::Relaxed);
+                        queue.push_back(request);
+                        drop(mutation);
+                        lifecycle.wait_or_stop(config.retry_interval);
+                        continue;
+                    }
                 }
-                Err(_) => {
-                    metrics
-                        .package_fetch_store_errors
-                        .fetch_add(1, Ordering::Relaxed);
-                    queue.push_back(request);
-                    sleep_until_retry_or_stop(config.retry_interval, &stop);
-                    continue;
-                }
-            },
+            }
             Ok(false) => {}
             Err(_) => {
                 metrics
                     .package_fetch_store_errors
                     .fetch_add(1, Ordering::Relaxed);
                 queue.push_back(request);
-                sleep_until_retry_or_stop(config.retry_interval, &stop);
+                lifecycle.wait_or_stop(config.retry_interval);
                 continue;
             }
         }
 
         let mut fetched = None;
         for peer in &peers {
+            if lifecycle.is_stopped() {
+                return;
+            }
             let head = head_summary(&state.blocking_read());
-            match fetch_from_peer(peer, &identity, head, request.root) {
+            match fetch_from_peer(peer, &identity, head, request.root, &lifecycle) {
                 Ok(PeerFetchOutcome::Available(package)) => {
                     fetched = Some(package);
                     break;
@@ -304,6 +314,9 @@ fn package_fetch_loop(
                         .fetch_add(1, Ordering::Relaxed);
                 }
                 Err(PackageFetchError::Transport(_)) => {
+                    if lifecycle.is_stopped() {
+                        return;
+                    }
                     metrics
                         .package_fetch_peer_failures
                         .fetch_add(1, Ordering::Relaxed);
@@ -311,6 +324,9 @@ fn package_fetch_loop(
             }
         }
 
+        let Some(mutation) = lifecycle.begin_mutation() else {
+            return;
+        };
         let completed = fetched.is_some_and(|package| {
             match config.store.stage(&package, request.reference()) {
                 Ok(StagePackageOutcome::Staged | StagePackageOutcome::AlreadyPending) => {
@@ -335,9 +351,10 @@ fn package_fetch_loop(
                 }
             }
         });
+        drop(mutation);
         if !completed {
             queue.push_back(request);
-            sleep_until_retry_or_stop(config.retry_interval, &stop);
+            lifecycle.wait_or_stop(config.retry_interval);
         }
     }
 }
@@ -385,11 +402,12 @@ fn fetch_from_peer(
     identity: &P2pIdentity,
     head: boole_p2p::HeadSummary,
     requested_root: PackageRoot,
+    lifecycle: &Arc<P2pLifecycle>,
 ) -> Result<PeerFetchOutcome, PackageFetchError> {
-    let (transport, mut conn, _peer_head) = open_validated_conn(peer, identity, head)?;
+    let mut validated = open_validated_conn(peer, identity, head, lifecycle)?;
     let expected_root = requested_root.to_hex();
-    transport.send_frame(
-        &mut conn,
+    validated.transport.send_frame(
+        &mut validated.conn,
         &Frame::GetPackage {
             root: expected_root.clone(),
         },
@@ -397,7 +415,7 @@ fn fetch_from_peer(
     let Frame::Package {
         root,
         canonical_bytes,
-    } = transport.recv_frame(&mut conn)?
+    } = validated.transport.recv_frame(&mut validated.conn)?
     else {
         return Err(PackageFetchError::UnexpectedFrame);
     };
@@ -419,15 +437,6 @@ fn fetch_from_peer(
         });
     }
     Ok(PeerFetchOutcome::Available(package))
-}
-
-fn sleep_until_retry_or_stop(duration: Duration, stop: &AtomicBool) {
-    let mut remaining = duration;
-    while remaining > Duration::ZERO && !stop.load(Ordering::Relaxed) {
-        let step = remaining.min(FETCH_STOP_POLL_INTERVAL);
-        thread::sleep(step);
-        remaining = remaining.saturating_sub(step);
-    }
 }
 
 #[cfg(test)]
