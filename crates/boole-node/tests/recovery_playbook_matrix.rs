@@ -144,28 +144,29 @@ fn row_disk_full_signal_present() {
 }
 
 /// P1.3b — "power loss mid-commit" is no longer deferred: the boot path
-/// re-derives a reward ledger that trails the block store (the crash window
-/// between block append and reward append) instead of refusing to boot.
+/// reconstructs reward authority from the canonical block store (including
+/// the crash window between block append and reward append) instead of
+/// trusting or patching a trailing projection.
 /// Fault-injection lives in
 /// `reward_ledger_crash_heal::boot_heals_reward_ledger_trailing_block_store_by_one`.
 #[test]
 fn row_power_loss_mid_commit_heals_on_reboot() {
     assert!(
-        RUNTIME_SRC.contains("reward ledger healed from block store"),
-        "P1.3b: the boot path must re-derive trailing reward events on reboot"
+        RUNTIME_SRC.contains("reward ledger reconstructed from canonical block history"),
+        "P1.3b: the boot path must reconstruct reward authority from canonical blocks"
     );
 }
 
 /// P1.3b follow-up — the same "power loss mid-commit" row also covers the
 /// NARROWER crash window between the reward append and the bounty-event
-/// appends. Boot re-derives the trailing `credit` + `share_promoted` rows from
-/// each block's persisted `promoted_bounty_shares`
-/// instead of refusing to boot with `--bounty-events`. Fault-injection lives in
+/// appends. Boot reconstructs the `credit` + `share_promoted` projection from
+/// each canonical block's persisted `promoted_bounty_shares` instead of
+/// trusting a trailing side ledger. Fault-injection lives in
 /// `bounty_event_crash_heal::boot_heals_bounty_event_ledger_trailing_after_reward_written`.
 #[test]
 fn row_bounty_event_crash_heals_on_reboot() {
     assert!(
-        RUNTIME_SRC.contains("bounty-event ledger healed from block store"),
-        "P1.3b: the boot path must re-derive trailing bounty-event rows on reboot"
+        RUNTIME_SRC.contains("bounty-event ledger reconstructed from canonical block history"),
+        "P1.3b: the boot path must reconstruct bounty events from canonical blocks"
     );
 }
