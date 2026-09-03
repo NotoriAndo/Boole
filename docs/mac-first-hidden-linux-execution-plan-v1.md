@@ -7361,3 +7361,42 @@ ALL INSTALLED LIFECYCLE COMMANDS REOPEN ONE FULLY VERIFIED CHAIN / NO RAW-ROOT F
 NEXT: OPERATIONAL KEY-CUSTODY CEREMONY + PUBLIC RECOVERY-ROOT DISTRIBUTION CONTRACT
 PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
 ```
+
+## 112. Public trust bootstrap is rehearsed without operational private keys (2026-09-03)
+
+The next boundary is implemented as a non-production KAT rehearsal rather than an operational key
+ceremony. A canonical ceremony transcript binds the generation-one recovery root and trust policy
+to exactly five active participants: separate product and guest release keys plus all three
+recovery keys. Every participant must provide a valid detached proof-of-possession signature over
+the same domain-separated transcript digest. Missing, repeated, reordered, substituted or invalid
+signatures fail before an output tree exists. The verifier accepts only the literal
+`non-production-kat` environment; changing the fully re-signed transcript to `production` is still
+rejected.
+
+`boole product package-trust-bootstrap` receives only the recovery root, policy, policy signatures,
+ceremony and ceremony signatures. It verifies all five documents, copies them through a private
+staging directory, reopens and verifies the exact staged set, makes it read-only, fsyncs it and
+publishes it with one rename. It has no private-key, signing, network or upload input. This proves
+cryptographic possession of five distinct keys in the rehearsal. It does not prove physical
+separation of operators, devices, storage or sites.
+
+`boole product adopt-trust-bootstrap` requires the package and a recovery-root SHA-256 supplied
+separately from that package. The external pin is checked before the install root is mutated. Only
+then does the existing single-writer, durable trust store adopt generation one; no release is
+downloaded and no installed-release state is created. Later release transport reopens that stored
+policy without accepting a same-channel trust root. An existing direct-root installation cannot be
+silently converted.
+
+This closes the executable KAT contract for public ceremony evidence and independent bootstrap
+adoption. It does not create an operational key, verify real-world custody, choose or operate an
+independent publication channel, upload a public root, sign an official release, or authorize
+production, testnet, mining, reward, consensus, P2P or activation. Those require an explicit
+operator-approved operational ceremony outside this milestone.
+
+```text
+FIVE PUBLIC PROOFS OF POSSESSION -> EXACT READ-ONLY BOOTSTRAP PACKAGE
+INDEPENDENT RECOVERY-ROOT SHA-256 -> DURABLE GENERATION-ONE ADOPTION BEFORE DOWNLOAD
+KAT REHEARSAL ONLY / PHYSICAL CUSTODY + PUBLICATION CHANNEL NOT CLAIMED
+NEXT: OPERATOR-APPROVED OPERATIONAL KEY CEREMONY + INDEPENDENT ROOT PUBLICATION
+PRODUCTION / TESTNET / MINING / REWARD / CONSENSUS / P2P / ACTIVATION CLOSED
+```

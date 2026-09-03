@@ -9,3 +9,4 @@ pub mod cli_envelope;
 pub mod curl_product_package;
 pub mod curl_product_transport;
 pub mod installed_product_lifecycle;
+pub mod operational_trust_bootstrap;

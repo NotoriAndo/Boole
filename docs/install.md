@@ -15,6 +15,8 @@ Its main command surface is:
 
 ```text
 boole product package-direct-boot
+boole product package-trust-bootstrap
+boole product adopt-trust-bootstrap
 boole product install-direct-boot
 boole product run-direct-boot
 boole product status-direct-boot
@@ -30,6 +32,40 @@ policy authorized by exactly two of three recovery keys and derive separate prod
 public roots from it. The implementation uses deterministic non-production test keys only. No
 operational private signing keys or public recovery root have been created or published, and no
 official signed bundle or production one-line entrypoint exists.
+
+The repository also has a **non-production rehearsal** for the public half of an operational key
+ceremony. It verifies that the active product key, guest key and all three recovery keys signed one
+canonical ceremony transcript, then atomically emits only the five public JSON documents. This
+proves possession of five distinct private keys during the rehearsal; it cannot prove that separate
+people, devices or physical sites held those keys. The command rejects any environment other than
+`non-production-kat` and never receives private-key material:
+
+```text
+boole product package-trust-bootstrap \
+  --recovery-root recovery-root.json \
+  --trust-policy trust-policy.json \
+  --trust-policy-signatures trust-policy-signatures.json \
+  --key-ceremony key-ceremony.json \
+  --key-ceremony-signatures key-ceremony-signatures.json \
+  --output-root public-trust-bootstrap
+```
+
+Before release transport, an installer may adopt that public package only when the recovery-root
+SHA-256 was obtained through an independent channel. Do not copy this value from the package or
+download location being authenticated; that would let the untrusted channel choose its own trust
+anchor. Adoption stores generation one durably but downloads no release:
+
+```text
+boole product adopt-trust-bootstrap \
+  --bootstrap-root public-trust-bootstrap \
+  --install-root PATH \
+  --expected-recovery-root-sha256 SHA256_FROM_AN_INDEPENDENT_CHANNEL
+```
+
+After adoption, the ordinary `install-direct-boot` command reopens the stored policy and therefore
+needs no recovery-root, policy or direct release-root arguments. The independent publication
+channel, operational key creation and physical custody procedure are not supplied by these
+commands and remain release-operator work.
 
 Policy-backed development packaging supplies all three public files together:
 
