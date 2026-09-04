@@ -1074,7 +1074,49 @@ async fn run_stdio(node_url: Option<String>, native_shadow_url: Option<String>) 
         };
 
         let method = req_val.get("method").and_then(|v| v.as_str()).unwrap_or("");
-        let id = req_val.get("id").cloned().unwrap_or(Value::Null);
+        let request_id = req_val.get("id").cloned();
+        let is_native_tool_call = method == "tools/call"
+            && req_val
+                .get("params")
+                .and_then(|params| params.get("name"))
+                .and_then(Value::as_str)
+                == Some("boole.verify_native");
+
+        // The mutating native tool must arrive as a correlated MCP request,
+        // never a fire-and-forget notification. Do not let an id-less call
+        // consume a one-use challenge when no response can be correlated.
+        if is_native_tool_call && request_id.is_none() {
+            continue;
+        }
+        if is_native_tool_call
+            && (req_val.get("jsonrpc").and_then(Value::as_str) != Some("2.0")
+                || !request_id
+                    .as_ref()
+                    .is_some_and(|id| id.is_string() || id.is_number()))
+        {
+            let response_id = request_id
+                .filter(|id| id.is_string() || id.is_number())
+                .unwrap_or(Value::Null);
+            let response = json!({
+                "jsonrpc": "2.0",
+                "id": response_id,
+                "error": {
+                    "code": -32600,
+                    "message": "Invalid Request: tools/call requires jsonrpc 2.0 and a string or number id"
+                }
+            })
+            .to_string();
+            let stdout_clone = Arc::clone(&stdout);
+            tokio::task::spawn_blocking(move || {
+                let mut out = stdout_clone.lock().expect("stdout mutex poisoned");
+                write_mcp_frame(&mut *out, &response).ok();
+                out.flush().ok();
+            })
+            .await
+            .expect("stdout writer task panicked");
+            continue;
+        }
+        let id = request_id.unwrap_or(Value::Null);
 
         // Stateful tools/call goes through dispatch_tool.
         if method == "tools/call" {

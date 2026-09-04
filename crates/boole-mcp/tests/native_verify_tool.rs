@@ -857,6 +857,117 @@ fn duplicate_native_argument_keys_are_rejected_before_http_or_stdio_upstream() {
 }
 
 #[test]
+fn stdio_native_notification_is_ignored_without_upstream_or_response() {
+    let upstream = NativeUpstream::start(accepted_response());
+    let mut child = Command::new(env!("CARGO_BIN_EXE_boole-mcp"))
+        .args([
+            "stdio",
+            "--node-url",
+            "http://127.0.0.1:9",
+            "--native-shadow-url",
+            upstream.url().as_str(),
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn boole-mcp stdio");
+    let mut stdin = child.stdin.take().expect("stdio stdin");
+    let mut stdout = child.stdout.take().expect("stdio stdout");
+    let _guard = ChildGuard(child);
+
+    write_mcp_frame(
+        &mut stdin,
+        &json!({
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "params": {
+                "name": "boole.verify_native",
+                "arguments": submission("notification-must-not-run"),
+            }
+        }),
+    );
+    drop(stdin);
+
+    let mut response = Vec::new();
+    stdout
+        .read_to_end(&mut response)
+        .expect("read notification output through EOF");
+    assert!(
+        response.is_empty(),
+        "a JSON-RPC notification must not receive a response: {}",
+        String::from_utf8_lossy(&response)
+    );
+    assert!(
+        upstream.requests().is_empty(),
+        "an id-less native tools/call must not consume a native challenge"
+    );
+}
+
+#[test]
+fn stdio_native_call_requires_jsonrpc_v2_and_string_or_number_id() {
+    let upstream = NativeUpstream::start(accepted_response());
+    let mut child = Command::new(env!("CARGO_BIN_EXE_boole-mcp"))
+        .args([
+            "stdio",
+            "--node-url",
+            "http://127.0.0.1:9",
+            "--native-shadow-url",
+            upstream.url().as_str(),
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn boole-mcp stdio");
+    let mut stdin = child.stdin.take().expect("stdio stdin");
+    let mut stdout = BufReader::new(child.stdout.take().expect("stdio stdout"));
+    let _guard = ChildGuard(child);
+
+    let params = json!({
+        "name": "boole.verify_native",
+        "arguments": submission("invalid-envelope-must-not-run"),
+    });
+    for request in [
+        json!({"id": 31, "method": "tools/call", "params": params}),
+        json!({"jsonrpc": "1.0", "id": 32, "method": "tools/call", "params": params}),
+        json!({"jsonrpc": "2.0", "id": null, "method": "tools/call", "params": params}),
+        json!({"jsonrpc": "2.0", "id": true, "method": "tools/call", "params": params}),
+        json!({"jsonrpc": "2.0", "id": [], "method": "tools/call", "params": params}),
+        json!({"jsonrpc": "2.0", "id": {"invalid": "id"}, "method": "tools/call", "params": params}),
+    ] {
+        write_mcp_frame(&mut stdin, &request);
+        let response = read_mcp_frame(&mut stdout);
+        assert_eq!(response["error"]["code"], -32600, "request={request}");
+        assert!(
+            upstream.requests().is_empty(),
+            "invalid JSON-RPC envelope crossed the native network boundary: {request}"
+        );
+    }
+    assert!(
+        upstream.requests().is_empty(),
+        "invalid JSON-RPC envelopes must not cross the native network boundary"
+    );
+
+    write_mcp_frame(
+        &mut stdin,
+        &json!({
+            "jsonrpc": "2.0",
+            "id": "native-string-id",
+            "method": "tools/call",
+            "params": {
+                "name": "boole.verify_native",
+                "arguments": submission("valid-string-id"),
+            }
+        }),
+    );
+    let response = read_mcp_frame(&mut stdout);
+    assert_eq!(response["id"], "native-string-id");
+    assert_eq!(response["result"]["isError"], false);
+    assert_eq!(upstream.requests().len(), 1);
+}
+
+#[test]
 fn manual_redelivery_transport_survives_mcp_restart_without_automatic_retry() {
     let accepted_committed = Arc::new(AtomicBool::new(false));
     let accepted_fixture_evaluations = Arc::new(AtomicUsize::new(0));
