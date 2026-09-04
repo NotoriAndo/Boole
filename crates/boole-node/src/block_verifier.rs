@@ -198,11 +198,12 @@ pub enum BlockReverifyOutcome {
 /// SC.10-ii-d-2 — the share-level fold of the single verifier entry: run
 /// [`verify_lean_bound_share_evidence`] over ONE share and map its verdict
 /// onto the same three-state outcome the block/chain folds use. This is the
-/// gate gossip admission (`ingress_admit_share`) runs before a peer-announced
-/// base-lane share may stay in the candidate pool on a checker-pinned
-/// network: ADR-0016 (c-2) makes admission the producer's Lean gate — a
-/// self-produced block re-runs nothing, so every share it may draw on must
-/// have cleared this exact entry under the committed budget.
+/// gate HTTP admission (`submit_json`) and gossip admission
+/// (`ingress_admit_share`) both run before a base-lane share may stay in the
+/// candidate pool on a checker-pinned network: ADR-0016 (c-2) makes admission
+/// the producer's Lean gate — a self-produced block re-runs nothing, so every
+/// share it may draw on must have cleared this exact entry under the committed
+/// budget.
 ///
 /// `block_c` is the verifier-entry context label (the block hash at ingest,
 /// the share's chain anchor `c` at admission).

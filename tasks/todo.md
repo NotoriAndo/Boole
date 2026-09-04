@@ -1541,14 +1541,28 @@ plan: /Users/seoyong/.claude/plans/cozy-wiggling-lobster.md (2026-07-18 승인).
       서로 분리된 격리 단계로 실행한다. 세 단계는 하나의 wall-clock deadline을 공유하며,
       source/helper/artifact pathname 바꿔치기와 child process·network·package 쓰기를 차단한다.
       비활성 `boole-testnet-2` checker pin은 `f9da3a1c…d7b4`로 회전했으며 이는 네트워크
-      genesis identity를 `a037831a…1930`→`bccffdfb…415c`로 바꾸는 명시적 체인 전환이다.
-      정상/1-byte-invalid 합성 fixture의 canon·request hash·network signature도 같은 권위로
-      원자 회전했고 실제 closed-local 정상 승인/오답 거절 대조를 통과했다. 네트워크 활성화
-      권한이나 옛 state 재사용 권한은 아니다.
-- [ ] N5.3 M6 HTTP/P2P verification parity — HTTP와 P2P share/block/reorg가 같은
-      verifier permit과 판정 분류를 쓰고, Lean 실행 동안 state write lock을 놓은 뒤 최신
-      head·fork-choice·dedup·checkpoint를 다시 검증해 durable effect를 적용한다. 현재 다음.
-      `boole.verify_native` MCP vertical은 그 뒤의 별도 통합 경계다.
+      genesis identity를 `a037831a…1930`→`bccffdfb…415c`로 바꾸는 명시적
+      체인 전환이다. 정상/1-byte-invalid 합성 fixture의 canon·request hash·network
+      signature도 같은 권위로 원자 회전했고 실제 closed-local 정상 승인/오답 거절
+      대조를 통과했다. 네트워크 활성화 권한이나 옛 state 재사용 권한은 아니다.
+- [ ] N5.3 M6 HTTP/P2P Lean parity — HTTP와 peer share가 같은
+      `SelectedShareEvidence` 투영과 같은 reverify entry를 사용한다. semantic reject는
+      active pool/candidate를 제거하고 bounded current-head tombstone과 rate charge만
+      보존한다. verifier busy/unavailable은 candidate·reservation·rate charge를 모두
+      해제해 정확한 재시도를 허용한다. 단, checker 시작 뒤 HTTP 요청 자체가 취소되면
+      detached worker의 terminal verdict를 route가 회수할 수 없으므로 동일 bytes로
+      checker를 반복 실행하지 못하게 bounded tombstone·rate charge를 유지한다.
+      HTTP/P2P/block/reorg 공용 nonblocking verifier permit을 쓰고, 정상·오류 반환은
+      최종 state 정리까지 permit을 유지한다. unwind dev/test에서는 panic도 typed
+      cleanup으로 회수하지만, `panic = "abort"`인 release는 phase-3 변경 전에
+      프로세스를 끝내고 supervisor 재시작·복구 경계를 따른다. rate window는 peer가 보낸 `ts`가 아니라
+      node arrival clock을 쓰며, current-head identity/source-IP state는 bounded이고
+      ticket-only churn이 in-flight charge를 evict하지 못한다. 두 outcome 모두
+      gossip·session nonce·block·reward·
+      proof-credit·receipt 효과를 0으로 유지한다. 기존 valid Lean
+      control은 삭제·skip·비-Lean 대체 금지이며 M5가 그 live control을 green으로 만든
+      뒤에만 완료할 수 있다.
+- [ ] `boole.verify_native` MCP vertical — M5와 M6가 모두 green인 뒤 착수한다.
 
 ---
 

@@ -601,6 +601,7 @@ impl RuntimeAdmissionState {
 
     pub fn set_current_c(&mut self, c: String) {
         self.current_c = Some(c.clone());
+        self.rate_limiter.set_current_c(c.clone());
         self.pool.set_current_c(c);
     }
 
@@ -632,7 +633,7 @@ impl RuntimeAdmissionState {
     /// Apply state mutations for a block that has already been validated by
     /// `check_block_applicable`. Infallible: callers must validate first.
     pub fn apply_block_unchecked(&mut self, block: &PersistedBlock) -> usize {
-        self.current_c = Some(block.c.clone());
+        self.set_current_c(block.c.clone());
         let dropped = self.pool.prune_to_height(block.c.clone());
         self.candidates.retain(|candidate| candidate.c == block.c);
         dropped
@@ -1171,6 +1172,10 @@ impl RuntimeAdmissionState {
         Ok(self.rate_limiter.observe_ticket(pk, c, n))
     }
 
+    pub fn has_observed_ticket(&self, pk: &str, c: &str, n: &str) -> bool {
+        self.rate_limiter.has_observed_ticket(pk, c, n)
+    }
+
     pub fn admit_body(
         &mut self,
         now: i64,
@@ -1245,19 +1250,109 @@ impl RuntimeAdmissionState {
         decision
     }
 
-    /// SC.10-ii-d-2 — drop an already-admitted share from the candidate set a
-    /// self-produced block draws on (`candidate_shares_for_current_c`). The
-    /// gossip-ingress Lean gate calls this when the pinned checker refuses
-    /// (or cannot reach a verdict on) a share structural admission accepted:
-    /// ADR-0016 (c-2) makes admission the producer's Lean gate, so a share
-    /// that did not clear it must never be assemblable into this node's own
-    /// block. The SharePool entry deliberately stays — like the
-    /// `duplicate_proof` peek in `ingress_admit_share`, the pool's
-    /// (pk, n, j, c) slot outlives the rejection, which also blocks an
-    /// identical re-announce until the pool prunes at the next commit.
-    pub fn retract_candidate(&mut self, share_hash: &str) {
-        self.candidates
-            .retain(|candidate| candidate.share_hash != share_hash);
+    /// SC.10-ii-d-2 / M6 — remove a semantically rejected candidate from
+    /// block selection and convert its active SharePool entry into a bounded,
+    /// capacity-free duplicate tombstone. The already-paid rate-limit charge
+    /// remains. This prevents both replay laundering and a K_max-sized flood
+    /// of Lean-invalid shares from excluding a later valid share.
+    pub fn quarantine_candidate(&mut self, share_hash: &str) -> bool {
+        let Some(index) = self
+            .candidates
+            .iter()
+            .position(|candidate| candidate.share_hash == share_hash)
+        else {
+            return false;
+        };
+        let pool_share = pool_share_for_candidate(&self.candidates[index]);
+        let reserved = self.pool.reserve_for_semantic_check(&pool_share);
+        self.candidates.remove(index);
+        reserved
+    }
+
+    /// M6 — move one structurally admitted candidate into the HTTP handler's
+    /// semantic-verification reservation. The active pool capacity is released
+    /// into a bounded duplicate tombstone while the already-paid rate-limit
+    /// charge remains; the candidate is also hidden from block selection.
+    pub fn take_candidate_for_reverify(
+        &mut self,
+        share_hash: &str,
+        admitted_at: i64,
+        peer_ip: &str,
+    ) -> Option<CandidateShare> {
+        let index = self
+            .candidates
+            .iter()
+            .position(|candidate| candidate.share_hash == share_hash)?;
+        let pool_share = pool_share_for_candidate(&self.candidates[index]);
+        if !self.pool.reserve_for_semantic_check(&pool_share) {
+            // Candidate/pool divergence is an internal invariant failure. The
+            // caller will refuse the request; remove the independently stored
+            // candidate too so it can never remain block-eligible after that
+            // refusal.
+            let candidate = self.candidates.remove(index);
+            self.rate_limiter
+                .release_committed(admitted_at, peer_ip, &candidate.pk, &candidate.c);
+            return None;
+        }
+        Some(self.candidates.remove(index))
+    }
+
+    /// M6 — restore a reservation only after the caller has revalidated all
+    /// mutable node state following unlocked semantic verification. This
+    /// final guard keeps a verdict for an old chain anchor, an already-restored
+    /// request, or a now-full candidate set out of block selection.
+    pub fn restore_reverified_candidate(&mut self, candidate: CandidateShare) -> bool {
+        if self.current_c.as_deref() != Some(candidate.c.as_str())
+            || self
+                .candidates
+                .iter()
+                .any(|existing| existing.share_hash == candidate.share_hash)
+            || self.candidates.len() >= self.config.policy.global_share_cap
+        {
+            return false;
+        }
+        if !self
+            .pool
+            .restore_after_semantic_check(pool_share_for_candidate(&candidate))
+        {
+            return false;
+        }
+        self.candidates.push(candidate);
+        true
+    }
+
+    /// M6 / ADR-0016 (a-3) — discard an unverified candidate after an
+    /// availability failure while releasing its semantic tombstone. Unlike a
+    /// deterministic reject, the exact submission may be retried once the
+    /// checker is available again. It never becomes block-eligible here.
+    pub fn release_semantic_reservation(
+        &mut self,
+        candidate: &CandidateShare,
+        admitted_at: i64,
+        peer_ip: &str,
+    ) -> bool {
+        let pool_released = self
+            .pool
+            .release_semantic_reservation(&pool_share_for_candidate(candidate));
+        // A concurrent canonical-head transition legitimately clears the
+        // current-head tombstone before this detached verifier reports an
+        // availability outcome. Refund the independently tracked exact rate
+        // charge even in that case; coupling the two removals strands quota
+        // and makes the advertised retryable response non-retryable.
+        let rate_released =
+            self.rate_limiter
+                .release_committed(admitted_at, peer_ip, &candidate.pk, &candidate.c);
+        pool_released || rate_released
+    }
+}
+
+fn pool_share_for_candidate(candidate: &CandidateShare) -> PoolShare {
+    PoolShare {
+        label: "admission".to_string(),
+        pk: candidate.pk.clone(),
+        n: candidate.n.clone(),
+        j: candidate.j.clone(),
+        c: candidate.c.clone(),
     }
 }
 
@@ -1265,4 +1360,111 @@ fn required_string<'a>(body: &'a Map<String, Value>, key: &str) -> Result<&'a st
     body.get(key)
         .and_then(Value::as_str)
         .ok_or_else(|| format!("{key} must be string"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use boole_core::{CalibrationReport, RateLimitResult};
+
+    #[test]
+    fn semantic_reservation_pool_divergence_releases_rate_and_exact_retry() {
+        let fixture: Value =
+            serde_json::from_str(include_str!("../../../fixtures/protocol/admission/v1.json"))
+                .expect("admission fixture parses");
+        let report: CalibrationReport =
+            serde_json::from_value(fixture["cfg"].clone()).expect("calibration parses");
+        let constants = &fixture["constants"];
+        let patch = fixture["operations"]
+            .as_array()
+            .expect("operations")
+            .iter()
+            .find(|operation| operation["name"] == "valid_after_bad_not_rate_limited")
+            .expect("valid operation")["bodyPatch"]
+            .as_object()
+            .cloned()
+            .unwrap_or_default();
+        let mut body = Map::new();
+        for (key, field) in [
+            ("c", "c"),
+            ("pk", "pk"),
+            ("n", "n"),
+            ("j", "j"),
+            ("nonceS", "nonceS"),
+            ("bytes", "validBytesHex"),
+        ] {
+            body.insert(
+                key.to_string(),
+                Value::String(constants[field].as_str().expect(field).to_string()),
+            );
+        }
+        for (key, value) in patch {
+            if value.is_null() {
+                body.remove(&key);
+            } else {
+                body.insert(key, value);
+            }
+        }
+
+        let now = 1_800_000_000_000;
+        let peer_ip = "198.51.100.199";
+        let mut runtime = RuntimeAdmissionState::new(
+            RuntimeConfig::from_calibration_report(report, 60_000)
+                .expect("runtime config from fixture"),
+        );
+        runtime.set_current_c(constants["c"].as_str().expect("c").to_string());
+        runtime
+            .observe_ticket_from_body(&body)
+            .expect("observe fixture ticket");
+        let AdmissionDecision::Accepted { share_hash } = runtime.admit_body(now, peer_ip, &body)
+        else {
+            panic!("fixture share must be admitted");
+        };
+
+        // Fault injection: remove the pool entry/reservation while leaving the
+        // mirrored candidate. This cannot arise in the serialized normal path,
+        // but the defensive `None` branch must still keep Deferred retryable.
+        let candidate = runtime.candidates[0].clone();
+        let pool_share = pool_share_for_candidate(&candidate);
+        assert!(runtime.pool.reserve_for_semantic_check(&pool_share));
+        assert!(runtime.pool.release_semantic_reservation(&pool_share));
+
+        assert!(runtime
+            .take_candidate_for_reverify(&share_hash.to_hex(), now, peer_ip)
+            .is_none());
+        assert!(runtime.candidates.is_empty());
+        let AdmissionDecision::Accepted {
+            share_hash: retry_share_hash,
+        } = runtime.admit_body(now + 1, peer_ip, &body)
+        else {
+            panic!("the exact request must be retryable after divergence cleanup");
+        };
+
+        let retry_candidate = runtime
+            .take_candidate_for_reverify(&retry_share_hash.to_hex(), now + 1, peer_ip)
+            .expect("retry candidate reserves for semantic verification");
+        runtime.set_current_c(
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string(),
+        );
+        assert!(
+            runtime.release_semantic_reservation(&retry_candidate, now + 1, peer_ip),
+            "a head transition may clear the pool tombstone first, but must not strand rate quota"
+        );
+        let next_c = runtime
+            .current_c()
+            .expect("next head is installed")
+            .to_string();
+        assert!(runtime.rate_limiter.observe_ticket(
+            &retry_candidate.pk,
+            &next_c,
+            Some(&retry_candidate.n),
+        ));
+        assert_eq!(
+            runtime
+                .rate_limiter
+                .peek(now + 2, peer_ip, &retry_candidate.pk, &next_c,),
+            RateLimitResult::Allowed,
+            "availability cleanup after a head transition must still refund the exact rate charge"
+        );
+    }
 }

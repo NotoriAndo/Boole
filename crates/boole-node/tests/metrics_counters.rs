@@ -119,6 +119,10 @@ fn metrics_exposes_outcome_counters() {
         body.contains("boole_submits_total{outcome=\"rejected\"}"),
         "metrics must expose the rejected-submit series:\n{body}"
     );
+    assert!(
+        body.contains("boole_submits_total{outcome=\"retryable_unavailable\"}"),
+        "metrics must keep verifier availability separate from deterministic rejection:\n{body}"
+    );
 
     // proof counter: typed `counter`, both outcome labels present.
     assert!(
@@ -142,6 +146,19 @@ fn metrics_exposes_outcome_counters() {
     assert!(
         body.contains("boole_panic_total 0"),
         "boole_panic_total must read 0 on a clean process:\n{body}"
+    );
+
+    assert!(
+        body.contains("# TYPE boole_share_admission_reverify_started_total counter"),
+        "metrics must declare the exact semantic-check start counter:\n{body}"
+    );
+    assert!(
+        body.contains("boole_share_admission_reverify_started_total "),
+        "metrics must expose semantic-check starts so retries can prove no re-execution:\n{body}"
+    );
+    assert!(
+        body.contains("# TYPE boole_p2p_ingress_shares_deferred_total counter"),
+        "P2P verifier availability must be counted separately from invalid shares:\n{body}"
     );
 
     handle

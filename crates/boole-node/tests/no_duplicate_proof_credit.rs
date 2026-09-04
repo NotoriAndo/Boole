@@ -85,7 +85,22 @@ fn boot_in(dir: PathBuf, max_requests: usize) -> Boot {
     let block_path = dir.join("blocks.ndjson");
     let rewards = dir.join("rewards.ndjson");
     let dedup = dir.join("proof-dedup.ndjson");
-    let scenario = scenario_path();
+    // This suite isolates proof-credit dedup, not the one-request-per-minute
+    // fixture quota. M6 correctly moved admission accounting to server arrival
+    // time, so consecutive loopback requests can no longer use envelope `ts`
+    // to bypass that quota. Give this private scenario enough real quota for
+    // its bounded request sequence.
+    let mut scenario_json: Value = serde_json::from_str(
+        &fs::read_to_string(scenario_path()).expect("runtime scenario fixture"),
+    )
+    .expect("runtime scenario parses");
+    scenario_json["cfg"]["perIpRateLimitPer60s"] = json!(100);
+    let scenario = dir.join("scenario.json");
+    fs::write(
+        &scenario,
+        serde_json::to_vec_pretty(&scenario_json).expect("scenario serializes"),
+    )
+    .expect("write isolated scenario");
     let handle = thread::spawn(move || {
         tx.send(()).expect("ready");
         serve_local_node(
@@ -218,7 +233,7 @@ fn same_proof_under_two_pks_credits_once() {
 #[test]
 fn proof_dedup_key_is_server_computed_not_client_field() {
     let steps = multiminer_steps();
-    let boot = boot(2);
+    let boot = boot(3);
 
     let (_s0, v0) = http_post(boot.addr, "/submit", &submit_envelope(&steps[0]));
     assert_eq!(v0["accepted"], true, "step0 must be admitted: {v0}");
@@ -244,6 +259,11 @@ fn proof_dedup_key_is_server_computed_not_client_field() {
         v1["accepted"],
         json!(true),
         "duplicate proof must not be accepted: {v1}"
+    );
+    let (_, status) = http_get(boot.addr, "/status");
+    assert_eq!(
+        status["sharePoolSize"], 0,
+        "a duplicate proof must leave only a bounded replay tombstone, not an eligible pool slot: {status}"
     );
 
     boot.handle.join().expect("server thread").expect("exits");

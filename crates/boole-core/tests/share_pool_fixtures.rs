@@ -135,6 +135,146 @@ fn share_pool_enforces_global_cap_before_growing_unbounded() {
 }
 
 #[test]
+fn semantic_rejects_release_active_capacity_but_keep_bounded_duplicate_tombstones() {
+    let c = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let mut pool = SharePool::new_with_global_cap(4, 2);
+    pool.set_current_c(c);
+    let rejected_one = make_pool_share("rejected-one", "01", c);
+    let rejected_two = make_pool_share("rejected-two", "02", c);
+    let valid = make_pool_share("valid", "03", c);
+
+    assert_eq!(pool.accept(rejected_one.clone()), AcceptResult::Ok);
+    assert!(pool.reserve_for_semantic_check(&rejected_one));
+    assert_eq!(
+        pool.size(),
+        0,
+        "an unverified share cannot hold pool capacity"
+    );
+    assert_eq!(
+        pool.accept(rejected_one.clone()),
+        AcceptResult::Err {
+            reason: SharePoolRejectReason::Duplicate,
+        },
+        "the capacity-free tombstone must still reject an exact retry"
+    );
+
+    let mut same_pk = rejected_one.clone();
+    same_pk.label = "same-pk-new-work".to_string();
+    same_pk.n = format!("{:0>64}", "n04");
+    same_pk.j = format!("{:0>64}", "j04");
+    assert_eq!(
+        pool.accept(same_pk.clone()),
+        AcceptResult::Ok,
+        "reservation must decrement the active per-pk count"
+    );
+    assert!(pool.reserve_for_semantic_check(&same_pk));
+
+    assert_eq!(pool.accept(rejected_two.clone()), AcceptResult::Ok);
+    assert!(pool.reserve_for_semantic_check(&rejected_two));
+    assert_eq!(pool.size(), 0);
+    assert_eq!(
+        pool.accept(valid),
+        AcceptResult::Ok,
+        "unique semantic rejects must not fill the active global pool"
+    );
+}
+
+#[test]
+fn semantic_tombstones_are_bounded_and_evict_oldest_without_touching_active_order() {
+    let c = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let mut pool = SharePool::new_with_global_cap(4, 2);
+    pool.set_current_c(c);
+    let first = make_pool_share("first", "01", c);
+    let second = make_pool_share("second", "02", c);
+    let third = make_pool_share("third", "03", c);
+
+    for share in [&first, &second, &third] {
+        assert_eq!(pool.accept(share.clone()), AcceptResult::Ok);
+        assert!(pool.reserve_for_semantic_check(share));
+    }
+    assert_eq!(
+        pool.accept(first.clone()),
+        AcceptResult::Ok,
+        "the third tombstone must evict the oldest when the separate bound is two"
+    );
+    assert!(pool.restore_after_semantic_check(second.clone()));
+    assert_eq!(
+        pool.for_chain(c)
+            .into_iter()
+            .map(|share| share.label.as_str())
+            .collect::<Vec<_>>(),
+        vec!["first", "second"],
+        "remove/restore must keep the active insertion order and accounting coherent"
+    );
+}
+
+#[test]
+fn semantic_reservation_restores_once_and_is_cleared_by_a_head_change() {
+    let c = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let next_c = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    let mut pool = SharePool::new_with_global_cap(4, 2);
+    pool.set_current_c(c);
+    let share = make_pool_share("verified", "01", c);
+
+    assert_eq!(pool.accept(share.clone()), AcceptResult::Ok);
+    assert!(pool.reserve_for_semantic_check(&share));
+    assert!(pool.restore_after_semantic_check(share.clone()));
+    assert_eq!(pool.size(), 1);
+    assert!(
+        !pool.restore_after_semantic_check(share.clone()),
+        "one reservation cannot be restored twice"
+    );
+
+    assert!(pool.reserve_for_semantic_check(&share));
+    pool.set_current_c(next_c);
+    assert!(
+        !pool.restore_after_semantic_check(share),
+        "a verifier verdict for the old head must not survive a head change"
+    );
+}
+
+#[test]
+fn unavailable_semantic_check_releases_tombstone_without_restoring_candidate() {
+    let c = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let mut pool = SharePool::new_with_global_cap(4, 2);
+    pool.set_current_c(c);
+    let unavailable = make_pool_share("unavailable", "01", c);
+
+    assert_eq!(pool.accept(unavailable.clone()), AcceptResult::Ok);
+    assert!(pool.reserve_for_semantic_check(&unavailable));
+    assert_eq!(pool.size(), 0);
+    assert!(pool.release_semantic_reservation(&unavailable));
+    assert_eq!(
+        pool.size(),
+        0,
+        "availability cleanup must not make an unverified share eligible"
+    );
+    assert_eq!(
+        pool.accept(unavailable),
+        AcceptResult::Ok,
+        "RetryableUnavailable must permit the exact submission to retry"
+    );
+}
+
+#[test]
+fn deterministic_semantic_reject_does_not_release_duplicate_tombstone() {
+    let c = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let mut pool = SharePool::new_with_global_cap(4, 2);
+    pool.set_current_c(c);
+    let rejected = make_pool_share("rejected", "01", c);
+
+    assert_eq!(pool.accept(rejected.clone()), AcceptResult::Ok);
+    assert!(pool.reserve_for_semantic_check(&rejected));
+    assert_eq!(
+        pool.accept(rejected),
+        AcceptResult::Err {
+            reason: SharePoolRejectReason::Duplicate,
+        },
+        "a deterministic semantic reject must remain a bounded current-head duplicate"
+    );
+}
+
+#[test]
 fn share_pool_rejection_uses_typed_reason() {
     let mut pool = SharePool::new(4);
     pool.set_current_c("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
