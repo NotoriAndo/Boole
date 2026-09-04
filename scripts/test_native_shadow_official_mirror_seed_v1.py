@@ -10,6 +10,7 @@ import pathlib
 import re
 import tempfile
 import unittest
+import urllib.error
 from unittest import mock
 
 
@@ -264,6 +265,49 @@ class OfficialMirrorSeedTests(unittest.TestCase):
         adapted = module.adapted_open(original_open, "arm64")
         response = adapted(object(), original_url, timeout=60)
         self.assertEqual(calls[0][0], module.mirror_url(original_url, "arm64"))
+        self.assertEqual(response.geturl(), original_url)
+        self.assertEqual(response.read(), b"sealed")
+
+    def test_transport_adapter_falls_back_to_the_frozen_snapshot_when_the_mirror_is_unavailable(self):
+        self.assertTrue(MIRROR_SITE.is_file())
+        spec = importlib.util.spec_from_file_location("boole_mirror_site", MIRROR_SITE)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        with mock.patch.dict(os.environ, {}, clear=True):
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+
+        original_url = (
+            "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/"
+            "pool/main/u/ubuntu-keyring/ubuntu-keyring_2023.11.28.1_all.deb"
+        )
+        calls = []
+
+        class Response:
+            status = 200
+
+            def geturl(self):
+                return original_url
+
+            def read(self, *_args):
+                return b"sealed"
+
+            def close(self):
+                pass
+
+        def original_open(_opener, url, *args, **kwargs):
+            calls.append((url, args, kwargs))
+            if len(calls) == 1:
+                raise urllib.error.URLError("official mirror unavailable")
+            return Response()
+
+        adapted = module.adapted_open(original_open, "amd64")
+        response = adapted(object(), original_url, timeout=60)
+        self.assertEqual(
+            [row[0] for row in calls],
+            [module.mirror_url(original_url, "amd64"), original_url],
+        )
+        self.assertEqual(calls[0][1:], calls[1][1:])
         self.assertEqual(response.geturl(), original_url)
         self.assertEqual(response.read(), b"sealed")
 
