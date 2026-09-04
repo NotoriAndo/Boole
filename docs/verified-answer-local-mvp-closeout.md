@@ -188,10 +188,16 @@ rewards and activation remain deferred.
   milestone therefore proves controlled bootstrap/join, not continuous
   global-head knowledge. It consumes no public-eligible problem inventory and
   grants no public P2P exposure or activation.
-- Current milestone: `M5-THIRD-PARTY-VERIFIER-BOUNDARY`. It will close the
-  external verifier process boundary before any MCP-submitted code is
-  accepted. The `boole.verify_native` MCP vertical remains the milestone after
-  that.
+- Completed milestone: `M5-THIRD-PARTY-VERIFIER-BOUNDARY`. The verifier now
+  uses three contained stages: a request-private trusted-helper compile, direct
+  source elaboration, and an artifact-only independent audit. The inactive
+  `boole-testnet-2` identity is rebound to that checker release; this does not
+  activate a network.
+- Current milestone: `M6-HTTP-P2P-VERIFICATION-PARITY`. HTTP and P2P share,
+  block and reorg ingress must use the same bounded semantic verifier without
+  holding the node-state write lock during Lean execution, then revalidate the
+  latest canonical state before any durable effect. The `boole.verify_native`
+  MCP vertical remains a separate later integration boundary.
 
 This progress is closed-local protocol hardening. It neither activates a public
 testnet nor authorizes mining, rewards, payment, consensus, P2P exposure or use

@@ -33,7 +33,7 @@ smuggle a file in via a symlink that resolves outside the package.
 The hash of the files committed to this repo:
 
 ```
-1dd3055acb05142816f2082f0b3ad000c49513c3a2401572ec68703542042be1
+f9da3a1c5bcb605a26c8f778e2661e471398864c69393079aed461dd1453d7b4
 ```
 
 Recompute and verify with:
@@ -42,34 +42,33 @@ Recompute and verify with:
 scripts/verify-checker-artifact-hash.sh
 ```
 
-## Building
+## Building the trusted helper
 
 ```bash
 cd lean/checker
-lake build Boole.Family.V0Helpers boole_check
+lake build Boole.Family.V0Helpers
 ```
 
-The helper target is explicit because a clean checkout has no gitignored
-`V0Helpers.olean`; building only `boole_check` can leave the executable present
-while every proof importing `Boole.Family.V0Helpers` is rejected.
+Production verification does not trust a prebuilt `boole_check` executable or
+the package's gitignored helper artifact. `boole-lean-runner` snapshots the
+pinned helper source into request-private storage and compiles it there under
+the same containment boundary used by the two verification stages.
 
 ## Running
 
 ```bash
-cd lean/checker
-lake exec boole_check /path/to/proof.lean 400000 512
+boole-lean-runner consumer API (request-private helper compile -> direct
+`lean --run BooleCheck/Main.lean` -> artifact-only
+`lean --run BooleCheck/Audit.lean`)
 ```
 
-The checker exits 0 on accepted proofs and non-zero on every other outcome
-(missing argument, lean not on PATH, lean rejected the proof, committed
-step budget exhausted). The two trailing args are the committed step
-budget (`maxHeartbeats` in Lean's thousands unit, `maxRecDepth`); when
-omitted (manual use) the inner `lean` falls back to its own defaults —
-`boole-lean-runner`, the only production caller, always passes them so the
-verdict is a pure function of (proof bytes, this checker, committed
-budget). The Rust runner is responsible for sandboxing (process group,
-wall-clock containment, rlimits, output cap, env scrub, `sorry` detection)
-— this checker is the trust core, not the sandbox.
+The three stages share one outer deadline. The primary process receives only
+the snapshotted submitted source; the audit process receives only the sealed
+artifact file descriptor. Both use the canonical Lean executable under the
+pinned toolchain sysroot, and all children run with process spawning, network
+access and package mutation denied. The Rust runner remains responsible for
+process-group cleanup, wall-clock containment, rlimits, output caps,
+environment scrubbing and forbidden-source-token rejection.
 
 ## Toolchain
 

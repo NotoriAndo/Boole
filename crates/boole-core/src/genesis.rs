@@ -141,7 +141,7 @@ pub fn network_genesis_preset(network_id: &str) -> Option<GenesisSpec> {
                 // SC.9b — the canonical checker artifact (sources +
                 // toolchain pin), see lean/checker/README.md.
                 checker_artifact_hash: Some(
-                    "1dd3055acb05142816f2082f0b3ad000c49513c3a2401572ec68703542042be1".to_string(),
+                    "f9da3a1c5bcb605a26c8f778e2661e471398864c69393079aed461dd1453d7b4".to_string(),
                 ),
                 family_manifest_root: None,
             },
