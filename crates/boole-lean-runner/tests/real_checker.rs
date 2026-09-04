@@ -547,7 +547,11 @@ elab "booleTick" : command => do
         LeanRunnerConfig::new("fixture-verifier-hash")
             .with_package_dir(workspace.root.clone())
             .with_isolation_mode(IsolationMode::Log)
-            .with_timeout_ms(5_000),
+            // This test measures exactly-once semantics, not throughput. The
+            // helper build, primary elaboration and artifact audit share one
+            // deadline, so retain the bounded correctness window used by the
+            // real three-stage acceptance control above.
+            .with_timeout_ms(30_000),
     );
     let result = runner.check_file(&proof).expect("checker returns envelope");
     assert!(
