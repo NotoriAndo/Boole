@@ -1,104 +1,85 @@
 /-
-  BooleCheck/Audit.lean — post-elaboration axiom-closure audit (ADR-0013).
+  BooleCheck/Audit.lean — artifact-only kernel replay and axiom audit.
 
-  Why this file exists as a SEPARATE entrypoint rather than a check bolted
-  onto `BooleCheck.Main`: ADR-0013 ratified that the axiom audit "must run in
-  a stage the submitted source cannot influence — a separate pass/process
-  from the elaboration of user input, not code executing inside the same
-  elaboration session (the auditor must not live inside the audited)". This
-  file is invoked as its own `lean --run` process, started fresh AFTER
-  `BooleCheck.Main` has already accepted the submitted file in a first,
-  independent process. It re-parses and re-elaborates the same source text
-  from scratch into a brand-new `Environment`/`Command.State` that the
-  submitted file's own commands never touch: `declaredAxioms` below calls
-  `Lean.CollectAxioms.collect`, a reference resolved against this file's own
-  compiled code, not looked up dynamically through the elaborated
-  environment — so nothing the submitted source declares (even via
-  `Lean.addDecl`) can redirect what this audit itself runs. The submitted
-  source can only influence what ends up IN the environment; this audit
-  inspects that environment from the outside, after the fact.
+  ADR-0013 requires the auditor to live outside the process that elaborates
+  untrusted source. `BooleCheck.Main` is therefore the only process that
+  receives the submitted `.lean` path. It emits a request-local `.olean`;
+  this fresh process receives only that serialized environment, reloads its
+  trusted imports without initializers, and replays every serialized safe
+  declaration through Lean's kernel.
 
-  For every declaration the submitted file *newly introduces* (constants
-  present in the fully elaborated environment but absent from the
-  header-only baseline environment obtained before any of the file's own
-  commands run), this computes the transitive axiom closure via
-  `Lean.CollectAxioms` — the same machinery backing `#print axioms` — and
-  prints it in a machine-readable form on stdout:
+  The submitted source is neither opened nor parsed here, so elaboration-time
+  commands cannot run a second time inside the auditor. For every declaration
+  named by the artifact, the audit computes the transitive axiom closure via
+  `Lean.CollectAxioms` — the machinery behind `#print axioms` — and prints:
 
     BOOLE_AXIOM <axiom name>       -- one line per axiom in the closure
     BOOLE_AXIOM_AUDIT_DONE         -- sentinel: audit ran to completion
 
-  `crates/boole-lean-runner/src/lib.rs` (see the `run_axiom_audit`/
-  `enforce_axiom_allowlist` comment there) parses this stdout and rejects
+  `crates/boole-lean-runner/src/lib.rs` parses this stdout and rejects
   the submission unless every printed axiom is in the allowlist
   {propext, Classical.choice, Quot.sound} AND the `BOOLE_AXIOM_AUDIT_DONE`
   sentinel is present. A missing sentinel (crash, timeout, kill) is treated
-  as rejection, never as silent acceptance.
+  as retryable unavailability, never as a proof verdict or silent acceptance.
 -/
 import Lean
+import Lean.Replay
 
-open Lean Elab
+open Lean
 
-/-- Names present in `finalEnv` but not in `baseEnv` — the declarations the
-submitted file itself introduced, as opposed to anything already visible
-from its imports — mapped to their combined transitive axiom closure. -/
-def declaredAxioms (baseEnv finalEnv : Environment) : Array Name := Id.run do
-  let mut newNames : Array Name := #[]
-  for (name, _) in finalEnv.constants.toList do
-    unless baseEnv.constants.contains name do
-      newNames := newNames.push name
+/-- Submitted declarations mapped to their combined transitive axiom closure. -/
+def declaredAxioms (newNames : Array Name) (finalEnv : Environment) : Array Name := Id.run do
   let mut st : Lean.CollectAxioms.State := {}
   for name in newNames do
     st := (((Lean.CollectAxioms.collect name).run finalEnv).run st).snd
   return st.axioms
 
-/-- SC.9a / ADR-0016 (a-2) layer 2 — budget-bearing option names a submitted
-source must never mention. `set_option maxHeartbeats <M>` (including `0` =
-unlimited) or `set_option maxRecDepth <M>` would override the committed
-budget this audit itself elaborates under, making the consensus budget
-advisory. The scan is over the RAW source text (comments and strings
-included): deliberately stricter than the Rust-side intake scan, because
-this is the last line and must stay simple enough to be obviously right. -/
-def budgetOverrideTokens : List String := ["maxHeartbeats", "maxRecDepth"]
-
 def main (args : List String) : IO UInt32 := do
-  let some proofPath := args.head?
-    | IO.eprintln "usage: boole_axiom_audit <proof.lean> [maxHeartbeats] [maxRecDepth]"
+  let some artifactPath := args.head?
+    | IO.eprintln "usage: boole_axiom_audit <proof.olean>"
       return 64
-  let input ← IO.FS.readFile proofPath
-  -- ADR-0016 (a-2) layer 2: refuse budget-override tokens BEFORE any of the
-  -- submitted file's content is parsed or elaborated. Independent of the
-  -- Rust-side intake scan: a source slipping past that layer still cannot
-  -- buy steps here.
-  for token in budgetOverrideTokens do
-    if (input.splitOn token).length > 1 then
-      IO.eprintln s!"BOOLE_BUDGET_OVERRIDE {token}"
+  let (artifact, _region) ← Lean.readModuleData artifactPath
+  if artifact.isModule then
+    IO.eprintln "BOOLE_UNSUPPORTED_MODULE_ARTIFACT"
+    return 1
+  if artifact.constNames.size != artifact.constants.size then
+    IO.eprintln "BOOLE_MALFORMED_ARTIFACT constant-count-mismatch"
+    return 1
+  for (name, info) in artifact.constNames.zip artifact.constants do
+    if name != info.name then
+      IO.eprintln "BOOLE_MALFORMED_ARTIFACT constant-name-mismatch"
       return 1
-  -- SC.9a / ADR-0016 (a)(b) — elaborate under the SAME committed step
-  -- budget the primary checker ran under (runner passes it as trailing
-  -- args), so audit and primary cannot diverge on resource grounds.
-  let opts : Lean.Options := {}
-  let opts := match (args.drop 1).head?.bind (·.toNat?) with
-    | some maxHeartbeats => opts.set `maxHeartbeats maxHeartbeats
-    | none => opts
-  let opts := match (args.drop 2).head?.bind (·.toNat?) with
-    | some maxRecDepth => opts.set `maxRecDepth maxRecDepth
-    | none => opts
-  let inputCtx := Lean.Parser.mkInputContext input proofPath
-  let (header, parserState, msgs) ← Lean.Parser.parseHeader inputCtx
-  let (baseEnv, msgs) ← Lean.Elab.processHeader header opts msgs inputCtx
-  if msgs.hasErrors then
-    IO.eprintln "AUDIT_ERROR: header failed to process"
+  -- The primary serializer records Lean's implicit `Init` import first.  Beyond that
+  -- unavoidable base, the only import a submission may bind into its
+  -- artifact is the request-private trusted helper compiled by the parent.
+  -- Check the exact ordered vector before loading anything: this is the
+  -- auditor's independent backstop if source intake is ever bypassed.
+  if artifact.imports.map (fun entry => entry.module) !=
+      #[`Init, `Boole.Family.V0Helpers] then
+    IO.eprintln "BOOLE_UNEXPECTED_IMPORT exact-import-set-required"
     return 1
-  let commandState := Lean.Elab.Command.mkState baseEnv msgs opts
-  let frontendState ← Lean.Elab.IO.processCommands inputCtx parserState commandState
-  if frontendState.commandState.messages.hasErrors then
-    IO.eprintln "AUDIT_ERROR: elaboration failed"
-    for msg in frontendState.commandState.messages.toList do
-      IO.eprintln (← msg.toString)
+  -- `loadExts := false` is the default: imported environment extensions and
+  -- initializers cannot execute inside this process.
+  let baseEnv ← Lean.importModules artifact.imports {}
+  for info in artifact.constants do
+    if info.isUnsafe || info.isPartial then
+      IO.eprintln s!"BOOLE_UNREPLAYABLE_CONSTANT {info.name}"
+      return 1
+  let constants := artifact.constants.foldl
+    (fun out info => out.insert info.name info)
+    ({} : Std.HashMap Name ConstantInfo)
+  if constants.size != artifact.constants.size then
+    IO.eprintln "BOOLE_MALFORMED_ARTIFACT duplicate-constant-name"
     return 1
-  let finalEnv := frontendState.commandState.env
-  let axioms := declaredAxioms baseEnv finalEnv
+  -- Re-kernel-check every safe declaration from the serialized environment.
+  let finalEnv? ← try
+    pure (some (← baseEnv.replay constants))
+  catch _ =>
+    IO.eprintln "BOOLE_MALFORMED_ARTIFACT kernel-replay-failed"
+    pure none
+  let some finalEnv := finalEnv?
+    | return 1
+  let axioms := declaredAxioms artifact.constNames finalEnv
   for ax in axioms.qsort (fun a b => a.toString < b.toString) do
     IO.println s!"BOOLE_AXIOM {ax}"
   IO.println "BOOLE_AXIOM_AUDIT_DONE"

@@ -15,7 +15,8 @@ fn submit_lean_cli_accepts_valid_proof_into_replayable_block() {
     workspace.write_checker_project();
     let proof = workspace.write_proof(
         "ValidSubmitLean.lean",
-        r#"theorem boole_submit_lean_valid : 2 + 2 = 4 := by
+        r#"import Boole.Family.V0Helpers
+theorem boole_submit_lean_valid : 2 + 2 = 4 := by
   decide
 "#,
     );
@@ -86,7 +87,8 @@ fn submit_lean_cli_uses_fixture_block_difficulty_by_default() {
     workspace.write_checker_project();
     let proof = workspace.write_proof(
         "ValidNoBlockAtFixtureDifficulty.lean",
-        r#"theorem boole_submit_lean_valid_no_block : 2 + 2 = 4 := by
+        r#"import Boole.Family.V0Helpers
+theorem boole_submit_lean_valid_no_block : 2 + 2 = 4 := by
   decide
 "#,
     );
@@ -145,7 +147,8 @@ fn submit_lean_cli_rejects_invalid_proof_as_json_stderr_before_admission() {
     workspace.write_checker_project();
     let proof = workspace.write_proof(
         "InvalidSubmitLean.lean",
-        r#"theorem boole_submit_lean_invalid : 2 + 2 = 5 := by
+        r#"import Boole.Family.V0Helpers
+theorem boole_submit_lean_invalid : 2 + 2 = 5 := by
   decide
 "#,
     );
@@ -209,7 +212,8 @@ fn submit_lean_cli_rejects_missing_checker_artifact_hash_as_json_stderr() {
     workspace.write_checker_project();
     let proof = workspace.write_proof(
         "ValidMissingPolicy.lean",
-        r#"theorem boole_submit_lean_missing_policy : 2 + 2 = 4 := by
+        r#"import Boole.Family.V0Helpers
+theorem boole_submit_lean_missing_policy : 2 + 2 = 4 := by
   decide
 "#,
     );
@@ -255,7 +259,8 @@ fn submit_lean_cli_rejects_checker_artifact_not_in_required_allowlist() {
     workspace.write_checker_project();
     let proof = workspace.write_proof(
         "ValidButTamperedChecker.lean",
-        r#"theorem boole_submit_lean_tampered_checker : 3 + 3 = 6 := by
+        r#"import Boole.Family.V0Helpers
+theorem boole_submit_lean_tampered_checker : 3 + 3 = 6 := by
   decide
 "#,
     );
@@ -266,12 +271,10 @@ fn submit_lean_cli_rejects_checker_artifact_not_in_required_allowlist() {
     .evidence()
     .expect("baseline checker evidence")
     .checker_artifact_hash;
-    workspace.write_checker_project_with_main(
-        r#"def main (_args : List String) : IO UInt32 := do
-  IO.println "tampered checker accepts without checking proof"
-  return 0
-"#,
-    );
+    workspace.write_checker_project_with_main(&format!(
+        "{}\n-- tampered checker identity for allowlist rejection\n",
+        include_str!("../../../lean/checker/BooleCheck/Main.lean")
+    ));
     let block_path = workspace.root.join("blockstore.ndjson");
 
     let output = Command::new(env!("CARGO_BIN_EXE_boole-node"))
@@ -359,24 +362,9 @@ impl TestLeanWorkspace {
     }
 
     fn write_checker_project(&self) {
-        self.write_checker_project_with_main(
-            r#"def main (args : List String) : IO UInt32 := do
-  let some proofPath := args.head?
-    | IO.eprintln "usage: boole_check <proof.lean>"; return 64
-  let output ← IO.Process.output {
-    cmd := "lean"
-    args := #[proofPath]
-  }
-  if output.stdout.length > 0 then
-    IO.print output.stdout
-  if output.stderr.length > 0 then
-    IO.eprint output.stderr
-  if output.exitCode == 0 then
-    return 0
-  else
-    return 1
-"#,
-        );
+        self.write_checker_project_with_main(include_str!(
+            "../../../lean/checker/BooleCheck/Main.lean"
+        ));
     }
 
     fn write_checker_project_with_main(&self, main_lean: &str) {
@@ -391,6 +379,9 @@ impl TestLeanWorkspace {
 open Lake DSL
 
 package boole_check_fixture
+
+lean_lib «Boole» where
+  globs := #[.submodules `Boole.Family]
 
 lean_exe boole_check where
   root := `BooleCheck.Main
@@ -426,6 +417,16 @@ lean_exe boole_check where
             "-- fixture stub: pinned by checker_artifact_hash\n",
         )
         .expect("write V0Helpers stub");
+        let build = Command::new("lake")
+            .args(["build", "Boole.Family.V0Helpers"])
+            .current_dir(&self.root)
+            .output()
+            .expect("build submit-lean checker fixture");
+        assert!(
+            build.status.success(),
+            "checker fixture build failed: {}",
+            String::from_utf8_lossy(&build.stderr)
+        );
     }
 
     fn write_proof(&self, name: &str, content: &str) -> PathBuf {

@@ -125,21 +125,28 @@ run_logged lean-toolchain-required bash -c '
   lake --version
   lean --version
 '
+# Run the request-private helper compiler from a unique cold fixture before
+# any legacy package warm-up can occur. This proves the new three-stage path
+# does not inherit a prebuilt `V0Helpers.olean` trust dependency.
+run_logged lean-checker-cold-start cargo test --locked -p boole-lean-runner \
+  --test real_checker audit_process_receives_checker_artifact_not_submitted_source \
+  -- --exact --nocapture
 # The cargo-test stage below runs deep_verify_block_roundtrip, which re-runs
-# the Lean checker (`lake exec boole_check`) on a re-derived proof that imports
+# the Lean checker (`lean --run BooleCheck/Main.lean`) on a re-derived proof that imports
 # `Boole.Family.V0Helpers`. The checker's `.lake/build` is gitignored, so a
 # fresh CI runner has no prebuilt olean: the import fails ("unknown module
 # prefix 'Boole'"), the checker rejects the proof, and the share re-verifies as
 # accepted=false (DeepVerifyDivergence). A developer's already-warm
 # `.lake/build` hides this locally, so the gate passes on a laptop but the same
 # commit fails on a clean runner. Prebuild the imported module's olean and the
-# checker exe here so the local gate and a fresh CI runner share the same
-# precondition. This is a gate-time build step only; no runtime code performs a
-# `lake build`.
+# helper olean here so the local gate and a fresh CI runner share the same
+# precondition. Main/Audit are interpreted directly by the package-pinned Lean;
+# no checker executable is a runtime dependency. This is a gate-time build step
+# only; no runtime code performs a `lake build`.
 run_logged lean-checker-build bash -c '
   set -euo pipefail
   cd lean/checker
-  lake build Boole.Family.V0Helpers boole_check
+  lake build Boole.Family.V0Helpers
 '
 run_logged cargo-test cargo test --workspace --all-targets --locked --features boole-node/dev-mock-payment,boole-miner/dev-tools
 # SC.8 (GAP-13) — the multiprocess suites are `#[ignore = "needs-multiprocess"]`

@@ -9,14 +9,14 @@
 //!
 //!   1. intake — `check_file`'s pre-spawn forbidden-token scan, before any
 //!      Lean process runs (same mechanism as the TB.1 blacklist);
-//!   2. checker — the ADR-0013 audit pass (`BooleCheck/Audit.lean`) scans
-//!      the raw source itself and refuses with a typed
+//!   2. checker — the one source-reading process (`BooleCheck/Main.lean`)
+//!      scans the raw source itself and refuses with a typed
 //!      `BOOLE_BUDGET_OVERRIDE` marker, so a source slipping past layer 1
 //!      still cannot buy steps.
 //!
 //! These tests exercise the CANONICAL checker package (`lean/checker/`),
 //! not a synthetic fixture, because layer 2 lives in the shipped
-//! `Audit.lean`.
+//! primary checker entrypoint.
 
 use boole_lean_runner::{LeanRunner, LeanRunnerConfig};
 use std::path::{Path, PathBuf};
@@ -110,28 +110,50 @@ fn unlock_limits_is_forbidden() {
     assert_intake_rejects(&proof, "maxHeartbeats");
 }
 
-/// ADR-0016 (a-2) layer 2 — the audit pass refuses a budget override on its
-/// own, independently of the intake scan. Invoke `BooleCheck/Audit.lean`
-/// DIRECTLY (bypassing `check_file` and its layer-1 scan) on a source that
-/// sets `maxHeartbeats`, and require a non-zero exit with the typed
+/// ADR-0016 (a-2) layer 2 — the primary checker refuses a budget override on
+/// its own, independently of the intake scan. Invoke `Main.lean` DIRECTLY
+/// (bypassing `check_file` and its layer-1 scan) on a source that sets
+/// `maxHeartbeats`, and require a non-zero exit with the typed
 /// `BOOLE_BUDGET_OVERRIDE` marker. Without this second line, any bypass of
 /// the Rust-side scan silently re-opens the budget.
 #[test]
-fn audit_pass_rejects_budget_override_independently_of_intake() {
+fn primary_checker_rejects_budget_override_independently_of_intake() {
     if !lake_and_lean_available() {
         eprintln!("skipping audit budget-override test: lake/lean unavailable");
         return;
     }
     let proof = write_proof(
-        "audit-direct",
-        "set_option maxHeartbeats 0 in\ntheorem boole_audit_bypass : 1 + 1 = 2 := by decide\n",
+        "checker-direct",
+        "set_option maxHeartbeats 0 in\ntheorem boole_checker_bypass : 1 + 1 = 2 := by decide\n",
     );
-    let output = Command::new("lake")
-        .arg("env")
-        .arg("lean")
+    let build = Command::new("lake")
+        .args(["build", "Boole.Family.V0Helpers"])
+        .current_dir(canonical_checker_dir())
+        .output()
+        .expect("build canonical checker");
+    assert!(
+        build.status.success(),
+        "canonical checker build failed: {}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let artifact = proof.with_extension("olean");
+    let lean = Command::new("lake")
+        .args(["env", "printenv", "LEAN"])
+        .current_dir(canonical_checker_dir())
+        .output()
+        .expect("resolve package-pinned lean");
+    assert!(lean.status.success(), "lake env printenv LEAN failed");
+    let lean = String::from_utf8(lean.stdout)
+        .expect("LEAN is utf8")
+        .trim()
+        .to_string();
+    let output = Command::new(lean)
         .arg("--run")
-        .arg("BooleCheck/Audit.lean")
+        .arg("BooleCheck/Main.lean")
         .arg(&proof)
+        .arg("400000")
+        .arg("512")
+        .arg(&artifact)
         .current_dir(canonical_checker_dir())
         .output()
         .expect("run audit pass directly");
@@ -139,12 +161,12 @@ fn audit_pass_rejects_budget_override_independently_of_intake() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         !output.status.success(),
-        "audit pass must refuse a budget-override source on its own: \
+        "primary checker must refuse a budget-override source on its own: \
          stdout={stdout} stderr={stderr}"
     );
     assert!(
         format!("{stdout}{stderr}").contains("BOOLE_BUDGET_OVERRIDE"),
-        "audit refusal must carry the typed BOOLE_BUDGET_OVERRIDE marker: \
+        "checker refusal must carry the typed BOOLE_BUDGET_OVERRIDE marker: \
          stdout={stdout} stderr={stderr}"
     );
 }

@@ -7,7 +7,9 @@
 // `RejectingVerifier` are in-process stubs for tests; `LeanVerifier` is
 // the production path: it generates the active v1 length-bound instance from
 // the target seed, wraps the LLM-supplied proof term in a `BooleVerifyMod`
-// module, and shells out to `lake exec boole_check` via boole-lean-runner.
+// module, and hands it to boole-lean-runner's three-stage boundary: a
+// request-private trusted-helper compile, direct source elaboration, and an
+// artifact-only audit.
 //
 // The seam `Verifier::verify(seed_hex, d, proof_source, n)` matches the
 // previous (lake-verify-feature-gated) signature byte-for-byte so nothing
@@ -134,7 +136,8 @@ fn parse_profile(s: &str) -> Option<LeanProfile> {
 
 /// Production verifier. Regenerates the active family instance from the
 /// target seed, wraps the LLM-supplied proof term in a BooleVerifyMod
-/// module, and runs `lake exec boole_check` via boole-lean-runner.
+/// module, and runs boole-lean-runner's request-private helper compile,
+/// direct source elaboration, and artifact-only audit stages.
 pub struct LeanVerifier {
     pub lean_dir: PathBuf,
     pub timeout: Duration,

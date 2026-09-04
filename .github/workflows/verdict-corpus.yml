@@ -95,12 +95,17 @@ jobs:
           sh /tmp/elan-init.sh -y --default-toolchain leanprover/lean4:v4.29.1
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
 
-      - name: Build canonical checker
+      - name: Build canonical checker helper
+        # First prove the request-private compiler works from a unique cold
+        # package; the legacy warm-up below therefore cannot hide that path.
         shell: bash
         run: |
           set -euo pipefail
+          cargo test -p boole-lean-runner --test real_checker --locked \
+            audit_process_receives_checker_artifact_not_submitted_source \
+            -- --exact --nocapture
           cd lean/checker
-          lake build Boole.Family.V0Helpers boole_check
+          lake build Boole.Family.V0Helpers
 
       - name: Run verdict corpus (debug)
         if: matrix.profile == 'debug'

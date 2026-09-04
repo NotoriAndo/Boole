@@ -1,7 +1,7 @@
 //! P1.4 — accepted Lean-verified proof audit events must carry the
 //! Lean source and the bounty's `verifierHash` so the audit log alone
-//! is sufficient to re-run `lake exec boole_check` and reproduce the
-//! accept/reject decision later. Without this, the master plan's
+//! is sufficient to re-run the pinned three-stage direct-Lean verifier
+//! and reproduce the accept/reject decision later. Without this, the master plan's
 //! "deep state verify" (line 110-141) cannot recompute Lean acceptance
 //! from durable artifacts — the node would have to retain the original
 //! HTTP body forever, or worse, trust the in-memory `accepted` bit

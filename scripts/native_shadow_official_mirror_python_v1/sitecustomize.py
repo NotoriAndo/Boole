@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 import pathlib
 import sys
+import urllib.error
 import urllib.request
 from collections.abc import Callable
 from typing import Any
@@ -67,7 +68,15 @@ def adapted_open(original_open: Callable[..., Any], architecture: str) -> Callab
             transport_url = mirror_url(fullurl, architecture)
         except ValueError:
             return original_open(opener, fullurl, *args, **kwargs)
-        response = original_open(opener, transport_url, *args, **kwargs)
+        try:
+            response = original_open(opener, transport_url, *args, **kwargs)
+        except (urllib.error.URLError, TimeoutError, OSError):
+            # The architecture mirror is transport only.  If it no longer
+            # publishes a frozen object (or is temporarily unavailable), use
+            # the original timestamped snapshot endpoint.  The unchanged
+            # acquirer still enforces the sealed size, digest, redirect and
+            # response-identity checks after either transport succeeds.
+            return original_open(opener, fullurl, *args, **kwargs)
         return _SnapshotIdentityResponse(response, fullurl)
 
     return open_with_official_mirror

@@ -525,7 +525,8 @@ fn run_submit_lean_command(args: SubmitLeanArgs) -> anyhow::Result<()> {
     }
     let ts = args.ts;
     // Validate `--admission-nonce` shape *before* fixture parse + Lean spawn so
-    // a malformed value fails fast and never pays for `lake exec boole_check`.
+    // a malformed value fails fast and never pays for any of the three
+    // direct-Lean verification stages.
     // The reason code mirrors account/session malformed public-key rejections so downstream tooling can
     // pattern-match across both surfaces.
     if let Some(value) = admission_nonce_override.as_deref() {
@@ -709,12 +710,12 @@ fn run_agent_proof_command(args: AgentProofArgs) -> anyhow::Result<()> {
     let (file_name, proof_source, backend_description) = match backend.as_str() {
         "fixture-valid" => (
             "Proof.lean",
-            "theorem boole_agent_fixture_valid : 2 + 2 = 4 := by\n  decide\n",
+            "import Boole.Family.V0Helpers\n\ntheorem boole_agent_fixture_valid : 2 + 2 = 4 := by\n  decide\n",
             "deterministic valid Lean fixture backend",
         ),
         "fixture-invalid" => (
             "Proof.lean",
-            "theorem boole_agent_fixture_invalid : 2 + 2 = 5 := by\n  decide\n",
+            "import Boole.Family.V0Helpers\n\ntheorem boole_agent_fixture_invalid : 2 + 2 = 5 := by\n  decide\n",
             "deterministic invalid Lean fixture backend",
         ),
         other => anyhow::bail!("unsupported agent-proof backend {other}"),

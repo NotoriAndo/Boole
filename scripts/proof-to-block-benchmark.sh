@@ -39,6 +39,9 @@ open Lake DSL
 
 package boole_check_fixture
 
+lean_lib «Boole» where
+  globs := #[.submodules `Boole.Family]
+
 lean_exe boole_check where
   root := `BooleCheck.Main
 """
@@ -52,20 +55,7 @@ lean_exe boole_check where
 """
     )
     (workspace / "BooleCheck" / "Main.lean").write_text(
-        """def main (args : List String) : IO UInt32 := do
-  let some proofPath := args.head?
-    | IO.eprintln "usage: boole_check <proof.lean>"; return 64
-  let output ← IO.Process.output {
-    cmd := "lean"
-    args := #[proofPath]
-  }
-  if output.exitCode == 0 then
-    IO.println "boole_check: accepted"
-    return 0
-  else
-    IO.eprintln output.stderr
-    return 1
-"""
+        (root / "lean" / "checker" / "BooleCheck" / "Main.lean").read_text()
     )
     # TB.1 / ADR-0013 — `check_file` now runs a second, separate process
     # (`lake env lean --run BooleCheck/Audit.lean`) after the primary
@@ -80,9 +70,17 @@ lean_exe boole_check where
     (workspace / "Boole" / "Family" / "V0Helpers.lean").write_text(
         "-- fixture stub: pinned by checker_artifact_hash\n"
     )
+    subprocess.run(
+        ["lake", "build", "Boole.Family.V0Helpers"],
+        cwd=workspace,
+        check=True,
+        stdout=sys.stderr,
+    )
     proof = workspace / "LeanSubmitProofToBlock.lean"
     proof.write_text(
-        """theorem boole_benchmark_submit_lean_valid : 2 + 2 = 4 := by
+        """import Boole.Family.V0Helpers
+
+theorem boole_benchmark_submit_lean_valid : 2 + 2 = 4 := by
   decide
 """
     )

@@ -463,12 +463,16 @@ def row_target_metadata(*, benchmark_mode: str, attempt_context: dict[str, Any] 
 def wrap_proof_term_candidate(proof_term: str, *, benchmark_mode: str = "mining", attempt_context: dict[str, Any] | None = None) -> str:
     indented = "\n".join(("  " + line) if line.strip() else line for line in proof_term.splitlines())
     if benchmark_mode == "smoke":
-        return f"theorem boole_benchmark_true : True :=\n{indented}\n"
+        return (
+            "import Boole.Family.V0Helpers\n\n"
+            f"theorem boole_benchmark_true : True :=\n{indented}\n"
+        )
     ctx = attempt_context or globals()["attempt_context"]("manual", "manual", 0, benchmark_mode="mining")
     theorem_name = ctx["theoremName"]
     challenge = ctx["challenge"]
     nonce = ctx["nonce"]
     return (
+        "import Boole.Family.V0Helpers\n\n"
         f"-- benchmarkMode: mining\n"
         f"-- targetFamily: {MINING_TARGET_FAMILY}\n"
         f"-- lotteryChallenge: {challenge}\n"
@@ -616,6 +620,9 @@ open Lake DSL
 
 package boole_check_fixture
 
+lean_lib «Boole» where
+  globs := #[.submodules `Boole.Family]
+
 lean_exe boole_check where
   root := `BooleCheck.Main
 """,
@@ -631,22 +638,7 @@ lean_exe boole_check where
         encoding="utf-8",
     )
     (workspace / "BooleCheck" / "Main.lean").write_text(
-        """def main (args : List String) : IO UInt32 := do
-  let some proofPath := args.head?
-    | IO.eprintln \"usage: boole_check <proof.lean>\"; return 64
-  let output ← IO.Process.output {
-    cmd := \"lean\"
-    args := #[proofPath]
-  }
-  if output.stdout.length > 0 then
-    IO.print output.stdout
-  if output.stderr.length > 0 then
-    IO.eprint output.stderr
-  if output.exitCode == 0 then
-    return 0
-  else
-    return 1
-""",
+        (ROOT / "lean" / "checker" / "BooleCheck" / "Main.lean").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
     # TB.1 / ADR-0013 — `check_file` now runs a second, separate process
@@ -663,6 +655,11 @@ lean_exe boole_check where
     (workspace / "Boole" / "Family" / "V0Helpers.lean").write_text(
         "-- fixture stub: pinned by checker_artifact_hash\n",
         encoding="utf-8",
+    )
+    subprocess.run(
+        ["lake", "build", "Boole.Family.V0Helpers"],
+        cwd=workspace,
+        check=True,
     )
 
 

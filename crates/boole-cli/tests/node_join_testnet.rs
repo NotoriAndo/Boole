@@ -55,13 +55,13 @@ fn node_binary() -> PathBuf {
 
 fn build_pinned_checker_inputs() {
     // A clean checkout has no gitignored `.olean` for this imported helper.
-    // Building only `boole_check` leaves the checker executable present but
-    // makes every real proof fail with "unknown module prefix Boole". Keep
+    // Main/Audit run directly from source, but every real proof still needs
+    // the imported helper olean or fails with "unknown module prefix Boole". Keep
     // this multiprocess test independently runnable while matching the
     // self-test lane's precondition exactly.
     let output = Command::new("lake")
         .current_dir(checker_path())
-        .args(["build", "Boole.Family.V0Helpers", "boole_check"])
+        .args(["build", "Boole.Family.V0Helpers"])
         .output()
         .expect("run pinned checker build");
     assert!(
