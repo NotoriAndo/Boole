@@ -2447,6 +2447,16 @@ fn confirm_process_group_empty(pid: u32) -> Result<()> {
             if err.raw_os_error() == Some(libc::ESRCH) {
                 return Ok(());
             }
+            // Darwin can report EPERM while a group contains only killed,
+            // not-yet-reaped members. `kill_child_group` handles the same
+            // transient state before the direct-child wait. Do not call it
+            // empty immediately, though: keep polling so a live or otherwise
+            // uninspectable group still fails closed at the bounded deadline.
+            #[cfg(target_os = "macos")]
+            if err.raw_os_error() == Some(libc::EPERM) {
+                thread::sleep(Duration::from_millis(1));
+                continue;
+            }
             return Err(err).context("failed to inspect sandboxed request process group");
         }
         thread::sleep(Duration::from_millis(1));
