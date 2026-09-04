@@ -6,7 +6,7 @@
 //!
 //!   1. `initialize`  → protocolVersion "2024-11-05", serverInfo.name = "boole-mcp"
 //!   2. `notifications/initialized` → no response (notification)
-//!   3. `tools/list`  → exactly 4 tools
+//!   3. `tools/list`  → exactly 5 tools
 //!   4. `tools/call`  boole.status → idle envelope in content[0].text
 //!
 //! Drive via std::process::Command with piped stdin/stdout.
@@ -125,7 +125,7 @@ fn stdio_initialize_returns_protocol_version() {
 }
 
 #[test]
-fn stdio_tools_list_has_four_tools() {
+fn stdio_tools_list_has_five_tools() {
     let (_guard, mut stdin, mut stdout) = spawn_stdio();
 
     // Perform initialize first (required by MCP protocol).
@@ -157,12 +157,18 @@ fn stdio_tools_list_has_four_tools() {
         .expect("tools array");
     assert_eq!(
         tools.len(),
-        4,
-        "expected 4 tools; got {}; resp={list_resp_str}",
+        5,
+        "expected 5 tools; got {}; resp={list_resp_str}",
         tools.len()
     );
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
-    for expected in ["bounty.list", "receipt.get", "boole.mine", "boole.status"] {
+    for expected in [
+        "bounty.list",
+        "receipt.get",
+        "boole.mine",
+        "boole.status",
+        "boole.verify_native",
+    ] {
         assert!(
             names.contains(&expected),
             "{expected} missing; names={names:?}"

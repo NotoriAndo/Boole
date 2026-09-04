@@ -7,7 +7,8 @@
 //!     containing `mcpServers.boole.command` pointing at the running
 //!     binary, plus an `args` array that launches `stdio` (real MCP
 //!     stdio transport) with `--node-url http://127.0.0.1:8080` so
-//!     the proxy tools (bounty.list / receipt.get) keep working.
+//!     the legacy proxy tools (bounty.list / receipt.get) keep working, and a
+//!     separate `--native-shadow-url http://127.0.0.1:8082` for native verdicts.
 //!   * Re-running install is idempotent: the second invocation does not
 //!     mutate the settings bytes (no duplication, no key churn).
 //!   * Pre-existing unrelated keys (other `mcpServers.*` entries and
@@ -127,6 +128,11 @@ fn install_each_ide_writes_canonical_settings_entry() {
         assert!(
             args.contains(&"--node-url"),
             "{target}: args must include --node-url for proxy tools; got {args:?}"
+        );
+        assert!(
+            args.windows(2)
+                .any(|pair| { pair == ["--native-shadow-url", "http://127.0.0.1:8082"] }),
+            "{target}: native verifier must use its separate loopback URL; got {args:?}"
         );
         let _ = fs::remove_dir_all(&home);
     }

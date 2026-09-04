@@ -122,14 +122,24 @@ The next product work does not jump straight to payment or public operation:
    projection and one Lean re-verification gate, retaining structural/rate
    charges while blocking every downstream effect on semantic rejection.
 4. Add the `boole.verify_native` MCP vertical: accept only the native service's
-   strict six-field request, use a separately configured loopback native URL,
-   and forward its verdict and BF.3 `VerificationReceipt` without rewriting
-   either into the legacy `ReceiptCommitment` store.
+   exact six-field/key-and-JSON-type shape (including duplicate-key rejection
+   from the original raw JSON), while leaving schema, family,
+   challenge, digest, epoch, raw-answer and length semantics to the native
+   authority. Use a separately configured numeric-loopback native URL distinct
+   from the legacy node origin, force the MCP HTTP listener itself to numeric
+   loopback whenever that bridge is enabled, disable ambient proxies and
+   redirects, and forward its
+   verdict and BF.3 `VerificationReceipt` without rewriting either into the
+   legacy `ReceiptCommitment` store. Bound the native response to 64 KiB and
+   let the MCP deadline outlive the verifier's frozen 115-second deadline.
 5. Exercise ACCEPT, deterministic rejection, durable redelivery and MCP restart
-   without a second checker execution. Keep payment, wallet automation, block,
-   reward, BF.7 and activation out of this milestone. Wallet automation, faucet
-   and real payment/reward wiring remain a later economic/operational decision
-   gate rather than an implicit next step.
+   without a second checker execution. The MCP client must not retry
+   automatically or forge a verdict after an ambiguous disconnect; the caller
+   manually resubmits the identical six fields to recover durable redelivery.
+   Keep payment, wallet automation, block, reward, BF.7 and activation out of
+   this milestone. Wallet automation, faucet and real payment/reward wiring
+   remain a later economic/operational decision gate rather than an implicit
+   next step.
 
 The implementation milestones are deliberately large functional boundaries:
 one branch, one PR and one full CI run per 4–8 hour milestone, with two to four
@@ -138,10 +148,11 @@ checks happen inside the implementation milestone rather than as separate audit
 or documentation PRs.
 
 The selected sequence does not change this closeout's claim boundary. The
-existing `/verify-answer` remains a mock/local `ReceiptCommitment` demonstration;
-the native checker and BF.3 receipt are a separate service until the MCP
-successor lands. Real payment, public settlement, production wallet authority,
-rewards and activation remain deferred.
+existing `/verify-answer` remains a mock/local `ReceiptCommitment`
+demonstration. D3 reaches the separate native checker service and forwards its
+BF.3 receipt without turning either into the legacy receipt authority. Real
+payment, public settlement, production wallet authority, rewards and activation
+remain deferred.
 
 ## Successor progress (2026-09-04)
 
@@ -228,9 +239,27 @@ rewards and activation remain deferred.
   Lean fixture still commits and converges. The valid control may not be
   skipped or replaced by a non-Lean fixture. The M5-backed live controls pass
   together with this boundary.
-- Current milestone: the `boole.verify_native` MCP vertical. M5 and M6 make
-  that closed-local integration eligible to proceed; they do not themselves
-  authorize MCP-submitted code.
+- Completed milestone: `MCP-D3-NATIVE-VERIFICATION-VERTICAL`. After M5 and M6,
+  HTTP and stdio
+  precheck exactly six fields and their JSON types while leaving value meaning
+  and bounds to the native authority, contact only the separate numeric-loopback
+  native origin, keep native-enabled HTTP serving on numeric loopback too,
+  preserve the complete native adjudication/BF.3 receipt, and perform no
+  automatic retry. HTTP preserves status and the complete JSON value; stdio
+  preserves that value and maps status only to MCP's success/error class. The
+  bridge parses and re-serializes JSON, so response bytes, whitespace and key
+  order are not claimed preserved. Any post-send response failure is
+  outcome-unknown and directs exact manual resubmission. Its transport E2E
+  covers ACCEPT, deterministic rejection, an ambiguous committed response, MCP
+  restart, manual redelivery with the same receipt/evidence and `redelivered:
+  true`, and zero legacy-node requests. The existing native
+  router/crash-restart E2E separately
+  proves durable commit and no second checker execution on that exact endpoint;
+  this is composite boundary evidence, not a claim that the MCP fixture itself
+  ran the production checker.
+- Current milestone: select the next closed-local product boundary. Completing
+  D3 does not implicitly authorize payment, wallet automation, a public
+  testnet, public P2P, mining, rewards, consensus or activation.
 
 This progress is closed-local protocol hardening. It neither activates a public
 testnet nor authorizes mining, rewards, payment, consensus, P2P exposure or use
@@ -242,6 +271,6 @@ The former selection scope was:
 - choose whether the next official batch should prioritize security review, real settlement/testnet design, richer passport indexing, or public operator UX;
 - add the chosen batch to the plan with scope, non-goals, exact RED tests, focused gates, full gate, and public-claim boundaries before implementation.
 
-That historical selection step was not a feature expansion. The selection is
-now complete: the local MVP remains closed out, and the next implementation
-direction is the ordered successor above.
+That historical selection step was not a feature expansion. Its ordered
+successor is now complete, the local MVP remains closed out, and the next
+closed-local product milestone must be selected explicitly.

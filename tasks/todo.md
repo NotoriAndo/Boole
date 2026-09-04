@@ -1561,7 +1561,25 @@ plan: /Users/seoyong/.claude/plans/cozy-wiggling-lobster.md (2026-07-18 승인).
       gossip·session nonce·block·reward·
       proof-credit·receipt 효과를 0으로 유지한다. 기존 valid Lean
       control은 삭제·skip·비-Lean 대체 없이 같은 closed-local E2E에서 green이다.
-- [ ] `boole.verify_native` MCP vertical — M5와 M6가 모두 green이므로 현재 다음이다.
+- [x] MCP D3 `boole.verify_native` vertical — M5와 M6가 green인 통합 상태에서
+      정확한 6필드만 네트워크 전에
+      키·JSON 타입만 검사하고(schema/family/challenge/digest/epoch/rawAnswer의 의미·길이는
+      native authority가 판정), raw JSON 원문을 재검사해 중복 키를 거절하며
+      음수 정수 epoch는 native 판정으로 전달하고 분수는 타입 오류로 사전 거절한다. legacy
+      origin과 다른 `127.0.0.1:8082` native origin에만
+      1회 POST한다. native bridge가 켜진 HTTP MCP listener도 numeric loopback으로 강제해
+      무인증 remote→loopback bridge를 막고, native가 없는 legacy serve 동작은 유지한다.
+      proxy·redirect·자동 retry는 0, 응답은 64 KiB 이하, timeout은 native 115초보다 긴 120초이며,
+      HTTP는 status+JSON 값을, stdio는 JSON 값+성공/오류 등급을 보존하며 verdict·reason·
+      evidenceDigest·BF.3 receipt를 다른 권위 형식으로 재구성하지 않는다. JSON은 파싱 후
+      다시 직렬화되므로 원문 바이트·공백·키 순서 보존은 주장하지 않는다. 요청 후 응답을 전달할 수
+      없는 모든 경우는 판정을 위조하지 않고 outcome-unknown + 동일 6필드 수동 재제출로 고정한다. ACCEPT·결정적
+      거절·응답 유실·MCP 재시작·수동 redelivery와 legacy node 0접촉은 MCP 전송 E2E가
+      고정한다. 실제 durable commit·checker 재실행 0은 같은 endpoint의 기존 native
+      router/crash-restart E2E가 별도로 고정한다. 즉 두 층의 합성 증거이며 MCP fixture를
+      실제 checker 실행으로 부르지 않는다.
+- [ ] 다음 closed-local 제품 milestone 선택 — MCP D3 완료가 payment·wallet automation·
+      public testnet·public P2P·채굴·보상·consensus·activation 권한을 자동으로 만들지 않는다.
 
 ---
 

@@ -18,7 +18,7 @@
 //! MCP stdio transport pieces (S4 / S5):
 //!   * `write_mcp_frame` / `read_mcp_frame` — Content-Length framing per
 //!     the LSP/MCP base protocol.
-//!   * `mcp_tools_array` — the canonical 4-tool list; feeds both HTTP
+//!   * `mcp_tools_array` — the canonical tool list; feeds both HTTP
 //!     `GET /mcp/tools` and stdio `tools/list` so they are always in sync.
 //!   * `handle_jsonrpc_sync` — synchronous JSON-RPC 2.0 dispatcher for
 //!     stateless requests (initialize, tools/list, tools/call on status).
@@ -37,6 +37,14 @@ use boole_miner::{
     TargetEmitter, Verifier,
 };
 use serde_json::{json, Value};
+
+/// The native verifier owns a frozen 115-second outer deadline. The MCP
+/// transport waits slightly longer so it does not invent an ambiguous timeout
+/// immediately before the verifier can return its durable adjudication.
+pub const NATIVE_VERIFIER_TIMEOUT_SECS: u64 = 120;
+
+/// Maximum native adjudication response accepted from the loopback service.
+pub const NATIVE_VERIFIER_RESPONSE_MAX_BYTES: usize = 64 * 1024;
 
 /// P2.1 slice 55 — canonical runtime-smoke scenario fixture embedded at
 /// build time. Keeps the binary self-sufficient: a user running
@@ -288,7 +296,7 @@ pub fn read_mcp_frame(reader: &mut impl BufRead) -> anyhow::Result<Option<String
 
 // ── S5: Shared tools list ────────────────────────────────────────────────
 
-/// The canonical 4-tool array shared by HTTP `GET /mcp/tools` and MCP
+/// The canonical tool array shared by HTTP `GET /mcp/tools` and MCP
 /// stdio `tools/list`.  Each tool carries BOTH `input_schema` (snake_case,
 /// for the existing HTTP surface) and `inputSchema` (camelCase, required by
 /// the MCP spec for stdio clients).  Both fields carry identical content.
@@ -342,6 +350,31 @@ pub fn mcp_tools_array() -> Vec<Value> {
             json!({
                 "type": "object",
                 "properties": {},
+                "additionalProperties": false
+            }),
+        ),
+        (
+            "boole.verify_native",
+            "Submit one raw native answer to the separately configured closed-local native \
+             verifier and return its adjudication and BF.3 receipt without rewriting them.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "schema": { "type": "string" },
+                    "familyVersion": { "type": "string" },
+                    "templateId": { "type": "string" },
+                    "challengeSha256": { "type": "string" },
+                    "epoch": { "type": "integer" },
+                    "rawAnswer": { "type": "string" }
+                },
+                "required": [
+                    "schema",
+                    "familyVersion",
+                    "templateId",
+                    "challengeSha256",
+                    "epoch",
+                    "rawAnswer"
+                ],
                 "additionalProperties": false
             }),
         ),

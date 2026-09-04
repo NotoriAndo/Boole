@@ -4,7 +4,8 @@ This document captures the external-user end-to-end (e2e) smoke flow for
 `boole-mcp`: from a fresh `$HOME`, install the MCP server into an
 IDE-compatible settings file, start the server, and drive a zero-cost
 fixture mining round-trip through the `boole.mine` and `boole.status`
-tools.
+tools, plus the closed-local `boole.verify_native` bridge when the separate
+native verifier service is running.
 
 Scope: closed local smoke; not public-network mining. The `boole.mine`
 tool exercised here runs a `MiningLoopOptions { max_cycles: Some(0), ..
@@ -36,6 +37,11 @@ are platform-agnostic except where explicitly noted.
 
 No paid-API credentials are required. No public-network mining is
 performed.
+
+Native verification is a separate, optional prerequisite: the node-owned
+native service must already be listening on a numeric loopback origin (the
+installed default is `http://127.0.0.1:8082`). `boole-mcp` does not start the
+checker, own its ledger, or expose it on a remote address.
 
 ## Step 1 — build the boole-mcp binary
 
@@ -122,15 +128,22 @@ hand and re-run install.
 
 For the e2e smoke, run the HTTP server surface directly. Note that an
 installed IDE entry uses the stdio transport instead: `boole-mcp
-install` registers `args: ["stdio", "--node-url", ...]`, and the IDE
-launches `boole-mcp stdio` as a subprocess speaking JSON-RPC 2.0 over
-stdin/stdout with Content-Length framing. The HTTP `serve` surface
-below exists for curl-driven smokes like this one; both transports
-dispatch the same tools:
+install` registers separate `--node-url http://127.0.0.1:8080` and
+`--native-shadow-url http://127.0.0.1:8082` arguments, and the IDE launches
+`boole-mcp stdio` as a subprocess speaking JSON-RPC 2.0 over stdin/stdout with
+Content-Length framing. The HTTP `serve` surface below exists for curl-driven
+smokes like this one; both transports dispatch the same tools:
 
 ```
-./target/release/boole-mcp serve --node-url http://127.0.0.1:8080 --listen 127.0.0.1:0
+./target/release/boole-mcp serve \
+  --node-url http://127.0.0.1:8080 \
+  --native-shadow-url http://127.0.0.1:8082 \
+  --listen 127.0.0.1:0
 ```
+
+Equivalent one-line form: `./target/release/boole-mcp serve --node-url
+http://127.0.0.1:8080 --native-shadow-url http://127.0.0.1:8082 --listen
+127.0.0.1:0`.
 
 The server echoes the resolved bind address to stderr as:
 
@@ -142,6 +155,15 @@ Capture the port for the remaining steps. `--node-url` is required by
 the CLI but only consulted by the upstream-proxying tools
 (`bounty.list`, `receipt.get`); the in-process mining tools
 (`boole.mine`, `boole.status`) do not contact the upstream URL.
+`boole.verify_native` never uses that legacy node URL: it accepts only an
+`http` numeric-loopback native origin that is distinct from the legacy origin
+and has no credentials or extra path. When that native origin is configured,
+the MCP HTTP `--listen` address must also be a numeric loopback socket address;
+wildcard, non-loopback and hostname listeners are rejected before bind so the
+MCP process cannot become an unauthenticated remote-to-loopback submission
+bridge. Legacy-only `serve` without `--native-shadow-url` retains its existing
+listener behavior.
+Ambient proxies and redirects are disabled for this client.
 
 ## Step 5 — list available MCP tools
 
@@ -156,12 +178,13 @@ Expected response (order may vary):
   {"name":"bounty.list", ...},
   {"name":"receipt.get", ...},
   {"name":"boole.mine", ...},
-  {"name":"boole.status", ...}
+  {"name":"boole.status", ...},
+  {"name":"boole.verify_native", ...}
 ]}
 ```
 
-Each entry carries a `description` string and an `input_schema`
-object.
+Each entry carries a `description` string and identical `input_schema` /
+`inputSchema` objects for the HTTP-compatibility and MCP stdio spellings.
 
 ## Step 6 — invoke boole.status (idle)
 
@@ -220,6 +243,57 @@ The `completed` envelope reflects the protocol counters from the most
 recent `boole.mine` invocation in the current `boole-mcp serve`
 process. The slot is wiped when the process exits.
 
+## Native verification — strict six-field bridge
+
+With the native service running, submit exactly the six fields owned by that
+service:
+
+```
+curl -s -H 'Content-Type: application/json' \
+  -d '{"tool":"boole.verify_native","args":{"schema":"boole.native-shadow.submission.v1","familyVersion":"<family>","templateId":"<64-lowercase-hex>","challengeSha256":"<64-lowercase-hex>","epoch":0,"rawAnswer":"```rust\\n<answer>\\n```"}}' \
+  http://127.0.0.1:<port>/mcp/invoke
+```
+
+Missing, extra, duplicated or wrongly typed fields are rejected before any
+upstream request; duplicate keys are detected by reparsing the original JSON,
+not inferred from a generic JSON value that overwrote one occurrence. This MCP
+precheck deliberately validates only the exact six keys and their JSON types.
+A negative integral `epoch` is therefore forwarded, while a fractional value
+is rejected as the wrong JSON type. The native service remains the authority
+for the schema value, family and challenge identity, digest syntax/meaning,
+epoch policy, raw answer format and every content/length bound; MCP neither duplicates nor
+weakens those decisions. A shape-valid request is sent exactly once to
+`POST /native-shadow/submissions`. The native JSON response is returned as a
+whole, including `outcome`, `reasonCode`, `redelivered`, `evidenceDigest` and
+the BF.3 `receipt`; it is not converted into the legacy `/receipts/{id}`
+`ReceiptCommitment` vocabulary.
+
+On the HTTP surface, the native HTTP status and complete JSON value are both
+preserved. On stdio, the complete JSON value is preserved and the upstream
+status is represented only by MCP's success/error class (`isError`); no status
+field is injected into or removed from that value. The bridge parses and
+re-serializes JSON, so this is semantic field/value preservation, not a claim
+that whitespace, object-key order or response bytes remain identical.
+
+The client accepts at most 64 KiB of response data and waits 120 seconds, just
+beyond the verifier's frozen 115-second outer deadline. It follows no redirect
+and performs no automatic retry. If any response cannot be forwarded after the
+request may have reached the service—including a connection loss, oversized
+body or invalid JSON—the MCP response says only that the outcome is unknown,
+with the transport problem as non-verdict detail. Resubmit the identical six
+fields manually: the native service can return its durable terminal result with
+`redelivered: true` without a second checker execution, even if the MCP process
+restarted in between.
+
+That last property is backed by two adjoining layers rather than a mock being
+called a real checker. The MCP transport E2E observes the same six field values,
+ambiguous disconnect, process restart and manual replay; the recovered receipt
+and evidence digest stay the same while `redelivered` changes to `true`.
+The native service's own router and crash/restart E2E tests independently prove
+that the same endpoint commits terminal ACCEPT/reject evidence durably and does
+not launch the checker again on redelivery. Together they cover the boundary;
+the MCP fixture alone is not evidence of a real checker execution.
+
 ## Transcript capture
 
 The transcripts for this smoke are captured under
@@ -233,6 +307,10 @@ document).
 - No paid-API calls are made; no public scoring is claimed.
 - The `boole.mine` round-trip uses in-process mocks; no real proof
   artifact is produced.
+- `boole.verify_native` is the only tool in this document that can run a real
+  checker, and it does so only through the node-owned isolated loopback service.
+  It never calls the legacy `/receipts` route or wallet, payment, block or
+  reward code.
 - The MCP install surface does not exfiltrate any key material;
   signing isolation lives in `boole-wallet-agent`, not `boole-mcp`.
 

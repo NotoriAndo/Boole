@@ -22,17 +22,61 @@
 // For now we test the behaviour through the library's exported helpers.
 
 /// Check that the library crate re-exports the tools list and the tools
-/// contain exactly the 4 expected names.  This exercises the shared
+/// contain exactly the 5 expected names.  This exercises the shared
 /// `mcp_tools_array()` that will feed both HTTP /mcp/tools and stdio tools/list.
 #[test]
-fn tools_array_has_exactly_four_tools() {
+fn tools_array_has_exactly_five_tools() {
     let tools = boole_mcp::mcp_tools_array();
-    assert_eq!(tools.len(), 4, "expected 4 tools, got {}", tools.len());
+    assert_eq!(tools.len(), 5, "expected 5 tools, got {}", tools.len());
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
     assert!(names.contains(&"bounty.list"), "names={names:?}");
     assert!(names.contains(&"receipt.get"), "names={names:?}");
     assert!(names.contains(&"boole.mine"), "names={names:?}");
     assert!(names.contains(&"boole.status"), "names={names:?}");
+    assert!(names.contains(&"boole.verify_native"), "names={names:?}");
+
+    let tool = tools
+        .iter()
+        .find(|tool| tool["name"] == "boole.verify_native")
+        .expect("boole.verify_native must be advertised");
+    let schema = &tool["inputSchema"];
+    assert_eq!(schema["type"], "object");
+    assert_eq!(schema["additionalProperties"], false);
+    assert_eq!(
+        schema["required"],
+        serde_json::json!([
+            "schema",
+            "familyVersion",
+            "templateId",
+            "challengeSha256",
+            "epoch",
+            "rawAnswer"
+        ])
+    );
+    let properties = schema["properties"].as_object().expect("properties object");
+    let property_names: std::collections::BTreeSet<&str> =
+        properties.keys().map(String::as_str).collect();
+    assert_eq!(
+        property_names,
+        std::collections::BTreeSet::from([
+            "challengeSha256",
+            "epoch",
+            "familyVersion",
+            "rawAnswer",
+            "schema",
+            "templateId",
+        ])
+    );
+    assert_eq!(properties["epoch"]["type"], "integer");
+    for string_field in [
+        "schema",
+        "familyVersion",
+        "templateId",
+        "challengeSha256",
+        "rawAnswer",
+    ] {
+        assert_eq!(properties[string_field]["type"], "string", "{string_field}");
+    }
 }
 
 /// Each tool has both `inputSchema` (camelCase, for MCP stdio) and
