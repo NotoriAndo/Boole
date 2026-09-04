@@ -1,7 +1,7 @@
 {
   "version": 1,
   "source": {
-    "note": "Derived from fixtures/protocol/runtime-smoke/v1.json for scripts/local-mining-smoke.sh. The consensus fields and steps are identical; only the node-local Tier-3 per-IP quota is raised from 1 to exactly 2 so two immediate submissions through the one portable loopback address exercise the HTTP proof-to-block path instead of the dedicated rate-limit boundary. This fixture is not for admission-policy validation."
+    "note": "Derived from fixtures/protocol/runtime-smoke/v1.json for closed-local flows that make exactly two immediate admissions through one portable loopback address, including scripts/local-mining-smoke.sh and the P2P reward-authorization roundtrip. The consensus fields and steps are identical; only the node-local Tier-3 per-IP quota is raised from 1 to exactly 2 so those flows exercise their proof-to-block or cross-transport boundary instead of the dedicated rate-limit boundary. This fixture is not for admission-policy validation."
   },
   "cfg": {
     "T_submit": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
