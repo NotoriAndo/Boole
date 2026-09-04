@@ -710,12 +710,12 @@ fn run_agent_proof_command(args: AgentProofArgs) -> anyhow::Result<()> {
     let (file_name, proof_source, backend_description) = match backend.as_str() {
         "fixture-valid" => (
             "Proof.lean",
-            "theorem boole_agent_fixture_valid : 2 + 2 = 4 := by\n  decide\n",
+            "import Boole.Family.V0Helpers\n\ntheorem boole_agent_fixture_valid : 2 + 2 = 4 := by\n  decide\n",
             "deterministic valid Lean fixture backend",
         ),
         "fixture-invalid" => (
             "Proof.lean",
-            "theorem boole_agent_fixture_invalid : 2 + 2 = 5 := by\n  decide\n",
+            "import Boole.Family.V0Helpers\n\ntheorem boole_agent_fixture_invalid : 2 + 2 = 5 := by\n  decide\n",
             "deterministic invalid Lean fixture backend",
         ),
         other => anyhow::bail!("unsupported agent-proof backend {other}"),

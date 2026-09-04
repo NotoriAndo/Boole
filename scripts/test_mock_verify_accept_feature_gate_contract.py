@@ -162,17 +162,42 @@ class ForbiddenTokenScannerContractTests(unittest.TestCase):
                 f"P1.9: FORBIDDEN_TOKENS must reject `{token}`.",
             )
 
-    def test_check_file_scans_before_lake_spawn(self) -> None:
-        scan_idx = self.lib.find("scan_for_forbidden_tokens(proof_path)")
-        spawn_idx = self.lib.find('Command::new("lake")')
-        self.assertNotEqual(
-            scan_idx, -1, "P1.9: check_file must call scan_for_forbidden_tokens."
+    def test_check_file_scans_before_primary_spawn(self) -> None:
+        snapshot_idx = self.lib.find("snapshot_submission_source(proof_path)")
+        scan_idx = self.lib.find(
+            "scan_for_forbidden_tokens_in_bytes(&submitted_source.bytes)"
         )
+        evidence_idx = self.lib.find("let evidence = self.evidence()?;")
+        spawn_idx = self.lib.find(
+            "let mut primary_command = Command::new(&toolchain_runtime.lean_executable)"
+        )
+        self.assertNotEqual(
+            snapshot_idx,
+            -1,
+            "P1.9: check_file must snapshot the caller's no-follow source first.",
+        )
+        self.assertNotEqual(
+            scan_idx,
+            -1,
+            "P1.9: check_file must scan the request-private submitted bytes.",
+        )
+        self.assertNotEqual(evidence_idx, -1)
         self.assertNotEqual(spawn_idx, -1)
         self.assertLess(
+            snapshot_idx,
             scan_idx,
+            "P1.9: intake must scan the exact request-private snapshot that the "
+            "primary checker will receive.",
+        )
+        self.assertLess(
+            scan_idx,
+            evidence_idx,
+            "P1.9: the forbidden-token scan must run before toolchain probing.",
+        )
+        self.assertLess(
+            evidence_idx,
             spawn_idx,
-            "P1.9: the forbidden-token scan must run BEFORE lake is spawned.",
+            "P1.9: the checked snapshot must precede the source-reading primary.",
         )
 
 

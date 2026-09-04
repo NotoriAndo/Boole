@@ -669,6 +669,9 @@ class ModelBenchmarkArtifactTests(unittest.TestCase):
             self.assertEqual(rows[0]["targetFamily"], "boole.calibration.pow.v1")
             self.assertNotIn("boole_benchmark_true", proof_text)
             self.assertNotIn(": True", proof_text)
+            self.assertTrue(
+                proof_text.startswith("import Boole.Family.V0Helpers\n\n")
+            )
             self.assertIn("boole_benchmark_pow_target", proof_text)
 
     def test_multi_attempt_mining_benchmark_binds_unique_lottery_samples(self) -> None:
@@ -740,6 +743,7 @@ class ModelBenchmarkArtifactTests(unittest.TestCase):
         candidate = benchmark.wrap_proof_term_candidate("True.intro", benchmark_mode="smoke", attempt_context=benchmark.attempt_context("smoke-run", "ollama:test", 0, benchmark_mode="smoke"))
         self.assertIn("boole_benchmark_true", prompt)
         self.assertIn("Valid example response: `True.intro`", prompt)
+        self.assertTrue(candidate.startswith("import Boole.Family.V0Helpers\n\n"))
         self.assertIn("theorem boole_benchmark_true : True", candidate)
 
     def test_full_theorem_output_is_rejected_before_verifier_in_proof_term_mode(self) -> None:

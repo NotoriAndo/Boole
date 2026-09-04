@@ -463,12 +463,16 @@ def row_target_metadata(*, benchmark_mode: str, attempt_context: dict[str, Any] 
 def wrap_proof_term_candidate(proof_term: str, *, benchmark_mode: str = "mining", attempt_context: dict[str, Any] | None = None) -> str:
     indented = "\n".join(("  " + line) if line.strip() else line for line in proof_term.splitlines())
     if benchmark_mode == "smoke":
-        return f"theorem boole_benchmark_true : True :=\n{indented}\n"
+        return (
+            "import Boole.Family.V0Helpers\n\n"
+            f"theorem boole_benchmark_true : True :=\n{indented}\n"
+        )
     ctx = attempt_context or globals()["attempt_context"]("manual", "manual", 0, benchmark_mode="mining")
     theorem_name = ctx["theoremName"]
     challenge = ctx["challenge"]
     nonce = ctx["nonce"]
     return (
+        "import Boole.Family.V0Helpers\n\n"
         f"-- benchmarkMode: mining\n"
         f"-- targetFamily: {MINING_TARGET_FAMILY}\n"
         f"-- lotteryChallenge: {challenge}\n"

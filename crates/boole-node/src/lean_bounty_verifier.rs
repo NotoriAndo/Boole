@@ -18,7 +18,7 @@ const BOUNTY_THEOREM: &str = "bounty_instance_thm";
 /// the fixed Lean module the checker elaborates.
 fn render_bounty_lean_module(statement: &str, proof_term: &str) -> String {
     format!(
-        "namespace {ns}\n\ntheorem {thm} : {statement} :=\n{proof_term}\n\nend {ns}\n",
+        "import Boole.Family.V0Helpers\n\nnamespace {ns}\n\ntheorem {thm} : {statement} :=\n{proof_term}\n\nend {ns}\n",
         ns = BOUNTY_NAMESPACE,
         thm = BOUNTY_THEOREM,
     )

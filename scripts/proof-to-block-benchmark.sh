@@ -74,10 +74,13 @@ lean_exe boole_check where
         ["lake", "build", "Boole.Family.V0Helpers"],
         cwd=workspace,
         check=True,
+        stdout=sys.stderr,
     )
     proof = workspace / "LeanSubmitProofToBlock.lean"
     proof.write_text(
-        """theorem boole_benchmark_submit_lean_valid : 2 + 2 = 4 := by
+        """import Boole.Family.V0Helpers
+
+theorem boole_benchmark_submit_lean_valid : 2 + 2 = 4 := by
   decide
 """
     )
