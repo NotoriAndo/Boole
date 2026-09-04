@@ -492,7 +492,13 @@ fn validate_native_shadow_url(raw: Option<&str>, node_url: &str) -> Result<Optio
     );
     let loopback = parsed
         .host_str()
-        .and_then(|host| host.parse::<std::net::IpAddr>().ok())
+        .and_then(|host| {
+            let numeric_host = host
+                .strip_prefix('[')
+                .and_then(|host| host.strip_suffix(']'))
+                .unwrap_or(host);
+            numeric_host.parse::<std::net::IpAddr>().ok()
+        })
         .is_some_and(|address| address.is_loopback());
     anyhow::ensure!(
         loopback,

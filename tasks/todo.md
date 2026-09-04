@@ -1570,9 +1570,10 @@ plan: /Users/seoyong/.claude/plans/cozy-wiggling-lobster.md (2026-07-18 승인).
       1회 POST한다. native bridge가 켜진 HTTP MCP listener도 numeric loopback으로 강제해
       무인증 remote→loopback bridge를 막고, native가 없는 legacy serve 동작은 유지한다.
       proxy·redirect·자동 retry는 0, 응답은 64 KiB 이하, timeout은 native 115초보다 긴 120초이며,
-      HTTP는 status+JSON을, stdio는 JSON+성공/오류 등급을 보존하며 verdict·reason·
-      evidenceDigest·BF.3 receipt를 재구성하지 않는다. 요청 후 응답을 전달할 수 없는
-      모든 경우는 판정을 위조하지 않고 outcome-unknown + 동일 6필드 수동 재제출로 고정한다. ACCEPT·결정적
+      HTTP는 status+JSON 값을, stdio는 JSON 값+성공/오류 등급을 보존하며 verdict·reason·
+      evidenceDigest·BF.3 receipt를 다른 권위 형식으로 재구성하지 않는다. JSON은 파싱 후
+      다시 직렬화되므로 원문 바이트·공백·키 순서 보존은 주장하지 않는다. 요청 후 응답을 전달할 수
+      없는 모든 경우는 판정을 위조하지 않고 outcome-unknown + 동일 6필드 수동 재제출로 고정한다. ACCEPT·결정적
       거절·응답 유실·MCP 재시작·수동 redelivery와 legacy node 0접촉은 MCP 전송 E2E가
       고정한다. 실제 durable commit·checker 재실행 0은 같은 endpoint의 기존 native
       router/crash-restart E2E가 별도로 고정한다. 즉 두 층의 합성 증거이며 MCP fixture를

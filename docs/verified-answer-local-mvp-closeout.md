@@ -245,12 +245,15 @@ remain deferred.
   and bounds to the native authority, contact only the separate numeric-loopback
   native origin, keep native-enabled HTTP serving on numeric loopback too,
   preserve the complete native adjudication/BF.3 receipt, and perform no
-  automatic retry. HTTP preserves status and JSON body; stdio preserves the
-  body and maps status only to MCP's success/error class, without altering the
-  native JSON. Any post-send response failure is outcome-unknown and directs
-  exact manual resubmission. Its transport E2E covers ACCEPT, deterministic rejection,
-  an ambiguous committed response, MCP restart, manual redelivery and zero
-  legacy-node requests. The existing native router/crash-restart E2E separately
+  automatic retry. HTTP preserves status and the complete JSON value; stdio
+  preserves that value and maps status only to MCP's success/error class. The
+  bridge parses and re-serializes JSON, so response bytes, whitespace and key
+  order are not claimed preserved. Any post-send response failure is
+  outcome-unknown and directs exact manual resubmission. Its transport E2E
+  covers ACCEPT, deterministic rejection, an ambiguous committed response, MCP
+  restart, manual redelivery with the same receipt/evidence and `redelivered:
+  true`, and zero legacy-node requests. The existing native
+  router/crash-restart E2E separately
   proves durable commit and no second checker execution on that exact endpoint;
   this is composite boundary evidence, not a claim that the MCP fixture itself
   ran the production checker.

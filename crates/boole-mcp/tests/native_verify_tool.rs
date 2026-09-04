@@ -597,6 +597,25 @@ fn native_enabled_http_serve_requires_a_numeric_loopback_listener() {
 #[test]
 fn native_transport_is_distinct_loopback_proxyless_redirectless_and_bounded() {
     {
+        let output = Command::new(env!("CARGO_BIN_EXE_boole-mcp"))
+            .args([
+                "stdio",
+                "--node-url",
+                "http://127.0.0.1:8080",
+                "--native-shadow-url",
+                "http://[::1]:8082",
+            ])
+            .stdin(Stdio::null())
+            .output()
+            .expect("run numeric IPv6 loopback native URL");
+        assert!(
+            output.status.success(),
+            "numeric IPv6 loopback must be accepted: stderr={}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    {
         let native_error = json!({
             "error": "native-intake-rejected",
             "reasonCode": "epoch_invalid"

@@ -268,10 +268,12 @@ whole, including `outcome`, `reasonCode`, `redelivered`, `evidenceDigest` and
 the BF.3 `receipt`; it is not converted into the legacy `/receipts/{id}`
 `ReceiptCommitment` vocabulary.
 
-On the HTTP surface, the native HTTP status and JSON body are both preserved.
-On stdio, the JSON body is preserved and the upstream status is represented
-only by MCP's success/error class (`isError`); no status field is injected into
-or removed from the native JSON.
+On the HTTP surface, the native HTTP status and complete JSON value are both
+preserved. On stdio, the complete JSON value is preserved and the upstream
+status is represented only by MCP's success/error class (`isError`); no status
+field is injected into or removed from that value. The bridge parses and
+re-serializes JSON, so this is semantic field/value preservation, not a claim
+that whitespace, object-key order or response bytes remain identical.
 
 The client accepts at most 64 KiB of response data and waits 120 seconds, just
 beyond the verifier's frozen 115-second outer deadline. It follows no redirect
@@ -284,8 +286,9 @@ fields manually: the native service can return its durable terminal result with
 restarted in between.
 
 That last property is backed by two adjoining layers rather than a mock being
-called a real checker. The MCP transport E2E observes the exact request,
-ambiguous disconnect, process restart, manual replay and unchanged response.
+called a real checker. The MCP transport E2E observes the same six field values,
+ambiguous disconnect, process restart and manual replay; the recovered receipt
+and evidence digest stay the same while `redelivered` changes to `true`.
 The native service's own router and crash/restart E2E tests independently prove
 that the same endpoint commits terminal ACCEPT/reject evidence durably and does
 not launch the checker again on redelivery. Together they cover the boundary;
