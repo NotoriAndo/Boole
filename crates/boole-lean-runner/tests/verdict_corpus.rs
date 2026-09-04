@@ -61,25 +61,25 @@ struct CorpusCase {
 const CORPUS: &[CorpusCase] = &[
     CorpusCase {
         id: "accept_trivial_decide",
-        source: "theorem corpus_accept : 1 + 1 = 2 := by decide\n",
+        source: "import Boole.Family.V0Helpers\ntheorem corpus_accept : 1 + 1 = 2 := by decide\n",
         max_heartbeats: 400_000,
         max_rec_depth: 512,
     },
     CorpusCase {
         id: "reject_false_statement",
-        source: "theorem corpus_false : 1 + 1 = 3 := by decide\n",
+        source: "import Boole.Family.V0Helpers\ntheorem corpus_false : 1 + 1 = 3 := by decide\n",
         max_heartbeats: 400_000,
         max_rec_depth: 512,
     },
     CorpusCase {
         id: "budget_exceeded_heartbeats",
-        source: "theorem corpus_burn : (List.range 400).foldl Nat.add 0 = 79800 := by decide\n",
+        source: "import Boole.Family.V0Helpers\ntheorem corpus_burn : (List.range 400).foldl Nat.add 0 = 79800 := by decide\n",
         max_heartbeats: 1,
         max_rec_depth: 512,
     },
     CorpusCase {
         id: "budget_exceeded_rec_depth",
-        source: "theorem corpus_deep : (List.range 400).foldl Nat.add 0 = 79800 := by decide\n",
+        source: "import Boole.Family.V0Helpers\ntheorem corpus_deep : (List.range 400).foldl Nat.add 0 = 79800 := by decide\n",
         max_heartbeats: 400_000,
         max_rec_depth: 512,
     },

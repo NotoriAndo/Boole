@@ -60,7 +60,7 @@ fn verdict_is_budget_exceeded_not_timeout_when_steps_run_out() {
     }
     let proof = write_proof(
         "exhaust",
-        "theorem boole_budget_burn : (List.range 400).foldl Nat.add 0 = 79800 := by decide\n",
+        "import Boole.Family.V0Helpers\ntheorem boole_budget_burn : (List.range 400).foldl Nat.add 0 = 79800 := by decide\n",
     );
     let runner = LeanRunner::new(
         LeanRunnerConfig::new("budget-verdict")

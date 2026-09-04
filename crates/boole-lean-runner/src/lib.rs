@@ -879,8 +879,8 @@ impl LeanRunner {
         }
         let mut helper_command = Command::new(&toolchain_runtime.lean_executable);
         helper_command
-            .arg(format!("-DmaxHeartbeats={}", self.config.max_heartbeats))
-            .arg(format!("-DmaxRecDepth={}", self.config.max_rec_depth))
+            .arg(format!("-DmaxHeartbeats={TRUSTED_HELPER_MAX_HEARTBEATS}"))
+            .arg(format!("-DmaxRecDepth={TRUSTED_HELPER_MAX_REC_DEPTH}"))
             .arg("-o")
             .arg(&artifact_workspace.helper_artifact)
             .arg(HELPER_SOURCE_RELATIVE)
@@ -1337,6 +1337,13 @@ const PRIMARY_CHECKER_SCRIPT: &str = "BooleCheck/Main.lean";
 /// why this MUST be a separate `lean --run` process rather than a
 /// check folded into `BooleCheck.Main`.
 const AXIOM_AUDIT_SCRIPT: &str = "BooleCheck/Audit.lean";
+
+// Compiling the pinned helper is trusted request setup, not submitted proof
+// elaboration. Charging it to the committed proof budget can turn a
+// deterministic low-budget rejection into availability before the proof is
+// elaborated. The primary and audit stages still receive the proof budget.
+const TRUSTED_HELPER_MAX_HEARTBEATS: u64 = 400_000;
+const TRUSTED_HELPER_MAX_REC_DEPTH: u64 = 512;
 
 /// Line prefix `BooleCheck/Audit.lean` prints once per axiom in the closure,
 /// e.g. `BOOLE_AXIOM propext`.
