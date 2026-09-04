@@ -489,7 +489,7 @@ pub(crate) struct LocalNodeState {
     /// inside the same lock as the canonical head makes `/ready` compare a
     /// single race-free snapshot. Restart deliberately begins empty.
     pub(crate) p2p_bootstrap_readiness: Option<P2pBootstrapReadiness>,
-    /// M6 — one process-wide permit shared by HTTP submit and every P2P Lean
+    /// M6 — one node-instance-wide permit shared by HTTP submit and every P2P Lean
     /// reverify path. The old write-lock implementation accidentally enforced
     /// verifier concurrency=1; keep that resource bound after moving HTTP
     /// verification off the state lock.

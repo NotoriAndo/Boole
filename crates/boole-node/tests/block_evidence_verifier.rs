@@ -157,3 +157,38 @@ fn entry_reports_source_rederive_failed_on_bad_seed() {
         "an unparseable seedHex must classify as SourceRederiveFailed, got {verdict:?}"
     );
 }
+
+#[test]
+fn entry_defers_when_runtime_checker_hash_differs_from_the_pinned_hash() {
+    let (mut share, actual_checker_hash, verifier_hash) = lean_bound_share(false, SEED_HEX);
+    let pinned_checker_hash = "00".repeat(32);
+    let instance = family_v1_lenbound::generate_from_hex(SEED_HEX).expect("valid family seed");
+    let lean_source = family_v1_lenbound::render_canonical_proof(&instance);
+    let canon = lean_bound_canon_package(&verifier_hash, &pinned_checker_hash, &lean_source);
+    share.proof_package = hex::encode(&canon);
+    share.canon_hash = hex::encode(Sha256::digest(&canon));
+
+    assert_ne!(
+        actual_checker_hash, pinned_checker_hash,
+        "the fixture must execute a checker different from the supplied network pin"
+    );
+    let verdict = verify_lean_bound_share_evidence(
+        PREV_C,
+        &share,
+        canonical_checker_dir().as_path(),
+        &pinned_checker_hash,
+        &verifier_hash,
+        true,
+        BASE_LANE_MAX_HEARTBEATS,
+        BASE_LANE_MAX_REC_DEPTH,
+    );
+    assert!(
+        matches!(
+            verdict,
+            ShareEvidenceVerdict::Lean(boole_lean_runner::LeanVerdict::RetryableUnavailable {
+                ref reason
+            }) if reason.contains("checker artifact hash drift")
+        ),
+        "runtime checker drift from the network pin must defer, got {verdict:?}"
+    );
+}
