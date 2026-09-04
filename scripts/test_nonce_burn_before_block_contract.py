@@ -6,15 +6,19 @@ cleaner on the recover path can drop it); a committed block with no
 burn is not — it leaves a window where the same `(submittedBy, nonce)`
 can be replayed because the burn record never reached disk.
 
-So the durable-write order inside `submit_json` must be:
+So the durable-write order inside the post-verification `submit_finalize`
+boundary must be:
 1. session/nonce gate (already checked in submit_session_gate)
 2. admit + share hash
 3. **burn `(submittedBy, nonce)` to nonces.ndjson**
 4. THEN `commit_next_block_for_current_c_with_promoted` (block append)
 
-This test pins the source-line order so a refactor cannot silently
-flip the steps back. Earlier wiring kept the burn in `submit_handler`,
-running AFTER `submit_json` returned, which violated the invariant.
+This test pins the source-line order so a refactor cannot silently flip the
+steps back. Earlier wiring kept the burn in `submit_handler`, running AFTER
+the old `submit_json` returned, which violated the invariant. M6 split that
+function into structural preparation, unlocked semantic verification and a
+final state-revalidated commit; the durable ordering belongs to the last
+boundary.
 """
 from __future__ import annotations
 
@@ -57,14 +61,14 @@ def _function_span(body: str, signature_regex: str) -> tuple[int, int]:
 class NonceBurnOrderingContractTests(unittest.TestCase):
     def setUp(self) -> None:
         self.body = _read(LOCAL_NODE)
-        start, end = _function_span(self.body, r"fn\s+submit_json\s*\(")
-        self.submit_json_body = self.body[start:end]
+        start, end = _function_span(self.body, r"fn\s+submit_finalize\s*\(")
+        self.submit_finalize_body = self.body[start:end]
 
-    def test_burn_appears_inside_submit_json(self) -> None:
+    def test_burn_appears_inside_submit_finalize(self) -> None:
         self.assertRegex(
-            self.submit_json_body,
+            self.submit_finalize_body,
             r"append_burn|burn_submit_nonce|nonce_ledger",
-            "P1.3a: submit_json must perform the nonce burn itself so "
+            "P1.3a: submit_finalize must perform the nonce burn itself so "
             "the burn fsync precedes block append fsync. Earlier the "
             "burn ran in submit_handler AFTER submit_json returned, "
             "leaving a crash window between block commit and burn.",
@@ -73,20 +77,20 @@ class NonceBurnOrderingContractTests(unittest.TestCase):
     def test_burn_precedes_block_commit(self) -> None:
         burn_match = re.search(
             r"append_burn|burn_submit_nonce\s*\(",
-            self.submit_json_body,
+            self.submit_finalize_body,
         )
         commit_match = re.search(
             r"commit_next_block_for_current_c_with_promoted\s*\(",
-            self.submit_json_body,
+            self.submit_finalize_body,
         )
         self.assertIsNotNone(
             burn_match,
-            "P1.3a: submit_json must contain a nonce-burn call",
+            "P1.3a: submit_finalize must contain a nonce-burn call",
         )
         self.assertIsNotNone(
             commit_match,
             "expected commit_next_block_for_current_c_with_promoted "
-            "call inside submit_json",
+            "call inside submit_finalize",
         )
         self.assertLess(
             burn_match.start(),
@@ -96,14 +100,15 @@ class NonceBurnOrderingContractTests(unittest.TestCase):
             "first, burn second leaves an irrecoverable replay window.",
         )
 
-    def test_submit_handler_no_longer_burns_after_submit_json(self) -> None:
+    def test_submit_handler_does_not_burn_outside_submit_finalize(self) -> None:
         start, end = _function_span(self.body, r"fn\s+submit_handler\s*\(")
         handler_body = self.body[start:end]
         self.assertNotRegex(
             handler_body,
             r"burn_submit_nonce\s*\(",
             "P1.3a: submit_handler must NOT call burn_submit_nonce "
-            "after submit_json. Once the burn moves inside submit_json "
+            "outside submit_finalize. Once the burn moved into the final "
+            "commit boundary "
             "the post-commit re-burn is dead code and re-enabling it "
             "creates a double-burn race.",
         )

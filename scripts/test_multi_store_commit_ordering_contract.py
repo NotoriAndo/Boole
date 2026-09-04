@@ -4,8 +4,9 @@ recovery-safe order, and boot HEALS (does not bail on) a reward ledger that
 trails the block store after a crash mid-commit.
 
 L7 contract — atomic multi-store commit. The block store is the source of
-truth; every other store is re-derivable from it. So `submit_json` must
-write its stores in this order:
+truth; every other store is re-derivable from it. After M6's unlocked semantic
+verification and final state revalidation, `submit_finalize` must write its
+stores in this order:
 
   1. burn the submit nonce      (nonces.ndjson)
   2. commit the block           (blocks.ndjson + reward ledger)
@@ -63,19 +64,21 @@ def _function_span(body: str, signature_regex: str) -> tuple[int, int]:
 class MultiStoreCommitOrderingContractTests(unittest.TestCase):
     def setUp(self) -> None:
         body = _read(LOCAL_NODE)
-        start, end = _function_span(body, r"fn\s+submit_json\s*\(")
+        start, end = _function_span(body, r"fn\s+submit_finalize\s*\(")
         self.span = body[start:end]
 
     def _offset(self, needle: str) -> int:
         idx = self.span.find(needle)
-        self.assertNotEqual(idx, -1, f"`{needle}` must appear in submit_json's body")
+        self.assertNotEqual(
+            idx, -1, f"`{needle}` must appear in submit_finalize's body"
+        )
         return idx
 
     def test_write_order_nonce_block_bounty_receipt(self) -> None:
         # N3.3 — the bounty-event rows moved into the shared
         # `append_block_bounty_events` helper (reused by the p2p block
         # ingest path); the ordering contract now pins the helper CALL's
-        # position inside submit_json and the actual ledger appends inside
+        # position inside submit_finalize and the actual ledger appends inside
         # the helper's own body (checked below).
         nonce = self._offset("burn_submit_nonce(")
         block = self._offset("commit_next_block_for_current_c_with_promoted(")

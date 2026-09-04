@@ -5,7 +5,10 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 ADDR="${BOOLE_NODE_ADDR:-127.0.0.1:18082}"
-SCENARIO="${SCENARIO:-fixtures/protocol/runtime-smoke/v1.json}"
+# This smoke validates the HTTP proof-to-block path, not rate-limit policy.
+# Its derived fixture keeps the canonical scenario intact and raises only the
+# node-local per-IP quota enough for both immediate loopback submissions.
+SCENARIO="${SCENARIO:-fixtures/protocol/runtime-smoke/local-mining-smoke.v1.json}"
 BLOCK_STORE="${BLOCK_STORE:-${TMPDIR:-/tmp}/boole-node-local-mining-smoke.ndjson}"
 # Pin the reward ledger to a smoke-specific path so the run cannot inherit
 # a stale `/tmp/boole-node-rewards.ndjson` left by an earlier self-test
