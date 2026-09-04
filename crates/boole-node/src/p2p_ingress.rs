@@ -4,10 +4,11 @@
 //! peers are never trusted, and there is no second validation policy.
 //!
 //! The thread is a plain blocking `std::thread` (the transport is blocking
-//! `std::net` by design, ADR-0009 (a)); it takes the SAME single
-//! `tokio::sync::RwLock` write guard the HTTP submit path uses, so the share
-//! pool and the N2.3 proof-dedup ledger can never diverge between the two
-//! ingress surfaces.
+//! `std::net` by design, ADR-0009 (a)). Cheap admission and final commit each
+//! take a short guard on the SAME `tokio::sync::RwLock` the HTTP path uses;
+//! the pinned Lean subprocess runs between those guards so readiness/status
+//! stay responsive. Finalization revalidates the current head/dedup state
+//! before restoring a share or durably adopting a block/chain.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io;
@@ -26,9 +27,9 @@ use serde_json::Value;
 use tokio::sync::RwLock;
 
 use crate::local_node::{
-    blocks_range_values, head_summary, ingest_announced_block, ingest_candidate_chain,
-    ingress_admit_share, CandidateChainOutcome, HttpRateLimiter, IngressBlockOutcome,
-    IngressShareOutcome, LocalNodeState,
+    blocks_range_values, head_summary, ingest_announced_block_shared,
+    ingest_candidate_chain_shared, ingress_admit_share_shared, CandidateChainOutcome,
+    HttpRateLimiter, IngressBlockOutcome, IngressShareOutcome, LocalNodeState,
 };
 use crate::p2p_egress::open_validated_conn_until;
 use crate::p2p_lifecycle::P2pLifecycle;
@@ -233,6 +234,9 @@ pub(crate) struct P2pMetrics {
     pub(crate) ingress_unsupported_frames: AtomicU64,
     pub(crate) ingress_shares_admitted: AtomicU64,
     pub(crate) ingress_shares_rejected: AtomicU64,
+    /// Share admission whose semantic verifier was busy or unavailable.
+    /// Deferred is distinct from invalid and leaves no eligible candidate.
+    pub(crate) ingress_shares_deferred: AtomicU64,
     pub(crate) ingress_blocks_ingested: AtomicU64,
     pub(crate) ingress_blocks_rejected: AtomicU64,
     /// SC.10-ii-b — peer blocks whose pinned-checker re-verify could not
@@ -446,14 +450,14 @@ fn handle_connection(stream: TcpStream, peer: SocketAddr, context: &IngressConne
     while !lifecycle.is_stopped() {
         match recv_frame_limited(&transport, &mut conn, &peer, rate_limiter, metrics) {
             Ok(Frame::ShareAnnounce { submission }) => {
-                // The single write guard covers admit + dedup peek exactly
-                // like the HTTP path (`submit_json`) — see
-                // `ingress_admit_share` for the policy notes.
+                // Structural admission and final revalidation each use the
+                // shared writer, while the pinned Lean subprocess runs with
+                // no node-state guard held. This keeps readiness/status live
+                // and shares the same bounded verifier permit as HTTP.
                 let Some(_mutation) = lifecycle.begin_mutation() else {
                     return;
                 };
-                let mut guard = state.blocking_write();
-                match ingress_admit_share(&mut guard, &submission, &peer_ip) {
+                match ingress_admit_share_shared(state, &submission, &peer_ip) {
                     IngressShareOutcome::Admitted => {
                         metrics
                             .ingress_shares_admitted
@@ -465,6 +469,11 @@ fn handle_connection(stream: TcpStream, peer: SocketAddr, context: &IngressConne
                         // connection stays up.
                         metrics
                             .ingress_shares_rejected
+                            .fetch_add(1, Ordering::Relaxed);
+                    }
+                    IngressShareOutcome::Deferred { .. } => {
+                        metrics
+                            .ingress_shares_deferred
                             .fetch_add(1, Ordering::Relaxed);
                     }
                 }
@@ -527,8 +536,7 @@ fn handle_connection(stream: TcpStream, peer: SocketAddr, context: &IngressConne
                 let Some(_mutation) = lifecycle.begin_mutation() else {
                     return;
                 };
-                let mut guard = state.blocking_write();
-                match ingest_announced_block(&mut guard, &block_value) {
+                match ingest_announced_block_shared(state, &block_value) {
                     IngressBlockOutcome::Ingested => {
                         metrics
                             .ingress_blocks_ingested
@@ -996,9 +1004,8 @@ fn sync_with_peer(
                 let Some(_mutation) = lifecycle.begin_mutation() else {
                     return Ok(peer_head);
                 };
-                let mut guard = state.blocking_write();
                 budget.ensure_before_mutation(Instant::now())?;
-                ingest_announced_block(&mut guard, block_value)
+                ingest_announced_block_shared(state, block_value)
             };
             match outcome {
                 IngressBlockOutcome::Ingested => {
@@ -1137,11 +1144,8 @@ fn reorg_from_peer(
     let Some(_mutation) = lifecycle.begin_mutation() else {
         return Ok(());
     };
-    let outcome = {
-        let mut guard = state.blocking_write();
-        budget.ensure_before_mutation(Instant::now())?;
-        ingest_candidate_chain(&mut guard, &candidate)
-    };
+    budget.ensure_before_mutation(Instant::now())?;
+    let outcome = ingest_candidate_chain_shared(state, &candidate);
     match outcome {
         CandidateChainOutcome::Reorged { new_head_height } => {
             metrics.sync_reorgs_applied.fetch_add(1, Ordering::Relaxed);

@@ -113,6 +113,25 @@ pub fn admit_submission_typed(deps: AdmissionDeps<'_>) -> AdmissionDecision {
 
 pub fn admit_parsed_submission_typed(deps: AdmissionParsedDeps<'_>) -> AdmissionDecision {
     let s = deps.submission;
+    // A stale chain anchor is authoritative before ticket/rate state. In
+    // particular, a limiter scoped to the current head intentionally refuses
+    // to retain stale ticket observations; preserve the stable `stale_c`
+    // client signal rather than misclassifying that case as `unobserved`.
+    if deps
+        .pool
+        .current_c()
+        .is_some_and(|current_c| current_c != s.c_hex)
+    {
+        return reject(
+            AdmissionStatus::UnprocessableEntity,
+            AdmissionError::SharePool {
+                reason: crate::SharePoolRejectReason::StaleC,
+            },
+            RejectionReason::SharePool {
+                detail: crate::SharePoolRejectReason::StaleC,
+            },
+        );
+    }
     let ticket_result = ticket(&s.c, &s.pk, &s.n, &deps.policy.thresholds.t_ticket);
     let ticket_check = check_admission_ticket(
         ticket_result.valid,

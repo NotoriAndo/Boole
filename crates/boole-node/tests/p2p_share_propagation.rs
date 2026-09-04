@@ -43,6 +43,10 @@ fn scenario_path() -> PathBuf {
     repo_root().join("fixtures/protocol/runtime-smoke/v1.json")
 }
 
+fn two_admission_scenario_path() -> PathBuf {
+    repo_root().join("fixtures/protocol/runtime-smoke/local-mining-smoke.v1.json")
+}
+
 fn testnet2_scenario_path() -> PathBuf {
     repo_root().join("fixtures/protocol/runtime-smoke/testnet2-pinned-highrate.v1.json")
 }
@@ -50,7 +54,11 @@ fn testnet2_scenario_path() -> PathBuf {
 /// The genesis `c` pinned by `fixtures/protocol/runtime-smoke/v1.json`; the
 /// `Hello.genesis_hash` both nodes exchange must equal it.
 fn scenario_genesis_c() -> String {
-    let raw = fs::read_to_string(scenario_path()).expect("scenario fixture");
+    scenario_genesis_c_from(&scenario_path())
+}
+
+fn scenario_genesis_c_from(path: &Path) -> String {
+    let raw = fs::read_to_string(path).expect("scenario fixture");
     let doc: Value = serde_json::from_str(&raw).expect("scenario json");
     doc["genesisC"].as_str().expect("genesisC").to_string()
 }
@@ -59,7 +67,11 @@ fn scenario_genesis_c() -> String {
 /// scenario advertises in `Hello.genesis_hash` (the spec identity, not the
 /// raw chain anchor). Computed exactly the way the node does at boot.
 fn scenario_spec_hash() -> String {
-    let raw = fs::read_to_string(scenario_path()).expect("scenario fixture");
+    scenario_spec_hash_from(&scenario_path())
+}
+
+fn scenario_spec_hash_from(path: &Path) -> String {
+    let raw = fs::read_to_string(path).expect("scenario fixture");
     let doc: Value = serde_json::from_str(&raw).expect("scenario json");
     let cfg: boole_core::CalibrationReport =
         serde_json::from_value(doc["cfg"].clone()).expect("scenario cfg");
@@ -487,6 +499,15 @@ fn signed_work_session(
 #[ignore = "needs-multiprocess"]
 fn p2p_share_roundtrip_preserves_reward_authorization() {
     let steps = multiminer_steps();
+    // B performs two distinct admissions from the same numeric loopback
+    // source: the relayed share, then the HTTP share that triggers block
+    // construction. M6 correctly accounts both at node-arrival time, so this
+    // transport roundtrip uses the already-pinned two-admission smoke policy
+    // instead of relying on client timestamps 61 seconds apart. The canonical
+    // one-admission fixture and the production limiter remain unchanged.
+    let roundtrip_scenario = two_admission_scenario_path();
+    let roundtrip_spec_hash = scenario_spec_hash_from(&roundtrip_scenario);
+    let roundtrip_genesis_c = scenario_genesis_c_from(&roundtrip_scenario);
 
     // The test IS the wire between A and B. On this scenario every accepted
     // submit builds a block instantly, so with a direct A→B link B races
@@ -503,12 +524,23 @@ fn p2p_share_roundtrip_preserves_reward_authorization() {
     // A accepts only session-bound submits; B allows one anonymous submit
     // to trigger its own block build over the relayed candidate. B's
     // allowlist covers loopback so the test can connect as its peer.
-    let a = boot_with_p2p_sessions("a-auth", None, vec![relay_addr], false, true);
-    let b = boot_with_p2p(
+    let a = boot_with_p2p_network(
+        "a-auth",
+        None,
+        vec![relay_addr],
+        false,
+        true,
+        roundtrip_scenario.clone(),
+        None,
+    );
+    let b = boot_with_p2p_network(
         "b-auth",
         Some(b_p2p),
         vec!["127.0.0.1:1".parse().expect("allowlist addr")],
         true,
+        false,
+        roundtrip_scenario,
+        None,
     );
 
     let key = boole_core::SigningKeyV2::from_dev_id("n32-roundtrip-auth");
@@ -539,10 +571,10 @@ fn p2p_share_roundtrip_preserves_reward_authorization() {
         protocol_version: PROTOCOL_VERSION,
         consensus_rule_version: CONSENSUS_RULE_VERSION,
         network_id: "boole-mvp".to_string(),
-        genesis_hash: scenario_spec_hash(),
+        genesis_hash: roundtrip_spec_hash.clone(),
         head: HeadSummary {
             height: 0,
-            c: scenario_genesis_c(),
+            c: roundtrip_genesis_c.clone(),
         },
     };
     let captured = {

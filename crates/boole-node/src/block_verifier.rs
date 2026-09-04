@@ -123,6 +123,7 @@ pub fn verify_lean_bound_share_evidence(
         block_c,
         &module,
         checker_dir,
+        checker_artifact_hash,
         max_heartbeats,
         max_rec_depth,
     ))
@@ -136,9 +137,27 @@ fn run_pinned_checker(
     block_c: &str,
     module_text: &str,
     checker_dir: &Path,
+    expected_checker_artifact_hash: &str,
     max_heartbeats: u64,
     max_rec_depth: u64,
 ) -> LeanVerdict {
+    let actual_checker_artifact_hash = match boole_lean_runner::checker_artifact_hash(checker_dir) {
+        Ok(hash) => hash,
+        Err(err) => {
+            return LeanVerdict::RetryableUnavailable {
+                reason: format!("checker artifact hash unavailable for {block_c}: {err}"),
+            };
+        }
+    };
+    if actual_checker_artifact_hash != expected_checker_artifact_hash {
+        return LeanVerdict::RetryableUnavailable {
+            reason: format!(
+                "checker artifact hash drift for {block_c}: expected \
+                 {expected_checker_artifact_hash}, observed {actual_checker_artifact_hash}"
+            ),
+        };
+    }
+
     let tmp_dir = std::env::temp_dir().join(format!(
         "boole-share-verify-{}-{}",
         std::process::id(),
@@ -163,6 +182,15 @@ fn run_pinned_checker(
             .with_max_rec_depth(max_rec_depth),
     );
     let verdict = match runner.check_file(&proof_path) {
+        Ok(result) if result.evidence.checker_artifact_hash != expected_checker_artifact_hash => {
+            LeanVerdict::RetryableUnavailable {
+                reason: format!(
+                    "checker artifact hash drift for {block_c}: expected \
+                     {expected_checker_artifact_hash}, runner observed {}",
+                    result.evidence.checker_artifact_hash
+                ),
+            }
+        }
         Ok(result) => result.verdict,
         Err(err) => LeanVerdict::RetryableUnavailable {
             reason: err.to_string(),
@@ -198,11 +226,12 @@ pub enum BlockReverifyOutcome {
 /// SC.10-ii-d-2 — the share-level fold of the single verifier entry: run
 /// [`verify_lean_bound_share_evidence`] over ONE share and map its verdict
 /// onto the same three-state outcome the block/chain folds use. This is the
-/// gate gossip admission (`ingress_admit_share`) runs before a peer-announced
-/// base-lane share may stay in the candidate pool on a checker-pinned
-/// network: ADR-0016 (c-2) makes admission the producer's Lean gate — a
-/// self-produced block re-runs nothing, so every share it may draw on must
-/// have cleared this exact entry under the committed budget.
+/// gate HTTP admission (`submit_json`) and gossip admission
+/// (`ingress_admit_share`) both run before a base-lane share may stay in the
+/// candidate pool on a checker-pinned network: ADR-0016 (c-2) makes admission
+/// the producer's Lean gate — a self-produced block re-runs nothing, so every
+/// share it may draw on must have cleared this exact entry under the committed
+/// budget.
 ///
 /// `block_c` is the verifier-entry context label (the block hash at ingest,
 /// the share's chain anchor `c` at admission).

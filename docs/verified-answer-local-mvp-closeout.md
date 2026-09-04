@@ -118,11 +118,14 @@ The next product work does not jump straight to payment or public operation:
    not consume public-eligible problem inventory.
 2. Close the third-party verifier process boundary before accepting external
    MCP-submitted code.
-3. Add the `boole.verify_native` MCP vertical: accept only the native service's
+3. Make checker-pinned HTTP submission and P2P share ingress use one evidence
+   projection and one Lean re-verification gate, retaining structural/rate
+   charges while blocking every downstream effect on semantic rejection.
+4. Add the `boole.verify_native` MCP vertical: accept only the native service's
    strict six-field request, use a separately configured loopback native URL,
    and forward its verdict and BF.3 `VerificationReceipt` without rewriting
    either into the legacy `ReceiptCommitment` store.
-4. Exercise ACCEPT, deterministic rejection, durable redelivery and MCP restart
+5. Exercise ACCEPT, deterministic rejection, durable redelivery and MCP restart
    without a second checker execution. Keep payment, wallet automation, block,
    reward, BF.7 and activation out of this milestone. Wallet automation, faucet
    and real payment/reward wiring remain a later economic/operational decision
@@ -196,11 +199,38 @@ rewards and activation remain deferred.
   and one-byte-invalid control are regenerated and network-signed against the
   new checker identity as one authority transition. This does not activate a
   network or authorize reuse of state written under the retired identity.
-- Current milestone: `M6-HTTP-P2P-VERIFICATION-PARITY`. HTTP and P2P share,
-  block and reorg ingress must use the same bounded semantic verifier without
-  holding the node-state write lock during Lean execution, then revalidate the
-  latest canonical state before any durable effect. The `boole.verify_native`
-  MCP vertical remains a separate later integration boundary.
+- Completed milestone: `M6-HTTP-P2P-LEAN-PARITY`. A
+  checker-pinned named node must project an HTTP-submitted share and a
+  peer-announced share into the same `SelectedShareEvidence` shape and run the
+  same Lean re-verification entry after structural admission and proof dedup.
+  A deterministic semantic rejection removes active pool/candidate eligibility
+  while retaining only a bounded current-head duplicate tombstone and the paid
+  rate charge. A retryable verifier-availability outcome removes the candidate
+  and releases both reservation and rate charge so the exact request can retry.
+  If the HTTP request itself is cancelled after the checker starts, the route
+  can no longer observe the detached worker's terminal verdict; that narrow
+  case therefore keeps the bounded tombstone and rate charge so disconnecting
+  cannot repeatedly launch the checker for identical bytes.
+  HTTP, peer-share, block-ingest and reorg checks share one nonblocking
+  verifier permit, held until final state revalidation/cleanup. In unwind
+  dev/test profiles this ownership also survives a worker panic and reaches
+  typed cleanup; release builds deliberately use `panic = "abort"`, so a panic
+  exits before phase-3 mutation and relies on supervisor restart/recovery
+  rather than promising same-process survival. Admission-rate windows use the node's arrival clock rather
+  than the submitter's `ts`; per-head identity state and active source-IP
+  buckets are bounded, old identity state is pruned on head advance while the
+  source-IP window survives, and in-flight charged identities cannot be
+  evicted by ticket-only churn.
+  In both cases gossip, session-nonce burn, block, reward, proof-credit and
+  receipt writes remain untouched. Its
+  tracer E2E must retain both controls: the proof-invalid fixture is rejected
+  through public HTTP with zero downstream effects, and the existing valid
+  Lean fixture still commits and converges. The valid control may not be
+  skipped or replaced by a non-Lean fixture. The M5-backed live controls pass
+  together with this boundary.
+- Current milestone: the `boole.verify_native` MCP vertical. M5 and M6 make
+  that closed-local integration eligible to proceed; they do not themselves
+  authorize MCP-submitted code.
 
 This progress is closed-local protocol hardening. It neither activates a public
 testnet nor authorizes mining, rewards, payment, consensus, P2P exposure or use

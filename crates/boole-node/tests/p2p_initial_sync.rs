@@ -51,9 +51,20 @@ fn scenario_path() -> PathBuf {
     repo_root().join("fixtures/protocol/runtime-smoke/v1.json")
 }
 
-fn scenario_genesis_c() -> String {
+fn sync_scenario() -> Value {
     let raw = fs::read_to_string(scenario_path()).expect("scenario fixture");
-    let doc: Value = serde_json::from_str(&raw).expect("scenario json");
+    let mut doc: Value = serde_json::from_str(&raw).expect("scenario json");
+    // This suite exercises block sync and fork choice, not admission quotas.
+    // M6 binds rate accounting to server arrival time, so the old fixture's
+    // one-request-per-minute policy can no longer be bypassed by spaced client
+    // timestamps. Keep every node on one identical private genesis while
+    // granting the bounded setup submissions enough real quota.
+    doc["cfg"]["perIpRateLimitPer60s"] = json!(100);
+    doc
+}
+
+fn scenario_genesis_c() -> String {
+    let doc = sync_scenario();
     doc["genesisC"].as_str().expect("genesisC").to_string()
 }
 
@@ -61,8 +72,7 @@ fn scenario_genesis_c() -> String {
 /// scenario advertises in `Hello.genesis_hash` (the spec identity, not the
 /// raw chain anchor). Computed exactly the way the node does at boot.
 fn scenario_spec_hash() -> String {
-    let raw = fs::read_to_string(scenario_path()).expect("scenario fixture");
-    let doc: Value = serde_json::from_str(&raw).expect("scenario json");
+    let doc = sync_scenario();
     let cfg: boole_core::CalibrationReport =
         serde_json::from_value(doc["cfg"].clone()).expect("scenario cfg");
     let config = RuntimeConfig::from_calibration_report(cfg, 60_000).expect("runtime config");
@@ -134,7 +144,12 @@ fn boot_with_p2p_seeded(
     let addr = listener.local_addr().expect("http addr");
     let (tx, rx) = mpsc::channel();
     let rewards = dir.join("rewards.ndjson");
-    let scenario = scenario_path();
+    let scenario = dir.join("scenario.json");
+    fs::write(
+        &scenario,
+        serde_json::to_vec_pretty(&sync_scenario()).expect("scenario serializes"),
+    )
+    .expect("write isolated sync scenario");
     let shutdown = Arc::new(Notify::new());
     let shutdown_for_node = shutdown.clone();
     let handle = thread::spawn(move || {

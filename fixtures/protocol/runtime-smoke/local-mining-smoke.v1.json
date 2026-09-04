@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "source": {
+    "note": "Derived from fixtures/protocol/runtime-smoke/v1.json for closed-local flows that make exactly two immediate admissions through one portable loopback address, including scripts/local-mining-smoke.sh, scripts/p2p-local-convergence-smoke.sh, and the P2P reward-authorization roundtrip. In the convergence flow, node 2 first admits the relayed share over P2P and then admits its own HTTP share. The consensus fields and steps are identical; only the node-local Tier-3 per-IP quota is raised from 1 to exactly 2 so those flows exercise their proof-to-block, convergence, or cross-transport boundary instead of the dedicated rate-limit boundary. This fixture is not for admission-policy validation."
+  },
+  "cfg": {
+    "T_submit": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "T_share": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "T_block": "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe",
+    "T_ticket": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "MinShareScoreMultiplier": 1.0,
+    "K_max": 4,
+    "ShareCapPerPK_Block": 2,
+    "L": 4096,
+    "D_max": 8,
+    "EMAWindow": 32,
+    "M": 1,
+    "perIpRateLimitPer60s": 2,
+    "provenance": "calibration-final"
+  },
+  "genesisC": "0000000000000000000000000000000000000000000000000000000000000000",
+  "steps": [
+    {
+      "body": {
+        "c": "0000000000000000000000000000000000000000000000000000000000000000",
+        "pk": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "n": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "j": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "nonceS": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "bytes": "504f46500100000000000000000000001000000000100100000000000000"
+      },
+      "ip": "203.0.113.55",
+      "canonTag": 0,
+      "ts": 1700000000123
+    },
+    {
+      "body": {
+        "c": "0000000000000000000000000000000000000000000000000000000000000000",
+        "pk": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "n": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "j": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "nonceS": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "bytes": "504f46500100000000000000000000001000000000100200000000000000"
+      },
+      "cFromRuntimeHead": true,
+      "ip": "198.51.100.88",
+      "canonTag": 0,
+      "ts": 1700000061123
+    }
+  ]
+}

@@ -225,6 +225,13 @@ class SelfTestContractTests(unittest.TestCase):
                 "asserts identical heads AND zero replay divergence across "
                 "3 statically-peered nodes",
             )
+        self.assertIn(
+            'SCENARIO="${SCENARIO:-fixtures/protocol/runtime-smoke/local-mining-smoke.v1.json}"',
+            body,
+            "the convergence smoke must use the closed-local two-arrival fixture: "
+            "node 2 admits the relayed first share before its own HTTP share, and "
+            "the canonical quota-one fixture intentionally rejects that second arrival",
+        )
 
     def test_self_test_has_lean_toolchain_required_stage(self) -> None:
         # SC.10-iv-a — the required lane must FAIL, with a stage that names

@@ -489,6 +489,11 @@ pub(crate) struct LocalNodeState {
     /// inside the same lock as the canonical head makes `/ready` compare a
     /// single race-free snapshot. Restart deliberately begins empty.
     pub(crate) p2p_bootstrap_readiness: Option<P2pBootstrapReadiness>,
+    /// M6 — one node-instance-wide permit shared by HTTP submit and every P2P Lean
+    /// reverify path. The old write-lock implementation accidentally enforced
+    /// verifier concurrency=1; keep that resource bound after moving HTTP
+    /// verification off the state lock.
+    semantic_verifier: Arc<SemanticVerifier>,
 }
 
 #[derive(Clone)]
@@ -501,13 +506,197 @@ struct AppState {
     rate_limiter: Option<Arc<HttpRateLimiter>>,
 }
 
+#[derive(Debug, Default)]
+struct SemanticVerifier {
+    busy: AtomicBool,
+    #[cfg(test)]
+    latch: StdMutex<Option<Arc<SemanticVerifierTestLatch>>>,
+    #[cfg(test)]
+    phase3_latch: StdMutex<Option<Arc<SemanticVerifierTestLatch>>>,
+    #[cfg(test)]
+    forced_block_outcome: StdMutex<Option<SemanticVerifierTestOutcome>>,
+    #[cfg(test)]
+    panic_next_share: AtomicBool,
+    #[cfg(test)]
+    started_share_checks: AtomicUsize,
+}
+
+impl SemanticVerifier {
+    fn try_acquire(self: &Arc<Self>) -> Option<SemanticVerifierGuard> {
+        self.busy
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .ok()
+            .map(|_| SemanticVerifierGuard { gate: self.clone() })
+    }
+
+    #[cfg(test)]
+    fn set_test_latch(&self, latch: Arc<SemanticVerifierTestLatch>) {
+        *self.latch.lock().expect("semantic verifier latch lock") = Some(latch);
+    }
+
+    #[cfg(test)]
+    fn clear_test_latch(&self) {
+        *self.latch.lock().expect("semantic verifier latch lock") = None;
+    }
+
+    #[cfg(test)]
+    fn set_test_phase3_latch(&self, latch: Arc<SemanticVerifierTestLatch>) {
+        *self
+            .phase3_latch
+            .lock()
+            .expect("semantic verifier phase3 latch lock") = Some(latch);
+    }
+
+    #[cfg(test)]
+    fn clear_test_phase3_latch(&self) {
+        *self
+            .phase3_latch
+            .lock()
+            .expect("semantic verifier phase3 latch lock") = None;
+    }
+
+    #[cfg(test)]
+    fn wait_on_test_phase3_latch(&self) {
+        // One-shot: only the first terminal checker result is paused. This
+        // lets a concurrent request expose whether the permit was released
+        // before phase 3 without trapping that second request on the same
+        // test seam.
+        let latch = self
+            .phase3_latch
+            .lock()
+            .expect("semantic verifier phase3 latch lock")
+            .take();
+        if let Some(latch) = latch {
+            latch.started.send(()).expect("signal verifier phase3");
+            latch
+                .release
+                .lock()
+                .expect("semantic verifier phase3 release lock")
+                .recv()
+                .expect("release semantic verifier phase3");
+        }
+    }
+
+    #[cfg(test)]
+    fn set_test_block_outcome(&self, outcome: SemanticVerifierTestOutcome) {
+        *self
+            .forced_block_outcome
+            .lock()
+            .expect("semantic verifier forced outcome lock") = Some(outcome);
+    }
+
+    #[cfg(test)]
+    fn clear_test_block_outcome(&self) {
+        *self
+            .forced_block_outcome
+            .lock()
+            .expect("semantic verifier forced outcome lock") = None;
+    }
+
+    #[cfg(test)]
+    fn panic_next_share(&self) {
+        self.panic_next_share.store(true, Ordering::Release);
+    }
+
+    #[cfg(test)]
+    fn take_test_share_panic(&self) -> bool {
+        self.panic_next_share.swap(false, Ordering::AcqRel)
+    }
+
+    #[cfg(test)]
+    fn record_test_share_start(&self) {
+        self.started_share_checks.fetch_add(1, Ordering::Relaxed);
+    }
+
+    #[cfg(test)]
+    fn test_share_starts(&self) -> usize {
+        self.started_share_checks.load(Ordering::Relaxed)
+    }
+}
+
+#[cfg(test)]
+#[derive(Debug)]
+struct SemanticVerifierTestLatch {
+    started: std::sync::mpsc::Sender<()>,
+    release: StdMutex<std::sync::mpsc::Receiver<()>>,
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, Copy)]
+enum SemanticVerifierTestOutcome {
+    Verified,
+    Panic,
+}
+
+#[derive(Debug)]
+struct SemanticVerifierGuard {
+    gate: Arc<SemanticVerifier>,
+}
+
+impl SemanticVerifierGuard {
+    #[cfg(test)]
+    fn wait_on_test_latch(&self) {
+        let latch = self
+            .gate
+            .latch
+            .lock()
+            .expect("semantic verifier latch lock")
+            .clone();
+        if let Some(latch) = latch {
+            latch.started.send(()).expect("signal verifier started");
+            latch
+                .release
+                .lock()
+                .expect("semantic verifier release lock")
+                .recv()
+                .expect("release semantic verifier");
+        }
+    }
+
+    #[cfg(test)]
+    fn forced_block_outcome(&self) -> Option<BlockReverifyOutcome> {
+        let outcome = *self
+            .gate
+            .forced_block_outcome
+            .lock()
+            .expect("semantic verifier forced outcome lock");
+        outcome.map(|outcome| match outcome {
+            SemanticVerifierTestOutcome::Verified => BlockReverifyOutcome::Verified,
+            SemanticVerifierTestOutcome::Panic => {
+                panic!("injected P2P block verifier panic")
+            }
+        })
+    }
+}
+
+impl Drop for SemanticVerifierGuard {
+    fn drop(&mut self) {
+        self.gate.busy.store(false, Ordering::Release);
+    }
+}
+
+/// In unwind-capable dev/test profiles, keep the process-wide verifier permit
+/// owned by phase 3 even when verifier code panics. Release uses
+/// `panic = "abort"`: there the process exits before phase-3 mutation and the
+/// supervisor/restart recovery boundary applies instead of in-process cleanup.
+fn run_semantic_worker_with_permit<T>(
+    permit: SemanticVerifierGuard,
+    run: impl FnOnce(&SemanticVerifierGuard) -> T,
+) -> (std::thread::Result<T>, SemanticVerifierGuard) {
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run(&permit)));
+    (outcome, permit)
+}
+
 /// P1.7 — fixed-window per-IP HTTP rate limiter shared across the
 /// router. The window is a sliding 60s bucket of monotonic timestamps;
 /// admission is `count(ts in [now-window, now]) < quota`. The data
-/// structure is small (one `VecDeque` per active source IP, each bounded
-/// at `quota`), and the contention surface is a single `std::sync::Mutex`
-/// — middleware critical sections are <10 µs even at high QPS, so a
-/// tokio-aware lock is not warranted here.
+/// structure is small (at most 4096 active source IPs, one `VecDeque` per
+/// source, each bounded at `quota`). The ordinary path touches one bounded
+/// bucket; only the source-cap path performs a bounded global stale-bucket
+/// sweep. Neither path awaits or performs I/O while holding the single
+/// `std::sync::Mutex`.
+const MAX_ACTIVE_HTTP_RATE_SOURCE_IPS: usize = 4_096;
+
 pub(crate) struct HttpRateLimiter {
     quota: usize,
     window_ms: u128,
@@ -525,8 +714,19 @@ impl HttpRateLimiter {
 
     pub(crate) fn admit(&self, ip: IpAddr, now_ms: u128) -> bool {
         let mut guard = self.state.lock().expect("rate-limit state mutex poisoned");
-        let bucket = guard.entry(ip).or_default();
         let cutoff = now_ms.saturating_sub(self.window_ms);
+        if !guard.contains_key(&ip) && guard.len() >= MAX_ACTIVE_HTTP_RATE_SOURCE_IPS {
+            for bucket in guard.values_mut() {
+                while bucket.front().is_some_and(|ts| *ts < cutoff) {
+                    bucket.pop_front();
+                }
+            }
+            guard.retain(|_, bucket| !bucket.is_empty());
+            if guard.len() >= MAX_ACTIVE_HTTP_RATE_SOURCE_IPS {
+                return false;
+            }
+        }
+        let bucket = guard.entry(ip).or_default();
         while bucket.front().is_some_and(|ts| *ts < cutoff) {
             bucket.pop_front();
         }
@@ -535,6 +735,14 @@ impl HttpRateLimiter {
         }
         bucket.push_back(now_ms);
         true
+    }
+
+    #[cfg(test)]
+    fn tracked_source_ips(&self) -> usize {
+        self.state
+            .lock()
+            .expect("rate-limit state mutex poisoned")
+            .len()
     }
 }
 
@@ -1593,6 +1801,7 @@ impl LocalNodeState {
             p2p_egress: None,
             p2p_metrics: Arc::new(P2pMetrics::default()),
             p2p_bootstrap_readiness: None,
+            semantic_verifier: Arc::new(SemanticVerifier::default()),
         })
     }
 }
@@ -2188,20 +2397,28 @@ fn compute_ledgers_loaded(state: &LocalNodeState) -> bool {
 /// fires.
 static SUBMITS_ACCEPTED: AtomicUsize = AtomicUsize::new(0);
 static SUBMITS_REJECTED: AtomicUsize = AtomicUsize::new(0);
+static SUBMITS_RETRYABLE_UNAVAILABLE: AtomicUsize = AtomicUsize::new(0);
 static PROOFS_ACCEPTED: AtomicUsize = AtomicUsize::new(0);
 static PROOFS_REJECTED: AtomicUsize = AtomicUsize::new(0);
+static SHARE_ADMISSION_REVERIFY_STARTED: AtomicUsize = AtomicUsize::new(0);
 // `boole_panic_total` is owned by `boole_core::telemetry` (P0.5 slice 68)
 // so every binary's panic hook bumps one shared counter; the renderer
 // reads it via `telemetry::panic_total()`.
 
-/// Outcome label for the submit/proof counters. `accepted` = the handler
-/// returned a 2xx envelope; `rejected` = any typed-error / verifier path.
+/// Historical submit/proof outcome labels. `accepted` means the handler
+/// returned a 2xx envelope (including a business-level reject); `rejected`
+/// means a non-retryable typed error. M6 verifier availability uses its own
+/// third label through `record_submit_retryable_unavailable`.
 fn record_submit_outcome(accepted: bool) {
     if accepted {
         SUBMITS_ACCEPTED.fetch_add(1, Ordering::Relaxed);
     } else {
         SUBMITS_REJECTED.fetch_add(1, Ordering::Relaxed);
     }
+}
+
+fn record_submit_retryable_unavailable() {
+    SUBMITS_RETRYABLE_UNAVAILABLE.fetch_add(1, Ordering::Relaxed);
 }
 
 fn record_proof_outcome(accepted: bool) {
@@ -2267,6 +2484,11 @@ fn render_prometheus_metrics(state: &LocalNodeState) -> String {
             "boole_p2p_ingress_shares_rejected_total",
             "Gossip shares rejected by the local admission path.",
             p2p.ingress_shares_rejected.load(Ordering::Relaxed),
+        ),
+        (
+            "boole_p2p_ingress_shares_deferred_total",
+            "Gossip shares deferred because semantic verification was unavailable.",
+            p2p.ingress_shares_deferred.load(Ordering::Relaxed),
         ),
         (
             "boole_p2p_ingress_not_allowlisted_drops_total",
@@ -2433,6 +2655,7 @@ fn render_prometheus_metrics(state: &LocalNodeState) -> String {
     // scraper computes rate()/increase() over the monotonic series.
     let submits_accepted = SUBMITS_ACCEPTED.load(Ordering::Relaxed);
     let submits_rejected = SUBMITS_REJECTED.load(Ordering::Relaxed);
+    let submits_retryable_unavailable = SUBMITS_RETRYABLE_UNAVAILABLE.load(Ordering::Relaxed);
     let proofs_accepted = PROOFS_ACCEPTED.load(Ordering::Relaxed);
     let proofs_rejected = PROOFS_REJECTED.load(Ordering::Relaxed);
     let panic_total = boole_core::telemetry::panic_total();
@@ -2443,6 +2666,9 @@ fn render_prometheus_metrics(state: &LocalNodeState) -> String {
     ));
     out.push_str(&format!(
         "boole_submits_total{{outcome=\"rejected\"}} {submits_rejected}\n"
+    ));
+    out.push_str(&format!(
+        "boole_submits_total{{outcome=\"retryable_unavailable\"}} {submits_retryable_unavailable}\n"
     ));
     out.push_str("# HELP boole_proofs_total Bounty proof submissions by outcome.\n");
     out.push_str("# TYPE boole_proofs_total counter\n");
@@ -2455,6 +2681,14 @@ fn render_prometheus_metrics(state: &LocalNodeState) -> String {
     out.push_str("# HELP boole_panic_total In-process panics caught by the panic hook.\n");
     out.push_str("# TYPE boole_panic_total counter\n");
     out.push_str(&format!("boole_panic_total {panic_total}\n"));
+    out.push_str(
+        "# HELP boole_share_admission_reverify_started_total Pinned semantic share checks actually started.\n",
+    );
+    out.push_str("# TYPE boole_share_admission_reverify_started_total counter\n");
+    out.push_str(&format!(
+        "boole_share_admission_reverify_started_total {}\n",
+        SHARE_ADMISSION_REVERIFY_STARTED.load(Ordering::Relaxed)
+    ));
     out
 }
 
@@ -2530,17 +2764,222 @@ async fn submit_handler(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     body: Bytes,
 ) -> Response {
+    let peer_ip = addr.ip().to_string();
+    // M6/P1.7 — phase 1 owns the write lock only for the cheap structural
+    // admission and reservation. A checker-pinned submit moves its candidate
+    // out of block-selection visibility before this scope ends. A deterministic
+    // reject retains bounded duplicate/rate state; an availability outcome
+    // releases both so the exact request can retry.
+    let (mut prepared, reverify_job, reverify_permit) = {
+        let mut guard = state.inner.write().await;
+        if let Some(phase) = guard.runtime.canonical_state_failure_code() {
+            record_submit_outcome(false);
+            return error_response(HttpError::canonical_state_inconsistent(phase));
+        }
+        // N2.1 — agent-wallet session gate runs before the legacy admission
+        // path so typed envelopes (`session_unknown` / `session_revoked` /
+        // `reward_recipient_mismatch` / `nonce_replayed`) can surface with
+        // the right HTTP status. Envelopes without a `session` block fall
+        // through to the legacy path so pre-wallet callers stay unaffected.
+        let checked_session = match submit_session_gate(&mut guard, &body) {
+            Ok(session) => session,
+            Err(err) => {
+                record_submit_outcome(false);
+                return error_response(err);
+            }
+        };
+        // N2.1 — ownership proof is mandatory by default. A submit that carried
+        // no agent-wallet `session` block (`checked_session == None`) has only a
+        // bare prover pk and cannot prove it owns the reward it claims. Reject it
+        // before admission unless the operator explicitly enabled the legacy
+        // anonymous path. The session-bearing path already proved ownership
+        // (reward-recipient binding + signature) inside `submit_session_gate`.
+        if checked_session.is_none() && !guard.allow_anonymous_submit {
+            record_submit_outcome(false);
+            return error_response(HttpError::unauthenticated_submit());
+        }
+        // Preserve the old verifier concurrency=1 resource bound without
+        // preserving its global write-lock stall. Busy is checked before
+        // structural admission, so a request that cannot run Lean consumes no
+        // rate, pool, candidate, gossip, nonce, block, reward or receipt state.
+        let reverify_permit = if admitted_share_reverify_is_configured(&guard) {
+            match guard.semantic_verifier.try_acquire() {
+                Some(permit) => Some(permit),
+                None => {
+                    record_submit_retryable_unavailable();
+                    return error_response(HttpError::semantic_verifier_busy());
+                }
+            }
+        } else {
+            None
+        };
+        let outcome = match submit_prepare(&mut guard, &body, &peer_ip, checked_session.as_ref()) {
+            Ok(outcome) => outcome,
+            Err(err) => {
+                record_submit_outcome(false);
+                return submit_internal_error_response(&guard, err);
+            }
+        };
+        match outcome {
+            SubmitPrepareOutcome::Immediate(value) => {
+                record_submit_outcome(true);
+                return (StatusCode::OK, Json(value)).into_response();
+            }
+            SubmitPrepareOutcome::RetryableUnavailable(code) => {
+                record_submit_retryable_unavailable();
+                return error_response(HttpError::semantic_verifier_unavailable(code));
+            }
+            SubmitPrepareOutcome::Commit(prepared) => {
+                // No pinned checker job means the explicit legacy/checker-off
+                // lane retains its old one-lock atomic behavior.
+                let result = submit_finalize(&mut guard, prepared, checked_session.as_ref());
+                return match result {
+                    Ok(value) => {
+                        record_submit_outcome(true);
+                        (StatusCode::OK, Json(value)).into_response()
+                    }
+                    Err(err) => {
+                        record_submit_outcome(false);
+                        submit_internal_error_response(&guard, err)
+                    }
+                };
+            }
+            SubmitPrepareOutcome::Reverify {
+                prepared,
+                reverify_job,
+            } => (
+                prepared,
+                reverify_job,
+                reverify_permit.expect("configured reverify must hold the process permit"),
+            ),
+        }
+    };
+
+    let mut reservation_cleanup = SemanticReservationCleanup::new(&prepared);
+    #[cfg(test)]
+    let phase3_gate = Arc::clone(&reverify_permit.gate);
+
+    // M6/P1.7 — phase 2 owns no LocalNodeState lock and runs the synchronous
+    // subprocess tree on the blocking pool. `/ready`, `/status` and the other
+    // state readers therefore stay responsive for the entire Lean budget. If
+    // the HTTP future is cancelled or times out, `prepared` is dropped and its
+    // reserved candidate can never be restored (fail-closed).
+    let (reverify, reverify_permit) = match tokio::task::spawn_blocking(move || {
+        // The guard lives in the blocking closure, not the HTTP future. If the
+        // client disconnects or the route times out, Tokio cannot cancel a
+        // running blocking task; keeping the guard here prevents a successor
+        // verifier from overlapping that still-running child process.
+        run_semantic_worker_with_permit(reverify_permit, move |_permit| {
+            #[cfg(test)]
+            _permit.wait_on_test_latch();
+            #[cfg(test)]
+            _permit.gate.record_test_share_start();
+            #[cfg(test)]
+            if _permit.gate.take_test_share_panic() {
+                panic!("injected semantic share verifier panic");
+            }
+            run_admitted_share_reverify(*reverify_job)
+        })
+    })
+    .await
+    {
+        Ok(outcome) => outcome,
+        Err(join_err) => {
+            let mut guard = state.inner.write().await;
+            reservation_cleanup.release_now(&mut guard);
+            prepared.reserved_candidate = None;
+            eprintln!("boole-node: share reverify task unavailable: {join_err}");
+            record_submit_retryable_unavailable();
+            return error_response(HttpError::semantic_verifier_unavailable(
+                "lean_reverify_unavailable",
+            ));
+        }
+    };
+
+    #[cfg(test)]
+    phase3_gate.wait_on_test_phase3_latch();
+
+    // Keep verifier concurrency=1 through every phase-3 return path. The
+    // binding's drop scope is the rest of this handler, including state
+    // revalidation, reservation cleanup and durable finalize effects.
+    let _reverify_permit = reverify_permit;
+
+    let reverify = match reverify {
+        Ok(outcome) => outcome,
+        Err(_) => {
+            let mut guard = state.inner.write().await;
+            reservation_cleanup.release_now(&mut guard);
+            prepared.reserved_candidate = None;
+            eprintln!("boole-node: share reverify worker panicked");
+            record_submit_retryable_unavailable();
+            return error_response(HttpError::semantic_verifier_unavailable(
+                "lean_reverify_unavailable",
+            ));
+        }
+    };
+
+    // M6/P1.7 — phase 3 reacquires the write lock and revalidates every
+    // mutable premise crossed by the unlocked verifier window before the
+    // candidate is restored or any gossip/nonce/block/reward/receipt effect.
     let mut guard = state.inner.write().await;
     if let Some(phase) = guard.runtime.canonical_state_failure_code() {
         record_submit_outcome(false);
         return error_response(HttpError::canonical_state_inconsistent(phase));
     }
-    let peer_ip = addr.ip().to_string();
-    // N2.1 — agent-wallet session gate runs before the legacy admission
-    // path so typed envelopes (`session_unknown` / `session_revoked` /
-    // `reward_recipient_mismatch` / `nonce_replayed`) can surface with
-    // the right HTTP status. Envelopes without a `session` block fall
-    // through to the legacy path so pre-wallet callers stay unaffected.
+    match reverify {
+        ShareAdmissionReverifyOutcome::Verified => {}
+        ShareAdmissionReverifyOutcome::DeterministicReject => {
+            reservation_cleanup.disarm();
+            record_submit_outcome(true);
+            return (
+                StatusCode::OK,
+                Json(semantic_reverify_reject("lean_reverify_reject", &guard)),
+            )
+                .into_response();
+        }
+        ShareAdmissionReverifyOutcome::RetryableUnavailable => {
+            reservation_cleanup.release_now(&mut guard);
+            prepared.reserved_candidate = None;
+            record_submit_retryable_unavailable();
+            return error_response(HttpError::semantic_verifier_unavailable(
+                "lean_reverify_unavailable",
+            ));
+        }
+    }
+    if current_head(&guard) != prepared.chain_anchor {
+        reservation_cleanup.disarm();
+        record_submit_outcome(true);
+        return (
+            StatusCode::OK,
+            Json(json!({
+                "ok": false,
+                "accepted": false,
+                "reason": "stale_c",
+                "code": "stale_c",
+                "c": current_head(&guard),
+            })),
+        )
+            .into_response();
+    }
+    if guard
+        .proof_dedup_ledger
+        .as_ref()
+        .is_some_and(|ledger| ledger.contains(&prepared.proof_canon_hash))
+    {
+        reservation_cleanup.disarm();
+        record_submit_outcome(true);
+        return (
+            StatusCode::OK,
+            Json(json!({
+                "ok": false,
+                "accepted": false,
+                "reason": "duplicate_proof",
+                "code": "duplicate_proof",
+                "c": current_head(&guard),
+            })),
+        )
+            .into_response();
+    }
     let checked_session = match submit_session_gate(&mut guard, &body) {
         Ok(session) => session,
         Err(err) => {
@@ -2548,32 +2987,48 @@ async fn submit_handler(
             return error_response(err);
         }
     };
-    // N2.1 — ownership proof is mandatory by default. A submit that carried
-    // no agent-wallet `session` block (`checked_session == None`) has only a
-    // bare prover pk and cannot prove it owns the reward it claims. Reject it
-    // before admission unless the operator explicitly enabled the legacy
-    // anonymous path. The session-bearing path already proved ownership
-    // (reward-recipient binding + signature) inside `submit_session_gate`.
-    if checked_session.is_none() && !guard.allow_anonymous_submit {
+    let Some(reserved_candidate) = prepared.reserved_candidate.take() else {
         record_submit_outcome(false);
-        return error_response(HttpError::unauthenticated_submit());
+        return error_response(HttpError::internal(
+            "verified share reservation was missing at finalization",
+        ));
+    };
+    if !guard
+        .runtime
+        .restore_reverified_candidate(reserved_candidate)
+    {
+        reservation_cleanup.release_now(&mut guard);
+        record_submit_retryable_unavailable();
+        return error_response(HttpError::semantic_verifier_unavailable(
+            "lean_reverify_restore_failed",
+        ));
     }
-    // P1.3a — burn moved INTO submit_json before block append. Do not
-    // re-burn here on accepted=true; that would double-append the same
-    // (pk, nonce) and surface a spurious nonce_replayed envelope.
-    match submit_json(&mut guard, &body, &peer_ip, checked_session.as_ref()) {
+    reservation_cleanup.disarm();
+    let finalized_share_hash = prepared.share_hash.clone();
+    match submit_finalize(&mut guard, prepared, checked_session.as_ref()) {
         Ok(value) => {
             record_submit_outcome(true);
             (StatusCode::OK, Json(value)).into_response()
         }
         Err(err) => {
+            // Fail closed on the only state that can still be rolled back:
+            // never leave a verified candidate eligible after a failed
+            // finalize. Durable writes already completed by `submit_finalize`
+            // are intentionally not described as reversible here; canonical
+            // publish recovery remains their source of truth.
+            guard.runtime.quarantine_candidate(&finalized_share_hash);
+            reservation_cleanup.disarm();
             record_submit_outcome(false);
-            if let Some(phase) = guard.runtime.canonical_state_failure_code() {
-                error_response(HttpError::canonical_state_inconsistent(phase))
-            } else {
-                error_response(anyhow_to_internal(err))
-            }
+            submit_internal_error_response(&guard, err)
         }
+    }
+}
+
+fn submit_internal_error_response(state: &LocalNodeState, err: anyhow::Error) -> Response {
+    if let Some(phase) = state.runtime.canonical_state_failure_code() {
+        error_response(HttpError::canonical_state_inconsistent(phase))
+    } else {
+        error_response(anyhow_to_internal(err))
     }
 }
 
@@ -4692,10 +5147,13 @@ fn ticket_json(state: &mut LocalNodeState, body: &[u8]) -> Result<Value, HttpErr
     let pk = Hex32::from_hex(pk_str).map_err(|_| HttpError::bad_hex("pk"))?;
     let n = Hex32::from_hex(n_str).map_err(|_| HttpError::bad_hex("n"))?;
 
-    state
+    let newly_observed = state
         .runtime
         .observe_ticket_from_body(ticket_body)
         .map_err(|err| HttpError::bad_request(err.to_string()))?;
+    if !newly_observed && !state.runtime.has_observed_ticket(pk_str, c_str, n_str) {
+        return Err(HttpError::ticket_observation_unavailable());
+    }
     let result = ticket(
         &c,
         &pk,
@@ -4743,12 +5201,108 @@ fn proof_canon_hash(body: &serde_json::Map<String, Value>) -> String {
     hex::encode(Sha256::digest(&package))
 }
 
-fn submit_json(
+/// Build the exact persisted evidence shape from a normalized submission body.
+/// HTTP submit and peer ingress both call this after structural admission, so
+/// their Lean gate cannot drift through two hand-written projections.
+fn selected_share_evidence_from_body(
+    body: &serde_json::Map<String, Value>,
+    signed_work: Option<&ShareWorkAuthorization>,
+) -> Result<SelectedShareEvidence, AdmissionDecision> {
+    let submission = parse_submission_body(body)?;
+    Ok(SelectedShareEvidence {
+        pk: submission.pk_hex,
+        n: submission.n_hex,
+        j: submission.j_hex,
+        c: submission.c_hex,
+        canon_hash: hex::encode(Sha256::digest(&submission.package_bytes)),
+        proof_package: hex::encode(&submission.package_bytes),
+        seed_hex: submission.seed_hex,
+        signed_work: signed_work.cloned(),
+    })
+}
+
+struct PreparedSubmitCommit {
+    body: serde_json::Map<String, Value>,
+    canon_tag: u8,
+    ts_raw: u64,
+    /// Trusted server-arrival clock used only for admission-rate accounting.
+    /// The client-provided `ts_raw` remains the block/receipt timestamp.
+    admitted_at: i64,
+    share_hash: String,
+    proof_canon_hash: String,
+    chain_anchor: String,
+    peer_ip: String,
+    reserved_candidate: Option<boole_core::CandidateShare>,
+}
+
+/// Cancellation-safe owner of an in-flight semantic reservation. Dropping an
+/// HTTP future must never restore an unverified candidate or refund the
+/// anti-abuse charge: the detached blocking worker's terminal verdict cannot
+/// be observed by the cancelled route, so retaining the bounded tombstone is
+/// the only fail-closed outcome. Explicit checker-unavailable outcomes call
+/// `release_now` and remain retryable; completed reject/finalize paths disarm.
+struct SemanticReservationCleanup {
+    candidate: Option<boole_core::CandidateShare>,
+    admitted_at: i64,
+    peer_ip: String,
+}
+
+impl SemanticReservationCleanup {
+    fn new(prepared: &PreparedSubmitCommit) -> Self {
+        Self {
+            candidate: prepared.reserved_candidate.clone(),
+            admitted_at: prepared.admitted_at,
+            peer_ip: prepared.peer_ip.clone(),
+        }
+    }
+
+    fn disarm(&mut self) {
+        self.candidate = None;
+    }
+
+    fn release_now(&mut self, state: &mut LocalNodeState) {
+        if let Some(candidate) = self.candidate.take() {
+            state
+                .runtime
+                .release_semantic_reservation(&candidate, self.admitted_at, &self.peer_ip);
+        }
+    }
+}
+
+impl Drop for SemanticReservationCleanup {
+    fn drop(&mut self) {
+        // The runtime already removed the candidate from eligibility and put
+        // its identity in a bounded, capacity-free tombstone. Forgetting this
+        // owner intentionally leaves that quarantine and its rate charge in
+        // place. Refunding here would let a deterministic-invalid client abort
+        // every response and repeatedly launch the expensive checker.
+        self.candidate = None;
+    }
+}
+
+enum SubmitPrepareOutcome {
+    Immediate(Value),
+    /// Structural admission could not create a semantic reservation. This is
+    /// availability, not an answer verdict: no candidate remains eligible and
+    /// the exact request may retry.
+    RetryableUnavailable(&'static str),
+    /// Explicit checker-off / unnamed compatibility lane. No expensive work
+    /// exists, so the caller keeps the historical single-lock transaction.
+    Commit(PreparedSubmitCommit),
+    /// Checker-pinned lane. The candidate has already been removed from block
+    /// selection and is owned by `prepared` until phase 3 revalidation.
+    Reverify {
+        prepared: PreparedSubmitCommit,
+        reverify_job: Box<ShareAdmissionReverifyJob>,
+    },
+}
+
+fn submit_prepare(
     state: &mut LocalNodeState,
     body: &[u8],
     peer_ip: &str,
     checked_session: Option<&CheckedSubmitSession>,
-) -> anyhow::Result<Value> {
+) -> anyhow::Result<SubmitPrepareOutcome> {
     let body_value: Value = serde_json::from_slice(body)?;
     let submit_body = body_value
         .as_object()
@@ -4758,13 +5312,13 @@ fn submit_json(
         .and_then(Value::as_u64)
         .unwrap_or(0);
     if canon_tag_raw > u8::MAX as u64 {
-        return Ok(json!({
+        return Ok(SubmitPrepareOutcome::Immediate(json!({
             "ok": false,
             "accepted": false,
             "error": "canon_tag_out_of_range",
             "canonTag": canon_tag_raw,
             "max": u8::MAX,
-        }));
+        })));
     }
     let canon_tag = canon_tag_raw as u8;
     // N3-pre.3 (review #3) — a submit body that omits `ts` now defaults to
@@ -4777,15 +5331,15 @@ fn submit_json(
         .and_then(Value::as_u64)
         .unwrap_or_else(|| now_unix_ms() as u64);
     if ts_raw > i64::MAX as u64 {
-        return Ok(json!({
+        return Ok(SubmitPrepareOutcome::Immediate(json!({
             "ok": false,
             "accepted": false,
             "error": "ts_out_of_range",
             "ts": ts_raw,
             "maxI64": i64::MAX,
-        }));
+        })));
     }
-    let ts_i64 = ts_raw as i64;
+    let admitted_at = now_unix_ms() as i64;
     let mut body = submit_body
         .get("body")
         .and_then(Value::as_object)
@@ -4798,7 +5352,7 @@ fn submit_json(
         .observe_ticket_from_body(&body)
         .map_err(|err| anyhow::anyhow!(err))?;
     let decision = state.runtime.admit_body_with_submitter_context(
-        ts_i64,
+        admitted_at,
         peer_ip,
         &body,
         canon_tag,
@@ -4806,7 +5360,7 @@ fn submit_json(
         checked_session.map(|session| &session.signed_work),
     );
     let AdmissionDecision::Accepted { share_hash } = decision else {
-        return Ok(json!({
+        return Ok(SubmitPrepareOutcome::Immediate(json!({
             "ok": false,
             "accepted": false,
             "decision": format!("{decision:?}"),
@@ -4816,7 +5370,7 @@ fn submit_json(
             // instead of substring-matching the prose.
             "code": decision.reject_code(),
             "c": current_head(state),
-        }));
+        })));
     };
     // N2.3 — proof dedup. Reject a second credit for the same proof (same
     // server-computed canonical bytes) under any pk BEFORE any durable write.
@@ -4828,14 +5382,101 @@ fn submit_json(
         .as_ref()
         .is_some_and(|ledger| ledger.contains(&proof_canon_hash))
     {
-        return Ok(json!({
+        // Structural SharePool/rate effects stay charged, but an already-
+        // credited proof must never remain eligible for block selection.
+        state.runtime.quarantine_candidate(&share_hash.to_hex());
+        return Ok(SubmitPrepareOutcome::Immediate(json!({
             "ok": false,
             "accepted": false,
             "reason": "duplicate_proof",
             "code": "duplicate_proof",
             "c": current_head(state),
-        }));
+        })));
     }
+    // M6 — HTTP and peer ingress share one semantic Lean boundary. Structural
+    // admission deliberately happens first, while every downstream effect
+    // remains behind this gate:
+    // candidate eligibility, gossip, session nonce burn, block/reward/proof
+    // writes and receipt creation. A deterministic reject retains a bounded
+    // duplicate tombstone and its anti-abuse rate charge. An availability
+    // failure releases that reservation and charge so the exact request may
+    // retry, but is never promoted into an accept.
+    let evidence = match selected_share_evidence_from_body(
+        &body,
+        checked_session.map(|session| &session.signed_work),
+    ) {
+        Ok(evidence) => evidence,
+        // Unreachable after Accepted structural admission (the same parser
+        // consumed the same normalized body); keep the candidate fail-closed
+        // if that invariant ever changes.
+        Err(decision) => {
+            state.runtime.quarantine_candidate(&share_hash.to_hex());
+            return Ok(SubmitPrepareOutcome::Immediate(json!({
+                "ok": false,
+                "accepted": false,
+                "decision": format!("{decision:?}"),
+                "code": decision.reject_code(),
+                "c": current_head(state),
+            })));
+        }
+    };
+    let share_hash = share_hash.to_hex();
+    let mut prepared = PreparedSubmitCommit {
+        body,
+        canon_tag,
+        ts_raw,
+        admitted_at,
+        share_hash: share_hash.clone(),
+        proof_canon_hash,
+        chain_anchor: evidence.c.clone(),
+        peer_ip: peer_ip.to_string(),
+        reserved_candidate: None,
+    };
+    let Some(reverify_job) = admitted_share_reverify_job(state, evidence) else {
+        return Ok(SubmitPrepareOutcome::Commit(prepared));
+    };
+    let Some(reserved_candidate) =
+        state
+            .runtime
+            .take_candidate_for_reverify(&share_hash, admitted_at, peer_ip)
+    else {
+        return Ok(SubmitPrepareOutcome::RetryableUnavailable(
+            "lean_reverify_reservation_failed",
+        ));
+    };
+    prepared.reserved_candidate = Some(reserved_candidate);
+    Ok(SubmitPrepareOutcome::Reverify {
+        prepared,
+        reverify_job: Box::new(reverify_job),
+    })
+}
+
+fn semantic_reverify_reject(code: &'static str, state: &LocalNodeState) -> Value {
+    json!({
+        "ok": false,
+        "accepted": false,
+        "reason": code,
+        "code": code,
+        "c": current_head(state),
+    })
+}
+
+fn submit_finalize(
+    state: &mut LocalNodeState,
+    prepared: PreparedSubmitCommit,
+    checked_session: Option<&CheckedSubmitSession>,
+) -> anyhow::Result<Value> {
+    let PreparedSubmitCommit {
+        body,
+        canon_tag,
+        ts_raw,
+        admitted_at: _,
+        share_hash,
+        proof_canon_hash,
+        chain_anchor: _,
+        peer_ip: _,
+        reserved_candidate: _,
+    } = prepared;
     // N3.2 — gossip egress: the share is admitted and dedup-cleared, so
     // announce it to the static peer set regardless of whether a block
     // gets built below (a NoProposer accept is still a pool entry worth
@@ -4876,7 +5517,7 @@ fn submit_json(
                 "shareAccepted": true,
                 "blockProduced": false,
                 "decision": "NoProposer",
-                "shareHash": share_hash.to_hex(),
+                "shareHash": share_hash,
                 "height": state.runtime.cached_block_count(),
                 "c": current_head(state),
             }));
@@ -4949,11 +5590,7 @@ fn submit_json(
     let runtime_head = current_head(state);
     let block_value = block_json(&committed.block);
     let receipt = match checked_session {
-        Some(session) => Some(submit_receipt_json(
-            session,
-            &committed.block,
-            &share_hash.to_hex(),
-        )?),
+        Some(session) => Some(submit_receipt_json(session, &committed.block, &share_hash)?),
         None => None,
     };
     if let (Some(path), Some(receipt)) =
@@ -4964,7 +5601,7 @@ fn submit_json(
     let mut response = json!({
         "ok": true,
         "accepted": true,
-        "shareHash": share_hash.to_hex(),
+        "shareHash": share_hash,
         "block": block_value,
         "height": new_height,
         "c": runtime_head,
@@ -5116,6 +5753,12 @@ pub(crate) enum IngressShareOutcome {
     Rejected {
         code: String,
     },
+    /// Semantic verifier capacity/availability could not produce a verdict.
+    /// The peer may retry; this is never counted as proof invalidity.
+    #[allow(dead_code)]
+    Deferred {
+        code: String,
+    },
 }
 
 /// S23c — mirror a committed block's credit rows into the bounty event
@@ -5178,81 +5821,151 @@ const BASE_LANE_VERIFIER_PROFILE: &str = "v1-lenbound";
 /// re-verify at ingest). Boot's `enforce_pinned_checker_toolchain` has
 /// already proven the configured checker dir hashes to `pinned`, so the
 /// pin is the identity every honest share was bound under.
-fn reverify_ingested_block_shares(
+#[derive(Debug)]
+struct IngestedBlockReverifyJob {
+    block: PersistedBlock,
+    checker_dir: PathBuf,
+    pinned: String,
+    verifier_hash: String,
+}
+
+fn ingested_block_reverify_job(
     state: &LocalNodeState,
     block: &PersistedBlock,
-) -> Option<BlockReverifyOutcome> {
+) -> Option<IngestedBlockReverifyJob> {
     let pinned = boole_core::network_genesis_preset(&state.network_id)?
         .params
         .checker_artifact_hash?;
-    let checker_dir = state.lean_checker_dir.as_ref()?;
-    let verifier_hash = boole_core::lean_bound_verifier_hash(BASE_LANE_VERIFIER_PROFILE);
-    Some(crate::reverify_block_selected_shares(
-        block,
-        checker_dir,
-        &pinned,
-        &verifier_hash,
-        boole_core::BASE_LANE_MAX_HEARTBEATS,
-        boole_core::BASE_LANE_MAX_REC_DEPTH,
-    ))
+    Some(IngestedBlockReverifyJob {
+        block: block.clone(),
+        checker_dir: state.lean_checker_dir.clone()?,
+        pinned,
+        verifier_hash: boole_core::lean_bound_verifier_hash(BASE_LANE_VERIFIER_PROFILE),
+    })
 }
 
-/// SC.10-ii-c — the reorg-path counterpart of [`reverify_ingested_block_shares`]:
+fn run_ingested_block_reverify(job: IngestedBlockReverifyJob) -> BlockReverifyOutcome {
+    crate::reverify_block_selected_shares(
+        &job.block,
+        &job.checker_dir,
+        &job.pinned,
+        &job.verifier_hash,
+        boole_core::BASE_LANE_MAX_HEARTBEATS,
+        boole_core::BASE_LANE_MAX_REC_DEPTH,
+    )
+}
+
+/// SC.10-ii-c — the reorg-path counterpart of [`run_ingested_block_reverify`]:
 /// re-run the pinned checker over EVERY block of a peer's competing chain
 /// under the committed base-lane budget, folding the per-block outcomes into
 /// one chain verdict. Returns `None` on the same closed-local / no-checker
 /// networks the ingest helper skips, so those paths keep their pre-SC.10
 /// behaviour (no Lean re-verify at reorg). The pin is the same identity boot's
 /// `enforce_pinned_checker_toolchain` proved the configured checker dir against.
-fn reverify_candidate_chain_shares(
-    state: &LocalNodeState,
-    candidate: &[PersistedBlock],
-) -> Option<BlockReverifyOutcome> {
-    let pinned = boole_core::network_genesis_preset(&state.network_id)?
-        .params
-        .checker_artifact_hash?;
-    let checker_dir = state.lean_checker_dir.as_ref()?;
-    let verifier_hash = boole_core::lean_bound_verifier_hash(BASE_LANE_VERIFIER_PROFILE);
-    Some(crate::reverify_candidate_chain_selected_shares(
-        candidate,
-        checker_dir,
-        &pinned,
-        &verifier_hash,
-        boole_core::BASE_LANE_MAX_HEARTBEATS,
-        boole_core::BASE_LANE_MAX_REC_DEPTH,
-    ))
+#[derive(Debug)]
+struct CandidateChainReverifyJob {
+    candidate: Vec<PersistedBlock>,
+    checker_dir: PathBuf,
+    pinned: String,
+    verifier_hash: String,
 }
 
-/// SC.10-ii-d-2 — the gossip-admission counterpart of
-/// [`reverify_ingested_block_shares`]: re-run the pinned checker over ONE
-/// peer-announced share under the committed base-lane budget, IF this is a
-/// checker-pinned named network with a configured checker directory. Returns
-/// `None` when the network does not pin a checker (closed-local) or no
-/// checker dir is configured — those paths keep their pre-SC.10 behaviour
-/// (no Lean re-verify at gossip admission).
-///
-/// ADR-0016 (c-2): admission IS the producer's Lean gate — a self-produced
-/// block re-runs nothing over its own shares, so every share the candidate
-/// pool may feed it must have cleared the same single verifier entry ingest
-/// and reorg re-verification use, under the same committed budget and pin.
-fn reverify_announced_share(
+fn candidate_chain_reverify_job(
     state: &LocalNodeState,
-    share: &SelectedShareEvidence,
-) -> Option<BlockReverifyOutcome> {
+    candidate: &[PersistedBlock],
+) -> Option<CandidateChainReverifyJob> {
     let pinned = boole_core::network_genesis_preset(&state.network_id)?
         .params
         .checker_artifact_hash?;
-    let checker_dir = state.lean_checker_dir.as_ref()?;
-    let verifier_hash = boole_core::lean_bound_verifier_hash(BASE_LANE_VERIFIER_PROFILE);
-    Some(crate::reverify_share_evidence(
-        &share.c,
+    Some(CandidateChainReverifyJob {
+        candidate: candidate.to_vec(),
+        checker_dir: state.lean_checker_dir.clone()?,
+        pinned,
+        verifier_hash: boole_core::lean_bound_verifier_hash(BASE_LANE_VERIFIER_PROFILE),
+    })
+}
+
+fn run_candidate_chain_reverify(job: CandidateChainReverifyJob) -> BlockReverifyOutcome {
+    crate::reverify_candidate_chain_selected_shares(
+        &job.candidate,
+        &job.checker_dir,
+        &job.pinned,
+        &job.verifier_hash,
+        boole_core::BASE_LANE_MAX_HEARTBEATS,
+        boole_core::BASE_LANE_MAX_REC_DEPTH,
+    )
+}
+
+#[derive(Debug)]
+struct ShareAdmissionReverifyJob {
+    share: SelectedShareEvidence,
+    checker_dir: PathBuf,
+    pinned: String,
+    verifier_hash: String,
+}
+
+fn admitted_share_reverify_is_configured(state: &LocalNodeState) -> bool {
+    state.lean_checker_dir.is_some()
+        && boole_core::network_genesis_preset(&state.network_id)
+            .is_some_and(|preset| preset.params.checker_artifact_hash.is_some())
+}
+
+/// Capture every immutable input the expensive verifier needs while the
+/// caller still owns the state lock. `None` preserves the explicit
+/// checker-off/closed-local lane; a job is fully owned and can safely cross a
+/// `spawn_blocking` boundary without borrowing `LocalNodeState`.
+fn admitted_share_reverify_job(
+    state: &LocalNodeState,
+    share: SelectedShareEvidence,
+) -> Option<ShareAdmissionReverifyJob> {
+    let pinned = boole_core::network_genesis_preset(&state.network_id)?
+        .params
+        .checker_artifact_hash?;
+    let checker_dir = state.lean_checker_dir.clone()?;
+    Some(ShareAdmissionReverifyJob {
         share,
         checker_dir,
+        pinned,
+        verifier_hash: boole_core::lean_bound_verifier_hash(BASE_LANE_VERIFIER_PROFILE),
+    })
+}
+
+/// SC.10-ii-d-2 / M6 — run one fully-owned admission job through the shared
+/// base-lane verifier entry. HTTP invokes this on Tokio's blocking pool and
+/// peer ingress invokes it between its prepare/finalize guards; neither holds
+/// the node state lock while Lean runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ShareAdmissionReverifyOutcome {
+    Verified,
+    DeterministicReject,
+    RetryableUnavailable,
+}
+
+fn run_admitted_share_reverify(job: ShareAdmissionReverifyJob) -> ShareAdmissionReverifyOutcome {
+    SHARE_ADMISSION_REVERIFY_STARTED.fetch_add(1, Ordering::Relaxed);
+    let ShareAdmissionReverifyJob {
+        share,
+        checker_dir,
+        pinned,
+        verifier_hash,
+    } = job;
+    match crate::reverify_share_evidence(
+        &share.c,
+        &share,
+        &checker_dir,
         &pinned,
         &verifier_hash,
         boole_core::BASE_LANE_MAX_HEARTBEATS,
         boole_core::BASE_LANE_MAX_REC_DEPTH,
-    ))
+    ) {
+        BlockReverifyOutcome::Verified => ShareAdmissionReverifyOutcome::Verified,
+        BlockReverifyOutcome::DeterministicReject { .. } => {
+            ShareAdmissionReverifyOutcome::DeterministicReject
+        }
+        BlockReverifyOutcome::RetryableUnavailable { .. } => {
+            ShareAdmissionReverifyOutcome::RetryableUnavailable
+        }
+    }
 }
 
 /// N3.3 — validate and apply a peer-announced block. The ONLY validation
@@ -5268,26 +5981,24 @@ fn reverify_announced_share(
 /// Fork-choice/reorg are N4 non-goals: only a block extending the current
 /// head by exactly one is considered.
 ///
-/// The caller holds the SAME single write guard the HTTP submit path
-/// holds, so block append, reward-ledger append, bounty-event rows and
-/// the N2.3 proof-dedup mirror stay coherent with local commits.
-pub(crate) fn ingest_announced_block(
-    state: &mut LocalNodeState,
-    block_value: &Value,
-) -> IngressBlockOutcome {
+/// Callers run this during both the short prepare guard and the final guard
+/// after Lean returns. The final call rechecks the then-current head and
+/// checkpoint immediately before block append, reward projection and the
+/// N2.3 proof-dedup mirror are committed under one write guard.
+fn validate_announced_block(
+    state: &LocalNodeState,
+    block: &PersistedBlock,
+) -> Result<crate::checkpoint::CheckpointSkipDecision, IngressBlockOutcome> {
     if state.runtime.ensure_canonical_state_healthy().is_err() {
-        return IngressBlockOutcome::Deferred;
+        return Err(IngressBlockOutcome::Deferred);
     }
-    let Ok(block) = serde_json::from_value::<PersistedBlock>(block_value.clone()) else {
-        return IngressBlockOutcome::Rejected;
-    };
     if block.height != state.runtime.cached_block_count() as u64
         || block.prev_c != current_head(state)
     {
-        return IngressBlockOutcome::Ignored;
+        return Err(IngressBlockOutcome::Ignored);
     }
     if check_block_ts_future_drift(block.ts, now_unix_ms() as u64).is_err() {
-        return IngressBlockOutcome::Rejected;
+        return Err(IngressBlockOutcome::Rejected);
     }
     let mut chain = state.runtime.cached_blocks().to_vec();
     chain.push(block.clone());
@@ -5300,7 +6011,7 @@ pub(crate) fn ingest_announced_block(
     if replay_blocks_with_genesis_and_registry(&chain, &genesis, state.runtime.family_registry())
         .is_err()
     {
-        return IngressBlockOutcome::Rejected;
+        return Err(IngressBlockOutcome::Rejected);
     }
     // SC.10-ii-b (ADR-0016 (c)) — structural replay proves the block's
     // shape, selection and seed↔chain binding, but NOT that each share's
@@ -5317,11 +6028,66 @@ pub(crate) fn ingest_announced_block(
     // checkpoint height a hash mismatch means the re-synced chain diverged
     // from the trusted prefix — discard the checkpoint and re-verify in full
     // (nothing above a divergence may be skipped).
-    let skip_decision = crate::checkpoint::checkpoint_skip_decision(
+    Ok(crate::checkpoint::checkpoint_skip_decision(
         state.verified_prefix_checkpoint.as_ref(),
         block.height,
         &block.c,
-    );
+    ))
+}
+
+enum IngressBlockPrepareOutcome {
+    Immediate(IngressBlockOutcome),
+    Ready {
+        block: PersistedBlock,
+        skip_decision: crate::checkpoint::CheckpointSkipDecision,
+    },
+    Reverify {
+        block: PersistedBlock,
+        job: Box<IngestedBlockReverifyJob>,
+        permit: SemanticVerifierGuard,
+    },
+}
+
+fn prepare_announced_block(
+    state: &mut LocalNodeState,
+    block_value: &Value,
+) -> IngressBlockPrepareOutcome {
+    let Ok(block) = serde_json::from_value::<PersistedBlock>(block_value.clone()) else {
+        return IngressBlockPrepareOutcome::Immediate(IngressBlockOutcome::Rejected);
+    };
+    let skip_decision = match validate_announced_block(state, &block) {
+        Ok(decision) => decision,
+        Err(outcome) => return IngressBlockPrepareOutcome::Immediate(outcome),
+    };
+    if skip_decision == crate::checkpoint::CheckpointSkipDecision::SkipReverify {
+        return IngressBlockPrepareOutcome::Ready {
+            block,
+            skip_decision,
+        };
+    }
+    let Some(job) = ingested_block_reverify_job(state, &block) else {
+        return IngressBlockPrepareOutcome::Ready {
+            block,
+            skip_decision,
+        };
+    };
+    let Some(permit) = state.semantic_verifier.try_acquire() else {
+        eprintln!("boole-node: p2p block Lean re-verify deferred: verifier busy");
+        return IngressBlockPrepareOutcome::Immediate(IngressBlockOutcome::Deferred);
+    };
+    IngressBlockPrepareOutcome::Reverify {
+        block,
+        job: Box::new(job),
+        permit,
+    }
+}
+
+fn commit_announced_block(
+    state: &mut LocalNodeState,
+    block: PersistedBlock,
+    skip_decision: crate::checkpoint::CheckpointSkipDecision,
+    was_lean_reverified: bool,
+) -> IngressBlockOutcome {
     if skip_decision == crate::checkpoint::CheckpointSkipDecision::DivergedDiscardThenReverify {
         state.verified_prefix_checkpoint = None;
         let checkpoint_path = state.checkpoint_path.clone();
@@ -5345,21 +6111,7 @@ pub(crate) fn ingest_announced_block(
                 .fetch_add(1, Ordering::Relaxed);
             false
         } else {
-            match reverify_ingested_block_shares(state, &block) {
-                Some(BlockReverifyOutcome::DeterministicReject { detail }) => {
-                    eprintln!("boole-node: p2p block ingest Lean re-verify rejected: {detail}");
-                    return IngressBlockOutcome::Rejected;
-                }
-                Some(BlockReverifyOutcome::RetryableUnavailable { detail }) => {
-                    // Deferred returns here, BEFORE the durable commit and
-                    // checkpoint write below: an availability failure moves neither
-                    // the head nor the checkpoint (ADR-0016 (a-3), (c-1)).
-                    eprintln!("boole-node: p2p block ingest Lean re-verify deferred: {detail}");
-                    return IngressBlockOutcome::Deferred;
-                }
-                Some(BlockReverifyOutcome::Verified) => true,
-                None => false,
-            }
+            was_lean_reverified
         };
     // Same write ordering as the self-produce commit: block append →
     // reward-ledger append → in-memory apply (inside the runtime call) →
@@ -5417,6 +6169,74 @@ pub(crate) fn ingest_announced_block(
         advance_verified_checkpoint(state, &block);
     }
     IngressBlockOutcome::Ingested
+}
+
+fn finish_announced_block_reverify(
+    state: &mut LocalNodeState,
+    block: PersistedBlock,
+    outcome: BlockReverifyOutcome,
+) -> IngressBlockOutcome {
+    match outcome {
+        BlockReverifyOutcome::DeterministicReject { detail } => {
+            eprintln!("boole-node: p2p block ingest Lean re-verify rejected: {detail}");
+            IngressBlockOutcome::Rejected
+        }
+        BlockReverifyOutcome::RetryableUnavailable { detail } => {
+            eprintln!("boole-node: p2p block ingest Lean re-verify deferred: {detail}");
+            IngressBlockOutcome::Deferred
+        }
+        BlockReverifyOutcome::Verified => match validate_announced_block(state, &block) {
+            Ok(skip_decision) => commit_announced_block(state, block, skip_decision, true),
+            Err(outcome) => outcome,
+        },
+    }
+}
+
+fn run_block_reverify_with_permit(
+    job: IngestedBlockReverifyJob,
+    permit: SemanticVerifierGuard,
+) -> (
+    std::thread::Result<BlockReverifyOutcome>,
+    SemanticVerifierGuard,
+) {
+    run_semantic_worker_with_permit(permit, move |_permit| {
+        #[cfg(test)]
+        _permit.wait_on_test_latch();
+        #[cfg(test)]
+        if let Some(outcome) = _permit.forced_block_outcome() {
+            return outcome;
+        }
+        run_ingested_block_reverify(job)
+    })
+}
+
+/// P2P production entry: the checker runs between two short state-lock
+/// phases. The final phase validates the block against the then-current head
+/// before any durable block/reward/checkpoint write.
+pub(crate) fn ingest_announced_block_shared(
+    shared: &Arc<RwLock<LocalNodeState>>,
+    block_value: &Value,
+) -> IngressBlockOutcome {
+    let prepared = {
+        let mut state = shared.blocking_write();
+        match prepare_announced_block(&mut state, block_value) {
+            IngressBlockPrepareOutcome::Immediate(outcome) => return outcome,
+            // No checker is needed (closed-local or verified checkpoint), so
+            // keep this cheap path inside the same guard. Unlocking between
+            // validation and commit would admit a stale head/checkpoint race.
+            IngressBlockPrepareOutcome::Ready {
+                block,
+                skip_decision,
+            } => return commit_announced_block(&mut state, block, skip_decision, false),
+            IngressBlockPrepareOutcome::Reverify { block, job, permit } => (block, job, permit),
+        }
+    };
+    let (block, job, permit) = prepared;
+    let (outcome, _permit) = run_block_reverify_with_permit(*job, permit);
+    let outcome = outcome.unwrap_or_else(|_| BlockReverifyOutcome::RetryableUnavailable {
+        detail: "p2p block Lean re-verify worker panicked".to_string(),
+    });
+    finish_announced_block_reverify(&mut shared.blocking_write(), block, outcome)
 }
 
 /// SC.10-iii-b — persist the verified-prefix checkpoint to the block after a
@@ -5495,17 +6315,27 @@ pub(crate) enum CandidateChainOutcome {
 ///   chain also keeps the live process coherent. Boot no longer relies on a
 ///   prefix/suffix assumption: it preserves route-owned rows and reconstructs
 ///   every block-derived row exactly from the canonical chain.
-pub(crate) fn ingest_candidate_chain(
+enum CandidateChainPrepareOutcome {
+    Immediate(CandidateChainOutcome),
+    Ready(Vec<PersistedBlock>),
+    Reverify {
+        candidate: Vec<PersistedBlock>,
+        job: CandidateChainReverifyJob,
+        permit: SemanticVerifierGuard,
+    },
+}
+
+fn prepare_candidate_chain(
     state: &mut LocalNodeState,
     candidate_values: &[Value],
-) -> CandidateChainOutcome {
+) -> CandidateChainPrepareOutcome {
     if state.runtime.ensure_canonical_state_healthy().is_err() {
-        return CandidateChainOutcome::Deferred;
+        return CandidateChainPrepareOutcome::Immediate(CandidateChainOutcome::Deferred);
     }
     let mut candidate = Vec::with_capacity(candidate_values.len());
     for value in candidate_values {
         let Ok(block) = serde_json::from_value::<PersistedBlock>(value.clone()) else {
-            return CandidateChainOutcome::Rejected;
+            return CandidateChainPrepareOutcome::Immediate(CandidateChainOutcome::Rejected);
         };
         candidate.push(block);
     }
@@ -5519,17 +6349,45 @@ pub(crate) fn ingest_candidate_chain(
     // (never a reject, never a fail-open adopt — ADR-0016 (a-3)). Closed-local
     // / no-checker nodes skip this (helper returns `None`) and keep pre-SC.10
     // behaviour. This is the SAME verifier entry, budget and pin the ingest
-    // path runs (`reverify_ingested_block_shares`), so both converge (c-2).
-    match reverify_candidate_chain_shares(state, &candidate) {
-        Some(BlockReverifyOutcome::DeterministicReject { detail }) => {
+    // path runs (`run_ingested_block_reverify`), so both converge (c-2).
+    let Some(job) = candidate_chain_reverify_job(state, &candidate) else {
+        return CandidateChainPrepareOutcome::Ready(candidate);
+    };
+    let Some(permit) = state.semantic_verifier.try_acquire() else {
+        eprintln!("boole-node: p2p competing-chain reorg Lean re-verify deferred: verifier busy");
+        return CandidateChainPrepareOutcome::Immediate(CandidateChainOutcome::Deferred);
+    };
+    CandidateChainPrepareOutcome::Reverify {
+        candidate,
+        job,
+        permit,
+    }
+}
+
+fn finish_candidate_chain_reverify(
+    state: &mut LocalNodeState,
+    candidate: Vec<PersistedBlock>,
+    outcome: BlockReverifyOutcome,
+) -> CandidateChainOutcome {
+    match outcome {
+        BlockReverifyOutcome::DeterministicReject { detail } => {
             eprintln!("boole-node: p2p competing-chain reorg Lean re-verify rejected: {detail}");
-            return CandidateChainOutcome::Rejected;
+            CandidateChainOutcome::Rejected
         }
-        Some(BlockReverifyOutcome::RetryableUnavailable { detail }) => {
+        BlockReverifyOutcome::RetryableUnavailable { detail } => {
             eprintln!("boole-node: p2p competing-chain reorg Lean re-verify deferred: {detail}");
-            return CandidateChainOutcome::Deferred;
+            CandidateChainOutcome::Deferred
         }
-        Some(BlockReverifyOutcome::Verified) | None => {}
+        BlockReverifyOutcome::Verified => commit_candidate_chain(state, candidate),
+    }
+}
+
+fn commit_candidate_chain(
+    state: &mut LocalNodeState,
+    candidate: Vec<PersistedBlock>,
+) -> CandidateChainOutcome {
+    if state.runtime.ensure_canonical_state_healthy().is_err() {
+        return CandidateChainOutcome::Deferred;
     }
     let block_path = state.block_path.clone();
     let genesis = state
@@ -5634,6 +6492,53 @@ pub(crate) fn ingest_candidate_chain(
     }
 }
 
+fn run_candidate_reverify_with_permit(
+    job: CandidateChainReverifyJob,
+    permit: SemanticVerifierGuard,
+) -> (
+    std::thread::Result<BlockReverifyOutcome>,
+    SemanticVerifierGuard,
+) {
+    run_semantic_worker_with_permit(permit, move |_permit| {
+        #[cfg(test)]
+        _permit.wait_on_test_latch();
+        #[cfg(test)]
+        if let Some(outcome) = _permit.forced_block_outcome() {
+            return outcome;
+        }
+        run_candidate_chain_reverify(job)
+    })
+}
+
+/// Production sync entry: the full-chain Lean pass owns no state lock;
+/// fork-choice and all durable rewrites are recalculated after reacquiring the
+/// current state.
+pub(crate) fn ingest_candidate_chain_shared(
+    shared: &Arc<RwLock<LocalNodeState>>,
+    candidate_values: &[Value],
+) -> CandidateChainOutcome {
+    let prepared = {
+        let mut state = shared.blocking_write();
+        match prepare_candidate_chain(&mut state, candidate_values) {
+            CandidateChainPrepareOutcome::Immediate(outcome) => return outcome,
+            CandidateChainPrepareOutcome::Ready(candidate) => {
+                return commit_candidate_chain(&mut state, candidate)
+            }
+            CandidateChainPrepareOutcome::Reverify {
+                candidate,
+                job,
+                permit,
+            } => (candidate, job, permit),
+        }
+    };
+    let (candidate, job, permit) = prepared;
+    let (outcome, _permit) = run_candidate_reverify_with_permit(job, permit);
+    let outcome = outcome.unwrap_or_else(|_| BlockReverifyOutcome::RetryableUnavailable {
+        detail: "p2p competing-chain Lean re-verify worker panicked".to_string(),
+    });
+    finish_candidate_chain_reverify(&mut shared.blocking_write(), candidate, outcome)
+}
+
 /// N4 — rebuild the N2.3 proof-dedup mirror after a reorg has adopted `adopted`
 /// as the new canonical chain. Collects every credited canon hash from the
 /// adopted chain's share evidence and atomically replaces the mirror file +
@@ -5708,9 +6613,10 @@ fn rebuild_bounty_state_after_reorg(
 /// path (`admit_parsed_submission_typed` via the runtime wrapper): ADR-0009
 /// (e), no second validation policy. Mirrors `submit_json`'s pre-block
 /// sequence — canonTag/ts caps → body extraction → `normalize_pow_fields`
-/// → ticket observe → admit → N2.3 proof-dedup peek — and the caller holds
-/// the SAME single write guard the HTTP path holds, so the share pool and
-/// the dedup ledger cannot diverge between the two ingress surfaces.
+/// → ticket observe → admit → N2.3 proof-dedup peek. Prepare and finalize each
+/// own a short write guard, while the Lean subprocess runs between them with
+/// no state guard; finalize revalidates mutable premises before restoring the
+/// candidate to eligibility.
 ///
 /// Deliberate differences from the HTTP path:
 /// - no session-registry lookup: a peer cannot see another node's registry.
@@ -5724,26 +6630,40 @@ fn rebuild_bounty_state_after_reorg(
 /// - the per-peer ingress rate limit (ADR-0009 (c)) is the admission rate
 ///   limiter itself, keyed by the peer's IP exactly as HTTP keys on the
 ///   client IP.
-pub(crate) fn ingress_admit_share(
+struct PreparedIngressShare {
+    reserved_candidate: boole_core::CandidateShare,
+    reverify_job: Option<ShareAdmissionReverifyJob>,
+    reverify_permit: Option<SemanticVerifierGuard>,
+    proof_canon_hash: String,
+    admitted_at: i64,
+    peer_ip: String,
+}
+
+enum IngressSharePrepareOutcome {
+    Immediate(IngressShareOutcome),
+    Reverify(Box<PreparedIngressShare>),
+}
+
+fn ingress_prepare_share(
     state: &mut LocalNodeState,
     submission: &Value,
     peer_ip: &str,
-) -> IngressShareOutcome {
+) -> IngressSharePrepareOutcome {
     let rejected = |code: &str| IngressShareOutcome::Rejected {
         code: code.to_string(),
     };
     if state.runtime.ensure_canonical_state_healthy().is_err() {
-        return rejected("canonical_state_inconsistent");
+        return IngressSharePrepareOutcome::Immediate(rejected("canonical_state_inconsistent"));
     }
     let Some(envelope) = submission.as_object() else {
-        return rejected("malformed_submission");
+        return IngressSharePrepareOutcome::Immediate(rejected("malformed_submission"));
     };
     let canon_tag_raw = envelope
         .get("canonTag")
         .and_then(Value::as_u64)
         .unwrap_or(0);
     if canon_tag_raw > u8::MAX as u64 {
-        return rejected("canon_tag_out_of_range");
+        return IngressSharePrepareOutcome::Immediate(rejected("canon_tag_out_of_range"));
     }
     let canon_tag = canon_tag_raw as u8;
     let ts_raw = envelope
@@ -5751,8 +6671,9 @@ pub(crate) fn ingress_admit_share(
         .and_then(Value::as_u64)
         .unwrap_or_else(|| now_unix_ms() as u64);
     if ts_raw > i64::MAX as u64 {
-        return rejected("ts_out_of_range");
+        return IngressSharePrepareOutcome::Immediate(rejected("ts_out_of_range"));
     }
+    let admitted_at = now_unix_ms() as i64;
     let mut body = envelope
         .get("body")
         .and_then(Value::as_object)
@@ -5770,7 +6691,11 @@ pub(crate) fn ingress_admit_share(
     let signed_work = match envelope.get("signedWork") {
         Some(raw) => match serde_json::from_value::<ShareWorkAuthorization>(raw.clone()) {
             Ok(auth) => Some(auth),
-            Err(_) => return rejected("invalid_share_authorization"),
+            Err(_) => {
+                return IngressSharePrepareOutcome::Immediate(rejected(
+                    "invalid_share_authorization",
+                ))
+            }
         },
         None => None,
     };
@@ -5783,11 +6708,11 @@ pub(crate) fn ingress_admit_share(
     ) {
         Ok(verified) => verified,
         Err(_) => {
-            return rejected(if signed_work.is_none() {
+            return IngressSharePrepareOutcome::Immediate(rejected(if signed_work.is_none() {
                 "missing_share_authorization"
             } else {
                 "invalid_share_authorization"
-            });
+            }));
         }
     };
     let mut reward_pk: Option<String> = None;
@@ -5800,15 +6725,31 @@ pub(crate) fn ingress_admit_share(
             && verified.work_c == body_field("c")
             && verified.work_bytes_hex == body_field("bytes");
         if !identity_holds {
-            return rejected("invalid_share_authorization");
+            return IngressSharePrepareOutcome::Immediate(rejected("invalid_share_authorization"));
         }
         reward_pk = Some(verified.reward_recipient);
     }
+    // Share the same single verifier budget with HTTP. Acquire before ticket
+    // observation/admission so a busy peer share cannot consume structural
+    // state while it has no right to start another checker process.
+    let reverify_configured = admitted_share_reverify_is_configured(state);
+    let reverify_permit = if reverify_configured {
+        match state.semantic_verifier.try_acquire() {
+            Some(permit) => Some(permit),
+            None => {
+                return IngressSharePrepareOutcome::Immediate(IngressShareOutcome::Deferred {
+                    code: "lean_reverify_busy".to_string(),
+                })
+            }
+        }
+    } else {
+        None
+    };
     if state.runtime.observe_ticket_from_body(&body).is_err() {
-        return rejected("ticket_observe_failed");
+        return IngressSharePrepareOutcome::Immediate(rejected("ticket_observe_failed"));
     }
     let decision = state.runtime.admit_body_with_submitter_context(
-        ts_raw as i64,
+        admitted_at,
         peer_ip,
         &body,
         canon_tag,
@@ -5817,7 +6758,11 @@ pub(crate) fn ingress_admit_share(
     );
     let share_hash = match &decision {
         AdmissionDecision::Accepted { share_hash } => share_hash.to_hex(),
-        _ => return rejected(decision.reject_code().unwrap_or("rejected")),
+        _ => {
+            return IngressSharePrepareOutcome::Immediate(rejected(
+                decision.reject_code().unwrap_or("rejected"),
+            ))
+        }
     };
     // N2.3 parity: the HTTP path peeks the proof-dedup ledger right after
     // admission; a proof already credited on this chain must be a typed
@@ -5828,48 +6773,179 @@ pub(crate) fn ingress_admit_share(
         .as_ref()
         .is_some_and(|ledger| ledger.contains(&proof_canon_hash))
     {
-        return rejected("duplicate_proof");
+        state.runtime.quarantine_candidate(&share_hash);
+        return IngressSharePrepareOutcome::Immediate(rejected("duplicate_proof"));
     }
-    // SC.10-ii-d-2 (ADR-0016 (c-2), audit C-02) — on a checker-pinned
-    // network, a gossiped share must clear the SAME single Lean verifier
-    // entry ingest and reorg re-verification use before it may stay in the
-    // candidate pool: admission is the producer's Lean gate, and a
-    // self-produced block re-runs nothing over its own shares. The gate
-    // runs AFTER structural admission (ticket, seed binding, resource
-    // limits, PoW, rate, pool caps), so the expensive Lean step is never
-    // reachable by a share that did not pay PoW. On a refusal the share is
-    // retracted from the candidate set a self-produced block draws on; a
-    // deterministic reject and an availability failure are distinct typed
-    // rejects — the latter is never a fail-open admit (ADR-0016 (a-3)),
-    // and the peer may re-announce once the checker recovers.
-    let submission = match parse_submission_body(&body) {
-        Ok(submission) => submission,
+    // Closed-local nodes without a configured checker retain the pre-M6
+    // structural-admission lane. There is no semantic job (and therefore no
+    // permit) to reserve for that lane; moving its candidate into the
+    // verifier tombstone would incorrectly turn every peer share into an
+    // availability deferral.
+    if !reverify_configured {
+        return IngressSharePrepareOutcome::Immediate(IngressShareOutcome::Admitted);
+    }
+    // SC.10-ii-d-2 / M6 (ADR-0016 (c-2), audit C-02) — on a checker-pinned
+    // network, peer ingress clears the SAME share projection and Lean verifier
+    // entry HTTP admission now uses. The gate stays after structural admission,
+    // so the expensive Lean step is unreachable without paying PoW. A
+    // deterministic refusal retains the bounded tombstone/rate charge, while
+    // availability deferral releases both so the exact share may retry.
+    let evidence = match selected_share_evidence_from_body(&body, signed_work.as_ref()) {
+        Ok(evidence) => evidence,
         // Unreachable after an Accepted admission (same parser, same body);
         // kept as a typed reject for defence-in-depth.
-        Err(_) => return rejected("malformed_submission"),
+        Err(_) => {
+            state.runtime.quarantine_candidate(&share_hash);
+            return IngressSharePrepareOutcome::Immediate(rejected("malformed_submission"));
+        }
     };
-    let evidence = SelectedShareEvidence {
-        pk: submission.pk_hex,
-        n: submission.n_hex,
-        j: submission.j_hex,
-        c: submission.c_hex,
-        canon_hash: hex::encode(Sha256::digest(&submission.package_bytes)),
-        proof_package: hex::encode(&submission.package_bytes),
-        seed_hex: submission.seed_hex,
-        signed_work: None,
+    let Some(reserved_candidate) =
+        state
+            .runtime
+            .take_candidate_for_reverify(&share_hash, admitted_at, peer_ip)
+    else {
+        return IngressSharePrepareOutcome::Immediate(IngressShareOutcome::Deferred {
+            code: "lean_reverify_reservation_failed".to_string(),
+        });
     };
-    match reverify_announced_share(state, &evidence) {
-        None | Some(BlockReverifyOutcome::Verified) => {}
-        Some(BlockReverifyOutcome::DeterministicReject { .. }) => {
-            state.runtime.retract_candidate(&share_hash);
+    let Some(reverify_job) = admitted_share_reverify_job(state, evidence) else {
+        // The permit is acquired from the same configuration predicate used
+        // to construct the job. If those ever diverge, release the retryable
+        // reservation rather than restoring an unchecked candidate.
+        state
+            .runtime
+            .release_semantic_reservation(&reserved_candidate, admitted_at, peer_ip);
+        return IngressSharePrepareOutcome::Immediate(IngressShareOutcome::Deferred {
+            code: "lean_reverify_unavailable".to_string(),
+        });
+    };
+    IngressSharePrepareOutcome::Reverify(Box::new(PreparedIngressShare {
+        reserved_candidate,
+        reverify_job: Some(reverify_job),
+        reverify_permit: Some(
+            reverify_permit.expect("configured peer verifier must own its permit"),
+        ),
+        proof_canon_hash,
+        admitted_at,
+        peer_ip: peer_ip.to_string(),
+    }))
+}
+
+fn ingress_finalize_share(
+    state: &mut LocalNodeState,
+    prepared: PreparedIngressShare,
+    reverify: ShareAdmissionReverifyOutcome,
+) -> IngressShareOutcome {
+    let rejected = |code: &str| IngressShareOutcome::Rejected {
+        code: code.to_string(),
+    };
+    let PreparedIngressShare {
+        reserved_candidate,
+        reverify_job: _,
+        reverify_permit: _,
+        proof_canon_hash,
+        admitted_at,
+        peer_ip,
+    } = prepared;
+    match reverify {
+        ShareAdmissionReverifyOutcome::Verified => {
+            if state.runtime.ensure_canonical_state_healthy().is_err() {
+                state.runtime.release_semantic_reservation(
+                    &reserved_candidate,
+                    admitted_at,
+                    &peer_ip,
+                );
+                return IngressShareOutcome::Deferred {
+                    code: "canonical_state_inconsistent".to_string(),
+                };
+            }
+            if state
+                .proof_dedup_ledger
+                .as_ref()
+                .is_some_and(|ledger| ledger.contains(&proof_canon_hash))
+            {
+                return rejected("duplicate_proof");
+            }
+            let cleanup_candidate = reserved_candidate.clone();
+            if !state
+                .runtime
+                .restore_reverified_candidate(reserved_candidate)
+            {
+                state.runtime.release_semantic_reservation(
+                    &cleanup_candidate,
+                    admitted_at,
+                    &peer_ip,
+                );
+                return IngressShareOutcome::Deferred {
+                    code: "lean_reverify_restore_failed".to_string(),
+                };
+            }
+        }
+        ShareAdmissionReverifyOutcome::DeterministicReject => {
             return rejected("lean_reverify_reject");
         }
-        Some(BlockReverifyOutcome::RetryableUnavailable { .. }) => {
-            state.runtime.retract_candidate(&share_hash);
-            return rejected("lean_reverify_unavailable");
+        ShareAdmissionReverifyOutcome::RetryableUnavailable => {
+            state
+                .runtime
+                .release_semantic_reservation(&reserved_candidate, admitted_at, &peer_ip);
+            return IngressShareOutcome::Deferred {
+                code: "lean_reverify_unavailable".to_string(),
+            };
         }
     }
     IngressShareOutcome::Admitted
+}
+
+fn run_peer_share_reverify(
+    mut prepared: PreparedIngressShare,
+) -> (
+    PreparedIngressShare,
+    std::thread::Result<ShareAdmissionReverifyOutcome>,
+    SemanticVerifierGuard,
+) {
+    let permit = prepared
+        .reverify_permit
+        .take()
+        .expect("prepared peer share owns one verifier permit");
+    let job = prepared
+        .reverify_job
+        .take()
+        .expect("prepared peer share owns one verifier job");
+    let (outcome, permit) = run_semantic_worker_with_permit(permit, move |_permit| {
+        #[cfg(test)]
+        _permit.wait_on_test_latch();
+        #[cfg(test)]
+        _permit.gate.record_test_share_start();
+        #[cfg(test)]
+        if _permit.gate.take_test_share_panic() {
+            panic!("injected P2P share verifier panic");
+        }
+        run_admitted_share_reverify(job)
+    });
+    (prepared, outcome, permit)
+}
+
+/// Production P2P adapter: state is locked only for structural admission and
+/// final revalidation. The potentially long Lean subprocess runs between
+/// those phases with no node-state guard held.
+pub(crate) fn ingress_admit_share_shared(
+    shared: &Arc<RwLock<LocalNodeState>>,
+    submission: &Value,
+    peer_ip: &str,
+) -> IngressShareOutcome {
+    let prepared = {
+        let mut state = shared.blocking_write();
+        ingress_prepare_share(&mut state, submission, peer_ip)
+    };
+    let IngressSharePrepareOutcome::Reverify(prepared) = prepared else {
+        let IngressSharePrepareOutcome::Immediate(outcome) = prepared else {
+            unreachable!()
+        };
+        return outcome;
+    };
+    let (prepared, outcome, _permit) = run_peer_share_reverify(*prepared);
+    let outcome = outcome.unwrap_or(ShareAdmissionReverifyOutcome::RetryableUnavailable);
+    ingress_finalize_share(&mut shared.blocking_write(), prepared, outcome)
 }
 
 fn block_json(block: &PersistedBlock) -> Value {
@@ -5909,11 +6985,1267 @@ fn block_json(block: &PersistedBlock) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::body::{to_bytes, Body};
+    use tower::ServiceExt;
 
     const PK_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const PK_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const HASH_0: &str = "0000000000000000000000000000000000000000000000000000000000000000";
     const HASH_1: &str = "1111111111111111111111111111111111111111111111111111111111111111";
+
+    fn test_local_node(tag: &str) -> (LocalNodeState, PathBuf) {
+        let dir = std::env::temp_dir().join(format!(
+            "boole-{tag}-{}-{}",
+            std::process::id(),
+            now_unix_ms()
+        ));
+        std::fs::create_dir_all(&dir).expect("create test directory");
+        let scenario_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/protocol/runtime-smoke/v1.json")
+            .canonicalize()
+            .expect("runtime smoke scenario");
+        let node = LocalNodeState::from_config(LocalNodeConfig {
+            scenario_path,
+            block_path: dir.join("blocks.ndjson"),
+            reward_ledger_path: None,
+            work_manifests_path: None,
+            bounties_path: None,
+            bounty_event_ledger_path: None,
+            bounty_verifiers: None,
+            family_manifests_dir: None,
+            operator_signer_pks: vec![],
+            session_registry_path: None,
+            submit_nonce_ledger_path: None,
+            signed_nonce_ledger_path: None,
+            proof_dedup_ledger_path: None,
+            submit_receipt_ledger_path: None,
+            receipt_commitment_ledger_path: None,
+            max_requests: None,
+            genesis_override: None,
+            state_dir: None,
+            network_id: None,
+            lean_checker_dir: None,
+            lean_checker_disabled: true,
+            http_rate_limit_per_60s: None,
+            allow_anonymous_submit: true,
+        })
+        .expect("boot private route state");
+        (node, dir)
+    }
+
+    fn admitted_runtime_body() -> (RuntimeAdmissionState, serde_json::Map<String, Value>, i64) {
+        let fixture: Value =
+            serde_json::from_str(include_str!("../../../fixtures/protocol/admission/v1.json"))
+                .expect("admission fixture parses");
+        let report: CalibrationReport =
+            serde_json::from_value(fixture["cfg"].clone()).expect("calibration parses");
+        let constants = &fixture["constants"];
+        let patch = fixture["operations"]
+            .as_array()
+            .expect("operations")
+            .iter()
+            .find(|operation| operation["name"] == "valid_after_bad_not_rate_limited")
+            .expect("valid operation")["bodyPatch"]
+            .as_object()
+            .cloned()
+            .unwrap_or_default();
+        let mut body = serde_json::Map::new();
+        for (key, field) in [
+            ("c", "c"),
+            ("pk", "pk"),
+            ("n", "n"),
+            ("j", "j"),
+            ("nonceS", "nonceS"),
+            ("bytes", "validBytesHex"),
+        ] {
+            body.insert(
+                key.to_string(),
+                Value::String(constants[field].as_str().expect(field).to_string()),
+            );
+        }
+        for (key, value) in &patch {
+            if value.is_null() {
+                body.remove(key);
+            } else {
+                body.insert(key.clone(), value.clone());
+            }
+        }
+        let mut runtime = RuntimeAdmissionState::new(
+            RuntimeConfig::from_calibration_report(report, 60_000)
+                .expect("runtime config from fixture"),
+        );
+        runtime.set_current_c(constants["c"].as_str().expect("c").to_string());
+        runtime
+            .observe_ticket_from_body(&body)
+            .expect("observe fixture ticket");
+        (runtime, body, 1_800_000_000_000)
+    }
+
+    fn testnet2_invalid_runtime_body(
+    ) -> (RuntimeAdmissionState, serde_json::Map<String, Value>, i64) {
+        let scenario: Value = serde_json::from_str(include_str!(
+            "../../../fixtures/protocol/runtime-smoke/testnet2-pinned-highrate.v1.json"
+        ))
+        .expect("testnet2 scenario parses");
+        let report: CalibrationReport =
+            serde_json::from_value(scenario["cfg"].clone()).expect("testnet2 cfg parses");
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../fixtures/protocol/runtime-smoke/testnet2-lean-invalid.v1.json"
+        ))
+        .expect("Lean-invalid fixture parses");
+        let body = fixture["body"]
+            .as_object()
+            .cloned()
+            .expect("Lean-invalid body object");
+        let mut runtime = RuntimeAdmissionState::new(
+            RuntimeConfig::from_calibration_report(report, 60_000)
+                .expect("testnet2 runtime config"),
+        );
+        runtime.set_current_c(body["c"].as_str().expect("fixture c").to_string());
+        (runtime, body, now_unix_ms() as i64)
+    }
+
+    fn testnet2_valid_booted_runtime_body(
+        block_path: &Path,
+    ) -> (
+        RuntimeAdmissionState,
+        serde_json::Map<String, Value>,
+        String,
+        ShareWorkAuthorization,
+        i64,
+    ) {
+        let scenario: Value = serde_json::from_str(include_str!(
+            "../../../fixtures/protocol/runtime-smoke/testnet2-pinned-highrate.v1.json"
+        ))
+        .expect("testnet2 scenario parses");
+        let report: CalibrationReport =
+            serde_json::from_value(scenario["cfg"].clone()).expect("testnet2 cfg parses");
+        let config =
+            RuntimeConfig::from_calibration_report(report, 60_000).expect("testnet2 config");
+        let genesis = config.genesis_spec(
+            boole_core::AUTHORIZATION_REQUIRED_NETWORK_ID,
+            &"0".repeat(64),
+        );
+        let runtime = RuntimeAdmissionState::boot_from_store_with_genesis(
+            config,
+            block_path,
+            None,
+            None,
+            FamilyManifestRegistry::new(),
+            &genesis,
+        )
+        .expect("empty testnet2 runtime boots under genesis");
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../fixtures/protocol/runtime-smoke/testnet2-lenbound-share.v1.json"
+        ))
+        .expect("Lean-valid fixture parses");
+        let body = fixture["body"]
+            .as_object()
+            .cloned()
+            .expect("Lean-valid body object");
+        let reward_pk = fixture["submissionSession"]["rewardRecipient"]
+            .as_str()
+            .expect("fixture reward recipient")
+            .to_string();
+        let mut signed_work: ShareWorkAuthorization =
+            serde_json::from_value(fixture["submissionSession"]["signedWork"].clone())
+                .expect("fixture signed work parses");
+        signed_work.network_id = fixture["submissionSession"]["signedWork"]["network_id"]
+            .as_str()
+            .map(ToString::to_string);
+        (runtime, body, reward_pk, signed_work, now_unix_ms() as i64)
+    }
+
+    fn commit_one_fixture_block(
+        runtime: &mut RuntimeAdmissionState,
+        body: &serde_json::Map<String, Value>,
+        authorization: (&str, &ShareWorkAuthorization),
+        block_path: &Path,
+        admitted_at: i64,
+        peer_ip: &str,
+        head_must_be_less_than: Option<&str>,
+    ) -> PersistedBlock {
+        let (reward_pk, signed_work) = authorization;
+        runtime
+            .observe_ticket_from_body(body)
+            .expect("fixture ticket observes");
+        let decision = runtime.admit_body_with_submitter_context(
+            admitted_at,
+            peer_ip,
+            body,
+            0,
+            Some(reward_pk),
+            Some(signed_work),
+        );
+        assert!(
+            matches!(decision, AdmissionDecision::Accepted { .. }),
+            "fixture share must admit before block production: {decision:?}"
+        );
+        let accepted_tags = runtime
+            .candidate_shares_for_current_c()
+            .iter()
+            .map(|candidate| candidate.canon_tag)
+            .collect::<BTreeSet<_>>();
+        assert!(
+            !accepted_tags.is_empty(),
+            "accepted fixture must remain candidate-eligible"
+        );
+        let commit_ts = match head_must_be_less_than {
+            Some(upper_bound) => (1..=4_096_u64)
+                .map(|offset| admitted_at as u64 + offset)
+                .find(|ts| {
+                    runtime
+                        .produce_block_for_current_c(0, *ts, &accepted_tags)
+                        .is_ok_and(|block| block.c.as_str() < upper_bound)
+                })
+                .expect("find a deterministic lower-hash same-weight local tip"),
+            None => admitted_at as u64 + 1,
+        };
+        runtime
+            .commit_next_block_for_current_c(block_path, commit_ts, &accepted_tags)
+            .expect("fixture block commits")
+            .block
+    }
+
+    #[test]
+    fn semantic_verifier_permit_is_nonblocking_single_and_raii() {
+        let gate = Arc::new(SemanticVerifier::default());
+        let first = gate.try_acquire().expect("first verifier gets permit");
+        assert!(
+            gate.try_acquire().is_none(),
+            "a second verifier must receive typed busy instead of starting"
+        );
+        drop(first);
+        assert!(
+            gate.try_acquire().is_some(),
+            "drop after success, error, panic or cancellation must return the permit"
+        );
+    }
+
+    #[test]
+    fn http_rate_limiter_bounds_source_keys_and_recovers_after_the_window() {
+        let limiter = HttpRateLimiter::new(1, 60_000);
+        for index in 0..4_096_u16 {
+            let ip = IpAddr::V6(std::net::Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, index));
+            assert!(limiter.admit(ip, 1_000));
+        }
+        let overflow = IpAddr::V6(std::net::Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 1, 0));
+        assert!(
+            !limiter.admit(overflow, 1_001),
+            "a fresh source key must fail closed at the bounded table cap"
+        );
+        assert!(
+            limiter.admit(overflow, 61_001),
+            "a new source must enter after the old sliding-window buckets expire"
+        );
+        assert_eq!(limiter.tracked_source_ips(), 1);
+    }
+
+    #[test]
+    fn panicked_semantic_worker_returns_its_permit_to_phase3_owner() {
+        let gate = Arc::new(SemanticVerifier::default());
+        let permit = gate.try_acquire().expect("worker verifier permit");
+        let (outcome, permit) = run_semantic_worker_with_permit(permit, |_| -> () {
+            panic!("deterministic worker panic fixture")
+        });
+        assert!(outcome.is_err());
+        assert!(
+            gate.try_acquire().is_none(),
+            "caught worker panic must not release concurrency before state cleanup"
+        );
+        drop(permit);
+        assert!(gate.try_acquire().is_some());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn blocked_semantic_worker_does_not_hold_the_node_state_lock() {
+        let state = Arc::new(RwLock::new(()));
+        let gate = Arc::new(SemanticVerifier::default());
+        let permit = gate.try_acquire().expect("first verifier permit");
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+
+        let worker = tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            started_tx.send(()).expect("signal verifier start");
+            release_rx.recv().expect("release blocked verifier");
+        });
+        started_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("blocking verifier started");
+
+        let read = tokio::time::timeout(Duration::from_millis(250), state.read()).await;
+        assert!(
+            read.is_ok(),
+            "status/readiness state reads must remain responsive while Lean blocks"
+        );
+        assert!(
+            gate.try_acquire().is_none(),
+            "the still-running verifier owns the process permit"
+        );
+        release_tx.send(()).expect("release verifier");
+        worker.await.expect("blocking verifier joins");
+        assert!(
+            gate.try_acquire().is_some(),
+            "worker completion returns permit"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn busy_http_semantic_verifier_is_503_without_admission_side_effects() {
+        let (mut node, dir) = test_local_node("m6-busy-http");
+        // This unit-only wiring selects the checker-pinned network after the
+        // fixture boot so anonymous submit can exercise the permit boundary
+        // without constructing an unrelated wallet session envelope.
+        node.network_id = boole_core::AUTHORIZATION_REQUIRED_NETWORK_ID.to_string();
+        node.lean_checker_dir = Some(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../lean/checker")
+                .canonicalize()
+                .expect("checker directory"),
+        );
+        let gate = Arc::clone(&node.semantic_verifier);
+        let state = AppState {
+            inner: Arc::new(RwLock::new(node)),
+            rate_limiter: None,
+        };
+        let router = build_router(state.clone());
+
+        let permit = gate.try_acquire().expect("first verifier permit");
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let worker = tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            release_rx.recv().expect("release blocked verifier");
+        });
+
+        let submit = Request::builder()
+            .method(Method::POST)
+            .uri("/submit")
+            .header("content-type", "application/json")
+            .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 32001))))
+            .body(Body::from("{}"))
+            .expect("submit request");
+        let response = router.clone().oneshot(submit).await.expect("busy response");
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let body: Value = serde_json::from_slice(
+            &to_bytes(response.into_body(), 16 * 1024)
+                .await
+                .expect("read response body"),
+        )
+        .expect("parse busy response");
+        assert_eq!(body["reason"], "retryable_unavailable");
+        assert_eq!(body["code"], "lean_reverify_busy");
+        assert_eq!(body["retryable"], true);
+
+        {
+            let node = state.inner.read().await;
+            assert_eq!(node.runtime.pool_size(), 0);
+            assert!(node.runtime.candidate_shares_for_current_c().is_empty());
+            assert_eq!(node.runtime.cached_block_count(), 0);
+        }
+        let status = Request::builder()
+            .method(Method::GET)
+            .uri("/status")
+            .body(Body::empty())
+            .expect("status request");
+        let status_response =
+            tokio::time::timeout(Duration::from_millis(250), router.clone().oneshot(status))
+                .await
+                .expect("status must remain responsive")
+                .expect("status response");
+        assert_eq!(status_response.status(), StatusCode::OK);
+
+        release_tx.send(()).expect("release verifier");
+        worker.await.expect("blocked verifier joins");
+        assert!(gate.try_acquire().is_some(), "RAII returns shared permit");
+        drop(router);
+        drop(state);
+        std::fs::remove_dir_all(dir).expect("remove test directory");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn completed_http_checker_keeps_permit_until_phase3_finishes() {
+        let (mut node, dir) = test_local_node("m6-http-permit-through-phase3");
+        let (runtime, body, _admitted_at) = testnet2_invalid_runtime_body();
+        node.runtime = runtime;
+        node.network_id = boole_core::AUTHORIZATION_REQUIRED_NETWORK_ID.to_string();
+        node.lean_checker_dir = Some(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../lean/checker")
+                .canonicalize()
+                .expect("checker directory"),
+        );
+        let gate = Arc::clone(&node.semantic_verifier);
+        let (phase3_tx, phase3_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        gate.set_test_phase3_latch(Arc::new(SemanticVerifierTestLatch {
+            started: phase3_tx,
+            release: StdMutex::new(release_rx),
+        }));
+        let state = AppState {
+            inner: Arc::new(RwLock::new(node)),
+            rate_limiter: None,
+        };
+        let router = build_router(state.clone());
+        let starts_before = gate.test_share_starts();
+        let body_bytes = serde_json::to_vec(&Value::Object(body)).expect("submit body");
+        let request = |port: u16| {
+            Request::builder()
+                .method(Method::POST)
+                .uri("/submit")
+                .header("content-type", "application/json")
+                .extension(ConnectInfo(SocketAddr::from(([198, 51, 100, 78], port))))
+                .body(Body::from(body_bytes.clone()))
+                .expect("submit request")
+        };
+
+        let first = tokio::spawn(router.clone().oneshot(request(32006)));
+        tokio::task::spawn_blocking(move || {
+            phase3_rx
+                .recv_timeout(Duration::from_secs(30))
+                .expect("terminal checker result reached phase 3")
+        })
+        .await
+        .expect("phase3 observer joins");
+
+        assert!(
+            gate.try_acquire().is_none(),
+            "a terminal checker result must retain the shared permit until state finalization"
+        );
+        let busy = router
+            .clone()
+            .oneshot(request(32007))
+            .await
+            .expect("second submit response");
+        assert_eq!(busy.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let busy_body: Value = serde_json::from_slice(
+            &to_bytes(busy.into_body(), 16 * 1024)
+                .await
+                .expect("read busy response"),
+        )
+        .expect("parse busy response");
+        assert_eq!(busy_body["code"], "lean_reverify_busy");
+        let status = tokio::time::timeout(
+            Duration::from_millis(250),
+            router.clone().oneshot(
+                Request::builder()
+                    .uri("/status")
+                    .body(Body::empty())
+                    .expect("status request"),
+            ),
+        )
+        .await
+        .expect("phase3 wait must not block status")
+        .expect("status response");
+        assert_eq!(status.status(), StatusCode::OK);
+        {
+            let node = state.inner.read().await;
+            assert_eq!(node.runtime.pool_size(), 0);
+            assert!(node.runtime.candidate_shares_for_current_c().is_empty());
+            assert_eq!(node.runtime.cached_block_count(), 0);
+        }
+        assert_eq!(
+            gate.test_share_starts(),
+            starts_before + 1,
+            "the second submit must not start another checker"
+        );
+
+        release_tx.send(()).expect("release phase3 finalization");
+        let first = first
+            .await
+            .expect("first submit task joins")
+            .expect("response");
+        assert_eq!(first.status(), StatusCode::OK);
+        assert!(
+            gate.try_acquire().is_some(),
+            "phase3 completion returns permit"
+        );
+        gate.clear_test_phase3_latch();
+        drop(router);
+        drop(state);
+        std::fs::remove_dir_all(dir).expect("remove test directory");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn panicked_http_checker_keeps_permit_until_reservation_cleanup() {
+        let (mut node, dir) = test_local_node("m6-http-panic-through-cleanup");
+        let (runtime, body, _) = testnet2_invalid_runtime_body();
+        node.runtime = runtime;
+        node.network_id = boole_core::AUTHORIZATION_REQUIRED_NETWORK_ID.to_string();
+        node.lean_checker_dir = Some(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../lean/checker")
+                .canonicalize()
+                .expect("checker directory"),
+        );
+        let gate = Arc::clone(&node.semantic_verifier);
+        gate.panic_next_share();
+        let (phase3_tx, phase3_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        gate.set_test_phase3_latch(Arc::new(SemanticVerifierTestLatch {
+            started: phase3_tx,
+            release: StdMutex::new(release_rx),
+        }));
+        let state = AppState {
+            inner: Arc::new(RwLock::new(node)),
+            rate_limiter: None,
+        };
+        let router = build_router(state.clone());
+        let body_bytes = serde_json::to_vec(&Value::Object(body.clone())).expect("submit body");
+        let request = |port: u16| {
+            Request::builder()
+                .method(Method::POST)
+                .uri("/submit")
+                .header("content-type", "application/json")
+                .extension(ConnectInfo(SocketAddr::from(([198, 51, 100, 79], port))))
+                .body(Body::from(body_bytes.clone()))
+                .expect("submit request")
+        };
+
+        let first = tokio::spawn(router.clone().oneshot(request(32008)));
+        tokio::task::spawn_blocking(move || {
+            phase3_rx
+                .recv_timeout(Duration::from_secs(5))
+                .expect("panicked worker reaches phase-3 cleanup")
+        })
+        .await
+        .expect("phase3 observer joins");
+
+        assert!(
+            gate.try_acquire().is_none(),
+            "panic must retain the process permit until reservation cleanup"
+        );
+        let busy = router
+            .clone()
+            .oneshot(request(32009))
+            .await
+            .expect("concurrent submit response");
+        assert_eq!(busy.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let busy_body: Value = serde_json::from_slice(
+            &to_bytes(busy.into_body(), 16 * 1024)
+                .await
+                .expect("read busy response"),
+        )
+        .expect("parse busy response");
+        assert_eq!(busy_body["code"], "lean_reverify_busy");
+        {
+            let node = state.inner.read().await;
+            assert_eq!(node.runtime.pool_size(), 0);
+            assert!(node.runtime.candidate_shares_for_current_c().is_empty());
+        }
+
+        release_tx.send(()).expect("release panic cleanup");
+        let first = first
+            .await
+            .expect("first submit task joins")
+            .expect("first response");
+        assert_eq!(first.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let first_body: Value = serde_json::from_slice(
+            &to_bytes(first.into_body(), 16 * 1024)
+                .await
+                .expect("read panic response"),
+        )
+        .expect("parse panic response");
+        assert_eq!(first_body["code"], "lean_reverify_unavailable");
+        assert!(gate.try_acquire().is_some(), "cleanup returns the permit");
+        {
+            let mut node = state.inner.write().await;
+            let retry = node
+                .runtime
+                .admit_body(now_unix_ms() as i64, "198.51.100.79", &body);
+            let AdmissionDecision::Accepted { share_hash } = retry else {
+                panic!("panic is retryable after reservation and rate cleanup: {retry:?}");
+            };
+            assert!(node.runtime.quarantine_candidate(&share_hash.to_hex()));
+        }
+        gate.clear_test_phase3_latch();
+        drop(router);
+        drop(state);
+        std::fs::remove_dir_all(dir).expect("remove test directory");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn aborted_http_reverify_keeps_quarantine_and_does_not_rerun_checker() {
+        let (mut node, dir) = test_local_node("m6-abort-cleanup");
+        let (runtime, body, _admitted_at) = testnet2_invalid_runtime_body();
+        node.runtime = runtime;
+        node.network_id = boole_core::AUTHORIZATION_REQUIRED_NETWORK_ID.to_string();
+        node.lean_checker_dir = Some(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../lean/checker")
+                .canonicalize()
+                .expect("checker directory"),
+        );
+        let gate = Arc::clone(&node.semantic_verifier);
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        gate.set_test_latch(Arc::new(SemanticVerifierTestLatch {
+            started: started_tx,
+            release: StdMutex::new(release_rx),
+        }));
+        let state = AppState {
+            inner: Arc::new(RwLock::new(node)),
+            rate_limiter: None,
+        };
+        let router = build_router(state.clone());
+        let verifier_starts_before = gate.test_share_starts();
+        let body_bytes = serde_json::to_vec(&Value::Object(body.clone())).expect("submit body");
+        let request = |port: u16| {
+            Request::builder()
+                .method(Method::POST)
+                .uri("/submit")
+                .header("content-type", "application/json")
+                .extension(ConnectInfo(SocketAddr::from(([198, 51, 100, 77], port))))
+                .body(Body::from(body_bytes.clone()))
+                .expect("submit request")
+        };
+
+        let first = tokio::spawn(router.clone().oneshot(request(32002)));
+        tokio::task::spawn_blocking(move || {
+            started_rx
+                .recv_timeout(Duration::from_secs(2))
+                .expect("first semantic verifier reached latch")
+        })
+        .await
+        .expect("started observer joins");
+        {
+            let node = state.inner.read().await;
+            assert_eq!(node.runtime.pool_size(), 0);
+            assert!(node.runtime.candidate_shares_for_current_c().is_empty());
+        }
+
+        let busy = router
+            .clone()
+            .oneshot(request(32003))
+            .await
+            .expect("busy submit response");
+        assert_eq!(busy.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let status = tokio::time::timeout(
+            Duration::from_millis(250),
+            router.clone().oneshot(
+                Request::builder()
+                    .uri("/status")
+                    .body(Body::empty())
+                    .expect("status request"),
+            ),
+        )
+        .await
+        .expect("status stays responsive")
+        .expect("status response");
+        assert_eq!(status.status(), StatusCode::OK);
+
+        first.abort();
+        assert!(first.await.is_err(), "HTTP future must be cancelled");
+        assert!(
+            gate.try_acquire().is_none(),
+            "cancelled HTTP future must not free a still-running verifier permit"
+        );
+
+        {
+            let node = state.inner.read().await;
+            assert_eq!(node.runtime.pool_size(), 0);
+            assert!(node.runtime.candidate_shares_for_current_c().is_empty());
+        }
+
+        release_tx.send(()).expect("release blocked verifier");
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if let Some(permit) = gate.try_acquire() {
+                    drop(permit);
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("running verifier eventually returns permit");
+
+        // Exercise the public boundary again, not only RuntimeAdmissionState.
+        // The cancelled route cannot consume the detached worker's terminal
+        // verdict. Its bounded quarantine therefore stays charged so a client
+        // cannot disconnect on every deterministic-invalid response and launch
+        // the checker repeatedly with identical bytes.
+        gate.clear_test_latch();
+        let retry = router
+            .clone()
+            .oneshot(request(32004))
+            .await
+            .expect("exact HTTP retry response");
+        assert_eq!(retry.status(), StatusCode::OK);
+        let retry_body: Value = serde_json::from_slice(
+            &to_bytes(retry.into_body(), 16 * 1024)
+                .await
+                .expect("read exact retry response"),
+        )
+        .expect("parse exact retry response");
+        assert_eq!(retry_body["accepted"], false);
+        assert_eq!(retry_body["code"], "rate_limited");
+        assert_eq!(
+            gate.test_share_starts(),
+            verifier_starts_before + 1,
+            "an exact retry after cancellation must not start a second checker"
+        );
+        drop(router);
+        drop(state);
+        std::fs::remove_dir_all(dir).expect("remove test directory");
+    }
+
+    #[test]
+    fn http_and_peer_rate_reservations_ignore_the_untrusted_envelope_timestamp() {
+        let malicious_ts = i64::MAX as u64;
+        let checker_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../lean/checker")
+            .canonicalize()
+            .expect("checker directory");
+
+        let (mut http_node, http_dir) = test_local_node("m6-http-trusted-rate-clock");
+        let (http_runtime, http_body, _) = testnet2_invalid_runtime_body();
+        http_node.runtime = http_runtime;
+        http_node.network_id = boole_core::AUTHORIZATION_REQUIRED_NETWORK_ID.to_string();
+        http_node.lean_checker_dir = Some(checker_dir.clone());
+        let envelope = serde_json::to_vec(&json!({
+            "body": http_body,
+            "canonTag": 0,
+            "ts": malicious_ts,
+        }))
+        .expect("HTTP envelope");
+        let before = now_unix_ms() as i64;
+        let SubmitPrepareOutcome::Reverify {
+            mut prepared,
+            reverify_job: _,
+        } = submit_prepare(&mut http_node, &envelope, "198.51.100.101", None)
+            .expect("HTTP prepare")
+        else {
+            panic!("HTTP fixture must reserve semantic verification");
+        };
+        let after = now_unix_ms() as i64;
+        assert_eq!(prepared.ts_raw, malicious_ts);
+        assert!((before..=after).contains(&prepared.admitted_at));
+        assert_ne!(prepared.admitted_at, malicious_ts as i64);
+        let candidate = prepared
+            .reserved_candidate
+            .take()
+            .expect("HTTP reservation");
+        assert!(http_node.runtime.release_semantic_reservation(
+            &candidate,
+            prepared.admitted_at,
+            &prepared.peer_ip,
+        ));
+        drop(prepared);
+        std::fs::remove_dir_all(http_dir).expect("remove HTTP test directory");
+
+        let (mut peer_node, peer_dir) = test_local_node("m6-peer-trusted-rate-clock");
+        let (peer_runtime, peer_body, _) = testnet2_invalid_runtime_body();
+        peer_node.runtime = peer_runtime;
+        peer_node.network_id = boole_core::AUTHORIZATION_REQUIRED_NETWORK_ID.to_string();
+        peer_node.lean_checker_dir = Some(checker_dir);
+        let submission = json!({
+            "body": peer_body,
+            "canonTag": 0,
+            "ts": malicious_ts,
+        });
+        let before = now_unix_ms() as i64;
+        let IngressSharePrepareOutcome::Reverify(mut prepared) =
+            ingress_prepare_share(&mut peer_node, &submission, "198.51.100.102")
+        else {
+            panic!("peer fixture must reserve semantic verification");
+        };
+        let after = now_unix_ms() as i64;
+        assert!((before..=after).contains(&prepared.admitted_at));
+        assert_ne!(prepared.admitted_at, malicious_ts as i64);
+        assert!(peer_node.runtime.release_semantic_reservation(
+            &prepared.reserved_candidate,
+            prepared.admitted_at,
+            &prepared.peer_ip,
+        ));
+        prepared.reverify_permit.take();
+        drop(prepared);
+        std::fs::remove_dir_all(peer_dir).expect("remove peer test directory");
+    }
+
+    #[test]
+    fn busy_p2p_semantic_verifier_defers_without_admission_side_effects() {
+        let (mut node, dir) = test_local_node("m6-busy-p2p");
+        let (runtime, body, admitted_at) = admitted_runtime_body();
+        node.runtime = runtime;
+        node.network_id = boole_core::AUTHORIZATION_REQUIRED_NETWORK_ID.to_string();
+        node.lean_checker_dir = Some(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../lean/checker")
+                .canonicalize()
+                .expect("checker directory"),
+        );
+        let gate = Arc::clone(&node.semantic_verifier);
+        let _permit = gate.try_acquire().expect("occupy verifier permit");
+        let submission = json!({
+            "body": body.clone(),
+            "canonTag": 0,
+            "ts": admitted_at,
+        });
+
+        let shared = Arc::new(RwLock::new(node));
+        let outcome = ingress_admit_share_shared(&shared, &submission, "198.51.100.88");
+        assert!(matches!(
+            outcome,
+            IngressShareOutcome::Deferred { ref code }
+                if code == "lean_reverify_busy"
+        ));
+        {
+            let mut node = shared.blocking_write();
+            assert_eq!(node.runtime.pool_size(), 0);
+            assert!(node.runtime.candidate_shares_for_current_c().is_empty());
+            assert!(matches!(
+                node.runtime.admit_body(admitted_at, "198.51.100.88", &body),
+                AdmissionDecision::Accepted { .. }
+            ));
+        }
+
+        drop(_permit);
+        drop(shared);
+        std::fs::remove_dir_all(dir).expect("remove test directory");
+    }
+
+    #[test]
+    fn p2p_share_without_configured_checker_preserves_structural_admission() {
+        let (mut node, dir) = test_local_node("m6-p2p-no-checker");
+        let (runtime, body, admitted_at) = admitted_runtime_body();
+        node.runtime = runtime;
+        let submission = json!({
+            "body": body,
+            "canonTag": 0,
+            "ts": admitted_at,
+        });
+
+        let shared = Arc::new(RwLock::new(node));
+        let outcome = ingress_admit_share_shared(&shared, &submission, "198.51.100.87");
+        assert!(matches!(outcome, IngressShareOutcome::Admitted));
+        {
+            let node = shared.blocking_read();
+            assert_eq!(node.runtime.pool_size(), 1);
+            assert_eq!(node.runtime.candidate_shares_for_current_c().len(), 1);
+        }
+
+        drop(shared);
+        std::fs::remove_dir_all(dir).expect("remove test directory");
+    }
+
+    #[test]
+    fn panicked_p2p_share_checker_defers_and_releases_its_reservation() {
+        let (mut node, dir) = test_local_node("m6-p2p-share-panic");
+        let (runtime, body, admitted_at) = admitted_runtime_body();
+        node.runtime = runtime;
+        node.network_id = boole_core::AUTHORIZATION_REQUIRED_NETWORK_ID.to_string();
+        node.lean_checker_dir = Some(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../lean/checker")
+                .canonicalize()
+                .expect("checker directory"),
+        );
+        let gate = Arc::clone(&node.semantic_verifier);
+        gate.panic_next_share();
+        let submission = json!({
+            "body": body.clone(),
+            "canonTag": 0,
+            "ts": admitted_at,
+        });
+
+        let shared = Arc::new(RwLock::new(node));
+        let outcome = ingress_admit_share_shared(&shared, &submission, "198.51.100.86");
+        assert!(matches!(
+            outcome,
+            IngressShareOutcome::Deferred { ref code }
+                if code == "lean_reverify_unavailable"
+        ));
+        assert!(gate.try_acquire().is_some(), "panic must return the permit");
+        {
+            let mut node = shared.blocking_write();
+            assert_eq!(node.runtime.pool_size(), 0);
+            assert!(node.runtime.candidate_shares_for_current_c().is_empty());
+            assert!(matches!(
+                node.runtime
+                    .admit_body(admitted_at + 1, "198.51.100.86", &body),
+                AdmissionDecision::Accepted { .. }
+            ));
+        }
+
+        drop(shared);
+        std::fs::remove_dir_all(dir).expect("remove test directory");
+    }
+
+    #[test]
+    fn ticket_route_reports_unavailable_when_observation_capacity_is_exhausted() {
+        let (mut node, dir) = test_local_node("m6-ticket-observation-capacity");
+        let (mut runtime, template, admitted_at) = admitted_runtime_body();
+        for index in 0..4_096_u64 {
+            let mut body = template.clone();
+            body.insert("pk".to_string(), Value::String(format!("{index:064x}")));
+            body.insert(
+                "n".to_string(),
+                Value::String(format!("{:064x}", index + 10_000)),
+            );
+            assert!(runtime
+                .observe_ticket_from_body(&body)
+                .expect("ticket shape remains valid"));
+            let decision = runtime.admit_body(
+                admitted_at + index as i64,
+                &format!("2001:db8::{index:x}"),
+                &body,
+            );
+            let AdmissionDecision::Accepted { share_hash } = decision else {
+                panic!("fixture share {index} must charge one identity: {decision:?}");
+            };
+            assert!(runtime.quarantine_candidate(&share_hash.to_hex()));
+        }
+        node.runtime = runtime;
+
+        let ticket = json!({
+            "c": template["c"],
+            "pk": format!("{:064x}", 5_000_u64),
+            "n": format!("{:064x}", 15_000_u64),
+        });
+        let err = ticket_json(
+            &mut node,
+            serde_json::to_string(&ticket)
+                .expect("ticket serializes")
+                .as_bytes(),
+        )
+        .expect_err("untracked ticket must not be reported as an observed success");
+        assert_eq!(err.status, 503);
+        assert_eq!(err.reason, "ticket_observation_unavailable");
+
+        std::fs::remove_dir_all(dir).expect("remove test directory");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn p2p_share_reverify_releases_state_lock_and_keeps_http_responsive() {
+        let (mut node, dir) = test_local_node("m6-p2p-unlocked-reverify");
+        let (runtime, body, admitted_at) = admitted_runtime_body();
+        node.runtime = runtime;
+        node.network_id = boole_core::AUTHORIZATION_REQUIRED_NETWORK_ID.to_string();
+        node.lean_checker_dir = Some(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../lean/checker")
+                .canonicalize()
+                .expect("checker directory"),
+        );
+        let gate = Arc::clone(&node.semantic_verifier);
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        gate.set_test_latch(Arc::new(SemanticVerifierTestLatch {
+            started: started_tx,
+            release: StdMutex::new(release_rx),
+        }));
+        let inner = Arc::new(RwLock::new(node));
+        let router = build_router(AppState {
+            inner: Arc::clone(&inner),
+            rate_limiter: None,
+        });
+        let submission = json!({
+            "body": body,
+            "canonTag": 0,
+            "ts": admitted_at,
+        });
+        let ingress_state = Arc::clone(&inner);
+        let ingress = std::thread::spawn(move || {
+            ingress_admit_share_shared(&ingress_state, &submission, "198.51.100.89")
+        });
+        tokio::task::spawn_blocking(move || {
+            started_rx
+                .recv_timeout(Duration::from_secs(2))
+                .expect("peer verifier reached latch")
+        })
+        .await
+        .expect("started observer joins");
+
+        let status = tokio::time::timeout(
+            Duration::from_millis(250),
+            router.clone().oneshot(
+                Request::builder()
+                    .uri("/status")
+                    .body(Body::empty())
+                    .expect("status request"),
+            ),
+        )
+        .await
+        .expect("P2P Lean must not hold the node lock")
+        .expect("status response");
+        assert_eq!(status.status(), StatusCode::OK);
+
+        let busy = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/submit")
+                    .header("content-type", "application/json")
+                    .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 32005))))
+                    .body(Body::from("{}"))
+                    .expect("submit request"),
+            )
+            .await
+            .expect("busy response");
+        assert_eq!(busy.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let busy_body: Value = serde_json::from_slice(
+            &to_bytes(busy.into_body(), 16 * 1024)
+                .await
+                .expect("read busy response"),
+        )
+        .expect("parse busy response");
+        assert_eq!(busy_body["code"], "lean_reverify_busy");
+        {
+            let node = inner.read().await;
+            assert_eq!(node.runtime.pool_size(), 0);
+            assert!(node.runtime.candidate_shares_for_current_c().is_empty());
+        }
+
+        release_tx.send(()).expect("release peer verifier");
+        let outcome = tokio::task::spawn_blocking(move || ingress.join().expect("ingress joins"))
+            .await
+            .expect("join observer");
+        assert!(matches!(outcome, IngressShareOutcome::Admitted));
+        gate.clear_test_latch();
+        drop(router);
+        drop(inner);
+        std::fs::remove_dir_all(dir).expect("remove test directory");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn p2p_block_reverify_revalidates_latest_head_before_durable_commit() {
+        let producer_dir = std::env::temp_dir().join(format!(
+            "boole-m6-block-producer-{}-{}",
+            std::process::id(),
+            now_unix_ms()
+        ));
+        std::fs::create_dir_all(&producer_dir).expect("create producer dir");
+        let producer_path = producer_dir.join("blocks.ndjson");
+        let (mut producer_runtime, producer_body, producer_reward_pk, producer_signed_work, _) =
+            testnet2_valid_booted_runtime_body(&producer_path);
+        let now = now_unix_ms() as i64;
+        let block = commit_one_fixture_block(
+            &mut producer_runtime,
+            &producer_body,
+            (&producer_reward_pk, &producer_signed_work),
+            &producer_path,
+            now,
+            "198.51.100.90",
+            None,
+        );
+        let block_value = serde_json::to_value(&block).expect("peer block serializes");
+
+        let (mut target, target_dir) = test_local_node("m6-block-final-revalidate");
+        let (target_runtime, _, _, _, _) = testnet2_valid_booted_runtime_body(&target.block_path);
+        target.runtime = target_runtime;
+        target.genesis_c = "0".repeat(64);
+        target.network_id = boole_core::AUTHORIZATION_REQUIRED_NETWORK_ID.to_string();
+        target.lean_checker_dir = Some(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../lean/checker")
+                .canonicalize()
+                .expect("checker directory"),
+        );
+        let gate = Arc::clone(&target.semantic_verifier);
+        gate.set_test_block_outcome(SemanticVerifierTestOutcome::Verified);
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        gate.set_test_latch(Arc::new(SemanticVerifierTestLatch {
+            started: started_tx,
+            release: StdMutex::new(release_rx),
+        }));
+        let shared = Arc::new(RwLock::new(target));
+        let worker_state = Arc::clone(&shared);
+        let worker =
+            std::thread::spawn(move || ingest_announced_block_shared(&worker_state, &block_value));
+        tokio::task::spawn_blocking(move || {
+            started_rx
+                .recv_timeout(Duration::from_secs(2))
+                .expect("block verifier reached latch")
+        })
+        .await
+        .expect("started observer joins");
+
+        // This write succeeding while the verifier is latched proves the
+        // subprocess owns no state guard. It also invalidates the prepared
+        // prev_c premise so phase 3 must refuse the stale result.
+        shared
+            .write()
+            .await
+            .runtime
+            .set_current_c(HASH_1.to_string());
+        release_tx.send(()).expect("release block verifier");
+        let outcome = tokio::task::spawn_blocking(move || worker.join().expect("block joins"))
+            .await
+            .expect("block join observer");
+        assert!(matches!(outcome, IngressBlockOutcome::Ignored));
+        {
+            let target = shared.read().await;
+            assert_eq!(target.runtime.cached_block_count(), 0);
+            assert!(FileBlockStore::inspect(&target.block_path)
+                .is_ok_and(|store| store.blocks().is_empty()));
+        }
+        gate.clear_test_latch();
+        gate.clear_test_block_outcome();
+        drop(shared);
+        std::fs::remove_dir_all(target_dir).expect("remove target dir");
+        std::fs::remove_dir_all(producer_dir).expect("remove producer dir");
+    }
+
+    #[test]
+    fn panicked_p2p_block_and_reorg_checkers_defer_without_durable_mutation() {
+        let producer_dir = std::env::temp_dir().join(format!(
+            "boole-m6-panic-producer-{}-{}",
+            std::process::id(),
+            now_unix_ms()
+        ));
+        std::fs::create_dir_all(&producer_dir).expect("create producer dir");
+        let producer_path = producer_dir.join("blocks.ndjson");
+        let (mut producer_runtime, body, reward_pk, signed_work, _) =
+            testnet2_valid_booted_runtime_body(&producer_path);
+        let block = commit_one_fixture_block(
+            &mut producer_runtime,
+            &body,
+            (&reward_pk, &signed_work),
+            &producer_path,
+            now_unix_ms() as i64,
+            "198.51.100.85",
+            None,
+        );
+        let block_value = serde_json::to_value(&block).expect("peer block serializes");
+
+        let (mut target, target_dir) = test_local_node("m6-p2p-block-reorg-panic");
+        let (runtime, _, _, _, _) = testnet2_valid_booted_runtime_body(&target.block_path);
+        target.runtime = runtime;
+        target.genesis_c = "0".repeat(64);
+        target.network_id = boole_core::AUTHORIZATION_REQUIRED_NETWORK_ID.to_string();
+        target.lean_checker_dir = Some(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../lean/checker")
+                .canonicalize()
+                .expect("checker directory"),
+        );
+        let gate = Arc::clone(&target.semantic_verifier);
+        let shared = Arc::new(RwLock::new(target));
+
+        gate.set_test_block_outcome(SemanticVerifierTestOutcome::Panic);
+        assert!(matches!(
+            ingest_announced_block_shared(&shared, &block_value),
+            IngressBlockOutcome::Deferred
+        ));
+        assert!(gate.try_acquire().is_some(), "block panic returns permit");
+        {
+            let target = shared.blocking_read();
+            assert_eq!(target.runtime.cached_block_count(), 0);
+            assert!(FileBlockStore::inspect(&target.block_path)
+                .is_ok_and(|store| store.blocks().is_empty()));
+        }
+
+        assert!(matches!(
+            ingest_candidate_chain_shared(&shared, &[block_value]),
+            CandidateChainOutcome::Deferred
+        ));
+        assert!(gate.try_acquire().is_some(), "reorg panic returns permit");
+        {
+            let target = shared.blocking_read();
+            assert_eq!(target.runtime.cached_block_count(), 0);
+            assert!(FileBlockStore::inspect(&target.block_path)
+                .is_ok_and(|store| store.blocks().is_empty()));
+        }
+
+        gate.clear_test_block_outcome();
+        drop(shared);
+        std::fs::remove_dir_all(target_dir).expect("remove target dir");
+        std::fs::remove_dir_all(producer_dir).expect("remove producer dir");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn p2p_reorg_reverify_recomputes_fork_choice_after_local_head_changes() {
+        let producer_dir = std::env::temp_dir().join(format!(
+            "boole-m6-reorg-producer-{}-{}",
+            std::process::id(),
+            now_unix_ms()
+        ));
+        std::fs::create_dir_all(&producer_dir).expect("create producer dir");
+        let producer_path = producer_dir.join("blocks.ndjson");
+        let (mut producer_runtime, candidate_body, candidate_reward_pk, candidate_signed_work, _) =
+            testnet2_valid_booted_runtime_body(&producer_path);
+        let now = now_unix_ms() as i64;
+        let candidate_block = commit_one_fixture_block(
+            &mut producer_runtime,
+            &candidate_body,
+            (&candidate_reward_pk, &candidate_signed_work),
+            &producer_path,
+            now,
+            "198.51.100.91",
+            None,
+        );
+        let candidate_values =
+            vec![serde_json::to_value(&candidate_block).expect("peer block serializes")];
+
+        let (mut target, target_dir) = test_local_node("m6-reorg-final-revalidate");
+        let (target_runtime, target_body, target_reward_pk, target_signed_work, _) =
+            testnet2_valid_booted_runtime_body(&target.block_path);
+        target.runtime = target_runtime;
+        target.genesis_c = "0".repeat(64);
+        target.network_id = boole_core::AUTHORIZATION_REQUIRED_NETWORK_ID.to_string();
+        target.lean_checker_dir = Some(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../lean/checker")
+                .canonicalize()
+                .expect("checker directory"),
+        );
+        let gate = Arc::clone(&target.semantic_verifier);
+        gate.set_test_block_outcome(SemanticVerifierTestOutcome::Verified);
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        gate.set_test_latch(Arc::new(SemanticVerifierTestLatch {
+            started: started_tx,
+            release: StdMutex::new(release_rx),
+        }));
+        let shared = Arc::new(RwLock::new(target));
+        let worker_state = Arc::clone(&shared);
+        let worker = std::thread::spawn(move || {
+            ingest_candidate_chain_shared(&worker_state, &candidate_values)
+        });
+        tokio::task::spawn_blocking(move || {
+            started_rx
+                .recv_timeout(Duration::from_secs(2))
+                .expect("reorg verifier reached latch")
+        })
+        .await
+        .expect("started observer joins");
+
+        // Commit a same-height local chain after prepare. Phase 3 must use
+        // this current chain in fork choice, not the stale empty snapshot that
+        // made the candidate look strictly heavier.
+        let local_tip = {
+            let mut target = shared.write().await;
+            let block_path = target.block_path.clone();
+            commit_one_fixture_block(
+                &mut target.runtime,
+                &target_body,
+                (&target_reward_pk, &target_signed_work),
+                &block_path,
+                now + 10,
+                "198.51.100.92",
+                Some(&candidate_block.c),
+            )
+        };
+        release_tx.send(()).expect("release reorg verifier");
+        let outcome = tokio::task::spawn_blocking(move || worker.join().expect("reorg joins"))
+            .await
+            .expect("reorg join observer");
+        assert!(matches!(outcome, CandidateChainOutcome::KeptCurrent));
+        {
+            let target = shared.read().await;
+            assert_eq!(target.runtime.cached_block_count(), 1);
+            assert_eq!(current_head(&target), local_tip.c);
+            assert_ne!(current_head(&target), candidate_block.c);
+        }
+        gate.clear_test_latch();
+        gate.clear_test_block_outcome();
+        drop(shared);
+        std::fs::remove_dir_all(target_dir).expect("remove target dir");
+        std::fs::remove_dir_all(producer_dir).expect("remove producer dir");
+    }
 
     #[test]
     fn submit_receipt_json_fails_when_reward_recipient_is_not_replay_credited() {

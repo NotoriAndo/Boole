@@ -1,6 +1,7 @@
-//! SC.10-ii-d-2 — share-level Lean re-verify at gossip admission, the gate
-//! `ingress_admit_share` runs before a peer-announced base-lane share may
-//! stay in the candidate pool on a named (checker-pinned) network.
+//! SC.10-ii-d-2 / M6 — share-level Lean re-verify at admission, the shared
+//! gate HTTP `submit_json` and P2P `ingress_admit_share` run before a
+//! base-lane share may stay in the candidate pool on a named
+//! (checker-pinned) network.
 //!
 //! ADR-0016 (c-2): a producer does NOT re-run the checker over its own
 //! assembled block — its Lean gate is admission. That is only sound if every
@@ -161,13 +162,10 @@ fn reverify_share_retryable_when_checker_dir_missing() {
 }
 
 #[test]
-fn retract_candidate_removes_admitted_share_from_candidates_but_keeps_pool_slot() {
-    // The retraction the gossip-ingress Lean gate runs on a refusal: the
-    // share must leave the candidate set a self-produced block draws on
-    // (`candidate_shares_for_current_c`), while its SharePool (pk, n, j, c)
-    // slot deliberately stays — the same pool-outlives-rejection posture as
-    // the `duplicate_proof` peek — which also blocks an identical
-    // re-announce until the pool prunes at the next commit.
+fn semantic_reject_quarantines_candidate_without_holding_pool_capacity() {
+    // The quarantine either HTTP or gossip-ingress Lean gate runs on refusal:
+    // the share leaves block selection and active SharePool capacity. Its
+    // exact identity remains in a bounded tombstone and its rate charge stays.
     let fixture: Value =
         serde_json::from_str(include_str!("../../../fixtures/protocol/admission/v1.json"))
             .expect("fixture parses");
@@ -220,7 +218,7 @@ fn retract_candidate_removes_admitted_share_from_candidates_but_keeps_pool_slot(
     assert_eq!(runtime.candidate_shares_for_current_c().len(), 1);
     assert_eq!(runtime.pool_size(), 1);
 
-    runtime.retract_candidate(&share_hash.to_hex());
+    assert!(runtime.quarantine_candidate(&share_hash.to_hex()));
 
     assert_eq!(
         runtime.candidate_shares_for_current_c().len(),
@@ -229,7 +227,167 @@ fn retract_candidate_removes_admitted_share_from_candidates_but_keeps_pool_slot(
     );
     assert_eq!(
         runtime.pool_size(),
-        1,
-        "the SharePool slot deliberately outlives the retraction"
+        0,
+        "a Lean-invalid share must not occupy eligible SharePool capacity"
     );
+}
+
+#[test]
+fn semantic_reverify_reservation_hides_candidate_and_releases_active_capacity() {
+    let (mut runtime, body, now) = admitted_runtime_fixture();
+    let decision = runtime.admit_body(now, "198.51.100.11", &body);
+    let AdmissionDecision::Accepted { share_hash } = decision else {
+        panic!("fixture share must be admitted: {decision:?}");
+    };
+
+    let reserved = runtime
+        .take_candidate_for_reverify(&share_hash.to_hex(), now, "198.51.100.11")
+        .expect("an accepted candidate must be reservable");
+
+    assert!(
+        runtime.candidate_shares_for_current_c().is_empty(),
+        "a candidate awaiting Lean must be invisible to block selection"
+    );
+    assert_eq!(
+        runtime.pool_size(),
+        0,
+        "an in-flight semantic check must retain only a bounded tombstone, not an active slot"
+    );
+    assert_eq!(reserved.share_hash, share_hash.to_hex());
+}
+
+#[test]
+fn verified_reservation_restores_only_against_the_same_current_head() {
+    let (mut runtime, body, now) = admitted_runtime_fixture();
+    let decision = runtime.admit_body(now, "198.51.100.12", &body);
+    let AdmissionDecision::Accepted { share_hash } = decision else {
+        panic!("fixture share must be admitted: {decision:?}");
+    };
+    let reserved = runtime
+        .take_candidate_for_reverify(&share_hash.to_hex(), now, "198.51.100.12")
+        .expect("accepted candidate reservation");
+
+    runtime.set_current_c(
+        "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string(),
+    );
+    assert!(
+        !runtime.restore_reverified_candidate(reserved),
+        "a verdict for an old chain anchor must not restore a stale candidate"
+    );
+    assert!(runtime.candidate_shares_for_current_c().is_empty());
+}
+
+#[test]
+fn verified_reservation_can_be_restored_once_when_head_is_unchanged() {
+    let (mut runtime, body, now) = admitted_runtime_fixture();
+    let decision = runtime.admit_body(now, "198.51.100.13", &body);
+    let AdmissionDecision::Accepted { share_hash } = decision else {
+        panic!("fixture share must be admitted: {decision:?}");
+    };
+    let reserved = runtime
+        .take_candidate_for_reverify(&share_hash.to_hex(), now, "198.51.100.13")
+        .expect("accepted candidate reservation");
+
+    assert!(runtime.restore_reverified_candidate(reserved.clone()));
+    assert_eq!(
+        runtime.candidate_shares_for_current_c(),
+        vec![reserved.clone()]
+    );
+    assert_eq!(runtime.pool_size(), 1);
+    assert!(
+        !runtime.restore_reverified_candidate(reserved),
+        "the same reservation must not be restorable twice"
+    );
+    assert_eq!(runtime.candidate_shares_for_current_c().len(), 1);
+}
+
+#[test]
+fn failed_finalize_quarantines_a_restored_candidate_and_pool_slot() {
+    let (mut runtime, body, now) = admitted_runtime_fixture();
+    let decision = runtime.admit_body(now, "198.51.100.14", &body);
+    let AdmissionDecision::Accepted { share_hash } = decision else {
+        panic!("fixture share must be admitted: {decision:?}");
+    };
+    let reserved = runtime
+        .take_candidate_for_reverify(&share_hash.to_hex(), now, "198.51.100.14")
+        .expect("accepted candidate reservation");
+    assert!(runtime.restore_reverified_candidate(reserved));
+
+    assert!(runtime.quarantine_candidate(&share_hash.to_hex()));
+    assert!(runtime.candidate_shares_for_current_c().is_empty());
+    assert_eq!(
+        runtime.pool_size(),
+        0,
+        "a finalize error must not leave the restored candidate or its active pool slot visible"
+    );
+}
+
+#[test]
+fn unavailable_reverify_drops_candidate_but_allows_exact_retry() {
+    let (mut runtime, body, now) = admitted_runtime_fixture();
+    let decision = runtime.admit_body(now, "198.51.100.15", &body);
+    let AdmissionDecision::Accepted { share_hash } = decision else {
+        panic!("fixture share must be admitted: {decision:?}");
+    };
+    let reserved = runtime
+        .take_candidate_for_reverify(&share_hash.to_hex(), now, "198.51.100.15")
+        .expect("accepted candidate reservation");
+
+    assert!(runtime.release_semantic_reservation(&reserved, now, "198.51.100.15"));
+    assert!(runtime.candidate_shares_for_current_c().is_empty());
+    assert_eq!(runtime.pool_size(), 0);
+    assert!(
+        matches!(
+            runtime.admit_body(now + 1, "198.51.100.15", &body),
+            AdmissionDecision::Accepted { .. }
+        ),
+        "RetryableUnavailable cleanup must allow the exact request to retry"
+    );
+}
+
+fn admitted_runtime_fixture() -> (RuntimeAdmissionState, Map<String, Value>, i64) {
+    let fixture: Value =
+        serde_json::from_str(include_str!("../../../fixtures/protocol/admission/v1.json"))
+            .expect("fixture parses");
+    let report: CalibrationReport =
+        serde_json::from_value(fixture["cfg"].clone()).expect("cfg parses");
+    let constants = &fixture["constants"];
+    let valid_patch = fixture["operations"]
+        .as_array()
+        .expect("operations array")
+        .iter()
+        .find(|op| op["name"] == "valid_after_bad_not_rate_limited")
+        .expect("valid op")["bodyPatch"]
+        .as_object()
+        .cloned()
+        .unwrap_or_default();
+    let mut body = Map::new();
+    for (key, field) in [
+        ("c", "c"),
+        ("pk", "pk"),
+        ("n", "n"),
+        ("j", "j"),
+        ("nonceS", "nonceS"),
+        ("bytes", "validBytesHex"),
+    ] {
+        body.insert(
+            key.to_string(),
+            Value::String(constants[field].as_str().expect(field).to_string()),
+        );
+    }
+    for (key, value) in &valid_patch {
+        if value.is_null() {
+            body.remove(key);
+        } else {
+            body.insert(key.clone(), value.clone());
+        }
+    }
+    let mut runtime = RuntimeAdmissionState::new(
+        RuntimeConfig::from_calibration_report(report, 60_000).expect("runtime config boots"),
+    );
+    runtime.set_current_c(constants["c"].as_str().expect("c").to_string());
+    runtime
+        .observe_ticket_from_body(&body)
+        .expect("observe ticket");
+    (runtime, body, 1_800_000_000_000)
 }

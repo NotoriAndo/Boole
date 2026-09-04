@@ -899,6 +899,27 @@ class PreflightOrchestrationTests(unittest.TestCase):
         self.assertNotIn("/Users/", json.dumps(redacted))
         self.assertEqual(redacted["evidenceDir"], "[REDACTED_LOCAL_PATH]")
 
+    def test_local_mining_smoke_fixture_only_raises_the_loopback_ip_quota(self) -> None:
+        base = json.loads(
+            (ROOT / "fixtures/protocol/runtime-smoke/v1.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        smoke_path = ROOT / "fixtures/protocol/runtime-smoke/local-mining-smoke.v1.json"
+        smoke = json.loads(smoke_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(smoke["version"], base["version"])
+        self.assertEqual(smoke["genesisC"], base["genesisC"])
+        self.assertEqual(smoke["steps"], base["steps"])
+        self.assertEqual(smoke["cfg"]["perIpRateLimitPer60s"], len(smoke["steps"]))
+        base_cfg = {k: v for k, v in base["cfg"].items() if k != "perIpRateLimitPer60s"}
+        smoke_cfg = {k: v for k, v in smoke["cfg"].items() if k != "perIpRateLimitPer60s"}
+        self.assertEqual(smoke_cfg, base_cfg)
+        self.assertIn(
+            'SCENARIO="${SCENARIO:-fixtures/protocol/runtime-smoke/local-mining-smoke.v1.json}"',
+            (ROOT / "scripts/local-mining-smoke.sh").read_text(encoding="utf-8"),
+        )
+
     def test_wizard_runs_local_model_benchmark_smoke_with_fake_commands(self) -> None:
         with tempfile.TemporaryDirectory(dir="/tmp") as td:
             tmp = Path(td)

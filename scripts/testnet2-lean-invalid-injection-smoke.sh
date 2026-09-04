@@ -21,7 +21,14 @@
 #          checker-PINNED. The SC.9b pin + executable-toolchain gate and the
 #          SC.10-ii ingest Lean re-verify are live for them.
 #
-# Injection (the mandatory assertion): F self-produces the invalid block and
+# M6 direct-HTTP injection: before the peer phase, H1 receives that same
+# structurally-valid invalid fixture through `/submit`. It must pay structural
+# admission/rate costs, then fail the shared Lean gate before candidate gossip,
+# nonce, block, reward, proof-credit or receipt effects. The later honest Lean
+# control proves the gate did not become reject-all and that the rejected share
+# cannot leak into block selection.
+#
+# Peer injection (the original mandatory assertion): F self-produces the invalid block and
 # gossips it; H1 and H2 re-derive each share's canonical source from its seed,
 # recompute the canon and find it != the committed (tampered) package ->
 # `ShareEvidenceVerdict::CanonMismatch` -> `BlockReverifyOutcome::Deterministic
@@ -100,9 +107,12 @@ PIDS+=("$!")
 
 launch_honest() {
   local name="$1" http="$2" p2p="$3" peer_a="$4" peer_b="$5"
-  local session_args=()
+  local session_args=(
+    --proof-dedup-ledger "$WORKDIR/${name}-proof-dedup.ndjson"
+    --submit-receipt-ledger "$WORKDIR/${name}-submit-receipts.ndjson"
+  )
   if [[ "$name" == "H1" ]]; then
-    session_args=(
+    session_args+=(
       --session-registry "$WORKDIR/H1-sessions.ndjson"
       --submit-nonce-ledger "$WORKDIR/H1-submit-nonces.ndjson"
       --signed-nonce-ledger "$WORKDIR/H1-signed-nonces.ndjson"
@@ -176,6 +186,12 @@ def metric(port, name):
     return 0
 
 
+def ledger_rows(path):
+    if not path.exists():
+        return 0
+    return sum(1 for line in path.read_text().splitlines() if line.strip())
+
+
 def wait_live(port, deadline_s=200):
     # Checker-pinned boot re-hashes the checker sources and resolves the
     # executable toolchain (`lake env lean`), so allow a generous window.
@@ -194,6 +210,116 @@ def wait_live(port, deadline_s=200):
 
 for port in (http_f, http_h1, http_h2):
     wait_live(port)
+
+# M6 tracer — submit the same proof-invalid, structurally valid share through
+# the honest node's public HTTP surface. HTTP must run the same semantic Lean
+# gate as peer ingress after structural admission/dedup, then refuse every
+# downstream effect: candidate eligibility, gossip, nonce burn, block/reward,
+# proof credit and receipt. The paid rate charge survives, while the active
+# pool slot becomes a bounded current-head duplicate tombstone: unique invalid
+# work cannot fill K_max, and an identical retry cannot start Lean again.
+honest_invalid_registration = build_registration_envelope(
+    cli_bin, workdir, "lean-invalid-H1", invalid
+)
+registered_honest_invalid = request_json(
+    http_h1, "POST", "/sessions", honest_invalid_registration
+)
+if not registered_honest_invalid.get("ok"):
+    raise SystemExit(
+        f"honest invalid-injection session registration failed: "
+        f"{registered_honest_invalid}"
+    )
+
+h1_status_before_http_invalid = request_json(http_h1, "GET", "/status")
+h1_share_pool_before_http_invalid = h1_status_before_http_invalid.get("sharePoolSize")
+h1_egress_before_http_invalid = {
+    "shareDelivered": metric(http_h1, "boole_p2p_egress_announces_total"),
+    "shareFailed": metric(http_h1, "boole_p2p_egress_failures_total"),
+    "queueDrops": metric(http_h1, "boole_p2p_egress_queue_full_drops_total"),
+    "blockDelivered": metric(http_h1, "boole_p2p_egress_block_announces_total"),
+    "blockFailed": metric(http_h1, "boole_p2p_egress_block_failures_total"),
+}
+h1_reverify_started_before = metric(
+    http_h1, "boole_share_admission_reverify_started_total"
+)
+h1_durable_paths = {
+    "nonce": workdir / "H1-submit-nonces.ndjson",
+    "block": workdir / "H1-blocks.ndjson",
+    "reward": workdir / "H1-rewards.ndjson",
+    "proofDedup": workdir / "H1-proof-dedup.ndjson",
+    "receipt": workdir / "H1-submit-receipts.ndjson",
+}
+h1_rows_before_http_invalid = {
+    name: ledger_rows(path) for name, path in h1_durable_paths.items()
+}
+
+http_invalid = request_json(
+    http_h1, "POST", "/submit",
+    authorized_submit(invalid, int(time.time() * 1000)),
+)
+if http_invalid.get("accepted") or http_invalid.get("code") != "lean_reverify_reject":
+    raise SystemExit(
+        "checker-pinned HTTP submit must deterministically reject invalid Lean "
+        f"before downstream effects: {http_invalid}"
+    )
+if "block" in http_invalid or "receipt" in http_invalid:
+    raise SystemExit(f"semantic HTTP reject leaked block/receipt: {http_invalid}")
+
+# Give an accidentally queued gossip event time to reach its worker before
+# comparing the observable counters.
+time.sleep(1.0)
+h1_status_after_http_invalid = request_json(http_h1, "GET", "/status")
+if h1_status_after_http_invalid.get("height") != 0:
+    raise SystemExit(
+        f"semantic HTTP reject advanced the chain: {h1_status_after_http_invalid}"
+    )
+if h1_status_after_http_invalid.get("sharePoolSize") != h1_share_pool_before_http_invalid:
+    raise SystemExit(
+        "semantic HTTP reject must release eligible pool capacity into a bounded tombstone: "
+        f"before={h1_share_pool_before_http_invalid} "
+        f"after={h1_status_after_http_invalid.get('sharePoolSize')}"
+    )
+if metric(http_h1, "boole_share_admission_reverify_started_total") != h1_reverify_started_before + 1:
+    raise SystemExit("the first invalid HTTP submit must start exactly one semantic checker")
+h1_egress_after_http_invalid = {
+    "shareDelivered": metric(http_h1, "boole_p2p_egress_announces_total"),
+    "shareFailed": metric(http_h1, "boole_p2p_egress_failures_total"),
+    "queueDrops": metric(http_h1, "boole_p2p_egress_queue_full_drops_total"),
+    "blockDelivered": metric(http_h1, "boole_p2p_egress_block_announces_total"),
+    "blockFailed": metric(http_h1, "boole_p2p_egress_block_failures_total"),
+}
+if h1_egress_after_http_invalid != h1_egress_before_http_invalid:
+    raise SystemExit(
+        "semantic HTTP reject must not announce a share or block: "
+        f"before={h1_egress_before_http_invalid} "
+        f"after={h1_egress_after_http_invalid}"
+    )
+h1_rows_after_http_invalid = {
+    name: ledger_rows(path) for name, path in h1_durable_paths.items()
+}
+if h1_rows_after_http_invalid != h1_rows_before_http_invalid:
+    raise SystemExit(
+        "semantic HTTP reject changed a nonce/block/reward/proof/receipt ledger: "
+        f"before={h1_rows_before_http_invalid} "
+        f"after={h1_rows_after_http_invalid}"
+    )
+
+# No nonce was burned, while the structural admission/rate side effects remain:
+# the same signed request reaches admission and is rejected by the already-paid
+# pk quota, never as session nonce replay. This deliberately pins the current
+# admission ordering instead of erasing the rate charge after Lean rejects.
+duplicate_status, duplicate_raw = request(
+    http_h1, "POST", "/submit",
+    authorized_submit(invalid, int(time.time() * 1000)),
+)
+duplicate = json.loads(duplicate_raw)
+if duplicate_status != 200 or duplicate.get("code") != "rate_limited":
+    raise SystemExit(
+        "identical retry must observe preserved structural rate charge without a "
+        f"burned session nonce: status={duplicate_status} body={duplicate}"
+    )
+if metric(http_h1, "boole_share_admission_reverify_started_total") != h1_reverify_started_before + 1:
+    raise SystemExit("an identical invalid retry must not start Lean a second time")
 
 # SC.1-c — the faulty producer is deliberately checker-off, not
 # authorization-off. Register the invalid fixture's deterministic session
@@ -284,22 +410,22 @@ if any(v is not None for v in checkpoint_after_reject.values()):
 # ---- Phase 2: honest differential control. An honest lean-bound share into
 # H1 self-produces a valid block on the same genesis anchor; H2 re-runs real
 # Lean at ingest and accepts, so both honest nodes converge to height 1.
-honest_registration = build_registration_envelope(
-    cli_bin, workdir, "lean-invalid-H1", honest
-)
-registered_honest = request_json(
-    http_h1, "POST", "/sessions", honest_registration
-)
-if not registered_honest.get("ok"):
-    raise SystemExit(f"honest control session registration failed: {registered_honest}")
-
 control = request_json(
     http_h1, "POST", "/submit",
     authorized_submit(honest, int(time.time() * 1000)),
 )
 if not control.get("accepted") or control.get("height") != 1:
-    raise SystemExit(f"honest control share must commit a block on H1: {control}")
+    h1_err = (workdir / "H1.err").read_text()[-4000:]
+    raise SystemExit(
+        f"honest control share must commit a block on H1: {control}\n"
+        f"H1.err tail:\n{h1_err}"
+    )
 assert_session_receipt(control, honest)
+if control.get("block", {}).get("selectedShareHashes") != [control.get("shareHash")]:
+    raise SystemExit(
+        "valid control block must contain only its own share; the earlier "
+        f"semantic reject must not remain a candidate: {control}"
+    )
 c_good = control.get("c")
 
 deadline = time.monotonic() + 150
@@ -328,9 +454,10 @@ if converged_head != c_good:
 
 # SC.10-iii-b — the INGESTING honest node (H2) re-ran real Lean over the valid
 # block at ingest and durably committed it, so its verified-prefix checkpoint
-# advanced to height 1. The PRODUCER (H1) self-produced via HTTP submit, which
-# is not a Lean re-verify path, so its checkpoint did NOT advance: the
-# checkpoint records only what THIS node itself re-verified (ADR-0016 (c)).
+# advanced to height 1. The PRODUCER (H1) Lean-reverified the share at HTTP
+# admission but did not ingest a peer block, so its checkpoint did NOT advance:
+# the checkpoint records only a peer-chain prefix this node reverified at block
+# ingest (ADR-0016 (c)), not locally produced blocks.
 ingester_checkpoint = checkpoint_height(http_h2)
 producer_checkpoint = checkpoint_height(http_h1)
 if ingester_checkpoint != 1:
@@ -373,6 +500,19 @@ print(json.dumps({
     "ingesterCheckpointHeight": ingester_checkpoint,
     "sessionBoundSubmits": 2,
     "networkScopedSignedWork": True,
+    "invalidHttpRejectedBeforeEffects": True,
+    "invalidHttpRateChargeRetained": True,
+    "invalidHttpEligiblePoolCapacityRetained": False,
+    "invalidHttpDuplicateTombstoneBounded": True,
+    "invalidHttpLeanExecutions": 1,
+    "invalidHttpCandidateRetained": False,
+    "invalidHttpGossipAnnouncements": 0,
+    "invalidHttpGossipFailuresOrDrops": 0,
+    "invalidHttpNonceBurns": 0,
+    "invalidHttpBlocks": 0,
+    "invalidHttpRewards": 0,
+    "invalidHttpProofCredits": 0,
+    "invalidHttpReceipts": 0,
 }, separators=(",", ":")))
 PY
 

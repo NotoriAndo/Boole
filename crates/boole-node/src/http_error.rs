@@ -328,6 +328,28 @@ impl HttpError {
             .with_detail("request exceeded the server processing-time limit")
     }
 
+    /// M6 — the one shared semantic-verifier slot is occupied. This is an
+    /// availability outcome, never evidence that the submitted proof is
+    /// invalid. The caller may retry and the handler reaches this response
+    /// before structural/rate/session mutation.
+    pub fn semantic_verifier_busy() -> Self {
+        Self::semantic_verifier_unavailable("lean_reverify_busy")
+    }
+
+    pub fn semantic_verifier_unavailable(code: &'static str) -> Self {
+        Self::new(503, "retryable_unavailable")
+            .with_extra("code", Value::String(code.to_string()))
+            .with_extra("retryable", Value::Bool(true))
+    }
+
+    /// The ticket was structurally valid, but the bounded current-head
+    /// observation table could not retain it. Returning success here would
+    /// lie to the caller: a following `/submit` would reject the same ticket
+    /// as unobserved. This is node availability, not invalid miner work.
+    pub fn ticket_observation_unavailable() -> Self {
+        Self::new(503, "ticket_observation_unavailable").with_extra("retryable", Value::Bool(true))
+    }
+
     pub fn not_found(detail: impl Into<String>) -> Self {
         Self::new(404, "not_found").with_detail(detail)
     }
@@ -409,6 +431,22 @@ mod tests {
                 "ok": false,
                 "reason": "request_timeout",
                 "detail": "request exceeded the server processing-time limit",
+            })
+        );
+    }
+
+    #[test]
+    fn semantic_verifier_busy_is_retryable_unavailable_503() {
+        let err = HttpError::semantic_verifier_busy();
+        assert_eq!(err.status, 503);
+        assert_eq!(err.reason, "retryable_unavailable");
+        assert_eq!(
+            err.into_json(),
+            json!({
+                "ok": false,
+                "reason": "retryable_unavailable",
+                "code": "lean_reverify_busy",
+                "retryable": true,
             })
         );
     }
