@@ -14,7 +14,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-SCENARIO="fixtures/protocol/runtime-smoke/v1.json"
+SCENARIO="${SCENARIO:-fixtures/protocol/runtime-smoke/local-mining-smoke.v1.json}"
 FIXTURE="fixtures/protocol/runtime-smoke/multiminer.v1.json"
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/boole-p2p-convergence.XXXXXX")"
 
