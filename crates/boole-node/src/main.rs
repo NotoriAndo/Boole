@@ -525,7 +525,8 @@ fn run_submit_lean_command(args: SubmitLeanArgs) -> anyhow::Result<()> {
     }
     let ts = args.ts;
     // Validate `--admission-nonce` shape *before* fixture parse + Lean spawn so
-    // a malformed value fails fast and never pays for `lake exec boole_check`.
+    // a malformed value fails fast and never pays for any of the three
+    // direct-Lean verification stages.
     // The reason code mirrors account/session malformed public-key rejections so downstream tooling can
     // pattern-match across both surfaces.
     if let Some(value) = admission_nonce_override.as_deref() {

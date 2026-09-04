@@ -616,6 +616,9 @@ open Lake DSL
 
 package boole_check_fixture
 
+lean_lib «Boole» where
+  globs := #[.submodules `Boole.Family]
+
 lean_exe boole_check where
   root := `BooleCheck.Main
 """,
@@ -631,22 +634,7 @@ lean_exe boole_check where
         encoding="utf-8",
     )
     (workspace / "BooleCheck" / "Main.lean").write_text(
-        """def main (args : List String) : IO UInt32 := do
-  let some proofPath := args.head?
-    | IO.eprintln \"usage: boole_check <proof.lean>\"; return 64
-  let output ← IO.Process.output {
-    cmd := \"lean\"
-    args := #[proofPath]
-  }
-  if output.stdout.length > 0 then
-    IO.print output.stdout
-  if output.stderr.length > 0 then
-    IO.eprint output.stderr
-  if output.exitCode == 0 then
-    return 0
-  else
-    return 1
-""",
+        (ROOT / "lean" / "checker" / "BooleCheck" / "Main.lean").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
     # TB.1 / ADR-0013 — `check_file` now runs a second, separate process
@@ -663,6 +651,11 @@ lean_exe boole_check where
     (workspace / "Boole" / "Family" / "V0Helpers.lean").write_text(
         "-- fixture stub: pinned by checker_artifact_hash\n",
         encoding="utf-8",
+    )
+    subprocess.run(
+        ["lake", "build", "Boole.Family.V0Helpers"],
+        cwd=workspace,
+        check=True,
     )
 
 

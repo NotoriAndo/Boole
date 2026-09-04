@@ -239,8 +239,8 @@ fn runner_error_result(error: String) -> LeanCheckResult {
         verdict: boole_lean_runner::LeanVerdict::RetryableUnavailable { reason: error },
         evidence: boole_lean_runner::LeanRunnerEvidence {
             verifier_hash: String::new(),
-            checker: "lake exec boole_check".to_string(),
-            checker_exe: String::new(),
+            checker: "direct lean source checker + artifact audit".to_string(),
+            checker_exe: "lean".to_string(),
             checker_artifact_hash: String::new(),
             package_dir: String::new(),
             lean_version: String::new(),

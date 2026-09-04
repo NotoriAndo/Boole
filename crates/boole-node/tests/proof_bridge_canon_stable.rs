@@ -24,8 +24,8 @@ fn synthetic_lean_result(lean_version: &str, lake_version: &str, stdout: &str) -
         verdict: boole_lean_runner::LeanVerdict::Accepted,
         evidence: LeanRunnerEvidence {
             verifier_hash: "bridge-verifier-hash".to_string(),
-            checker: "lake exec boole_check".to_string(),
-            checker_exe: "lake".to_string(),
+            checker: "direct lean source checker + artifact audit".to_string(),
+            checker_exe: "lean".to_string(),
             checker_artifact_hash:
                 "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string(),
             package_dir: "/tmp/boole-check".to_string(),

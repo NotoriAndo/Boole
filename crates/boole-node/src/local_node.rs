@@ -4433,7 +4433,8 @@ fn bounty_proof_prepare(
     // 5) P1.6b — soft per-signer replay probe. Runs after the dedup
     //    peek so HTTP idempotency wins over freshness, but before the
     //    verifier run and terminal gates so a stolen envelope re-aimed
-    //    at a fresh proofHash never reaches `lake exec`. The atomic
+    //    at a fresh proofHash never reaches the three-stage direct-Lean
+    //    verifier. The atomic
     //    `(signer_pk, nonce)` burn happens in phase 3 regardless of the
     //    verifier's verdict — a rejected proof still consumes its nonce.
     check_signed_envelope_nonce_not_replayed(state, pk, &nonce)?;
@@ -4569,7 +4570,8 @@ fn bounty_proof_finalize(
             "credit": credit,
         });
         // P1.4 — for Lean-verified bounties, persist the inputs needed
-        // to re-run `lake exec boole_check` from the audit log alone:
+        // to re-run the pinned three-stage direct-Lean verification from
+        // the audit log alone:
         // the verbatim `leanSource` from the envelope and the bounty's
         // pinned `verifierHash`. `boole state verify --deep` (master plan
         // line 110-141) reads the ledger and re-checks acceptance offline;

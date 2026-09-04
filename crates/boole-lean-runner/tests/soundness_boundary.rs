@@ -69,13 +69,14 @@ theorem poc3_trivial_with_kernel_tc_skipped : True := trivial
 
 // PoC4 — reaches a non-allowlisted axiom (`Lean.trustCompiler`) WITHOUT
 // tripping any pre-spawn check at all: no `addDecl`/`elab`/`macro`/
-// `initialize`/`debug.`/`sorry`/`axiom`/`native_decide`/`#eval` token, and
-// no `import` line whatsoever. Empirically confirmed against the pinned
-// 4.29.1 toolchain: `Lean.trustCompiler` resolves from the default prelude
-// (no `import Lean` needed) and `lean` accepts this file with only a
-// deprecation warning, exit code 0 — so only the post-elaboration axiom
-// audit, not the blacklist, can reject it.
-const POC4_NON_ALLOWLISTED_AXIOM_TERM: &str = r#"theorem poc4_trusts_compiler : True :=
+// `initialize`/`debug.`/`sorry`/`axiom`/`native_decide`/`#eval` token. It
+// imports only the one allowlisted helper module required by the canonical
+// artifact contract. `Lean.trustCompiler` still resolves from Lean's
+// implicit prelude, so only the post-elaboration axiom audit, not the intake
+// allowlist, can reject it.
+const POC4_NON_ALLOWLISTED_AXIOM_TERM: &str = r#"import Boole.Family.V0Helpers
+
+theorem poc4_trusts_compiler : True :=
   let _ := @Lean.trustCompiler
   trivial
 "#;
@@ -159,8 +160,8 @@ fn rejects_proof_depending_on_non_allowlisted_axiom() {
     // blacklist — this is the one PoC that must specifically exercise the
     // audit layer, not the blacklist.
     let result = runner_for(&workspace).check_file(&proof).expect(
-        "PoC4 contains no forbidden token and no import line at all, so the \
-         pre-spawn blacklist must let it through to the primary checker and \
+        "PoC4 contains no forbidden token and imports only the allowlisted helper, so the \
+         pre-spawn intake must let it through to the primary checker and \
          the axiom audit — a rejection here would mean the blacklist wrongly \
          intercepted it",
     );
@@ -191,16 +192,13 @@ fn accepts_lenbound_style_proof_importing_helper_surface() {
         );
         return;
     }
-    // Mirrors `scripts/self-test.sh`'s `lean-checker-build` gate: the raw
-    // `lean <path>` subprocess `BooleCheck.Main` shells out to (and the
-    // audit's `lake env lean --run`) both need `Boole.Family.V0Helpers`
-    // already compiled to resolve `import Boole.Family.V0Helpers` — `lake
-    // exec boole_check` does not build it as a side effect, since the
-    // checker's own Main.lean never `import`s it itself.
+    // Mirrors `scripts/self-test.sh`'s `lean-checker-build` gate: the direct
+    // Main/Audit source processes need `Boole.Family.V0Helpers` compiled to
+    // resolve the submitted proof's official helper import. No checker
+    // executable is built or executed.
     let build_status = Command::new("lake")
         .arg("build")
         .arg("Boole.Family.V0Helpers")
-        .arg("boole_check")
         .current_dir(&checker_dir)
         .status()
         .expect("run lake build on the real checker package");
@@ -300,6 +298,9 @@ open Lake DSL
 
 package boole_check_fixture
 
+lean_lib «Boole» where
+  globs := #[.submodules `Boole.Family]
+
 lean_exe boole_check where
   root := `BooleCheck.Main
 "#,
@@ -317,26 +318,11 @@ lean_exe boole_check where
         .expect("write lake-manifest");
         std::fs::write(
             self.root.join("BooleCheck/Main.lean"),
-            r#"def main (args : List String) : IO UInt32 := do
-  let some proofPath := args.head?
-    | IO.eprintln "usage: boole_check <proof.lean>"; return 64
-  let output ← IO.Process.output {
-    cmd := "lean"
-    args := #[proofPath]
-  }
-  if output.stdout.length > 0 then
-    IO.print output.stdout
-  if output.stderr.length > 0 then
-    IO.eprint output.stderr
-  if output.exitCode == 0 then
-    return 0
-  else
-    return 1
-"#,
+            include_str!("../../../lean/checker/BooleCheck/Main.lean"),
         )
         .expect("write checker main");
         // TB.1 / ADR-0013 — `check_file` runs a second, separate process
-        // (`lake env lean --run BooleCheck/Audit.lean`) after the primary
+        // (`lean --run BooleCheck/Audit.lean`) after the primary
         // checker accepts, so this fixture needs its own copy of the real
         // audit script. `include_str!` pulls the production file in
         // verbatim at compile time so the fixture can never drift from
@@ -352,6 +338,16 @@ lean_exe boole_check where
             "-- fixture stub: pinned by checker_artifact_hash\n",
         )
         .expect("write V0Helpers stub");
+        let build = Command::new("lake")
+            .args(["build", "Boole.Family.V0Helpers"])
+            .current_dir(&self.root)
+            .output()
+            .expect("build soundness fixture");
+        assert!(
+            build.status.success(),
+            "soundness fixture build failed: {}",
+            String::from_utf8_lossy(&build.stderr)
+        );
     }
 
     fn write_proof(&self, name: &str, content: &str) -> PathBuf {

@@ -5,7 +5,7 @@
 //! produce diverse `share_hash` values without spinning up a node.
 //! Validation (`len == 64 && all ascii_hexdigit`) happens before
 //! fixture parse + Lean spawn, so a malformed value fails fast and
-//! never pays for `lake exec boole_check`.
+//! never pays for any of the three direct-Lean verification stages.
 
 use boole_lean_runner::{LeanRunner, LeanRunnerConfig};
 use serde_json::Value;
@@ -124,7 +124,7 @@ fn run_submit_lean_with_nonce(tag: &str, nonce: Option<&str>) -> Value {
     workspace.write_checker_project();
     let proof = workspace.write_proof(
         "ValidNonceRun.lean",
-        "theorem boole_admission_nonce_run : 2 + 2 = 4 := by\n  decide\n",
+        "import Boole.Family.V0Helpers\ntheorem boole_admission_nonce_run : 2 + 2 = 4 := by\n  decide\n",
     );
     let expected_artifact_hash =
         checker_artifact_hash(&workspace, "submit-lean-admission-nonce-test-verifier");
@@ -219,6 +219,9 @@ open Lake DSL
 
 package boole_check_fixture
 
+lean_lib «Boole» where
+  globs := #[.submodules `Boole.Family]
+
 lean_exe boole_check where
   root := `BooleCheck.Main
 "#,
@@ -236,22 +239,7 @@ lean_exe boole_check where
         .expect("write lake-manifest");
         std::fs::write(
             self.root.join("BooleCheck/Main.lean"),
-            r#"def main (args : List String) : IO UInt32 := do
-  let some proofPath := args.head?
-    | IO.eprintln "usage: boole_check <proof.lean>"; return 64
-  let output ← IO.Process.output {
-    cmd := "lean"
-    args := #[proofPath]
-  }
-  if output.stdout.length > 0 then
-    IO.print output.stdout
-  if output.stderr.length > 0 then
-    IO.eprint output.stderr
-  if output.exitCode == 0 then
-    return 0
-  else
-    return 1
-"#,
+            include_str!("../../../lean/checker/BooleCheck/Main.lean"),
         )
         .expect("write checker main");
         // TB.1 / ADR-0013 — `check_file` now runs a second, separate
@@ -271,6 +259,16 @@ lean_exe boole_check where
             "-- fixture stub: pinned by checker_artifact_hash\n",
         )
         .expect("write V0Helpers stub");
+        let build = Command::new("lake")
+            .args(["build", "Boole.Family.V0Helpers"])
+            .current_dir(&self.root)
+            .output()
+            .expect("build admission-nonce checker fixture");
+        assert!(
+            build.status.success(),
+            "checker fixture build failed: {}",
+            String::from_utf8_lossy(&build.stderr)
+        );
     }
 
     fn write_proof(&self, name: &str, content: &str) -> PathBuf {

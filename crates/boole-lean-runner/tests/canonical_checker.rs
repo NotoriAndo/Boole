@@ -84,8 +84,8 @@ fn canonical_checker_artifact_hash_matches_readme_pin() {
             } else {
                 Ok(boole_lean_runner::LeanRunnerEvidence {
                     verifier_hash: "canonical-checker-test".to_string(),
-                    checker: "lake exec boole_check".to_string(),
-                    checker_exe: "boole_check".to_string(),
+                    checker: "direct lean source checker + artifact audit".to_string(),
+                    checker_exe: "lean".to_string(),
                     checker_artifact_hash: recompute_artifact_hash(&dir),
                     package_dir: dir.display().to_string(),
                     lean_version: String::new(),
@@ -120,8 +120,11 @@ fn canonical_checker_accepts_valid_proof_through_sandbox() {
     if let Some(parent) = proof.parent() {
         std::fs::create_dir_all(parent).expect("create target dir for test proof");
     }
-    std::fs::write(&proof, "theorem boole_canonical : 1 + 1 = 2 := by decide\n")
-        .expect("write valid proof");
+    std::fs::write(
+        &proof,
+        "import Boole.Family.V0Helpers\ntheorem boole_canonical : 1 + 1 = 2 := by decide\n",
+    )
+    .expect("write valid proof");
 
     let runner = LeanRunner::new(
         LeanRunnerConfig::new("canonical-checker-test")

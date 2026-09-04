@@ -136,23 +136,23 @@ class SelfTestContractTests(unittest.TestCase):
 
     def test_self_test_has_lean_checker_build_step(self) -> None:
         # Fresh-environment regression: deep_verify_block_roundtrip re-runs the
-        # Lean checker (`lake exec boole_check`) on a re-derived proof that
+        # Lean checker (`lean --run BooleCheck/Main.lean`) on a re-derived proof that
         # imports `Boole.Family.V0Helpers`. On a clean CI runner the checker's
         # `.lake/build` is empty (it is gitignored), so the import fails with
         # "unknown module prefix 'Boole'" and the share re-verifies as
         # accepted=false (DeepVerifyDivergence). The local gate only passes
         # because a developer's `.lake/build` is already warm. self-test.sh must
-        # prebuild the checker artifacts so the local gate and a fresh CI runner
+        # prebuild the imported helper so the local gate and a fresh CI runner
         # share the same precondition.
         body = _read(SELF_TEST)
         self.assertRegex(
             body,
             re.compile(r"^\s*run_logged\s+lean-checker-build\b", re.MULTILINE),
             "scripts/self-test.sh must declare a `lean-checker-build` stage that "
-            "prebuilds the Lean checker artifacts before cargo-test re-runs them",
+            "prebuilds the Lean helper artifact before cargo-test re-runs it",
         )
 
-    def test_lean_checker_build_builds_v0helpers_and_boole_check(self) -> None:
+    def test_lean_checker_build_builds_only_v0helpers(self) -> None:
         body = _read(SELF_TEST)
         lake_build_lines = [
             line
@@ -160,14 +160,14 @@ class SelfTestContractTests(unittest.TestCase):
             if "lake build" in line and not line.strip().startswith("#")
         ]
         self.assertTrue(
-            any(
-                "Boole.Family.V0Helpers" in line and "boole_check" in line
-                for line in lake_build_lines
-            ),
+            any("Boole.Family.V0Helpers" in line for line in lake_build_lines),
             "self-test.sh lean-checker-build must run "
-            "`lake build Boole.Family.V0Helpers boole_check` so the proof's "
-            "imported module olean and the checker exe both exist before "
-            "deep_verify re-runs the checker on a fresh tree",
+            "`lake build Boole.Family.V0Helpers` so the proof's imported "
+            "module olean exists before deep_verify re-runs the checker on a fresh tree",
+        )
+        self.assertTrue(
+            all("boole_check" not in line for line in lake_build_lines),
+            "the direct-source checker path must not prebuild boole_check",
         )
 
     def test_self_test_runs_p2p_convergence_smoke(self) -> None:

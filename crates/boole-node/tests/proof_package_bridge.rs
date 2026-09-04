@@ -109,7 +109,8 @@ fn lean_checked_proof_package_is_admitted_as_block_and_replays() {
     workspace.write_checker_project();
     let proof = workspace.write_proof(
         "ValidBridgeProof.lean",
-        r#"theorem boole_bridge_valid : 1 + 1 = 2 := by
+        r#"import Boole.Family.V0Helpers
+theorem boole_bridge_valid : 1 + 1 = 2 := by
   decide
 "#,
     );
@@ -196,13 +197,15 @@ fn lean_bridge_binds_proof_source_into_canonical_package() {
     workspace.write_checker_project();
     let first_proof = workspace.write_proof(
         "FirstProof.lean",
-        r#"theorem boole_bridge_source_binding_first : "aaa" = "aaa" :=
+        r#"import Boole.Family.V0Helpers
+theorem boole_bridge_source_binding_first : "aaa" = "aaa" :=
   rfl
 "#,
     );
     let second_proof = workspace.write_proof(
         "SecondProof.lean",
-        r#"theorem boole_bridge_source_binding_second : "bbb" = "bbb" :=
+        r#"import Boole.Family.V0Helpers
+theorem boole_bridge_source_binding_second : "bbb" = "bbb" :=
   rfl
 "#,
     );
@@ -252,7 +255,8 @@ fn lean_bridge_rejects_checker_artifact_not_in_allowlist_before_submission_body(
     workspace.write_checker_project();
     let proof = workspace.write_proof(
         "ValidBridgeProof.lean",
-        r#"theorem boole_bridge_valid : 1 + 1 = 2 := by
+        r#"import Boole.Family.V0Helpers
+theorem boole_bridge_valid : 1 + 1 = 2 := by
   decide
 "#,
     );
@@ -266,12 +270,10 @@ fn lean_bridge_rejects_checker_artifact_not_in_allowlist_before_submission_body(
         .expect("evidence hashes baseline checker")
         .checker_artifact_hash;
 
-    workspace.write_checker_project_with_main(
-        r#"def main (_args : List String) : IO UInt32 := do
-  IO.println "tampered checker accepts without checking proof"
-  return 0
-"#,
-    );
+    workspace.write_checker_project_with_main(&format!(
+        "{}\n-- tampered checker identity for allowlist rejection\n",
+        include_str!("../../../lean/checker/BooleCheck/Main.lean")
+    ));
 
     let bridge = LeanProofBridge::new_with_policy(
         LeanRunner::new(base_config),
@@ -301,7 +303,8 @@ fn invalid_lean_proof_is_rejected_before_admission_or_block() {
     workspace.write_checker_project();
     let proof = workspace.write_proof(
         "InvalidBridgeProof.lean",
-        r#"theorem boole_bridge_invalid : 1 + 1 = 3 := by
+        r#"import Boole.Family.V0Helpers
+theorem boole_bridge_invalid : 1 + 1 = 3 := by
   decide
 "#,
     );
@@ -402,24 +405,9 @@ impl TestLeanWorkspace {
     }
 
     fn write_checker_project(&self) {
-        self.write_checker_project_with_main(
-            r#"def main (args : List String) : IO UInt32 := do
-  let some proofPath := args.head?
-    | IO.eprintln "usage: boole_check <proof.lean>"; return 64
-  let output ← IO.Process.output {
-    cmd := "lean"
-    args := #[proofPath]
-  }
-  if output.stdout.length > 0 then
-    IO.print output.stdout
-  if output.stderr.length > 0 then
-    IO.eprint output.stderr
-  if output.exitCode == 0 then
-    return 0
-  else
-    return 1
-"#,
-        );
+        self.write_checker_project_with_main(include_str!(
+            "../../../lean/checker/BooleCheck/Main.lean"
+        ));
     }
 
     fn write_checker_project_with_main(&self, main_lean: &str) {
@@ -434,6 +422,9 @@ impl TestLeanWorkspace {
 open Lake DSL
 
 package boole_check_fixture
+
+lean_lib «Boole» where
+  globs := #[.submodules `Boole.Family]
 
 lean_exe boole_check where
   root := `BooleCheck.Main
@@ -469,6 +460,16 @@ lean_exe boole_check where
             "-- fixture stub: pinned by checker_artifact_hash\n",
         )
         .expect("write V0Helpers stub");
+        let build = Command::new("lake")
+            .args(["build", "Boole.Family.V0Helpers"])
+            .current_dir(&self.root)
+            .output()
+            .expect("build proof-bridge checker fixture");
+        assert!(
+            build.status.success(),
+            "checker fixture build failed: {}",
+            String::from_utf8_lossy(&build.stderr)
+        );
     }
 
     fn write_proof(&self, name: &str, content: &str) -> PathBuf {
@@ -502,8 +503,8 @@ fn synthetic_accepted_lean_result(stdout: &str) -> LeanCheckResult {
         verdict: boole_lean_runner::LeanVerdict::Accepted,
         evidence: LeanRunnerEvidence {
             verifier_hash: "bridge-verifier-hash".to_string(),
-            checker: "lake exec boole_check".to_string(),
-            checker_exe: "lake".to_string(),
+            checker: "direct lean source checker + artifact audit".to_string(),
+            checker_exe: "lean".to_string(),
             checker_artifact_hash:
                 "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string(),
             package_dir: "/tmp/boole-check".to_string(),

@@ -13,6 +13,9 @@ import unittest
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 VERDICT_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "verdict-corpus.yml"
+MACOS_ISOLATION_WORKFLOW = (
+    REPO_ROOT / ".github" / "workflows" / "macos-isolation.yml"
+)
 NATIVE_CONTAINMENT_PROBE = (
     REPO_ROOT / "scripts" / "native-shadow-containment-capability-probe.sh"
 )
@@ -51,6 +54,17 @@ NATIVE_CONTAINMENT_SPEC = (
 
 USES_RE = re.compile(r"^\s*uses:\s*(\S+)", re.MULTILINE)
 SHA_PIN_RE = re.compile(r"@[0-9a-f]{40}$")
+
+
+class MacosIsolationWorkflowContractTest(unittest.TestCase):
+    def test_checker_sources_trigger_the_real_seatbelt_canary(self):
+        text = MACOS_ISOLATION_WORKFLOW.read_text(encoding="utf-8")
+        self.assertEqual(
+            text.count('- "lean/checker/**"'),
+            2,
+            "both push and pull_request path filters must run the macOS canary "
+            "when the trusted Main/Audit/helper sources change",
+        )
 
 
 class CiWorkflowContractTest(unittest.TestCase):

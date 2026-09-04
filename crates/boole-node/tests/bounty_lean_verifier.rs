@@ -185,7 +185,8 @@ fn lean_verifier_rejects_invalid_proof_envelope() {
     );
     let verifier = LeanBountyVerifier::new(checker_dir);
     // 1 + 1 = 3 is false and is the bounty's own commissioned (matching)
-    // statement; `decide` cannot close it; lake exec exits non-zero.
+    // statement; `decide` cannot close it, so the direct source-reading Lean
+    // stage rejects before the artifact-only audit can accept anything.
     let bounty = make_lean_bounty("alpha-1", &verifier_hash, "1 + 1 = 3");
     let envelope = json!({
         "leanSource": "theorem boole_lean_bounty_reject : 1 + 1 = 3 := by\n  decide\n"
