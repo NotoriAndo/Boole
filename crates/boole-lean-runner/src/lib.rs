@@ -3706,6 +3706,60 @@ mod tests {
         dest
     }
 
+    // Real verification never executes a binary from the read-only checker
+    // package: it executes the package-pinned Lean binary from
+    // `LEAN_SYSROOT/bin`.  Tests that make `package_dir_writable = false`
+    // must preserve that separation as well, otherwise Landlock correctly
+    // denies the probe's exec before the test can observe the intended write
+    // denial.  Fix the modes explicitly so the assertion does not depend on
+    // the host/CI umask.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    fn read_only_package_probe(
+        package: &Path,
+        unique: u32,
+    ) -> (PathBuf, PathBuf, LeanRunnerConfig) {
+        use std::os::unix::fs::PermissionsExt;
+
+        let toolchain_root = make_temp_dir("truncate-toolchain", unique);
+        let toolchain_bin = toolchain_root.join("bin");
+        std::fs::create_dir_all(&toolchain_bin).expect("create fake toolchain bin");
+        std::fs::set_permissions(&toolchain_root, std::fs::Permissions::from_mode(0o755))
+            .expect("make fake toolchain root traversable");
+        std::fs::set_permissions(&toolchain_bin, std::fs::Permissions::from_mode(0o755))
+            .expect("make fake toolchain bin traversable");
+        let probe = probe_in(&toolchain_bin);
+        std::fs::set_permissions(&probe, std::fs::Permissions::from_mode(0o555))
+            .expect("make fake toolchain probe executable");
+
+        let mut config = LeanRunnerConfig::new("test-package-truncate")
+            .with_package_dir(package)
+            .with_isolation_mode(IsolationMode::Enforce);
+        config.package_dir_writable = false;
+        config.lean_sysroot = Some(toolchain_root.as_os_str().to_os_string());
+        (toolchain_root, probe, config)
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn read_only_package_probe_uses_the_toolchain_exec_boundary() {
+        let package = make_temp_dir("truncate-package-shape", line!());
+        let (toolchain_root, probe, config) = read_only_package_probe(&package, line!());
+        let exec_dirs = exec_allow_dirs(&config);
+
+        assert!(!probe.starts_with(&package));
+        assert!(
+            exec_dirs.iter().any(|dir| probe.starts_with(dir)),
+            "the truncate probe itself must be executable before the Linux test can measure the package write denial"
+        );
+        assert!(
+            !exec_dirs.iter().any(|dir| package.starts_with(dir)),
+            "the read-only checker package must not become executable merely to run the test probe"
+        );
+
+        let _ = std::fs::remove_dir_all(&package);
+        let _ = std::fs::remove_dir_all(&toolchain_root);
+    }
+
     // The isolation-denial errno differs per mechanism: macOS Seatbelt
     // reports EPERM (empirically confirmed against this profile shape);
     // Linux seccomp (configured with `SeccompAction::Errno(EACCES)`) and
@@ -3864,17 +3918,26 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn primary_read_only_package_denies_truncate_and_readonly_o_trunc() {
+        use std::os::unix::fs::PermissionsExt;
+
         let package = make_temp_dir("truncate-package", line!());
-        let probe = probe_in(&package);
-        let mut config = LeanRunnerConfig::new("test-package-truncate")
-            .with_package_dir(&package)
-            .with_isolation_mode(IsolationMode::Enforce);
-        config.package_dir_writable = false;
+        std::fs::set_permissions(&package, std::fs::Permissions::from_mode(0o755))
+            .expect("make read-only-package fixture traversable");
+        let (toolchain_root, probe, config) = read_only_package_probe(&package, line!());
+
+        assert!(
+            exec_allow_dirs(&config)
+                .iter()
+                .any(|dir| probe.starts_with(dir)),
+            "the truncate probe itself must be executable before this test can measure the package write denial"
+        );
 
         for operation in ["truncate", "open-truncate-readonly"] {
             let protected = package.join(format!("protected-{operation}.txt"));
             let expected = b"trusted checker package bytes";
             std::fs::write(&protected, expected).expect("write protected package file");
+            std::fs::set_permissions(&protected, std::fs::Permissions::from_mode(0o644))
+                .expect("keep the package file host-writable before Landlock");
 
             let mut cmd = Command::new(&probe);
             cmd.arg(operation)
@@ -3899,6 +3962,8 @@ mod tests {
         let protected = package.join("protected-ftruncate-readonly.txt");
         let expected = b"trusted checker package bytes";
         std::fs::write(&protected, expected).expect("write protected package file");
+        std::fs::set_permissions(&protected, std::fs::Permissions::from_mode(0o644))
+            .expect("keep the package file host-writable before Landlock");
         let mut cmd = Command::new(&probe);
         cmd.arg("ftruncate-readonly")
             .arg(&protected)
@@ -3919,6 +3984,7 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&package);
+        let _ = std::fs::remove_dir_all(&toolchain_root);
     }
 
     // P1.7/ADR-0008 characterization: under an Enforce config, `exec` of a
