@@ -191,8 +191,11 @@ rewards and activation remain deferred.
 - Completed milestone: `M5-THIRD-PARTY-VERIFIER-BOUNDARY`. The verifier now
   uses three contained stages: a request-private trusted-helper compile, direct
   source elaboration, and an artifact-only independent audit. The inactive
-  `boole-testnet-2` identity is rebound to that checker release; this does not
-  activate a network.
+  `boole-testnet-2` identity is rebound from genesis
+  `a037831a...1930` to `bccffdfb...415c`. Its deterministic accepted fixture
+  and one-byte-invalid control are regenerated and network-signed against the
+  new checker identity as one authority transition. This does not activate a
+  network or authorize reuse of state written under the retired identity.
 - Current milestone: `M6-HTTP-P2P-VERIFICATION-PARITY`. HTTP and P2P share,
   block and reorg ingress must use the same bounded semantic verifier without
   holding the node-state write lock during Lean execution, then revalidate the

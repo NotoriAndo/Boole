@@ -12,6 +12,13 @@ use boole_core::{
     CONSENSUS_RULE_VERSION,
 };
 
+const PRE_M5_TESTNET2_CHECKER_HASH: &str =
+    "1dd3055acb05142816f2082f0b3ad000c49513c3a2401572ec68703542042be1";
+const PRE_M5_TESTNET2_GENESIS_HASH: &str =
+    "a037831acb237025678aa7f36790890fe9fd31f77883b688f1ea1c8eec181930";
+const M5_TESTNET2_GENESIS_HASH: &str =
+    "bccffdfbd0dd34d644d8c301b8d8d05d7387d0ae92ea0e45c03e7c336534415c";
+
 fn testnet_spec() -> GenesisSpec {
     GenesisSpec {
         network_id: "boole-testnet".to_string(),
@@ -81,6 +88,29 @@ fn compiled_network_presets_are_distinct_and_testnet_requires_seeds() {
         dev.hash().to_hex(),
         testnet.hash().to_hex(),
         "compiled networks are distinct genesis identities"
+    );
+}
+
+#[test]
+fn m5_checker_rotation_is_an_explicit_testnet2_genesis_transition() {
+    let current = boole_core::network_genesis_preset("boole-testnet-2").expect("testnet-2 preset");
+    assert_eq!(
+        current.hash().to_hex(),
+        M5_TESTNET2_GENESIS_HASH,
+        "the M5 checker authority must stay bound to its reviewed testnet-2 genesis identity"
+    );
+
+    let mut previous = current.clone();
+    previous.params.checker_artifact_hash = Some(PRE_M5_TESTNET2_CHECKER_HASH.to_string());
+    assert_eq!(
+        previous.hash().to_hex(),
+        PRE_M5_TESTNET2_GENESIS_HASH,
+        "the retired checker authority must reconstruct the exact pre-M5 testnet-2 identity"
+    );
+    assert_ne!(
+        previous.hash(),
+        current.hash(),
+        "rotating the checker authority is a chain identity transition, never an in-place upgrade"
     );
 }
 

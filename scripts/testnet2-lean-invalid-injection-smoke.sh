@@ -113,7 +113,7 @@ launch_honest() {
     --scenario "$SCENARIO" \
     --block-store "$WORKDIR/${name}-blocks.ndjson" \
     --reward-store "$WORKDIR/${name}-rewards.ndjson" \
-    "${session_args[@]}" \
+    "${session_args[@]+"${session_args[@]}"}" \
     --network-id boole-testnet-2 \
     --lean-checker-dir "$CHECKER_DIR" \
     --p2p-listen "127.0.0.1:${p2p}" \

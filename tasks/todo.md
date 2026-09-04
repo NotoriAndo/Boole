@@ -1541,7 +1541,10 @@ plan: /Users/seoyong/.claude/plans/cozy-wiggling-lobster.md (2026-07-18 승인).
       서로 분리된 격리 단계로 실행한다. 세 단계는 하나의 wall-clock deadline을 공유하며,
       source/helper/artifact pathname 바꿔치기와 child process·network·package 쓰기를 차단한다.
       비활성 `boole-testnet-2` checker pin은 `f9da3a1c…d7b4`로 회전했으며 이는 네트워크
-      활성화 권한이 아니다.
+      genesis identity를 `a037831a…1930`→`bccffdfb…415c`로 바꾸는 명시적 체인 전환이다.
+      정상/1-byte-invalid 합성 fixture의 canon·request hash·network signature도 같은 권위로
+      원자 회전했고 실제 closed-local 정상 승인/오답 거절 대조를 통과했다. 네트워크 활성화
+      권한이나 옛 state 재사용 권한은 아니다.
 - [ ] N5.3 M6 HTTP/P2P verification parity — HTTP와 P2P share/block/reorg가 같은
       verifier permit과 판정 분류를 쓰고, Lean 실행 동안 state write lock을 놓은 뒤 최신
       head·fork-choice·dedup·checkpoint를 다시 검증해 durable effect를 적용한다. 현재 다음.

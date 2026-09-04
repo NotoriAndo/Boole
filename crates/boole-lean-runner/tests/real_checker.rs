@@ -21,7 +21,11 @@ theorem boole_valid : 1 + 1 = 2 := by
     let runner = LeanRunner::new(
         LeanRunnerConfig::new("fixture-verifier-hash")
             .with_package_dir(workspace.root.clone())
-            .with_timeout_ms(5_000)
+            // This is the real three-stage correctness control, not the
+            // timeout control below. A clean macOS runner must cold-start
+            // the direct Lean elaborator and the artifact audit, so give
+            // correctness a bounded but non-performance-sensitive window.
+            .with_timeout_ms(30_000)
             .with_memory_limit_mb(8192),
     );
 
@@ -47,7 +51,7 @@ theorem boole_valid : 1 + 1 = 2 := by
         "lean version evidence should be captured: {:?}",
         result.evidence.lean_version
     );
-    assert_eq!(result.evidence.timeout_ms, 5_000);
+    assert_eq!(result.evidence.timeout_ms, 30_000);
     assert_eq!(result.evidence.memory_limit_mb, 8192);
 }
 
