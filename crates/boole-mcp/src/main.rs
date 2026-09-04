@@ -4,9 +4,13 @@
 //!
 //!   * `bounty.list`  -> upstream GET /work
 //!   * `receipt.get`  -> upstream GET /receipts/{receipt_id}
+//!   * `boole.verify_native` -> upstream POST /native-shadow/submissions on a
+//!     separately configured numeric-loopback-only native service URL
 //!
 //! Surface:
-//!   * `serve --node-url <url> --listen <host:port>`
+//!   * `serve --node-url <url> --native-shadow-url <loopback-url>
+//!     --listen <numeric-loopback:port>`; the native bridge refuses a remote,
+//!     wildcard or hostname listener before bind
 //!   * resolved bind address echoed to stderr as
 //!     `boole-mcp listening on http://<addr>` so the launcher can grab
 //!     the ephemeral port when `:0` is requested
@@ -33,11 +37,14 @@
 //!   * unknown tool        -> 400 {"error":"unknown-tool","tool":"<name>"}
 //!   * missing required arg-> 400 {"error":"missing-arg","arg":"<name>"}
 //!   * upstream unreachable-> 502 {"error":"upstream-unreachable"}
+//!   * native transport unknown -> 502 with no invented verdict; manually
+//!     resubmit the identical six fields to recover any durable redelivery
 //!   * not-implemented     -> 501 {"error":"not-implemented","tool":"<name>"}
 //!
-//! No signing, no key material, no mutation routes -- this is a
-//! read-only proxy. The mutation/wallet surface lives in the signed
-//! boole-cli / boole-wallet-agent path, not here.
+//! No signing or key material lives here. Native submission may consume one
+//! node-owned challenge and execute its checker, but only through the separate
+//! loopback native service; wallet, payment, block and reward mutation remain
+//! outside this MCP process.
 
 use std::io::{BufReader, Write};
 use std::net::SocketAddr;
@@ -47,7 +54,8 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use axum::{
-    extract::State,
+    body::{Body, Bytes},
+    extract::{rejection::JsonRejection, FromRequest, Request, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
@@ -62,7 +70,8 @@ use tokio::net::TcpListener;
 use boole_core::Hex32;
 use boole_mcp::{
     build_in_process_mining_deps, handle_jsonrpc_sync, mcp_tools_array, read_mcp_frame,
-    write_mcp_frame, InProcessMiningInputs,
+    write_mcp_frame, InProcessMiningInputs, NATIVE_VERIFIER_RESPONSE_MAX_BYTES,
+    NATIVE_VERIFIER_TIMEOUT_SECS,
 };
 use boole_miner::{
     run_mining_loop, AnnounceTicketResult, ChainHead, FamilyV1LengthBoundTargetEmitter,
@@ -95,6 +104,13 @@ enum Command {
     Serve {
         #[arg(long)]
         node_url: String,
+        /// Separate closed-local native verifier URL. Hostnames, redirects,
+        /// proxies and non-loopback addresses are refused.
+        #[arg(long)]
+        native_shadow_url: Option<String>,
+        /// HTTP MCP bind address. When the native bridge is configured this
+        /// must be a numeric loopback SocketAddr; legacy-only serve retains
+        /// its historical listener behavior.
         #[arg(long, default_value = "127.0.0.1:0")]
         listen: String,
     },
@@ -107,6 +123,9 @@ enum Command {
         /// receipt.get). Optional; omit when only mining tools are needed.
         #[arg(long)]
         node_url: Option<String>,
+        /// Separate closed-local native verifier URL.
+        #[arg(long)]
+        native_shadow_url: Option<String>,
     },
     /// P2.2 — register `boole-mcp` as an MCP server in the target IDE's
     /// settings file. Idempotent merge: re-running this is a no-op when
@@ -153,6 +172,8 @@ impl IdeTarget {
 struct AppState {
     node_url: String,
     client: reqwest::Client,
+    native_shadow_url: Option<String>,
+    native_client: reqwest::Client,
     /// P2.1 slice 54 — last `boole.mine` outcome so `boole.status` can
     /// report `completed` with the full honest counter set (protocol +
     /// agent runtime) instead of `idle` after a session has run in this
@@ -168,6 +189,118 @@ struct InvokeRequest {
     args: Value,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NativeSubmissionArguments {
+    #[serde(rename = "schema")]
+    _schema: String,
+    #[serde(rename = "familyVersion")]
+    _family_version: String,
+    #[serde(rename = "templateId")]
+    _template_id: String,
+    #[serde(rename = "challengeSha256")]
+    _challenge_sha256: String,
+    epoch: serde_json::Number,
+    #[serde(rename = "rawAnswer")]
+    _raw_answer: String,
+}
+
+impl NativeSubmissionArguments {
+    fn epoch_is_integer(&self) -> bool {
+        self.epoch.is_i64() || self.epoch.is_u64()
+    }
+}
+
+#[derive(Deserialize)]
+struct NativeHttpInvocation {
+    tool: String,
+    args: NativeSubmissionArguments,
+}
+
+#[derive(Deserialize)]
+struct NativeHttpProbe {
+    tool: String,
+}
+
+#[derive(Deserialize)]
+struct NativeStdioInvocation {
+    method: String,
+    params: NativeStdioParams,
+}
+
+#[derive(Deserialize)]
+struct NativeStdioProbe {
+    method: String,
+    params: NativeStdioProbeParams,
+}
+
+#[derive(Deserialize)]
+struct NativeStdioProbeParams {
+    name: String,
+}
+
+#[derive(Deserialize)]
+struct NativeStdioParams {
+    name: String,
+    arguments: NativeSubmissionArguments,
+}
+
+#[derive(Clone, Copy)]
+enum NativeInvocationTransport {
+    Http,
+    Stdio,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum NativeArgumentsPrecheck {
+    NotNative,
+    Exact,
+    Invalid,
+}
+
+/// Inspect a native invocation from its original bytes before serde_json can
+/// collapse duplicate object keys into a `Value`. This is deliberately scoped
+/// to `boole.verify_native`; legacy tools retain their historical JSON parsing.
+fn precheck_raw_native_arguments(
+    raw: &[u8],
+    transport: NativeInvocationTransport,
+) -> NativeArgumentsPrecheck {
+    match transport {
+        NativeInvocationTransport::Http => {
+            let targets_native = serde_json::from_slice::<NativeHttpProbe>(raw)
+                .is_ok_and(|request| request.tool == "boole.verify_native");
+            if !targets_native {
+                return NativeArgumentsPrecheck::NotNative;
+            }
+            if serde_json::from_slice::<NativeHttpInvocation>(raw).is_ok_and(|request| {
+                request.tool == "boole.verify_native" && request.args.epoch_is_integer()
+            }) {
+                NativeArgumentsPrecheck::Exact
+            } else {
+                NativeArgumentsPrecheck::Invalid
+            }
+        }
+        NativeInvocationTransport::Stdio => {
+            let targets_native =
+                serde_json::from_slice::<NativeStdioProbe>(raw).is_ok_and(|request| {
+                    request.method == "tools/call" && request.params.name == "boole.verify_native"
+                });
+            if !targets_native {
+                return NativeArgumentsPrecheck::NotNative;
+            }
+            if serde_json::from_slice::<NativeStdioInvocation>(raw).is_ok_and(|request| {
+                request.method == "tools/call"
+                    && request.params.name == "boole.verify_native"
+                    && request.params.arguments.epoch_is_integer()
+            }) {
+                NativeArgumentsPrecheck::Exact
+            } else {
+                NativeArgumentsPrecheck::Invalid
+            }
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     // P0.5 slice 65 — install the telemetry subscriber before any work so
@@ -176,8 +309,15 @@ async fn main() -> Result<()> {
     boole_core::telemetry::init(boole_core::telemetry::BinaryName::Mcp);
     let cli = Cli::parse();
     match cli.command {
-        Command::Serve { node_url, listen } => serve(&node_url, &listen).await,
-        Command::Stdio { node_url } => run_stdio(node_url).await,
+        Command::Serve {
+            node_url,
+            native_shadow_url,
+            listen,
+        } => serve(&node_url, native_shadow_url.as_deref(), &listen).await,
+        Command::Stdio {
+            node_url,
+            native_shadow_url,
+        } => run_stdio(node_url, native_shadow_url).await,
         Command::Install { target, dry_run } => run_install(target, dry_run),
     }
 }
@@ -269,11 +409,17 @@ fn run_install(target: IdeTarget, dry_run: bool) -> Result<()> {
     };
 
     // Use the stdio subcommand so MCP clients (Claude, Cursor, etc.) get the
-    // real JSON-RPC 2.0 stdio transport instead of HTTP.  Pass --node-url so
-    // the proxy tools (bounty.list, receipt.get) keep working.
+    // real JSON-RPC 2.0 stdio transport instead of HTTP. Keep the legacy node
+    // proxy and native verifier on distinct loopback origins.
     let entry = json!({
         "command": bin_str,
-        "args": ["stdio", "--node-url", "http://127.0.0.1:8080"],
+        "args": [
+            "stdio",
+            "--node-url",
+            "http://127.0.0.1:8080",
+            "--native-shadow-url",
+            "http://127.0.0.1:8082"
+        ],
     });
 
     let root = settings
@@ -337,7 +483,65 @@ fn run_install(target: IdeTarget, dry_run: bool) -> Result<()> {
     Ok(())
 }
 
-async fn serve(node_url: &str, listen: &str) -> Result<()> {
+fn validate_native_shadow_url(raw: Option<&str>, node_url: &str) -> Result<Option<String>> {
+    let Some(raw) = raw else { return Ok(None) };
+    let parsed = reqwest::Url::parse(raw).context("parse --native-shadow-url")?;
+    anyhow::ensure!(
+        parsed.scheme() == "http",
+        "--native-shadow-url must use http on numeric loopback"
+    );
+    let loopback = parsed
+        .host_str()
+        .and_then(|host| host.parse::<std::net::IpAddr>().ok())
+        .is_some_and(|address| address.is_loopback());
+    anyhow::ensure!(
+        loopback,
+        "--native-shadow-url must use a numeric loopback address"
+    );
+    anyhow::ensure!(
+        parsed.username().is_empty() && parsed.password().is_none(),
+        "--native-shadow-url must not contain credentials"
+    );
+    anyhow::ensure!(
+        parsed.path() == "/" && parsed.query().is_none() && parsed.fragment().is_none(),
+        "--native-shadow-url must be an origin without path, query or fragment"
+    );
+    if let Ok(node) = reqwest::Url::parse(node_url) {
+        anyhow::ensure!(
+            node.origin() != parsed.origin(),
+            "--native-shadow-url and --node-url must use distinct origins"
+        );
+    }
+    Ok(Some(raw.trim_end_matches('/').to_string()))
+}
+
+fn validate_native_serve_listen(native_shadow_url: Option<&str>, listen: &str) -> Result<()> {
+    if native_shadow_url.is_none() {
+        return Ok(());
+    }
+    let address = listen.parse::<SocketAddr>().with_context(|| {
+        "when --native-shadow-url is configured, --listen must be a numeric loopback socket address"
+    })?;
+    anyhow::ensure!(
+        address.ip().is_loopback(),
+        "when --native-shadow-url is configured, --listen must use a numeric loopback address"
+    );
+    Ok(())
+}
+
+fn native_client() -> Result<reqwest::Client> {
+    Ok(reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(3))
+        .timeout(Duration::from_secs(NATIVE_VERIFIER_TIMEOUT_SECS))
+        .redirect(reqwest::redirect::Policy::none())
+        .retry(reqwest::retry::never())
+        .no_proxy()
+        .build()?)
+}
+
+async fn serve(node_url: &str, native_shadow_url: Option<&str>, listen: &str) -> Result<()> {
+    let native_shadow_url = validate_native_shadow_url(native_shadow_url, node_url)?;
+    validate_native_serve_listen(native_shadow_url.as_deref(), listen)?;
     let listener = TcpListener::bind(listen).await?;
     let addr: SocketAddr = listener.local_addr()?;
     eprintln!("boole-mcp listening on http://{addr}");
@@ -348,6 +552,8 @@ async fn serve(node_url: &str, listen: &str) -> Result<()> {
     let state = Arc::new(AppState {
         node_url: node_url.trim_end_matches('/').to_string(),
         client,
+        native_shadow_url,
+        native_client: native_client()?,
         last_mining_summary: Mutex::new(None),
     });
     let app = build_router(state);
@@ -387,14 +593,18 @@ enum ToolResult {
     BadRequest(Value),
     /// HTTP 502 — upstream unreachable (proxy tools only).
     BadGateway(Value),
+    /// Preserve a native service status and JSON body without translating
+    /// its adjudication vocabulary into the legacy MCP/node vocabulary.
+    Native(StatusCode, Value),
 }
 
 /// Shared async tool dispatcher used by both the HTTP `invoke` handler
 /// and the stdio `tools/call` handler.
 ///
 /// Stateful operations (boole.mine, boole.status) access `state` directly.
-/// Proxy operations (bounty.list, receipt.get) use `state.client` +
-/// `state.node_url`.
+/// Legacy proxy operations (bounty.list, receipt.get) use `state.client` +
+/// `state.node_url`; native verification uses only its separately constrained
+/// client and loopback origin.
 async fn dispatch_tool(state: &AppState, tool: &str, args: &Value) -> ToolResult {
     match tool {
         "bounty.list" => match proxy_get(state, "/work").await {
@@ -413,6 +623,7 @@ async fn dispatch_tool(state: &AppState, tool: &str, args: &Value) -> ToolResult
             }
             _ => ToolResult::BadRequest(json!({"error":"missing-arg","arg":"receipt_id"})),
         },
+        "boole.verify_native" => proxy_native_submission(state, args).await,
         "boole.status" => {
             let guard = state
                 .last_mining_summary
@@ -484,13 +695,32 @@ async fn dispatch_tool(state: &AppState, tool: &str, args: &Value) -> ToolResult
 
 async fn invoke(
     State(state): State<Arc<AppState>>,
-    Json(req): Json<InvokeRequest>,
-) -> (StatusCode, Json<Value>) {
-    match dispatch_tool(&state, &req.tool, &req.args).await {
+    request: Request,
+) -> Result<(StatusCode, Json<Value>), JsonRejection> {
+    // Retain the raw bytes for the native-only duplicate-key pass, then feed a
+    // reconstructed request through axum's original Json extractor. This keeps
+    // the pre-existing Content-Type, body-limit and JsonRejection behavior for
+    // every legacy tool instead of replacing it with a bespoke parser.
+    let headers = request.headers().clone();
+    let body = Bytes::from_request(request, &state)
+        .await
+        .map_err(JsonRejection::from)?;
+    let native_arguments = precheck_raw_native_arguments(&body, NativeInvocationTransport::Http);
+    let mut replay = Request::new(Body::from(body.clone()));
+    *replay.headers_mut() = headers;
+    let Json(req) = Json::<InvokeRequest>::from_request(replay, &state).await?;
+    if req.tool == "boole.verify_native" && native_arguments != NativeArgumentsPrecheck::Exact {
+        return Ok((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error":"invalid-native-submission-arguments"})),
+        ));
+    }
+    Ok(match dispatch_tool(&state, &req.tool, &req.args).await {
         ToolResult::Ok(v) => (StatusCode::OK, Json(v)),
         ToolResult::BadRequest(v) => (StatusCode::BAD_REQUEST, Json(v)),
         ToolResult::BadGateway(v) => (StatusCode::BAD_GATEWAY, Json(v)),
-    }
+        ToolResult::Native(status, v) => (status, Json(v)),
+    })
 }
 
 /// Deterministic closed-local prover stand-in.
@@ -632,6 +862,96 @@ async fn proxy_get(state: &AppState, path: &str) -> (StatusCode, Json<Value>) {
     }
 }
 
+async fn proxy_native_submission(state: &AppState, args: &Value) -> ToolResult {
+    if !has_exact_native_submission_shape(args) {
+        return ToolResult::BadRequest(json!({
+            "error": "invalid-native-submission-arguments"
+        }));
+    }
+    let Some(base_url) = state.native_shadow_url.as_deref() else {
+        return ToolResult::BadGateway(json!({"error":"native-upstream-not-configured"}));
+    };
+    let url = format!("{base_url}/native-shadow/submissions");
+    let mut response = match state
+        .native_client
+        .post(url)
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .json(args)
+        .send()
+        .await
+    {
+        Ok(response) => response,
+        Err(_) => return native_outcome_unknown("native-transport-failed"),
+    };
+    let status =
+        StatusCode::from_u16(response.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+    if response
+        .content_length()
+        .is_some_and(|length| length > NATIVE_VERIFIER_RESPONSE_MAX_BYTES as u64)
+    {
+        return native_outcome_unknown_with_limit("native-response-too-large");
+    }
+    let mut body = Vec::new();
+    loop {
+        let chunk = match response.chunk().await {
+            Ok(Some(chunk)) => chunk,
+            Ok(None) => break,
+            Err(_) => return native_outcome_unknown("native-response-read-failed"),
+        };
+        if body.len().saturating_add(chunk.len()) > NATIVE_VERIFIER_RESPONSE_MAX_BYTES {
+            return native_outcome_unknown_with_limit("native-response-too-large");
+        }
+        body.extend_from_slice(&chunk);
+    }
+    let parsed = match serde_json::from_slice(&body) {
+        Ok(parsed) => parsed,
+        Err(_) => return native_outcome_unknown("native-response-invalid-json"),
+    };
+    ToolResult::Native(status, parsed)
+}
+
+fn native_outcome_unknown(detail: &str) -> ToolResult {
+    ToolResult::BadGateway(json!({
+        "error": "native-upstream-outcome-unknown",
+        "detail": detail,
+        "retry": "resubmit-exact-six-fields"
+    }))
+}
+
+fn native_outcome_unknown_with_limit(detail: &str) -> ToolResult {
+    ToolResult::BadGateway(json!({
+        "error": "native-upstream-outcome-unknown",
+        "detail": detail,
+        "retry": "resubmit-exact-six-fields",
+        "maxBytes": NATIVE_VERIFIER_RESPONSE_MAX_BYTES
+    }))
+}
+
+fn has_exact_native_submission_shape(args: &Value) -> bool {
+    // This is deliberately only the MCP boundary's exact-key/JSON-type check.
+    // The native service remains the sole authority for schema identity,
+    // family/challenge/digest meaning and every field's length/content bounds.
+    const STRING_FIELDS: [&str; 5] = [
+        "schema",
+        "familyVersion",
+        "templateId",
+        "challengeSha256",
+        "rawAnswer",
+    ];
+    let Some(object) = args.as_object() else {
+        return false;
+    };
+    if object.len() != STRING_FIELDS.len() + 1 {
+        return false;
+    }
+    STRING_FIELDS
+        .iter()
+        .all(|name| object.get(*name).is_some_and(Value::is_string))
+        && object
+            .get("epoch")
+            .is_some_and(|epoch| epoch.as_i64().is_some() || epoch.as_u64().is_some())
+}
+
 // ── S6: stdio subcommand ──────────────────────────────────────────────────
 
 /// Wrap a tool result `Value` in the MCP `tools/call` content envelope.
@@ -648,6 +968,10 @@ fn tool_result_to_mcp_content(id: &Value, result: &ToolResult) -> String {
         ToolResult::BadGateway(v) => (
             serde_json::to_string(v).unwrap_or_else(|_| "{}".to_string()),
             true,
+        ),
+        ToolResult::Native(status, v) => (
+            serde_json::to_string(v).unwrap_or_else(|_| "{}".to_string()),
+            !status.is_success(),
         ),
     };
     let resp = json!({
@@ -666,9 +990,9 @@ fn tool_result_to_mcp_content(id: &Value, result: &ToolResult) -> String {
 /// Reads Content-Length-framed JSON-RPC 2.0 messages from stdin, dispatches
 /// them, and writes framed responses to stdout.  Stateless messages
 /// (initialize, tools/list, unknown methods) are handled by the lib's
-/// `handle_jsonrpc_sync`.  Stateful tool calls (boole.mine, boole.status,
-/// bounty.list, receipt.get) are handled via `dispatch_tool` which has access
-/// to `AppState`.
+/// `handle_jsonrpc_sync`. Stateful and proxy tool calls are handled via
+/// `dispatch_tool`, which has access to `AppState` and keeps the native and
+/// legacy upstream origins distinct.
 ///
 /// The loop exits cleanly on EOF (read_mcp_frame returns None).
 ///
@@ -677,18 +1001,22 @@ fn tool_result_to_mcp_content(id: &Value, result: &ToolResult) -> String {
 /// `spawn_blocking` internally, so this fits the existing pattern and avoids
 /// an async IO dependency for a protocol that is inherently sequential (one
 /// request at a time on a single stdio pipe).
-async fn run_stdio(node_url: Option<String>) -> Result<()> {
+async fn run_stdio(node_url: Option<String>, native_shadow_url: Option<String>) -> Result<()> {
+    let node_url = node_url
+        .as_deref()
+        .unwrap_or("http://127.0.0.1:8080")
+        .trim_end_matches('/')
+        .to_string();
+    let native_shadow_url = validate_native_shadow_url(native_shadow_url.as_deref(), &node_url)?;
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(3))
         .timeout(Duration::from_secs(10))
         .build()?;
     let state = Arc::new(AppState {
-        node_url: node_url
-            .as_deref()
-            .unwrap_or("http://127.0.0.1:8080")
-            .trim_end_matches('/')
-            .to_string(),
+        node_url,
         client,
+        native_shadow_url,
+        native_client: native_client()?,
         last_mining_summary: Mutex::new(None),
     });
 
@@ -714,6 +1042,9 @@ async fn run_stdio(node_url: Option<String>) -> Result<()> {
                 break;
             }
         };
+
+        let native_arguments =
+            precheck_raw_native_arguments(msg.as_bytes(), NativeInvocationTransport::Stdio);
 
         // Try the stateless handler first (initialize, tools/list, unknown
         // methods, notifications).
@@ -744,7 +1075,15 @@ async fn run_stdio(node_url: Option<String>) -> Result<()> {
             let params = req_val.get("params").cloned().unwrap_or(json!({}));
             let tool_name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
             let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
-            let result = dispatch_tool(&state, tool_name, &arguments).await;
+            let result = if tool_name == "boole.verify_native"
+                && native_arguments != NativeArgumentsPrecheck::Exact
+            {
+                ToolResult::BadRequest(json!({
+                    "error": "invalid-native-submission-arguments"
+                }))
+            } else {
+                dispatch_tool(&state, tool_name, &arguments).await
+            };
             let resp_str = tool_result_to_mcp_content(&id, &result);
             let stdout_clone = Arc::clone(&stdout);
             tokio::task::spawn_blocking(move || {
