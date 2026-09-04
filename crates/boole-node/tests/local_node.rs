@@ -67,6 +67,21 @@ fn local_node_serves_status_and_accepts_submit_into_replayable_block() {
         serde_json::from_str(&fs::read_to_string(&scenario_path).expect("scenario fixture"))
             .expect("scenario json");
     let body = &scenario["steps"][0]["body"];
+
+    // The wire protocol announces a ticket against the current head before
+    // submitting the share that may advance that head. M6 deliberately drops
+    // per-head ticket state after a commit, so querying the retired anchor
+    // after `/submit` would exercise a stale request rather than this happy
+    // path.
+    let ticket_body = serde_json::json!({
+        "c": body["c"],
+        "pk": body["pk"],
+        "n": body["n"],
+    });
+    let ticket = request_json_with_body(addr, "/ticket", &ticket_body);
+    assert_eq!(ticket["ok"], true);
+    assert_eq!(ticket["hashHex"].as_str().expect("ticket hash").len(), 64);
+
     let submit = request_json_with_body(addr, "/submit", body);
     assert_eq!(submit["accepted"], true);
     assert_eq!(submit["block"]["height"], 0);
@@ -76,17 +91,6 @@ fn local_node_serves_status_and_accepts_submit_into_replayable_block() {
     assert_eq!(head["height"], 1);
     assert_eq!(head["c"], submit["block"]["c"]);
     assert_eq!(head["T_share"], scenario["cfg"]["T_share"]);
-
-    // pof TicketBody contract: {c, pk, n} only. Submit-shaped bodies that include j/nonceS/etc
-    // are rejected with HTTP 400 unexpected_field at the /ticket boundary.
-    let ticket_body = serde_json::json!({
-        "c": body["c"],
-        "pk": body["pk"],
-        "n": body["n"],
-    });
-    let ticket = request_json_with_body(addr, "/ticket", &ticket_body);
-    assert_eq!(ticket["ok"], true);
-    assert_eq!(ticket["hashHex"].as_str().expect("ticket hash").len(), 64);
 
     handle
         .join()
