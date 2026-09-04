@@ -968,6 +968,76 @@ fn stdio_native_call_requires_jsonrpc_v2_and_string_or_number_id() {
 }
 
 #[test]
+fn stdio_native_call_rejects_duplicate_id_before_upstream() {
+    let upstream = NativeUpstream::start(accepted_response());
+    let mut child = Command::new(env!("CARGO_BIN_EXE_boole-mcp"))
+        .args([
+            "stdio",
+            "--node-url",
+            "http://127.0.0.1:9",
+            "--native-shadow-url",
+            upstream.url().as_str(),
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn boole-mcp stdio");
+    let mut stdin = child.stdin.take().expect("stdio stdin");
+    let mut stdout = BufReader::new(child.stdout.take().expect("stdio stdout"));
+    let _guard = ChildGuard(child);
+    let arguments = submission("duplicate-id-must-not-run");
+    let request = format!(
+        r#"{{"jsonrpc":"2.0","id":41,"id":42,"method":"tools/call","params":{{"name":"boole.verify_native","arguments":{arguments}}}}}"#
+    );
+
+    write_mcp_frame_raw(&mut stdin, &request);
+    let response = read_mcp_frame(&mut stdout);
+
+    assert_eq!(response["id"], Value::Null, "response={response}");
+    assert_eq!(response["error"]["code"], -32600, "response={response}");
+    assert!(
+        upstream.requests().is_empty(),
+        "duplicate request ids must not consume a native challenge"
+    );
+}
+
+#[test]
+fn stdio_native_call_rejects_duplicate_jsonrpc_before_upstream() {
+    let upstream = NativeUpstream::start(accepted_response());
+    let mut child = Command::new(env!("CARGO_BIN_EXE_boole-mcp"))
+        .args([
+            "stdio",
+            "--node-url",
+            "http://127.0.0.1:9",
+            "--native-shadow-url",
+            upstream.url().as_str(),
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn boole-mcp stdio");
+    let mut stdin = child.stdin.take().expect("stdio stdin");
+    let mut stdout = BufReader::new(child.stdout.take().expect("stdio stdout"));
+    let _guard = ChildGuard(child);
+    let arguments = submission("duplicate-jsonrpc-must-not-run");
+    let request = format!(
+        r#"{{"jsonrpc":"1.0","jsonrpc":"2.0","id":43,"method":"tools/call","params":{{"name":"boole.verify_native","arguments":{arguments}}}}}"#
+    );
+
+    write_mcp_frame_raw(&mut stdin, &request);
+    let response = read_mcp_frame(&mut stdout);
+
+    assert_eq!(response["id"], Value::Null, "response={response}");
+    assert_eq!(response["error"]["code"], -32600, "response={response}");
+    assert!(
+        upstream.requests().is_empty(),
+        "duplicate JSON-RPC versions must not consume a native challenge"
+    );
+}
+
+#[test]
 fn manual_redelivery_transport_survives_mcp_restart_without_automatic_retry() {
     let accepted_committed = Arc::new(AtomicBool::new(false));
     let accepted_fixture_evaluations = Arc::new(AtomicUsize::new(0));

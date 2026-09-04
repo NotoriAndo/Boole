@@ -240,6 +240,12 @@ struct NativeStdioProbeParams {
 }
 
 #[derive(Deserialize)]
+struct NativeStdioEnvelopeProbe {
+    jsonrpc: String,
+    id: Value,
+}
+
+#[derive(Deserialize)]
 struct NativeStdioParams {
     name: String,
     arguments: NativeSubmissionArguments,
@@ -1081,6 +1087,10 @@ async fn run_stdio(node_url: Option<String>, native_shadow_url: Option<String>) 
                 .and_then(|params| params.get("name"))
                 .and_then(Value::as_str)
                 == Some("boole.verify_native");
+        let native_envelope_is_exact = !is_native_tool_call
+            || serde_json::from_str::<NativeStdioEnvelopeProbe>(&msg).is_ok_and(|request| {
+                request.jsonrpc == "2.0" && (request.id.is_string() || request.id.is_number())
+            });
 
         // The mutating native tool must arrive as a correlated MCP request,
         // never a fire-and-forget notification. Do not let an id-less call
@@ -1088,18 +1098,10 @@ async fn run_stdio(node_url: Option<String>, native_shadow_url: Option<String>) 
         if is_native_tool_call && request_id.is_none() {
             continue;
         }
-        if is_native_tool_call
-            && (req_val.get("jsonrpc").and_then(Value::as_str) != Some("2.0")
-                || !request_id
-                    .as_ref()
-                    .is_some_and(|id| id.is_string() || id.is_number()))
-        {
-            let response_id = request_id
-                .filter(|id| id.is_string() || id.is_number())
-                .unwrap_or(Value::Null);
+        if is_native_tool_call && !native_envelope_is_exact {
             let response = json!({
                 "jsonrpc": "2.0",
-                "id": response_id,
+                "id": null,
                 "error": {
                     "code": -32600,
                     "message": "Invalid Request: tools/call requires jsonrpc 2.0 and a string or number id"
