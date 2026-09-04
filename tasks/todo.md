@@ -1545,7 +1545,7 @@ plan: /Users/seoyong/.claude/plans/cozy-wiggling-lobster.md (2026-07-18 승인).
       체인 전환이다. 정상/1-byte-invalid 합성 fixture의 canon·request hash·network
       signature도 같은 권위로 원자 회전했고 실제 closed-local 정상 승인/오답 거절
       대조를 통과했다. 네트워크 활성화 권한이나 옛 state 재사용 권한은 아니다.
-- [ ] N5.3 M6 HTTP/P2P Lean parity — HTTP와 peer share가 같은
+- [x] N5.3 M6 HTTP/P2P Lean parity — HTTP와 peer share가 같은
       `SelectedShareEvidence` 투영과 같은 reverify entry를 사용한다. semantic reject는
       active pool/candidate를 제거하고 bounded current-head tombstone과 rate charge만
       보존한다. verifier busy/unavailable은 candidate·reservation·rate charge를 모두
@@ -1560,9 +1560,8 @@ plan: /Users/seoyong/.claude/plans/cozy-wiggling-lobster.md (2026-07-18 승인).
       ticket-only churn이 in-flight charge를 evict하지 못한다. 두 outcome 모두
       gossip·session nonce·block·reward·
       proof-credit·receipt 효과를 0으로 유지한다. 기존 valid Lean
-      control은 삭제·skip·비-Lean 대체 금지이며 M5가 그 live control을 green으로 만든
-      뒤에만 완료할 수 있다.
-- [ ] `boole.verify_native` MCP vertical — M5와 M6가 모두 green인 뒤 착수한다.
+      control은 삭제·skip·비-Lean 대체 없이 같은 closed-local E2E에서 green이다.
+- [ ] `boole.verify_native` MCP vertical — M5와 M6가 모두 green이므로 현재 다음이다.
 
 ---
 

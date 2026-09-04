@@ -199,7 +199,7 @@ rewards and activation remain deferred.
   and one-byte-invalid control are regenerated and network-signed against the
   new checker identity as one authority transition. This does not activate a
   network or authorize reuse of state written under the retired identity.
-- Current milestone: `M6-HTTP-P2P-LEAN-PARITY`. A
+- Completed milestone: `M6-HTTP-P2P-LEAN-PARITY`. A
   checker-pinned named node must project an HTTP-submitted share and a
   peer-announced share into the same `SelectedShareEvidence` shape and run the
   same Lean re-verification entry after structural admission and proof dedup.
@@ -226,11 +226,11 @@ rewards and activation remain deferred.
   tracer E2E must retain both controls: the proof-invalid fixture is rejected
   through public HTTP with zero downstream effects, and the existing valid
   Lean fixture still commits and converges. The valid control may not be
-  skipped or replaced by a non-Lean fixture. The M5-backed live controls must
-  pass before M6 is marked complete.
-- The `boole.verify_native` MCP vertical remains the milestone after M5 and
-  M6; neither milestone authorizes MCP-submitted code before both boundaries
-  are green.
+  skipped or replaced by a non-Lean fixture. The M5-backed live controls pass
+  together with this boundary.
+- Current milestone: the `boole.verify_native` MCP vertical. M5 and M6 make
+  that closed-local integration eligible to proceed; they do not themselves
+  authorize MCP-submitted code.
 
 This progress is closed-local protocol hardening. It neither activates a public
 testnet nor authorizes mining, rewards, payment, consensus, P2P exposure or use
