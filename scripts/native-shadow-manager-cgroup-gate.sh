@@ -63,8 +63,11 @@ launcher_path=$launcher_directory/boole-native-shadow-launcher
 node_qualification_path=$launcher_directory/boole-native-shadow-node-qualification
 node_replay_client_path=$launcher_directory/boole-native-shadow-node-replay-client
 node_replay_service_path=$launcher_directory/boole-native-shadow-replay-node
+boole_mcp_path=$launcher_directory/boole-mcp
 http_replay_gate_source=$(readlink -f scripts/native_shadow_http_replay_gate.py)
 http_replay_gate_path=$launcher_directory/native-shadow-http-replay-gate.py
+mcp_trace_gate_source=$(readlink -f scripts/native_shadow_mcp_real_trace_gate.py)
+mcp_trace_gate_path=$launcher_directory/native-shadow-mcp-real-trace-gate.py
 if [[ "$authority_profile" == arm64 ]]; then
   http_replay_grant_source_relative=native/containment/native-shadow-closed-local-replay-grant-arm64-v1.json
 else
@@ -99,6 +102,7 @@ node_build_json=$(mktemp "$temp_root/boole-native-shadow-node-build.XXXXXX")
 replay_client_build_json=$(mktemp "$temp_root/boole-native-shadow-replay-client-build.XXXXXX")
 production_launcher_build_json=$(mktemp "$temp_root/boole-native-shadow-production-launcher-build.XXXXXX")
 production_node_build_json=$(mktemp "$temp_root/boole-native-shadow-production-node-build.XXXXXX")
+production_mcp_build_json=$(mktemp "$temp_root/boole-native-shadow-production-mcp-build.XXXXXX")
 log=$(mktemp "$temp_root/boole-native-shadow-manager.XXXXXX")
 node_log=$(mktemp "$temp_root/boole-native-shadow-node.XXXXXX")
 replay_client_log=$(mktemp "$temp_root/boole-native-shadow-replay-client.XXXXXX")
@@ -123,7 +127,9 @@ launcher_installed=false
 node_qualification_installed=false
 node_replay_client_installed=false
 node_replay_service_installed=false
+boole_mcp_installed=false
 http_replay_gate_installed=false
+mcp_trace_gate_installed=false
 http_replay_inputs_install_started=false
 node_service_installed=false
 node_service_dropin_directory_created=false
@@ -175,7 +181,9 @@ cleanup_gate() {
   [[ "$node_qualification_installed" == true ]] && sudo rm -f "$node_qualification_path"
   [[ "$node_replay_client_installed" == true ]] && sudo rm -f "$node_replay_client_path"
   [[ "$node_replay_service_installed" == true ]] && sudo rm -f "$node_replay_service_path"
+  [[ "$boole_mcp_installed" == true ]] && sudo rm -f "$boole_mcp_path"
   [[ "$http_replay_gate_installed" == true ]] && sudo rm -f "$http_replay_gate_path"
+  [[ "$mcp_trace_gate_installed" == true ]] && sudo rm -f "$mcp_trace_gate_path"
   if [[ "$http_replay_inputs_install_started" == true ]]; then
     sudo rm -f "$http_replay_grant_path"
     sudo rm -f \
@@ -228,6 +236,7 @@ cleanup_gate() {
   [[ -z "$toolchain_stage" ]] || rm -rf "$toolchain_stage"
   rm -f "$build_json" "$node_build_json" "$replay_client_build_json" \
     "$production_launcher_build_json" "$production_node_build_json" \
+    "$production_mcp_build_json" \
     "$log" "$node_log" "$replay_client_log" "$dropin_source" "$node_dropin_source"
 }
 trap cleanup_gate EXIT
@@ -239,6 +248,9 @@ done
 [[ -f scripts/native_shadow_http_replay_gate.py \
   && ! -L scripts/native_shadow_http_replay_gate.py ]] \
   || die "HTTP replay gate source is not one exact nonsymlink file"
+[[ -f scripts/native_shadow_mcp_real_trace_gate.py \
+  && ! -L scripts/native_shadow_mcp_real_trace_gate.py ]] \
+  || die "real MCP trace gate source is not one exact nonsymlink file"
 [[ -f "$http_replay_grant_source" && ! -L "$http_replay_grant_source_relative" ]] \
   || die "HTTP replay grant source is not one exact nonsymlink file"
 [[ -d fixtures/native-shadow/a-rooted-native-mining-e2e-v1-real-history \
@@ -261,7 +273,8 @@ node_load_state=$(systemctl show "$node_service_name" --property=LoadState --val
 for path in "$unit_path" "$unit_dropin_directory" "$launcher_path" \
   "$node_service_path" "$node_service_dropin_directory" \
   "$node_qualification_path" "$node_replay_client_path" "$node_replay_service_path" \
-  "$http_replay_gate_path" "$http_replay_grant_path" "$http_replay_fixture_directory" \
+  "$boole_mcp_path" "$http_replay_gate_path" "$mcp_trace_gate_path" \
+  "$http_replay_grant_path" "$http_replay_fixture_directory" \
   "$runtime_directory" "$node_state_directory" "$node_journal_path" \
   "$service_root" "$toolchain_prefix"; do
   [[ ! -e "$path" && ! -L "$path" ]] || die "refusing to replace pre-existing path: $path"
@@ -375,6 +388,7 @@ node_replay_client_source=${replay_client_executables[0]}
 
 production_launcher_source=''
 production_node_source=''
+production_mcp_source=''
 if [[ "$closed_local_replay_only" == true ]]; then
   if [[ "$authority_profile" == arm64 ]]; then
     cargo build --locked -p boole-native-shadow-launcher \
@@ -432,6 +446,28 @@ for line in open(sys.argv[1], encoding="utf-8"):
     || die "expected one production replay-node executable, got ${#production_node_executables[@]}"
   production_node_source=${production_node_executables[0]}
   [[ -x "$production_node_source" ]] || die "production replay node is not executable"
+
+  cargo build --locked -p boole-mcp --bin boole-mcp \
+    --message-format=json >"$production_mcp_build_json"
+  mapfile -t production_mcp_executables < <(
+    python3 -c '
+import json
+import sys
+
+for line in open(sys.argv[1], encoding="utf-8"):
+    item = json.loads(line)
+    if (
+        item.get("reason") == "compiler-artifact"
+        and item.get("target", {}).get("name") == "boole-mcp"
+        and item.get("executable")
+    ):
+        print(item["executable"])
+' "$production_mcp_build_json"
+  )
+  [[ ${#production_mcp_executables[@]} -eq 1 ]] \
+    || die "expected one production boole-mcp executable, got ${#production_mcp_executables[@]}"
+  production_mcp_source=${production_mcp_executables[0]}
+  [[ -x "$production_mcp_source" ]] || die "production boole-mcp is not executable"
 fi
 
 toolchain_stage=$(mktemp -d "$temp_root/boole-native-shadow-toolchain.XXXXXX")
@@ -493,8 +529,12 @@ if [[ "$closed_local_replay_only" == true ]]; then
   sudo install -o root -g root -m 0755 \
     "$production_node_source" "$node_replay_service_path"
   node_replay_service_installed=true
+  sudo install -o root -g root -m 0755 "$production_mcp_source" "$boole_mcp_path"
+  boole_mcp_installed=true
   sudo install -o root -g root -m 0555 "$http_replay_gate_source" "$http_replay_gate_path"
   http_replay_gate_installed=true
+  sudo install -o root -g root -m 0555 "$mcp_trace_gate_source" "$mcp_trace_gate_path"
+  mcp_trace_gate_installed=true
   http_replay_inputs_install_started=true
   sudo install -o root -g root -m 0444 "$http_replay_grant_source" "$http_replay_grant_path"
   sudo install -d -o root -g root -m 0755 "$http_replay_fixture_directory"
@@ -523,10 +563,18 @@ if [[ "$closed_local_replay_only" == true ]]; then
     || die "installed production replay-node bytes differ from the reviewed binary"
   [[ $(sudo stat -c %U:%G:%a "$node_replay_service_path") == root:root:755 ]] \
     || die "installed production replay-node metadata does not match root:root:755"
+  [[ $(sha256sum "$production_mcp_source" | awk '{ print $1 }') == $(sudo sha256sum "$boole_mcp_path" | awk '{ print $1 }') ]] \
+    || die "installed boole-mcp bytes differ from the reviewed binary"
+  [[ $(sudo stat -c %U:%G:%a "$boole_mcp_path") == root:root:755 ]] \
+    || die "installed boole-mcp metadata does not match root:root:755"
   [[ $(sha256sum "$http_replay_gate_source" | awk '{ print $1 }') == $(sudo sha256sum "$http_replay_gate_path" | awk '{ print $1 }') ]] \
     || die "installed HTTP replay gate bytes differ from the reviewed script"
   [[ $(sudo stat -c %U:%G:%a "$http_replay_gate_path") == root:root:555 ]] \
     || die "installed HTTP replay gate metadata does not match root:root:555"
+  [[ $(sha256sum "$mcp_trace_gate_source" | awk '{ print $1 }') == $(sudo sha256sum "$mcp_trace_gate_path" | awk '{ print $1 }') ]] \
+    || die "installed real MCP trace gate bytes differ from the reviewed script"
+  [[ $(sudo stat -c %U:%G:%a "$mcp_trace_gate_path") == root:root:555 ]] \
+    || die "installed real MCP trace gate metadata does not match root:root:555"
   [[ $(sha256sum "$http_replay_grant_source" | awk '{ print $1 }') == $(sudo sha256sum "$http_replay_grant_path" | awk '{ print $1 }') ]] \
     || die "installed HTTP replay grant bytes differ from the reviewed authority"
   [[ $(sudo stat -c %U:%G:%a "$http_replay_grant_path") == root:root:444 ]] \
@@ -1202,7 +1250,8 @@ PY
 
   set +e
   timeout --foreground --signal=TERM --kill-after=10s 420s \
-    sudo -u boole-node python3 "$http_replay_gate_path" \
+    sudo -u boole-node python3 "$mcp_trace_gate_path" \
+      --mcp-binary "$boole_mcp_path" \
       --grant-path "$http_replay_grant_path" \
       --fixture-directory "$http_replay_fixture_directory" \
       --journal-path "$node_journal_path" >"$replay_client_log" 2>&1
@@ -1218,19 +1267,21 @@ PY
       "_SYSTEMD_INVOCATION_ID=$node_invocation" >&2 || :
     sudo journalctl --no-pager -o cat -u "$unit_name" \
       "_SYSTEMD_INVOCATION_ID=$launcher_invocation" >&2 || :
-    die "production HTTP replay matrix failed or exceeded its outer deadline"
+    die "production real MCP trace failed or exceeded its outer deadline"
   fi
 
   local marker
   for marker in \
-    native-shadow-http-replay-case:accepted:PASS \
-    native-shadow-http-replay-case:tampered:PASS \
-    native-shadow-http-replay-case:constant:PASS \
-    native-shadow-http-replay-case:empty:PASS \
-    native-shadow-http-replay-journal:PASS \
-    native-shadow-http-replay-matrix:PASS; do
+    native-shadow-real-mcp-case:accepted:PASS \
+    native-shadow-real-mcp-case:tampered:PASS \
+    native-shadow-real-mcp-case:constant:PASS \
+    native-shadow-real-mcp-redelivery:accepted:PASS \
+    native-shadow-real-mcp-redelivery:tampered:PASS \
+    native-shadow-real-mcp-journal-unchanged:PASS \
+    native-shadow-real-mcp-legacy-node-connections:0 \
+    native-shadow-real-mcp-trace:PASS; do
     [[ $(grep -Fxc "$marker" "$replay_client_log" || :) -eq 1 ]] \
-      || die "production HTTP replay matrix omitted exact marker: $marker"
+      || die "production real MCP trace omitted exact marker: $marker"
   done
 
   # The launcher reads SO_PEERCRED on every checker connection. The HTTP
@@ -1312,7 +1363,7 @@ PY
     || die "production HTTP replay left a derived runtime-root path behind"
   [[ -z $(findmnt -rn -o TARGET | grep -F '/run/boole/native-shadow/rootfs-' || :) ]] \
     || die "production HTTP replay left a derived runtime-root mount behind"
-  echo "native-shadow production HTTP replay gate: PASS"
+  echo "native-shadow production real MCP trace gate: PASS"
 }
 
 run_crash_restart_replay_gate() {

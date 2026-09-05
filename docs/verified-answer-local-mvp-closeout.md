@@ -257,8 +257,19 @@ remain deferred.
   proves durable commit and no second checker execution on that exact endpoint;
   this is composite boundary evidence, not a claim that the MCP fixture itself
   ran the production checker.
-- Current milestone: select the next closed-local product boundary. Completing
-  D3 does not implicitly authorize payment, wallet automation, a public
+- Completed milestone: `NEXT-CLOSED-LOCAL-PRODUCT.1-REAL-NATIVE-MCP-TRACE`.
+  The named Linux containment lane now replaces that composite-only gap with
+  one actual `boole-mcp stdio` request path through the actual node service,
+  qualified launcher and frozen checker. It observes ACCEPT and deterministic
+  rejection, restarts MCP, manually replays both terminal submissions, and
+  requires the same receipt/evidence with no durable-journal growth. A live
+  trap at the legacy node origin must observe zero connections. The existing
+  node/launcher crash-restart gate still follows this trace in the same lane.
+- Current milestone: select a separately bounded real MCP-client/LLM canary.
+  That future canary must not treat model output as authority and must receive
+  explicit paid-model approval and a cost cap when applicable. Completing the
+  real native MCP trace does not implicitly authorize payment, wallet
+  automation, a public
   testnet, public P2P, mining, rewards, consensus or activation.
 
 This progress is closed-local protocol hardening. It neither activates a public

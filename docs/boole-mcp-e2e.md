@@ -285,14 +285,17 @@ fields manually: the native service can return its durable terminal result with
 `redelivered: true` without a second checker execution, even if the MCP process
 restarted in between.
 
-That last property is backed by two adjoining layers rather than a mock being
-called a real checker. The MCP transport E2E observes the same six field values,
-ambiguous disconnect, process restart and manual replay; the recovered receipt
-and evidence digest stay the same while `redelivered` changes to `true`.
-The native service's own router and crash/restart E2E tests independently prove
-that the same endpoint commits terminal ACCEPT/reject evidence durably and does
-not launch the checker again on redelivery. Together they cover the boundary;
-the MCP fixture alone is not evidence of a real checker execution.
+The Linux containment lane also exercises the complete boundary as one trace:
+an actual `boole-mcp stdio` process sends the exact six fields to the actual
+node service, which runs the frozen checker through the qualified launcher.
+The trace observes one ACCEPT and two deterministic rejections, then restarts
+only `boole-mcp` and manually replays the accepted and rejected submissions.
+Both terminal results retain the same receipt and evidence digest with only
+`redelivered` changing to `true`; the durable journal remains byte-identical,
+so the replay caused no extra checker execution. A listening trap at the
+separate legacy node origin observes zero connections. The adjoining node
+crash/restart E2E remains in the same lane and separately proves the stronger
+case where the node and launcher processes themselves are replaced.
 
 ## Transcript capture
 
