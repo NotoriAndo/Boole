@@ -7156,6 +7156,12 @@ mod tests {
         (runtime, body, reward_pk, signed_work, now_unix_ms() as i64)
     }
 
+    enum FixtureTipSelection<'a> {
+        First,
+        GreatestInWindow,
+        LessThan(&'a str),
+    }
+
     fn commit_one_fixture_block(
         runtime: &mut RuntimeAdmissionState,
         body: &serde_json::Map<String, Value>,
@@ -7163,7 +7169,7 @@ mod tests {
         block_path: &Path,
         admitted_at: i64,
         peer_ip: &str,
-        head_must_be_less_than: Option<&str>,
+        selection: FixtureTipSelection<'_>,
     ) -> PersistedBlock {
         let (reward_pk, signed_work) = authorization;
         runtime
@@ -7190,8 +7196,8 @@ mod tests {
             !accepted_tags.is_empty(),
             "accepted fixture must remain candidate-eligible"
         );
-        let commit_ts = match head_must_be_less_than {
-            Some(upper_bound) => (1..=4_096_u64)
+        let commit_ts = match selection {
+            FixtureTipSelection::LessThan(upper_bound) => (1..=4_096_u64)
                 .map(|offset| admitted_at as u64 + offset)
                 .find(|ts| {
                     runtime
@@ -7199,7 +7205,16 @@ mod tests {
                         .is_ok_and(|block| block.c.as_str() < upper_bound)
                 })
                 .expect("find a deterministic lower-hash same-weight local tip"),
-            None => admitted_at as u64 + 1,
+            FixtureTipSelection::GreatestInWindow => (1..=4_096_u64)
+                .map(|offset| admitted_at as u64 + offset)
+                .max_by_key(|ts| {
+                    runtime
+                        .produce_block_for_current_c(0, *ts, &accepted_tags)
+                        .expect("fixture candidate block builds")
+                        .c
+                })
+                .expect("fixture timestamp window is nonempty"),
+            FixtureTipSelection::First => admitted_at as u64 + 1,
         };
         runtime
             .commit_next_block_for_current_c(block_path, commit_ts, &accepted_tags)
@@ -8028,7 +8043,7 @@ mod tests {
             &producer_path,
             now,
             "198.51.100.90",
-            None,
+            FixtureTipSelection::First,
         );
         let block_value = serde_json::to_value(&block).expect("peer block serializes");
 
@@ -8107,7 +8122,7 @@ mod tests {
             &producer_path,
             now_unix_ms() as i64,
             "198.51.100.85",
-            None,
+            FixtureTipSelection::First,
         );
         let block_value = serde_json::to_value(&block).expect("peer block serializes");
 
@@ -8173,9 +8188,9 @@ mod tests {
             &candidate_body,
             (&candidate_reward_pk, &candidate_signed_work),
             &producer_path,
-            now,
-            "198.51.100.91",
-            None,
+            now + 10,
+            "198.51.100.92",
+            FixtureTipSelection::GreatestInWindow,
         );
         let candidate_values =
             vec![serde_json::to_value(&candidate_block).expect("peer block serializes")];
@@ -8226,7 +8241,7 @@ mod tests {
                 &block_path,
                 now + 10,
                 "198.51.100.92",
-                Some(&candidate_block.c),
+                FixtureTipSelection::LessThan(&candidate_block.c),
             )
         };
         release_tx.send(()).expect("release reorg verifier");
