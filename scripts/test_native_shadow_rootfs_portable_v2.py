@@ -162,17 +162,19 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
             replay,
         )
         self.assertIn('sudo systemctl start "$node_service_name"', manager)
-        self.assertIn('python3 "$http_replay_gate_path"', manager)
+        self.assertIn('python3 "$mcp_trace_gate_path"', manager)
         for marker in (
-            "native-shadow-http-replay-case:accepted:PASS",
-            "native-shadow-http-replay-case:tampered:PASS",
-            "native-shadow-http-replay-case:constant:PASS",
-            "native-shadow-http-replay-case:empty:PASS",
-            "native-shadow-http-replay-journal:PASS",
-            "native-shadow-http-replay-matrix:PASS",
+            "native-shadow-real-mcp-case:accepted:PASS",
+            "native-shadow-real-mcp-case:tampered:PASS",
+            "native-shadow-real-mcp-case:constant:PASS",
+            "native-shadow-real-mcp-redelivery:accepted:PASS",
+            "native-shadow-real-mcp-redelivery:tampered:PASS",
+            "native-shadow-real-mcp-journal-unchanged:PASS",
+            "native-shadow-real-mcp-legacy-node-connections:0",
+            "native-shadow-real-mcp-trace:PASS",
         ):
             self.assertIn(marker, manager)
-        self.assertIn("native-shadow production HTTP replay gate: PASS", manager)
+        self.assertIn("native-shadow production real MCP trace gate: PASS", manager)
 
     def test_linux_replay_rejects_rootfs_drift_before_any_checker_report(self) -> None:
         manager = (
@@ -274,7 +276,7 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
             failure_block,
         )
         self.assertIn(
-            'die "production HTTP replay matrix failed or exceeded its outer deadline"',
+            'die "production real MCP trace failed or exceeded its outer deadline"',
             failure_block,
         )
 

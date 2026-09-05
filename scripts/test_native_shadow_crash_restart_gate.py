@@ -236,7 +236,7 @@ class CrashRestartGateWiringTests(unittest.TestCase):
             driver,
         )
 
-    def test_manager_gate_runs_crash_phase_after_http_matrix(self) -> None:
+    def test_manager_gate_runs_crash_phase_after_real_mcp_trace(self) -> None:
         manager = MANAGER_GATE_PATH.read_text(encoding="utf-8")
         self.assertIn('sudo python3 "$crash_gate_source"', manager)
         for marker in (
@@ -247,7 +247,7 @@ class CrashRestartGateWiringTests(unittest.TestCase):
         ):
             self.assertIn(marker, manager)
         self.assertLess(
-            manager.index("native-shadow production HTTP replay gate: PASS"),
+            manager.index("native-shadow production real MCP trace gate: PASS"),
             manager.index("run_crash_restart_replay_gate() {"),
         )
         self.assertRegex(

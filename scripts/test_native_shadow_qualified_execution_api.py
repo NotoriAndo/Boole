@@ -34,6 +34,10 @@ class NativeShadowQualifiedExecutionApiTests(unittest.TestCase):
 
         self.assertIn("serve_qualified_three_fixed_unix_executions", manager)
         self.assertIn(
+            'sudo -u boole-node python3 "$mcp_trace_gate_path"', gate
+        )
+        self.assertIn('--mcp-binary "$boole_mcp_path"', gate)
+        self.assertNotIn(
             'sudo -u boole-node python3 "$http_replay_gate_path"', gate
         )
         self.assertIn("[[ ${#peer_pids[@]} -eq 3 ]]", gate)

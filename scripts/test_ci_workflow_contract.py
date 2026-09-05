@@ -28,6 +28,9 @@ ARM64_ROOTFS_REPLAY_GATE = (
 NATIVE_SHADOW_HTTP_REPLAY_GATE = (
     REPO_ROOT / "scripts" / "native_shadow_http_replay_gate.py"
 )
+NATIVE_SHADOW_MCP_REAL_TRACE_GATE = (
+    REPO_ROOT / "scripts" / "native_shadow_mcp_real_trace_gate.py"
+)
 NATIVE_SHADOW_REPLAY_NODE_UNIT = (
     REPO_ROOT / "native" / "systemd" / "boole-native-shadow-replay-node.service"
 )
@@ -216,6 +219,7 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             / "crates/boole-native-shadow-launcher/src/active_execution/mod.rs"
         ).read_text(encoding="utf-8")
         http_replay = NATIVE_SHADOW_HTTP_REPLAY_GATE.read_text(encoding="utf-8")
+        mcp_trace = NATIVE_SHADOW_MCP_REAL_TRACE_GATE.read_text(encoding="utf-8")
         for command in (
             "native_shadow_rootfs_portable_v2.py",
             "native_shadow_rootfs_builder.py",
@@ -240,11 +244,14 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             "runtime rootfs replay identity drifted",
             "cargo build --locked -p boole-native-shadow-launcher --bin boole-native-shadow-launcher",
             "cargo build --locked -p boole-node --features native-shadow-closed-local-replay --bin boole-native-shadow-replay-node",
+            "cargo build --locked -p boole-mcp --bin boole-mcp",
             "native/systemd/boole-native-shadow-replay-node.service",
             "http_replay_gate_source=$(readlink -f scripts/native_shadow_http_replay_gate.py)",
             "http_replay_gate_path=$launcher_directory/native-shadow-http-replay-gate.py",
             "http_replay_grant_path=$launcher_directory/native-shadow-http-replay-grant-v1.json",
             "http_replay_fixture_directory=$launcher_directory/native-shadow-http-replay-fixtures",
+            "mcp_trace_gate_source=$(readlink -f scripts/native_shadow_mcp_real_trace_gate.py)",
+            "mcp_trace_gate_path=$launcher_directory/native-shadow-mcp-real-trace-gate.py",
             'sudo install -o root -g root -m 0555 "$http_replay_gate_source" "$http_replay_gate_path"',
             '$(sha256sum "$http_replay_gate_source"',
             '$(sudo sha256sum "$http_replay_gate_path"',
@@ -253,9 +260,12 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             '--grant-path "$http_replay_grant_path"',
             '--fixture-directory "$http_replay_fixture_directory"',
             '--journal-path "$node_journal_path"',
-            "native-shadow-http-replay-matrix:PASS",
-            "native-shadow-http-replay-journal:PASS",
-            "native-shadow production HTTP replay gate: PASS",
+            'python3 "$mcp_trace_gate_path"',
+            '--mcp-binary "$boole_mcp_path"',
+            "native-shadow-real-mcp-trace:PASS",
+            "native-shadow-real-mcp-journal-unchanged:PASS",
+            "native-shadow-real-mcp-legacy-node-connections:0",
+            "native-shadow production real MCP trace gate: PASS",
         ):
             self.assertIn(required, manager)
         self.assertNotIn(
@@ -274,6 +284,15 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             "native-shadow-http-replay-matrix:PASS",
         ):
             self.assertIn(required, http_replay)
+        for required in (
+            '"stdio"',
+            '"boole.verify_native"',
+            "native-shadow-real-mcp-case:{}:PASS",
+            "native-shadow-real-mcp-redelivery:{}:PASS",
+            "require_journal_unchanged(before, after)",
+            "require_no_legacy_node_contact(legacy.connections)",
+        ):
+            self.assertIn(required, mcp_trace)
         self.assertTrue(NATIVE_SHADOW_REPLAY_NODE_UNIT.is_file())
         for required in (
             "runtime rootfs replay identity drifted",
@@ -316,10 +335,10 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             "native-shadow production crash/restart replay gate: PASS",
         ):
             self.assertIn(required, manager)
-        # The crash phase must reuse the environment the HTTP matrix installed
-        # and run strictly after that matrix has proven the normal path.
+        # The crash phase must reuse the environment the real MCP trace installed
+        # and run strictly after that trace has proven the normal path.
         self.assertLess(
-            manager.index("native-shadow production HTTP replay gate: PASS"),
+            manager.index("native-shadow production real MCP trace gate: PASS"),
             manager.index("run_crash_restart_replay_gate() {"),
         )
         self.assertRegex(

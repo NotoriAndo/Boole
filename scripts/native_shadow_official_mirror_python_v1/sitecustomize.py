@@ -68,8 +68,15 @@ def adapted_open(original_open: Callable[..., Any], architecture: str) -> Callab
             transport_url = mirror_url(fullurl, architecture)
         except ValueError:
             return original_open(opener, fullurl, *args, **kwargs)
+        mirror_request = urllib.request.Request(
+            transport_url,
+            headers={
+                "User-Agent": "boole-official-mirror-seed-v1",
+                "Accept-Encoding": "identity",
+            },
+        )
         try:
-            response = original_open(opener, transport_url, *args, **kwargs)
+            response = original_open(opener, mirror_request, *args, **kwargs)
         except (urllib.error.URLError, TimeoutError, OSError):
             # The architecture mirror is transport only.  If it no longer
             # publishes a frozen object (or is temporarily unavailable), use

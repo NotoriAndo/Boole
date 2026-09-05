@@ -11,6 +11,7 @@ import re
 import tempfile
 import unittest
 import urllib.error
+import urllib.request
 from unittest import mock
 
 
@@ -264,7 +265,16 @@ class OfficialMirrorSeedTests(unittest.TestCase):
 
         adapted = module.adapted_open(original_open, "arm64")
         response = adapted(object(), original_url, timeout=60)
-        self.assertEqual(calls[0][0], module.mirror_url(original_url, "arm64"))
+        mirror_request = calls[0][0]
+        self.assertIsInstance(mirror_request, urllib.request.Request)
+        self.assertEqual(
+            mirror_request.full_url, module.mirror_url(original_url, "arm64")
+        )
+        self.assertEqual(
+            mirror_request.get_header("User-agent"),
+            "boole-official-mirror-seed-v1",
+        )
+        self.assertEqual(mirror_request.get_header("Accept-encoding"), "identity")
         self.assertEqual(response.geturl(), original_url)
         self.assertEqual(response.read(), b"sealed")
 
@@ -303,8 +313,10 @@ class OfficialMirrorSeedTests(unittest.TestCase):
 
         adapted = module.adapted_open(original_open, "amd64")
         response = adapted(object(), original_url, timeout=60)
+        mirror_request = calls[0][0]
+        self.assertIsInstance(mirror_request, urllib.request.Request)
         self.assertEqual(
-            [row[0] for row in calls],
+            [mirror_request.full_url, calls[1][0]],
             [module.mirror_url(original_url, "amd64"), original_url],
         )
         self.assertEqual(calls[0][1:], calls[1][1:])
