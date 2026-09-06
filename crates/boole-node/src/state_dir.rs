@@ -24,6 +24,7 @@ use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -33,6 +34,7 @@ use serde::{Deserialize, Serialize};
 /// lock file is still present at the expected path on every request.
 pub const STATE_LOCK_FILE: &str = "state.lock";
 const STATE_MANIFEST_FILE: &str = "state.manifest.json";
+static MANIFEST_TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Failures from the state-directory contract. Distinct variants so the
 /// caller (and the typed-error envelope a later slice will wrap them in)
@@ -151,16 +153,7 @@ pub fn ensure_manifest(dir: &Path, expected: &StateManifest) -> Result<(), State
     if !path.exists() {
         let serialized = serde_json::to_string_pretty(expected)
             .expect("StateManifest serializes to JSON without io errors");
-        let mut tmp = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(&path)
-            .map_err(|err| StateDirError::Io(path.clone(), err))?;
-        tmp.write_all(serialized.as_bytes())
-            .map_err(|err| StateDirError::Io(path.clone(), err))?;
-        tmp.sync_all()
-            .map_err(|err| StateDirError::Io(path.clone(), err))?;
+        write_manifest_atomic(&path, serialized.as_bytes())?;
         return Ok(());
     }
     let mut buf = String::new();
@@ -177,7 +170,7 @@ pub fn ensure_manifest(dir: &Path, expected: &StateManifest) -> Result<(), State
             dir: dir.to_path_buf(),
             field: "network_id".to_string(),
             expected: expected.network_id.clone(),
-            found: found.network_id,
+            found: found.network_id.clone(),
         });
     }
     if found.binary_sha != expected.binary_sha {
@@ -185,32 +178,19 @@ pub fn ensure_manifest(dir: &Path, expected: &StateManifest) -> Result<(), State
             dir: dir.to_path_buf(),
             field: "binary_sha".to_string(),
             expected: expected.binary_sha.clone(),
-            found: found.binary_sha,
+            found: found.binary_sha.clone(),
         });
     }
     // N5.2 — genesis binding: a state dir written under a foreign genesis
     // must not boot. A pre-N5.2 manifest (empty recorded hash) is
     // backfilled once with the current genesis instead of refused.
-    if found.genesis_hash.is_empty() && !expected.genesis_hash.is_empty() {
-        let mut upgraded = found.clone();
-        upgraded.genesis_hash = expected.genesis_hash.clone();
-        let serialized = serde_json::to_string_pretty(&upgraded)
-            .expect("StateManifest serializes to JSON without io errors");
-        let mut file = OpenOptions::new()
-            .write(true)
-            .truncate(true)
-            .open(&path)
-            .map_err(|err| StateDirError::Io(path.clone(), err))?;
-        file.write_all(serialized.as_bytes())
-            .map_err(|err| StateDirError::Io(path.clone(), err))?;
-        file.sync_all()
-            .map_err(|err| StateDirError::Io(path.clone(), err))?;
-    } else if found.genesis_hash != expected.genesis_hash {
+    let needs_genesis_upgrade = found.genesis_hash.is_empty() && !expected.genesis_hash.is_empty();
+    if !needs_genesis_upgrade && found.genesis_hash != expected.genesis_hash {
         return Err(StateDirError::ManifestMismatch {
             dir: dir.to_path_buf(),
             field: "genesis_hash".to_string(),
             expected: expected.genesis_hash.clone(),
-            found: found.genesis_hash,
+            found: found.genesis_hash.clone(),
         });
     }
     for (key, expected_version) in &expected.schema_versions {
@@ -234,7 +214,74 @@ pub fn ensure_manifest(dir: &Path, expected: &StateManifest) -> Result<(), State
             }
         }
     }
+    // Validate every persisted invariant before publishing an upgrade. A
+    // schema mismatch must leave the original manifest byte-for-byte intact.
+    if needs_genesis_upgrade {
+        let mut upgraded = found;
+        upgraded.genesis_hash = expected.genesis_hash.clone();
+        let serialized = serde_json::to_string_pretty(&upgraded)
+            .expect("StateManifest serializes to JSON without io errors");
+        write_manifest_atomic(&path, serialized.as_bytes())?;
+    }
     Ok(())
+}
+
+fn write_manifest_atomic(path: &Path, bytes: &[u8]) -> Result<(), StateDirError> {
+    write_manifest_atomic_with_hook(path, bytes, |_| Ok(()))
+}
+
+fn write_manifest_atomic_with_hook<F>(
+    path: &Path,
+    bytes: &[u8],
+    before_rename: F,
+) -> Result<(), StateDirError>
+where
+    F: FnOnce(&Path) -> std::io::Result<()>,
+{
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let counter = MANIFEST_TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    let tmp_path = parent.join(format!(
+        ".{STATE_MANIFEST_FILE}.tmp-{}-{nanos}-{counter}",
+        std::process::id()
+    ));
+
+    write_manifest_atomic_at_temp_with_hook(path, &tmp_path, bytes, before_rename)
+}
+
+fn write_manifest_atomic_at_temp_with_hook<F>(
+    path: &Path,
+    tmp_path: &Path,
+    bytes: &[u8],
+    before_rename: F,
+) -> Result<(), StateDirError>
+where
+    F: FnOnce(&Path) -> std::io::Result<()>,
+{
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let mut created_by_this_call = false;
+    let result = (|| -> std::io::Result<()> {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(tmp_path)?;
+        created_by_this_call = true;
+        file.write_all(bytes)?;
+        file.flush()?;
+        file.sync_all()?;
+        drop(file);
+        before_rename(tmp_path)?;
+        std::fs::rename(tmp_path, path)?;
+        File::open(parent)?.sync_all()?;
+        Ok(())
+    })();
+    if result.is_err() && created_by_this_call {
+        let _ = std::fs::remove_file(tmp_path);
+    }
+    result.map_err(|err| StateDirError::Io(path.to_path_buf(), err))
 }
 
 #[cfg(unix)]
@@ -388,6 +435,113 @@ mod tests {
             }
             other => panic!("expected ManifestMismatch, got {:?}", other),
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn legacy_manifest_mismatch_is_rejected_without_mutating_existing_bytes() {
+        let dir = fresh_dir("manifest-validate-before-upgrade");
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let legacy = StateManifest {
+            created_at: "1700000000".to_string(),
+            network_id: "n".to_string(),
+            binary_sha: "s".to_string(),
+            genesis_hash: String::new(),
+            schema_versions: BTreeMap::from([("rewards".to_string(), 1u32)]),
+        };
+        ensure_manifest(&dir, &legacy).expect("write legacy manifest");
+        let path = dir.join(STATE_MANIFEST_FILE);
+        let before = std::fs::read(&path).expect("read original bytes");
+
+        let expected = StateManifest {
+            genesis_hash: "gg".repeat(32),
+            schema_versions: BTreeMap::from([("rewards".to_string(), 2u32)]),
+            ..legacy
+        };
+        assert!(matches!(
+            ensure_manifest(&dir, &expected),
+            Err(StateDirError::ManifestMismatch { .. })
+        ));
+        assert_eq!(
+            std::fs::read(&path).expect("read after rejection"),
+            before,
+            "a rejected boot must not partially upgrade or truncate the manifest"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn interrupted_manifest_upgrade_keeps_previous_manifest_bootable() {
+        let dir = fresh_dir("manifest-interrupted-upgrade");
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let legacy = StateManifest {
+            created_at: "1700000000".to_string(),
+            network_id: "n".to_string(),
+            binary_sha: "s".to_string(),
+            genesis_hash: String::new(),
+            schema_versions: BTreeMap::new(),
+        };
+        ensure_manifest(&dir, &legacy).expect("write legacy manifest");
+        let path = dir.join(STATE_MANIFEST_FILE);
+        let before = std::fs::read(&path).expect("read original bytes");
+        let upgraded = StateManifest {
+            genesis_hash: "gg".repeat(32),
+            ..legacy.clone()
+        };
+        let serialized = serde_json::to_vec_pretty(&upgraded).expect("serialize");
+
+        let error = write_manifest_atomic_with_hook(&path, &serialized, |_| {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                "injected stop before rename",
+            ))
+        })
+        .expect_err("injected interruption must fail the publish");
+        assert!(matches!(error, StateDirError::Io(_, _)));
+        assert_eq!(std::fs::read(&path).expect("read old manifest"), before);
+        ensure_manifest(&dir, &legacy).expect("the previous manifest remains bootable");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn manifest_publish_never_removes_a_preexisting_temp_candidate() {
+        let dir = fresh_dir("manifest-preexisting-temp");
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let path = dir.join(STATE_MANIFEST_FILE);
+        let foreign_temp = dir.join("foreign-temp");
+        std::fs::write(&foreign_temp, b"owned by another writer").expect("precreate temp");
+
+        write_manifest_atomic_at_temp_with_hook(&path, &foreign_temp, b"new manifest", |_| Ok(()))
+            .expect_err("exclusive temp creation must reject a preexisting candidate");
+        assert_eq!(
+            std::fs::read(&foreign_temp).expect("foreign temp remains"),
+            b"owned by another writer"
+        );
+        assert!(!path.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn interrupted_first_manifest_publish_leaves_no_malformed_final_file() {
+        let dir = fresh_dir("manifest-interrupted-first-write");
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let path = dir.join(STATE_MANIFEST_FILE);
+        let manifest = StateManifest::now("n", "s", "g");
+        let serialized = serde_json::to_vec_pretty(&manifest).expect("serialize");
+
+        write_manifest_atomic_with_hook(&path, &serialized, |_| {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                "injected stop before rename",
+            ))
+        })
+        .expect_err("injected interruption must fail the publish");
+        assert!(
+            !path.exists(),
+            "a stopped first publish must not expose a partial final manifest"
+        );
+        ensure_manifest(&dir, &manifest).expect("the next boot creates a complete manifest");
+        ensure_manifest(&dir, &manifest).expect("the complete manifest reboots cleanly");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

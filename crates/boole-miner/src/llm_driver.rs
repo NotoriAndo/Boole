@@ -33,8 +33,10 @@
 // Retries fire only on `Error` outcomes; `Rejected` (no usable answer channel)
 // is surfaced to the caller without retry — retrying with the same prompt will
 // not change the outcome.
-use std::io::Write;
-use std::process::{Command, Stdio};
+use std::io::{Read, Write};
+use std::os::fd::{AsRawFd, RawFd};
+use std::os::unix::process::CommandExt;
+use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -222,6 +224,14 @@ pub enum ProcessError {
         code: String,
         stderr: String,
     },
+    #[error("command '{command}' exceeded {stream} output limit of {max_bytes} bytes")]
+    OutputLimit {
+        command: String,
+        stream: &'static str,
+        max_bytes: usize,
+    },
+    #[error("command '{command}' received stdin above the {max_bytes}-byte limit")]
+    InputLimit { command: String, max_bytes: usize },
     #[error("io: {0}")]
     Io(String),
 }
@@ -237,6 +247,188 @@ pub trait ProcessRunner: Send + Sync {
 }
 
 pub struct StdProcessRunner;
+
+/// Per-stream cap, applied while the child is still running.  This keeps a
+/// malicious or misconfigured local agent from making the miner allocate an
+/// unbounded response buffer.
+const PROCESS_STDIO_MAX_BYTES: usize = 8 * 1024 * 1024;
+const PROCESS_STDIN_MAX_BYTES: usize = 8 * 1024 * 1024;
+// Terminal errors must return even when a CLI descendant has deliberately
+// escaped the process group while retaining an inherited pipe.
+const PROCESS_TERMINATION_GRACE: Duration = Duration::from_millis(100);
+
+enum PipeReadError {
+    Limit,
+    Io(std::io::Error),
+}
+
+fn read_available<R: Read>(
+    reader: &mut Option<R>,
+    output: &mut Vec<u8>,
+) -> Result<bool, PipeReadError> {
+    let Some(pipe) = reader.as_mut() else {
+        return Ok(false);
+    };
+    let mut buffer = [0_u8; 32 * 1024];
+    match pipe.read(&mut buffer) {
+        Ok(0) => {
+            *reader = None;
+            Ok(true)
+        }
+        Ok(read) => {
+            if output.len().saturating_add(read) > PROCESS_STDIO_MAX_BYTES {
+                return Err(PipeReadError::Limit);
+            }
+            output.extend_from_slice(&buffer[..read]);
+            Ok(true)
+        }
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+            ) =>
+        {
+            Ok(false)
+        }
+        Err(error) => Err(PipeReadError::Io(error)),
+    }
+}
+
+fn write_available(
+    writer: &mut Option<ChildStdin>,
+    input: &[u8],
+    position: &mut usize,
+) -> std::io::Result<bool> {
+    let Some(pipe) = writer.as_mut() else {
+        return Ok(false);
+    };
+    if *position == input.len() {
+        *writer = None;
+        return Ok(true);
+    }
+    match pipe.write(&input[*position..]) {
+        Ok(0) => Err(std::io::Error::new(
+            std::io::ErrorKind::WriteZero,
+            "failed to write child stdin",
+        )),
+        Ok(written) => {
+            *position += written;
+            if *position == input.len() {
+                *writer = None;
+            }
+            Ok(true)
+        }
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+            ) =>
+        {
+            Ok(false)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+#[allow(unsafe_code)] // fcntl is required to make anonymous child pipes deadline-aware.
+fn set_nonblocking(fd: RawFd) -> std::io::Result<()> {
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    if flags < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    if unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+#[allow(unsafe_code)] // poll is the portable Unix readiness primitive for these pipes.
+fn poll_pipes(
+    stdin: Option<&ChildStdin>,
+    stdout_fd: Option<RawFd>,
+    stderr_fd: Option<RawFd>,
+    timeout: Duration,
+) -> std::io::Result<()> {
+    let mut descriptors = Vec::with_capacity(3);
+    if let Some(stdin) = stdin {
+        descriptors.push(libc::pollfd {
+            fd: stdin.as_raw_fd(),
+            events: libc::POLLOUT | libc::POLLHUP | libc::POLLERR,
+            revents: 0,
+        });
+    }
+    for fd in [stdout_fd, stderr_fd].into_iter().flatten() {
+        descriptors.push(libc::pollfd {
+            fd,
+            events: libc::POLLIN | libc::POLLHUP | libc::POLLERR,
+            revents: 0,
+        });
+    }
+    if descriptors.is_empty() {
+        thread::sleep(timeout);
+        return Ok(());
+    }
+    let timeout_ms = timeout.as_millis().clamp(1, libc::c_int::MAX as u128) as libc::c_int;
+    let ready = unsafe {
+        libc::poll(
+            descriptors.as_mut_ptr(),
+            descriptors.len() as libc::nfds_t,
+            timeout_ms,
+        )
+    };
+    if ready < 0 {
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::Interrupted {
+            return Err(error);
+        }
+    }
+    Ok(())
+}
+
+/// Ask the owned process group to stop, then force-stop it after a short grace
+/// period. This is best-effort cleanup for processes which remain in the group;
+/// it deliberately makes no containment claim for a descendant that creates a
+/// new session after inheriting a pipe.
+#[allow(unsafe_code)] // libc has no safe process-group signal wrapper.
+fn signal_process_group(child: &Child, signal: libc::c_int, signal_direct_child: bool) {
+    let pid = child.id() as libc::pid_t;
+    unsafe {
+        let _ = libc::killpg(pid, signal);
+        // The direct child fallback covers a child which did not enter the
+        // requested group. It is always a PID spawned by this runner.
+        if signal_direct_child {
+            let _ = libc::kill(pid, signal);
+        }
+    }
+}
+
+fn wait_for_exit_until(child: &mut Child, deadline: Instant) -> Option<std::process::ExitStatus> {
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Some(status),
+            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(5)),
+            Ok(None) | Err(_) => return None,
+        }
+    }
+}
+
+fn terminate_process_group_bounded(child: &mut Child) -> Option<std::process::ExitStatus> {
+    let mut status = child.try_wait().ok().flatten();
+    signal_process_group(child, libc::SIGTERM, status.is_none());
+    let grace_deadline = Instant::now() + PROCESS_TERMINATION_GRACE;
+    while Instant::now() < grace_deadline {
+        if status.is_none() {
+            status = child.try_wait().ok().flatten();
+        }
+        thread::sleep(
+            Duration::from_millis(5).min(grace_deadline.saturating_duration_since(Instant::now())),
+        );
+    }
+    // The direct child may have exited during the TERM grace while another
+    // member ignored TERM. Always signal the group after the full grace.
+    signal_process_group(child, libc::SIGKILL, status.is_none());
+    status.or_else(|| wait_for_exit_until(child, Instant::now() + PROCESS_TERMINATION_GRACE))
+}
 
 // P1.10 — every spawned LLM agent CLI runs in a wiped environment so
 // miner parent secrets (LLM API keys held in env, AWS_* tokens, ssh
@@ -261,65 +453,176 @@ impl ProcessRunner for StdProcessRunner {
         stdin_input: Option<&[u8]>,
         timeout: Duration,
     ) -> Result<Vec<u8>, ProcessError> {
+        let deadline = Instant::now() + timeout;
+        if stdin_input.is_some_and(|input| input.len() > PROCESS_STDIN_MAX_BYTES) {
+            return Err(ProcessError::InputLimit {
+                command: binary.to_string(),
+                max_bytes: PROCESS_STDIN_MAX_BYTES,
+            });
+        }
         let mut cmd = Command::new(binary);
         cmd.args(args);
         configure_child_environment(&mut cmd);
-        if stdin_input.is_some() {
-            cmd.stdin(Stdio::piped());
-        }
-        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+        cmd.stdin(if stdin_input.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        });
+        cmd.stdout(Stdio::piped());
+        cmd.stderr(Stdio::piped());
+        cmd.process_group(0);
         let mut child = cmd.spawn().map_err(|e| match e.kind() {
             std::io::ErrorKind::NotFound => ProcessError::NotFound(binary.to_string()),
             _ => ProcessError::Io(e.to_string()),
         })?;
-        if let Some(input) = stdin_input {
-            if let Some(mut stdin) = child.stdin.take() {
-                if let Err(e) = stdin.write_all(input) {
-                    let _ = child.kill();
-                    return Err(ProcessError::Io(e.to_string()));
-                }
+
+        let mut stdout_pipe = child.stdout.take();
+        let mut stderr_pipe = child.stderr.take();
+        let mut stdin_pipe = child.stdin.take();
+        for fd in [
+            stdout_pipe.as_ref().map(AsRawFd::as_raw_fd),
+            stderr_pipe.as_ref().map(AsRawFd::as_raw_fd),
+            stdin_pipe.as_ref().map(AsRawFd::as_raw_fd),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if let Err(error) = set_nonblocking(fd) {
+                let _ = terminate_process_group_bounded(&mut child);
+                return Err(ProcessError::Io(error.to_string()));
             }
         }
-        let deadline = Instant::now() + timeout;
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let input = stdin_input.unwrap_or_default();
+        let mut input_position = 0;
+        let mut status = None;
+        let mut failure = None;
+        let mut timed_out = false;
+        let mut group_cleanup_done = false;
+
         loop {
-            match child
-                .try_wait()
-                .map_err(|e| ProcessError::Io(e.to_string()))?
-            {
-                Some(status) => {
-                    let output = child
-                        .wait_with_output()
-                        .map_err(|e| ProcessError::Io(e.to_string()))?;
-                    if !status.success() {
-                        let stderr = String::from_utf8_lossy(&output.stderr)
-                            .chars()
-                            .take(500)
-                            .collect();
-                        let code = match status.code() {
-                            Some(c) => c.to_string(),
-                            None => "signal".to_string(),
-                        };
-                        return Err(ProcessError::Exit {
+            if Instant::now() >= deadline {
+                timed_out = true;
+                break;
+            }
+            let mut io_progress = false;
+            match read_available(&mut stdout_pipe, &mut stdout) {
+                Ok(progress) => io_progress |= progress,
+                Err(error) => {
+                    failure = Some(match error {
+                        PipeReadError::Limit => ProcessError::OutputLimit {
                             command: binary.to_string(),
-                            code,
-                            stderr,
-                        });
-                    }
-                    return Ok(output.stdout);
-                }
-                None => {
-                    if Instant::now() >= deadline {
-                        let _ = child.kill();
-                        let _ = child.wait();
-                        return Err(ProcessError::Timeout {
-                            command: binary.to_string(),
-                            ms: timeout.as_millis(),
-                        });
-                    }
-                    thread::sleep(Duration::from_millis(50));
+                            stream: "stdout",
+                            max_bytes: PROCESS_STDIO_MAX_BYTES,
+                        },
+                        PipeReadError::Io(error) => ProcessError::Io(error.to_string()),
+                    });
                 }
             }
+            if failure.is_none() {
+                match read_available(&mut stderr_pipe, &mut stderr) {
+                    Ok(progress) => io_progress |= progress,
+                    Err(error) => {
+                        failure = Some(match error {
+                            PipeReadError::Limit => ProcessError::OutputLimit {
+                                command: binary.to_string(),
+                                stream: "stderr",
+                                max_bytes: PROCESS_STDIO_MAX_BYTES,
+                            },
+                            PipeReadError::Io(error) => ProcessError::Io(error.to_string()),
+                        });
+                    }
+                }
+            }
+            if failure.is_none() {
+                match write_available(&mut stdin_pipe, input, &mut input_position) {
+                    Ok(progress) => io_progress |= progress,
+                    Err(error) => failure = Some(ProcessError::Io(error.to_string())),
+                }
+            }
+            if failure.is_some() {
+                break;
+            }
+            if status.is_none() {
+                match child.try_wait() {
+                    Ok(Some(exit_status)) => status = Some(exit_status),
+                    Ok(None) => {}
+                    Err(error) => {
+                        failure = Some(ProcessError::Io(error.to_string()));
+                        break;
+                    }
+                }
+            }
+            if status.is_some()
+                && stdout_pipe.is_none()
+                && stderr_pipe.is_none()
+                && stdin_pipe.is_none()
+            {
+                break;
+            }
+            if status.is_some() && !group_cleanup_done && !io_progress {
+                let _ = terminate_process_group_bounded(&mut child);
+                group_cleanup_done = true;
+                continue;
+            }
+            let now = Instant::now();
+            if now >= deadline {
+                timed_out = true;
+                break;
+            }
+            let poll_for = deadline
+                .saturating_duration_since(now)
+                .min(Duration::from_millis(10));
+            if let Err(error) = poll_pipes(
+                stdin_pipe.as_ref(),
+                stdout_pipe.as_ref().map(AsRawFd::as_raw_fd),
+                stderr_pipe.as_ref().map(AsRawFd::as_raw_fd),
+                poll_for,
+            ) {
+                failure = Some(ProcessError::Io(error.to_string()));
+                break;
+            }
         }
+
+        if (failure.is_some() || timed_out) && !group_cleanup_done {
+            let terminated_status = terminate_process_group_bounded(&mut child);
+            if status.is_none() {
+                status = terminated_status;
+            }
+        }
+        // Close every pipe before returning a terminal error. In particular,
+        // this gives an escaped descendant EOF/BrokenPipe instead of leaving
+        // hidden helper threads and their descriptors alive across retries.
+        drop(stdin_pipe);
+        drop(stdout_pipe);
+        drop(stderr_pipe);
+
+        if let Some(error) = failure {
+            return Err(error);
+        }
+        if timed_out {
+            return Err(ProcessError::Timeout {
+                command: binary.to_string(),
+                ms: timeout.as_millis(),
+            });
+        }
+        let status = status.ok_or_else(|| {
+            ProcessError::Io("child exited without a collectable status".to_string())
+        })?;
+        if !status.success() {
+            let stderr = String::from_utf8_lossy(&stderr).chars().take(500).collect();
+            let code = match status.code() {
+                Some(code) => code.to_string(),
+                None => "signal".to_string(),
+            };
+            return Err(ProcessError::Exit {
+                command: binary.to_string(),
+                code,
+                stderr,
+            });
+        }
+        Ok(stdout)
     }
 }
 
@@ -906,7 +1209,7 @@ impl ProverDriver for GoogleDriver {
                 return GenerateResult::Error {
                     cause: format!("google: malformed JSON: {err}"),
                     elapsed: started.elapsed(),
-                }
+                };
             }
         };
         // Concat all `text` parts of the first candidate. Gemini may emit

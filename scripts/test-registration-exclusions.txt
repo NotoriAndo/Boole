@@ -1,0 +1,2 @@
+# `path | reason`. Audit F16 requires an explicit choice for every listed test.
+scripts/test_verified_answer_closeout.py | Historical closeout prose; docs-smoke preserves document presence, while current behavioural receipt gates run separately.

@@ -1,3 +1,4 @@
+import io
 import json
 import unittest
 from pathlib import Path
@@ -81,6 +82,26 @@ class NativeShadowMcpRealTraceGateTests(unittest.TestCase):
         gate.require_no_legacy_node_contact(0)
         with self.assertRaisesRegex(ValueError, "legacy node"):
             gate.require_no_legacy_node_contact(1)
+
+    def test_stdio_trace_client_uses_bounded_newline_frames(self) -> None:
+        client = gate.McpStdio.__new__(gate.McpStdio)
+        client._stdin = io.BytesIO()
+        client._write({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+        frame = client._stdin.getvalue()
+        self.assertTrue(frame.endswith(b"\n"))
+        self.assertNotIn(b"Content-Length", frame)
+
+        encoded = b'{"jsonrpc":"2.0","id":1,"result":{}}\n'
+        position = 0
+
+        def read_bytes(count: int, _deadline: float) -> bytes:
+            nonlocal position
+            part = encoded[position : position + count]
+            position += len(part)
+            return part
+
+        client._read_bytes = read_bytes
+        self.assertEqual(client._read(), {"jsonrpc": "2.0", "id": 1, "result": {}})
 
     def test_both_named_linux_authorities_supply_the_same_four_case_shape(self) -> None:
         root = Path(__file__).resolve().parents[1]

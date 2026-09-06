@@ -329,29 +329,18 @@ fn write_mcp_frame(writer: &mut impl Write, value: &Value) {
 }
 
 fn write_mcp_frame_raw(writer: &mut impl Write, body: &str) {
-    write!(writer, "Content-Length: {}\r\n\r\n", body.len()).expect("write MCP header");
     writer
         .write_all(body.as_bytes())
         .expect("write MCP frame body");
+    writer.write_all(b"\n").expect("write MCP delimiter");
     writer.flush().expect("flush MCP frame");
 }
 
 fn read_mcp_frame(reader: &mut impl BufRead) -> Value {
-    let mut content_length = None;
-    loop {
-        let mut line = String::new();
-        reader.read_line(&mut line).expect("read MCP header");
-        let line = line.trim_end_matches(['\r', '\n']);
-        if line.is_empty() {
-            break;
-        }
-        if let Some(value) = line.strip_prefix("Content-Length:") {
-            content_length = Some(value.trim().parse::<usize>().expect("MCP length"));
-        }
-    }
-    let mut body = vec![0; content_length.expect("Content-Length")];
-    reader.read_exact(&mut body).expect("read MCP frame body");
-    serde_json::from_slice(&body).expect("MCP frame JSON")
+    let mut line = String::new();
+    reader.read_line(&mut line).expect("read MCP response line");
+    assert!(line.ends_with('\n'), "MCP response must end with a newline");
+    serde_json::from_str(line.trim_end_matches(['\r', '\n'])).expect("MCP response JSON")
 }
 
 fn submission(raw_answer: &str) -> Value {

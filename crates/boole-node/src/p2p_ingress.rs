@@ -35,10 +35,10 @@ use crate::p2p_egress::open_validated_conn_until;
 use crate::p2p_lifecycle::P2pLifecycle;
 use crate::p2p_package_fetch::PackageFetchingConfig;
 
-/// How long an accepted connection may sit silent before it is dropped.
-/// Bounds a slow/hung peer's hold on the (serial) ingress thread; the
-/// egress side sends `Hello` + `ShareAnnounce` immediately after connect,
-/// so an honest announce never comes near it.
+/// Absolute receive deadline for one accepted serial ingress connection. This
+/// same deadline covers Hello and all later inbound frames, so repeated short
+/// reads cannot renew a slow peer's hold on the accept loop. Honest egress
+/// sends Hello and its announce immediately after connect.
 const INGRESS_IO_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Poll interval of the nonblocking accept loop (also the shutdown latency
@@ -321,9 +321,9 @@ fn ingress_loop(
                     continue;
                 }
                 // Connections are handled serially: S7 is 2–3 operator
-                // peers and every announce is one short-lived connection,
-                // so a queue depth of 1 with an IO timeout bounds a stuck
-                // peer without a per-connection thread pool.
+                // peers and every announce is one short-lived connection.
+                // The absolute receive deadline bounds byte-trickle occupancy
+                // of this sole slot even for an allowlisted peer.
                 let context = IngressConnectionContext {
                     identity: &identity,
                     state: &state,
@@ -353,9 +353,10 @@ fn recv_frame_limited(
     peer: &SocketAddr,
     rate_limiter: Option<&HttpRateLimiter>,
     metrics: &Arc<P2pMetrics>,
+    deadline: Instant,
 ) -> Result<Frame, ()> {
-    let frame = match transport.recv_frame(conn) {
-        Ok(frame) => frame,
+    let frame = match transport.recv_frame_counted_until(conn, MAX_FRAME_BYTES, deadline) {
+        Ok((frame, _wire_bytes)) => frame,
         Err(FrameError::ConnectionClosed) | Err(FrameError::Io(_)) => return Err(()),
         Err(_) => {
             metrics
@@ -418,9 +419,20 @@ fn handle_connection(stream: TcpStream, peer: SocketAddr, context: &IngressConne
         Ok(conn) => conn,
         Err(_) => return,
     };
+    // One absolute receive bound is shared by Hello and every later frame,
+    // rather than refreshed per read. A peer cannot retain the sole accept-
+    // loop slot by trickling bytes or by chaining incomplete frames.
+    let connection_deadline = Instant::now() + INGRESS_IO_TIMEOUT;
     // First frame MUST be a matching Hello; a mismatch is a typed
     // disconnect with no reply (ADR-0009 (e)).
-    match recv_frame_limited(&transport, &mut conn, &peer, rate_limiter, metrics) {
+    match recv_frame_limited(
+        &transport,
+        &mut conn,
+        &peer,
+        rate_limiter,
+        metrics,
+        connection_deadline,
+    ) {
         Ok(frame @ Frame::Hello { .. }) => {
             if !identity.matches(&frame) {
                 metrics
@@ -443,12 +455,22 @@ fn handle_connection(stream: TcpStream, peer: SocketAddr, context: &IngressConne
         let guard = state.blocking_read();
         identity.hello(head_summary(&guard))
     };
-    if transport.send_frame(&mut conn, &our_hello).is_err() {
+    if transport
+        .send_frame_until(&mut conn, &our_hello, connection_deadline)
+        .is_err()
+    {
         return;
     }
     let peer_ip = peer.ip().to_string();
     while !lifecycle.is_stopped() {
-        match recv_frame_limited(&transport, &mut conn, &peer, rate_limiter, metrics) {
+        match recv_frame_limited(
+            &transport,
+            &mut conn,
+            &peer,
+            rate_limiter,
+            metrics,
+            connection_deadline,
+        ) {
             Ok(Frame::ShareAnnounce { submission }) => {
                 // Structural admission and final revalidation each use the
                 // shared writer, while the pinned Lean subprocess runs with
@@ -492,47 +514,54 @@ fn handle_connection(stream: TcpStream, peer: SocketAddr, context: &IngressConne
                     continue;
                 }
                 if transport
-                    .send_frame(
+                    .send_frame_until(
                         &mut conn,
                         &Frame::GetBlocks {
                             from: height,
                             to: height,
                         },
+                        connection_deadline,
                     )
                     .is_err()
                 {
                     return;
                 }
-                let block_value =
-                    match recv_frame_limited(&transport, &mut conn, &peer, rate_limiter, metrics) {
-                        Ok(Frame::Blocks { blocks }) => {
-                            // Exactly the requested block, and the body must
-                            // match the announced hash — a peer must not be
-                            // able to bait with one hash and switch the body.
-                            let Some(block_value) = blocks.into_iter().next() else {
-                                metrics
-                                    .ingress_malformed_frame_drops
-                                    .fetch_add(1, Ordering::Relaxed);
-                                return;
-                            };
-                            if block_value.get("c").and_then(serde_json::Value::as_str)
-                                != Some(c.as_str())
-                            {
-                                metrics
-                                    .ingress_malformed_frame_drops
-                                    .fetch_add(1, Ordering::Relaxed);
-                                return;
-                            }
-                            block_value
-                        }
-                        Ok(_) => {
+                let block_value = match recv_frame_limited(
+                    &transport,
+                    &mut conn,
+                    &peer,
+                    rate_limiter,
+                    metrics,
+                    connection_deadline,
+                ) {
+                    Ok(Frame::Blocks { blocks }) => {
+                        // Exactly the requested block, and the body must
+                        // match the announced hash — a peer must not be
+                        // able to bait with one hash and switch the body.
+                        let Some(block_value) = blocks.into_iter().next() else {
+                            metrics
+                                .ingress_malformed_frame_drops
+                                .fetch_add(1, Ordering::Relaxed);
+                            return;
+                        };
+                        if block_value.get("c").and_then(serde_json::Value::as_str)
+                            != Some(c.as_str())
+                        {
                             metrics
                                 .ingress_malformed_frame_drops
                                 .fetch_add(1, Ordering::Relaxed);
                             return;
                         }
-                        Err(()) => return,
-                    };
+                        block_value
+                    }
+                    Ok(_) => {
+                        metrics
+                            .ingress_malformed_frame_drops
+                            .fetch_add(1, Ordering::Relaxed);
+                        return;
+                    }
+                    Err(()) => return,
+                };
                 let Some(_mutation) = lifecycle.begin_mutation() else {
                     return;
                 };
@@ -570,7 +599,7 @@ fn handle_connection(stream: TcpStream, peer: SocketAddr, context: &IngressConne
                 // included (the requester sees a shorter/empty batch).
                 let blocks = blocks_range_values(&state.blocking_read(), from, to);
                 if transport
-                    .send_frame(&mut conn, &Frame::Blocks { blocks })
+                    .send_frame_until(&mut conn, &Frame::Blocks { blocks }, connection_deadline)
                     .is_err()
                 {
                     return;
@@ -611,12 +640,13 @@ fn handle_connection(stream: TcpStream, peer: SocketAddr, context: &IngressConne
                     }
                 };
                 if transport
-                    .send_frame(
+                    .send_frame_until(
                         &mut conn,
                         &Frame::Package {
                             root,
                             canonical_bytes,
                         },
+                        connection_deadline,
                     )
                     .is_err()
                 {
@@ -1255,6 +1285,40 @@ mod tests {
     use super::*;
     use std::io::Write;
     use std::net::{TcpListener, TcpStream};
+
+    #[test]
+    fn trickled_frame_cannot_outlive_absolute_ingress_deadline() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let address = listener.local_addr().expect("listener address");
+        let writer = thread::spawn(move || {
+            let mut stream = TcpStream::connect(address).expect("connect");
+            let frame = b"{\"type\":\"getBlocks\",\"from\":0,\"to\":0}\n";
+            for byte in frame {
+                if stream.write_all(std::slice::from_ref(byte)).is_err() {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(5));
+            }
+        });
+        let (stream, peer) = listener.accept().expect("accept");
+        stream
+            .set_read_timeout(Some(Duration::from_millis(20)))
+            .expect("read timeout");
+        let mut conn = TcpTransport::conn_from_stream(stream).expect("wrap stream");
+        let transport = TcpTransport::new();
+        let metrics = Arc::new(P2pMetrics::default());
+        let deadline = Instant::now() + Duration::from_millis(50);
+
+        let started = Instant::now();
+        let result = recv_frame_limited(&transport, &mut conn, &peer, None, &metrics, deadline);
+        let elapsed = started.elapsed();
+        assert!(result.is_err(), "a frame completed after its deadline");
+        assert!(
+            elapsed < Duration::from_secs(1),
+            "watchdog: trickle held the serial ingress reader for {elapsed:?}"
+        );
+        writer.join().expect("writer thread");
+    }
 
     #[test]
     fn bootstrap_readiness_rejects_empty_and_duplicate_peer_sets() {

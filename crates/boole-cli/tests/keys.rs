@@ -10,6 +10,7 @@
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::Command;
+use std::sync::{Arc, Barrier};
 
 fn cli() -> Command {
     Command::new(env!("CARGO_BIN_EXE_boole-cli"))
@@ -192,6 +193,56 @@ fn keys_new_duplicate_id_emits_key_already_exists_typed_error() {
         serde_json::from_str(&std::fs::read_to_string(dir.join("alice.json")).expect("read"))
             .expect("disk json");
     assert_eq!(on_disk["pk"], original_pk);
+}
+
+#[test]
+fn keys_new_concurrently_creates_at_most_one_key_file() {
+    let dir = fresh_tmp("concurrent-new");
+    let barrier = Arc::new(Barrier::new(2));
+    let mut joins = Vec::new();
+    for _ in 0..2 {
+        let dir = dir.clone();
+        let barrier = Arc::clone(&barrier);
+        joins.push(std::thread::spawn(move || {
+            barrier.wait();
+            cli()
+                .env("BOOLE_KEYS_DIR", dir)
+                .args(["keys", "new", "--id", "race-key"])
+                .output()
+                .expect("keys new")
+        }));
+    }
+    let outputs = joins
+        .into_iter()
+        .map(|join| join.join().expect("keys worker"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        outputs
+            .iter()
+            .filter(|output| output.status.success())
+            .count(),
+        1,
+        "only one concurrent keys new may succeed"
+    );
+    let rejected = outputs
+        .iter()
+        .find(|output| !output.status.success())
+        .expect("one invocation must fail");
+    assert_eq!(rejected.status.code(), Some(3));
+    assert_eq!(parse_json(&rejected.stderr)["reason"], "key_already_exists");
+    let key_path = dir.join("race-key.json");
+    assert!(key_path.exists(), "winning key exists");
+    assert!(
+        std::fs::read_dir(&dir)
+            .expect("read keys dir")
+            .all(|entry| !entry
+                .expect("entry")
+                .file_name()
+                .to_string_lossy()
+                .ends_with(".tmp")),
+        "failed creators must clean staged keys"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]

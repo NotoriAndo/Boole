@@ -35,8 +35,8 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use boole_core::{
     agent_passport_events_for_receipt, canonical_payload_hash_hex, compute_block_reward_credits,
-    parse_submission_body, replay_blocks_with_genesis_and_registry, ticket,
-    verify_signature_with_network, AdmissionDecision, BountyProofVerifier, BountyRegistry,
+    parse_submission_body, replay_blocks_with_genesis_and_registry_for_authorization_network,
+    ticket, verify_signature_with_network, AdmissionDecision, BountyProofVerifier, BountyRegistry,
     BountyShare, BountySidePool, BuildSelectionResult, CalibrationReport, CreateBountyInput,
     DifficultyRetargetPolicy, FamilyManifestRegistry, Hex32, Hex64, PersistedBlock,
     ReceiptCommitment, ReceiptCommitmentInput, SelectedShareEvidence, SessionState,
@@ -1636,14 +1636,18 @@ impl LocalNodeState {
         // `genesis_c` (possibly overridden via --genesis) is restored
         // below so the runtime head matches the configured genesis.
         let boot_genesis = runtime_config.genesis_spec(&node_network_id, &scenario.genesis_c);
-        let mut runtime = RuntimeAdmissionState::boot_from_store_with_genesis(
-            runtime_config,
-            &config.block_path,
-            config.reward_ledger_path.clone(),
-            config.bounty_event_ledger_path.clone(),
-            family_manifest_registry.clone(),
-            &boot_genesis,
-        )?;
+        let authorization_network_id =
+            require_network_scoped_envelopes.then_some(node_network_id.as_str());
+        let mut runtime =
+            RuntimeAdmissionState::boot_from_store_with_genesis_and_authorization_network(
+                runtime_config,
+                &config.block_path,
+                config.reward_ledger_path.clone(),
+                config.bounty_event_ledger_path.clone(),
+                family_manifest_registry.clone(),
+                &boot_genesis,
+                authorization_network_id,
+            )?;
         if recovered.size() == 0 {
             runtime.set_current_c(scenario.genesis_c.clone());
         }
@@ -6008,8 +6012,15 @@ fn validate_announced_block(
         .runtime
         .config
         .genesis_spec(&state.network_id, &state.genesis_c);
-    if replay_blocks_with_genesis_and_registry(&chain, &genesis, state.runtime.family_registry())
-        .is_err()
+    if replay_blocks_with_genesis_and_registry_for_authorization_network(
+        &chain,
+        &genesis,
+        state.runtime.family_registry(),
+        state
+            .require_network_scoped_envelopes
+            .then_some(state.network_id.as_str()),
+    )
+    .is_err()
     {
         return Err(IngressBlockOutcome::Rejected);
     }
@@ -8052,6 +8063,7 @@ mod tests {
         target.runtime = target_runtime;
         target.genesis_c = "0".repeat(64);
         target.network_id = boole_core::AUTHORIZATION_REQUIRED_NETWORK_ID.to_string();
+        target.require_network_scoped_envelopes = true;
         target.lean_checker_dir = Some(
             PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .join("../../lean/checker")
@@ -8131,6 +8143,7 @@ mod tests {
         target.runtime = runtime;
         target.genesis_c = "0".repeat(64);
         target.network_id = boole_core::AUTHORIZATION_REQUIRED_NETWORK_ID.to_string();
+        target.require_network_scoped_envelopes = true;
         target.lean_checker_dir = Some(
             PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .join("../../lean/checker")
@@ -8201,6 +8214,7 @@ mod tests {
         target.runtime = target_runtime;
         target.genesis_c = "0".repeat(64);
         target.network_id = boole_core::AUTHORIZATION_REQUIRED_NETWORK_ID.to_string();
+        target.require_network_scoped_envelopes = true;
         target.lean_checker_dir = Some(
             PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .join("../../lean/checker")

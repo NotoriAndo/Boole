@@ -334,7 +334,7 @@ fn named_network_boot_rejects_family_manifest_root_mismatch_only_when_pinned() {
 }
 
 #[test]
-fn runtime_default_boot_keeps_legacy_unscoped_authorization_selectable() {
+fn runtime_producer_distinguishes_unnamed_legacy_from_explicit_dev_scope() {
     let mut fixture: Fixture =
         serde_json::from_str(include_str!("../../../fixtures/protocol/admission/v1.json"))
             .expect("fixture parses");
@@ -381,15 +381,17 @@ fn runtime_default_boot_keeps_legacy_unscoped_authorization_selectable() {
         network_id: signed.network_id,
     };
 
-    let mut runtime = RuntimeAdmissionState::boot_from_store_with_genesis(
-        config,
-        dir.join("blocks.ndjson"),
-        None,
-        None,
-        boole_core::FamilyManifestRegistry::new(),
-        &genesis,
-    )
-    .expect("empty default-network store boots");
+    let mut runtime =
+        RuntimeAdmissionState::boot_from_store_with_genesis_and_authorization_network(
+            config.clone(),
+            dir.join("blocks.ndjson"),
+            None,
+            None,
+            boole_core::FamilyManifestRegistry::new(),
+            &genesis,
+            None,
+        )
+        .expect("empty default-network store boots");
     runtime.set_current_c(fixture.constants.c.clone());
     runtime
         .observe_ticket_from_body(&body)
@@ -413,6 +415,42 @@ fn runtime_default_boot_keeps_legacy_unscoped_authorization_selectable() {
     };
     assert_eq!(selection.selected.len(), 1);
     assert_eq!(selection.selected[0].pk, pk);
+
+    let named_genesis = config.genesis_spec("boole-dev", &fixture.constants.c);
+    let mut named = RuntimeAdmissionState::boot_from_store_with_genesis_and_authorization_network(
+        config,
+        dir.join("named-blocks.ndjson"),
+        None,
+        None,
+        boole_core::FamilyManifestRegistry::new(),
+        &named_genesis,
+        Some("boole-dev"),
+    )
+    .expect("empty named development-network store boots");
+    named.set_current_c(fixture.constants.c.clone());
+    named
+        .observe_ticket_from_body(&body)
+        .expect("named ticket observes");
+    assert!(matches!(
+        named.admit_body_with_submitter_context(
+            1_800_000_000_000,
+            &fixture.constants.ip,
+            &body,
+            0,
+            Some(&pk),
+            Some(&authorization),
+        ),
+        AdmissionDecision::Accepted { .. }
+    ));
+    assert!(
+        matches!(
+            named
+                .build_block_selection_for_current_c(&BTreeSet::from([0]))
+                .expect("named selection runs"),
+            BuildSelectionResult::NoProposer { .. }
+        ),
+        "a named producer must exclude a legacy-unscoped authorization"
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }

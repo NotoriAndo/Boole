@@ -11,6 +11,12 @@ use crate::replay_evidence::{
 };
 use crate::{block_hash, Hex32};
 
+/// Internal GenesisSpec name used only when a served node was not given an
+/// operator-visible network name. The scope-aware replay API accepts `None`
+/// only for this compatibility identity; an explicit `boole-mvp` node still
+/// passes `Some("boole-mvp")` and gets exact scope checking.
+const LEGACY_UNNAMED_FALLBACK_NETWORK_ID: &str = "boole-mvp";
+
 /// N3-pre.1 — explicit opt-in to replay a pre-evidence legacy chain (a
 /// block whose `selectedShareEvidence` is empty). `replay_blocks` and
 /// `replay_blocks_with_retarget` reject such blocks by default; this
@@ -206,6 +212,39 @@ pub fn replay_blocks_with_genesis_and_registry(
     spec: &crate::GenesisSpec,
     registry: &FamilyManifestRegistry,
 ) -> anyhow::Result<ReplayResult> {
+    replay_blocks_with_genesis_and_registry_for_authorization_network(
+        blocks,
+        spec,
+        registry,
+        Some(spec.network_id.as_str()),
+    )
+}
+
+/// Genesis-aware replay with an explicit indication of whether the caller's
+/// network name is an authorization scope. Served nodes use `None` only for
+/// the historical unnamed-node fallback; an operator-provided network uses
+/// `Some(network_id)`. This preserves legacy evidence without conflating it
+/// with a named non-testnet network.
+pub fn replay_blocks_with_genesis_and_registry_for_authorization_network(
+    blocks: &[PersistedBlock],
+    spec: &crate::GenesisSpec,
+    registry: &FamilyManifestRegistry,
+    authorization_network_id: Option<&str>,
+) -> anyhow::Result<ReplayResult> {
+    if let Some(authorization_network_id) = authorization_network_id {
+        if authorization_network_id != spec.network_id.as_str() {
+            anyhow::bail!(
+                "authorization network scope {} does not match genesis network {}",
+                authorization_network_id,
+                spec.network_id
+            );
+        }
+    } else if spec.network_id != LEGACY_UNNAMED_FALLBACK_NETWORK_ID {
+        anyhow::bail!(
+            "authorization network scope cannot be omitted for genesis network {}",
+            spec.network_id
+        );
+    }
     match &spec.params.retarget {
         Some(policy) => {
             crate::validate_retargeted_difficulty(blocks, &spec.params.t_block, policy)?
@@ -219,19 +258,12 @@ pub fn replay_blocks_with_genesis_and_registry(
     // both difficulty modes; a future t_share schedule would replace
     // this with its own derivation.
     validate_static_t_share(blocks, &spec.params.t_share)?;
-    // SC.1-d is deliberately scoped to boole-testnet-2. An unnamed local
-    // embedding still acquires a fallback GenesisSpec internally; treating
-    // that fallback as an explicit authorization scope would retroactively
-    // reject its legacy evidence.
-    let expected_authorization_network = (spec.network_id
-        == crate::share_authorization::AUTHORIZATION_REQUIRED_NETWORK_ID)
-        .then_some(spec.network_id.as_str());
     replay_blocks_with_rules(
         blocks,
         EvidencePolicy::Strict,
         &spec.initial_state.genesis_c,
         Some(&spec.params),
-        expected_authorization_network,
+        authorization_network_id,
         registry,
     )
 }

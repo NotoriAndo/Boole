@@ -65,7 +65,7 @@ Lean:
   proof obligations, checker artifacts, formal specs
 
 TypeScript:
-  MCP, agent bridge, frontend/dashboard, JS SDK, provider/model adapters
+  historical reference/fixture and parity source; it is not the current MCP host
 
 Python:
   calibration, benchmarks, difficulty analysis, reports
@@ -89,13 +89,23 @@ Rust boole-core can replay TypeScript-produced block/reward fixtures and produce
 
 - `boole-core`: protocol types, hashes, canonical encoding, replay, ledger state.
 - `boole-cli`: native CLI with stable JSON output and exit codes.
-- `boole-node`: Rust local node/runtime server, smoke runner, and future network daemon/RPC layer.
+- `boole-node`: Rust local node/runtime server and network daemon/RPC layer.
 - `boole-lean-runner`: Rust wrapper around Lean verifier artifacts/toolchain.
 - `boole-miner`: Rust miner runtime with proof-intake, canonicalizer, verifier, local/agent driver mining loop, and thin `boole-miner` binary.
+- `boole-mcp`: Rust MCP stdio/HTTP compatibility host and installer.
+- `boole-p2p`: bounded wire framing and peer transport.
+- `boole-wallet-agent`: encrypted-vault key initialization and isolated signing CLI.
+- `boole-emitter`, `boole-evm-adapter`, and `boole-native-rust-meter`: retained offline/experimental adapters; not active mining or consensus paths.
+- `boole-native-shadow-launcher` and `boole-native-shadow-protocol`: native checker containment/host-guest protocol boundaries.
+- `boole-testkit`: shared test helpers used by workspace consumers.
 
 ## Self-test gate
 
-Run the local core health gate before publishing changes:
+For a local change, run the focused tests that directly consume it; the full
+workspace gate belongs to CI. The authoritative procedure is the
+[development policy](docs/development-throughput-and-evidence-policy-v1.md).
+You may run the full local gate when deliberately preparing a release-sized
+validation:
 
 ```bash
 ./scripts/self-test.sh
@@ -136,15 +146,22 @@ Run the checked local mock mining smoke test:
 ./scripts/local-mining-smoke.sh
 ```
 
-Run the checked TypeScript `boole-miner` → Rust `boole-node` smoke test:
+Run the checked closed-local Rust `boole-miner` → Rust `boole-node` smoke test:
 
 ```bash
 ./scripts/boole-miner-smoke.sh
 ```
 
-The mining smoke starts `boole-node run-local`, reads `/head` and `/config`, announces tickets through `/ticket`, submits two fixture-backed mock-miner candidates to `/submit`, and verifies two replayable blocks are mined. The `boole-miner` smoke starts the same Rust node, runs the TypeScript miner CLI with mock LLM/mock verifier, and verifies one accepted share becomes one replayable block.
+The mining smoke starts `boole-node run-local`, reads `/head` and `/config`, announces tickets through `/ticket`, submits two fixture-backed mock-miner candidates to `/submit`, and verifies two replayable blocks are mined. The `boole-miner` smoke starts the same Rust node, builds the miner with `dev-tools` explicitly enabled, and uses the explicit mock LLM/mock-verifier flags to verify one accepted share becomes one replayable block. It is synthetic closed-local evidence only, not a production default, public mining result, or real-model success.
 
 This is the first Rust `boole-node` replacement path for the old TypeScript dispatcher shape: local HTTP submit, runtime admission, block commit, store recovery, and replay consistency.
+
+## Signer nonce behavior
+
+`boole signer sign-work` accepts a nonce only when it is 1–128 ASCII characters
+from letters, digits, `.`, `_`, or `-`. A nonce reservation is durable and
+fail-closed before signing: if signing or later ledger recording fails, retrying
+the same nonce is still rejected. Use a fresh nonce for a new request.
 
 ## Replay consensus evidence
 

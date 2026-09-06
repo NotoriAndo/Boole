@@ -15,13 +15,12 @@
 //! is `RetryableUnavailable` and must never become a consensus reject
 //! (ADR-0016 (a-3)).
 
-use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::fs::{DirBuilder, File, OpenOptions};
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
 
 use boole_core::{PersistedBlock, SelectedShareEvidence};
 use boole_lean_runner::{LeanRunner, LeanRunnerConfig, LeanVerdict};
-
-static REVERIFY_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Classification of one Lean-bound share, produced by the single verifier
 /// entry. Every consumer (offline audit and the consensus paths) maps this
@@ -158,23 +157,14 @@ fn run_pinned_checker(
         };
     }
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "boole-share-verify-{}-{}",
-        std::process::id(),
-        REVERIFY_COUNTER.fetch_add(1, Ordering::Relaxed),
-    ));
-    if let Err(err) = std::fs::create_dir_all(&tmp_dir) {
-        return LeanVerdict::RetryableUnavailable {
-            reason: format!("tmp dir for {block_c}: {err}"),
-        };
-    }
-    let proof_path = tmp_dir.join("Proof.lean");
-    if let Err(err) = std::fs::write(&proof_path, module_text) {
-        let _ = std::fs::remove_dir_all(&tmp_dir);
-        return LeanVerdict::RetryableUnavailable {
-            reason: format!("proof file for {block_c}: {err}"),
-        };
-    }
+    let (tmp_dir, proof_path) = match prepare_private_proof_file(module_text) {
+        Ok(paths) => paths,
+        Err(err) => {
+            return LeanVerdict::RetryableUnavailable {
+                reason: format!("private proof file for {block_c}: {err}"),
+            }
+        }
+    };
     let runner = LeanRunner::new(
         LeanRunnerConfig::new("boole-share-verify")
             .with_package_dir(checker_dir.to_path_buf())
@@ -200,6 +190,59 @@ fn run_pinned_checker(
     verdict
 }
 
+/// Create the checker input beneath an atomically claimed private directory.
+/// The random component comes from the OS, and both the directory claim and
+/// `Proof.lean` use exclusive creation, so a local user cannot pre-position a
+/// symlink at a predictable path before the node writes its module.
+fn prepare_private_proof_file(module_text: &str) -> std::io::Result<(PathBuf, PathBuf)> {
+    let temp_root = std::env::temp_dir();
+    let mut random_source = File::open("/dev/urandom")?;
+    for _ in 0..32 {
+        let mut random = [0u8; 16];
+        random_source.read_exact(&mut random)?;
+        let tmp_dir = temp_root.join(format!(
+            "boole-share-verify-{}-{}",
+            std::process::id(),
+            hex::encode(random)
+        ));
+        let mut builder = DirBuilder::new();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            builder.mode(0o700);
+        }
+        match builder.create(&tmp_dir) {
+            Ok(()) => {
+                let proof_path = tmp_dir.join("Proof.lean");
+                let result = (|| -> std::io::Result<()> {
+                    let mut options = OpenOptions::new();
+                    options.write(true).create_new(true);
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::OpenOptionsExt;
+                        options.custom_flags(libc::O_NOFOLLOW);
+                    }
+                    let mut proof = options.open(&proof_path)?;
+                    proof.write_all(module_text.as_bytes())?;
+                    proof.flush()?;
+                    Ok(())
+                })();
+                if let Err(err) = result {
+                    let _ = std::fs::remove_dir_all(&tmp_dir);
+                    return Err(err);
+                }
+                return Ok((tmp_dir, proof_path));
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(err) => return Err(err),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "could not claim a unique private verifier directory",
+    ))
+}
+
 /// The block-level fold of the single share verifier entry over a peer
 /// block's base-lane `selectedShareEvidence` — the gate ingest and reorg
 /// (SC.10-ii-b/c) run before adopting a block on a checker-pinned network.
@@ -221,6 +264,53 @@ pub enum BlockReverifyOutcome {
     /// it is never a consensus reject and never a fail-open accept
     /// (ADR-0016 (a-3)).
     RetryableUnavailable { detail: String },
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::symlink;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn pinned_checker_never_follows_precreated_predictable_proof_symlink() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let victim_dir = std::env::temp_dir().join(format!(
+            "boole-share-verify-victim-{}-{nonce}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&victim_dir).expect("claim victim dir");
+        let victim = victim_dir.join("victim.txt");
+        std::fs::write(&victim, b"must remain unchanged").expect("victim contents");
+
+        let attacker_dir =
+            std::env::temp_dir().join(format!("boole-share-verify-{}-0", std::process::id()));
+        std::fs::create_dir(&attacker_dir).expect("precreate predictable directory");
+        symlink(&victim, attacker_dir.join("Proof.lean")).expect("precreate proof symlink");
+
+        let checker_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lean/checker");
+        let checker_hash = boole_lean_runner::checker_artifact_hash(&checker_dir)
+            .expect("repository checker hash");
+        let _ = run_pinned_checker(
+            "block-c",
+            "not a valid Lean module",
+            &checker_dir,
+            &checker_hash,
+            1,
+            1,
+        );
+
+        assert_eq!(
+            std::fs::read(&victim).expect("read victim"),
+            b"must remain unchanged",
+            "verification setup must not follow an attacker-controlled Proof.lean symlink"
+        );
+        let _ = std::fs::remove_dir_all(&attacker_dir);
+        let _ = std::fs::remove_dir_all(&victim_dir);
+    }
 }
 
 /// SC.10-ii-d-2 — the share-level fold of the single verifier entry: run

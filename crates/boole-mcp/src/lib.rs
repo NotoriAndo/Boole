@@ -16,8 +16,8 @@
 //!     `Box<dyn Submitter>` trait object owned by `MiningLoopDeps`.
 //!
 //! MCP stdio transport pieces (S4 / S5):
-//!   * `write_mcp_frame` / `read_mcp_frame` — Content-Length framing per
-//!     the LSP/MCP base protocol.
+//!   * `write_mcp_frame` / `read_mcp_frame` — newline-delimited JSON-RPC
+//!     framing required by the MCP stdio transport.
 //!   * `mcp_tools_array` — the canonical tool list; feeds both HTTP
 //!     `GET /mcp/tools` and stdio `tools/list` so they are always in sync.
 //!   * `handle_jsonrpc_sync` — synchronous JSON-RPC 2.0 dispatcher for
@@ -231,66 +231,50 @@ pub fn build_in_process_mining_deps(inputs: InProcessMiningInputs) -> InProcessM
     InProcessMiningBundle { deps, capture }
 }
 
-// ── S4: Content-Length framing ────────────────────────────────────────────
+// ── MCP stdio framing ─────────────────────────────────────────────────────
 
-/// Write a single MCP/LSP base-protocol Content-Length frame to `writer`.
-///
-/// Format: `Content-Length: {len}\r\n\r\n{body}`.  The caller is
-/// responsible for flushing `writer` after the call when needed.
+/// Write one newline-delimited MCP stdio message to `writer`.
 pub fn write_mcp_frame(writer: &mut impl Write, body: &str) -> io::Result<()> {
-    let bytes = body.as_bytes();
-    write!(writer, "Content-Length: {}\r\n\r\n", bytes.len())?;
-    writer.write_all(bytes)?;
+    writer.write_all(body.as_bytes())?;
+    writer.write_all(b"\n")?;
     Ok(())
 }
 
-/// Read a single MCP/LSP base-protocol Content-Length frame from `reader`.
+/// Read one newline-delimited MCP stdio message from `reader`.
 ///
 /// Returns `Ok(None)` on a clean EOF before any bytes are consumed.
-/// Returns an error if the headers are malformed (no `Content-Length`
-/// present, or the body is shorter than declared).
+/// A partial line at EOF and a line over the cap are rejected, keeping an
+/// untrusted client from silently losing a request or growing this buffer
+/// without limit.
 pub fn read_mcp_frame(reader: &mut impl BufRead) -> anyhow::Result<Option<String>> {
-    let mut content_length: Option<usize> = None;
-    let mut first = true;
-
+    const MCP_FRAME_MAX_BYTES: usize = 16 * 1024 * 1024;
+    let mut body = Vec::new();
     loop {
-        let mut line = String::new();
-        let n = reader.read_line(&mut line)?;
-        if n == 0 {
-            // Clean EOF.
-            if first {
+        let available = reader.fill_buf()?;
+        if available.is_empty() {
+            if body.is_empty() {
                 return Ok(None);
             }
-            anyhow::bail!("unexpected EOF before blank header line");
+            anyhow::bail!("truncated MCP stdio message without a newline delimiter");
         }
-        first = false;
-        let trimmed = line.trim_end_matches(['\r', '\n']);
-        if trimmed.is_empty() {
-            // Blank line — headers done.
+        let line_end = available.iter().position(|byte| *byte == b'\n');
+        let consumed = line_end.map_or(available.len(), |index| index + 1);
+        let body_bytes = body.len().saturating_add(consumed) - usize::from(line_end.is_some());
+        if body_bytes > MCP_FRAME_MAX_BYTES {
+            anyhow::bail!("MCP stdio message exceeds the {MCP_FRAME_MAX_BYTES}-byte frame cap");
+        }
+        body.extend_from_slice(&available[..consumed]);
+        reader.consume(consumed);
+        if line_end.is_some() {
             break;
         }
-        if let Some(val) = trimmed.strip_prefix("Content-Length:") {
-            let parsed: usize = val
-                .trim()
-                .parse()
-                .map_err(|e| anyhow::anyhow!("invalid Content-Length value: {e}"))?;
-            content_length = Some(parsed);
-        }
-        // Ignore unrecognised headers (e.g. Content-Type) per spec.
     }
-
-    let len = content_length.ok_or_else(|| anyhow::anyhow!("missing Content-Length header"))?;
-    // N0-pre.6 — cap the declared frame size before allocating, so a hostile
-    // `Content-Length` (e.g. 4 GiB) cannot drive a pre-allocation OOM bomb on
-    // the untrusted stdio transport.
-    const MCP_FRAME_MAX_BYTES: usize = 16 * 1024 * 1024;
-    if len > MCP_FRAME_MAX_BYTES {
-        anyhow::bail!("Content-Length {len} exceeds the {MCP_FRAME_MAX_BYTES}-byte frame cap");
+    body.pop(); // newline delimiter
+    if body.last() == Some(&b'\r') {
+        body.pop(); // tolerate CRLF clients while always emitting LF
     }
-    let mut body = vec![0u8; len];
-    reader.read_exact(&mut body)?;
     let s = String::from_utf8(body)
-        .map_err(|e| anyhow::anyhow!("frame body is not valid UTF-8: {e}"))?;
+        .map_err(|e| anyhow::anyhow!("MCP stdio message is not valid UTF-8: {e}"))?;
     Ok(Some(s))
 }
 

@@ -5,23 +5,21 @@ use std::os::fd::{AsRawFd, RawFd};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use sha2::{Digest, Sha256};
-
-#[cfg(target_os = "macos")]
-use std::ffi::{OsStr, OsString};
-#[cfg(target_os = "macos")]
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
-#[cfg(target_os = "macos")]
-use std::sync::Arc;
-#[cfg(target_os = "macos")]
-use std::time::{Duration, Instant};
 
 #[cfg(target_os = "macos")]
 use boole_core::{
     GuestArtifactRole, ProductArtifactRole, VerifiedCurlProductRelease,
     VerifiedInstalledBootableCurlProductRelease,
 };
+#[cfg(target_os = "macos")]
+use std::ffi::{OsStr, OsString};
+#[cfg(target_os = "macos")]
+use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+#[cfg(target_os = "macos")]
+use std::sync::Arc;
 
 const CONTROLLER_MAGIC: [u8; 8] = *b"BOOLE4C1";
 const CONTROLLER_VERSION: u8 = 1;
@@ -34,6 +32,8 @@ const CONTROLLER_PAYLOAD_CAP_BYTES: usize =
 // seconds for bounded forced stop after acknowledging the shutdown command.
 // Keep a small process-exit margin beyond both windows.
 const CONTROLLER_EXIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(25);
+const CONTROLLER_TRANSACTION_TIMEOUT: Duration = Duration::from_secs(115);
+const CONTROLLER_REAP_TIMEOUT: Duration = Duration::from_secs(1);
 const CONTROLLER_RUNTIME_LEASE_BASENAME: &str = ".controller-runtime.lock";
 const CONTROLLER_RUNTIME_DIRECTORY_BASENAME: &str = "active-controller";
 const CONTROLLER_RUNTIME_LEASE_MODE: u32 = 0o600;
@@ -101,6 +101,7 @@ fn require_lowercase_sha256(value: &str, named: &str) -> Result<(), ControllerEr
 }
 
 #[cfg(target_os = "macos")]
+#[allow(clippy::too_many_arguments)]
 fn bootable_controller_arguments(
     kernel: &Path,
     root_disk: &Path,
@@ -627,6 +628,8 @@ type SpawnedControllerClient = Mac4ControllerClient<ChildStdout, ChildStdin>;
 pub struct SpawnedMac4Controller {
     client: Arc<SpawnedControllerClient>,
     child: Option<Child>,
+    exit_timeout: Duration,
+    reap_timeout: Duration,
     _materialized: MaterializedControllerFile,
 }
 
@@ -746,8 +749,24 @@ impl SpawnedMac4Controller {
     }
 
     fn spawn_materialized(
+        materialized: MaterializedControllerFile,
+        controller_arguments: &[OsString],
+    ) -> Result<Self, ControllerError> {
+        Self::spawn_materialized_with_timeouts(
+            materialized,
+            controller_arguments,
+            CONTROLLER_TRANSACTION_TIMEOUT,
+            CONTROLLER_EXIT_TIMEOUT,
+            CONTROLLER_REAP_TIMEOUT,
+        )
+    }
+
+    fn spawn_materialized_with_timeouts(
         mut materialized: MaterializedControllerFile,
         controller_arguments: &[OsString],
+        transaction_timeout: Duration,
+        exit_timeout: Duration,
+        reap_timeout: Duration,
     ) -> Result<Self, ControllerError> {
         let lease_fd = materialized._lease.make_inheritable_for_controller()?;
         let spawn_result = Command::new(materialized.path())
@@ -782,9 +801,20 @@ impl SpawnedMac4Controller {
                 "host-controller private stdio pipe absent".into(),
             ));
         };
+        let client = match Mac4ControllerClient::new_deadline_fd(stdout, stdin, transaction_timeout)
+        {
+            Ok(client) => client,
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(error);
+            }
+        };
         Ok(Self {
-            client: Arc::new(Mac4ControllerClient::new(stdout, stdin)),
+            client: Arc::new(client),
             child: Some(child),
+            exit_timeout,
+            reap_timeout,
             _materialized: materialized,
         })
     }
@@ -817,11 +847,16 @@ impl SpawnedMac4Controller {
     }
 
     pub fn shutdown(mut self) -> Result<(), ControllerError> {
-        if let Err(error) = self.client.shutdown() {
-            self.kill_and_wait();
+        let deadline = Instant::now()
+            .checked_add(self.exit_timeout)
+            .ok_or_else(|| ControllerError("controller shutdown deadline overflowed".into()))?;
+        if let Err(error) = self.client.shutdown_until(deadline) {
+            let reap = self.kill_and_reap_for(self.reap_timeout);
+            if let Err(reap) = reap {
+                return Err(ControllerError(format!("{error}; {reap}")));
+            }
             return Err(error);
         }
-        let deadline = Instant::now() + CONTROLLER_EXIT_TIMEOUT;
         loop {
             let Some(child) = self.child.as_mut() else {
                 return Ok(());
@@ -840,13 +875,13 @@ impl SpawnedMac4Controller {
                     std::thread::sleep(Duration::from_millis(10));
                 }
                 Ok(None) => {
-                    self.kill_and_wait();
+                    self.kill_and_reap_for(self.reap_timeout)?;
                     return Err(ControllerError(
                         "host-controller did not exit after shutdown".into(),
                     ));
                 }
                 Err(error) => {
-                    self.kill_and_wait();
+                    self.kill_and_reap_for(self.reap_timeout)?;
                     return Err(ControllerError(format!(
                         "wait for host-controller failed: {error}"
                     )));
@@ -855,11 +890,38 @@ impl SpawnedMac4Controller {
         }
     }
 
-    fn kill_and_wait(&mut self) {
+    fn kill_and_reap_for(&mut self, timeout: Duration) -> Result<(), ControllerError> {
         if let Some(mut child) = self.child.take() {
-            let _ = child.kill();
-            let _ = child.wait();
+            if let Err(error) = child.kill() {
+                if error.kind() != std::io::ErrorKind::InvalidInput {
+                    return Err(ControllerError(format!(
+                        "kill host-controller failed: {error}"
+                    )));
+                }
+            }
+            let deadline = Instant::now()
+                .checked_add(timeout)
+                .ok_or_else(|| ControllerError("controller reap deadline overflowed".into()))?;
+            loop {
+                match child.try_wait() {
+                    Ok(Some(_)) => return Ok(()),
+                    Ok(None) if Instant::now() < deadline => {
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    Ok(None) => {
+                        return Err(ControllerError(
+                            "host-controller was killed but not reaped before deadline".into(),
+                        ))
+                    }
+                    Err(error) => {
+                        return Err(ControllerError(format!(
+                            "reap killed host-controller failed: {error}"
+                        )))
+                    }
+                }
+            }
         }
+        Ok(())
     }
 }
 
@@ -881,16 +943,17 @@ fn macos_fresh_nonce_hex() -> Result<String, ControllerError> {
 #[cfg(target_os = "macos")]
 impl Drop for SpawnedMac4Controller {
     fn drop(&mut self) {
-        self.kill_and_wait();
+        let _ = self.kill_and_reap_for(self.reap_timeout);
     }
 }
 
 #[cfg(target_os = "macos")]
 #[cfg_attr(not(test), allow(dead_code))]
 fn require_production_controller_arguments(arguments: &[OsString]) -> Result<(), ControllerError> {
-    const FORBIDDEN: [&str; 4] = [
+    const FORBIDDEN: [&str; 5] = [
         "--controller-stdio",
         "--controller-protocol-dry-run",
+        "--deadline-io-self-test",
         "--dry-run",
         "--proxy-dry-run",
     ];
@@ -906,9 +969,134 @@ fn require_production_controller_arguments(arguments: &[OsString]) -> Result<(),
     Ok(())
 }
 
+#[allow(unsafe_code)]
+fn set_nonblocking(fd: RawFd, named: &str) -> Result<(), ControllerError> {
+    // SAFETY: `fd` is a live descriptor retained by the caller.
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    if flags < 0 {
+        return Err(ControllerError(format!(
+            "read {named} descriptor flags: {}",
+            std::io::Error::last_os_error()
+        )));
+    }
+    // SAFETY: this changes only the status flags of the same retained fd.
+    if unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } != 0 {
+        return Err(ControllerError(format!(
+            "make {named} nonblocking: {}",
+            std::io::Error::last_os_error()
+        )));
+    }
+    Ok(())
+}
+
+fn deadline_io_error() -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::TimedOut,
+        "controller transaction deadline exceeded",
+    )
+}
+
+#[allow(unsafe_code)]
+fn poll_fd_until(fd: RawFd, events: libc::c_short, deadline: Instant) -> std::io::Result<()> {
+    loop {
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            return Err(deadline_io_error());
+        };
+        let timeout_ms = remaining
+            .as_millis()
+            .saturating_add(u128::from(remaining.subsec_nanos() % 1_000_000 != 0))
+            .min(i32::MAX as u128) as i32;
+        let mut descriptor = libc::pollfd {
+            fd,
+            events,
+            revents: 0,
+        };
+        // SAFETY: `descriptor` is one initialized pollfd valid for this call.
+        let ready = unsafe { libc::poll(&mut descriptor, 1, timeout_ms) };
+        if ready > 0 {
+            if descriptor.revents & libc::POLLNVAL != 0 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "controller descriptor became invalid",
+                ));
+            }
+            return Ok(());
+        }
+        if ready == 0 {
+            return Err(deadline_io_error());
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::Interrupted {
+            return Err(error);
+        }
+    }
+}
+
+#[allow(unsafe_code)]
+fn write_all_fd_until(fd: RawFd, bytes: &[u8], deadline: Instant) -> std::io::Result<()> {
+    let mut offset = 0;
+    while offset < bytes.len() {
+        poll_fd_until(fd, libc::POLLOUT, deadline)?;
+        // SAFETY: the slice is live and readable for the supplied remaining length.
+        let written =
+            unsafe { libc::write(fd, bytes[offset..].as_ptr().cast(), bytes.len() - offset) };
+        if written > 0 {
+            offset += written as usize;
+            continue;
+        }
+        if written == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::WriteZero,
+                "controller request write made no progress",
+            ));
+        }
+        let error = std::io::Error::last_os_error();
+        if matches!(
+            error.kind(),
+            std::io::ErrorKind::Interrupted | std::io::ErrorKind::WouldBlock
+        ) {
+            continue;
+        }
+        return Err(error);
+    }
+    Ok(())
+}
+
+struct DeadlineFdReader {
+    fd: RawFd,
+    deadline: Instant,
+}
+
+impl Read for DeadlineFdReader {
+    #[allow(unsafe_code)]
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        if buffer.is_empty() {
+            return Ok(0);
+        }
+        loop {
+            poll_fd_until(self.fd, libc::POLLIN, self.deadline)?;
+            // SAFETY: the output slice is live and writable for its full length.
+            let read = unsafe { libc::read(self.fd, buffer.as_mut_ptr().cast(), buffer.len()) };
+            if read >= 0 {
+                return Ok(read as usize);
+            }
+            let error = std::io::Error::last_os_error();
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::Interrupted | std::io::ErrorKind::WouldBlock
+            ) {
+                continue;
+            }
+            return Err(error);
+        }
+    }
+}
+
 struct ControllerIo<R, W> {
     reader: R,
     writer: W,
+    reader_fd: Option<RawFd>,
+    writer_fd: Option<RawFd>,
     stopped: bool,
 }
 
@@ -919,6 +1107,7 @@ struct ControllerIo<R, W> {
 /// challenge, journal, reward, consensus or activation authority.
 pub struct Mac4ControllerClient<R, W> {
     io: Mutex<ControllerIo<R, W>>,
+    transaction_timeout: Duration,
 }
 
 impl<R, W> fmt::Debug for Mac4ControllerClient<R, W> {
@@ -930,14 +1119,43 @@ impl<R, W> fmt::Debug for Mac4ControllerClient<R, W> {
 }
 
 impl<R: Read, W: Write> Mac4ControllerClient<R, W> {
+    #[cfg(test)]
     pub fn new(reader: R, writer: W) -> Self {
         Self {
             io: Mutex::new(ControllerIo {
                 reader,
                 writer,
+                reader_fd: None,
+                writer_fd: None,
                 stopped: false,
             }),
+            transaction_timeout: CONTROLLER_TRANSACTION_TIMEOUT,
         }
+    }
+
+    fn new_deadline_fd(
+        reader: R,
+        writer: W,
+        transaction_timeout: Duration,
+    ) -> Result<Self, ControllerError>
+    where
+        R: AsRawFd,
+        W: AsRawFd,
+    {
+        let reader_fd = reader.as_raw_fd();
+        let writer_fd = writer.as_raw_fd();
+        set_nonblocking(reader_fd, "controller stdout")?;
+        set_nonblocking(writer_fd, "controller stdin")?;
+        Ok(Self {
+            io: Mutex::new(ControllerIo {
+                reader,
+                writer,
+                reader_fd: Some(reader_fd),
+                writer_fd: Some(writer_fd),
+                stopped: false,
+            }),
+            transaction_timeout,
+        })
     }
 
     pub(crate) fn qualify(
@@ -982,8 +1200,16 @@ impl<R: Read, W: Write> Mac4ControllerClient<R, W> {
         })
     }
 
+    #[cfg(test)]
     pub fn shutdown(&self) -> Result<(), ControllerError> {
-        self.transact(ControllerCommand::Shutdown, &[])?;
+        let deadline = Instant::now()
+            .checked_add(self.transaction_timeout)
+            .ok_or_else(|| ControllerError("controller transaction deadline overflowed".into()))?;
+        self.shutdown_until(deadline)
+    }
+
+    fn shutdown_until(&self, deadline: Instant) -> Result<(), ControllerError> {
+        self.transact_until(ControllerCommand::Shutdown, &[], deadline)?;
         Ok(())
     }
 
@@ -992,10 +1218,34 @@ impl<R: Read, W: Write> Mac4ControllerClient<R, W> {
         command: ControllerCommand,
         frames: &[&[u8]],
     ) -> Result<DecodedEnvelope, ControllerError> {
-        let mut io = self
-            .io
-            .lock()
-            .map_err(|_| ControllerError("controller I/O lock is poisoned".into()))?;
+        let deadline = Instant::now()
+            .checked_add(self.transaction_timeout)
+            .ok_or_else(|| ControllerError("controller transaction deadline overflowed".into()))?;
+        self.transact_until(command, frames, deadline)
+    }
+
+    fn transact_until(
+        &self,
+        command: ControllerCommand,
+        frames: &[&[u8]],
+        deadline: Instant,
+    ) -> Result<DecodedEnvelope, ControllerError> {
+        let mut io = loop {
+            match self.io.try_lock() {
+                Ok(io) => break io,
+                Err(std::sync::TryLockError::WouldBlock) if Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                Err(std::sync::TryLockError::WouldBlock) => {
+                    return Err(ControllerError(
+                        "controller transaction deadline exceeded acquiring I/O lock".into(),
+                    ))
+                }
+                Err(std::sync::TryLockError::Poisoned(_)) => {
+                    return Err(ControllerError("controller I/O lock is poisoned".into()))
+                }
+            }
+        };
         if io.stopped {
             return Err(ControllerError("controller is already stopped".into()));
         }
@@ -1006,11 +1256,20 @@ impl<R: Read, W: Write> Mac4ControllerClient<R, W> {
         }
         let id = request_id(command, frames);
         let request = encode_envelope(command as u8, id, None, frames)?;
-        io.writer
-            .write_all(&request)
-            .and_then(|()| io.writer.flush())
-            .map_err(|error| ControllerError(format!("write controller request: {error}")))?;
-        let response = read_envelope(&mut io.reader)?;
+        if let Some(fd) = io.writer_fd {
+            write_all_fd_until(fd, &request, deadline)
+                .map_err(|error| ControllerError(format!("write controller request: {error}")))?;
+        } else {
+            io.writer
+                .write_all(&request)
+                .and_then(|()| io.writer.flush())
+                .map_err(|error| ControllerError(format!("write controller request: {error}")))?;
+        }
+        let response = if let Some(fd) = io.reader_fd {
+            read_envelope(&mut DeadlineFdReader { fd, deadline })?
+        } else {
+            read_envelope(&mut io.reader)?
+        };
         if response.kind != command.response_kind() {
             return Err(ControllerError("controller response kind differs".into()));
         }
@@ -1223,6 +1482,60 @@ mod tests {
             super::CONTROLLER_EXIT_TIMEOUT > std::time::Duration::from_secs(20),
             "the owner must not kill the controller while its 10s graceful + 10s forced VM stop is still bounded"
         );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn silent_controller_bounds_stdout_lock_shutdown_and_reap() {
+        use std::sync::Arc;
+        use std::time::{Duration, Instant};
+
+        let fixture = FixtureDirectory::new("silent-controller");
+        let source_path = fixture.0.join("silent-controller.py");
+        let source = b"#!/usr/bin/python3\nimport time\ntime.sleep(30)\n";
+        fs::write(&source_path, source).expect("write silent controller");
+        let source_file = fs::File::open(&source_path).expect("open silent controller");
+        let digest = hex::encode(Sha256::digest(source));
+        let materialized = super::materialize_verified_controller_file(
+            &source_file,
+            source.len() as u64,
+            &digest,
+            &fixture.0,
+        )
+        .expect("materialize silent controller");
+        let controller = super::SpawnedMac4Controller::spawn_materialized_with_timeouts(
+            materialized,
+            &[],
+            Duration::from_millis(100),
+            Duration::from_millis(150),
+            Duration::from_millis(150),
+        )
+        .expect("spawn silent controller");
+        let client = controller.client();
+        let stalled = {
+            let client = Arc::clone(&client);
+            std::thread::spawn(move || client.qualify(b"qualification"))
+        };
+        std::thread::sleep(Duration::from_millis(20));
+
+        let lock_started = Instant::now();
+        let lock_error = client
+            .shutdown()
+            .expect_err("a request queued behind silent stdout must time out");
+        assert!(lock_started.elapsed() < Duration::from_secs(1));
+        assert!(lock_error.to_string().contains("deadline"));
+        let read_error = stalled
+            .join()
+            .expect("stalled caller joins")
+            .expect_err("silent stdout must time out");
+        assert!(read_error.to_string().contains("deadline"));
+
+        let shutdown_started = Instant::now();
+        let shutdown_error = controller
+            .shutdown()
+            .expect_err("silent controller shutdown must fail closed");
+        assert!(shutdown_started.elapsed() < Duration::from_secs(1));
+        assert!(shutdown_error.to_string().contains("deadline"));
     }
 
     #[test]
@@ -1644,6 +1957,7 @@ mod tests {
         for forbidden in [
             "--controller-stdio",
             "--controller-protocol-dry-run",
+            "--deadline-io-self-test",
             "--dry-run",
             "--proxy-dry-run",
         ] {

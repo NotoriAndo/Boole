@@ -25,11 +25,12 @@
 //! consumer) must bind a different AAD; mixing vault files across
 //! consumers will fail at open() with `DecryptionFailed`.
 
-use std::fs::{self, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::{anyhow, bail, Context, Result};
 use boole_core::vault::{EncryptedVault, VaultParams};
@@ -110,7 +111,7 @@ fn cmd_init(vault_path: &Path) -> Result<()> {
     let bytes = vault
         .to_json_bytes()
         .map_err(|e| anyhow!("serialize vault: {e}"))?;
-    write_file_atomic_0600(vault_path, &bytes)?;
+    write_new_file_atomic_0600(vault_path, &bytes)?;
     println!("{pubkey_hex}");
     Ok(())
 }
@@ -160,7 +161,7 @@ fn cmd_migrate_from_hex(vault_path: &Path) -> Result<()> {
     let bytes = vault
         .to_json_bytes()
         .map_err(|e| anyhow!("serialize vault: {e}"))?;
-    write_file_atomic_0600(vault_path, &bytes)?;
+    write_new_file_atomic_0600(vault_path, &bytes)?;
     println!("{pubkey_hex}");
     Ok(())
 }
@@ -187,22 +188,64 @@ fn open_signing_key(vault_path: &Path) -> Result<SigningKey> {
     Ok(SigningKey::from_bytes(&seed_array))
 }
 
-fn write_file_atomic_0600(path: &Path, bytes: &[u8]) -> Result<()> {
+static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+fn sync_directory(path: &Path) -> io::Result<()> {
+    File::open(path)?.sync_all()
+}
+
+/// Create a new vault without ever replacing an existing final path. The hard
+/// link is the create-if-absent commit: two writers may stage safely, but only
+/// one can link its staged inode to `path`.
+fn write_new_file_atomic_0600(path: &Path, bytes: &[u8]) -> Result<()> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(parent)
         .with_context(|| format!("create parent dir {}", parent.display()))?;
-    let tmp = path.with_extension("vault.tmp");
-    let _ = fs::remove_file(&tmp);
-    {
-        let mut f = OpenOptions::new()
+    let filename = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .context("vault path has no UTF-8 filename")?;
+    let mut staged = None;
+    for _ in 0..64 {
+        let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let tmp = parent.join(format!(
+            ".{filename}.{}.{}.tmp",
+            std::process::id(),
+            sequence
+        ));
+        match OpenOptions::new()
             .write(true)
             .create_new(true)
             .mode(0o600)
             .open(&tmp)
-            .with_context(|| format!("create temp vault file {}", tmp.display()))?;
-        f.write_all(bytes)?;
-        f.sync_all()?;
+        {
+            Ok(file) => {
+                staged = Some((tmp, file));
+                break;
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error).with_context(|| format!("create {}", tmp.display())),
+        }
     }
-    fs::rename(&tmp, path).with_context(|| format!("rename to {}", path.display()))?;
+    let (tmp, mut file) = staged.context("create unique temporary vault file")?;
+    let write_result = (|| -> io::Result<()> {
+        file.write_all(bytes)?;
+        file.sync_all()
+    })();
+    drop(file);
+    if let Err(error) = write_result {
+        let _ = fs::remove_file(&tmp);
+        return Err(error).with_context(|| format!("write staged vault {}", tmp.display()));
+    }
+    if let Err(error) = fs::hard_link(&tmp, path) {
+        let _ = fs::remove_file(&tmp);
+        return Err(error).with_context(|| format!("create vault {}", path.display()));
+    }
+    if let Err(error) = sync_directory(parent) {
+        let _ = fs::remove_file(&tmp);
+        return Err(error).with_context(|| format!("sync vault directory {}", parent.display()));
+    }
+    fs::remove_file(&tmp).with_context(|| format!("remove staged vault {}", tmp.display()))?;
+    sync_directory(parent).with_context(|| format!("sync vault directory {}", parent.display()))?;
     Ok(())
 }

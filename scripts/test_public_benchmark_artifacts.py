@@ -101,7 +101,22 @@ class PublicBenchmarkArtifactTests(unittest.TestCase):
     def test_readme_crates_section_lists_all_workspace_crates(self) -> None:
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         crates_section = readme.split("## Crates", 1)[1].split("## Self-test gate", 1)[0]
-        for crate in ["boole-core", "boole-cli", "boole-node", "boole-lean-runner", "boole-miner"]:
+        for crate in [
+            "boole-core",
+            "boole-emitter",
+            "boole-cli",
+            "boole-evm-adapter",
+            "boole-node",
+            "boole-p2p",
+            "boole-lean-runner",
+            "boole-mcp",
+            "boole-miner",
+            "boole-native-shadow-launcher",
+            "boole-native-shadow-protocol",
+            "boole-native-rust-meter",
+            "boole-testkit",
+            "boole-wallet-agent",
+        ]:
             self.assertIn(f"`{crate}`", crates_section)
 
     def test_local_ollama_manual_smoke_guide_is_safe_and_optional(self) -> None:

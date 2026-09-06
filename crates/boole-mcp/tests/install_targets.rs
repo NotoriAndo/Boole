@@ -28,6 +28,8 @@ use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use serde_json::Value;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 
 fn bin_path() -> PathBuf {
     let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -59,7 +61,7 @@ fn temp_home() -> PathBuf {
 fn settings_path(home: &Path, target: &str) -> PathBuf {
     match target {
         "claude" => home.join(".claude").join("settings.json"),
-        "codex" => home.join(".codex").join("config.json"),
+        "codex" => home.join(".codex").join("config.toml"),
         "cursor" => home.join(".cursor").join("mcp.json"),
         "opencode" => home.join(".config").join("opencode").join("config.json"),
         other => panic!("unknown target {other}"),
@@ -100,6 +102,14 @@ fn install_each_ide_writes_canonical_settings_entry() {
         let s = settings_path(&home, target);
         assert!(s.exists(), "{target}: settings file at {s:?} should exist");
         let txt = fs::read_to_string(&s).expect("settings");
+        if target == "codex" {
+            assert!(txt.contains("[mcp_servers.boole]"), "{target}: {txt}");
+            assert!(txt.contains("command = "), "{target}: {txt}");
+            assert!(txt.contains("\"stdio\""), "{target}: {txt}");
+            assert!(txt.contains("\"--native-shadow-url\""), "{target}: {txt}");
+            let _ = fs::remove_dir_all(&home);
+            continue;
+        }
         let v: Value = serde_json::from_str(&txt).expect("settings json");
         let entry = &v["mcpServers"]["boole"];
         assert!(
@@ -175,6 +185,146 @@ fn install_preserves_unrelated_keys() {
         v["mcpServers"]["boole"]["command"].is_string(),
         "boole entry inserted alongside sibling"
     );
+    let _ = fs::remove_dir_all(&home);
+}
+
+#[test]
+fn install_codex_preserves_other_toml_tables_and_comments() {
+    let home = temp_home();
+    let s = settings_path(&home, "codex");
+    fs::create_dir_all(s.parent().unwrap()).expect("mkdirs");
+    fs::write(
+        &s,
+        "# Keep this user setting\nmodel = \"gpt-5.6\"\n\n[mcp_servers.other]\ncommand = \"other-mcp\"\n",
+    )
+    .expect("seed config");
+
+    let out = run_install(&home, &["--target", "codex"]);
+    assert!(
+        out.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = fs::read_to_string(&s).expect("config");
+    assert!(text.contains("# Keep this user setting"));
+    assert!(text.contains("model = \"gpt-5.6\""));
+    assert!(text.contains("[mcp_servers.other]"));
+    assert!(text.contains("command = \"other-mcp\""));
+    assert!(text.contains("[mcp_servers.boole]"));
+    let _ = fs::remove_dir_all(&home);
+}
+
+#[test]
+fn install_codex_handles_quoted_and_inline_server_tables_without_losing_boole_env() {
+    let home = temp_home();
+    let s = settings_path(&home, "codex");
+    fs::create_dir_all(s.parent().unwrap()).expect("mkdirs");
+    fs::write(
+        &s,
+        "# keep user context\n[mcp_servers.\"other.server\"]\ncommand = \"other\"\n\n[mcp_servers.boole]\ncommand = \"old-boole\"\nargs = [\"old\"]\n\n[mcp_servers.boole.env]\nBOOLE_TOKEN = \"keep-me\"\n",
+    )
+    .expect("seed config");
+
+    let out = run_install(&home, &["--target", "codex"]);
+    assert!(
+        out.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = fs::read_to_string(&s).expect("config");
+    assert!(text.contains("# keep user context"));
+    let parsed = text
+        .parse::<toml_edit::DocumentMut>()
+        .expect("valid TOML after merge");
+    assert_eq!(
+        parsed["mcp_servers"]["other.server"]["command"].as_str(),
+        Some("other")
+    );
+    assert_eq!(
+        parsed["mcp_servers"]["boole"]["env"]["BOOLE_TOKEN"].as_str(),
+        Some("keep-me")
+    );
+    assert_ne!(
+        parsed["mcp_servers"]["boole"]["command"].as_str(),
+        Some("old-boole")
+    );
+    let _ = fs::remove_dir_all(&home);
+}
+
+#[test]
+fn install_codex_converts_inline_mcp_servers_to_a_valid_server_table() {
+    let home = temp_home();
+    let s = settings_path(&home, "codex");
+    fs::create_dir_all(s.parent().unwrap()).expect("mkdirs");
+    fs::write(
+        &s,
+        "mcp_servers = { other = { command = \"other\" }, boole = { command = \"old\" } }\n",
+    )
+    .expect("seed config");
+
+    let out = run_install(&home, &["--target", "codex"]);
+    assert!(
+        out.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = fs::read_to_string(&s).expect("config");
+    let parsed = text
+        .parse::<toml_edit::DocumentMut>()
+        .expect("valid TOML after merge");
+    assert_eq!(
+        parsed["mcp_servers"]["other"]["command"].as_str(),
+        Some("other")
+    );
+    assert!(parsed["mcp_servers"]["boole"]["args"].is_array());
+    let _ = fs::remove_dir_all(&home);
+}
+
+#[test]
+fn install_codex_rejects_invalid_toml_without_echoing_its_contents() {
+    let home = temp_home();
+    let s = settings_path(&home, "codex");
+    fs::create_dir_all(s.parent().unwrap()).expect("mkdirs");
+    let original = "token = \"secret-value-must-not-be-echoed\"\nthis is not TOML\n";
+    fs::write(&s, original).expect("seed config");
+
+    let out = run_install(&home, &["--target", "codex"]);
+    assert!(!out.status.success(), "invalid TOML must fail");
+    assert!(!String::from_utf8_lossy(&out.stderr).contains("secret-value-must-not-be-echoed"));
+    assert_eq!(
+        fs::read_to_string(&s).expect("config left untouched"),
+        original
+    );
+    let _ = fs::remove_dir_all(&home);
+}
+
+#[cfg(unix)]
+#[test]
+fn install_codex_keeps_existing_private_mode_and_leaves_no_temp_config() {
+    let home = temp_home();
+    let s = settings_path(&home, "codex");
+    fs::create_dir_all(s.parent().unwrap()).expect("mkdirs");
+    fs::write(&s, "[mcp_servers.private]\ncommand = \"private\"\n").expect("seed config");
+    fs::set_permissions(&s, fs::Permissions::from_mode(0o600)).expect("restrict config");
+
+    let out = run_install(&home, &["--target", "codex"]);
+    assert!(
+        out.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        fs::metadata(&s).expect("mode").permissions().mode() & 0o777,
+        0o600
+    );
+    assert!(fs::read_to_string(&s)
+        .expect("config")
+        .contains("[mcp_servers.private]"));
+    let entries: Vec<_> = fs::read_dir(s.parent().unwrap())
+        .expect("config directory")
+        .map(|entry| entry.expect("entry").file_name())
+        .collect();
+    assert_eq!(entries, vec![std::ffi::OsString::from("config.toml")]);
     let _ = fs::remove_dir_all(&home);
 }
 

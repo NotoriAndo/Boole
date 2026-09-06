@@ -1,7 +1,7 @@
 //! S6 — integration test for the `stdio` subcommand.
 //!
 //! Spawns the built binary with `boole-mcp stdio`, drives it via
-//! Content-Length-framed JSON-RPC 2.0 over its stdin/stdout, and
+//! newline-delimited JSON-RPC 2.0 over its stdin/stdout, and
 //! asserts the full handshake:
 //!
 //!   1. `initialize`  → protocolVersion "2024-11-05", serverInfo.name = "boole-mcp"
@@ -10,7 +10,8 @@
 //!   4. `tools/call`  boole.status → idle envelope in content[0].text
 //!
 //! Drive via std::process::Command with piped stdin/stdout.
-//! Content-Length framing is written/read by the test itself.
+//! The test intentionally implements its own line client instead of using the
+//! server's framer, so it catches shared framing mistakes.
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
@@ -44,34 +45,27 @@ impl Drop for StdioChild {
     }
 }
 
-/// Write a single Content-Length-framed JSON-RPC message to `writer`.
+/// Write one MCP stdio JSON-RPC message without using the server framer.
 fn write_frame(writer: &mut impl Write, body: &str) {
-    let bytes = body.as_bytes();
-    write!(writer, "Content-Length: {}\r\n\r\n", bytes.len()).expect("write header");
-    writer.write_all(bytes).expect("write body");
+    writer.write_all(body.as_bytes()).expect("write body");
+    writer.write_all(b"\n").expect("write delimiter");
     writer.flush().expect("flush");
 }
 
-/// Read a single Content-Length-framed response from `reader`.
-/// Returns the decoded UTF-8 body.
+/// Read one MCP stdio line without using the server framer.
 fn read_frame(reader: &mut impl BufRead) -> String {
-    // Read header lines until blank line.
-    let mut content_length: Option<usize> = None;
-    loop {
-        let mut line = String::new();
-        reader.read_line(&mut line).expect("read header line");
-        let trimmed = line.trim_end_matches(['\r', '\n']);
-        if trimmed.is_empty() {
-            break;
-        }
-        if let Some(val) = trimmed.strip_prefix("Content-Length:") {
-            content_length = val.trim().parse().ok();
-        }
-    }
-    let len = content_length.expect("Content-Length header not found");
-    let mut body_bytes = vec![0u8; len];
-    reader.read_exact(&mut body_bytes).expect("read body");
-    String::from_utf8(body_bytes).expect("utf8 body")
+    let mut line = String::new();
+    reader.read_line(&mut line).expect("read response line");
+    assert!(
+        line.ends_with('\n'),
+        "MCP response must end in a newline: {line:?}"
+    );
+    assert!(
+        !line.starts_with("Content-Length:"),
+        "MCP response must not use LSP Content-Length framing: {line:?}"
+    );
+    line.pop();
+    line
 }
 
 fn spawn_stdio() -> (
@@ -221,4 +215,17 @@ fn stdio_tools_call_boole_status_returns_idle_in_content() {
     );
     let is_error = call_resp["result"]["isError"].as_bool().unwrap_or(false);
     assert!(!is_error, "isError must be false; resp={call_resp_str}");
+}
+
+#[test]
+fn stdio_malformed_json_returns_parse_error_and_keeps_the_pipe_usable() {
+    let (_guard, mut stdin, mut stdout) = spawn_stdio();
+    write_frame(&mut stdin, "not-json");
+    let error: Value = serde_json::from_str(&read_frame(&mut stdout)).expect("parse response");
+    assert_eq!(error["error"]["code"], -32700, "response={error}");
+
+    let request = json!({"jsonrpc":"2.0","id":9,"method":"tools/list"});
+    write_frame(&mut stdin, &request.to_string());
+    let response: Value = serde_json::from_str(&read_frame(&mut stdout)).expect("next response");
+    assert_eq!(response["id"], 9, "response={response}");
 }

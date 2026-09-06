@@ -46,11 +46,16 @@
 //! loopback native service; wallet, payment, block and reward mutation remain
 //! outside this MCP process.
 
+use std::fs::{File, OpenOptions};
 use std::io::{BufReader, Write};
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+#[cfg(unix)]
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
 use anyhow::{Context, Result};
 use axum::{
@@ -66,6 +71,7 @@ use num_bigint::BigUint;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use tokio::net::TcpListener;
+use toml_edit::{value as toml_value, DocumentMut, Item, Table, Value as TomlValue};
 
 use boole_core::Hex32;
 use boole_mcp::{
@@ -114,8 +120,8 @@ enum Command {
         #[arg(long, default_value = "127.0.0.1:0")]
         listen: String,
     },
-    /// Real MCP stdio transport: speak JSON-RPC 2.0 with Content-Length
-    /// framing over stdin/stdout. This is the transport that MCP clients
+    /// Real MCP stdio transport: speak newline-delimited JSON-RPC 2.0
+    /// over stdin/stdout. This is the transport that MCP clients
     /// (Claude, Cursor, etc.) expect when launching `boole-mcp` as a
     /// subprocess. The HTTP `serve` subcommand is kept for direct use.
     Stdio {
@@ -153,7 +159,7 @@ impl IdeTarget {
     fn settings_rel_path(&self) -> &'static [&'static str] {
         match self {
             IdeTarget::Claude => &[".claude", "settings.json"],
-            IdeTarget::Codex => &[".codex", "config.json"],
+            IdeTarget::Codex => &[".codex", "config.toml"],
             IdeTarget::Cursor => &[".cursor", "mcp.json"],
             IdeTarget::Opencode => &[".config", "opencode", "config.json"],
         }
@@ -358,6 +364,132 @@ fn install_envelope_err(reason: &str, extras: Value) -> String {
     serde_json::to_string(&envelope).expect("install envelope serializes")
 }
 
+fn stdio_entry() -> Value {
+    let bin = std::env::current_exe()
+        .expect("resolve current executable for MCP server registration")
+        .to_string_lossy()
+        .to_string();
+    json!({
+        "command": bin,
+        "args": [
+            "stdio",
+            "--node-url",
+            "http://127.0.0.1:8080",
+            "--native-shadow-url",
+            "http://127.0.0.1:8082"
+        ],
+    })
+}
+
+fn inline_table_as_table(inline: &toml_edit::InlineTable) -> Table {
+    let mut table = Table::new();
+    for (key, value) in inline.iter() {
+        table.insert(key, Item::Value(value.clone()));
+    }
+    table
+}
+
+fn ensure_table<'a>(item: &'a mut Item, name: &str) -> Result<&'a mut Table> {
+    if item.is_none() {
+        *item = Item::Table(Table::new());
+    } else if let Some(inline) = item.as_inline_table() {
+        *item = Item::Table(inline_table_as_table(inline));
+    }
+    item.as_table_mut()
+        .with_context(|| format!("{name} must be a TOML table"))
+}
+
+fn merge_codex_config(existing: &str, entry: &Value) -> Result<String> {
+    let mut document = existing
+        .parse::<DocumentMut>()
+        .map_err(|_| anyhow::anyhow!("Codex configuration could not be parsed"))?;
+    let root = document.as_table_mut();
+    let mcp_servers = ensure_table(
+        root.entry("mcp_servers").or_insert(Item::None),
+        "mcp_servers",
+    )?;
+    let boole = ensure_table(
+        mcp_servers.entry("boole").or_insert(Item::None),
+        "mcp_servers.boole",
+    )?;
+    let command = entry["command"]
+        .as_str()
+        .expect("stdio command is a string");
+    let args = entry["args"].as_array().expect("stdio args are an array");
+    let mut args_toml = toml_edit::Array::new();
+    for argument in args {
+        args_toml.push(argument.as_str().expect("stdio arg is a string"));
+    }
+    boole["command"] = toml_value(command);
+    boole["args"] = Item::Value(TomlValue::Array(args_toml));
+    Ok(document.to_string())
+}
+
+static INSTALL_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+fn atomic_write_settings(path: &std::path::Path, content: &str) -> Result<()> {
+    let parent = path.parent().context("settings path has no parent")?;
+    std::fs::create_dir_all(parent).with_context(|| format!("mkdir -p {}", parent.display()))?;
+    let filename = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .context("settings path has no UTF-8 filename")?;
+
+    #[cfg(unix)]
+    let desired_mode = std::fs::metadata(path)
+        .ok()
+        .map(|metadata| metadata.permissions().mode() & 0o7777)
+        .unwrap_or(0o600);
+
+    let mut temporary = None;
+    for _ in 0..64 {
+        let sequence = INSTALL_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let candidate = parent.join(format!(
+            ".{filename}.{}.{}.tmp",
+            std::process::id(),
+            sequence
+        ));
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        options.mode(0o600);
+        match options.open(&candidate) {
+            Ok(file) => {
+                temporary = Some((candidate, file));
+                break;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(error).with_context(|| format!("create {}", candidate.display()));
+            }
+        }
+    }
+    let (temporary_path, mut file) = temporary.context("create unique settings temporary file")?;
+    let write_result = (|| -> Result<()> {
+        file.write_all(content.as_bytes())
+            .with_context(|| format!("write {}", temporary_path.display()))?;
+        #[cfg(unix)]
+        file.set_permissions(std::fs::Permissions::from_mode(desired_mode))
+            .with_context(|| format!("set mode on {}", temporary_path.display()))?;
+        file.sync_all()
+            .with_context(|| format!("sync {}", temporary_path.display()))?;
+        Ok(())
+    })();
+    drop(file);
+    if let Err(error) = write_result {
+        let _ = std::fs::remove_file(&temporary_path);
+        return Err(error);
+    }
+    if let Err(error) = std::fs::rename(&temporary_path, path) {
+        let _ = std::fs::remove_file(&temporary_path);
+        return Err(error).with_context(|| format!("rename into {}", path.display()));
+    }
+    File::open(parent)
+        .and_then(|directory| directory.sync_all())
+        .with_context(|| format!("sync parent directory {}", parent.display()))?;
+    Ok(())
+}
+
 fn run_install(target: IdeTarget, dry_run: bool) -> Result<()> {
     let home = match std::env::var_os("HOME") {
         Some(h) => PathBuf::from(h),
@@ -370,9 +502,51 @@ fn run_install(target: IdeTarget, dry_run: bool) -> Result<()> {
     for seg in target.settings_rel_path() {
         settings_path.push(seg);
     }
-    let bin = std::env::current_exe()
-        .context("resolve current executable for mcpServers.boole.command")?;
-    let bin_str = bin.to_string_lossy().to_string();
+    let entry = stdio_entry();
+
+    if matches!(target, IdeTarget::Codex) {
+        let existing = if settings_path.exists() {
+            std::fs::read_to_string(&settings_path)
+                .with_context(|| format!("read {}", settings_path.display()))?
+        } else {
+            String::new()
+        };
+        let merged = match merge_codex_config(&existing, &entry) {
+            Ok(merged) => merged,
+            Err(_) => {
+                eprintln!(
+                    "{}",
+                    install_envelope_err(
+                        "codex-config-merge-failed",
+                        json!({"settings_path": settings_path.to_string_lossy()})
+                    )
+                );
+                std::process::exit(1);
+            }
+        };
+        if dry_run {
+            println!(
+                "{}",
+                install_envelope_ok(json!({
+                    "dry_run": true,
+                    "target": target.slug(),
+                    "settings_path": settings_path.to_string_lossy(),
+                    "planned_content": merged,
+                }))
+            );
+            return Ok(());
+        }
+        atomic_write_settings(&settings_path, &merged)?;
+        println!(
+            "{}",
+            install_envelope_ok(json!({
+                "dry_run": false,
+                "target": target.slug(),
+                "settings_path": settings_path.to_string_lossy(),
+            }))
+        );
+        return Ok(());
+    }
 
     // Read existing settings JSON, treating missing/empty as {}. Any
     // parse error surfaces a typed envelope on stderr so the operator
@@ -414,20 +588,6 @@ fn run_install(target: IdeTarget, dry_run: bool) -> Result<()> {
         json!({})
     };
 
-    // Use the stdio subcommand so MCP clients (Claude, Cursor, etc.) get the
-    // real JSON-RPC 2.0 stdio transport instead of HTTP. Keep the legacy node
-    // proxy and native verifier on distinct loopback origins.
-    let entry = json!({
-        "command": bin_str,
-        "args": [
-            "stdio",
-            "--node-url",
-            "http://127.0.0.1:8080",
-            "--native-shadow-url",
-            "http://127.0.0.1:8082"
-        ],
-    });
-
     let root = settings
         .as_object_mut()
         .expect("settings root is object (checked above)");
@@ -465,18 +625,7 @@ fn run_install(target: IdeTarget, dry_run: bool) -> Result<()> {
         return Ok(());
     }
 
-    if let Some(parent) = settings_path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("mkdir -p {}", parent.display()))?;
-    }
-
-    // Atomic write: stage to a sibling .tmp then rename, so a crash
-    // mid-write cannot leave the operator's IDE config truncated.
-    let tmp_path = settings_path.with_extension("json.tmp");
-    std::fs::write(&tmp_path, serialized.as_bytes())
-        .with_context(|| format!("write {}", tmp_path.display()))?;
-    std::fs::rename(&tmp_path, &settings_path)
-        .with_context(|| format!("rename into {}", settings_path.display()))?;
+    atomic_write_settings(&settings_path, &serialized)?;
 
     println!(
         "{}",
@@ -999,7 +1148,7 @@ fn tool_result_to_mcp_content(id: &Value, result: &ToolResult) -> String {
 
 /// Run the MCP stdio transport loop.
 ///
-/// Reads Content-Length-framed JSON-RPC 2.0 messages from stdin, dispatches
+/// Reads newline-delimited JSON-RPC 2.0 messages from stdin, dispatches
 /// them, and writes framed responses to stdout.  Stateless messages
 /// (initialize, tools/list, unknown methods) are handled by the lib's
 /// `handle_jsonrpc_sync`. Stateful and proxy tool calls are handled via

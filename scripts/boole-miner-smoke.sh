@@ -4,22 +4,55 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-ADDR="${BOOLE_NODE_ADDR:-127.0.0.1:18086}"
+# A per-invocation default avoids colliding with another local smoke. Callers
+# may still supply BOOLE_NODE_ADDR when they need a fixed controlled address.
+ADDR="${BOOLE_NODE_ADDR:-127.0.0.1:$((20000 + ($$ % 20000)))}"
 SCENARIO="${SCENARIO:-fixtures/protocol/runtime-smoke/v1.json}"
-BLOCK_STORE="${BLOCK_STORE:-${TMPDIR:-/tmp}/boole-node-boole-miner-smoke.ndjson}"
-STATE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/boole-miner-state.XXXXXX")"
-STATE="$STATE_DIR/state.json"
-rm -f "$BLOCK_STORE"
+TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/boole-miner-smoke.XXXXXX")"
+BLOCK_STORE="${BLOCK_STORE:-$TMP_DIR/blocks.ndjson}"
+STATE="$TMP_DIR/state.json"
+NODE_OUT="$TMP_DIR/node.out"
+NODE_ERR="$TMP_DIR/node.err"
+MINER_INIT_OUT="$TMP_DIR/miner-init.out"
+MINER_START_OUT="$TMP_DIR/miner-start.out"
+NODE_BIN="$ROOT/target/debug/boole-node"
+MINER_BIN="$ROOT/target/debug/boole-miner"
+PID=""
 
-cargo run -q -p boole-node -- run-local \
+stop_owned_node() {
+  local owned_pid="$1"
+  kill -TERM "$owned_pid" >/dev/null 2>&1 || return 0
+  for _ in {1..20}; do
+    kill -0 "$owned_pid" >/dev/null 2>&1 || return 0
+    sleep 0.05
+  done
+  # The PID belongs to this invocation only. Do not use an unbounded `wait`:
+  # cleanup must not turn a failed smoke into a hung command.
+  kill -KILL "$owned_pid" >/dev/null 2>&1 || true
+}
+
+cleanup() {
+  if [[ -n "$PID" ]]; then
+    stop_owned_node "$PID"
+  fi
+  rm -rf "$TMP_DIR"
+}
+trap cleanup EXIT
+
+# Build before the readiness budget starts: a cold Cargo compilation is not a
+# node-readiness failure.  The dev-only smoke bypass is opt-in for this binary
+# only and does not change the default production build.
+cargo build -q -p boole-node -p boole-miner --features boole-miner/dev-tools
+
+"$NODE_BIN" run-local \
   --addr "$ADDR" \
   --scenario "$SCENARIO" \
   --block-store "$BLOCK_STORE" \
-  --max-requests 5 \
-  >/tmp/boole-node-boole-miner-smoke.out \
-  2>/tmp/boole-node-boole-miner-smoke.err &
+  --max-requests 8 \
+  --allow-anonymous-submit \
+  >"$NODE_OUT" \
+  2>"$NODE_ERR" &
 PID=$!
-trap 'kill "$PID" >/dev/null 2>&1 || true; rm -rf "$STATE_DIR"; rm -f /tmp/boole-node-boole-miner-smoke.out /tmp/boole-node-boole-miner-smoke.err /tmp/boole-miner-smoke-start.out' EXIT
 
 python3 - "$ADDR" <<'PY'
 import http.client
@@ -42,22 +75,22 @@ for _ in range(80):
 raise SystemExit(f"boole-node did not become ready: {last}")
 PY
 
-cargo run -q -p boole-miner -- init \
+"$MINER_BIN" init \
   --state "$STATE" \
   --dispatcher-url "http://$ADDR" \
   --llm-backend mock \
-  --force >/tmp/boole-miner-smoke-init.out
-cargo run -q -p boole-miner -- start \
+  --force >"$MINER_INIT_OUT"
+"$MINER_BIN" start \
   --state "$STATE" \
   --max-shares 1 \
   --max-cycles 1 \
-  --profile v01 \
+  --profile v1-lenbound \
   --difficulty 1 \
   --mock-verify-accept \
   --mock-llm-response $'```lean\nfun xs => rfl\n```' \
-  >/tmp/boole-miner-smoke-start.out
+  >"$MINER_START_OUT"
 
-python3 - /tmp/boole-miner-smoke-start.out "$ADDR" <<'PY'
+python3 - "$MINER_START_OUT" "$ADDR" <<'PY'
 import http.client
 import json
 import re
@@ -88,5 +121,6 @@ print(json.dumps({
 }, separators=(",", ":")))
 PY
 
-wait "$PID"
+stop_owned_node "$PID"
+PID=""
 printf 'boole-miner-smoke: PASS\n' >&2
