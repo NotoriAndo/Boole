@@ -158,8 +158,14 @@ impl SessionPolicy {
             anyhow::bail!("fee {} exceeds max_fee_per_request {}", fee, max);
         }
         validate_hex32("requestHash", &req.request_hash)?;
-        if req.nonce.trim().is_empty() {
-            anyhow::bail!("nonce must be non-empty");
+        if req.nonce.is_empty()
+            || req.nonce.len() > 128
+            || !req
+                .nonce
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+        {
+            anyhow::bail!("nonce must use 1..=128 ASCII alphanumeric, '-', '_' or '.' bytes");
         }
         Ok(())
     }

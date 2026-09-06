@@ -10,6 +10,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -294,6 +295,18 @@ class Mac4AuthenticatedChannelBehaviorTests(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(signed.returncode, 0, signed.stderr)
+            deadline_started = time.monotonic()
+            deadline_probe = subprocess.run(
+                [str(output), "--deadline-io-self-test"],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=2,
+            )
+            self.assertEqual(deadline_probe.returncode, 0, deadline_probe.stderr)
+            self.assertLess(time.monotonic() - deadline_started, 1)
+            self.assertIn("deadline I/O self-test ok", deadline_probe.stdout)
             kernel = temporary_path / "kernel"
             root_disk = temporary_path / "root-disk"
             console = temporary_path / "console"
@@ -398,8 +411,11 @@ class Mac4AuthenticatedChannelBehaviorTests(unittest.TestCase):
             self.assertEqual(shutdown_response["frames"], [])
         source = MAC_HOST.read_text(encoding="utf-8")
         self.assertIn("VZVirtioSocketDeviceConfiguration()", source)
-        self.assertIn("connectGuest(port: VSOCK_PORT)", source)
+        self.assertIn("connectGuest(port: VSOCK_PORT, deadline: deadline)", source)
         self.assertIn("connect(toPort: port)", source)
+        self.assertIn("func waitForDescriptor(", source)
+        self.assertIn('forcedStop = "timeout"', source)
+        self.assertIn("shutdownConfirmed", source)
         self.assertIn("configuration.networkDevices = []", source)
         self.assertIn("configuration.directorySharingDevices = []", source)
 

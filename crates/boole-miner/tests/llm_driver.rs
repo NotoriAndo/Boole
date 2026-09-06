@@ -591,6 +591,366 @@ fn test_std_process_runner_kills_long_running_child_on_timeout() {
     assert!(matches!(err, ProcessError::Timeout { .. }), "got {err:?}");
 }
 
+#[test]
+fn test_std_process_runner_handles_large_bidirectional_io_without_pipe_deadlock() {
+    let runner = StdProcessRunner;
+    let input = vec![b'x'; 2 * 1024 * 1024];
+    let out = runner
+        .run(
+            "/bin/sh",
+            &[
+                "-c".to_string(),
+                "cat; head -c 2097152 /dev/zero".to_string(),
+            ],
+            Some(&input),
+            Duration::from_secs(5),
+        )
+        .expect("concurrently drained pipes must not deadlock");
+    assert_eq!(out.len(), input.len() * 2);
+    assert_eq!(&out[..input.len()], input.as_slice());
+}
+
+#[test]
+fn test_std_process_runner_rejects_stdout_or_stderr_above_the_cap() {
+    let runner = StdProcessRunner;
+    for (script, stream) in [
+        ("head -c 8388609 /dev/zero", "stdout"),
+        ("head -c 8388609 /dev/zero >&2", "stderr"),
+    ] {
+        let error = runner
+            .run(
+                "/bin/sh",
+                &["-c".to_string(), script.to_string()],
+                None,
+                Duration::from_secs(5),
+            )
+            .unwrap_err();
+        assert!(
+            matches!(error, ProcessError::OutputLimit { stream: actual, .. } if actual == stream),
+            "expected {stream} cap error, got {error:?}"
+        );
+    }
+}
+
+#[test]
+fn test_std_process_runner_times_out_when_child_never_reads_large_stdin() {
+    let runner = StdProcessRunner;
+    let started = std::time::Instant::now();
+    let error = runner
+        .run(
+            "/bin/sh",
+            &["-c".to_string(), "sleep 5".to_string()],
+            Some(&vec![b'x'; 8 * 1024 * 1024]),
+            Duration::from_millis(200),
+        )
+        .unwrap_err();
+    assert!(
+        matches!(error, ProcessError::Timeout { .. }),
+        "got {error:?}"
+    );
+    assert!(started.elapsed() < Duration::from_secs(2));
+}
+
+#[test]
+fn test_std_process_runner_reports_stdin_write_failure_after_early_close() {
+    let runner = StdProcessRunner;
+    let error = runner
+        .run(
+            "/bin/sh",
+            &["-c".to_string(), "exec 0<&-; exit 0".to_string()],
+            Some(&vec![b'x'; 2 * 1024 * 1024]),
+            Duration::from_secs(2),
+        )
+        .unwrap_err();
+    assert!(matches!(error, ProcessError::Io(_)), "got {error:?}");
+}
+
+#[test]
+fn test_std_process_runner_rejects_stdin_above_the_bounded_copy_limit() {
+    let runner = StdProcessRunner;
+    let error = runner
+        .run(
+            "/bin/echo",
+            &[],
+            Some(&vec![b'x'; 8 * 1024 * 1024 + 1]),
+            Duration::from_secs(2),
+        )
+        .unwrap_err();
+    assert!(
+        matches!(error, ProcessError::InputLimit { .. }),
+        "got {error:?}"
+    );
+}
+
+#[test]
+fn test_std_process_runner_kills_descendant_that_keeps_stdio_open() {
+    let runner = StdProcessRunner;
+    let started = std::time::Instant::now();
+    let out = runner
+        .run(
+            "/bin/sh",
+            &[
+                "-c".to_string(),
+                "sleep 5 & printf '%s' \"$!\"; exit 0".to_string(),
+            ],
+            None,
+            Duration::from_millis(500),
+        )
+        .expect("runner must reap inherited-pipe descendant");
+    let descendant = String::from_utf8(out)
+        .expect("pid output is UTF-8")
+        .parse::<u32>()
+        .expect("shell must print background pid");
+    assert!(started.elapsed() < Duration::from_secs(2));
+    for _ in 0..100 {
+        let status = std::process::Command::new("/bin/kill")
+            .args(["-0", &descendant.to_string()])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .expect("/bin/kill must exist");
+        if !status.success() {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    panic!("descendant {descendant} survived process-group cleanup");
+}
+
+#[test]
+fn test_std_process_runner_timeout_does_not_wait_for_session_escaped_pipe_holder() {
+    // This intentionally hostile helper creates a new session after forking,
+    // then retains the inherited stdio pipes. The runner owns only its direct
+    // child/process group, so it must return at the deadline rather than claim
+    // it can contain an escaped descendant. The test itself kills the exact
+    // descendant PID recorded by its private temporary file.
+    let marker = std::env::temp_dir().join(format!(
+        "boole-miner-escaped-pipe-{}-{}.pid",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock must be after epoch")
+            .as_nanos()
+    ));
+    let script = concat!(
+        "import os, sys, time\n",
+        "marker = sys.argv[1]\n",
+        "pid = os.fork()\n",
+        "if pid:\n",
+        "    deadline = time.monotonic() + 2\n",
+        "    while not os.path.exists(marker) and time.monotonic() < deadline:\n",
+        "        time.sleep(0.005)\n",
+        "    os._exit(0)\n",
+        "os.setsid()\n",
+        "with open(marker, 'w') as out:\n",
+        "    out.write(str(os.getpid()))\n",
+        "time.sleep(30)\n"
+    );
+    let runner = StdProcessRunner;
+    let started = std::time::Instant::now();
+    let error = runner
+        .run(
+            "python3",
+            &[
+                "-c".to_string(),
+                script.to_string(),
+                marker.display().to_string(),
+            ],
+            None,
+            Duration::from_millis(300),
+        )
+        .unwrap_err();
+    assert!(
+        matches!(error, ProcessError::Timeout { .. }),
+        "got {error:?}"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "terminal cleanup must stay bounded; elapsed={:?}",
+        started.elapsed()
+    );
+
+    let escaped_pid = std::fs::read_to_string(&marker)
+        .expect("escaped helper must record its PID")
+        .trim()
+        .parse::<u32>()
+        .expect("marker must contain a PID");
+    let _ = std::process::Command::new("/bin/kill")
+        .args(["-KILL", &escaped_pid.to_string()])
+        .status();
+    let _ = std::fs::remove_file(marker);
+}
+
+#[test]
+fn test_std_process_runner_timeout_closes_pipes_to_session_escaped_descendant() {
+    let nonce = format!(
+        "{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock must be after epoch")
+            .as_nanos()
+    );
+    let ready = std::env::temp_dir().join(format!("boole-miner-pipe-ready-{nonce}"));
+    let release = std::env::temp_dir().join(format!("boole-miner-pipe-release-{nonce}"));
+    let result = std::env::temp_dir().join(format!("boole-miner-pipe-result-{nonce}"));
+    let script = concat!(
+        "import os, sys, time\n",
+        "ready, release, result = sys.argv[1:]\n",
+        "pid = os.fork()\n",
+        "if pid:\n",
+        "    deadline = time.monotonic() + 2\n",
+        "    while not os.path.exists(ready) and time.monotonic() < deadline:\n",
+        "        time.sleep(0.005)\n",
+        "    os._exit(0)\n",
+        "os.setsid()\n",
+        "with open(ready, 'w') as out:\n",
+        "    out.write(str(os.getpid()))\n",
+        "while not os.path.exists(release):\n",
+        "    time.sleep(0.005)\n",
+        "stdin_bytes = 0\n",
+        "while True:\n",
+        "    chunk = os.read(0, 65536)\n",
+        "    if not chunk:\n",
+        "        break\n",
+        "    stdin_bytes += len(chunk)\n",
+        "broken = []\n",
+        "for fd in (1, 2):\n",
+        "    try:\n",
+        "        os.write(fd, b'x')\n",
+        "    except BrokenPipeError:\n",
+        "        broken.append(fd)\n",
+        "with open(result, 'w') as out:\n",
+        "    out.write(f'{stdin_bytes}:{broken}')\n"
+    );
+    let input = vec![b'x'; 8 * 1024 * 1024];
+    let runner = StdProcessRunner;
+    let error = runner
+        .run(
+            "python3",
+            &[
+                "-c".to_string(),
+                script.to_string(),
+                ready.display().to_string(),
+                release.display().to_string(),
+                result.display().to_string(),
+            ],
+            Some(&input),
+            Duration::from_millis(300),
+        )
+        .unwrap_err();
+    assert!(
+        matches!(error, ProcessError::Timeout { .. }),
+        "got {error:?}"
+    );
+
+    std::fs::write(&release, b"go").expect("release marker must be writable");
+    for _ in 0..200 {
+        if result.exists() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let escaped_pid = std::fs::read_to_string(&ready)
+        .expect("escaped helper must record its PID")
+        .trim()
+        .to_string();
+    let observation = std::fs::read_to_string(&result);
+    let _ = std::process::Command::new("/bin/kill")
+        .args(["-KILL", &escaped_pid])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+    for path in [&ready, &release, &result] {
+        let _ = std::fs::remove_file(path);
+    }
+    let observation = observation.expect("escaped helper must observe closed runner pipes");
+    let (stdin_bytes, broken_outputs) = observation
+        .split_once(':')
+        .expect("observation must contain stdin byte count and broken outputs");
+    let stdin_bytes = stdin_bytes
+        .parse::<usize>()
+        .expect("stdin byte count must be numeric");
+    assert!(
+        stdin_bytes < input.len(),
+        "runner must close its pending stdin writer on timeout; observed {observation}"
+    );
+    assert_eq!(
+        broken_outputs, "[1, 2]",
+        "runner must close both output readers on timeout; observed {observation}"
+    );
+}
+
+#[test]
+fn test_std_process_runner_force_kills_term_ignoring_process_group_descendant() {
+    let marker = std::env::temp_dir().join(format!(
+        "boole-miner-term-ignoring-{}-{}.pid",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock must be after epoch")
+            .as_nanos()
+    ));
+    let script = concat!(
+        "import os, signal, sys, time\n",
+        "marker = sys.argv[1]\n",
+        "pid = os.fork()\n",
+        "if pid == 0:\n",
+        "    signal.signal(signal.SIGTERM, signal.SIG_IGN)\n",
+        "    with open(marker, 'w') as out:\n",
+        "        out.write(str(os.getpid()))\n",
+        "    time.sleep(30)\n",
+        "    os._exit(0)\n",
+        "deadline = time.monotonic() + 2\n",
+        "while not os.path.exists(marker) and time.monotonic() < deadline:\n",
+        "    time.sleep(0.005)\n",
+        "time.sleep(30)\n"
+    );
+    let runner = StdProcessRunner;
+    let error = runner
+        .run(
+            "python3",
+            &[
+                "-c".to_string(),
+                script.to_string(),
+                marker.display().to_string(),
+            ],
+            None,
+            Duration::from_millis(300),
+        )
+        .unwrap_err();
+    assert!(
+        matches!(error, ProcessError::Timeout { .. }),
+        "got {error:?}"
+    );
+
+    let descendant = std::fs::read_to_string(&marker)
+        .expect("TERM-ignoring helper must record its PID")
+        .trim()
+        .to_string();
+    for _ in 0..200 {
+        let alive = std::process::Command::new("/bin/kill")
+            .args(["-0", &descendant])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .expect("/bin/kill must exist")
+            .success();
+        if !alive {
+            let _ = std::fs::remove_file(marker);
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let _ = std::process::Command::new("/bin/kill")
+        .args(["-KILL", &descendant])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+    let _ = std::fs::remove_file(marker);
+    panic!("TERM-ignoring descendant {descendant} survived process-group SIGKILL");
+}
+
 // P1.10 — every spawned LLM agent CLI runs in a wiped environment so
 // the miner's parent secrets (LLM API keys via env, AWS_* tokens, ssh
 // agent sockets, etc.) cannot leak into an opaque third-party process.

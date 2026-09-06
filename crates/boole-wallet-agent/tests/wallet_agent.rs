@@ -6,6 +6,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::{Arc, Barrier};
 
 use ed25519_dalek::{Signature, SigningKey, Verifier, VerifyingKey};
 use rand_core::{OsRng, RngCore};
@@ -98,6 +99,47 @@ fn init_refuses_to_overwrite_existing_vault() {
         "stderr must mention overwrite refusal: {stderr}"
     );
 
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn concurrent_init_creates_one_vault_without_overwriting_the_winner() {
+    let dir = tmp_dir("concurrent-init");
+    let vault = dir.join("wallet.vault.json");
+    let barrier = Arc::new(Barrier::new(2));
+    let mut joins = Vec::new();
+    for _ in 0..2 {
+        let vault = vault.clone();
+        let barrier = Arc::clone(&barrier);
+        joins.push(std::thread::spawn(move || {
+            barrier.wait();
+            run_agent(
+                &["init", "--vault", vault.to_str().expect("path")],
+                &format!("{PASSPHRASE}\n"),
+            )
+        }));
+    }
+    let results = joins
+        .into_iter()
+        .map(|join| join.join().expect("init worker"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        results.iter().filter(|(code, _, _)| *code == 0).count(),
+        1,
+        "only one concurrent init may create the vault: {results:?}"
+    );
+    let bytes = fs::read(&vault).expect("winning vault remains");
+    serde_json::from_slice::<Value>(&bytes).expect("winning vault is intact JSON");
+    assert!(
+        fs::read_dir(&dir)
+            .expect("read vault directory")
+            .all(|entry| !entry
+                .expect("entry")
+                .file_name()
+                .to_string_lossy()
+                .ends_with(".tmp")),
+        "failed creators must clean staged vaults"
+    );
     let _ = fs::remove_dir_all(&dir);
 }
 

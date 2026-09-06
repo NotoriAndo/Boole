@@ -5,6 +5,7 @@
 //! authentication beyond the static allowlist are explicit non-goals.
 
 use std::thread;
+use std::time::{Duration, Instant};
 
 use boole_p2p::{
     Frame, FrameError, HeadSummary, TcpTransport, Transport, GET_BLOCKS_RANGE_CAP, MAX_FRAME_BYTES,
@@ -294,6 +295,21 @@ fn get_blocks_range_over_cap_is_rejected_by_validate() {
 }
 
 #[test]
+fn get_blocks_range_ending_at_u64_max_is_rejected_without_panicking() {
+    let frame = Frame::GetBlocks {
+        from: 0,
+        to: u64::MAX,
+    };
+
+    let result = std::panic::catch_unwind(|| frame.validate());
+    let validation = result.expect("untrusted range validation must not panic");
+    assert!(
+        matches!(validation, Err(FrameError::RangeTooWide { .. })),
+        "u64::MAX range must be a typed rejection, got {validation:?}"
+    );
+}
+
+#[test]
 fn recv_frame_validates_inbound_get_blocks_range() {
     // The codec itself enforces the range cap on ingress — a peer cannot
     // hand us an over-cap request that our handler then has to remember to
@@ -306,8 +322,9 @@ fn recv_frame_validates_inbound_get_blocks_range() {
         use std::io::Write;
         use std::net::TcpStream;
         let mut raw = TcpStream::connect(addr).expect("raw connect");
-        // Hand-encoded over-cap GetBlocks, bypassing send-side validation.
-        raw.write_all(br#"{"type":"getBlocks","from":0,"to":1000}"#)
+        // Hand-encoded maximal GetBlocks, bypassing send-side validation.
+        // This exact upper bound used to overflow before producing an error.
+        raw.write_all(br#"{"type":"getBlocks","from":0,"to":18446744073709551615}"#)
             .expect("write");
         raw.write_all(b"\n").expect("newline");
     });
@@ -321,4 +338,38 @@ fn recv_frame_validates_inbound_get_blocks_range() {
         "expected RangeTooWide, got {err:?}"
     );
     writer.join().expect("writer thread");
+}
+
+#[test]
+fn absolute_send_deadline_stops_a_peer_that_does_not_drain_a_large_frame() {
+    use std::net::{TcpListener, TcpStream};
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let peer = TcpStream::connect(listener.local_addr().expect("address")).expect("connect peer");
+    let (sender, _) = listener.accept().expect("accept sender");
+    sender
+        .set_write_timeout(Some(Duration::from_millis(50)))
+        .expect("write timeout");
+    let mut conn = TcpTransport::conn_from_stream(sender).expect("wrap sender");
+    let transport = TcpTransport::new();
+    let frame = Frame::Package {
+        root: "ab".repeat(32),
+        canonical_bytes: Some(vec![0x5a; 2 * 1024 * 1024]),
+    };
+    let deadline = Instant::now() + Duration::from_millis(50);
+
+    let started = Instant::now();
+    let error = transport
+        .send_frame_until(&mut conn, &frame, deadline)
+        .expect_err("a peer that never reads must hit the absolute send deadline");
+    let elapsed = started.elapsed();
+    assert!(
+        matches!(error, FrameError::SendDeadlineExceeded),
+        "{error:?}"
+    );
+    assert!(
+        elapsed < Duration::from_secs(1),
+        "watchdog elapsed={elapsed:?}"
+    );
+    drop(peer);
 }

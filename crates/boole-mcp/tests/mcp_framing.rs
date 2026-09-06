@@ -1,11 +1,10 @@
-//! S4 — unit tests for the MCP Content-Length framing protocol.
+//! MCP stdio framing contract.
 //!
 //! RED contract (must fail until lib.rs exports the framing functions):
-//!   * `write_mcp_frame` / `read_mcp_frame` round-trip a UTF-8 payload
+//!   * `write_mcp_frame` / `read_mcp_frame` round-trip a newline-delimited UTF-8 payload
 //!     through an in-memory `Cursor<Vec<u8>>`.
 //!   * A clean EOF (empty cursor) → `read_mcp_frame` returns `None`.
-//!   * Malformed header (no Content-Length) → error.
-//!   * Content-Length mismatch → error.
+//!   * An overlong or truncated line is rejected without unbounded allocation.
 
 use std::io::Cursor;
 
@@ -17,10 +16,10 @@ fn round_trip_simple_payload() {
     let mut buf: Vec<u8> = Vec::new();
     write_mcp_frame(&mut buf, payload).expect("write");
     let raw = String::from_utf8(buf.clone()).expect("utf8");
-    // Header line must be present.
-    assert!(
-        raw.starts_with("Content-Length:"),
-        "expected Content-Length header; got {raw:?}"
+    assert_eq!(
+        raw,
+        format!("{payload}\n"),
+        "MCP stdio uses one JSON message per line"
     );
     let mut cursor = Cursor::new(buf);
     let result = read_mcp_frame(&mut cursor).expect("read").expect("some");
@@ -52,15 +51,10 @@ fn large_payload_round_trips() {
 }
 
 #[test]
-fn stdio_frame_over_max_content_length_is_rejected() {
-    // N0-pre.6 — a hostile `Content-Length` over the 16 MiB cap must be
-    // rejected BEFORE the body buffer is allocated, so it cannot drive a
-    // pre-allocation OOM bomb. (16 MiB + 1, so the test never itself
-    // allocates gigabytes.)
-    let over = 16 * 1024 * 1024 + 1;
-    let frame = format!("Content-Length: {over}\r\n\r\n");
-    let mut cursor = Cursor::new(frame.into_bytes());
-    let err = read_mcp_frame(&mut cursor).expect_err("over-cap frame must be rejected");
+fn stdio_frame_over_max_line_is_rejected() {
+    let frame = vec![b'x'; 16 * 1024 * 1024 + 1];
+    let mut cursor = Cursor::new(frame);
+    let err = read_mcp_frame(&mut cursor).expect_err("over-cap line must be rejected");
     let msg = err.to_string();
     assert!(
         msg.contains("cap") || msg.contains("exceeds"),
@@ -69,11 +63,8 @@ fn stdio_frame_over_max_content_length_is_rejected() {
 }
 
 #[test]
-fn missing_content_length_header_is_error() {
-    // A bare body with no header at all looks like just a blank line then
-    // content. Without Content-Length we should get an error.
-    let malformed = b"\r\n{\"id\":1}";
-    let mut cursor = Cursor::new(malformed.to_vec());
-    let result = read_mcp_frame(&mut cursor);
-    assert!(result.is_err(), "expected error for missing Content-Length");
+fn truncated_line_is_error() {
+    let mut cursor = Cursor::new(br#"{"id":1}"#.to_vec());
+    let err = read_mcp_frame(&mut cursor).expect_err("EOF before a newline is truncated");
+    assert!(err.to_string().contains("truncated"));
 }

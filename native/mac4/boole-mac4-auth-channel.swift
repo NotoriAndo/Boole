@@ -31,6 +31,53 @@ struct HostError: Error, CustomStringConvertible {
     init(_ description: String) { self.description = description }
 }
 
+struct ShutdownEvidence {
+    var gracefulRequest: String
+    var gracefulRequestError: String?
+    var forcedStop: String
+    var forcedStopError: String?
+    var delegateObserved: Bool
+    var delegateReason: String
+    var delegateError: String?
+    var confirmation: String
+    var finalState: String
+
+    var confirmed: Bool {
+        guard finalState == "stopped",
+              gracefulRequestError == nil,
+              forcedStopError == nil,
+              delegateError == nil,
+              ["accepted", "not-needed", "unavailable"].contains(gracefulRequest),
+              ["not-needed", "succeeded"].contains(forcedStop) else {
+            return false
+        }
+        switch confirmation {
+        case "guest-stop-delegate":
+            return delegateObserved && !delegateReason.isEmpty && forcedStop == "not-needed"
+        case "forced-stop-callback":
+            return forcedStop == "succeeded"
+        default:
+            return false
+        }
+    }
+
+    var json: [String: Any] {
+        var value: [String: Any] = [
+            "gracefulRequest": gracefulRequest,
+            "forcedStop": forcedStop,
+            "delegateObserved": delegateObserved,
+            "delegateReason": delegateReason,
+            "confirmation": confirmation,
+            "finalState": finalState,
+            "confirmed": confirmed,
+        ]
+        if let gracefulRequestError { value["gracefulRequestError"] = gracefulRequestError }
+        if let forcedStopError { value["forcedStopError"] = forcedStopError }
+        if let delegateError { value["delegateError"] = delegateError }
+        return value
+    }
+}
+
 struct LauncherPeer: Equatable {
     let pid: UInt32
     let uid: UInt32
@@ -363,14 +410,46 @@ func controllerDryRunProxyReady(phase: UInt8, peer: LauncherPeer) throws -> Data
     return frame
 }
 
-func writeAll(_ descriptor: Int32, data: Data) throws {
+func waitForDescriptor(
+    _ descriptor: Int32, events: Int16, deadline: Date, named name: String
+) throws {
+    while true {
+        let remaining = deadline.timeIntervalSinceNow
+        guard remaining > 0 else { throw HostError("\(name) deadline exceeded") }
+        let milliseconds = Int32(min(Double(Int32.max), ceil(remaining * 1_000)))
+        var candidate = pollfd(fd: descriptor, events: events, revents: 0)
+        let ready = Darwin.poll(&candidate, 1, milliseconds)
+        if ready > 0 {
+            if candidate.revents & Int16(POLLNVAL) != 0 {
+                throw HostError("\(name) descriptor became invalid")
+            }
+            return
+        }
+        if ready == 0 { throw HostError("\(name) deadline exceeded") }
+        if errno != EINTR {
+            throw HostError("\(name) poll failed: \(String(cString: strerror(errno)))")
+        }
+    }
+}
+
+func makeNonBlocking(_ descriptor: Int32, named name: String) throws {
+    let flags = fcntl(descriptor, F_GETFL)
+    guard flags >= 0, fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) == 0 else {
+        throw HostError("\(name) cannot become nonblocking: \(String(cString: strerror(errno)))")
+    }
+}
+
+func writeAll(_ descriptor: Int32, data: Data, deadline: Date) throws {
     try data.withUnsafeBytes { raw in
         guard let base = raw.baseAddress else { throw HostError("empty frame") }
         var offset = 0
         while offset < raw.count {
+            try waitForDescriptor(
+                descriptor, events: Int16(POLLOUT), deadline: deadline, named: "vsock write"
+            )
             let count = Darwin.write(descriptor, base.advanced(by: offset), raw.count - offset)
             if count < 0 {
-                if errno == EINTR { continue }
+                if errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK { continue }
                 throw HostError("vsock write failed: \(String(cString: strerror(errno)))")
             }
             if count == 0 { throw HostError("vsock write made no progress") }
@@ -379,15 +458,18 @@ func writeAll(_ descriptor: Int32, data: Data) throws {
     }
 }
 
-func readExact(_ descriptor: Int32, count: Int) throws -> Data {
+func readExact(_ descriptor: Int32, count: Int, deadline: Date) throws -> Data {
     var output = Data(count: count)
     try output.withUnsafeMutableBytes { raw in
         guard let base = raw.baseAddress else { throw HostError("empty response buffer") }
         var offset = 0
         while offset < count {
+            try waitForDescriptor(
+                descriptor, events: Int16(POLLIN), deadline: deadline, named: "vsock read"
+            )
             let found = Darwin.read(descriptor, base.advanced(by: offset), count - offset)
             if found < 0 {
-                if errno == EINTR { continue }
+                if errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK { continue }
                 throw HostError("vsock read failed: \(String(cString: strerror(errno)))")
             }
             if found == 0 { throw HostError("vsock response ended early") }
@@ -397,31 +479,103 @@ func readExact(_ descriptor: Int32, count: Int) throws -> Data {
     return output
 }
 
-func readFrame(_ descriptor: Int32, cap: Int, named name: String) throws -> Data {
-    let header = try readExact(descriptor, count: 4)
+func readFrame(_ descriptor: Int32, cap: Int, named name: String, deadline: Date) throws -> Data {
+    let header = try readExact(descriptor, count: 4, deadline: deadline)
     let declared = header.reduce(0) { ($0 << 8) | Int($1) }
     guard declared <= cap else { throw HostError("\(name) frame exceeds cap") }
     var frame = Data(header)
-    frame.append(try readExact(descriptor, count: declared))
+    frame.append(try readExact(descriptor, count: declared, deadline: deadline))
     return frame
 }
 
-func requireSocketEOF(_ descriptor: Int32, named name: String) throws {
+func requireSocketEOF(_ descriptor: Int32, named name: String, deadline: Date) throws {
     var byte: UInt8 = 0
     while true {
+        try waitForDescriptor(
+            descriptor, events: Int16(POLLIN), deadline: deadline, named: "\(name) EOF"
+        )
         let count = Darwin.read(descriptor, &byte, 1)
         if count == 0 { return }
-        if count < 0, errno == EINTR { continue }
+        if count < 0, errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK { continue }
         if count < 0 { throw HostError("\(name) EOF read failed: \(String(cString: strerror(errno)))") }
         throw HostError("\(name) returned trailing bytes")
     }
 }
 
 let arguments = Array(CommandLine.arguments.dropFirst())
+let deadlineIoSelfTest = arguments.contains("--deadline-io-self-test")
 let dryRun = arguments.contains("--dry-run")
 let proxyDryRun = arguments.contains("--proxy-dry-run")
 let controllerProtocolDryRun = arguments.contains("--controller-protocol-dry-run")
 let controllerStdio = arguments.contains("--controller-stdio")
+
+if deadlineIoSelfTest {
+    var descriptors = [Int32](repeating: -1, count: 2)
+    guard socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors) == 0 else {
+        fail("deadline I/O self-test socketpair failed")
+    }
+    defer {
+        Darwin.close(descriptors[0])
+        Darwin.close(descriptors[1])
+    }
+    do {
+        try makeNonBlocking(descriptors[0], named: "deadline I/O self-test")
+        var readTimedOut = false
+        do {
+            _ = try readExact(
+                descriptors[0], count: 1, deadline: Date().addingTimeInterval(0.1)
+            )
+        } catch {
+            readTimedOut = "\(error)".contains("deadline exceeded")
+        }
+        guard readTimedOut else { throw HostError("silent fake relay read did not time out") }
+
+        var eofTimedOut = false
+        do {
+            try requireSocketEOF(
+                descriptors[0], named: "silent fake relay", deadline: Date().addingTimeInterval(0.1)
+            )
+        } catch {
+            eofTimedOut = "\(error)".contains("deadline exceeded")
+        }
+        guard eofTimedOut else { throw HostError("silent fake relay EOF did not time out") }
+
+        let forcedSuccess = ShutdownEvidence(
+            gracefulRequest: "unavailable",
+            gracefulRequestError: nil,
+            forcedStop: "succeeded",
+            forcedStopError: nil,
+            delegateObserved: false,
+            delegateReason: "",
+            delegateError: nil,
+            confirmation: "forced-stop-callback",
+            finalState: "stopped"
+        )
+        guard forcedSuccess.confirmed else {
+            throw HostError("successful forced-stop callback was not accepted")
+        }
+        var injectedFailure = forcedSuccess
+        injectedFailure.forcedStop = "error"
+        injectedFailure.forcedStopError = "injected"
+        guard !injectedFailure.confirmed else {
+            throw HostError("forced-stop callback error was accepted")
+        }
+        injectedFailure = forcedSuccess
+        injectedFailure.forcedStop = "timeout"
+        guard !injectedFailure.confirmed else {
+            throw HostError("forced-stop callback timeout was accepted")
+        }
+        injectedFailure = forcedSuccess
+        injectedFailure.finalState = "not-stopped"
+        guard !injectedFailure.confirmed else {
+            throw HostError("unconfirmed final VM state was accepted")
+        }
+    } catch {
+        fail("deadline I/O self-test failed: \(error)")
+    }
+    print("mac4-channel: deadline I/O self-test ok")
+    exit(0)
+}
 
 if controllerProtocolDryRun {
     let peer = LauncherPeer(pid: 4242, uid: 0, gid: 0)
@@ -653,7 +807,13 @@ do { try configuration.validate() } catch { fail("invalid VM configuration: \(er
 
 var proxyLauncherPeer: LauncherPeer?
 
-func writeReceipt(outcome: String, detail: String, startedAt: Date?, stoppedAt: Date?) {
+func writeReceipt(
+    outcome: String,
+    detail: String,
+    startedAt: Date?,
+    stoppedAt: Date?,
+    shutdown: ShutdownEvidence? = nil
+) {
     let persistentControllerConfigured = controllerStdio
     var executionProxy: [String: Any] = [
         "configured": proxyConfigured || persistentControllerConfigured,
@@ -688,6 +848,7 @@ func writeReceipt(outcome: String, detail: String, startedAt: Date?, stoppedAt: 
         "executionProxy": executionProxy,
         "timeoutSeconds": timeoutSeconds,
     ]
+    if let shutdown { value["shutdown"] = shutdown.json }
     if let start = startedAt, let stop = stoppedAt {
         value["ranForSeconds"] = stop.timeIntervalSince(start)
     }
@@ -714,6 +875,7 @@ let machine = VZVirtualMachine(configuration: configuration, queue: queue)
 final class StopWatcher: NSObject, VZVirtualMachineDelegate {
     var stopped = false
     var reason = ""
+    var stopError: String?
     func guestDidStop(_ virtualMachine: VZVirtualMachine) {
         stopped = true
         reason = "guest stopped"
@@ -721,12 +883,14 @@ final class StopWatcher: NSObject, VZVirtualMachineDelegate {
     func virtualMachine(_ virtualMachine: VZVirtualMachine, didStopWithError error: Error) {
         stopped = true
         reason = "VM stopped with error: \(error)"
+        stopError = "\(error)"
     }
 }
 
 let watcher = StopWatcher()
 queue.sync { machine.delegate = watcher }
 let startedAt = Date()
+let deadline = startedAt.addingTimeInterval(timeoutSeconds)
 var startError: String?
 let started = DispatchSemaphore(value: 0)
 queue.async {
@@ -735,13 +899,16 @@ queue.async {
         started.signal()
     }
 }
-started.wait()
+let startRemaining = deadline.timeIntervalSinceNow
+if startRemaining <= 0 || started.wait(timeout: .now() + startRemaining) == .timedOut {
+    startError = "VM start callback did not arrive before deadline"
+}
 if let startError {
     writeReceipt(outcome: "did-not-start", detail: startError, startedAt: startedAt, stoppedAt: Date())
     fail("VM did not start: \(startError)")
 }
 
-func connectGuest(port: UInt32) throws -> VZVirtioSocketConnection {
+func connectGuest(port: UInt32, deadline: Date) throws -> VZVirtioSocketConnection {
     let completed = DispatchSemaphore(value: 0)
     var connectionResult: Result<VZVirtioSocketConnection, Error>?
     queue.async {
@@ -755,24 +922,32 @@ func connectGuest(port: UInt32) throws -> VZVirtioSocketConnection {
             completed.signal()
         }
     }
-    guard completed.wait(timeout: .now() + 3) == .success else {
+    let connectDeadline = min(deadline, Date().addingTimeInterval(3))
+    let remaining = connectDeadline.timeIntervalSinceNow
+    guard remaining > 0,
+          completed.wait(timeout: .now() + remaining) == .success else {
         throw HostError("guest vsock port \(port) did not connect before timeout")
     }
     guard let result = connectionResult else { throw HostError("guest connection has no result") }
-    return try result.get()
+    let connection = try result.get()
+    try makeNonBlocking(connection.fileDescriptor, named: "guest vsock port \(port)")
+    return connection
 }
 
 func openProxy(
-    phase: UInt8, nonceBase: Data? = nil
+    phase: UInt8, nonceBase: Data? = nil, deadline: Date
 ) throws -> (VZVirtioSocketConnection, LauncherPeer, Data) {
-    let connection = try connectGuest(port: PROXY_VSOCK_PORT)
+    let connection = try connectGuest(port: PROXY_VSOCK_PORT, deadline: deadline)
     do {
         let fresh = proxyNonce(base: nonceBase ?? nonce, phase: phase)
         try writeAll(
             connection.fileDescriptor,
-            data: try proxyOpenFrame(nonce: fresh, bootBinding: bootBinding, phase: phase)
+            data: try proxyOpenFrame(nonce: fresh, bootBinding: bootBinding, phase: phase),
+            deadline: deadline
         )
-        let ready = try readExact(connection.fileDescriptor, count: PROXY_FRAME_BYTES)
+        let ready = try readExact(
+            connection.fileDescriptor, count: PROXY_FRAME_BYTES, deadline: deadline
+        )
         let peer = try validateProxyReady(
             ready, nonce: fresh, bootBinding: bootBinding, phase: phase
         )
@@ -786,6 +961,7 @@ func openProxy(
 func runPersistentController() throws -> LauncherPeer? {
     var qualifiedPeer: LauncherPeer?
     while let request = try readControllerEnvelope(.standardInput) {
+        let operationDeadline = Date().addingTimeInterval(timeoutSeconds)
         switch request.command {
         case .qualification:
             guard qualifiedPeer == nil else { throw HostError("controller qualified twice") }
@@ -793,15 +969,21 @@ func runPersistentController() throws -> LauncherPeer? {
                 request.frames[0], cap: 131_072, named: "qualification hello"
             )
             let (connection, peer, proxyReady) = try openProxy(
-                phase: 1, nonceBase: request.requestID
+                phase: 1, nonceBase: request.requestID, deadline: operationDeadline
             )
             do {
-                try writeAll(connection.fileDescriptor, data: request.frames[0])
+                try writeAll(
+                    connection.fileDescriptor, data: request.frames[0], deadline: operationDeadline
+                )
                 try closeWrite(connection, named: "qualification")
                 let launcherReady = try readFrame(
-                    connection.fileDescriptor, cap: 65_536, named: "qualification ready"
+                    connection.fileDescriptor, cap: 65_536, named: "qualification ready",
+                    deadline: operationDeadline
                 )
-                try requireSocketEOF(connection.fileDescriptor, named: "qualification proxy")
+                try requireSocketEOF(
+                    connection.fileDescriptor, named: "qualification proxy",
+                    deadline: operationDeadline
+                )
                 connection.close()
                 qualifiedPeer = peer
                 try writeControllerResponse(
@@ -826,23 +1008,31 @@ func runPersistentController() throws -> LauncherPeer? {
                 Data("boole-mac4-controller-command:execution\n".utf8)
             )
             let (connection, peer, proxyReady) = try openProxy(
-                phase: 2, nonceBase: request.requestID
+                phase: 2, nonceBase: request.requestID, deadline: operationDeadline
             )
             guard peer == qualifiedPeer else {
                 connection.close()
                 throw HostError("proxy launcher peer changed after qualification")
             }
             do {
-                try writeAll(connection.fileDescriptor, data: request.frames[0])
-                let launcherReady = try readFrame(
-                    connection.fileDescriptor, cap: 65_536, named: "execution ready"
+                try writeAll(
+                    connection.fileDescriptor, data: request.frames[0], deadline: operationDeadline
                 )
-                try writeAll(connection.fileDescriptor, data: request.frames[1])
+                let launcherReady = try readFrame(
+                    connection.fileDescriptor, cap: 65_536, named: "execution ready",
+                    deadline: operationDeadline
+                )
+                try writeAll(
+                    connection.fileDescriptor, data: request.frames[1], deadline: operationDeadline
+                )
                 try closeWrite(connection, named: "execution")
                 let launcherReport = try readFrame(
-                    connection.fileDescriptor, cap: 65_536, named: "execution report"
+                    connection.fileDescriptor, cap: 65_536, named: "execution report",
+                    deadline: operationDeadline
                 )
-                try requireSocketEOF(connection.fileDescriptor, named: "execution proxy")
+                try requireSocketEOF(
+                    connection.fileDescriptor, named: "execution proxy", deadline: operationDeadline
+                )
                 connection.close()
                 try writeControllerResponse(
                     .standardOutput,
@@ -874,7 +1064,6 @@ func atomicWrite(_ data: Data, to path: String) throws {
     try data.write(to: URL(fileURLWithPath: path), options: .atomic)
 }
 
-let deadline = startedAt.addingTimeInterval(timeoutSeconds)
 let request: Data
 do { request = try helloFrame(nonce: nonce, bootBinding: bootBinding) } catch { fail("\(error)") }
 var handshakeComplete = false
@@ -882,9 +1071,11 @@ var handshakeDetail = "guest relay did not accept before timeout"
 
 while Date() < deadline && !queue.sync(execute: { watcher.stopped }) && !handshakeComplete {
     do {
-        let connection = try connectGuest(port: VSOCK_PORT)
-        try writeAll(connection.fileDescriptor, data: request)
-        let response = try readExact(connection.fileDescriptor, count: FRAME_BYTES)
+        let connection = try connectGuest(port: VSOCK_PORT, deadline: deadline)
+        try writeAll(connection.fileDescriptor, data: request, deadline: deadline)
+        let response = try readExact(
+            connection.fileDescriptor, count: FRAME_BYTES, deadline: deadline
+        )
         try validateReady(response, nonce: nonce, bootBinding: bootBinding)
         handshakeComplete = true
         handshakeDetail = "fresh nonce, boot tuple and protocol binding matched"
@@ -902,29 +1093,33 @@ if handshakeComplete && controllerStdio {
     do {
         proxyLauncherPeer = try runPersistentController()
         proxyComplete = true
-        handshakeDetail += "; persistent controller stopped cleanly"
+        handshakeDetail += "; persistent controller shutdown command accepted"
     } catch {
         proxyComplete = false
         handshakeDetail += "; persistent controller failed: \(error)"
     }
 } else if handshakeComplete && proxyConfigured {
     do {
-        let (qualification, qualificationPeer, _) = try openProxy(phase: 1)
+        let (qualification, qualificationPeer, _) = try openProxy(phase: 1, deadline: deadline)
         try writeAll(
             qualification.fileDescriptor,
             data: try exactFrame(
                 at: proxyQualificationHelloPath!, cap: 131_072, named: "qualification hello"
-            )
+            ),
+            deadline: deadline
         )
         try closeWrite(qualification, named: "qualification")
         let qualificationReady = try readFrame(
-            qualification.fileDescriptor, cap: 65_536, named: "qualification ready"
+            qualification.fileDescriptor, cap: 65_536, named: "qualification ready",
+            deadline: deadline
         )
-        try requireSocketEOF(qualification.fileDescriptor, named: "qualification proxy")
+        try requireSocketEOF(
+            qualification.fileDescriptor, named: "qualification proxy", deadline: deadline
+        )
         qualification.close()
         try atomicWrite(qualificationReady, to: proxyQualificationReadyPath!)
 
-        let (execution, executionPeer, _) = try openProxy(phase: 2)
+        let (execution, executionPeer, _) = try openProxy(phase: 2, deadline: deadline)
         guard qualificationPeer == executionPeer else {
             execution.close()
             throw HostError("proxy launcher peer changed after qualification")
@@ -934,22 +1129,26 @@ if handshakeComplete && controllerStdio {
             execution.fileDescriptor,
             data: try exactFrame(
                 at: proxyExecutionHelloPath!, cap: 131_072, named: "execution hello"
-            )
+            ),
+            deadline: deadline
         )
         let executionReady = try readFrame(
-            execution.fileDescriptor, cap: 65_536, named: "execution ready"
+            execution.fileDescriptor, cap: 65_536, named: "execution ready", deadline: deadline
         )
         try writeAll(
             execution.fileDescriptor,
             data: try exactFrame(
                 at: proxyExecutionRequestPath!, cap: 131_072, named: "execution request"
-            )
+            ),
+            deadline: deadline
         )
         try closeWrite(execution, named: "execution")
         let executionReport = try readFrame(
-            execution.fileDescriptor, cap: 65_536, named: "execution report"
+            execution.fileDescriptor, cap: 65_536, named: "execution report", deadline: deadline
         )
-        try requireSocketEOF(execution.fileDescriptor, named: "execution proxy")
+        try requireSocketEOF(
+            execution.fileDescriptor, named: "execution proxy", deadline: deadline
+        )
         execution.close()
         try atomicWrite(executionReady, to: proxyExecutionReadyPath!)
         try atomicWrite(executionReport, to: proxyExecutionReportPath!)
@@ -961,31 +1160,113 @@ if handshakeComplete && controllerStdio {
     }
 }
 
-let stopRequested = DispatchSemaphore(value: 0)
-queue.async {
-    if machine.canRequestStop { try? machine.requestStop() }
-    stopRequested.signal()
+let shutdownDeadline = Date().addingTimeInterval(20)
+var gracefulRequest = "not-needed"
+var gracefulRequestError: String?
+let stoppedBeforeRequest = queue.sync { watcher.stopped }
+if !stoppedBeforeRequest {
+    let stopRequested = DispatchSemaphore(value: 0)
+    queue.async {
+        if machine.canRequestStop {
+            do {
+                try machine.requestStop()
+                gracefulRequest = "accepted"
+            } catch {
+                gracefulRequest = "error"
+                gracefulRequestError = "\(error)"
+            }
+        } else {
+            gracefulRequest = "unavailable"
+        }
+        stopRequested.signal()
+    }
+    let requestDeadline = min(shutdownDeadline, Date().addingTimeInterval(1))
+    let requestRemaining = requestDeadline.timeIntervalSinceNow
+    if requestRemaining <= 0
+        || stopRequested.wait(timeout: .now() + requestRemaining) == .timedOut
+    {
+        gracefulRequest = "timeout"
+    }
 }
-stopRequested.wait()
-let graceDeadline = Date().addingTimeInterval(10)
-while Date() < graceDeadline && !queue.sync(execute: { watcher.stopped }) {
-    RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+
+if gracefulRequest == "accepted" {
+    let graceDeadline = min(shutdownDeadline, Date().addingTimeInterval(10))
+    while Date() < graceDeadline && !queue.sync(execute: { watcher.stopped }) {
+        RunLoop.current.run(until: min(graceDeadline, Date().addingTimeInterval(0.2)))
+    }
 }
+
+var forcedStop = "not-needed"
+var forcedStopError: String?
 if !queue.sync(execute: { watcher.stopped }) {
+    forcedStop = "requested"
     let forced = DispatchSemaphore(value: 0)
-    queue.async { machine.stop { _ in forced.signal() } }
-    _ = forced.wait(timeout: .now() + 10)
+    queue.async(execute: {
+        machine.stop(completionHandler: { error in
+            if let error { forcedStopError = "\(error)" }
+            forced.signal()
+        })
+    })
+    let forcedRemaining = shutdownDeadline.timeIntervalSinceNow
+    if forcedRemaining <= 0
+        || forced.wait(timeout: .now() + forcedRemaining) == .timedOut
+    {
+        forcedStop = "timeout"
+    } else if forcedStopError != nil {
+        forcedStop = "error"
+    } else {
+        forcedStop = "succeeded"
+    }
+}
+
+while forcedStop != "succeeded"
+    && Date() < shutdownDeadline
+    && !queue.sync(execute: { watcher.stopped })
+{
+    RunLoop.current.run(until: min(shutdownDeadline, Date().addingTimeInterval(0.05)))
+}
+let stopSnapshot = queue.sync {
+    (watcher.stopped, watcher.reason, watcher.stopError, machine.state)
+}
+let finalState = stopSnapshot.3 == .stopped ? "stopped" : "not-stopped"
+let confirmation: String
+if forcedStop == "succeeded" && stopSnapshot.3 == .stopped {
+    // Apple's stop completion contract fires after a successful forced stop;
+    // guestDidStop is specifically the guest-originated shutdown callback.
+    confirmation = "forced-stop-callback"
+} else if stopSnapshot.0 && stopSnapshot.2 == nil && stopSnapshot.3 == .stopped {
+    confirmation = "guest-stop-delegate"
+} else {
+    confirmation = "none"
+}
+let shutdownEvidence = ShutdownEvidence(
+    gracefulRequest: gracefulRequest,
+    gracefulRequestError: gracefulRequestError,
+    forcedStop: forcedStop,
+    forcedStopError: forcedStopError,
+    delegateObserved: stopSnapshot.0,
+    delegateReason: stopSnapshot.1,
+    delegateError: stopSnapshot.2,
+    confirmation: confirmation,
+    finalState: finalState
+)
+let shutdownConfirmed = shutdownEvidence.confirmed
+if !shutdownConfirmed {
+    handshakeDetail += "; VM shutdown unconfirmed (graceful=\(gracefulRequest), forced=\(forcedStop), delegate=\(stopSnapshot.1), state=\(finalState))"
+} else {
+    handshakeDetail += "; VM shutdown confirmed by \(confirmation)"
 }
 
 let stoppedAt = Date()
 try? consoleWriter.close()
 writeReceipt(
-    outcome: handshakeComplete && proxyComplete
+    outcome: handshakeComplete && proxyComplete && shutdownConfirmed
         ? "authenticated-channel-pass" : "authenticated-channel-fail",
     detail: handshakeDetail,
     startedAt: startedAt,
-    stoppedAt: stoppedAt
+    stoppedAt: stoppedAt,
+    shutdown: shutdownEvidence
 )
-if !handshakeComplete || !proxyComplete { fail(handshakeDetail) }
+if !handshakeComplete || !proxyComplete || !shutdownConfirmed { fail(handshakeDetail) }
 _ = runtimeLeaseHandle
 if !controllerStdio { print("mac4-channel: authenticated handshake complete") }

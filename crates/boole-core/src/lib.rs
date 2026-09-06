@@ -216,7 +216,8 @@ pub use rejection_log::{
 pub use replay::{
     compute_block_credits, compute_block_reward_credits, replay_blocks,
     replay_blocks_allow_legacy_evidence_less, replay_blocks_with_genesis,
-    replay_blocks_with_genesis_and_registry, replay_blocks_with_retarget,
+    replay_blocks_with_genesis_and_registry,
+    replay_blocks_with_genesis_and_registry_for_authorization_network, replay_blocks_with_retarget,
     replay_blocks_with_retarget_allow_legacy_evidence_less, LegacyEvidenceOptIn, PersistedCredit,
     PersistedRewardEvent, ReplayResult,
 };

@@ -125,7 +125,10 @@ impl Frame {
     /// on ingress; send-side runs it before encoding as well.
     pub fn validate(&self) -> Result<(), FrameError> {
         if let Frame::GetBlocks { from, to } = self {
-            if to < from || to - from + 1 > GET_BLOCKS_RANGE_CAP {
+            // Compare the zero-based span instead of forming the inclusive
+            // length: `to - from + 1` overflows for an untrusted `u64::MAX`
+            // upper bound before it can become a typed rejection.
+            if to < from || to - from >= GET_BLOCKS_RANGE_CAP {
                 return Err(FrameError::RangeTooWide {
                     from: *from,
                     to: *to,
@@ -168,6 +171,8 @@ pub enum FrameError {
     FrameBudgetExceeded { cap: usize, seen: usize },
     #[error("frame receive exceeded its absolute peer-round deadline")]
     ReceiveDeadlineExceeded,
+    #[error("frame send exceeded its absolute connection deadline")]
+    SendDeadlineExceeded,
     #[error("malformed frame: {detail}")]
     Malformed { detail: String },
     #[error("GetBlocks range [{from}, {to}] exceeds cap {GET_BLOCKS_RANGE_CAP} or is inverted")]
@@ -259,6 +264,61 @@ impl TcpTransport {
         };
         decode_counted_frame(line)
     }
+
+    /// Send one frame under a caller-owned absolute connection deadline.
+    /// Inbound node handlers use this for replies so a peer that does not
+    /// drain its socket cannot renew the serial handler's write timeout.
+    pub fn send_frame_until(
+        &self,
+        conn: &mut TcpConn,
+        frame: &Frame,
+        deadline: Instant,
+    ) -> Result<(), FrameError> {
+        let encoded = encode_frame(frame)?;
+        let stream = conn.writer.get_mut();
+        let mut written = 0usize;
+        while written < encoded.len() {
+            let remaining = deadline
+                .checked_duration_since(Instant::now())
+                .filter(|remaining| !remaining.is_zero())
+                .ok_or(FrameError::SendDeadlineExceeded)?;
+            stream.set_write_timeout(Some(remaining.max(Duration::from_millis(1))))?;
+            match stream.write(&encoded[written..]) {
+                Ok(0) => {
+                    return Err(FrameError::Io(std::io::Error::new(
+                        std::io::ErrorKind::WriteZero,
+                        "connection wrote zero bytes before frame completion",
+                    )))
+                }
+                Ok(count) => written += count,
+                Err(err)
+                    if matches!(
+                        err.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    return Err(FrameError::SendDeadlineExceeded)
+                }
+                Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(err) => return Err(FrameError::Io(err)),
+            }
+        }
+        Ok(())
+    }
+}
+
+fn encode_frame(frame: &Frame) -> Result<Vec<u8>, FrameError> {
+    frame.validate()?;
+    let mut encoded = serde_json::to_vec(frame).map_err(|err| FrameError::Malformed {
+        detail: format!("encode: {err}"),
+    })?;
+    encoded.push(b'\n');
+    if encoded.len() > MAX_FRAME_BYTES {
+        return Err(FrameError::FrameTooLarge {
+            seen: encoded.len(),
+        });
+    }
+    Ok(encoded)
 }
 
 fn decode_counted_frame(line: Vec<u8>) -> Result<(Frame, usize), FrameError> {
@@ -299,17 +359,8 @@ impl Transport for TcpTransport {
     }
 
     fn send_frame(&self, conn: &mut Self::Conn, frame: &Frame) -> Result<(), FrameError> {
-        frame.validate()?;
-        let mut encoded = serde_json::to_string(frame).map_err(|err| FrameError::Malformed {
-            detail: format!("encode: {err}"),
-        })?;
-        encoded.push('\n');
-        if encoded.len() > MAX_FRAME_BYTES {
-            return Err(FrameError::FrameTooLarge {
-                seen: encoded.len(),
-            });
-        }
-        conn.writer.write_all(encoded.as_bytes())?;
+        let encoded = encode_frame(frame)?;
+        conn.writer.write_all(&encoded)?;
         conn.writer.flush()?;
         Ok(())
     }

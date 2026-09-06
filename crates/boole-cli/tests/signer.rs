@@ -1,5 +1,6 @@
 use std::path::Path;
 use std::process::Command;
+use std::sync::{Arc, Barrier};
 
 fn cli() -> Command {
     Command::new(env!("CARGO_BIN_EXE_boole-cli"))
@@ -99,6 +100,47 @@ fn setup_session(keys: &Path, sessions: &Path, id: &str) -> String {
         .as_str()
         .expect("sessionPk")
         .to_string()
+}
+
+fn sign_work_command(
+    keys: &Path,
+    sessions: &Path,
+    nonces: &Path,
+    id: &str,
+    nonce: &str,
+) -> Command {
+    let request_hash = payload_hash();
+    let mut command = cli();
+    command
+        .env("BOOLE_KEYS_DIR", keys)
+        .env("BOOLE_SESSIONS_DIR", sessions)
+        .env("BOOLE_SIGNER_NONCE_DIR", nonces)
+        .args([
+            "signer",
+            "sign-work",
+            "--network",
+            "testnet",
+            "--session-id",
+            id,
+            "--route",
+            "/submit",
+            "--family",
+            "boole.protocol-invariant.v01",
+            "--verifier",
+            "lean-runner-v01",
+            "--fee",
+            "1",
+            "--request-hash",
+            &request_hash,
+            "--nonce",
+            nonce,
+            "--reward-recipient",
+            REWARD_RECIPIENT,
+            "--payload",
+            payload_text(),
+            "--json",
+        ]);
+    command
 }
 
 #[test]
@@ -393,4 +435,91 @@ fn signer_sign_work_rejects_duplicate_nonce() {
     assert_eq!(env["version"], "v1");
     assert_eq!(env["command"], "signer.sign-work");
     assert_eq!(env["error"]["reason"], "nonce-reuse");
+}
+
+#[test]
+fn signer_sign_work_concurrently_allows_only_one_nonce_reservation() {
+    let keys = fresh_tmp("keys-concurrent-nonce");
+    let sessions = fresh_tmp("sessions-concurrent-nonce");
+    let nonces = fresh_tmp("nonces-concurrent-nonce");
+    let _ = setup_session(&keys, &sessions, "claude-concurrent-nonce");
+    let barrier = Arc::new(Barrier::new(2));
+    let mut joins = Vec::new();
+    for _ in 0..2 {
+        let keys = keys.clone();
+        let sessions = sessions.clone();
+        let nonces = nonces.clone();
+        let barrier = Arc::clone(&barrier);
+        joins.push(std::thread::spawn(move || {
+            barrier.wait();
+            sign_work_command(
+                &keys,
+                &sessions,
+                &nonces,
+                "claude-concurrent-nonce",
+                "once-only",
+            )
+            .output()
+            .expect("signer sign-work")
+        }));
+    }
+    let outputs = joins
+        .into_iter()
+        .map(|join| join.join().expect("signer worker"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        outputs
+            .iter()
+            .filter(|output| output.status.success())
+            .count(),
+        1,
+        "exactly one concurrent signer may issue this nonce"
+    );
+    let rejected = outputs
+        .iter()
+        .find(|output| !output.status.success())
+        .expect("one signer must be rejected");
+    assert_eq!(rejected.status.code(), Some(3));
+    assert_eq!(
+        parse_json(&rejected.stderr)["error"]["reason"],
+        "nonce-reuse"
+    );
+}
+
+#[test]
+fn signer_sign_work_concurrently_records_each_distinct_nonce_as_one_ledger_line() {
+    let keys = fresh_tmp("keys-concurrent-distinct-nonces");
+    let sessions = fresh_tmp("sessions-concurrent-distinct-nonces");
+    let nonces = fresh_tmp("nonces-concurrent-distinct-nonces");
+    let session_id = "claude-concurrent-distinct-nonces";
+    let _ = setup_session(&keys, &sessions, session_id);
+    let barrier = Arc::new(Barrier::new(2));
+    let mut joins = Vec::new();
+    for nonce in ["first-nonce", "second-nonce"] {
+        let keys = keys.clone();
+        let sessions = sessions.clone();
+        let nonces = nonces.clone();
+        let barrier = Arc::clone(&barrier);
+        joins.push(std::thread::spawn(move || {
+            barrier.wait();
+            sign_work_command(&keys, &sessions, &nonces, session_id, nonce)
+                .output()
+                .expect("signer sign-work")
+        }));
+    }
+    for output in joins {
+        let output = output.join().expect("signer worker");
+        assert!(
+            output.status.success(),
+            "distinct nonces must both sign: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let mut lines = std::fs::read_to_string(nonces.join(format!("{session_id}.txt")))
+        .expect("nonce ledger")
+        .lines()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    lines.sort();
+    assert_eq!(lines, ["first-nonce", "second-nonce"]);
 }

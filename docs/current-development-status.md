@@ -5,6 +5,14 @@ work. Edit it in place; historical experiment results remain in their own record
 Local Master/Execution documents retain detailed plans and point here for status.
 Work methods are governed by [the development policy](development-throughput-and-evidence-policy-v1.md).
 
+## Current audit-remediation boundary
+
+The 2026-09-06 audit defect fixes are implemented and focused-verified. Full CI
+and main integration remain required by [the development policy](development-throughput-and-evidence-policy-v1.md);
+this status does not claim either has occurred. No fresh VM execution or
+real-model success is claimed. Historical evidence below remains preserved
+rather than being rewritten as current execution proof.
+
 ## Completed development boundary
 
 - N5.3 M1–M6 closed-local foundation: named-network authority, canonical state
@@ -27,16 +35,17 @@ Evidence: [MCP path](boole-mcp-e2e.md),
 
 ## Next development boundary
 
-One real MCP-client/LLM canary through the existing verification path.
+After the required CI/main integration, prepare—but do not execute—one real
+MCP-client/LLM canary through the existing verification path.
 First identify the available client, its authentication/billing path and the
 node/launcher environment; prepare a bounded end-to-end run and safe local
 rehearsal. A test driver is already proven; a real model acting as caller has
 not yet been demonstrated by this milestone. Do not assume a specific paid model
 or require a new paid API before checking available integration paths.
 
-The current instruction authorizes the guidance correction, its review and merge.
-It does not itself approve a paid model call. Any subsequent run must use the
-existing applicable approval, or obtain only the missing scope/budget approval.
+The current instruction does not itself approve a paid model call. Any later
+canary run must use the existing applicable approval, or obtain only the missing
+scope/budget approval.
 
 ## Operational boundaries
 

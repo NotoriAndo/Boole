@@ -1,10 +1,12 @@
 use clap::{Parser, Subcommand};
 use std::collections::BTreeSet;
-use std::fs::OpenOptions;
+use std::fs::{File, OpenOptions};
 use std::io::{Read as _, Write as _};
 use std::net::{SocketAddr, TcpStream};
+use std::os::fd::AsRawFd;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 #[derive(Debug, Parser)]
 #[command(name = "boole")]
@@ -4904,6 +4906,104 @@ fn atomic_write_0600(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     Ok(())
 }
 
+static KEY_CREATE_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+fn sync_parent_directory(path: &Path) -> std::io::Result<()> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    File::open(parent)?.sync_all()
+}
+
+fn create_directory_durable(path: &Path) -> std::io::Result<()> {
+    let existed = path.exists();
+    std::fs::create_dir_all(path)?;
+    if !existed {
+        File::open(path)?.sync_all()?;
+        sync_parent_directory(path)?;
+    }
+    Ok(())
+}
+
+#[allow(unsafe_code)] // libc exposes the portable POSIX advisory file lock.
+fn lock_file_exclusive(file: &File) -> std::io::Result<()> {
+    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+#[allow(unsafe_code)] // Must release the lock after every write/sync outcome.
+fn unlock_file(file: &File) -> std::io::Result<()> {
+    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+/// Commit a freshly generated key only if no final key exists. Unlike the
+/// overwrite-capable update helper above, `hard_link` fails atomically when a
+/// competing process has already created the final path.
+fn atomic_create_0600(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    std::fs::create_dir_all(parent)?;
+    let filename = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "key path has no UTF-8 filename",
+            )
+        })?;
+    let mut staged = None;
+    for _ in 0..64 {
+        let sequence = KEY_CREATE_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let temporary = parent.join(format!(
+            ".{filename}.{}.{}.tmp",
+            std::process::id(),
+            sequence
+        ));
+        match OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&temporary)
+        {
+            Ok(file) => {
+                staged = Some((temporary, file));
+                break;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    let (temporary, mut file) = staged.ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "temporary key name collision",
+        )
+    })?;
+    let result = (|| -> std::io::Result<()> {
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        Ok(())
+    })();
+    drop(file);
+    if let Err(error) = result {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(error);
+    }
+    if let Err(error) = std::fs::hard_link(&temporary, path) {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(error);
+    }
+    if let Err(error) = sync_parent_directory(path) {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(error);
+    }
+    std::fs::remove_file(&temporary)?;
+    sync_parent_directory(path)
+}
+
 /// Print a typed error envelope (`{ok:false, reason, ...fields}`) to stderr
 /// and exit. Mirrors the server-side `boole-node::http_error` envelope shape
 /// so CLI-originated and HTTP-forwarded errors look identical to consumers.
@@ -4957,7 +5057,16 @@ fn keys_new(id: &str, dev: bool, dry_run: bool) -> anyhow::Result<()> {
         serde_json::json!({ "ok": true, "key": public_view, "dryRun": true })
     } else {
         let bytes = serde_json::to_vec_pretty(&envelope_key)?;
-        atomic_write_0600(&path, &bytes)?;
+        if let Err(error) = atomic_create_0600(&path, &bytes) {
+            if error.kind() == std::io::ErrorKind::AlreadyExists {
+                emit_typed_error(
+                    "key_already_exists",
+                    3,
+                    serde_json::json!({ "id": id, "path": path.to_string_lossy() }),
+                );
+            }
+            return Err(error.into());
+        }
         serde_json::json!({ "ok": true, "key": public_view, "path": path.to_string_lossy() })
     };
     println!("{stdout_envelope}");
@@ -5371,6 +5480,12 @@ fn signer_nonce_path(session_id: &str) -> PathBuf {
     signer_nonces_dir().join(format!("{session_id}.txt"))
 }
 
+fn signer_nonce_reservation_path(session_id: &str, nonce: &str) -> PathBuf {
+    signer_nonces_dir()
+        .join("reservations")
+        .join(format!("{session_id}.{nonce}"))
+}
+
 /// Has `nonce` already been used for this session? The file is a flat
 /// newline-delimited ledger; one byte per nonce per session keeps recovery
 /// trivial and matches the "first MVP" scope from the agent wallet plan.
@@ -5379,25 +5494,66 @@ fn nonce_already_used(path: &Path, nonce: &str) -> anyhow::Result<bool> {
         return Ok(false);
     }
     let raw = std::fs::read_to_string(path)?;
-    Ok(raw.lines().any(|line| line.trim() == nonce))
+    Ok(raw.lines().any(|line| line == nonce))
 }
 
-/// Append `nonce` to the per-session ledger with 0600 perms. The append
-/// happens only after a successful sign so a mid-flight error (bad payload,
-/// disk failure) cannot lock the operator out of retrying with the same
-/// nonce — replay safety still holds because no signature was emitted.
+/// Atomically reserve `nonce` before signing. Reservations are intentionally
+/// never released after a later signing failure: fail-closed is the only way
+/// to ensure a concurrent retry cannot emit a second signature for one nonce.
+/// The legacy append-only ledger remains a read-compatible historical record.
+fn reserve_nonce(path: &Path, session_id: &str, nonce: &str) -> anyhow::Result<bool> {
+    if nonce_already_used(path, nonce)? {
+        return Ok(false);
+    }
+    let reservation = signer_nonce_reservation_path(session_id, nonce);
+    if let Some(parent) = reservation.parent() {
+        create_directory_durable(parent)?;
+    }
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&reservation)
+    {
+        Ok(mut file) => {
+            file.write_all(nonce.as_bytes())?;
+            file.write_all(b"\n")?;
+            file.sync_all()?;
+            sync_parent_directory(&reservation)?;
+            Ok(true)
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// Append `nonce` to the per-session ledger with 0600 perms. The append is
+/// historical only: the earlier reservation stays consumed even if signing or
+/// this record write later fails, so retry remains fail-closed.
 fn record_nonce(path: &Path, nonce: &str) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
+        create_directory_durable(parent)?;
     }
+    let existed = path.exists();
     let mut f = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .mode(0o600)
         .open(path)?;
-    f.write_all(nonce.as_bytes())?;
-    f.write_all(b"\n")?;
-    f.sync_all()?;
+    let mut record = Vec::with_capacity(nonce.len() + 1);
+    record.extend_from_slice(nonce.as_bytes());
+    record.push(b'\n');
+    lock_file_exclusive(&f)?;
+    let write_result = (|| -> std::io::Result<()> {
+        f.write_all(&record)?;
+        f.sync_all()
+    })();
+    let unlock_result = unlock_file(&f);
+    write_result?;
+    unlock_result?;
+    if !existed {
+        sync_parent_directory(path)?;
+    }
     Ok(())
 }
 
@@ -5562,28 +5718,6 @@ fn signer_sign_work(
         );
     }
 
-    let nonce_path = signer_nonce_path(session_id);
-    if nonce_already_used(&nonce_path, nonce)? {
-        if json {
-            signer_sign_work_emit_err(
-                "nonce-reuse",
-                3,
-                serde_json::json!({
-                    "sessionId": session_id,
-                    "nonce": nonce,
-                }),
-            );
-        }
-        emit_typed_error(
-            "nonce_reuse",
-            3,
-            serde_json::json!({
-                "sessionId": session_id,
-                "nonce": nonce,
-            }),
-        );
-    }
-
     let signing_key = proof_signer_from(
         envelope.get("sessionSk").and_then(|v| v.as_str()),
         envelope.get("sessionVault").and_then(|v| v.as_str()),
@@ -5609,6 +5743,27 @@ fn signer_sign_work(
                 "sessionId": session_id,
                 "expected": computed_request_hash,
                 "provided": request_hash,
+            }),
+        );
+    }
+    let nonce_path = signer_nonce_path(session_id);
+    if !reserve_nonce(&nonce_path, session_id, nonce)? {
+        if json {
+            signer_sign_work_emit_err(
+                "nonce-reuse",
+                3,
+                serde_json::json!({
+                    "sessionId": session_id,
+                    "nonce": nonce,
+                }),
+            );
+        }
+        emit_typed_error(
+            "nonce_reuse",
+            3,
+            serde_json::json!({
+                "sessionId": session_id,
+                "nonce": nonce,
             }),
         );
     }

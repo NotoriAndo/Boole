@@ -18,9 +18,10 @@
 //! network-scoped authorization on every selected share.
 
 use boole_core::{
-    block_hash, canonical_payload_hash_hex, replay_blocks, replay_blocks_with_genesis, share_hash,
-    GenesisInitialState, GenesisParams, GenesisSpec, Hex32, PersistedBlock, SelectedShareEvidence,
-    ShareWorkAuthorization, SigningKeyV2, CONSENSUS_RULE_VERSION,
+    block_hash, canonical_payload_hash_hex, replay_blocks, replay_blocks_with_genesis,
+    replay_blocks_with_genesis_and_registry_for_authorization_network, share_hash,
+    FamilyManifestRegistry, GenesisInitialState, GenesisParams, GenesisSpec, Hex32, PersistedBlock,
+    SelectedShareEvidence, ShareWorkAuthorization, SigningKeyV2, CONSENSUS_RULE_VERSION,
 };
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -244,13 +245,73 @@ fn testnet2_replay_accepts_equivalent_uppercase_work_bytes() {
 }
 
 #[test]
+fn explicitly_named_dev_replay_rejects_foreign_authorization_scope() {
+    let key = signer();
+    let body = work_body(&key.pk_hex(), &valid_pofp_v2_package_hex());
+    let foreign = authorization_for_network(&key, &body, RECIPIENT, Some("boole-other"));
+
+    let err = replay_blocks_with_genesis(
+        &[authorized_block(Some(foreign))],
+        &genesis_spec("boole-dev"),
+    )
+    .expect_err("an explicit development network must reject another network's authorization");
+    assert!(
+        err.to_string().contains("network mismatch") && err.to_string().contains("boole-dev"),
+        "expected an explicit-network scope mismatch, got: {err}"
+    );
+}
+
+#[test]
+fn replay_scope_override_cannot_weaken_or_replace_genesis_identity() {
+    let registry = FamilyManifestRegistry::new();
+    let testnet2 = genesis_spec("boole-testnet-2");
+    let missing = replay_blocks_with_genesis_and_registry_for_authorization_network(
+        &[],
+        &testnet2,
+        &registry,
+        None,
+    )
+    .expect_err("testnet2 scope cannot be omitted even for an empty chain");
+    assert!(
+        missing.to_string().contains("cannot be omitted"),
+        "{missing}"
+    );
+
+    let dev = genesis_spec("boole-dev");
+    let omitted_dev = replay_blocks_with_genesis_and_registry_for_authorization_network(
+        &[],
+        &dev,
+        &registry,
+        None,
+    )
+    .expect_err("only the unnamed boole-mvp fallback may omit an authorization scope");
+    assert!(
+        omitted_dev.to_string().contains("cannot be omitted"),
+        "{omitted_dev}"
+    );
+    let replaced = replay_blocks_with_genesis_and_registry_for_authorization_network(
+        &[],
+        &dev,
+        &registry,
+        Some("boole-other"),
+    )
+    .expect_err("the authorization scope cannot differ from genesis");
+    assert!(
+        replaced.to_string().contains("does not match"),
+        "{replaced}"
+    );
+}
+
+#[test]
 fn boole_dev_and_legacy_replay_keep_optional_authorization_compatibility() {
     replay_blocks_with_genesis(&[authorized_block(None)], &genesis_spec("boole-dev"))
         .expect("boole-dev must keep accepting evidence without signedWork");
 
-    replay_blocks_with_genesis(
+    replay_blocks_with_genesis_and_registry_for_authorization_network(
         &[authorized_block(Some(default_authorization()))],
         &genesis_spec("boole-mvp"),
+        &FamilyManifestRegistry::new(),
+        None,
     )
     .expect("the unnamed-node fallback genesis must keep accepting legacy signedWork");
 

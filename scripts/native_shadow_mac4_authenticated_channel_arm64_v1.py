@@ -124,6 +124,34 @@ def _receipt_passes(receipt, images_before) -> bool:
         return False
     if receipt.get("rootDisk", {}).get("attachedReadOnly") is not True:
         return False
+    shutdown = receipt.get("shutdown")
+    if not isinstance(shutdown, dict):
+        return False
+    if (
+        shutdown.get("confirmed") is not True
+        or shutdown.get("finalState") != "stopped"
+        or "delegateError" in shutdown
+        or "gracefulRequestError" in shutdown
+        or "forcedStopError" in shutdown
+        or shutdown.get("gracefulRequest")
+        not in {"accepted", "not-needed", "unavailable"}
+        or shutdown.get("forcedStop") not in {"not-needed", "succeeded"}
+    ):
+        return False
+    confirmation = shutdown.get("confirmation")
+    if confirmation == "guest-stop-delegate":
+        if (
+            shutdown.get("delegateObserved") is not True
+            or not isinstance(shutdown.get("delegateReason"), str)
+            or not shutdown["delegateReason"]
+            or shutdown.get("forcedStop") != "not-needed"
+        ):
+            return False
+    elif confirmation == "forced-stop-callback":
+        if shutdown.get("forcedStop") != "succeeded":
+            return False
+    else:
+        return False
     return receipt.get("vsock") == {"port": 4050, "handshakeComplete": True}
 
 

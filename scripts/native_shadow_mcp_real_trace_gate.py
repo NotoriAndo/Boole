@@ -240,8 +240,9 @@ class McpStdio:
 
     def _write(self, value: Dict[str, Any]) -> None:
         body = json.dumps(value, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-        frame = "Content-Length: {}\r\n\r\n".format(len(body)).encode("ascii") + body
-        self._stdin.write(frame)
+        if b"\n" in body or b"\r" in body:
+            raise ValueError("real MCP trace JSON message contains an embedded newline")
+        self._stdin.write(body + b"\n")
         self._stdin.flush()
 
     def _read_bytes(self, count: int, deadline: float) -> bytes:
@@ -260,18 +261,16 @@ class McpStdio:
 
     def _read(self) -> Dict[str, Any]:
         deadline = time.monotonic() + FRAME_TIMEOUT_SECONDS
-        header = bytearray()
-        while not header.endswith(b"\r\n\r\n"):
-            header.extend(self._read_bytes(1, deadline))
-            if len(header) > 4096:
-                raise ValueError("real MCP trace response header is oversized")
-        content_length = None
-        for line in bytes(header[:-4]).decode("ascii").split("\r\n"):
-            if line.lower().startswith("content-length:"):
-                content_length = int(line.split(":", 1)[1].strip())
-        if content_length is None or content_length > FRAME_LIMIT_BYTES:
-            raise ValueError("real MCP trace response length is missing or oversized")
-        raw = self._read_bytes(content_length, deadline)
+        raw = bytearray()
+        while True:
+            raw.extend(self._read_bytes(1, deadline))
+            if len(raw) > FRAME_LIMIT_BYTES:
+                raise ValueError("real MCP trace response exceeds the line-size cap")
+            if raw[-1:] == b"\n":
+                raw.pop()
+                if raw[-1:] == b"\r":
+                    raw.pop()
+                break
         value = json.loads(raw.decode("utf-8"), object_pairs_hook=_strict_object)
         if not isinstance(value, dict):
             raise ValueError("real MCP trace response is not one JSON object")

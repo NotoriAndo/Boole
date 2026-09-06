@@ -7,7 +7,7 @@ use boole_core::{
     calibration_policy, choose_canonical_head, compute_block_reward_credits,
     derive_bounty_settlement, difficulty_weight, expected_retarget_difficulty_for_height,
     head_block_hash, parse_submission_body, replay_blocks_allow_legacy_evidence_less,
-    replay_blocks_with_genesis_and_registry,
+    replay_blocks_with_genesis_and_registry_for_authorization_network,
     replay_blocks_with_retarget_allow_legacy_evidence_less, share_score, AdmissionDecision,
     AdmissionParsedDeps, BlockBuilderConfig, BuildSelectionResult, CalibrationPolicy,
     CalibrationReport, CandidateShare, DifficultyEvidence, DifficultyRetargetPolicy,
@@ -310,6 +310,10 @@ pub struct RuntimeAdmissionState {
     /// cache+block under it BEFORE anything reaches disk, so the node
     /// can never persist a chain its own reboot would refuse.
     boot_genesis: Option<boole_core::GenesisSpec>,
+    /// Network authorization scope explicitly selected by the operator.
+    /// `None` is reserved for the unnamed compatibility path even though it
+    /// still carries an internal fallback GenesisSpec for other rules.
+    authorization_network_id: Option<String>,
     /// Set immediately before the first durable write in a multi-store
     /// canonical transition and cleared only after every projection and
     /// in-memory mirror is complete. While set, the process is diagnostic-only:
@@ -330,6 +334,7 @@ impl RuntimeAdmissionState {
             reward_ledger: None,
             family_registry: FamilyManifestRegistry::new(),
             boot_genesis: None,
+            authorization_network_id: None,
             canonical_state_failure: None,
             config,
         }
@@ -380,7 +385,12 @@ impl RuntimeAdmissionState {
         blocks: &[PersistedBlock],
     ) -> anyhow::Result<ReplayResult> {
         if let Some(spec) = self.boot_genesis.as_ref() {
-            return replay_blocks_with_genesis_and_registry(blocks, spec, &self.family_registry);
+            return replay_blocks_with_genesis_and_registry_for_authorization_network(
+                blocks,
+                spec,
+                &self.family_registry,
+                self.authorization_network_id.as_deref(),
+            );
         }
         let opt_in = LegacyEvidenceOptIn::for_legacy_replay_only();
         match &self.config.difficulty_retarget {
@@ -440,6 +450,7 @@ impl RuntimeAdmissionState {
             bounty_event_ledger_path,
             family_registry,
             None,
+            None,
         )
     }
 
@@ -465,6 +476,29 @@ impl RuntimeAdmissionState {
             bounty_event_ledger_path,
             family_registry,
             Some(genesis),
+            Some(genesis.network_id.as_str()),
+        )
+    }
+
+    /// Genesis-aware boot that keeps the operator's explicit network scope
+    /// distinct from the internal unnamed-node fallback.
+    pub fn boot_from_store_with_genesis_and_authorization_network(
+        config: RuntimeConfig,
+        block_path: impl AsRef<Path>,
+        reward_ledger_path: Option<PathBuf>,
+        bounty_event_ledger_path: Option<PathBuf>,
+        family_registry: FamilyManifestRegistry,
+        genesis: &boole_core::GenesisSpec,
+        authorization_network_id: Option<&str>,
+    ) -> anyhow::Result<Self> {
+        Self::boot_from_store_inner(
+            config,
+            block_path,
+            reward_ledger_path,
+            bounty_event_ledger_path,
+            family_registry,
+            Some(genesis),
+            authorization_network_id,
         )
     }
 
@@ -475,6 +509,7 @@ impl RuntimeAdmissionState {
         bounty_event_ledger_path: Option<PathBuf>,
         family_registry: FamilyManifestRegistry,
         genesis: Option<&boole_core::GenesisSpec>,
+        authorization_network_id: Option<&str>,
     ) -> anyhow::Result<Self> {
         // ADR-0015 (c): a genesis-pinned family set is consensus authority.
         // Refuse the local registry before replay so settlement can never run
@@ -502,6 +537,7 @@ impl RuntimeAdmissionState {
         let mut runtime = Self::new(config);
         runtime.family_registry = family_registry;
         runtime.boot_genesis = genesis.cloned();
+        runtime.authorization_network_id = authorization_network_id.map(str::to_string);
         // N1.3 (G2) — retarget-aware boot replay: when a retarget policy is
         // configured, fold its difficulty validation into replay (rejects a
         // forged epoch-boundary t_block) instead of a separate call.
@@ -739,8 +775,21 @@ impl RuntimeAdmissionState {
         //    evidence-less opt-in), so an evidence-less or tampered
         //    candidate is rejected before it can displace the current
         //    chain.
-        let replay =
-            replay_blocks_with_genesis_and_registry(candidate, genesis, &self.family_registry)?;
+        let authorization_network_id = self.authorization_network_id.as_deref().or_else(|| {
+            // `new()`-then-wire embeddings did not pass through the served-node
+            // boot constructor, but their explicit reorg GenesisSpec is still
+            // the named replay authority. Only an actually booted unnamed node
+            // may retain `None` for the boole-mvp compatibility fallback.
+            self.boot_genesis
+                .is_none()
+                .then_some(genesis.network_id.as_str())
+        });
+        let replay = replay_blocks_with_genesis_and_registry_for_authorization_network(
+            candidate,
+            genesis,
+            &self.family_registry,
+            authorization_network_id,
+        )?;
 
         // 2. Fork-choice. Reuse choose_canonical_head + head_block_hash so this
         //    decision is identical to the standalone selection rule (N4.2). An
@@ -852,16 +901,12 @@ impl RuntimeAdmissionState {
         )
     }
 
-    /// M1-D is introduced on `boole-testnet-2` only. A served node also has a
-    /// genesis spec when the operator did not name a network (the local
-    /// compatibility path uses the internal `boole-mvp` fallback), so the
-    /// mere presence of `boot_genesis` must not turn that fallback into a
-    /// network-scoped authorization requirement.
+    /// Every explicitly named network validates any present authorization's
+    /// scope; `boole-testnet-2` additionally requires authorization. A served
+    /// unnamed node still has an internal `boole-mvp` GenesisSpec, so scope is
+    /// tracked separately rather than inferred from `boot_genesis`.
     fn block_selection_network_id(&self) -> Option<&str> {
-        self.boot_genesis
-            .as_ref()
-            .map(|genesis| genesis.network_id.as_str())
-            .filter(|network_id| *network_id == boole_core::AUTHORIZATION_REQUIRED_NETWORK_ID)
+        self.authorization_network_id.as_deref()
     }
 
     /// N4-pre.1 (ADR-0012 (d)) — every canon_hash already credited on this
@@ -1130,7 +1175,12 @@ impl RuntimeAdmissionState {
         if let Some(genesis) = &self.boot_genesis {
             let mut candidate = self.block_cache.clone();
             candidate.push(block.clone());
-            replay_blocks_with_genesis_and_registry(&candidate, genesis, &self.family_registry)
+            replay_blocks_with_genesis_and_registry_for_authorization_network(
+                &candidate,
+                genesis,
+                &self.family_registry,
+                self.authorization_network_id.as_deref(),
+            )
                 .map_err(|err| {
                     anyhow::anyhow!(
                         "self-produced block at height {} fails the strict genesis replay                          this node itself enforces — refusing to commit it: {err:#}",

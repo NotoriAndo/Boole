@@ -66,6 +66,15 @@ class Mac4ChannelRunnerBehaviorTests(unittest.TestCase):
             "machine": runner.EXACT_MACHINE,
             "rootDisk": {"attachedReadOnly": True},
             "vsock": {"port": 4050, "handshakeComplete": True},
+            "shutdown": {
+                "gracefulRequest": "accepted",
+                "forcedStop": "not-needed",
+                "delegateObserved": True,
+                "delegateReason": "guest stopped",
+                "confirmation": "guest-stop-delegate",
+                "finalState": "stopped",
+                "confirmed": True,
+            },
         }
         result = runner.make_result(
             mode="boot",
@@ -90,6 +99,80 @@ class Mac4ChannelRunnerBehaviorTests(unittest.TestCase):
             console_sha256="77" * 32,
         )
         self.assertEqual(refused["status"], "MAC4-AUTHENTICATED-CHANNEL-FAIL")
+
+    def test_result_rejects_stop_error_timeout_and_unconfirmed_receipts(self):
+        before = images()
+        receipt = {
+            "schema": "boole.native-shadow.mac4-authenticated-channel-run.v1",
+            "outcome": "authenticated-channel-pass",
+            "dryRun": False,
+            "nonceHex": "55" * 32,
+            "bootTupleBindingHex": runner.boot_tuple_binding(before),
+            "contractSha256": runner.CONTRACT_SHA256,
+            "machine": runner.EXACT_MACHINE,
+            "rootDisk": {"attachedReadOnly": True},
+            "vsock": {"port": 4050, "handshakeComplete": True},
+        }
+        invalid_shutdown_evidence = (
+            None,
+            {
+                "gracefulRequest": "accepted",
+                "forcedStop": "error",
+                "forcedStopError": "injected",
+                "delegateObserved": True,
+                "delegateReason": "guest stopped",
+                "confirmation": "none",
+                "finalState": "stopped",
+                "confirmed": False,
+            },
+            {
+                "gracefulRequest": "accepted",
+                "forcedStop": "timeout",
+                "delegateObserved": False,
+                "delegateReason": "",
+                "confirmation": "none",
+                "finalState": "not-stopped",
+                "confirmed": False,
+            },
+            {
+                "gracefulRequest": "accepted",
+                "forcedStop": "not-needed",
+                "delegateObserved": False,
+                "delegateReason": "",
+                "confirmation": "none",
+                "finalState": "not-stopped",
+                "confirmed": False,
+            },
+            {
+                "gracefulRequest": "accepted",
+                "forcedStop": "succeeded",
+                "delegateObserved": False,
+                "delegateReason": "",
+                "confirmation": "forced-stop-callback",
+                "finalState": "not-stopped",
+                "confirmed": False,
+            },
+        )
+        for shutdown in invalid_shutdown_evidence:
+            candidate = dict(receipt)
+            if shutdown is not None:
+                candidate["shutdown"] = shutdown
+            self.assertFalse(
+                runner._receipt_passes(candidate, before),
+                f"accepted invalid shutdown evidence: {shutdown!r}",
+            )
+
+        forced_success = dict(receipt)
+        forced_success["shutdown"] = {
+            "gracefulRequest": "unavailable",
+            "forcedStop": "succeeded",
+            "delegateObserved": False,
+            "delegateReason": "",
+            "confirmation": "forced-stop-callback",
+            "finalState": "stopped",
+            "confirmed": True,
+        }
+        self.assertTrue(runner._receipt_passes(forced_success, before))
 
     def test_preflight_never_claims_a_live_channel(self):
         result = runner.make_result(

@@ -70,7 +70,7 @@ boole-mcp 0.1.0 (sha=<12-char-git-sha> build=<iso-8601-utc>)
 ## Step 2 — inspect the planned IDE install
 
 Before mutating any IDE settings file, dry-run the install to see the
-exact JSON merge that would be written. Pick the target matching your
+exact settings merge that would be written. Pick the target matching your
 IDE:
 
 ```
@@ -86,22 +86,25 @@ The stdout response is a unified envelope:
 {"ok":true,"version":"v1","command":"install","result":{"dry_run":true,"target":"<ide>","settings_path":"<path>","planned_content":{...}}}
 ```
 
-`planned_content` shows the post-merge JSON that would be written to
-`settings_path`. The merge is idempotent: re-running install on an
-already-installed entry is a no-op for `mcpServers.boole` and
-preserves every other top-level setting.
+`planned_content` shows the post-merge settings. It is a JSON object for the
+JSON-based targets and a TOML string for Codex. The merge is idempotent:
+re-running install on an already-installed entry is a no-op for the Boole
+server and preserves unrelated settings.
 
 Canonical settings paths (relative to `$HOME`):
 
 - `claude` → `.claude/settings.json`
-- `codex` → `.codex/config.json`
+- `codex` → `.codex/config.toml` (`[mcp_servers.boole]`)
 - `cursor` → `.cursor/mcp.json`
 - `opencode` → `.config/opencode/config.json`
 
 ## Step 3 — perform the IDE install
 
-Once the dry-run looks correct, drop `--dry-run` to perform the
-atomic write (stage to `<file>.json.tmp`, then rename):
+Once the dry-run looks correct, drop `--dry-run` to perform the atomic write.
+The installer uses a uniquely named sibling temporary file, writes it with
+private permissions, syncs file and parent directory, then renames it into
+place. Existing file permissions are retained; newly created settings files
+are `0600` on Unix.
 
 ```
 ./target/release/boole-mcp install --target <ide>
@@ -120,6 +123,8 @@ Typed errors land on stderr (still unified-envelope):
 - `settings-parse-failed` — existing settings file is unparseable JSON.
 - `mcp-servers-not-object` — existing `mcpServers` key is not an
   object.
+- `codex-config-merge-failed` — the Codex TOML is invalid or its
+  `mcp_servers`/`mcp_servers.boole` entries are not tables; repair it by hand.
 
 In each error case the existing file is left untouched; repair it by
 hand and re-run install.
@@ -131,7 +136,7 @@ installed IDE entry uses the stdio transport instead: `boole-mcp
 install` registers separate `--node-url http://127.0.0.1:8080` and
 `--native-shadow-url http://127.0.0.1:8082` arguments, and the IDE launches
 `boole-mcp stdio` as a subprocess speaking JSON-RPC 2.0 over stdin/stdout with
-Content-Length framing. The HTTP `serve` surface below exists for curl-driven
+newline-delimited messages. The HTTP `serve` surface below exists for curl-driven
 smokes like this one; both transports dispatch the same tools:
 
 ```

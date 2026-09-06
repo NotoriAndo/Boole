@@ -151,6 +151,15 @@ fn signer_request_denies_unknown_route_or_verifier_or_bad_request_hash_or_empty_
         .unwrap_err()
         .to_string()
         .contains("nonce"));
+
+    for invalid_nonce in [" n", "n ", "n\nx", "n\rx", "n\tx"] {
+        let mut req = SignerRequest::test_fixture();
+        req.nonce = invalid_nonce.to_string();
+        assert!(
+            policy.authorize(&req).is_err(),
+            "nonce {invalid_nonce:?} must fail"
+        );
+    }
 }
 
 #[test]
