@@ -8063,6 +8063,7 @@ mod tests {
         target.runtime = target_runtime;
         target.genesis_c = "0".repeat(64);
         target.network_id = boole_core::AUTHORIZATION_REQUIRED_NETWORK_ID.to_string();
+        target.require_network_scoped_envelopes = true;
         target.lean_checker_dir = Some(
             PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .join("../../lean/checker")
@@ -8142,6 +8143,7 @@ mod tests {
         target.runtime = runtime;
         target.genesis_c = "0".repeat(64);
         target.network_id = boole_core::AUTHORIZATION_REQUIRED_NETWORK_ID.to_string();
+        target.require_network_scoped_envelopes = true;
         target.lean_checker_dir = Some(
             PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .join("../../lean/checker")
@@ -8212,6 +8214,7 @@ mod tests {
         target.runtime = target_runtime;
         target.genesis_c = "0".repeat(64);
         target.network_id = boole_core::AUTHORIZATION_REQUIRED_NETWORK_ID.to_string();
+        target.require_network_scoped_envelopes = true;
         target.lean_checker_dir = Some(
             PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .join("../../lean/checker")
