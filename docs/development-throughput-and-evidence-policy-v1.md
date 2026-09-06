@@ -2,7 +2,7 @@
 
 Policy ID: **BOOLE-DEVELOPMENT-THROUGHPUT-AND-EVIDENCE-V1**
 
-Status: **CURRENT — applies to work started after 2026-08-31**
+Status: **CURRENT — adopted 2026-08-31; clarified 2026-09-06**
 
 Machine-readable operating values:
 
@@ -16,6 +16,27 @@ processOnlyHeavyCiRunsPerMilestone: 0
 This policy governs how Boole development work is packaged, tested, recorded and
 stopped. It changes workflow, not product truth. It does not weaken checker,
 containment, replay, consensus, reward, release-signing or activation rules.
+
+## Authorization and instruction scope
+
+User instructions and approvals persist across milestones within their stated
+scope, budget, run count and time window. Do not ask again because a PR merged,
+a helper is complete, or a skill asks for plan approval. A request to analyze
+or discuss does not authorize implementation. A request to implement includes
+the normal preparation, fixes, tests, PR and merge needed to finish that feature;
+an explicit request to continue also covers the next work inside the approved goal.
+
+Routine implementation choices and corrections to obsolete plans do not need a
+new decision. Prepare the concrete proposal and finish safe independent work
+before asking about an actual new boundary. Skills provide methods, not additional
+authority requirements; prior agreement can satisfy their confirmation steps.
+Use a short diagnostic loop for simple failures and deeper investigation for
+uncertain ones. Static evidence and logs remain useful when execution is unavailable.
+
+The shared entrypoint text is maintained in
+[project-agent-guidance.md](project-agent-guidance.md). Current product state is
+maintained in [current-development-status.md](current-development-status.md).
+Historical instructions and advisory notebooks do not override this policy.
 
 ## TP1-MILESTONE-SEAM — default work unit
 
@@ -34,6 +55,10 @@ file, one function, one frozen record or one PR. Intermediate commits are allowe
 The milestone normally gets one branch, one PR and one full CI run at the end.
 Related docs-only and test-only edits are bundled into that PR.
 
+Four to eight hours is a sizing guide, not a mandatory delay or a stop after one
+milestone when the user requested continued work. One final full CI is the target;
+new corrective commits after a failed check still require fresh applicable checks.
+
 A smaller PR is still appropriate for an urgent security fix, an independently
 reviewable consensus change, or a change that cannot safely share rollback with
 the surrounding milestone. The PR description must state that reason.
@@ -43,6 +68,13 @@ the surrounding milestone. The PR description must state that reason.
 RED → GREEN remains mandatory for behavior changes. The RED test must fail for the
 missing externally meaningful behavior, not merely because a sentence, field
 order, file name or implementation detail changed.
+
+Documentation, current-cursor edits and other non-behavioral corrections do not
+require an invented failing test. Existing behavior may legitimately pass a new
+regression test immediately; do not damage working code merely to manufacture RED.
+Run local checks for the changed language and direct consumers. Rust fmt/clippy
+are not local requirements for Python, shell or documentation-only changes.
+Full workspace clippy and suite checks remain in the full CI lane.
 
 During development, run focused tests. Prefer a compact set of direct contract
 tests plus one to three end-to-end paths over dozens of assertions that restate a
@@ -93,9 +125,14 @@ unchanged. One initial run may be followed by at most two retries after a fix wh
 the failure is classified with evidence as harness, infrastructure or tooling
 failure. A retry is a new recorded attempt, never a rewrite of the prior result.
 
-Do not retry under the same authority when the product itself failed an
-acceptance condition. Fix the product first and start a new normal development
-attempt. If the failure cannot be classified, stop and ask for a decision.
+Do not rerun an unchanged product after an acceptance failure hoping for a pass.
+Fix it and verify the correction before a new normal development attempt inside
+the existing development scope. This does not reset an explicit user-imposed
+run or cost cap. After two infrastructure retries, investigate or change the
+failed setup instead of looping unchanged; a material new boundary needs approval,
+ordinary corrective work does not. Preserve failed outcomes.
+If an unclassified result may hide a safety failure, hold the affected execution
+and adoption while continuing safe investigation.
 
 “Exactly once” remains a runtime property for submissions, journals, rewards and
 other state transitions. It is not a default limit on how many times engineers
@@ -110,9 +147,17 @@ Stop and request an operator decision only for a genuinely material boundary:
 - an unclassified outcome that may hide a safety failure;
 - secret, signing-key, credential or personal-data exposure;
 - destructive or hard-to-recover deletion;
-- public network/mining, reward, consensus, P2P or activation effects;
+- public network/mining, real reward/consensus state or activation effects outside
+  the existing approval,
+  including public P2P; an approved synthetic loopback P2P test is not
+  public network activation;
 - paid model/API execution or a public benchmark/leaderboard claim; or
 - an operational release/signing decision outside an already approved contract.
+
+These are checks against existing authorization, not requirements to approve
+the same action twice. Paid calls must fit the approved use and budget. An LLM
+integration does not inherently select a particular paid API: inspect the actual
+client, authentication and billing path before proposing a chargeable call.
 
 A deterministic compile error, missing file, wrong import, stale fixture,
 incorrect comparison baseline, CI harness bug or disposable-image failure is an
@@ -130,9 +175,15 @@ milestones and blocking triggers. Detailed evidence belongs in the tracked resul
 or incident record that actually owns it. User reports summarize the milestone;
 they do not duplicate every test assertion.
 
+Keep the current status at the top, edited in place. Link product plans and local
+mirrors to the tracked current-status document instead of maintaining conflicting
+current banners. Do not enforce a date or a completed milestone's wording as
+permanently current in tests. Existing historical outcomes remain preserved.
+
 `tasks/lessons.md` is an advisory incident notebook. A lesson becomes binding
-only when explicitly promoted into this policy, the L1 Master constitution or the
-agent instructions. Historical lessons may guide investigation but cannot create
+only when explicitly adopted into this policy or the shared agent guidance.
+The Master defines product invariants, not a second workflow constitution.
+Historical lessons may guide investigation but cannot create
 new approval gates by themselves.
 
 `tasks/todo.md` is likewise a historical task journal, not the current cursor.
@@ -151,11 +202,11 @@ An artifact-specific authority may be stricter than this policy only when it
 protects a genuinely irreversible or externally visible effect and states that
 effect explicitly. “It was done this way before” is not enough.
 
-## TP8-CURRENT-AUTHORITY-BOUNDARY — native-shadow/Mac cursor
+## TP8-CURRENT-AUTHORITY-BOUNDARY — development versus operation
 
-The 2026-08-31 pre-A7 review, R3 and F7 remain historical evidence. A7 has not
-been created, and this policy does not create it, run production, boot a guest or
-open MAC.4/testnet/mining/reward/consensus/P2P/activation.
+Product progress and active approvals belong in the current-status document and
+the user's instructions, not in this timeless procedure. Historical pre-A7, R3
+and F7 records describe their own generation and grant no new operational authority.
 
 Future closed-local image builds and boots are reversible engineering runs under
 TP4, not inherently one-shot operational acts. Existing code that still requires
