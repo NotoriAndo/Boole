@@ -7,11 +7,9 @@
 > activation boundaries in this specification remain unchanged, and no A7,
 > production, boot, mining or reward authority is created here.
 
-> **CURRENT-CURSOR-2026-09-02:** `INSTALLED E2E HARNESS GREEN / RELAY V2 IMAGE CORRECTION READY / FRESH ARM64 IMAGE NEXT`.
-> Next is rebuilding the direct-boot guest with the proxy-capable relay and
-> running that installed bundle through the node-owned Mac loopback route.
-> This cursor is status, not production, testnet, mining,
-> reward, consensus, P2P or activation permission.
+> Current progress and next work: [current development status](current-development-status.md).
+> The dated outcomes below describe their own generation; they do not set the
+> current execution cursor or create additional approval gates.
 
 Status: **CLOSED-LOCAL QUALIFICATION GREEN — tracked checker, named-Linux containment, loopback
 node raw-answer HTTP adjudication and durable replay landed; production activation, P2P, block,

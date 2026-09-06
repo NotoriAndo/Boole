@@ -9,12 +9,9 @@
 > activation authority; code that still enforces the historical chain must be
 > changed by normal TDD before it is used.
 
-> **CURRENT-CURSOR-2026-09-02:** `INSTALLED E2E HARNESS GREEN / RELAY V2 IMAGE CORRECTION READY / FRESH ARM64 IMAGE NEXT`.
-> The installed-route harness is ready, and the next coherent milestone is a
-> fresh deterministic ARM64 image pair containing the proxy-capable relay,
-> followed by the same closed-local Mac route. No production,
-> testnet, mining, reward, consensus, P2P or activation run is authorized by
-> this cursor.
+> Current progress and next work: [current development status](current-development-status.md).
+> The dated outcomes below describe their own generation; they do not set the
+> current execution cursor or create additional approval gates.
 
 Status: **MAC.0 COMPLETE (closed-local Linux baseline, 2026-08-24, section 9);
 MAC.1-PARTIAL — CURL-FIRST MODE FROZEN; UPDATE TRUST POLICY AND MEASUREMENT PROTOCOL OPEN

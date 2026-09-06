@@ -8,10 +8,9 @@
 > PR for every reversible retry. This note grants no A7, production, boot,
 > MAC.4 or activation effect.
 
-> **CURRENT-CURSOR-2026-09-02:** `INSTALLED E2E HARNESS GREEN / RELAY V2 IMAGE CORRECTION READY / FRESH ARM64 IMAGE NEXT`.
-> Next is rebuilding the signed direct-boot guest with its proxy-capable relay,
-> then running that installed bundle through the node-owned Mac loopback route.
-> Existing runtime exactly-once and containment contracts remain the acceptance boundary.
+> Current progress and next work: [current development status](current-development-status.md).
+> The dated outcomes below describe their own generation; they do not set the
+> current execution cursor or create additional approval gates.
 
 Status: **CLOSED-LOCAL IMPLEMENTATION GREEN.** Registry/state durability, named-Linux containment,
 actual checker execution and the feature-gated loopback HTTP route are on `main`. Production

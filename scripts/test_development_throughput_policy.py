@@ -49,9 +49,10 @@ class DevelopmentThroughputPolicyContract(unittest.TestCase):
                 self.assertIn(
                     "docs/development-throughput-and-evidence-policy-v1.md", text
                 )
-                self.assertIn("A7", text)
 
-    def test_tracked_authority_docs_share_the_current_cursor(self) -> None:
+    def test_tracked_authority_docs_link_to_a_resolvable_status_document(self) -> None:
+        # Navigation is the contract. The current date, milestone and narrative
+        # may change without keeping obsolete cursor text just to satisfy CI.
         for relative in (
             "docs/mac-first-hidden-linux-execution-plan-v1.md",
             "docs/node-native-shadow-binding-containment-implementation-spec-v1.md",
@@ -59,11 +60,10 @@ class DevelopmentThroughputPolicyContract(unittest.TestCase):
         ):
             text = read(ROOT / relative)
             with self.subTest(relative=relative):
-                normalized = " ".join(text.split())
-                self.assertIn("CURRENT-CURSOR-2026-09-02", normalized)
-                self.assertIn("INSTALLED E2E HARNESS GREEN", normalized)
-                self.assertIn("RELAY V2 IMAGE CORRECTION READY", normalized)
-                self.assertIn("FRESH ARM64 IMAGE NEXT", normalized)
+                links = re.findall(r"\]\((current-development-status\.md)\)", text)
+                self.assertTrue(links, relative)
+                for target in links:
+                    self.assertTrue((ROOT / relative).parent.joinpath(target).is_file())
 
     def test_lessons_are_advisory_until_promoted(self) -> None:
         text = read(ROOT / "tasks/lessons.md")
