@@ -14,9 +14,9 @@ remaining verified boundaries and records explicit exclusions in
 [September audit follow-up](audit-remediation-2026-09.md).
 
 The subsequent independent review of main `ae08171c` produced nine additional
-findings. This remediation closes storage role collisions and failed append
-continuation, future-checkpoint trust and equal/shorter fork convergence, MCP
-transport replacement/responsiveness, and portable subprocess cleanup. The same
+findings. [PR #372](https://github.com/NotoriAndo/Boole/pull/372) closes storage role
+collisions and failed append continuation, future-checkpoint trust and equal/shorter
+fork convergence, MCP transport replacement/responsiveness, and portable subprocess cleanup. The same
 storage pass also fixes bounty create/status/proof publication before durable
 audit storage. Independent review is separate from implementation ownership;
 the linked follow-up records the tested scope and remaining design limitations.

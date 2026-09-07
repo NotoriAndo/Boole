@@ -41,6 +41,17 @@ Focused checks are not a substitute for the containing PR's full required CI.
 This is closure of these reproduced findings, not proof that every possible
 defect in the repository has been eliminated.
 
+The initial [PR #372 full CI](https://github.com/NotoriAndo/Boole/actions/runs/34103152934)
+also exposed a startup-phase problem in the Linux manager-cgroup shell gate:
+systemd `Type=exec` active/post-move does not mean trusted toolchain probes have
+finished. Listener modes must reach their same-invocation socket readiness before
+the existing strict singleton checks; non-listener recovery modes retain their
+own barriers. Production still starts only the node before observing launcher
+readiness, so its socket-connect retry remains exercised. The original arm64
+failure did not log PID contents, so its exact transient membership is unknown.
+Stateful shell-consumer regressions cover the phase ordering and rejection of
+post-ready extra processes or changed invocation/PID without relaxing containment.
+
 New residual conditions: path-based append now fsyncs its parent directory on
 every call; indeterminate writes deliberately remain fenced for process lifetime.
 Deep competing chains can still exceed the existing sync-round budget and need
