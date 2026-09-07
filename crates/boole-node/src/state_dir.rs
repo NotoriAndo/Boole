@@ -33,7 +33,7 @@ use serde::{Deserialize, Serialize};
 /// state directory. Exposed so the `/ready` predicate can confirm the
 /// lock file is still present at the expected path on every request.
 pub const STATE_LOCK_FILE: &str = "state.lock";
-const STATE_MANIFEST_FILE: &str = "state.manifest.json";
+pub(crate) const STATE_MANIFEST_FILE: &str = "state.manifest.json";
 static MANIFEST_TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Compatibility generation of the node's current on-disk reader/writer set,
@@ -55,6 +55,12 @@ pub enum StateDirError {
     Locked(PathBuf),
     #[error("ledger is already locked by another process: {0}")]
     LedgerLocked(PathBuf),
+    #[error("storage role collision at {path}: {first} and {second}")]
+    RoleCollision {
+        path: PathBuf,
+        first: String,
+        second: String,
+    },
     #[error(
         "state.manifest.json mismatch in {dir}: field `{field}` expected `{expected}`, found `{found}`"
     )]
@@ -168,20 +174,163 @@ pub fn acquire(dir: &Path) -> Result<StateDirGuard, StateDirError> {
 #[derive(Debug)]
 pub struct LedgerLockSet {
     locks: Vec<(PathBuf, File)>,
+    paths: BTreeSet<PathBuf>,
 }
 
 impl LedgerLockSet {
+    /// Validate roles separately from lock deduplication. A derived ledger or
+    /// checkpoint may rewrite its own file during recovery, so even aliases
+    /// within one process must be rejected before opening any store or lock.
+    pub(crate) fn validate_roles(
+        roles: &[(&str, PathBuf)],
+        state_dir: Option<&Path>,
+        read_only_inputs: &[(&str, PathBuf)],
+        read_only_trees: &[(&str, PathBuf)],
+    ) -> Result<(), StateDirError> {
+        let mut claimed = BTreeMap::new();
+        let mut claim = |role: String, path: PathBuf| {
+            let path = Self::canonical_path(&path)?;
+            if let Some(first) = claimed.insert(path.clone(), role.clone()) {
+                return Err(StateDirError::RoleCollision {
+                    path,
+                    first,
+                    second: role,
+                });
+            }
+            Ok(())
+        };
+        for (role, path) in roles {
+            claim((*role).to_string(), path.clone())?;
+        }
+        // Lock files are mutable storage too. A ledger named like another
+        // ledger's lock could otherwise overwrite the held lock inode.
+        for (role, path) in roles {
+            claim(format!("{role} lock"), Self::lock_path(path))?;
+        }
+        if let Some(dir) = state_dir {
+            claim("state lock".to_string(), dir.join(STATE_LOCK_FILE))?;
+            claim("state manifest".to_string(), dir.join(STATE_MANIFEST_FILE))?;
+        }
+        // Inputs may alias one another, but neither a store nor its lock may
+        // overwrite an input that was already read earlier in boot. Resolve
+        // final-component symlinks here because input readers follow them.
+        for (role, input) in read_only_inputs {
+            let path = Self::canonical_input_path(input)?;
+            if let Some(first) = claimed.get(&path) {
+                return Err(StateDirError::RoleCollision {
+                    path,
+                    first: first.clone(),
+                    second: (*role).to_string(),
+                });
+            }
+        }
+        // A checker or manifest directory is an input namespace, including
+        // files not present yet. Reserving only its current files would let a
+        // derived store create/replace a future compiler or manifest input.
+        for (role, tree) in read_only_trees {
+            let tree = Self::canonical_input_path(tree)?;
+            if let Some((path, first)) = claimed.iter().find(|(path, _)| path.starts_with(&tree)) {
+                return Err(StateDirError::RoleCollision {
+                    path: path.clone(),
+                    first: first.clone(),
+                    second: (*role).to_string(),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// Follow existing input-directory symlinks without creating a missing
+    /// checker directory. Resolve a missing suffix lexically so an absent
+    /// input namespace is still reserved, while normal boot/readiness retains
+    /// responsibility for reporting an unavailable configured checker.
+    fn canonical_input_path(path: &Path) -> Result<PathBuf, StateDirError> {
+        Self::canonical_input_path_with_budget(path, 40)
+    }
+
+    fn canonical_input_path_with_budget(
+        path: &Path,
+        symlink_budget: u32,
+    ) -> Result<PathBuf, StateDirError> {
+        let absolute = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            std::env::current_dir()
+                .map_err(|err| StateDirError::Io(path.to_path_buf(), err))?
+                .join(path)
+        };
+        let mut resolved = PathBuf::new();
+        for component in absolute.components() {
+            match component {
+                std::path::Component::CurDir => continue,
+                std::path::Component::ParentDir => {
+                    resolved.pop();
+                }
+                _ => resolved.push(component.as_os_str()),
+            }
+            match resolved.canonicalize() {
+                Ok(existing) => resolved = existing,
+                Err(err)
+                    if matches!(
+                        err.kind(),
+                        std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+                    ) =>
+                {
+                    // canonicalize cannot follow a dangling symlink, but
+                    // its target is still a declared input namespace that
+                    // a node ledger must not materialize or overwrite.
+                    match std::fs::read_link(&resolved) {
+                        Ok(target) => {
+                            if symlink_budget == 0 {
+                                return Err(StateDirError::Io(
+                                    path.to_path_buf(),
+                                    std::io::Error::other("too many input symlinks"),
+                                ));
+                            }
+                            let target = if target.is_absolute() {
+                                target
+                            } else {
+                                resolved
+                                    .parent()
+                                    .unwrap_or_else(|| Path::new("."))
+                                    .join(target)
+                            };
+                            resolved = Self::canonical_input_path_with_budget(
+                                &target,
+                                symlink_budget - 1,
+                            )?;
+                        }
+                        Err(err)
+                            if matches!(
+                                err.kind(),
+                                std::io::ErrorKind::NotFound
+                                    | std::io::ErrorKind::NotADirectory
+                                    | std::io::ErrorKind::InvalidInput
+                            ) => {}
+                        Err(err) => return Err(StateDirError::Io(path.to_path_buf(), err)),
+                    }
+                }
+                Err(err) => return Err(StateDirError::Io(path.to_path_buf(), err)),
+            }
+        }
+        Ok(resolved)
+    }
+
+    fn lock_path(path: &Path) -> PathBuf {
+        let mut name = std::ffi::OsString::from(".");
+        name.push(path.file_name().expect("canonical ledger has filename"));
+        name.push(".boole-lock");
+        path.with_file_name(name)
+    }
+
     pub fn acquire(paths: impl IntoIterator<Item = PathBuf>) -> Result<Self, StateDirError> {
         let paths: BTreeSet<_> = paths
             .into_iter()
             .map(|path| Self::canonical_path(&path))
             .collect::<Result<_, _>>()?;
         let mut locks = Vec::with_capacity(paths.len());
-        for path in paths {
-            let mut name = std::ffi::OsString::from(".");
-            name.push(path.file_name().expect("canonical ledger has filename"));
-            name.push(".boole-lock");
-            let lock_path = path.with_file_name(name);
+        for path in &paths {
+            let lock_path = Self::lock_path(path);
             let file = open_lock_file(&lock_path)
                 .map_err(|err| StateDirError::Io(lock_path.clone(), err))?;
             flock_exclusive_nonblocking(&file).map_err(|err| {
@@ -199,7 +348,7 @@ impl LedgerLockSet {
             }
             locks.push((lock_path, file));
         }
-        Ok(Self { locks })
+        Ok(Self { locks, paths })
     }
 
     /// Consumers retain this canonical pathname for subsequent reads/writes,
@@ -245,6 +394,12 @@ impl LedgerLockSet {
         self.locks
             .iter()
             .all(|(path, file)| locked_file_is_current(file, path))
+    }
+
+    /// File-local append fencing is insufficient when stale data from one
+    /// store authorizes writes to another (for example sessions → submits).
+    pub(crate) fn has_indeterminate_write(&self) -> bool {
+        crate::durability::any_indeterminate_write(&self.paths)
     }
 }
 

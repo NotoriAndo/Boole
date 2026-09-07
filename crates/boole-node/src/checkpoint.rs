@@ -145,12 +145,9 @@ pub fn read_checkpoint(path: &Path) -> anyhow::Result<Option<VerifiedPrefixCheck
 /// SC.10-iii-c — whether a persisted checkpoint survives a boot.
 ///
 /// It survives iff its identity matches this boot's (genesis / checker /
-/// budget) AND — when the on-disk chain already contains the block at the
-/// checkpoint height — that block's hash matches the checkpoint's. When the
-/// chain is SHORTER than the checkpoint height (a re-bootstrap with a wiped
-/// store), the block-hash check is deferred to sync (SC.10-iii-c-2), so
-/// `block_hash_at_height` is `None` and the checkpoint survives on identity
-/// alone. Any mismatch ⇒ the checkpoint must be discarded, so it can never
+/// budget) AND the on-disk chain contains the checkpoint's exact anchor.
+/// A shorter or wiped store cannot establish that prefix and MUST discard a
+/// future checkpoint (ADR-0016 (c-1)). Any mismatch discards it, so it can never
 /// let a later re-verification be skipped across a genesis/checker/budget
 /// change or onto a different prefix (ADR-0016 (c-1)).
 pub fn checkpoint_survives_boot(
@@ -159,7 +156,7 @@ pub fn checkpoint_survives_boot(
     block_hash_at_height: Option<&str>,
 ) -> bool {
     checkpoint.identity_matches(identity)
-        && block_hash_at_height.is_none_or(|hash| hash == checkpoint.block_hash)
+        && block_hash_at_height == Some(checkpoint.block_hash.as_str())
 }
 
 /// SC.10-iii-c — read the checkpoint at `path` and DELETE it if it does not
@@ -187,24 +184,25 @@ pub fn validate_or_discard_checkpoint_at_boot(
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
         Err(err) => return Err(err.into()),
     }
+    eprintln!(
+        "boole-node: checkpoint_discarded reason=identity_or_prefix_mismatch height={}",
+        checkpoint.height
+    );
     Ok(None)
 }
 
 /// SC.10-iii-c-2 — what a checker-pinned node should do about the pinned-checker
 /// re-verify for a block it is about to ingest, given its verified-prefix
-/// checkpoint. This is the Bitcoin `assumevalid` shape: below a checkpoint the
-/// operator has already verified, the (expensive) Lean re-verify is skipped;
-/// everything at or above it is fully re-verified. Structural replay ALWAYS
-/// runs regardless — only the Lean step is affected.
+/// checkpoint. An individual block below a future checkpoint does not prove
+/// linkage to that anchor and must be re-verified. Only the exact checkpoint
+/// block can reuse its own verdict here. A complete candidate chain may skip
+/// its prefix after strict replay and matching the actual anchor hash.
+/// Structural replay ALWAYS runs regardless — only the Lean step is affected.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CheckpointSkipDecision {
-    /// The block lies strictly within the trusted verified prefix (its post-
-    /// commit height is below the checkpoint height, or it IS the checkpoint
-    /// block and its hash matches). Skip the Lean re-verify and adopt.
+    /// This is the checkpoint block and its hash matches. Skip its re-verify.
     SkipReverify,
-    /// No checkpoint covers this block (none present, or the block is at or
-    /// above the checkpoint height and not the checkpoint block). Run the
-    /// normal Lean re-verify.
+    /// No confirmed checkpoint covers this block. Run the normal re-verify.
     RunReverify,
     /// The block completes the checkpoint height but its hash does NOT match
     /// the checkpoint's prefix: the re-synced chain diverges from what this
@@ -229,12 +227,13 @@ pub fn checkpoint_skip_decision(
     let Some(checkpoint) = checkpoint else {
         return CheckpointSkipDecision::RunReverify;
     };
-    let new_height = block_height + 1;
+    let Some(new_height) = block_height.checked_add(1) else {
+        return CheckpointSkipDecision::RunReverify;
+    };
     if new_height < checkpoint.height {
-        // Strictly below the checkpoint block: structural linkage (enforced by
-        // replay) ties this block to the checkpoint block whose hash is
-        // verified below, so it is within the trusted prefix.
-        CheckpointSkipDecision::SkipReverify
+        // Local parent linkage cannot prove linkage to a not-yet-seen future
+        // anchor. Never publish that unverified prefix while awaiting it.
+        CheckpointSkipDecision::RunReverify
     } else if new_height == checkpoint.height {
         if block_c == checkpoint.block_hash {
             CheckpointSkipDecision::SkipReverify
@@ -249,9 +248,7 @@ pub fn checkpoint_skip_decision(
 /// SC.10-iii-d — whether a verified-prefix checkpoint survives a chain change
 /// (a reorg, or a block-store rollback/truncation that a later sync regrows).
 ///
-/// Unlike boot (which DEFERS the prefix check when the chain is shorter than
-/// the checkpoint, so a legitimate re-bootstrap can re-sync the same prefix),
-/// a reorg has ACTIVELY rewritten the chain: the checkpoint survives ONLY if
+/// As at boot, the checkpoint survives ONLY if
 /// the new chain still has the checkpoint's exact block at the checkpoint
 /// height. A shorter new chain (`None`) or a different hash means the reorg
 /// diverged below the checkpoint — it is invalidated, so the old chain's
@@ -457,12 +454,10 @@ mod tests {
     }
 
     #[test]
-    fn checkpoint_survives_boot_defers_prefix_check_when_chain_is_shorter() {
-        // Re-bootstrap (wiped store): the chain has no block at the checkpoint
-        // height yet, so the block-hash check is deferred to sync — identity
-        // alone keeps the checkpoint.
+    fn block_store_rollback_cannot_reuse_future_checkpoint_at_boot() {
+        // Identity alone does not establish the missing verified prefix.
         let cp = sample();
-        assert!(checkpoint_survives_boot(&cp, &matching_identity(), None));
+        assert!(!checkpoint_survives_boot(&cp, &matching_identity(), None));
     }
 
     #[test]
@@ -528,6 +523,7 @@ mod tests {
                 Some("block-hash-at-7"),
             ),
             ("prefix", Some(matching_identity()), Some("other-hash")),
+            ("future", Some(matching_identity()), None),
             // No checker pinned now ⇒ any checkpoint is stale.
             ("no-checker", None, Some("block-hash-at-7")),
         ] {
@@ -564,13 +560,13 @@ mod tests {
     }
 
     #[test]
-    fn skip_decision_skips_below_the_checkpoint_height() {
+    fn skip_decision_reverifies_unconfirmed_prefix_below_checkpoint_height() {
         // sample() has height 7: a block whose post-commit height (2+1=3) is
-        // below 7 is within the trusted prefix.
+        // below 7 cannot establish linkage to the unseen checkpoint anchor.
         let cp = sample();
         assert_eq!(
             checkpoint_skip_decision(Some(&cp), 2, "irrelevant-below-hash"),
-            CheckpointSkipDecision::SkipReverify
+            CheckpointSkipDecision::RunReverify
         );
     }
 
@@ -626,8 +622,7 @@ mod tests {
     fn checkpoint_is_invalidated_when_the_new_chain_is_shorter_than_it() {
         let cp = sample();
         // A reorg / rollback to a chain shorter than the checkpoint height has
-        // no block there: unlike boot, this is an ACTIVE rewrite and must
-        // invalidate (a future checkpoint can never be reused).
+        // no block there: as at boot, a future checkpoint cannot be reused.
         assert!(!checkpoint_survives_reorg(&cp, None));
     }
 }

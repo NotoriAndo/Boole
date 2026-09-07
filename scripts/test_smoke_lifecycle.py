@@ -2,6 +2,7 @@
 import os
 import json
 import shlex
+import shutil
 from pathlib import Path
 import subprocess
 import tempfile
@@ -12,6 +13,26 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class SmokeLifecycleTests(unittest.TestCase):
+    def test_benchmark_invokes_runtime_consumer_from_a_checkout_with_spaces(self):
+        # Execute the shipped benchmark without modifying its command. The
+        # runtime consumer intentionally stops here, before Cargo/Lean work.
+        with tempfile.TemporaryDirectory(prefix="boole benchmark ") as temp:
+            checkout = Path(temp) / "Boole Space"
+            scripts = checkout / "scripts"
+            scripts.mkdir(parents=True)
+            for name in ["proof-to-block-benchmark.sh", "smoke-lifecycle.sh"]:
+                shutil.copy2(ROOT / "scripts" / name, scripts / name)
+            runtime = scripts / "runtime-smoke-all.sh"
+            runtime.write_text('#!/bin/bash\nprintf "runtime-consumer-reached\\n" >&2\nexit 73\n')
+            runtime.chmod(0o700)
+            result = subprocess.run(
+                ["/bin/bash", str(scripts / "proof-to-block-benchmark.sh")],
+                env={**os.environ, "BLOCK_STORE_DIR": str(checkout / "fresh-output")},
+                capture_output=True, text=True, timeout=5,
+            )
+            self.assertEqual(result.returncode, 73, result.stderr)
+            self.assertIn("runtime-consumer-reached", result.stderr)
+
     def run_helper(self, body):
         return subprocess.run(
             ["/bin/bash", "-c", f'set -euo pipefail\nsource "{ROOT}/scripts/smoke-lifecycle.sh"\n' + body],

@@ -117,34 +117,49 @@ impl BountyRegistry {
         Self::default()
     }
 
-    pub fn create(&mut self, input: CreateBountyInput) -> Result<Bounty, String> {
-        validate_create(&input)?;
+    /// Validate a creation before a durable consumer records its audit event.
+    pub fn preview_create(&self, input: &CreateBountyInput) -> Result<Bounty, String> {
+        validate_create(input)?;
         if self.bounties.contains_key(&input.id) {
             return Err(format!("bounty id already exists: {}", input.id));
         }
-        let bounty = bounty_from_input(input);
+        Ok(bounty_from_input(input.clone()))
+    }
+
+    pub fn create(&mut self, input: CreateBountyInput) -> Result<Bounty, String> {
+        let bounty = self.preview_create(&input)?;
         self.order.push(bounty.id.clone());
         self.bounties.insert(bounty.id.clone(), bounty.clone());
         Ok(bounty)
     }
 
-    pub fn update_status(&mut self, input: UpdateStatusInput) -> Result<Bounty, String> {
+    /// Derive a status change without making it visible to registry readers.
+    pub fn preview_update_status(&self, input: &UpdateStatusInput) -> Result<Bounty, String> {
         let existing = self
             .bounties
             .get(&input.id)
             .cloned()
             .ok_or_else(|| format!("unknown bounty id: {}", input.id))?;
         validate_status_transition(&existing.status, &input.status)?;
-        let updated = Bounty {
-            status: input.status,
+        Ok(Bounty {
+            status: input.status.clone(),
             updated_at: input.ts,
             ..existing
-        };
+        })
+    }
+
+    pub fn update_status(&mut self, input: UpdateStatusInput) -> Result<Bounty, String> {
+        let updated = self.preview_update_status(&input)?;
         self.bounties.insert(updated.id.clone(), updated.clone());
         Ok(updated)
     }
 
-    pub fn submit_proof(&mut self, input: SubmitProofInput) -> Result<SubmitProofResult, String> {
+    /// Validate and derive the proof result without publishing it. Durable
+    /// consumers can record that result before changing their live registry.
+    pub fn preview_submit_proof(
+        &self,
+        input: &SubmitProofInput,
+    ) -> Result<SubmitProofResult, String> {
         if !is_hex32(&input.proof_hash) {
             return Err("submitProof proofHash must be 32-byte lowercase hex".to_string());
         }
@@ -177,19 +192,27 @@ impl BountyRegistry {
             ));
         }
 
-        self.record_proof(&input.bounty_id, &input.proof_hash, input.accepted);
         let mut updated = bounty.clone();
         if input.accepted {
             updated.status = "solved".to_string();
             updated.updated_at = input.ts;
-            self.bounties
-                .insert(input.bounty_id.clone(), updated.clone());
         }
         Ok(SubmitProofResult {
             accepted: input.accepted,
             duplicate: false,
             bounty: updated,
         })
+    }
+
+    pub fn submit_proof(&mut self, input: SubmitProofInput) -> Result<SubmitProofResult, String> {
+        let result = self.preview_submit_proof(&input)?;
+        if !result.duplicate {
+            self.record_proof(&input.bounty_id, &input.proof_hash, input.accepted);
+            if result.accepted {
+                self.bounties.insert(input.bounty_id, result.bounty.clone());
+            }
+        }
+        Ok(result)
     }
 
     pub fn has_proof(&self, bounty_id: &str, proof_hash: &str) -> Option<bool> {

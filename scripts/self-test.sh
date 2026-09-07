@@ -212,10 +212,8 @@ run_capture_json testnet2-pinned-boot "$PINNED_BOOT_JSON" ./scripts/testnet2-pin
 # proves live Lean accepts; this proves it rejects.
 LEAN_INVALID_JSON="$TMP_DIR/testnet2-lean-invalid-injection.json"
 run_capture_json testnet2-lean-invalid-injection "$LEAN_INVALID_JSON" ./scripts/testnet2-lean-invalid-injection-smoke.sh
-# SC.10-iii-c-2 — verified-prefix checkpoint assumevalid re-sync skip: a node
-# that Lean-re-verified a prefix, then re-bootstraps (store wiped, checkpoint
-# kept), re-syncs that prefix WITHOUT re-running the pinned checker (skip
-# counter 0 -> 1), re-converging to the same head.
+# ADR-0016 (c-1) — a node whose store was rolled back discards its future
+# checkpoint, re-verifies the re-synced prefix and rebuilds its checkpoint.
 CHECKPOINT_RESYNC_JSON="$TMP_DIR/testnet2-checkpoint-resync.json"
 run_capture_json testnet2-checkpoint-resync "$CHECKPOINT_RESYNC_JSON" ./scripts/testnet2-checkpoint-resync-skip-smoke.sh
 # SC.10-iii-d — a verified-prefix checkpoint that no longer matches the actual
@@ -364,13 +362,13 @@ checks = [
     },
     {
         "name": "testnet2-checkpoint-resync",
-        # SC.10-iii-c-2 gate: a node re-bootstrapping (store wiped, checkpoint
-        # kept) re-syncs its verified prefix WITHOUT re-running Lean — the
-        # first ingest ran the checker (skip 0), the re-sync skipped it
-        # (skip >= 1), and the node re-converged to the same head.
+        # A future checkpoint is not a trust anchor for an absent prefix.
+        # Both first ingest and rollback resync run the checker (skip 0).
         "ok": checkpoint_resync.get("ok") is True
         and checkpoint_resync.get("skipCounterAfterFirstIngest") == 0
-        and checkpoint_resync.get("reverifySkippedOnResync") is True
+        and checkpoint_resync.get("skipCounterAfterResync") == 0
+        and checkpoint_resync.get("reverifySkippedOnResync") is False
+        and checkpoint_resync.get("checkpointRebuiltAfterReverify") is True
         and checkpoint_resync.get("headMatchesFirstVerified") is True
         and checkpoint_resync.get("resyncedHeight") == 1
         and checkpoint_resync.get("sessionBoundSubmits") == 1

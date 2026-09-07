@@ -90,6 +90,9 @@ The stdout response is a unified envelope:
 JSON-based targets and a TOML string for Codex. The merge is idempotent:
 re-running install on an already-installed entry is a no-op for the Boole
 server and preserves unrelated settings.
+For Codex, installing over an existing Boole HTTP entry explicitly switches it
+to stdio: HTTP transport/authentication fields are removed, while tool policy
+and other server entries remain intact.
 
 Canonical settings paths (relative to `$HOME`):
 
@@ -150,6 +153,14 @@ id-less MCP notification `notifications/cancelled` with a matching
 `params.requestId` to stop an active run; its one terminal response is the
 JSON-RPC `-32800` cancellation error. EOF also requests cancellation and waits
 only briefly for the bounded local loop to stop.
+
+One additional stdio slot owns an HTTP proxy call (`boole.verify_native`,
+`bounty.list` or `receipt.get`). Overlapping proxy calls return
+`upstream-request-busy`; protocol control remains responsive. An active request
+ID cannot be reused until its terminal response is serialized. Input/output
+queues each hold one frame, and a response that cannot be written within two
+seconds closes the transport instead of leaving its process stuck on an unread
+pipe.
 
 ```
 ./target/release/boole-mcp serve \
@@ -301,6 +312,13 @@ with the transport problem as non-verdict detail. Resubmit the identical six
 fields manually: the native service can return its durable terminal result with
 `redelivered: true` without a second checker execution, even if the MCP process
 restarted in between.
+
+Unlike local mining, native verification is node-owned: a cancellation
+notification does not stop it or manufacture a cancelled verdict. The original
+request receives the real result if the response pipe remains usable. On EOF or
+invalid framing, MCP retains the single upstream owner through its existing
+120-second HTTP deadline, with two seconds of cleanup grace, then exits. An MCP
+exit is not evidence that the node stopped or rejected the submission.
 
 The Linux containment lane also exercises the complete boundary as one trace:
 an actual `boole-mcp stdio` process sends the exact six fields to the actual

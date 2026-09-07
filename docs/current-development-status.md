@@ -11,8 +11,16 @@ The first audit-remediation pass merged as [PR #370](https://github.com/NotoriAn
 main `374f7bbb943457f2cfebdb90d8f276f705fd5bd9`. The follow-up,
 [PR #371](https://github.com/NotoriAndo/Boole/pull/371), addresses the
 remaining verified boundaries and records explicit exclusions in
-[September audit follow-up](audit-remediation-2026-09.md). Required integration
-evidence is the containing PR's protected CI under the
+[September audit follow-up](audit-remediation-2026-09.md).
+
+The subsequent independent review of main `ae08171c` produced nine additional
+findings. This remediation closes storage role collisions and failed append
+continuation, future-checkpoint trust and equal/shorter fork convergence, MCP
+transport replacement/responsiveness, and portable subprocess cleanup. The same
+storage pass also fixes bounty create/status/proof publication before durable
+audit storage. Independent review is separate from implementation ownership;
+the linked follow-up records the tested scope and remaining design limitations.
+Required integration evidence is the containing PR's protected CI under the
 [development policy](development-throughput-and-evidence-policy-v1.md).
 No fresh VM execution or real-model success is claimed; historical execution
 evidence below remains preserved.
@@ -39,7 +47,7 @@ Evidence: [MCP path](boole-mcp-e2e.md),
 
 ## Next development boundary
 
-After the audit follow-up's required CI/main integration, prepare—but do not execute—one real
+After the independent-review remediation's required CI/main integration, prepare—but do not execute—one real
 MCP-client/LLM canary through the existing verification path.
 First identify the available client, its authentication/billing path and the
 node/launcher environment; prepare a bounded end-to-end run and safe local

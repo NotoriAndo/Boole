@@ -956,8 +956,9 @@ pub(crate) fn spawn_sync_thread(
 /// `GET_BLOCKS_RANGE_CAP` pages, pushing every block through the exact
 /// N3.3 verify-then-append path. First pass runs immediately (fresh-boot
 /// catch-up — the N5.3 `node join` seam), then the loop re-checks every
-/// `SYNC_POLL_INTERVAL`. Non-goals per spec: competing-chain selection
-/// (N4), parallel/headers-first optimizations.
+/// `SYNC_POLL_INTERVAL`. Divergent heads use the bounded candidate-chain path
+/// and consensus work/hash ordering, including equal-height and shorter peers.
+/// Parallel/headers-first optimizations remain out of scope.
 fn sync_loop(
     peers: Vec<SocketAddr>,
     identity: P2pIdentity,
@@ -1032,9 +1033,29 @@ fn sync_with_peer(
     // before waiting for or verifying any advertised blocks. The caller
     // records the final exact match again when this round completes.
     clear_bootstrap_observation_if_mismatched(state, *peer, &peer_head);
-    let mut my_height = my_head.height;
     let mut first_probe = true;
-    while my_height < peer_head.height && !lifecycle.is_stopped() {
+    while !lifecycle.is_stopped() {
+        let live_head = head_summary(&state.blocking_read());
+        if live_head == peer_head {
+            break;
+        }
+        let my_height = live_head.height;
+        if my_height >= peer_head.height {
+            // Height is not fork-choice weight. An equal-height peer can win
+            // the hash tie-break and a shorter retargeted chain can have more
+            // work. Fetch only within this same round's existing budgets;
+            // strict replay and canonical fork choice decide whether to adopt.
+            reorg_from_peer(
+                &validated.transport,
+                &mut validated.conn,
+                &peer_head,
+                state,
+                lifecycle,
+                &mut budget,
+                metrics,
+            )?;
+            return Ok(peer_head);
+        }
         budget.ensure_before_receive(Instant::now())?;
         let requested = (peer_head.height - my_height)
             .min(GET_BLOCKS_RANGE_CAP)
@@ -1130,7 +1151,6 @@ fn sync_with_peer(
                 }
             }
         }
-        my_height = head_summary(&state.blocking_read()).height;
     }
     Ok(peer_head)
 }
@@ -1176,10 +1196,10 @@ fn clear_bootstrap_observation_if_mismatched(
 /// N4 — a peer advertised a head we cannot reach by extending our own chain
 /// block-by-block (it diverges below our head, so `ingest_announced_block`
 /// can only return `Ignored`). Download the peer's FULL chain from genesis
-/// and hand it to fork-choice: adopt it iff it is strictly heavier (N4.2),
-/// rewriting local consensus state from genesis (N4.3). A tie or lighter
-/// chain is kept; a tampered/evidence-less chain is refused by the strict
-/// replay inside the reorg primitive and counted as a rejected block.
+/// and hand it to fork-choice: adopt it iff it has more work or wins the
+/// equal-work hash tie-break (N4.2), rewriting local state from genesis (N4.3).
+/// A losing candidate is kept out; a tampered/evidence-less chain is refused by
+/// strict replay inside the reorg primitive and counted as a rejected block.
 fn reorg_from_peer(
     transport: &TcpTransport,
     conn: &mut TcpConn,

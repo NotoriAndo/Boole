@@ -197,9 +197,16 @@ struct ActiveMiningRequest {
     completed: Arc<tokio::sync::Notify>,
 }
 
+struct ActiveStdioProxyRequest {
+    request_id: Value,
+    publication_complete: Arc<AtomicBool>,
+    task: tokio::task::JoinHandle<()>,
+}
+
 const MAX_MCP_MINING_CYCLES: u64 = 100_000;
 const MCP_MINING_DEADLINE: Duration = Duration::from_secs(30);
 const MCP_MINING_EOF_GRACE: Duration = Duration::from_secs(2);
+const MCP_STDIO_WRITE_DEADLINE: Duration = Duration::from_secs(2);
 
 #[derive(Deserialize)]
 struct InvokeRequest {
@@ -432,6 +439,20 @@ fn merge_codex_config(existing: &str, entry: &Value) -> Result<String> {
     let mut args_toml = toml_edit::Array::new();
     for argument in args {
         args_toml.push(argument.as_str().expect("stdio arg is a string"));
+    }
+    // Installing the local server is an explicit transport switch. Preserve
+    // tool policy and unrelated servers, but never combine stdio with HTTP
+    // transport/authentication fields (Codex rejects that configuration).
+    for key in [
+        "url",
+        "bearer_token_env_var",
+        "http_headers",
+        "env_http_headers",
+        "auth",
+        "http_headers_helper",
+        "oauth",
+    ] {
+        boole.remove(key);
     }
     boole["command"] = toml_value(command);
     boole["args"] = Item::Value(TomlValue::Array(args_toml));
@@ -1295,14 +1316,90 @@ fn jsonrpc_error(id: &Value, code: i64, message: &str) -> String {
     .to_string()
 }
 
-async fn write_stdio_response(stdout: Arc<Mutex<std::io::Stdout>>, response: String) {
-    tokio::task::spawn_blocking(move || {
-        let mut out = stdout.lock().expect("stdout mutex poisoned");
-        write_mcp_frame(&mut *out, &response).ok();
-        out.flush().ok();
+struct StdioOutputFrame {
+    response: String,
+    completed: tokio::sync::oneshot::Sender<std::io::Result<()>>,
+}
+
+struct StdioWriter {
+    sender: tokio::sync::mpsc::Sender<StdioOutputFrame>,
+    /// Dispatch cannot inspect active IDs between observable response bytes
+    /// and retirement of that response's request slot.
+    publication: tokio::sync::Mutex<()>,
+    failed: AtomicBool,
+    timed_out: AtomicBool,
+    failed_notification: tokio::sync::Notify,
+}
+
+impl StdioWriter {
+    fn new() -> Arc<Self> {
+        let (sender, mut receiver) = tokio::sync::mpsc::channel::<StdioOutputFrame>(1);
+        // A single process-owned writer, not a Tokio blocking task: an
+        // unread pipe must not hold runtime shutdown indefinitely. The thread
+        // exits with this stdio process if its client never drains stdout.
+        std::thread::spawn(move || {
+            let mut out = std::io::stdout();
+            while let Some(frame) = receiver.blocking_recv() {
+                let result = write_mcp_frame(&mut out, &frame.response).and_then(|()| out.flush());
+                let failed = result.is_err();
+                let _ = frame.completed.send(result);
+                if failed {
+                    break;
+                }
+            }
+        });
+        Arc::new(Self {
+            sender,
+            publication: tokio::sync::Mutex::new(()),
+            failed: AtomicBool::new(false),
+            timed_out: AtomicBool::new(false),
+            failed_notification: tokio::sync::Notify::new(),
+        })
+    }
+}
+
+async fn write_stdio_response(stdout: Arc<StdioWriter>, response: String) {
+    if stdout.failed.load(Ordering::SeqCst) {
+        return;
+    }
+    let (completed, observed) = tokio::sync::oneshot::channel();
+    let outcome = tokio::time::timeout(MCP_STDIO_WRITE_DEADLINE, async {
+        stdout
+            .sender
+            .send(StdioOutputFrame {
+                response,
+                completed,
+            })
+            .await
+            .map_err(std::io::Error::other)?;
+        observed.await.map_err(std::io::Error::other)?
     })
-    .await
-    .expect("stdout writer task panicked");
+    .await;
+    if !matches!(outcome, Ok(Ok(()))) {
+        if outcome.is_err() {
+            stdout.timed_out.store(true, Ordering::SeqCst);
+        }
+        stdout.failed.store(true, Ordering::SeqCst);
+        stdout.failed_notification.notify_one();
+    }
+}
+
+fn stdio_reader() -> tokio::sync::mpsc::Receiver<Result<Option<String>>> {
+    let (sender, receiver) = tokio::sync::mpsc::channel(1);
+    // Like the writer, this is one process-owned thread with a bounded queue.
+    // A client keeping stdin open after an output failure must not leave a
+    // non-cancellable Tokio blocking read attached to runtime shutdown.
+    std::thread::spawn(move || {
+        let mut input = BufReader::new(std::io::stdin());
+        loop {
+            let frame = read_mcp_frame(&mut input);
+            let terminal = !matches!(frame, Ok(Some(_)));
+            if sender.blocking_send(frame).is_err() || terminal {
+                break;
+            }
+        }
+    });
+    receiver
 }
 
 /// Start one in-process mining loop without tying up the stdio reader.  Its
@@ -1312,7 +1409,7 @@ fn start_stdio_mining(
     state: Arc<AppState>,
     request_id: Value,
     max_cycles: u64,
-    stdout: Arc<Mutex<std::io::Stdout>>,
+    stdout: Arc<StdioWriter>,
 ) -> bool {
     let cancel = Arc::new(AtomicBool::new(false));
     let completed = Arc::new(tokio::sync::Notify::new());
@@ -1359,9 +1456,11 @@ fn start_stdio_mining(
             }
         };
 
-        // Keep the slot occupied until the terminal response is serialized,
-        // so a second mine cannot slip in during completion/cancel races.
-        write_stdio_response(stdout, response).await;
+        // Publication and retirement are one dispatch-visible operation. The
+        // writer can expose the full response before this awaiter is scheduled
+        // again; a reader must not mistake that already-completed ID for busy.
+        let _publication = stdout.publication.lock().await;
+        write_stdio_response(Arc::clone(&stdout), response).await;
         {
             let mut active = state
                 .active_mining
@@ -1415,6 +1514,25 @@ async fn cancel_active_stdio_mining_and_drain(state: &AppState) {
     }
 }
 
+/// The node owns the durable adjudication, so cancellation/EOF must not
+/// manufacture a cancelled verdict or automatically retry a submission. Keep
+/// the single native transport owner until its existing HTTP deadline; the
+/// extra grace only bounds response serialization/runtime cleanup.
+async fn drain_stdio_proxy(active: &mut Option<ActiveStdioProxyRequest>) {
+    if let Some(mut native) = active.take() {
+        if tokio::time::timeout(
+            Duration::from_secs(NATIVE_VERIFIER_TIMEOUT_SECS + 2),
+            &mut native.task,
+        )
+        .await
+        .is_err()
+        {
+            native.task.abort();
+            let _ = native.task.await;
+        }
+    }
+}
+
 /// Run the MCP stdio transport loop.
 ///
 /// Reads newline-delimited JSON-RPC 2.0 messages from stdin, dispatches
@@ -1426,12 +1544,10 @@ async fn cancel_active_stdio_mining_and_drain(state: &AppState) {
 ///
 /// The loop exits cleanly on EOF (read_mcp_frame returns None).
 ///
-/// Design: stdin reads are done via `tokio::task::spawn_blocking` because the
-/// standard `BufRead` framing API is synchronous.  `boole.mine` already uses
-/// `spawn_blocking` internally, so this fits the existing pattern and avoids
-/// an async IO dependency.  A mine call itself runs in a separate background
-/// task so the single stdio reader can still service protocol requests and its
-/// cancellation notification.
+/// Design: one input thread and one output thread bridge the synchronous
+/// framing API through single-frame bounded queues. Mining and one HTTP proxy
+/// owner run separately, keeping protocol requests responsive while preserving
+/// native ownership. Output backpressure closes the transport after two seconds.
 async fn run_stdio(node_url: Option<String>, native_shadow_url: Option<String>) -> Result<()> {
     let node_url = node_url
         .as_deref()
@@ -1452,26 +1568,33 @@ async fn run_stdio(node_url: Option<String>, native_shadow_url: Option<String>) 
         active_mining: Mutex::new(None),
     });
 
-    // Wrap stdin in a BufReader inside a Mutex so it can be sent across
-    // spawn_blocking calls.  Each iteration reads exactly one frame.
-    let stdin = Arc::new(Mutex::new(BufReader::new(std::io::stdin())));
-    let stdout = Arc::new(Mutex::new(std::io::stdout()));
+    let mut stdin = stdio_reader();
+    let stdout = StdioWriter::new();
+    // One HTTP proxy request at a time: no unbounded task queue. The reader
+    // retains the handle and ID, including across cancellation notifications.
+    let mut active_proxy: Option<ActiveStdioProxyRequest> = None;
 
     loop {
-        // Read one frame (blocking).
-        let stdin_clone = Arc::clone(&stdin);
-        let frame_result = tokio::task::spawn_blocking(move || {
-            let mut guard = stdin_clone.lock().expect("stdin mutex poisoned");
-            read_mcp_frame(&mut *guard)
-        })
-        .await
-        .expect("stdin reader task panicked");
+        let frame_result = tokio::select! {
+            biased;
+            frame = stdin.recv() => frame.unwrap_or(Ok(None)),
+            _ = stdout.failed_notification.notified() => {
+                if stdout.timed_out.load(Ordering::SeqCst) {
+                    Err(anyhow::anyhow!("MCP stdout exceeded its write deadline"))
+                } else {
+                    // A peer closing its response pipe is ordinary transport
+                    // shutdown, like clean EOF, not a fabricated tool error.
+                    Ok(None)
+                }
+            }
+        };
 
         let msg = match frame_result {
             Ok(Some(s)) => s,
             Ok(None) => {
                 // Clean EOF — MCP client closed stdin.
                 cancel_active_stdio_mining_and_drain(&state).await;
+                drain_stdio_proxy(&mut active_proxy).await;
                 break;
             }
             Err(error) => {
@@ -1479,9 +1602,27 @@ async fn run_stdio(node_url: Option<String>, native_shadow_url: Option<String>) 
                 // transport. Cancel first; returning directly would leave
                 // the blocking mine live until its deadline at runtime drop.
                 cancel_active_stdio_mining_and_drain(&state).await;
+                drain_stdio_proxy(&mut active_proxy).await;
                 return Err(error);
             }
         };
+
+        let publication = stdout.publication.lock().await;
+        if stdout.failed.load(Ordering::SeqCst) {
+            // Draining owners can itself need the publication barrier.
+            drop(publication);
+            cancel_active_stdio_mining_and_drain(&state).await;
+            drain_stdio_proxy(&mut active_proxy).await;
+            break;
+        }
+
+        if active_proxy.as_ref().is_some_and(|native| {
+            native.publication_complete.load(Ordering::SeqCst) || native.task.is_finished()
+        }) {
+            if let Some(native) = active_proxy.take() {
+                let _ = native.task.await;
+            }
+        }
 
         let native_arguments =
             precheck_raw_native_arguments(msg.as_bytes(), NativeInvocationTransport::Stdio);
@@ -1508,6 +1649,8 @@ async fn run_stdio(node_url: Option<String>, native_shadow_url: Option<String>) 
                 .and_then(|params| params.get("requestId"))
             {
                 cancel_stdio_mining(&state, cancelled_id);
+                // Native execution is node-owned and non-cancellable here.
+                // Its original request still receives the actual outcome.
             }
             // This is an MCP notification: it never has a response, and a
             // missing/nonmatching requestId is deliberately a no-op.
@@ -1544,6 +1687,29 @@ async fn run_stdio(node_url: Option<String>, native_shadow_url: Option<String>) 
         }
         let id = request_id.unwrap_or(Value::Null);
 
+        let id_in_use = active_proxy
+            .as_ref()
+            .is_some_and(|native| native.request_id == id)
+            || state
+                .active_mining
+                .lock()
+                .expect("active_mining mutex poisoned")
+                .as_ref()
+                .is_some_and(|mining| mining.request_id == id);
+        if req_val.get("id").is_some() && id_in_use {
+            // Do not emit a second response with the active request's ID.
+            write_stdio_response(
+                Arc::clone(&stdout),
+                jsonrpc_error(
+                    &Value::Null,
+                    -32600,
+                    "Invalid Request: duplicate active request id",
+                ),
+            )
+            .await;
+            continue;
+        }
+
         // Stateful tools/call goes through dispatch_tool.
         if method == "tools/call" {
             let params = req_val.get("params").cloned().unwrap_or(json!({}));
@@ -1574,12 +1740,42 @@ async fn run_stdio(node_url: Option<String>, native_shadow_url: Option<String>) 
                     }
                 }
             }
-            let result = if tool_name == "boole.verify_native"
-                && native_arguments != NativeArgumentsPrecheck::Exact
-            {
-                ToolResult::BadRequest(json!({
-                    "error": "invalid-native-submission-arguments"
-                }))
+            let result = if matches!(
+                tool_name,
+                "boole.verify_native" | "bounty.list" | "receipt.get"
+            ) {
+                if tool_name == "boole.verify_native"
+                    && native_arguments != NativeArgumentsPrecheck::Exact
+                {
+                    ToolResult::BadRequest(json!({"error": "invalid-native-submission-arguments"}))
+                } else if active_proxy.is_some() {
+                    ToolResult::BadRequest(json!({"error": "upstream-request-busy"}))
+                } else {
+                    let native_state = Arc::clone(&state);
+                    let native_stdout = Arc::clone(&stdout);
+                    let native_id = id.clone();
+                    let publication_complete = Arc::new(AtomicBool::new(false));
+                    let published = Arc::clone(&publication_complete);
+                    let proxy_tool = tool_name.to_owned();
+                    let task = tokio::spawn(async move {
+                        let result = dispatch_tool(&native_state, &proxy_tool, &arguments).await;
+                        let _publication = native_stdout.publication.lock().await;
+                        write_stdio_response(
+                            Arc::clone(&native_stdout),
+                            tool_result_to_mcp_content(&native_id, &result),
+                        )
+                        .await;
+                        // Set before releasing the barrier, not at Tokio's
+                        // later JoinHandle::is_finished scheduling boundary.
+                        published.store(true, Ordering::SeqCst);
+                    });
+                    active_proxy = Some(ActiveStdioProxyRequest {
+                        request_id: id,
+                        publication_complete,
+                        task,
+                    });
+                    continue;
+                }
             } else {
                 dispatch_tool(&state, tool_name, &arguments).await
             };
@@ -1595,6 +1791,9 @@ async fn run_stdio(node_url: Option<String>, native_shadow_url: Option<String>) 
         // Notifications produce None — no frame to write.
     }
 
+    if stdout.timed_out.load(Ordering::SeqCst) {
+        anyhow::bail!("MCP stdout exceeded its write deadline");
+    }
     Ok(())
 }
 

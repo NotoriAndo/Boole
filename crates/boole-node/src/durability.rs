@@ -1,8 +1,142 @@
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 
 use rand_core::{OsRng, RngCore};
+
+#[cfg(test)]
+#[derive(Clone, Copy, Default)]
+pub(crate) struct AppendFault {
+    pub write_bytes: Option<usize>,
+    pub fail_sync: bool,
+    pub fail_rollback: bool,
+}
+
+#[cfg(test)]
+thread_local! {
+    static APPEND_FAULT: std::cell::Cell<Option<AppendFault>> = const { std::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
+pub(crate) fn fail_next_append(fault: AppendFault) {
+    APPEND_FAULT.with(|slot| assert!(slot.replace(Some(fault)).is_none()));
+}
+
+/// Process-lifetime fence for indeterminate writes. Keeping descriptors alive
+/// prevents an unlinked poisoned inode from being recycled into a false match.
+/// Paths additionally fence replacement inodes: reopening must not let stale
+/// in-memory ledger state continue after an unconfirmed durable mutation.
+#[derive(Default)]
+struct AppendFailureFence {
+    paths: std::collections::BTreeSet<PathBuf>,
+    files: Vec<(fs::Metadata, File)>,
+    all_writes: bool,
+}
+
+static APPEND_FAILURE_FENCE: OnceLock<Mutex<AppendFailureFence>> = OnceLock::new();
+
+fn failure_fence() -> std::sync::MutexGuard<'static, AppendFailureFence> {
+    // A panic while recording a failure must not silently remove the fence.
+    APPEND_FAILURE_FENCE
+        .get_or_init(Mutex::default)
+        .lock()
+        .unwrap_or_else(|poisoned| {
+            let mut fence = poisoned.into_inner();
+            fence.all_writes = true;
+            fence
+        })
+}
+
+fn same_file(first: &fs::Metadata, second: &fs::Metadata) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        first.dev() == second.dev() && first.ino() == second.ino()
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (first, second);
+        // Unsupported deployment platforms have no reliable identity here;
+        // after an indeterminate write they conservatively fence all writes.
+        true
+    }
+}
+
+fn resolved_write_path(path: &Path) -> anyhow::Result<PathBuf> {
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let name = path
+        .file_name()
+        .ok_or_else(|| anyhow::anyhow!("ledger path has no filename"))?;
+    Ok(parent.canonicalize()?.join(name))
+}
+
+fn check_append_fence(path: Option<&Path>, metadata: Option<&fs::Metadata>) -> anyhow::Result<()> {
+    let fence = failure_fence();
+    if fence.all_writes
+        || path.is_some_and(|path| fence.paths.contains(path))
+        || metadata.is_some_and(|metadata| {
+            fence
+                .files
+                .iter()
+                .any(|(poisoned, _)| same_file(poisoned, metadata))
+        })
+    {
+        anyhow::bail!(
+            "indeterminate ledger write; further mutation requires process restart and recovery"
+        );
+    }
+    Ok(())
+}
+
+/// A ledger can be an authorization input for writes to another ledger. A
+/// node must therefore fence all of its mutations if any owned ledger has an
+/// indeterminate write, without disabling independent embedded nodes. The
+/// normal no-failure path performs no filesystem IO.
+pub(crate) fn any_indeterminate_write<'a>(paths: impl IntoIterator<Item = &'a PathBuf>) -> bool {
+    let fence = failure_fence();
+    if fence.all_writes {
+        return true;
+    }
+    if fence.paths.is_empty() && fence.files.is_empty() {
+        return false;
+    }
+    for path in paths {
+        if fence.paths.contains(path) {
+            return true;
+        }
+        match fs::symlink_metadata(path) {
+            Ok(metadata) => {
+                if fence
+                    .files
+                    .iter()
+                    .any(|(poisoned, _)| same_file(poisoned, &metadata))
+                {
+                    return true;
+                }
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            // With an active uncertainty fence, an unreadable owned path
+            // cannot be proven to refer to an independent, healthy inode.
+            Err(_) => return true,
+        }
+    }
+    false
+}
+
+fn fence_failed_append(path: Option<&Path>, file: &File, metadata: fs::Metadata) {
+    let mut fence = failure_fence();
+    if let Some(path) = path {
+        fence.paths.insert(path.to_path_buf());
+    }
+    match file.try_clone() {
+        Ok(file) => fence.files.push((metadata, file)),
+        Err(_) => fence.all_writes = true,
+    }
+}
 
 /// An exclusively-created private workspace. Unpredictable names and mode
 /// 0700 keep a shared temporary namespace from becoming proof/file authority.
@@ -100,31 +234,28 @@ pub(crate) fn stable_jsonl_prefix_len(bytes: &[u8]) -> usize {
 }
 
 /// Durable NDJSON append: write one line, flush user-space buffers, fsync
-/// the file, and fsync the parent directory if this call created the file.
+/// the file, and fsync the parent directory. The directory sync also covers a
+/// retry after an earlier file-creation attempt failed before writing bytes.
 /// Without the parent-dir fsync the new directory entry can be lost on crash
 /// even after the file's own data hits disk.
 pub(crate) fn append_ndjson_line_durable(path: &Path, line: &str) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
+    let path = resolved_write_path(path)?;
+    check_append_fence(Some(&path), None)?;
     let mut create = OpenOptions::new();
     create.create_new(true).append(true);
-    let (mut file, is_new_file) = match open_regular_file(path, &mut create) {
-        Ok(file) => (file, true),
+    let mut file = match open_regular_file(&path, &mut create) {
+        Ok(file) => file,
         Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
             let mut append = OpenOptions::new();
             append.append(true);
-            (open_regular_file(path, &mut append)?, false)
+            open_regular_file(&path, &mut append)?
         }
         Err(err) => return Err(err.into()),
     };
-    writeln!(file, "{}", line)?;
-    file.flush()?;
-    file.sync_all()?;
-    if is_new_file {
-        fsync_parent_dir(path)?;
-    }
-    Ok(())
+    append_ndjson_transaction(&mut file, line, Some(&path))
 }
 
 /// Durable NDJSON append through an already-open authoritative file
@@ -135,10 +266,63 @@ pub(crate) fn append_ndjson_line_durable_on_file(
     file: &mut File,
     line: &str,
 ) -> anyhow::Result<()> {
-    file.seek(SeekFrom::End(0))?;
-    writeln!(file, "{}", line)?;
-    file.flush()?;
-    file.sync_all()?;
+    append_ndjson_transaction(file, line, None)
+}
+
+/// The caller owns this file's single-writer lock. Any failed append,
+/// including a flush/fsync failure after a complete write, must restore the
+/// previously confirmed prefix before another request can append to it.
+fn append_ndjson_transaction(
+    file: &mut File,
+    line: &str,
+    path: Option<&Path>,
+) -> anyhow::Result<()> {
+    let metadata = file.metadata()?;
+    check_append_fence(path, Some(&metadata))?;
+    let confirmed_len = file.seek(SeekFrom::End(0))?;
+    #[cfg(test)]
+    let fault = APPEND_FAULT.with(|slot| slot.take()).unwrap_or_default();
+    let result = (|| -> anyhow::Result<()> {
+        #[cfg(test)]
+        if let Some(bytes) = fault.write_bytes {
+            file.write_all(&line.as_bytes()[..bytes.min(line.len())])?;
+            anyhow::bail!("injected partial append failure");
+        }
+        writeln!(file, "{}", line)?;
+        file.flush()?;
+        #[cfg(test)]
+        if fault.fail_sync {
+            anyhow::bail!("injected append sync failure");
+        }
+        file.sync_all()?;
+        if let Some(path) = path {
+            fsync_parent_dir(path)?;
+        }
+        Ok(())
+    })();
+    if let Err(error) = result {
+        let rollback = (|| -> anyhow::Result<()> {
+            #[cfg(test)]
+            if fault.fail_rollback {
+                anyhow::bail!("injected rollback failure");
+            }
+            file.set_len(confirmed_len)?;
+            file.sync_all()?;
+            if let Some(path) = path {
+                fsync_parent_dir(path)?;
+            }
+            Ok(())
+        })();
+        return match rollback {
+            Ok(()) => Err(error.context("append failed; confirmed prefix restored")),
+            Err(rollback_error) => {
+                fence_failed_append(path, file, metadata);
+                Err(error.context(format!(
+                    "append rollback failed; mutation fenced until restart: {rollback_error:#}"
+                )))
+            }
+        };
+    }
     Ok(())
 }
 
@@ -152,6 +336,13 @@ pub(crate) fn write_ndjson_lines_atomic(path: &Path, lines: &[String]) -> anyhow
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
+    let resolved = resolved_write_path(path)?;
+    let metadata = match fs::symlink_metadata(&resolved) {
+        Ok(metadata) => Some(metadata),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
+        Err(err) => return Err(err.into()),
+    };
+    check_append_fence(Some(&resolved), metadata.as_ref())?;
     let parent = path
         .parent()
         .filter(|path| !path.as_os_str().is_empty())
@@ -288,6 +479,98 @@ pub(crate) fn fsync_parent_dir(_path: &Path) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn descriptor_append_failure_restores_prefix_and_next_append_replays_without_holes() {
+        for fail_sync in [false, true] {
+            let dir = PrivateTempDir::new("boole-descriptor-append-failure").expect("fixture");
+            let path = dir.path().join("journal.ndjson");
+            let mut file = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create_new(true)
+                .open(&path)
+                .expect("authoritative descriptor");
+            append_ndjson_line_durable_on_file(&mut file, r#"{"accepted":1}"#)
+                .expect("stable append");
+            let before = fs::read(&path).expect("stable bytes");
+            fail_next_append(AppendFault {
+                write_bytes: (!fail_sync).then_some(4),
+                fail_sync,
+                fail_rollback: false,
+            });
+            assert!(append_ndjson_line_durable_on_file(&mut file, r#"{"failed":2}"#).is_err());
+            assert_eq!(fs::read(&path).expect("after rollback"), before);
+            append_ndjson_line_durable_on_file(&mut file, r#"{"accepted":3}"#)
+                .expect("subsequent append");
+            assert_eq!(
+                read_stable_prefix_on_file(&mut file).expect("recover same descriptor"),
+                "{\"accepted\":1}\n{\"accepted\":3}\n"
+            );
+        }
+    }
+
+    #[test]
+    fn indeterminate_append_fence_survives_reopen_rename_and_path_replacement() {
+        let dir = PrivateTempDir::new("boole-append-fence-aliases").expect("fixture");
+        let path = dir.path().join("journal.ndjson");
+        append_ndjson_line_durable(&path, r#"{"accepted":1}"#).expect("stable append");
+        fail_next_append(AppendFault {
+            fail_sync: true,
+            fail_rollback: true,
+            ..Default::default()
+        });
+        assert!(append_ndjson_line_durable(&path, r#"{"uncertain":2}"#).is_err());
+        let bytes = fs::read(&path).expect("uncertain bytes");
+        let mut descriptor = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .expect("reopen");
+        assert!(append_ndjson_line_durable_on_file(&mut descriptor, r#"{"next":3}"#).is_err());
+        let moved = dir.path().join("renamed.ndjson");
+        fs::rename(&path, &moved).expect("move poisoned inode");
+        assert!(append_ndjson_line_durable(&moved, r#"{"next":3}"#).is_err());
+        assert!(write_ndjson_lines_atomic(&moved, &["replacement".to_string()]).is_err());
+        assert_eq!(fs::read(&moved).expect("preserved old inode"), bytes);
+        fs::write(&path, b"replacement\n").expect("replace pathname fixture");
+        assert!(append_ndjson_line_durable(&path, r#"{"next":3}"#).is_err());
+        assert!(write_ndjson_lines_atomic(&path, &["overwrite".to_string()]).is_err());
+        assert_eq!(
+            fs::read(path).expect("replacement unchanged"),
+            b"replacement\n"
+        );
+    }
+
+    #[test]
+    fn descriptor_indeterminate_failure_blocks_its_next_append() {
+        let dir = PrivateTempDir::new("boole-descriptor-indeterminate").expect("fixture");
+        let path = dir.path().join("journal.ndjson");
+        let mut file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .expect("authoritative descriptor");
+        append_ndjson_line_durable_on_file(&mut file, r#"{"accepted":1}"#).expect("stable append");
+        fail_next_append(AppendFault {
+            write_bytes: Some(4),
+            fail_rollback: true,
+            ..Default::default()
+        });
+        assert!(append_ndjson_line_durable_on_file(&mut file, r#"{"uncertain":2}"#).is_err());
+        let uncertain = fs::read(&path).expect("uncertain bytes");
+        assert!(append_ndjson_line_durable_on_file(&mut file, r#"{"next":3}"#).is_err());
+        assert_eq!(fs::read(&path).expect("unchanged bytes"), uncertain);
+        assert_eq!(
+            read_stable_prefix_on_file(&mut file).expect("repair torn tail"),
+            "{\"accepted\":1}\n"
+        );
+        assert!(
+            append_ndjson_line_durable_on_file(&mut file, r#"{"next":3}"#).is_err(),
+            "repair does not un-fence a live caller's stale memory"
+        );
+    }
 
     #[test]
     fn empty_input_has_zero_stable_prefix() {

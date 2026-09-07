@@ -284,18 +284,19 @@ def boot_subprocess_timeout(guest_timeout):
 
 def _run(argv, *, timeout, phase):
     # The compiler and signing tools can themselves launch helpers.  Give each
-    # phase its own session, so a timeout cannot leave a descendant running
-    # after the direct child has been killed.
+    # phase its own session. This owner must clean the entire session on every
+    # exit, including Ctrl+C and a normally exiting tool that leaves helpers.
     process = subprocess.Popen(argv, start_new_session=True)
     try:
         returncode = process.wait(timeout=timeout)
     except subprocess.TimeoutExpired as error:
+        raise ValueError("%s timed out after %s seconds" % (phase, timeout)) from error
+    finally:
         try:
             os.killpg(process.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
         process.wait()
-        raise ValueError("%s timed out after %s seconds" % (phase, timeout)) from error
     if returncode:
         raise subprocess.CalledProcessError(returncode, argv)
 

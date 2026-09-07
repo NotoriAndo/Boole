@@ -494,7 +494,7 @@ class SelfTestContractTests(unittest.TestCase):
             ),
             "scripts/self-test.sh must run "
             "scripts/testnet2-checkpoint-resync-skip-smoke.sh via "
-            "run_capture_json (SC.10-iii-c-2 assumevalid skip gate)",
+            "run_capture_json (rolled-back prefix re-verification gate)",
         )
         smoke = ROOT / "scripts" / "testnet2-checkpoint-resync-skip-smoke.sh"
         self.assertTrue(
@@ -507,17 +507,18 @@ class SelfTestContractTests(unittest.TestCase):
             # the pinned honest node runs real Lean on first ingest
             "--lean-checker-dir",
             "testnet2-lenbound-share.v1.json",
-            # the metric that proves the re-verify was actually skipped
+            # the skip metric must remain zero after the prefix rollback
             "boole_p2p_ingress_blocks_reverify_skipped_via_checkpoint_total",
             # the mandatory assertion
             "reverifySkippedOnResync",
+            "checkpointRebuiltAfterReverify",
         ):
             self.assertIn(
                 marker,
                 smoke_body,
                 "the checkpoint-resync smoke must boot a checker-pinned node, "
-                "drive the committed fixture, and assert the Lean re-verify was "
-                f"skipped on re-sync (missing marker: {marker!r})",
+                "drive the committed fixture, and require a fresh checkpoint "
+                f"after re-verification (missing marker: {marker!r})",
             )
 
     def test_self_test_aggregation_gates_checkpoint_resync(self) -> None:
@@ -525,14 +526,16 @@ class SelfTestContractTests(unittest.TestCase):
         for needle in (
             '"name": "testnet2-checkpoint-resync"',
             'get("skipCounterAfterFirstIngest") == 0',
-            'get("reverifySkippedOnResync") is True',
+            'get("skipCounterAfterResync") == 0',
+            'get("reverifySkippedOnResync") is False',
+            'get("checkpointRebuiltAfterReverify") is True',
             'get("headMatchesFirstVerified") is True',
         ):
             self.assertIn(
                 needle,
                 body,
                 "self-test.sh final aggregation must gate the checkpoint-resync "
-                f"skip fields (missing: {needle!r})",
+                f"re-verification fields (missing: {needle!r})",
             )
 
     def test_self_test_runs_checkpoint_divergence_smoke(self) -> None:

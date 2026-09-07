@@ -1699,6 +1699,10 @@ where
     }
 }
 
+#[cfg(test)]
+#[path = "local_node_storage_tests.rs"]
+mod storage_tests;
+
 impl LocalNodeState {
     fn envelope_network_policy(&self) -> EnvelopeNetworkPolicy<'_> {
         EnvelopeNetworkPolicy {
@@ -1721,18 +1725,6 @@ impl LocalNodeState {
                 boole_core::AUTHORIZATION_REQUIRED_NETWORK_ID
             );
         }
-        // L7 state-dir lock must run first — every per-store open below
-        // this line is guarded by the flock, so refusing the lock
-        // guarantees a losing process never appends to a peer's ledger and
-        // never half-writes its own. (The manifest write/verify moved
-        // below: N5.2 records the genesis spec hash in it, which needs the
-        // scenario-derived consensus params first. The lock still precedes
-        // every store open, including the manifest file itself.)
-        let state_dir_guard: Option<StateDirGuard> = if let Some(dir) = config.state_dir.as_ref() {
-            Some(state_dir::acquire(dir)?)
-        } else {
-            None
-        };
         // C2 — canonicalize every mutable store path and take its sibling lock
         // before any recover/open. This ownership is independent of the
         // optional state-dir guard because two embeddings may name the same
@@ -1752,22 +1744,97 @@ impl LocalNodeState {
                 *path = LedgerLockSet::canonical_path(path)?;
             }
         }
-        let ledger_lock_set = LedgerLockSet::acquire(
-            std::iter::once(config.block_path.clone()).chain(
-                [
-                    config.reward_ledger_path.clone(),
-                    config.bounty_event_ledger_path.clone(),
-                    config.session_registry_path.clone(),
-                    config.submit_nonce_ledger_path.clone(),
-                    config.signed_nonce_ledger_path.clone(),
-                    config.proof_dedup_ledger_path.clone(),
-                    config.submit_receipt_ledger_path.clone(),
-                    config.receipt_commitment_ledger_path.clone(),
-                ]
-                .into_iter()
-                .flatten(),
-            ),
+        let checkpoint_path = LedgerLockSet::canonical_path(
+            &crate::checkpoint::checkpoint_path_for(&config.block_path),
         )?;
+        let mut storage_roles = vec![
+            ("block store", config.block_path.clone()),
+            ("verified-prefix checkpoint", checkpoint_path.clone()),
+        ];
+        storage_roles.extend(
+            [
+                ("reward ledger", config.reward_ledger_path.clone()),
+                (
+                    "bounty event ledger",
+                    config.bounty_event_ledger_path.clone(),
+                ),
+                ("session registry", config.session_registry_path.clone()),
+                (
+                    "submit nonce ledger",
+                    config.submit_nonce_ledger_path.clone(),
+                ),
+                (
+                    "signed nonce ledger",
+                    config.signed_nonce_ledger_path.clone(),
+                ),
+                ("proof dedup ledger", config.proof_dedup_ledger_path.clone()),
+                (
+                    "submit receipt ledger",
+                    config.submit_receipt_ledger_path.clone(),
+                ),
+                (
+                    "receipt commitment ledger",
+                    config.receipt_commitment_ledger_path.clone(),
+                ),
+            ]
+            .into_iter()
+            .filter_map(|(role, path)| path.map(|path| (role, path))),
+        );
+        let mut read_only_inputs = vec![("scenario input", config.scenario_path.clone())];
+        read_only_inputs.extend(
+            [
+                ("bounty catalog input", config.bounties_path.clone()),
+                ("work manifests input", config.work_manifests_path.clone()),
+            ]
+            .into_iter()
+            .filter_map(|(role, path)| path.map(|path| (role, path))),
+        );
+        if let Some(dir) = config.family_manifests_dir.as_ref() {
+            for entry in std::fs::read_dir(dir)?.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|s| s.to_str()) == Some("json") {
+                    read_only_inputs.push(("family manifest input", path));
+                }
+            }
+        }
+        if let Some(dir) = config.lean_checker_dir.as_ref() {
+            for relative in boole_lean_runner::CHECKER_PINNED_FILES
+                .iter()
+                .copied()
+                .chain(std::iter::once("RELEASE-MANIFEST.json"))
+            {
+                read_only_inputs.push(("Lean checker declared input", dir.join(relative)));
+            }
+        }
+        let mut read_only_trees = [
+            (
+                "family manifest input tree",
+                config.family_manifests_dir.clone(),
+            ),
+            ("Lean checker input tree", config.lean_checker_dir.clone()),
+        ]
+        .into_iter()
+        .filter_map(|(role, path)| path.map(|path| (role, path)))
+        .collect::<Vec<_>>();
+        if let Some(dir) = config.lean_checker_dir.as_ref() {
+            // The artifact source walk follows the BooleCheck root itself;
+            // reserve its resolved tree separately if that root is a symlink.
+            read_only_trees.push(("Lean checker source input tree", dir.join("BooleCheck")));
+        }
+        LedgerLockSet::validate_roles(
+            &storage_roles,
+            config.state_dir.as_deref(),
+            &read_only_inputs,
+            &read_only_trees,
+        )?;
+        // No recovery or lock-file write precedes the role collision gate.
+        let state_dir_guard: Option<StateDirGuard> = config
+            .state_dir
+            .as_deref()
+            .map(state_dir::acquire)
+            .transpose()?;
+        let ledger_lock_set =
+            LedgerLockSet::acquire(storage_roles.into_iter().map(|(_, path)| path))?;
         let raw = std::fs::read_to_string(&config.scenario_path)?;
         let mut scenario: LocalNodeScenarioConfig = serde_json::from_str(&raw)?;
         if let Some(genesis) = config.genesis_override.as_ref() {
@@ -1892,7 +1959,6 @@ impl LocalNodeState {
         // boot's chain no longer matches, must never let a later
         // re-verification be skipped across that change (ADR-0016 (c-1)).
         // Discarding is always safe: the node re-verifies from genesis.
-        let checkpoint_path = crate::checkpoint::checkpoint_path_for(&config.block_path);
         let verified_prefix_checkpoint = {
             let checker_pin = boole_core::network_genesis_preset(&node_network_id)
                 .and_then(|preset| preset.params.checker_artifact_hash);
@@ -1907,7 +1973,7 @@ impl LocalNodeState {
                     });
             // The block hash at the checkpoint height, when the recovered chain
             // already reaches it (a normal restart). A shorter chain (wiped
-            // store / re-bootstrap) defers the prefix check to sync (iii-c-2).
+            // store / re-bootstrap) invalidates the future checkpoint.
             let block_hash_at_height = crate::checkpoint::read_checkpoint(&checkpoint_path)
                 .ok()
                 .flatten()
@@ -2427,6 +2493,7 @@ async fn ready_handler(State(state): State<AppState>) -> Response {
     let replay_matches_runtime = compute_replay_matches_runtime(&guard);
     let state_dir_lock_held = compute_state_dir_lock_held(&guard);
     let ledger_locks_held = guard._ledger_lock_set.is_current();
+    let storage_writes_determinate = !guard._ledger_lock_set.has_indeterminate_write();
     // P2.6 audit: "set" alone is not enough — a typoed --lean-checker-dir
     // would leave the path pointing nowhere and every proof would
     // silently fail verification. Require either an explicit disable or
@@ -2463,6 +2530,7 @@ async fn ready_handler(State(state): State<AppState>) -> Response {
         "replay_matches_runtime": replay_matches_runtime,
         "state_dir_lock_held": state_dir_lock_held,
         "ledger_locks_held": ledger_locks_held,
+        "storage_writes_determinate": storage_writes_determinate,
         "lean_checker_configured": lean_checker_configured,
         "ledgers_loaded": ledgers_loaded,
         "disk_space_ok": disk_space_ok,
@@ -2526,6 +2594,18 @@ async fn ready_handler(State(state): State<AppState>) -> Response {
                 "ok": false,
                 "probe": "ready",
                 "reason": "ledger_lock_lost",
+                "checks": checks,
+            })),
+        )
+            .into_response();
+    }
+    if !storage_writes_determinate {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
+                "ok": false,
+                "probe": "ready",
+                "reason": "storage_write_indeterminate",
                 "checks": checks,
             })),
         )
@@ -2620,12 +2700,16 @@ fn compute_state_dir_lock_held(state: &LocalNodeState) -> bool {
 
 /// A live lock descriptor is insufficient after its pathname is replaced:
 /// another writer can lock the new inode. All mutation boundaries use this
-/// predicate to turn the old process into a diagnostic-only reader.
+/// predicate to turn the old process into a diagnostic-only reader. The same
+/// applies after an indeterminate write to ANY owned ledger: its stale memory
+/// must not authorize a successful mutation of another, unfenced ledger.
 fn write_authority_failure(state: &LocalNodeState) -> Option<&'static str> {
     if !compute_state_dir_lock_held(state) {
         Some("state_dir_lock_lost")
     } else if !state._ledger_lock_set.is_current() {
         Some("ledger_lock_lost")
+    } else if state._ledger_lock_set.has_indeterminate_write() {
+        Some("storage_write_indeterminate")
     } else {
         None
     }
@@ -4549,9 +4633,9 @@ fn bounty_by_id_json(state: &LocalNodeState, id: &str) -> Result<Value, HttpErro
 ///      child invocation, network-bound mock verifier, etc.). Pre-P1.7
 ///      it ran inside the write lock and starved every other handler;
 ///      now it runs with no `LocalNodeState` lock held at all.
-///   3. **Phase 3 (write lock)**: mutate registry, side-pool, and the
-///      bounty event ledger. `BountyRegistry::submit_proof` re-checks
-///      dedup and terminal status internally, so a racing submitter
+///   3. **Phase 3 (write lock)**: preview, durably append the audit event,
+///      then publish the registry and side-pool. Registry preview re-checks
+///      dedup and terminal status, so a racing submitter
 ///      that resolved the bounty during phase 2 is surfaced through
 ///      `outcome.duplicate` (we skip the side-pool insert and ledger
 ///      append to avoid double-credit) instead of stomping the prior
@@ -4759,10 +4843,10 @@ fn bounty_announce_json(state: &mut LocalNodeState, body: &[u8]) -> Result<Value
     //    rejected with `nonce_replayed` rather than re-attempting the
     //    same announce under a stale signing intent.
     burn_signed_envelope_nonce(state, &signer_pk, &nonce)?;
-    // 6) Acquire registry mutation. validate_create surfaces field-level
+    // 6) Preview registry mutation. validate_create surfaces field-level
     //    rejections; map duplicates to 409 so operators can distinguish
     //    "wire bad" (400) from "logically already there" (409).
-    let bounty = match state.bounty_registry.create(CreateBountyInput {
+    let create_input = CreateBountyInput {
         id: id.clone(),
         domain: domain.clone(),
         problem_hash: problem_hash.clone(),
@@ -4771,7 +4855,8 @@ fn bounty_announce_json(state: &mut LocalNodeState, body: &[u8]) -> Result<Value
         reward,
         deadline,
         ts,
-    }) {
+    };
+    let bounty = match state.bounty_registry.preview_create(&create_input) {
         Ok(b) => b,
         Err(err) if err.starts_with("bounty id already exists") => {
             return Err(HttpError::bounty_already_exists(id));
@@ -4779,9 +4864,7 @@ fn bounty_announce_json(state: &mut LocalNodeState, body: &[u8]) -> Result<Value
         Err(err) => return Err(HttpError::bad_payload("create", err)),
     };
 
-    // 6) Audit-log append. Same fatal-on-failure stance as the proof
-    //    handler — once the registry mutated, dropping the durability
-    //    promise silently is worse than a 500 the operator can retry.
+    // 7) The audit event must be durable before the new bounty is visible.
     let bounty_value = serde_json::to_value(&bounty).expect("Bounty serializes to JSON via serde");
     let event = json!({
         "schemaVersion": 1,
@@ -4798,6 +4881,10 @@ fn bounty_announce_json(state: &mut LocalNodeState, body: &[u8]) -> Result<Value
             .map_err(|err| HttpError::internal(format!("bounty audit append: {err}")))?;
     }
 
+    state
+        .bounty_registry
+        .create(create_input)
+        .map_err(|err| HttpError::internal(format!("bounty registry: {err}")))?;
     Ok(json!({
         "ok": true,
         "bounty": bounty_value,
@@ -4931,14 +5018,15 @@ fn bounty_status_json(
     //    crash during update_status leaves the nonce burned and the
     //    retry is rejected with `nonce_replayed`.
     burn_signed_envelope_nonce(state, &signer_pk, &nonce)?;
-    // 5) Apply the transition. The registry enforces transition rules; map
+    // 5) Preview the transition. The registry enforces transition rules; map
     //    terminal-state errors to 409 and any other rule failure to 400 so
     //    a future stricter rule set doesn't need a wire-contract bump.
-    let updated = match state.bounty_registry.update_status(UpdateStatusInput {
+    let status_input = UpdateStatusInput {
         id: url_id.to_string(),
         status: new_status.clone(),
         ts,
-    }) {
+    };
+    let updated = match state.bounty_registry.preview_update_status(&status_input) {
         Ok(b) => b,
         Err(err) if err.starts_with("cannot transition from terminal status") => {
             return Err(HttpError::bounty_terminal(prev_status));
@@ -4970,6 +5058,10 @@ fn bounty_status_json(
             .map_err(|err| HttpError::internal(format!("bounty audit append: {err}")))?;
     }
 
+    state
+        .bounty_registry
+        .update_status(status_input)
+        .map_err(|err| HttpError::internal(format!("bounty registry: {err}")))?;
     let bounty_value = serde_json::to_value(&updated).expect("Bounty serializes to JSON via serde");
     Ok(json!({
         "ok": true,
@@ -5280,55 +5372,28 @@ fn bounty_proof_finalize(
     // `nonce_replayed`.
     burn_signed_envelope_nonce(state, &signer_pk, &nonce)?;
 
-    // submit_proof internally re-checks dedup and terminal status, so a
+    // Preview re-checks dedup and terminal status under the writer, so a
     // concurrent submitter that landed the same proof hash during the
     // unlocked verify phase is surfaced as `outcome.duplicate = true`
     // (we skip the side-pool insert and ledger append below to avoid
     // double-credit), and a concurrent submitter that solved the bounty
     // with a different hash is surfaced as Err("cannot submit proof to
     // terminal bounty ...") which we map to a 5xx for the caller.
+    let proof_input = SubmitProofInput {
+        bounty_id: id.to_string(),
+        proof_hash: proof_hash.clone(),
+        prover: prover.clone(),
+        accepted,
+        ts: now_ms,
+    };
     let outcome = state
         .bounty_registry
-        .submit_proof(SubmitProofInput {
-            bounty_id: id.to_string(),
-            proof_hash: proof_hash.clone(),
-            prover: prover.clone(),
-            accepted,
-            ts: now_ms,
-        })
+        .preview_submit_proof(&proof_input)
         .map_err(|err| HttpError::internal(format!("bounty registry: {err}")))?;
 
-    // On a first-seen accept, route the share into the per-family
-    // side-pool. The Hard Guard holds because (a) this writes to
-    // `bounty_side_pool`, never to `runtime` or `share_pool`, and (b)
-    // `build_block_selection` does not consume from the side-pool.
-    // `family_id == bounty.domain` per the bounty/manifest fixture
-    // convention; if the domain has no registered manifest we still
-    // record the share so S22 can audit "would have promoted but no
-    // manifest" cases. The `!outcome.duplicate` guard means a racing
-    // submitter that already recorded this proof keeps its credit and
-    // we do not insert again.
-    if outcome.accepted && !outcome.duplicate {
-        // S23a — stamp the matching bounty's reward onto the share so
-        // the promotion gate can compute capped credit without a second
-        // registry lookup. Malformed reward strings (which the registry
-        // already validates as `u128` decimal) collapse to 0 here so the
-        // share is still tracked but no credit ever issues.
-        let reward: u128 = bounty.reward.parse().unwrap_or(0);
-        state.bounty_side_pool.insert(BountyShare {
-            bounty_id: id.to_string(),
-            proof_hash: proof_hash.clone(),
-            prover: prover.clone(),
-            family_id: bounty.domain.clone(),
-            ts: now_ms,
-            reward,
-        });
-    }
-
     // Audit-log append. Skipped on duplicates so a concurrent submitter's
-    // ledger row is not double-written. Failure here is fatal — the
-    // in-memory state has already mutated; surfacing a 500 at this point
-    // is preferable to silently dropping the durability promise.
+    // ledger row is not double-written. Publish registry/side-pool only
+    // AFTER this succeeds; a 500 must not leave an unauditable solved bounty.
     if !outcome.duplicate {
         let credit = if accepted {
             bounty.reward.clone()
@@ -5409,6 +5474,23 @@ fn bounty_proof_finalize(
             FileBountyEventLedger::append(path, &event)
                 .map_err(|err| HttpError::internal(format!("bounty audit append: {err}")))?;
         }
+    }
+
+    let outcome = state
+        .bounty_registry
+        .submit_proof(proof_input)
+        .map_err(|err| HttpError::internal(format!("bounty registry: {err}")))?;
+    if outcome.accepted && !outcome.duplicate {
+        // Only durably recorded proofs become eligible for later promotion.
+        // Unregistered families remain in the side pool without promotion.
+        state.bounty_side_pool.insert(BountyShare {
+            bounty_id: id.to_string(),
+            proof_hash: proof_hash.clone(),
+            prover: prover.clone(),
+            family_id: bounty.domain.clone(),
+            ts: now_ms,
+            reward: bounty.reward.parse().unwrap_or(0),
+        });
     }
 
     Ok(json!({
@@ -6376,13 +6458,10 @@ fn validate_announced_block(
     // is a consensus reject, an availability failure defers (never a reject,
     // never a fail-open accept — ADR-0016 (a-3)). Closed-local / no-checker
     // nodes skip this (helper returns `None`) and keep pre-SC.10 behaviour.
-    // SC.10-iii-c-2 (assumevalid) — if this block falls within a verified-
-    // prefix checkpoint this node already trusts, skip the (expensive) pinned-
-    // checker re-verify: structural replay above already proved shape/linkage,
-    // and the checkpoint attests the Lean validity of this prefix. At the
-    // checkpoint height a hash mismatch means the re-synced chain diverged
-    // from the trusted prefix — discard the checkpoint and re-verify in full
-    // (nothing above a divergence may be skipped).
+    // Individual ingress may reuse only the exact checkpoint block's verdict.
+    // A block below an unseen future anchor has no confirmed linkage to that
+    // anchor and must run the checker. Full-candidate reorg separately checks
+    // the actual anchor hash before reusing any verified prefix.
     Ok(crate::checkpoint::checkpoint_skip_decision(
         state.verified_prefix_checkpoint.as_ref(),
         block.height,
@@ -8874,6 +8953,92 @@ mod tests {
             gate.try_acquire().is_some(),
             "preflight leaves verifier idle"
         );
+        gate.clear_test_block_outcome();
+        drop(shared);
+        std::fs::remove_dir_all(target_dir).expect("remove target dir");
+        std::fs::remove_dir_all(producer_dir).expect("remove producer dir");
+    }
+
+    #[test]
+    fn future_checkpoint_cannot_publish_ingress_before_prefix_is_verified() {
+        let producer_dir = std::env::temp_dir().join(format!(
+            "boole-future-checkpoint-producer-{}-{}",
+            std::process::id(),
+            now_unix_ms()
+        ));
+        std::fs::create_dir_all(&producer_dir).expect("create producer dir");
+        let producer_path = producer_dir.join("blocks.ndjson");
+        let (mut producer_runtime, body, reward_pk, signed_work, _) =
+            testnet2_valid_booted_runtime_body(&producer_path);
+        let block = commit_one_fixture_block(
+            &mut producer_runtime,
+            &body,
+            (&reward_pk, &signed_work),
+            &producer_path,
+            now_unix_ms() as i64,
+            "198.51.100.87",
+            FixtureTipSelection::First,
+        );
+        let block_value = serde_json::to_value(&block).expect("normal fixture block");
+        let (mut target, target_dir) = test_local_node("future-checkpoint-ingress");
+        let (runtime, _, _, _, _) = testnet2_valid_booted_runtime_body(&target.block_path);
+        target.runtime = runtime;
+        target.genesis_c = "0".repeat(64);
+        target.network_id = boole_core::AUTHORIZATION_REQUIRED_NETWORK_ID.to_string();
+        target.require_network_scoped_envelopes = true;
+        target.lean_checker_dir = Some(PathBuf::from("checker-fixture"));
+        // A recovered performance record may refer to a prefix no longer in
+        // the store. No single incoming block proves linkage to that future
+        // anchor, even though this fixture itself is structurally valid.
+        let checkpoint = crate::checkpoint::VerifiedPrefixCheckpoint {
+            genesis_spec_hash: target.genesis_spec_hash.clone(),
+            height: 2,
+            block_hash: HASH_1.to_string(),
+            checker_artifact_hash: boole_core::network_genesis_preset(&target.network_id)
+                .and_then(|preset| preset.params.checker_artifact_hash)
+                .expect("testnet2 checker pin"),
+            max_heartbeats: boole_core::BASE_LANE_MAX_HEARTBEATS,
+            max_rec_depth: boole_core::BASE_LANE_MAX_REC_DEPTH,
+        };
+        crate::checkpoint::write_checkpoint(&target.checkpoint_path, &checkpoint)
+            .expect("persist recovered checkpoint");
+        let checkpoint_before = std::fs::read(&target.checkpoint_path).expect("checkpoint bytes");
+        target.verified_prefix_checkpoint = Some(checkpoint);
+        let gate = Arc::clone(&target.semantic_verifier);
+        let busy = gate.try_acquire().expect("verifier already occupied");
+        let shared = Arc::new(RwLock::new(target));
+
+        let outcome = ingest_announced_block_shared(&shared, &block_value);
+        assert!(
+            matches!(outcome, IngressBlockOutcome::Deferred),
+            "unconfirmed prefix must wait for verifier availability"
+        );
+        {
+            let target = shared.blocking_read();
+            assert_eq!(target.runtime.cached_block_count(), 0);
+            assert!(FileBlockStore::inspect(&target.block_path)
+                .is_ok_and(|store| store.blocks().is_empty()));
+            assert_eq!(
+                std::fs::read(&target.checkpoint_path).expect("checkpoint remains readable"),
+                checkpoint_before,
+                "deferred ingress cannot advance the checkpoint"
+            );
+        }
+        drop(busy);
+        gate.set_test_block_outcome(SemanticVerifierTestOutcome::Verified);
+        assert!(matches!(
+            ingest_announced_block_shared(&shared, &block_value),
+            IngressBlockOutcome::Ingested
+        ));
+        {
+            let target = shared.blocking_read();
+            assert_eq!(target.runtime.cached_block_count(), 1);
+            let checkpoint = crate::checkpoint::read_checkpoint(&target.checkpoint_path)
+                .expect("read checkpoint")
+                .expect("verified ingress records its actual durable prefix");
+            assert_eq!(checkpoint.height, 1);
+            assert_eq!(checkpoint.block_hash, block.c);
+        }
         gate.clear_test_block_outcome();
         drop(shared);
         std::fs::remove_dir_all(target_dir).expect("remove target dir");
