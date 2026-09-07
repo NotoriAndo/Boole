@@ -150,7 +150,11 @@ fn handle_native_connection(
     let mut words = request_line.split_whitespace();
     let method = words.next().unwrap_or("").to_string();
     let path = words.next().unwrap_or("").to_string();
-    let body: Value = serde_json::from_slice(&body).expect("native request JSON");
+    let body: Value = if body.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_slice(&body).expect("native request JSON")
+    };
     let request = CapturedRequest { method, path, body };
     requests
         .lock()
@@ -352,6 +356,364 @@ fn submission(raw_answer: &str) -> Value {
         "epoch": 7,
         "rawAnswer": raw_answer,
     })
+}
+
+fn native_stdio_session(
+    native_url: &str,
+) -> (
+    ChildGuard,
+    std::process::ChildStdin,
+    std::sync::mpsc::Receiver<Value>,
+) {
+    native_stdio_session_with_node(native_url, "http://127.0.0.1:9")
+}
+
+fn native_stdio_session_with_node(
+    native_url: &str,
+    node_url: &str,
+) -> (
+    ChildGuard,
+    std::process::ChildStdin,
+    std::sync::mpsc::Receiver<Value>,
+) {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_boole-mcp"))
+        .args([
+            "stdio",
+            "--node-url",
+            node_url,
+            "--native-shadow-url",
+            native_url,
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn MCP stdio");
+    let stdin = child.stdin.take().unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let (send, receive) = std::sync::mpsc::channel();
+    thread::spawn(move || {
+        for line in BufReader::new(stdout).lines() {
+            let Ok(line) = line else { break };
+            let value = serde_json::from_str(&line).expect("MCP JSON response");
+            if send.send(value).is_err() {
+                break;
+            }
+        }
+    });
+    (ChildGuard(child), stdin, receive)
+}
+
+fn native_call(id: u64) -> Value {
+    json!({"jsonrpc":"2.0", "id":id, "method":"tools/call",
+        "params":{"name":"boole.verify_native", "arguments":submission("synthetic")}})
+}
+
+#[test]
+fn stdio_ping_remains_responsive_during_native_verification() {
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let release_rx = Mutex::new(release_rx);
+    let upstream = NativeUpstream::start_with(move |_, _| {
+        started_tx.send(()).unwrap();
+        let _ = release_rx
+            .lock()
+            .unwrap()
+            .recv_timeout(Duration::from_secs(5));
+        Some(RawResponse::json(200, accepted_response()))
+    });
+    let (_child, mut stdin, responses) = native_stdio_session(&upstream.url());
+    write_mcp_frame(
+        &mut stdin,
+        &json!({"jsonrpc":"2.0", "id":0, "method":"initialize",
+        "params":{"protocolVersion":"2024-11-05", "capabilities":{},
+            "clientInfo":{"name":"synthetic-test", "version":"1"}}}),
+    );
+    assert_eq!(
+        responses.recv_timeout(Duration::from_secs(2)).unwrap()["id"],
+        0
+    );
+    write_mcp_frame(&mut stdin, &native_call(11));
+    started_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("native reached upstream");
+    write_mcp_frame(
+        &mut stdin,
+        &json!({"jsonrpc":"2.0", "id":12, "method":"ping"}),
+    );
+    let ping = responses
+        .recv_timeout(Duration::from_millis(500))
+        .expect("ping must respond before the native HTTP result is released");
+    assert_eq!(ping["id"], 12);
+    release_tx.send(()).unwrap();
+    let native = responses.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert_eq!(native["id"], 11);
+    assert_eq!(native["result"]["isError"], false);
+    assert_eq!(upstream.requests().len(), 1);
+}
+
+#[test]
+fn stdio_unread_native_output_has_bounded_exit_with_or_without_eof() {
+    for eof in [false, true] {
+        // Under the 64 KiB upstream limit, but MCP's nested JSON text escaping
+        // expands this beyond a pipe buffer without changing the response limit.
+        let upstream = NativeUpstream::start(json!({"syntheticPadding": "\\".repeat(30_000)}));
+        let mut child = ChildGuard(
+            Command::new(env!("CARGO_BIN_EXE_boole-mcp"))
+                .args(["stdio", "--native-shadow-url", &upstream.url()])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap(),
+        );
+        let mut stdin = child.0.stdin.take().unwrap();
+        write_mcp_frame(&mut stdin, &native_call(1));
+        let _stdin = if eof {
+            drop(stdin);
+            None
+        } else {
+            Some(stdin)
+        };
+        // Keep stdout open, but do not drain it. A stalled client must not strand
+        // a Tokio blocking writer after the native HTTP owner has completed.
+        let deadline = Instant::now() + Duration::from_secs(4);
+        loop {
+            if let Some(status) = child.0.try_wait().unwrap() {
+                assert!(
+                    !status.success(),
+                    "output failure must not report successful transport exit"
+                );
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "MCP alive behind blocked stdout (EOF={eof})"
+            );
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(upstream.requests().len(), 1);
+    }
+}
+
+#[test]
+fn stdio_slow_proxy_slot_rejects_overlap_without_blocking_control_or_cancelling_native() {
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let release_rx = Mutex::new(release_rx);
+    let native = NativeUpstream::start_with(move |_, _| {
+        started_tx.send(()).unwrap();
+        let _ = release_rx
+            .lock()
+            .unwrap()
+            .recv_timeout(Duration::from_secs(5));
+        Some(RawResponse::json(200, accepted_response()))
+    });
+    let legacy = NativeUpstream::start_with(move |_, _| {
+        thread::sleep(Duration::from_secs(1));
+        Some(RawResponse::json(200, json!({"work":[]})))
+    });
+    let (_child, mut stdin, responses) =
+        native_stdio_session_with_node(&native.url(), &legacy.url());
+    write_mcp_frame(&mut stdin, &native_call(11));
+    started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    write_mcp_frame(
+        &mut stdin,
+        &json!({"jsonrpc":"2.0", "id":12, "method":"tools/call",
+        "params":{"name":"bounty.list", "arguments":{}}}),
+    );
+    let busy = responses
+        .recv_timeout(Duration::from_millis(500))
+        .expect("proxy overlap must reject promptly");
+    assert_eq!(busy["id"], 12);
+    assert_eq!(busy["result"]["isError"], true);
+    assert!(
+        legacy.requests().is_empty(),
+        "no second upstream owner may start"
+    );
+    write_mcp_frame(&mut stdin, &native_call(13));
+    let busy = responses.recv_timeout(Duration::from_millis(500)).unwrap();
+    assert_eq!(busy["id"], 13);
+    assert_eq!(busy["result"]["isError"], true);
+    write_mcp_frame(
+        &mut stdin,
+        &json!({"jsonrpc":"2.0", "id":11, "method":"ping"}),
+    );
+    let duplicate = responses.recv_timeout(Duration::from_millis(500)).unwrap();
+    assert_eq!(duplicate["id"], Value::Null);
+    assert_eq!(duplicate["error"]["code"], -32600);
+    write_mcp_frame(
+        &mut stdin,
+        &json!({"jsonrpc":"2.0", "method":"notifications/cancelled",
+        "params":{"requestId":11}}),
+    );
+    write_mcp_frame(
+        &mut stdin,
+        &json!({"jsonrpc":"2.0", "id":14, "method":"ping"}),
+    );
+    assert_eq!(
+        responses.recv_timeout(Duration::from_millis(500)).unwrap()["id"],
+        14
+    );
+    release_tx.send(()).unwrap();
+    let response = responses.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert_eq!(response["id"], 11);
+    assert_eq!(
+        response["result"]["isError"], false,
+        "native cancellation cannot invent a verdict"
+    );
+    assert_eq!(native.requests().len(), 1);
+}
+
+#[test]
+fn stdio_eof_and_bad_frame_drain_native_owner_before_exit() {
+    for malformed in [false, true] {
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let release_rx = Mutex::new(release_rx);
+        let native = NativeUpstream::start_with(move |_, _| {
+            started_tx.send(()).unwrap();
+            let _ = release_rx
+                .lock()
+                .unwrap()
+                .recv_timeout(Duration::from_secs(5));
+            Some(RawResponse::json(200, accepted_response()))
+        });
+        let (mut child, mut stdin, responses) = native_stdio_session(&native.url());
+        write_mcp_frame(&mut stdin, &native_call(1));
+        started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        if malformed {
+            stdin.write_all(b"\xff\n").unwrap();
+            stdin.flush().unwrap();
+        }
+        drop(stdin);
+        thread::sleep(Duration::from_millis(100));
+        assert!(
+            child.0.try_wait().unwrap().is_none(),
+            "native owner dropped at EOF/error"
+        );
+        release_tx.send(()).unwrap();
+        let response = responses.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert_eq!(response["id"], 1);
+        assert_eq!(response["result"]["isError"], false);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let status = loop {
+            if let Some(status) = child.0.try_wait().unwrap() {
+                break status;
+            }
+            assert!(Instant::now() < deadline, "MCP did not finish cleanup");
+            thread::sleep(Duration::from_millis(10));
+        };
+        assert_eq!(status.success(), !malformed);
+        assert_eq!(native.requests().len(), 1);
+    }
+}
+
+#[test]
+fn stdio_legacy_proxy_tools_do_not_block_ping() {
+    for tool in ["bounty.list", "receipt.get"] {
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let release_rx = Mutex::new(release_rx);
+        let legacy = NativeUpstream::start_with(move |_, _| {
+            started_tx.send(()).unwrap();
+            let _ = release_rx
+                .lock()
+                .unwrap()
+                .recv_timeout(Duration::from_secs(5));
+            Some(RawResponse::json(200, json!({"synthetic":true})))
+        });
+        let native = NativeUpstream::start(accepted_response());
+        let (_child, mut stdin, responses) =
+            native_stdio_session_with_node(&native.url(), &legacy.url());
+        write_mcp_frame(
+            &mut stdin,
+            &json!({"jsonrpc":"2.0", "id":1, "method":"tools/call",
+            "params":{"name":tool, "arguments":{"receipt_id":"synthetic"}}}),
+        );
+        started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        write_mcp_frame(
+            &mut stdin,
+            &json!({"jsonrpc":"2.0", "id":2, "method":"ping"}),
+        );
+        assert_eq!(
+            responses.recv_timeout(Duration::from_millis(500)).unwrap()["id"],
+            2
+        );
+        release_tx.send(()).unwrap();
+        let response = responses.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert_eq!(response["id"], 1);
+        assert_eq!(response["result"]["isError"], false);
+    }
+}
+
+#[test]
+fn stdio_completed_native_slot_allows_sequential_request_id_reuse() {
+    let native = NativeUpstream::start(accepted_response());
+    let (_child, mut stdin, responses) = native_stdio_session(&native.url());
+    for _ in 0..20 {
+        write_mcp_frame(&mut stdin, &native_call(1));
+        let response = responses.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert_eq!(response["id"], 1);
+        assert_eq!(response["result"]["isError"], false);
+    }
+    assert_eq!(native.requests().len(), 20);
+}
+
+#[test]
+fn stdio_publication_retires_native_and_mining_slots_before_sequential_followups() {
+    for workers in [1, 4] {
+        let native = NativeUpstream::start(json!({"synthetic": true}));
+        let mut child = Command::new(env!("CARGO_BIN_EXE_boole-mcp"))
+            .args(["stdio", "--native-shadow-url", &native.url()])
+            .env("TOKIO_WORKER_THREADS", workers.to_string())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        let mut stdout = BufReader::new(child.stdout.take().unwrap());
+        let child = Arc::new(Mutex::new(ChildGuard(child)));
+        let watched = Arc::clone(&child);
+        let (finished, stop) = std::sync::mpsc::channel();
+        // Read responses on the caller's thread (a forwarding reader thread
+        // masks the publication race). A separate watchdog bounds a bad binary.
+        let watchdog = thread::spawn(move || {
+            if matches!(
+                stop.recv_timeout(Duration::from_secs(20)),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+            ) {
+                let _ = watched.lock().unwrap().0.kill();
+            }
+        });
+        for native_tool in [false, true] {
+            for sequence in 0..2_048 {
+                // Exercise both duplicate-ID false positives and spurious
+                // busy replies for a distinct ID after a completed response.
+                let id = if sequence < 1_024 { 1 } else { sequence };
+                let request = if native_tool {
+                    native_call(id)
+                } else {
+                    json!({"jsonrpc":"2.0", "id":id, "method":"tools/call",
+                        "params":{"name":"boole.mine", "arguments":{"max_cycles":0}}})
+                };
+                write_mcp_frame(&mut stdin, &request);
+                let response = read_mcp_frame(&mut stdout);
+                assert_eq!(
+                    response["id"], id,
+                    "workers={workers} native={native_tool} sequence={sequence}: {response}"
+                );
+                assert_eq!(
+                    response["result"]["isError"], false,
+                    "workers={workers} native={native_tool} sequence={sequence}: {response}"
+                );
+            }
+        }
+        assert_eq!(native.requests().len(), 2_048);
+        finished.send(()).unwrap();
+        watchdog.join().unwrap();
+    }
 }
 
 fn submission_with_duplicate_field(field: &str, first_value: &str) -> String {

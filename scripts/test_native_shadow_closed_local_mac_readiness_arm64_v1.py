@@ -1,6 +1,8 @@
 import hashlib
 import json
+import os
 import pathlib
+import signal
 import subprocess
 import sys
 import tempfile
@@ -151,6 +153,69 @@ class ClosedLocalMacReadinessTests(unittest.TestCase):
             escaped_child_marker.exists(),
             "timeout must terminate subprocess descendants as well as the parent",
         )
+
+    def test_phase_runner_cleans_its_session_when_interrupted(self):
+        child_pid_file = self.root / "child.pid"
+        marker = self.root / "escaped-interrupt-child"
+        child_program = (
+            "import os, pathlib, time; "
+            f"pathlib.Path({str(child_pid_file)!r}).write_text(str(os.getpid())); "
+            "time.sleep(1); "
+            f"pathlib.Path({str(marker)!r}).write_text('escaped'); time.sleep(10)"
+        )
+        owner_program = (
+            "from scripts.native_shadow_closed_local_mac_readiness_arm64_v1 import _run; "
+            f"_run({[sys.executable, '-c', child_program]!r}, timeout=20, phase='synthetic')"
+        )
+        owner = subprocess.Popen(
+            [sys.executable, "-c", owner_program], cwd=subject.REPO,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        child_pid = None
+        try:
+            deadline = time.monotonic() + 3
+            while not child_pid_file.exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertTrue(child_pid_file.exists(), "synthetic child started")
+            child_pid = int(child_pid_file.read_text())
+            owner.send_signal(signal.SIGINT)
+            self.assertEqual(owner.wait(timeout=3), -signal.SIGINT)
+            time.sleep(1.1)
+            self.assertFalse(marker.exists(), "interrupted owner left its child running")
+            with self.assertRaises(ProcessLookupError):
+                os.kill(child_pid, 0)
+        finally:
+            if owner.poll() is None:
+                owner.kill()
+            owner.wait(timeout=3)
+            if child_pid is not None:
+                try:
+                    os.killpg(child_pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
+    def test_finished_phase_cleans_helpers_on_success_and_failure(self):
+        markers = []
+        for status in (0, 7):
+            marker = self.root / ("orphan-%s" % status)
+            markers.append(marker)
+            child = (
+                "import pathlib,time; time.sleep(1); "
+                f"pathlib.Path({str(marker)!r}).touch()"
+            )
+            parent = (
+                "import subprocess,sys; "
+                f"subprocess.Popen([sys.executable, '-c', {child!r}]); "
+                f"sys.exit({status})"
+            )
+            if status:
+                with self.assertRaises(subprocess.CalledProcessError) as error:
+                    subject._run([sys.executable, "-c", parent], timeout=3, phase="synthetic")
+                self.assertEqual(error.exception.returncode, status)
+            else:
+                subject._run([sys.executable, "-c", parent], timeout=3, phase="synthetic")
+        time.sleep(1.1)
+        self.assertTrue(all(not path.exists() for path in markers))
 
     def test_boot_budget_includes_only_a_bounded_shutdown_grace(self):
         self.assertEqual(

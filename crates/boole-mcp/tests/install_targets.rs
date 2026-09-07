@@ -33,17 +33,7 @@ use serde_json::Value;
 use std::os::unix::fs::PermissionsExt;
 
 fn bin_path() -> PathBuf {
-    let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    p.pop();
-    p.pop();
-    p.push("target");
-    p.push(if cfg!(debug_assertions) {
-        "debug"
-    } else {
-        "release"
-    });
-    p.push("boole-mcp");
-    p
+    PathBuf::from(env!("CARGO_BIN_EXE_boole-mcp"))
 }
 
 fn temp_home() -> PathBuf {
@@ -294,6 +284,103 @@ fn install_codex_preserves_other_toml_tables_and_comments() {
     assert!(text.contains("[mcp_servers.other]"));
     assert!(text.contains("command = \"other-mcp\""));
     assert!(text.contains("[mcp_servers.boole]"));
+    let _ = fs::remove_dir_all(&home);
+}
+
+#[test]
+fn install_codex_switches_http_to_stdio_without_transport_conflicts() {
+    let home = temp_home();
+    let s = settings_path(&home, "codex");
+    fs::create_dir_all(s.parent().unwrap()).expect("mkdirs");
+    fs::write(
+        &s,
+        r#"
+[mcp_servers.boole]
+url = "http://127.0.0.1:9/mcp"
+bearer_token_env_var = "SYNTHETIC_TOKEN"
+http_headers = { X-Test = "synthetic" }
+env_http_headers = { X-Test-Env = "SYNTHETIC_HEADER" }
+auth = "oauth"
+http_headers_helper = ["echo", "{}"]
+oauth = { client_id = "synthetic" }
+enabled = false
+tool_timeout_sec = 180
+disabled_tools = ["boole.mine"]
+
+[mcp_servers.other]
+url = "http://127.0.0.1:8/mcp"
+"#,
+    )
+    .expect("seed HTTP config");
+    let out = run_install(&home, &["--target", "codex"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let first = fs::read_to_string(&s).expect("installed config");
+    let parsed = first.parse::<toml_edit::DocumentMut>().expect("TOML");
+    let entry = parsed["mcp_servers"]["boole"].as_table().unwrap();
+    for key in [
+        "url",
+        "bearer_token_env_var",
+        "http_headers",
+        "env_http_headers",
+        "auth",
+        "http_headers_helper",
+        "oauth",
+    ] {
+        assert!(
+            !entry.contains_key(key),
+            "HTTP-only {key} survived stdio switch"
+        );
+    }
+    assert_eq!(entry["args"][0].as_str(), Some("stdio"));
+    assert_eq!(entry["enabled"].as_bool(), Some(false));
+    assert_eq!(entry["tool_timeout_sec"].as_integer(), Some(180));
+    assert_eq!(entry["disabled_tools"][0].as_str(), Some("boole.mine"));
+    assert_eq!(
+        parsed["mcp_servers"]["other"]["url"].as_str(),
+        Some("http://127.0.0.1:8/mcp")
+    );
+    assert!(run_install(&home, &["--target", "codex"]).status.success());
+    assert_eq!(fs::read_to_string(&s).unwrap(), first);
+    let _ = fs::remove_dir_all(&home);
+}
+
+#[test]
+#[ignore = "requires an installed Codex CLI; run explicitly with BOOLE_TEST_CODEX_BIN"]
+fn install_codex_http_to_stdio_loads_in_actual_codex_consumer() {
+    let codex = env::var_os("BOOLE_TEST_CODEX_BIN").expect("BOOLE_TEST_CODEX_BIN");
+    let home = temp_home();
+    let s = settings_path(&home, "codex");
+    fs::create_dir_all(s.parent().unwrap()).unwrap();
+    fs::write(&s, "[mcp_servers.boole]\nurl = \"http://127.0.0.1:9/mcp\"\nbearer_token_env_var = \"SYNTHETIC_TOKEN\"\nhttp_headers = { X-Test = \"synthetic\" }\nenv_http_headers = { X-Test-Env = \"SYNTHETIC_HEADER\" }\n").unwrap();
+    for expected in ["streamable_http", "stdio"] {
+        let out = Command::new(&codex)
+            .args(["mcp", "list", "--json"])
+            .env("HOME", &home)
+            .env("CODEX_HOME", home.join(".codex"))
+            .current_dir(&home)
+            .output()
+            .expect("Codex config consumer");
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let servers: Value = serde_json::from_slice(&out.stdout).expect("Codex list JSON");
+        let boole = servers
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|v| v["name"] == "boole")
+            .unwrap();
+        assert_eq!(boole["transport"]["type"], expected);
+        if expected == "streamable_http" {
+            assert!(run_install(&home, &["--target", "codex"]).status.success());
+        }
+    }
     let _ = fs::remove_dir_all(&home);
 }
 

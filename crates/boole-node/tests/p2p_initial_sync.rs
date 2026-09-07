@@ -129,6 +129,24 @@ fn boot_with_p2p_seeded(
     allow_anonymous_submit: bool,
     seed_block_lines: &[String],
 ) -> Boot {
+    boot_with_p2p_seeded_scenario(
+        tag,
+        p2p_listener,
+        peers,
+        allow_anonymous_submit,
+        seed_block_lines,
+        &sync_scenario(),
+    )
+}
+
+fn boot_with_p2p_seeded_scenario(
+    tag: &str,
+    p2p_listener: Option<TcpListener>,
+    peers: Vec<SocketAddr>,
+    allow_anonymous_submit: bool,
+    seed_block_lines: &[String],
+    scenario_doc: &Value,
+) -> Boot {
     let dir = std::env::temp_dir().join(format!(
         "boole-n34-sync-{tag}-{}-{}",
         std::process::id(),
@@ -149,7 +167,7 @@ fn boot_with_p2p_seeded(
     let scenario = dir.join("scenario.json");
     fs::write(
         &scenario,
-        serde_json::to_vec_pretty(&sync_scenario()).expect("scenario serializes"),
+        serde_json::to_vec_pretty(scenario_doc).expect("scenario serializes"),
     )
     .expect("write isolated sync scenario");
     let shutdown = Arc::new(Notify::new());
@@ -618,6 +636,196 @@ fn sync_reorgs_to_heavier_competing_chain() {
 
     stop(a);
     stop(b);
+}
+
+#[test]
+#[ignore = "needs-multiprocess"]
+fn sync_same_height_forks_converge_without_a_new_block() {
+    let steps = multiminer_steps();
+    let mut chains = Vec::new();
+    for (index, step) in steps.iter().take(2).enumerate() {
+        let mint = boot_with_p2p(&format!("equal-mint-{index}"), None, vec![], true);
+        let (status, value) = http_post(mint.addr, "/submit", &submit_envelope(step));
+        assert_eq!(status, 200, "normal fixture must mint: {value}");
+        assert!(value["block"].is_object(), "fixture must produce a block");
+        let line = fs::read_to_string(mint.dir.join("blocks.ndjson"))
+            .expect("read minted block")
+            .trim()
+            .to_string();
+        let block: boole_core::PersistedBlock = serde_json::from_str(&line).expect("block");
+        assert_eq!(block.difficulty_weight, "1", "equal-work fixture");
+        chains.push((block.c, line));
+        stop(mint);
+    }
+    assert_ne!(
+        chains[0].0, chains[1].0,
+        "normal fixtures form competing tips"
+    );
+    chains.sort_by(|a, b| a.0.cmp(&b.0));
+    let expected_head = chains[0].0.clone();
+    let a_listener = TcpListener::bind("127.0.0.1:0").expect("A P2P");
+    let b_listener = TcpListener::bind("127.0.0.1:0").expect("B P2P");
+    let a_addr = a_listener.local_addr().expect("A address");
+    let b_addr = b_listener.local_addr().expect("B address");
+    let a = boot_with_p2p_seeded(
+        "equal-winning",
+        Some(a_listener),
+        vec![b_addr],
+        false,
+        &[chains[0].1.clone()],
+    );
+    let b = boot_with_p2p_seeded(
+        "equal-losing",
+        Some(b_listener),
+        vec![a_addr],
+        false,
+        &[chains[1].1.clone()],
+    );
+    let deadline = Instant::now() + Duration::from_secs(8);
+    while Instant::now() < deadline && b_head_c(&b) != expected_head {
+        thread::sleep(Duration::from_millis(50));
+    }
+    let a_head = b_head_c(&a);
+    let b_head = b_head_c(&b);
+    let a_reorgs = metric_value(a.addr, "boole_p2p_sync_reorgs_applied_total");
+    let b_reorgs = metric_value(b.addr, "boole_p2p_sync_reorgs_applied_total");
+    let heights = (height(a.addr), height(b.addr));
+    stop(a);
+    stop(b);
+    assert_eq!(a_head, expected_head, "winner keeps canonical head");
+    assert_eq!(
+        b_head, expected_head,
+        "equal-height loser must discover and adopt winner"
+    );
+    assert_eq!(heights, (1, 1), "no new block is needed for convergence");
+    assert_eq!((a_reorgs, b_reorgs), (0, 1));
+}
+
+/// Construct normal fixture blocks through admission/commit with one shared
+/// retarget policy. Faster timestamps make block 2 harder; no stored work or
+/// hash fields are edited after production.
+fn retargeted_fixture_chain(scenario: &Value, count: usize, spacing_ms: u64) -> Vec<String> {
+    use boole_core::{AdmissionDecision, FamilyManifestRegistry, Hex32};
+    use boole_node::RuntimeAdmissionState;
+    use sha2::{Digest, Sha256};
+
+    let report = serde_json::from_value(scenario["cfg"].clone()).expect("calibration");
+    let policy = serde_json::from_value(scenario["difficultyRetarget"].clone()).expect("retarget");
+    let config = RuntimeConfig::from_calibration_report(report, 60_000)
+        .expect("runtime config")
+        .with_difficulty_retarget(policy)
+        .expect("retarget config");
+    let genesis_c = scenario["genesisC"].as_str().expect("genesis");
+    let genesis = config.genesis_spec("boole-mvp", genesis_c);
+    let dir = std::env::temp_dir().join(format!("boole-sync-retarget-{}", rand_suffix()));
+    fs::create_dir(&dir).expect("fixture directory");
+    let path = dir.join("blocks.ndjson");
+    let mut runtime = RuntimeAdmissionState::boot_from_store_with_genesis(
+        config,
+        &path,
+        None,
+        None,
+        FamilyManifestRegistry::new(),
+        &genesis,
+    )
+    .expect("fixture runtime");
+    runtime.set_current_c(genesis_c.to_string());
+    let base_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock")
+        .as_millis() as u64
+        - 3_600_000;
+    let mut lines = Vec::new();
+    for (height, step) in multiminer_steps().into_iter().take(count).enumerate() {
+        let mut body = step["body"].as_object().expect("fixture body").clone();
+        let c = Hex32::from_hex(runtime.current_c().expect("head")).expect("head hash");
+        body.insert("c".to_string(), json!(c.to_hex()));
+        let pk = Hex32::from_hex(body["pk"].as_str().expect("pk")).expect("pk hash");
+        let n = Hex32::from_hex(body["n"].as_str().expect("n")).expect("n hash");
+        let proof = hex::decode(body["bytes"].as_str().expect("proof bytes")).expect("proof hex");
+        let canon_hash = Hex32::from_bytes(Sha256::digest(&proof).into());
+        let difficulty = runtime
+            .effective_difficulty_for_head()
+            .expect("effective target");
+        let target = boole_core::parse_biguint_hex(&difficulty.t_block).expect("target");
+        let j = (0..4096_u64)
+            .map(|nonce| format!("{nonce:064x}"))
+            .find(|j| {
+                let j = Hex32::from_hex(j).expect("j");
+                boole_core::digest_to_biguint(&boole_core::share_hash(&c, &pk, &n, &j, &canon_hash))
+                    < target
+            })
+            .expect("bounded fixture nonce search finds qualifying share");
+        body.insert("j".to_string(), json!(j));
+        runtime.observe_ticket_from_body(&body).expect("ticket");
+        let ts = base_ms + height as u64 * spacing_ms;
+        let decision = runtime.admit_body_with_canon_tag(ts as i64, "198.51.100.42", &body, 0);
+        assert!(
+            matches!(decision, AdmissionDecision::Accepted { .. }),
+            "fixture admission: {decision:?}"
+        );
+        let block = runtime
+            .commit_next_block_for_current_c(&path, ts + 1, &std::collections::BTreeSet::from([0]))
+            .expect("strict fixture commit")
+            .block;
+        lines.push(serde_json::to_string(&block).expect("serialized block"));
+    }
+    fs::remove_dir_all(dir).expect("remove fixture producer directory");
+    lines
+}
+
+#[test]
+#[ignore = "needs-multiprocess"]
+fn sync_shorter_heavier_chain_wins_by_work_not_height() {
+    let mut scenario = sync_scenario();
+    scenario["difficultyRetarget"] = json!({
+        "targetBlockMs": 60_000, "retargetEveryBlocks": 2, "maxAdjustmentFactor": 4,
+    });
+    let longer = retargeted_fixture_chain(&scenario, 4, 60_000);
+    let shorter = retargeted_fixture_chain(&scenario, 3, 1_000);
+    let weights = |chain: &[String]| {
+        chain
+            .iter()
+            .map(|line| {
+                serde_json::from_str::<boole_core::PersistedBlock>(line)
+                    .expect("block")
+                    .difficulty_weight
+                    .parse::<u64>()
+                    .expect("fixture work")
+            })
+            .sum::<u64>()
+    };
+    assert_eq!((weights(&longer), weights(&shorter)), (4, 6));
+    let expected: boole_core::PersistedBlock = serde_json::from_str(&shorter[2]).expect("tip");
+    let a_listener = TcpListener::bind("127.0.0.1:0").expect("A P2P");
+    let a_addr = a_listener.local_addr().expect("A address");
+    let a = boot_with_p2p_seeded_scenario(
+        "short-heavy",
+        Some(a_listener),
+        vec!["127.0.0.1:1".parse().expect("loopback allowlist")],
+        false,
+        &shorter,
+        &scenario,
+    );
+    let b =
+        boot_with_p2p_seeded_scenario("long-light", None, vec![a_addr], false, &longer, &scenario);
+    let deadline = Instant::now() + Duration::from_secs(8);
+    while Instant::now() < deadline && b_head_c(&b) != expected.c {
+        thread::sleep(Duration::from_millis(50));
+    }
+    let final_head = b_head_c(&b);
+    let final_height = height(b.addr);
+    let reorgs = metric_value(b.addr, "boole_p2p_sync_reorgs_applied_total");
+    let final_blocks = fs::read_to_string(b.dir.join("blocks.ndjson")).expect("canonical blocks");
+    stop(a);
+    stop(b);
+    assert_eq!(
+        final_head, expected.c,
+        "shorter but heavier peer must be considered"
+    );
+    assert_eq!(final_height, 3);
+    assert_eq!(reorgs, 1);
+    assert_eq!(final_blocks.lines().collect::<Vec<_>>(), shorter);
 }
 
 /// B's current head `c`, read from its highest block (avoids assuming the

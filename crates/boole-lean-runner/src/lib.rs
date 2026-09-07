@@ -2560,12 +2560,12 @@ impl Drop for ChildKillOnDrop {
     }
 }
 
-// Files the artifact hash always pins, in order. Anything outside this list
-// must come from the recursive `BooleCheck/**` walk below.
-// `Boole/Family/V0Helpers.lean` is pinned explicitly (D#6): proof files
-// `import Boole.Family.V0Helpers`, so a tampered helper must be visible in
-// the hash even though it lives outside `BooleCheck/`.
-const CHECKER_PINNED_FILES: &[&str] = &[
+/// Files the artifact hash always pins, in order. Consumers protecting these
+/// input paths use the same list rather than duplicating the checker contract.
+/// The complete artifact also includes the recursive `BooleCheck/**` source
+/// walk below. `Boole/Family/V0Helpers.lean` is explicit (D#6): submitted proof
+/// files import this helper even though it lives outside `BooleCheck/`.
+pub const CHECKER_PINNED_FILES: &[&str] = &[
     "lean-toolchain",
     "lakefile.lean",
     "lake-manifest.json",

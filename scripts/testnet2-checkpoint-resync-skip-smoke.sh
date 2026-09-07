@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# SC.10-iii-c-2 — verified-prefix checkpoint `assumevalid` re-sync skip.
+# SC.10 / ADR-0016 (c-1) — future checkpoint discarded on store rollback.
 #
-# Proves the cost-curve payoff of the checkpoint: a node that has itself
-# Lean-re-verified a prefix, then re-bootstraps (block store wiped, checkpoint
-# kept), re-syncs that prefix WITHOUT re-running the pinned checker —
-# structural replay still runs, but the expensive Lean step is skipped for the
-# trusted prefix (ADR-0016 (c), Bitcoin assumevalid shape).
+# A node that has Lean-re-verified a prefix, then re-bootstraps with a wiped
+# block store, must discard its future checkpoint and re-verify during sync.
+# A missing prefix cannot inherit trust from an anchor it has not reached.
+# The historical script basename is retained for existing CI callers.
 #
 # Topology (two boole-testnet-2 nodes):
 #   * F — a checker-off producer (`--lean-checker-disabled`) that self-produces
@@ -16,8 +15,8 @@
 #
 # Then H is stopped, its block + reward store are WIPED (the checkpoint file is
 # kept), and H is restarted empty. It re-syncs block 0 from F: the block falls
-# within its trusted checkpoint prefix, so H adopts it WITHOUT running Lean —
-# the skip counter goes 0 -> 1 and H re-converges to the same head.
+# below the old checkpoint, but H runs Lean again, advances a fresh checkpoint,
+# and re-converges with its skip counter still zero.
 #
 # Closed local smoke only; not public-network mining.
 set -euo pipefail
@@ -223,9 +222,7 @@ h_rewards.unlink()
 if not h_checkpoint.exists():
     raise SystemExit("checkpoint file must survive the store wipe")
 
-# --- Phase 3: restart H empty (checkpoint retained) and re-sync from F. The
-# re-synced block 0 falls within the trusted prefix, so H SKIPS the Lean
-# re-verify: the skip counter goes to 1 and H re-converges to the same head.
+# --- Phase 3: boot discards the future checkpoint and re-sync re-verifies.
 h_proc = launch_h()
 try:
     wait_live(http_h)
@@ -234,17 +231,20 @@ try:
     while time.monotonic() < deadline:
         st = request_json(http_h, "GET", "/status")
         skip = metric(http_h, SKIP_METRIC)
-        if st.get("height") == 1 and st.get("c") == c_good and skip >= 1:
+        if st.get("height") == 1 and st.get("c") == c_good \
+                and st.get("verifiedCheckpointHeight") == 1:
             resynced = (st, skip)
             break
         time.sleep(0.5)
     if resynced is None:
         raise SystemExit(
-            f"H must re-sync block 0 with a Lean SKIP: "
+            f"H must re-verify block 0 and record a fresh checkpoint: "
             f"status={request_json(http_h, 'GET', '/status')}, "
             f"skip={metric(http_h, SKIP_METRIC)}"
         )
     resynced_status, skip_after_resync = resynced
+    if skip_after_resync != 0:
+        raise SystemExit(f"future checkpoint must not skip re-verification: {skip_after_resync}")
 finally:
     stop(h_proc)
 
@@ -264,6 +264,8 @@ print(json.dumps({
     "skipCounterAfterFirstIngest": skip_after_first_ingest,
     "skipCounterAfterResync": skip_after_resync,
     "reverifySkippedOnResync": skip_after_resync >= 1,
+    "checkpointRebuiltAfterReverify": resynced_status.get("verifiedCheckpointHeight") == 1
+        and skip_after_resync == 0,
     "resyncedHeight": resynced_status.get("height"),
     "resyncedHead": resynced_status.get("c"),
     "headMatchesFirstVerified": resynced_status.get("c") == c_good,

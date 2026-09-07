@@ -12,7 +12,7 @@ source "$ROOT/scripts/smoke-lifecycle.sh"
 # explicitly supplied fresh path remains available to its caller.
 BLOCK_STORE_DIR="$(smoke_fresh_path "${BLOCK_STORE_DIR:-$SMOKE_WORK_DIR/cases}")"
 export BLOCK_STORE_DIR
-SMOKE_JSON="$(${ROOT}/scripts/runtime-smoke-all.sh)"
+SMOKE_JSON="$("${ROOT}/scripts/runtime-smoke-all.sh")"
 
 python3 - "$SMOKE_JSON" <<'PY'
 import hashlib

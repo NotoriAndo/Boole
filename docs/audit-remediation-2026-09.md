@@ -6,6 +6,49 @@ defects: several repeat the same issue, and several describe intentional
 behavior or historical evidence. This document records the implemented
 boundaries and deliberate exclusions, not a new whole-codebase security claim.
 
+## September 7 independent-review remediation
+
+A separate review of main `ae08171c` (after PR #371) reproduced nine further
+recommendations. The `IR-F` labels below refer to that independent review, not
+the earlier audit's F-series documentation claims. Its original pre-fix evidence
+is preserved; the following describes the new implementation and regression
+boundary.
+
+| Independent finding | Fix and direct consumer verification |
+|---|---|
+| IR-F1, storage role collision | Reject aliases among mutable stores, their checkpoint/lock files, state metadata and read-only boot inputs before recovery or lock writes. Checker/family input trees are reserved as well. Existing canonical block and input bytes remain unchanged on refusal; read-only symlinks and read-only aliases remain supported. |
+| IR-F2, future checkpoint trust | Discard checkpoints beyond the recovered store and reverify individual ingress below an unseen anchor. A busy checker cannot publish the block or advance its checkpoint. Full-candidate reorg may still reuse a prefix whose actual anchor hash matches. The rollback/resync CI smoke now requires re-verification and checkpoint reconstruction. |
+| IR-F3, failed append continuation | Restore the previously confirmed length and fsync after partial append or sync failure. Failed rollback fences subsequent append and atomic rewrite by path/inode until process restart and recovery. Any uncertain owned ledger also makes that node's complete mutation surface and readiness fail closed; independent nodes remain usable. Signed HTTP consumers cover a real file-size-limited partial write and a failed session revoke followed by valid submission, retry and restart. |
+| IR-F4, equal/shorter peer convergence | Compare heads rather than using height as the only sync trigger. Same-height forks and a shorter chain with more cumulative work traverse the existing bounded strict replay/fork-choice path; loopback peers converge without requiring another block. |
+| IR-F5, Codex transport replacement | Switching an existing Boole HTTP entry to stdio removes HTTP-only transport/auth fields while preserving tool policy and unrelated servers. Generated config is tested through the installer; actual local Codex parsing is an additional opt-in consumer check. |
+| IR-F6, slow MCP control path | One bounded HTTP-proxy slot serves native verification and legacy reads independently of protocol control. Ping/status/cancellation remain responsive; duplicate active IDs and id-less native execution are refused. Native cancellation does not fabricate a verdict or retry node-owned work. Bounded stdio queues and output deadlines also prevent an unread pipe from holding process shutdown. |
+| IR-F7–IR-F9, portable process ownership | Mac readiness cleans owned process groups on interruption, benchmark invocation quotes executable paths containing spaces, and prewarming uses a Python deadline/process-group owner instead of requiring GNU `timeout`. Synthetic subprocess regressions exercise the failures without a VM or model. |
+
+Direct follow-through on the same storage boundary also reproduced an additional
+bounty bug: create, status and proof routes published registry state before a
+failed audit append. They now preview under the existing writer lock, append
+durably, then publish registry/side-pool state. All three HTTP failure/retry/restart
+regressions pass; failed attempts retain the existing signed-nonce burn policy
+and require a fresh signed intent to retry.
+
+Independent review covers storage, consensus and tooling without implementation
+ownership, with root review of consumer evidence and integration.
+That review additionally caught the stale checkpoint CI expectation, a
+cross-ledger authorization gap in the initial failure fence, checker-input alias
+coverage, and a response-publication/request-slot retirement race. Corrections
+are rechecked at those consumers before integration.
+Focused checks are not a substitute for the containing PR's full required CI.
+This is closure of these reproduced findings, not proof that every possible
+defect in the repository has been eliminated.
+
+New residual conditions: path-based append now fsyncs its parent directory on
+every call; indeterminate writes deliberately remain fenced for process lifetime.
+Deep competing chains can still exceed the existing sync-round budget and need
+the separately deferred checkpoint/snapshot design. Native MCP transport shutdown
+may wait for its existing 120-second upstream deadline to retain the real outcome;
+it does not cancel the node's durable owner. No fresh VM, real-model/API, public
+P2P, operational key, reward or activation execution is included.
+
 ## Remediation boundaries
 
 | Audit references | Change and verification surface |

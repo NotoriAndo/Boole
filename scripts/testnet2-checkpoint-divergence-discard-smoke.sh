@@ -10,9 +10,8 @@
 # checker-pinned). H Lean-verifies F's block (checkpoint 1). H is stopped, its
 # store is wiped, and its checkpoint file is TAMPERED so its block hash points
 # at a DIFFERENT prefix (as if a rollback then a divergent chain). On restart H
-# re-syncs the real block 0: because the block at the checkpoint height does
-# NOT match the tampered checkpoint, H does NOT skip — it discards the
-# checkpoint and re-runs the pinned checker, still converging to the real head.
+# re-syncs the real block 0: boot discards the future checkpoint because its
+# prefix is missing. H re-runs the pinned checker and converges to the real head.
 #
 # Closed local smoke only; not public-network mining.
 set -euo pipefail
@@ -210,8 +209,7 @@ h_blocks.unlink()
 h_rewards.unlink()
 
 # Restart H empty with the TAMPERED checkpoint and re-sync the real block 0.
-# The block at the checkpoint height will NOT match the tampered hash, so H
-# must NOT skip: it discards the checkpoint and re-runs Lean, still converging.
+# Boot must discard the future checkpoint and sync re-run Lean, still converging.
 h_proc = launch_h()
 try:
     wait_live(http_h)
