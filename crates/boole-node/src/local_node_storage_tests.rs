@@ -226,7 +226,7 @@ fn signed_http_append_failure_rolls_back_before_next_request_and_restart() {
             let request = |nonce: &str| {
                 let payload = json!({"schema": "boole.receipts.commit.v1", "receiptCommitment": receipt,
                     "validBefore": now_unix_ms() / 1000 + 60, "nonce": nonce});
-                let signed = key.sign(&payload).expect("signed fixture");
+                let signed = key.sign_for_network(&payload, None).expect("signed fixture");
                 let body = json!({"schema": signed.schema, "payload": signed.payload, "pk": signed.pk, "signature": signed.signature});
                 Request::builder().method("POST").uri("/receipts").header("content-type", "application/json")
                     .body(Body::from(serde_json::to_vec(&body).expect("serialize"))).expect("request")
@@ -313,7 +313,7 @@ async fn uncertain_session_revoke_fences_only_its_node_until_restart() {
         cfg
     };
     let signed = |payload: Value, key: &boole_core::SigningKeyV2| {
-        let signed = key.sign(&payload).expect("sign request");
+        let signed = key.sign_for_network(&payload, None).expect("sign request");
         json!({"schema": signed.schema, "payload": signed.payload, "pk": signed.pk,
             "signature": signed.signature})
     };
