@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import re
 import shlex
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -19,6 +21,38 @@ def _read(path: Path) -> str:
 
 
 class SelfTestContractTests(unittest.TestCase):
+    def test_required_gitleaks_missing_fails_without_running_product_gates(self) -> None:
+        body = _read(SELF_TEST)
+        stage = body.split('GITLEAKS_STATUS="skipped"', 1)[1].split("\npython3 -", 1)[0]
+        with tempfile.TemporaryDirectory() as empty_path:
+            result = subprocess.run(
+                ["/bin/bash", "-c", 'set -euo pipefail\nGITLEAKS_STATUS="skipped"\n' + stage],
+                env={"PATH": empty_path, "CI": "true"},
+                text=True,
+                capture_output=True,
+                timeout=10,
+                check=False,
+            )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("gitleaks is required", result.stderr)
+
+    def test_shell_gates_have_valid_bash_syntax(self) -> None:
+        # These executable gates can change in the process-only lane. String
+        # contract checks alone must not accept a syntactically broken gate.
+        # Parse the same bytes read by the other checks, without executing a
+        # dependency install, product build, or any of the gate's mutations.
+        for path in (SELF_TEST, ROOT / "scripts" / "docs-smoke.sh"):
+            with self.subTest(path=path.name):
+                result = subprocess.run(
+                    ["bash", "-n"],
+                    input=_read(path),
+                    text=True,
+                    capture_output=True,
+                    timeout=10,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_every_registered_python_test_path_exists(self) -> None:
         body = _read(SELF_TEST)
         python_test_lines = [

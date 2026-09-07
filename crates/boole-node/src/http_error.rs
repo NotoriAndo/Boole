@@ -59,6 +59,14 @@ impl HttpError {
             .with_extra("phase", Value::String(phase.to_string()))
     }
 
+    /// The process still owns an open advisory-lock descriptor, but the
+    /// pathname no longer names that locked inode. Another writer can now
+    /// acquire a replacement lock, so this process becomes diagnostic-only
+    /// until restart. The bounded reason is also used by `/ready`.
+    pub fn write_authority_lost(reason: &'static str) -> Self {
+        Self::new(503, reason).with_extra("retryable", Value::Bool(true))
+    }
+
     /// Returned by `/sessions*` routes when the node was booted without
     /// `LocalNodeConfig.session_registry_path`. The agent-wallet plan
     /// keeps the registry opt-in so legacy embeddings can stay quiet.

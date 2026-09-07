@@ -20,8 +20,8 @@ use std::time::{Duration, Instant};
 
 use boole_core::{LocalPackageStore, LocalPackageStoreError, PackageRoot, CONSENSUS_RULE_VERSION};
 use boole_p2p::{
-    Frame, FrameError, HeadSummary, TcpConn, TcpTransport, Transport, GET_BLOCKS_RANGE_CAP,
-    MAX_FRAME_BYTES, PROTOCOL_VERSION,
+    AuthorizationPolicy, Frame, FrameError, HeadSummary, TcpConn, TcpTransport, Transport,
+    GET_BLOCKS_RANGE_CAP, MAX_FRAME_BYTES, PROTOCOL_VERSION,
 };
 use serde_json::Value;
 use tokio::sync::RwLock;
@@ -184,10 +184,17 @@ pub(crate) struct P2pIngressRuntimeConfig {
 #[derive(Clone)]
 pub(crate) struct P2pIdentity {
     pub(crate) network_id: String,
+    /// Signed-work validity posture. Two processes can intentionally preserve
+    /// different legacy/named rules under the same historical network/genesis;
+    /// committing this bit in Hello prevents them from exchanging blocks.
+    pub(crate) authorization_policy: AuthorizationPolicy,
     /// N5.2 — the content-addressed genesis identity (`GenesisSpec.hash()`,
     /// N5.1), NOT the raw chain anchor: peers that agree on the anchor but
     /// differ on any committed consensus parameter must refuse to gossip.
     pub(crate) genesis_hash: String,
+    /// Canonical root of the family registry this runtime actually applies.
+    /// Required even when genesis does not yet pin a launch registry.
+    pub(crate) effective_family_manifest_root: String,
 }
 
 impl P2pIdentity {
@@ -195,15 +202,19 @@ impl P2pIdentity {
         Frame::Hello {
             protocol_version: PROTOCOL_VERSION,
             consensus_rule_version: CONSENSUS_RULE_VERSION,
+            authorization_policy: self.authorization_policy,
             network_id: self.network_id.clone(),
             genesis_hash: self.genesis_hash.clone(),
+            effective_family_manifest_root: self.effective_family_manifest_root.clone(),
             head,
         }
     }
 
-    /// A peer `Hello` matches iff protocol_version, consensus_rule_version,
-    /// network_id AND genesis_hash all agree. `genesis_hash` carries the
-    /// N5.2 per-network genesis commitment (the spec hash);
+    /// A peer `Hello` matches iff protocol/rule/authorization, network,
+    /// genesis, and effective family-registry identities all agree.
+    /// `genesis_hash` carries the N5.2 per-network genesis commitment;
+    /// the effective registry root separately closes agreement while a
+    /// network's launch family set remains unpinned in genesis.
     /// `consensus_rule_version` (ADR-0014 (b)) keeps a peer enforcing a
     /// different block-validity rule set from gossiping with us — same
     /// shares, different chosen blocks is a silent fork.
@@ -213,13 +224,17 @@ impl P2pIdentity {
             Frame::Hello {
                 protocol_version,
                 consensus_rule_version,
+                authorization_policy,
                 network_id,
                 genesis_hash,
+                effective_family_manifest_root,
                 ..
             } if *protocol_version == PROTOCOL_VERSION
                 && *consensus_rule_version == CONSENSUS_RULE_VERSION
+                && authorization_policy == &self.authorization_policy
                 && network_id == &self.network_id
                 && genesis_hash == &self.genesis_hash
+                && effective_family_manifest_root == &self.effective_family_manifest_root
         )
     }
 }
@@ -597,7 +612,8 @@ fn handle_connection(stream: TcpStream, peer: SocketAddr, context: &IngressConne
                 // Range shape (≤256, not inverted) was validated by the
                 // codec on receive; heights past our head are simply not
                 // included (the requester sees a shorter/empty batch).
-                let blocks = blocks_range_values(&state.blocking_read(), from, to);
+                let blocks =
+                    byte_bounded_blocks_page(blocks_range_values(&state.blocking_read(), from, to));
                 if transport
                     .send_frame_until(&mut conn, &Frame::Blocks { blocks }, connection_deadline)
                     .is_err()
@@ -664,6 +680,37 @@ fn handle_connection(stream: TcpStream, peer: SocketAddr, context: &IngressConne
             Err(()) => return,
         }
     }
+}
+
+/// Keep the longest ordered prefix whose exact `Blocks` JSON line fits the
+/// transport frame cap. A count-bounded GetBlocks range can still exceed the
+/// byte cap when blocks carry large evidence; serving a short non-empty page
+/// lets the requester advance and ask for the remainder.
+fn byte_bounded_blocks_page(blocks: Vec<Value>) -> Vec<Value> {
+    let empty_wire_len = serde_json::to_vec(&Frame::Blocks { blocks: Vec::new() })
+        .expect("empty Blocks frame serializes")
+        .len()
+        + 1;
+    let mut wire_len = empty_wire_len;
+    let mut page = Vec::with_capacity(blocks.len());
+    for block in blocks {
+        let Ok(encoded) = serde_json::to_vec(&block) else {
+            break;
+        };
+        let separator_len = usize::from(!page.is_empty());
+        let Some(next_len) = wire_len
+            .checked_add(encoded.len())
+            .and_then(|len| len.checked_add(separator_len))
+        else {
+            break;
+        };
+        if next_len > MAX_FRAME_BYTES {
+            break;
+        }
+        wire_len = next_len;
+        page.push(block);
+    }
+    page
 }
 
 /// N3.4 — how often the sync loop re-checks every peer's head. Catch-up
@@ -1285,6 +1332,65 @@ mod tests {
     use super::*;
     use std::io::Write;
     use std::net::{TcpListener, TcpStream};
+
+    #[test]
+    fn blocks_page_stops_before_encoded_frame_exceeds_byte_cap() {
+        let each = MAX_FRAME_BYTES / 2 + 1_024;
+        let first = Value::String("a".repeat(each));
+        let second = Value::String("b".repeat(each));
+        let page = byte_bounded_blocks_page(vec![first.clone(), second]);
+
+        assert_eq!(
+            page,
+            vec![first],
+            "serve the longest ordered fitting prefix"
+        );
+        let mut encoded =
+            serde_json::to_vec(&Frame::Blocks { blocks: page }).expect("Blocks page serializes");
+        encoded.push(b'\n');
+        assert!(encoded.len() <= MAX_FRAME_BYTES);
+    }
+
+    #[test]
+    fn hello_requires_matching_authorization_and_effective_family_registry_roots() {
+        let head = HeadSummary {
+            height: 0,
+            c: "00".repeat(32),
+        };
+        let legacy = P2pIdentity {
+            network_id: "boole-mvp".to_string(),
+            authorization_policy: AuthorizationPolicy::LegacyUnscopedV1,
+            genesis_hash: "11".repeat(32),
+            effective_family_manifest_root: "22".repeat(32),
+        };
+        let named = P2pIdentity {
+            network_id: legacy.network_id.clone(),
+            authorization_policy: AuthorizationPolicy::NetworkScopedV1,
+            genesis_hash: legacy.genesis_hash.clone(),
+            effective_family_manifest_root: legacy.effective_family_manifest_root.clone(),
+        };
+
+        assert!(legacy.matches(&legacy.hello(head.clone())));
+        assert!(named.matches(&named.hello(head.clone())));
+        assert!(!legacy.matches(&named.hello(head.clone())));
+        assert!(!named.matches(&legacy.hello(head.clone())));
+
+        let different_registry = P2pIdentity {
+            effective_family_manifest_root: "33".repeat(32),
+            ..legacy.clone()
+        };
+        assert!(
+            !legacy.matches(&different_registry.hello(head.clone())),
+            "same genesis and authorization policy cannot mask different effective validators"
+        );
+        let empty_registry = P2pIdentity {
+            effective_family_manifest_root: boole_core::FamilyManifestRegistry::new()
+                .root()
+                .to_hex(),
+            ..legacy
+        };
+        assert!(empty_registry.matches(&empty_registry.hello(head)));
+    }
 
     #[test]
     fn trickled_frame_cannot_outlive_absolute_ingress_deadline() {

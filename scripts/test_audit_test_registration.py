@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+import shlex
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,6 +20,17 @@ AUDITED = {
 
 
 class AuditTestRegistrationTests(unittest.TestCase):
+    def test_canonical_lenbound_proof_acceptance_runs_in_the_required_gate(self) -> None:
+        commands = SELF_TEST.read_text(encoding="utf-8").replace("\\\n", " ").splitlines()
+        expected = "local_verify::tests::lean_verifier_accepts_v1_lenbound_canonical_proof"
+        registered = [shlex.split(line) for line in commands if line.startswith("run_logged ") and expected in line]
+        matches = [command for command in registered if expected in command]
+        self.assertEqual(len(matches), 1, "the real canonical renderer must run in one named gate")
+        command = matches[0]
+        self.assertEqual(command[2:6], ["cargo", "test", "-p", "boole-miner"])
+        for flag in ("--locked", "--lib", "--ignored", "--exact"):
+            self.assertIn(flag, command)
+
     def test_every_audited_test_is_registered_or_has_an_explicit_reason(self) -> None:
         registered = SELF_TEST.read_text(encoding="utf-8")
         self.assertIn("scripts/test_self_test_prewarm.py", registered)

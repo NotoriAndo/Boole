@@ -9,6 +9,7 @@ cd "$ROOT"
 # ledger ordering) cannot interleave. Exported here so child processes inherit
 # regardless of how the caller invoked self-test.sh.
 export RUST_TEST_THREADS=1
+export BOOLE_REQUIRE_LEAN=1
 
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/boole-self-test.XXXXXX")"
 trap 'rm -rf "$TMP_DIR"' EXIT
@@ -65,6 +66,7 @@ run_logged native-shadow-raw-scan-correction python3 -m unittest scripts/test_na
 run_logged native-shadow-ext4-secret-reconciliation python3 -m unittest scripts/test_native_shadow_ext4_readonly_owner_map_arm64_v1.py scripts/test_native_shadow_mac3_guest_secret_path_content_reconcile_arm64_v1.py
 run_logged development-throughput-policy python3 -m unittest scripts/test_development_throughput_policy.py
 run_logged ci-change-scope python3 -m unittest scripts/test_ci_change_scope.py
+run_logged smoke-lifecycle-tests python3 -m unittest scripts/test_smoke_lifecycle.py
 run_logged testnet2-session-smoke-contract python3 -m unittest scripts/test_testnet2_session_smoke.py
 run_logged docs-smoke ./scripts/docs-smoke.sh
 run_logged wallet-session-receipt-gate ./scripts/wallet-session-receipt-gate.sh
@@ -137,6 +139,9 @@ run_logged lean-checker-build bash -c '
   cd lean/checker
   lake build Boole.Family.V0Helpers
 '
+run_logged lean-canonical-proof-acceptance cargo test -p boole-miner --lib --locked \
+  local_verify::tests::lean_verifier_accepts_v1_lenbound_canonical_proof \
+  -- --ignored --exact
 run_logged cargo-test cargo test --workspace --all-targets --locked --features boole-node/dev-mock-payment,boole-miner/dev-tools
 # SC.8 (GAP-13) — the multiprocess suites are `#[ignore = "needs-multiprocess"]`
 # so the default `cargo test` above skips them; without this stage the core
@@ -225,6 +230,11 @@ GITLEAKS_STATUS="skipped"
 if command -v gitleaks >/dev/null 2>&1; then
   run_logged gitleaks gitleaks detect --redact --verbose --no-banner
   GITLEAKS_STATUS="pass"
+elif [[ "${CI:-false}" == "true" || "${BOOLE_REQUIRE_GITLEAKS:-0}" == "1" ]]; then
+  printf 'self-test check gitleaks: FAIL (gitleaks is required in CI or when BOOLE_REQUIRE_GITLEAKS=1)\n' >&2
+  exit 1
+else
+  printf 'self-test check gitleaks: SKIP (optional local tool not installed)\n' >&2
 fi
 
 python3 - "$SMOKE_JSON" "$BENCH_JSON" "$MINING_JSON" "$GITLEAKS_STATUS" "$RUST_PARITY_STATUS" "$CONVERGENCE_JSON" "$PINNED_BOOT_JSON" "$LEAN_INVALID_JSON" "$CHECKPOINT_RESYNC_JSON" "$CHECKPOINT_DIVERGE_JSON" <<'PY'

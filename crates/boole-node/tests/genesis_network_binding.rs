@@ -256,8 +256,10 @@ fn hello_with_genesis(genesis_hash: &str) -> Frame {
     Frame::Hello {
         protocol_version: PROTOCOL_VERSION,
         consensus_rule_version: CONSENSUS_RULE_VERSION,
+        authorization_policy: boole_p2p::AuthorizationPolicy::LegacyUnscopedV1,
         network_id: "boole-mvp".to_string(),
         genesis_hash: genesis_hash.to_string(),
+        effective_family_manifest_root: boole_core::FamilyManifestRegistry::new().root().to_hex(),
         head: HeadSummary {
             height: 0,
             c: scenario_genesis_c(),
@@ -446,14 +448,7 @@ fn canonical_checker_dir() -> PathBuf {
 }
 
 fn lake_and_lean_available() -> bool {
-    std::process::Command::new("lake")
-        .arg("--version")
-        .output()
-        .is_ok_and(|o| o.status.success())
-        && std::process::Command::new("lean")
-            .arg("--version")
-            .output()
-            .is_ok_and(|o| o.status.success())
+    boole_testkit::lake_and_lean_available()
 }
 
 /// Copy the canonical checker package (pinned sources + release manifest,

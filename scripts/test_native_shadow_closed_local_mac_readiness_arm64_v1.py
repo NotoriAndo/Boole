@@ -4,7 +4,10 @@ import pathlib
 import subprocess
 import sys
 import tempfile
+import time
+import types
 import unittest
+from unittest import mock
 
 from scripts import native_shadow_closed_local_mac_readiness_arm64_v1 as subject
 from scripts import native_shadow_mac3_guest_evidence_protocol_arm64_v2 as protocol
@@ -113,6 +116,105 @@ class ClosedLocalMacReadinessTests(unittest.TestCase):
         self.assertEqual(
             argv[argv.index("-module-cache-path") + 1], "/work/cache"
         )
+        self.assertIn(str(subject.HOST_STOP_STATE_SOURCE), argv)
+        self.assertEqual(argv[argv.index("-o") - 1], str(subject.HOST_SOURCE))
+
+    def test_phase_runner_times_out_a_real_sleeping_subprocess(self):
+        started = time.monotonic()
+        with self.assertRaisesRegex(ValueError, "compile timed out"):
+            subject._run(
+                [sys.executable, "-c", "import time; time.sleep(10)"],
+                timeout=0.05,
+                phase="compile",
+            )
+        self.assertLess(time.monotonic() - started, 2)
+
+    def test_phase_runner_kills_a_timed_out_child_process_group(self):
+        escaped_child_marker = self.root / "escaped-child"
+        child_program = (
+            "import pathlib, time; time.sleep(1); "
+            f"pathlib.Path({str(escaped_child_marker)!r}).write_text('escaped')"
+        )
+        parent_program = (
+            "import subprocess, sys, time; "
+            f"subprocess.Popen([sys.executable, '-c', {child_program!r}]); "
+            "time.sleep(10)"
+        )
+        with self.assertRaisesRegex(ValueError, "compile timed out"):
+            subject._run(
+                [sys.executable, "-c", parent_program],
+                timeout=0.05,
+                phase="compile",
+            )
+        time.sleep(1.2)
+        self.assertFalse(
+            escaped_child_marker.exists(),
+            "timeout must terminate subprocess descendants as well as the parent",
+        )
+
+    def test_boot_budget_includes_only_a_bounded_shutdown_grace(self):
+        self.assertEqual(
+            subject.boot_subprocess_timeout(60),
+            105,
+        )
+        self.assertGreaterEqual(
+            subject.BOOT_SUBPROCESS_GRACE_SECONDS,
+            5 + 15 + 15,
+            "the parent must allow the host's request, guest, and forced-stop waits",
+        )
+
+    def test_boot_phase_failure_cannot_write_a_success_result(self):
+        result = self.root / "result.json"
+        args = types.SimpleNamespace(
+            comparison=self.comparison,
+            kernel=self.images["guest-kernel"],
+            initrd=self.images["guest-initrd"],
+            root_disk=self.images["guest-root-disk"],
+            work=self.root / "work",
+            result=result,
+            timeout=1,
+            swiftc="swiftc",
+            sdk=self.root,
+            codesign="codesign",
+            mode="boot",
+        )
+
+        calls = []
+
+        def phase_runner(argv, *, timeout, phase):
+            calls.append((argv, timeout, phase))
+            if phase == "dry-run":
+                console = pathlib.Path(argv[argv.index("--console") + 1])
+                receipt = pathlib.Path(argv[argv.index("--receipt") + 1])
+                console.write_text("", encoding="utf-8")
+                receipt.write_text(
+                    json.dumps(
+                        {
+                            "outcome": "dry-run-configuration-valid",
+                            "dryRun": True,
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+            if phase == "boot":
+                raise ValueError("boot timed out after %s seconds" % timeout)
+
+        with (
+            mock.patch.object(subject.platform, "system", return_value="Darwin"),
+            mock.patch.object(subject.platform, "machine", return_value="arm64"),
+            mock.patch.object(subject.platform, "mac_ver", return_value=("14.0", (), "")),
+            mock.patch.object(subject, "_run", side_effect=phase_runner),
+        ):
+            with self.assertRaisesRegex(ValueError, "boot timed out"):
+                subject.execute(args)
+        self.assertFalse(result.exists(), "a timed-out boot must not record readiness success")
+        compile_argv, _, compile_phase = calls[0]
+        self.assertEqual(compile_phase, "compile")
+        self.assertIn(str(subject.HOST_STOP_STATE_SOURCE), compile_argv)
+        self.assertEqual(
+            pathlib.Path(compile_argv[compile_argv.index("-o") - 1]).resolve(),
+            (args.work / "main.swift").resolve(),
+        )
 
     def test_exact_guest_evidence_and_closed_host_receipt_are_readiness_green(self):
         transcript = "\n".join(
@@ -153,6 +255,7 @@ class ClosedLocalMacReadinessTests(unittest.TestCase):
                 "serialPorts": 1,
             },
             "outcome": "stopped-at-timeout",
+            "stopConfirmed": True,
             "rootDisk": {"attachedReadOnly": True},
             "schema": "boole.native-shadow.mac3-closed-local-boot-run.v1",
         }
@@ -175,6 +278,23 @@ class ClosedLocalMacReadinessTests(unittest.TestCase):
         assessed = subject.assess_readiness(transcript, receipt)
         self.assertFalse(assessed["ready"])
         self.assertFalse(assessed["guestEvidence"]["launcher-executable"]["met"])
+
+    def test_success_shaped_receipt_requires_positive_stop_confirmation(self):
+        receipt = {
+            "dryRun": False,
+            "machine": subject.EXACT_MACHINE,
+            "outcome": "stopped-at-timeout",
+            "rootDisk": {"attachedReadOnly": True},
+            "schema": "boole.native-shadow.mac3-closed-local-boot-run.v1",
+        }
+        for stop_confirmation in (None, False, "true", 1):
+            candidate = dict(receipt)
+            if stop_confirmation is not None:
+                candidate["stopConfirmed"] = stop_confirmation
+            with self.subTest(stop_confirmation=stop_confirmation):
+                met, detail = subject._host_receipt_matches(candidate)
+                self.assertFalse(met)
+                self.assertIn("stop", detail)
 
     def test_result_is_development_only_even_when_readiness_passes(self):
         result = subject.make_result(

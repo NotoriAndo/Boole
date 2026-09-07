@@ -4,25 +4,25 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-ADDR="${BOOLE_NODE_ADDR:-127.0.0.1:18081}"
+source "$ROOT/scripts/smoke-lifecycle.sh"
+ADDR="${BOOLE_NODE_ADDR:-127.0.0.1:$((20000 + ($$ % 20000)))}"
 SCENARIO="${SCENARIO:-fixtures/protocol/runtime-smoke/v1.json}"
-BLOCK_STORE="${BLOCK_STORE:-${TMPDIR:-/tmp}/boole-node-local-smoke.ndjson}"
-# Keep reward-ledger isolated from the boole-node default
-# (`/tmp/boole-node-rewards.ndjson`) so a smoke run does not pollute the
-# default path that boole-cli integration tests inherit.
-REWARD_LEDGER="${REWARD_LEDGER:-${TMPDIR:-/tmp}/boole-node-local-smoke-rewards.ndjson}"
-rm -f "$BLOCK_STORE" "$REWARD_LEDGER"
+BLOCK_STORE="$(smoke_fresh_path "${BLOCK_STORE:-$SMOKE_WORK_DIR/blocks.ndjson}")"
+REWARD_LEDGER="$(smoke_fresh_path "${REWARD_LEDGER:-$SMOKE_WORK_DIR/rewards.ndjson}")"
 
-cargo run -q -p boole-node -- run-local \
+# Finish compilation before the HTTP readiness budget starts.
+NODE_BIN="$(smoke_build_binary boole-node boole-node)"
+smoke_prewarm_binary "$NODE_BIN"
+"$NODE_BIN" run-local \
   --addr "$ADDR" \
   --scenario "$SCENARIO" \
   --block-store "$BLOCK_STORE" \
   --reward-store "$REWARD_LEDGER" \
-  --max-requests 10 \
-  >/tmp/boole-node-local-smoke.out \
-  2>/tmp/boole-node-local-smoke.err &
+  --allow-anonymous-submit \
+  >"$SMOKE_WORK_DIR/node.out" \
+  2>"$SMOKE_WORK_DIR/node.err" &
 PID=$!
-trap 'kill "$PID" >/dev/null 2>&1 || true; rm -f /tmp/boole-node-local-smoke.out /tmp/boole-node-local-smoke.err "$BLOCK_STORE" "$REWARD_LEDGER"' EXIT
+smoke_register_child "$PID"
 
 python3 - "$ADDR" "$SCENARIO" <<'PY'
 import http.client
@@ -128,5 +128,6 @@ print(json.dumps({
 }, separators=(",", ":")))
 PY
 
-wait "$PID"
+smoke_stop_and_wait "$PID"
+SMOKE_CHILD_PIDS=""
 printf 'local-node-smoke: PASS\n' >&2

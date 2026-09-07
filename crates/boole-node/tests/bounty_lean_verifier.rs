@@ -16,7 +16,6 @@
 //! any statement could claim any open bounty.
 
 use std::path::PathBuf;
-use std::process::Command;
 
 use boole_core::{Bounty, BountyProofVerifier, BountyVerifier};
 use boole_node::LeanBountyVerifier;
@@ -25,15 +24,7 @@ use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 
 fn lake_and_lean_available() -> bool {
-    let lake_ok = Command::new("lake")
-        .arg("--version")
-        .output()
-        .is_ok_and(|o| o.status.success());
-    let lean_ok = Command::new("lean")
-        .arg("--version")
-        .output()
-        .is_ok_and(|o| o.status.success());
-    lake_ok && lean_ok
+    boole_testkit::lake_and_lean_available()
 }
 
 fn canonical_checker_dir() -> PathBuf {

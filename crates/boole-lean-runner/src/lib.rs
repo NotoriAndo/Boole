@@ -86,7 +86,7 @@ use std::time::{Duration, Instant};
 /// identical to "logged, never blocked" (nothing changes vs. today's
 /// baseline) and carries zero risk of an under-tuned allowlist breaking the
 /// checker. `Enforce` mode installs and actually applies all layers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum IsolationMode {
     /// Observe-only: never fails the checker. See type docs for the
     /// per-mechanism meaning of "observe" (seccomp logs; Landlock/Seatbelt
@@ -811,15 +811,17 @@ impl LeanRunner {
         }
 
         let evidence = self.evidence()?;
-        let toolchain_runtime = match effective_toolchain_runtime(&self.config.package_dir) {
-            Ok(runtime) => runtime,
-            Err(err) => {
-                return Ok(unavailable_result(
-                    &evidence,
-                    format!("failed to resolve direct checker runtime: {err:#}"),
-                ));
-            }
-        };
+        let toolchain_runtime =
+            match effective_toolchain_runtime(&self.config.package_dir, self.config.isolation_mode)
+            {
+                Ok(runtime) => runtime,
+                Err(err) => {
+                    return Ok(unavailable_result(
+                        &evidence,
+                        format!("failed to resolve direct checker runtime: {err:#}"),
+                    ));
+                }
+            };
         let helper_source =
             match artifact_workspace.snapshot_helper_source(&self.config.package_dir) {
                 Ok(snapshot) => snapshot,
@@ -1263,7 +1265,10 @@ impl LeanRunner {
         // PROCESS actually runs under (package-dir dispatch), never the
         // ambient PATH's lean/lake: an identity no proof was checked
         // under is evidence of nothing.
-        let toolchain = effective_toolchain_identity(&self.config.package_dir)?;
+        let toolchain = effective_toolchain_identity_with_isolation(
+            &self.config.package_dir,
+            self.config.isolation_mode,
+        )?;
         Ok(LeanRunnerEvidence {
             verifier_hash: self.config.verifier_hash.clone(),
             checker: "direct lean source checker + artifact audit".to_string(),
@@ -2681,8 +2686,9 @@ fn parse_between<'a>(text: &'a str, start: &str, end: &str) -> Option<&'a str> {
 /// Identity queries are deterministic per package dir for the life of the
 /// process; cache them so per-proof `evidence()` calls do not re-spawn
 /// `lake` twice per verification.
-static EFFECTIVE_TOOLCHAIN_CACHE: Mutex<Option<HashMap<PathBuf, EffectiveToolchain>>> =
-    Mutex::new(None);
+static EFFECTIVE_TOOLCHAIN_CACHE: Mutex<
+    Option<HashMap<(PathBuf, IsolationMode), EffectiveToolchain>>,
+> = Mutex::new(None);
 
 #[derive(Debug, Clone)]
 struct EffectiveToolchainRuntime {
@@ -2692,7 +2698,7 @@ struct EffectiveToolchainRuntime {
 }
 
 static EFFECTIVE_TOOLCHAIN_RUNTIME_CACHE: Mutex<
-    Option<HashMap<PathBuf, EffectiveToolchainRuntime>>,
+    Option<HashMap<(PathBuf, IsolationMode), EffectiveToolchainRuntime>>,
 > = Mutex::new(None);
 
 fn isolated_lean_path(entries: &[&Path]) -> Result<OsString> {
@@ -2700,17 +2706,28 @@ fn isolated_lean_path(entries: &[&Path]) -> Result<OsString> {
         .map_err(|err| anyhow!("failed to construct isolated LEAN_PATH: {err}"))
 }
 
-fn effective_toolchain_runtime(package_dir: &Path) -> Result<EffectiveToolchainRuntime> {
-    let key = package_dir
-        .canonicalize()
-        .unwrap_or_else(|_| package_dir.to_path_buf());
+fn effective_toolchain_runtime(
+    package_dir: &Path,
+    isolation_mode: IsolationMode,
+) -> Result<EffectiveToolchainRuntime> {
+    let key = (
+        package_dir
+            .canonicalize()
+            .unwrap_or_else(|_| package_dir.to_path_buf()),
+        isolation_mode,
+    );
     if let Ok(guard) = EFFECTIVE_TOOLCHAIN_RUNTIME_CACHE.lock() {
         if let Some(cached) = guard.as_ref().and_then(|map| map.get(&key)) {
             return Ok(cached.clone());
         }
     }
-    let lean_executable = effective_command_output(package_dir, &["env", "printenv", "LEAN"])?;
-    let lean_sysroot = effective_command_output(package_dir, &["env", "printenv", "LEAN_SYSROOT"])?;
+    let lean_executable =
+        effective_command_output(package_dir, &["env", "printenv", "LEAN"], isolation_mode)?;
+    let lean_sysroot = effective_command_output(
+        package_dir,
+        &["env", "printenv", "LEAN_SYSROOT"],
+        isolation_mode,
+    )?;
     if lean_executable.is_empty() || lean_sysroot.is_empty() {
         return Err(anyhow!(
             "lake env returned an empty LEAN or LEAN_SYSROOT for {}",
@@ -2797,21 +2814,39 @@ fn validate_toolchain_lean_executable(
 }
 
 pub fn effective_toolchain_identity(package_dir: &Path) -> Result<EffectiveToolchain> {
-    let key = package_dir
-        .canonicalize()
-        .unwrap_or_else(|_| package_dir.to_path_buf());
+    // Standalone metadata callers have no selected proof-isolation policy.
+    // Preserve their portable baseline (no submitted proof runs), adding
+    // rlimits, output/deadline bounds and process-group cleanup. Configured
+    // LeanRunner callers use the explicit-policy API below.
+    effective_toolchain_identity_with_isolation(package_dir, IsolationMode::Log)
+}
+
+/// Bounded discovery with the caller's explicit isolation posture. A Log
+/// result never populates the Enforce cache, so an opt-out cannot satisfy a
+/// later caller that requires enforcement.
+pub fn effective_toolchain_identity_with_isolation(
+    package_dir: &Path,
+    isolation_mode: IsolationMode,
+) -> Result<EffectiveToolchain> {
+    let key = (
+        package_dir
+            .canonicalize()
+            .unwrap_or_else(|_| package_dir.to_path_buf()),
+        isolation_mode,
+    );
     if let Ok(guard) = EFFECTIVE_TOOLCHAIN_CACHE.lock() {
         if let Some(cached) = guard.as_ref().and_then(|map| map.get(&key)) {
             return Ok(cached.clone());
         }
     }
-    let lean_version = effective_command_output(package_dir, &["env", "lean", "--version"])?;
+    let lean_version =
+        effective_command_output(package_dir, &["env", "lean", "--version"], isolation_mode)?;
     let lean_githash = parse_between(&lean_version, "commit ", ",")
         .ok_or_else(|| {
             anyhow!("could not parse a commit githash out of lean version line: {lean_version}")
         })?
         .to_string();
-    let lake_version = effective_command_output(package_dir, &["--version"])?;
+    let lake_version = effective_command_output(package_dir, &["--version"], isolation_mode)?;
     let toolchain = EffectiveToolchain {
         lean_version,
         lean_githash,
@@ -2828,34 +2863,79 @@ pub fn effective_toolchain_identity(package_dir: &Path) -> Result<EffectiveToolc
 /// Run `lake <args>` the way the checker child would see it: package dir as
 /// cwd and the same scrubbed environment (`resolved_child_path`), so elan
 /// dispatches by the package's `lean-toolchain` pin.
-fn effective_command_output(package_dir: &Path, args: &[&str]) -> Result<String> {
+fn effective_command_output(
+    package_dir: &Path,
+    args: &[&str],
+    isolation_mode: IsolationMode,
+) -> Result<String> {
     let mut command = Command::new("lake");
     command
         .args(args)
         .current_dir(package_dir)
         .stdin(Stdio::null());
     configure_child_environment(&mut command);
-    let output = command.output().with_context(|| {
+    let config = LeanRunnerConfig::new("toolchain-probe")
+        .with_package_dir(package_dir)
+        .with_isolation_mode(isolation_mode)
+        .with_timeout_ms(30_000);
+    run_toolchain_probe(command, &config).with_context(|| {
         format!(
             "failed to execute `lake {}` in {}",
             args.join(" "),
             package_dir.display()
         )
-    })?;
-    if !output.status.success() {
+    })
+}
+
+fn run_toolchain_probe(command: Command, config: &LeanRunnerConfig) -> Result<String> {
+    // Toolchain discovery precedes checker execution, so it needs the same
+    // containment boundary: process-group cleanup, bounded output, rlimits,
+    // and the caller's isolation posture. Default Enforce also prevents an
+    // elan download from acquiring network access or mutating its global
+    // installation; an explicit Log opt-out retains its documented semantics.
+    let output = LeanRunner::new(config.clone())
+        .run_sandboxed_with_config(command, config)
+        .context("failed to execute contained toolchain probe")?;
+    if output.timed_out {
         return Err(anyhow!(
-            "`lake {}` failed in {}: {}",
-            args.join(" "),
-            package_dir.display(),
-            String::from_utf8_lossy(&output.stderr)
+            "toolchain probe timeout after {}ms",
+            config.timeout_ms
         ));
     }
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    if output.output_truncated {
+        return Err(anyhow!("toolchain probe output exceeded its byte limit"));
+    }
+    if !output.success {
+        return Err(anyhow!(
+            "toolchain probe failed in {}: {}",
+            config.package_dir.display(),
+            output.stderr
+        ));
+    }
+    Ok(output.stdout.trim().to_string())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn toolchain_probe_enforces_its_wall_clock_budget() {
+        let config = LeanRunnerConfig::new("probe-budget")
+            .with_timeout_ms(50)
+            .with_isolation_mode(IsolationMode::Log);
+        let mut command = Command::new("/bin/sh");
+        command.args(["-c", "sleep 0.25; printf 'late version\\n'"]);
+        let started = Instant::now();
+        let outcome = run_toolchain_probe(command, &config);
+        assert!(
+            outcome.is_err(),
+            "a late version must not establish toolchain identity"
+        );
+        assert!(format!("{:#}", outcome.unwrap_err()).contains("timeout"));
+        assert!(started.elapsed() < Duration::from_secs(2));
+    }
 
     #[test]
     fn submitted_source_snapshot_survives_caller_path_swap_after_scan() {

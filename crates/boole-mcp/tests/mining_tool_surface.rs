@@ -242,6 +242,19 @@ fn invoke_boole_mine_with_max_cycles_one_runs_one_cycle() {
     );
 }
 
+#[test]
+fn invoke_boole_mine_rejects_non_integer_and_over_cap_cycle_limits() {
+    let (_guard, addr) = spawn_serve(&dummy_upstream_url());
+    for max_cycles in [json!(-1), json!(100_001)] {
+        let req_body = json!({"tool":"boole.mine","args":{"max_cycles":max_cycles}}).to_string();
+        let (status, body) = http_post_json(addr, "/mcp/invoke", &req_body);
+        assert_eq!(status, 400, "body={body}");
+        let response: Value = serde_json::from_str(&body).expect("json");
+        assert_eq!(response["error"], "invalid-arg", "body={body}");
+        assert_eq!(response["arg"], "max_cycles", "body={body}");
+    }
+}
+
 /// P2.1 closure (slice 54) — `boole.status` reflects the last mining
 /// session. After `boole.mine` completes a zero-cycle round-trip, a
 /// subsequent `boole.status` returns the `completed` envelope with

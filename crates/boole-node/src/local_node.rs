@@ -23,15 +23,17 @@ use crate::runtime::{
 };
 use crate::session_store::FileSessionStore;
 use crate::signed_nonce_ledger::FileSignedNonceLedger;
-use crate::state_dir::{self, StateDirGuard, StateManifest};
+use crate::state_dir::{self, LedgerLockSet, StateDirGuard, StateManifest};
 use crate::work_manifest_store::load_work_manifests_from_path;
 use axum::body::Bytes;
+use axum::extract::connect_info::Connected;
 use axum::extract::DefaultBodyLimit;
 use axum::extract::{ConnectInfo, Path as AxumPath, Request, State};
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Uri};
 use axum::middleware::{from_fn, from_fn_with_state, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
+use axum::serve::{IncomingStream, Listener};
 use axum::{Json, Router};
 use boole_core::{
     agent_passport_events_for_receipt, canonical_payload_hash_hex, compute_block_reward_credits,
@@ -49,7 +51,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::convert::Infallible;
-use std::future::Future;
+use std::future::{Future, IntoFuture};
 use std::net::{IpAddr, SocketAddr, TcpListener as StdTcpListener};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -58,8 +60,9 @@ use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 use std::task::{Context, Poll};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::TcpListener;
-use tokio::sync::{Notify, RwLock};
+use tokio::sync::{Notify, OwnedSemaphorePermit, RwLock, Semaphore};
 use tower::limit::ConcurrencyLimitLayer;
 use tower::Service;
 
@@ -88,6 +91,16 @@ pub const PROOF_ROUTE_TIMEOUT: Duration = Duration::from_secs(90);
 /// contention slots. Pinned at 256 by the production-readiness master
 /// plan; raising it requires the same plan slice to be revised.
 pub const MAX_CONCURRENT_REQUESTS: usize = 256;
+/// Cap accepted HTTP connections, including clients that have not completed a
+/// request header and therefore never reach request middleware.
+pub const MAX_ACTIVE_HTTP_CONNECTIONS: usize = 128;
+/// Absolute time from accept to a complete HTTP request header. It is not
+/// renewed by partial bytes, closing slowloris occupancy deterministically.
+pub const HTTP_HEADER_TIMEOUT: Duration = Duration::from_secs(5);
+/// Absolute upper bound for graceful HTTP drain after any shutdown trigger.
+/// Slow/incomplete clients are forcibly dropped after this window so process
+/// supervision and state-lock release remain bounded.
+pub const HTTP_SHUTDOWN_DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
 const VERIFY_ANSWER_SCHEME: &str = "boole-native-test";
 const VERIFY_ANSWER_AMOUNT: &str = "1";
 // P1.8 — magic test-payment string accepted by `/verify-answer`. Hidden
@@ -156,11 +169,10 @@ const X402_VERSIONS_FIXTURE: &str = include_str!("../../../fixtures/protocol/x40
 /// default keeps legacy embeddings on a single named network so the
 /// manifest's network-id verification has something to check against.
 const DEFAULT_NETWORK_ID: &str = "boole-mvp";
-/// Coarse binary identifier persisted into `state.manifest.json`. Pinned
-/// at build time so a re-boot can detect that the running binary's
-/// version differs from the one that created the directory. A finer
-/// SHA-256 over `current_exe()` is the eventual goal but `CARGO_PKG_VERSION`
-/// is the lowest-cost identifier that survives a release rebuild.
+/// Coarse creation-provenance identifier persisted into
+/// `state.manifest.json`. Storage compatibility is decided by the explicit
+/// schema-version map, not by requiring later compatible binaries to retain
+/// this package version.
 const BINARY_SHA: &str = env!("CARGO_PKG_VERSION");
 
 pub struct LocalNodeConfig {
@@ -459,6 +471,11 @@ pub(crate) struct LocalNodeState {
     /// cannot race for the lock. Field is `_`-prefixed because it is
     /// never read directly — drop semantics are the entire contract.
     _state_dir_guard: Option<StateDirGuard>,
+    /// Single-writer guards for every configured writable ledger pathname.
+    /// Independent of `state_dir`: legacy embeddings must not be able to open
+    /// the same block/reward ledger concurrently through different state-dir
+    /// choices. The sibling lock files survive atomic ledger replacement.
+    _ledger_lock_set: LedgerLockSet,
     /// P2.10 — network identifier this node is pinned to. Populated at
     /// boot from `LocalNodeConfig::network_id`, falling back to
     /// `DEFAULT_NETWORK_ID` when the operator did not set one. Every
@@ -959,12 +976,12 @@ async fn rate_limit_middleware(
     }
     let Some(ConnectInfo(addr)) = request
         .extensions()
-        .get::<ConnectInfo<SocketAddr>>()
-        .copied()
+        .get::<ConnectInfo<HttpRemoteAddr>>()
+        .cloned()
     else {
         return next.run(request).await;
     };
-    if limiter.admit(addr.ip(), now_unix_ms()) {
+    if limiter.admit(addr.socket_addr.ip(), now_unix_ms()) {
         next.run(request).await
     } else {
         error_response(HttpError::rate_limited(limiter.quota, limiter.window_ms))
@@ -1178,7 +1195,7 @@ async fn serve_local_node_async(
     p2p: Option<P2pConfig>,
 ) -> anyhow::Result<()> {
     listener.set_nonblocking(true)?;
-    let tokio_listener = TcpListener::from_std(listener)?;
+    let tokio_listener = BoundedHttpListener::new(TcpListener::from_std(listener)?);
     // N3.2 — bring the gossip surface up around the shared node state. Both
     // gossip threads are plain blocking `std::thread`s (the transport is
     // blocking `std::net`, ADR-0009 (a)); they poll `p2p_stop` so shutdown
@@ -1211,7 +1228,13 @@ async fn serve_local_node_async(
         }
         let identity = P2pIdentity {
             network_id: state.network_id.clone(),
+            authorization_policy: if state.require_network_scoped_envelopes {
+                boole_p2p::AuthorizationPolicy::NetworkScopedV1
+            } else {
+                boole_p2p::AuthorizationPolicy::LegacyUnscopedV1
+            },
             genesis_hash: state.genesis_spec_hash.clone(),
+            effective_family_manifest_root: state.runtime.family_registry().root().to_hex(),
         };
         if !p2p.peers.is_empty() {
             let (fanout, workers) = spawn_egress_workers(
@@ -1297,7 +1320,7 @@ async fn serve_local_node_async(
     // axum::serve's graceful_shutdown drop and produces RSTs on the last
     // request before exit.
     let make_service = ConnectionCountingMakeService {
-        inner: app.into_make_service_with_connect_info::<SocketAddr>(),
+        inner: app.into_make_service_with_connect_info::<HttpRemoteAddr>(),
         counter: Arc::new(ConnectionCounter {
             served: AtomicUsize::new(0),
             max_requests,
@@ -1305,15 +1328,34 @@ async fn serve_local_node_async(
         }),
     };
     let graceful_p2p_lifecycle = p2p_lifecycle.clone();
-    let serve_result = axum::serve(tokio_listener, make_service)
+    let drain_started = Arc::new(Notify::new());
+    let drain_started_signal = drain_started.clone();
+    let serve = axum::serve(tokio_listener, make_service)
         .with_graceful_shutdown(async move {
             shutdown_notify.notified().await;
             // Close the P2P boundary as soon as shutdown is requested, not
             // after HTTP graceful drain completes. A stalled HTTP client must
             // not keep gossip/sync/package sockets alive in the meantime.
             graceful_p2p_lifecycle.request_stop();
+            drain_started_signal.notify_one();
         })
-        .await;
+        .into_future();
+    tokio::pin!(serve);
+    let serve_result = tokio::select! {
+        result = &mut serve => result,
+        _ = drain_started.notified() => {
+            match tokio::time::timeout(HTTP_SHUTDOWN_DRAIN_TIMEOUT, &mut serve).await {
+                Ok(result) => result,
+                Err(_) => {
+                    eprintln!(
+                        "boole-node: HTTP graceful drain exceeded {:?}; dropping remaining connections",
+                        HTTP_SHUTDOWN_DRAIN_TIMEOUT
+                    );
+                    Ok(())
+                }
+            }
+        }
+    };
     // N5.3 M3 — close the lifecycle before joining. This wakes every
     // registered blocking socket as well as idle worker waits, so partial
     // frames and silent package peers cannot hold shutdown open.
@@ -1380,7 +1422,6 @@ fn build_router(state: AppState) -> Router {
         // before the handler observes the truncated bytes.
         .layer(DefaultBodyLimit::max(MAX_HTTP_BODY_BYTES))
         .layer(from_fn(body_cap_middleware))
-        .layer(from_fn(connection_close_middleware))
         // P0.5 slice 66 — stamp x-request-id on every response and enter a
         // tracing span carrying it. Installed here so it wraps all handlers
         // and their responses uniformly.
@@ -1392,6 +1433,19 @@ fn build_router(state: AppState) -> Router {
         // inside `rate_limit_middleware` itself so an orchestrator
         // flood cannot self-blackhole the node.
         .layer(from_fn_with_state(state.clone(), rate_limit_middleware))
+        // A replaced state/ledger lock pathname means another process can
+        // acquire a different inode while this process still holds the old
+        // descriptor. Keep read-only diagnostics available, but stop every
+        // HTTP mutation before it reaches a handler.
+        .layer(from_fn_with_state(
+            state.clone(),
+            write_authority_middleware,
+        ))
+        // Keep this outermost so even middleware-generated 4xx/5xx responses
+        // close HTTP/1.1. The listener's pre-request header timer is scoped to
+        // the first request; disabling keep-alive prevents a valid first GET
+        // followed by a partial second header from bypassing that boundary.
+        .layer(from_fn(connection_close_middleware))
         .with_state(state)
 }
 
@@ -1399,6 +1453,139 @@ struct ConnectionCounter {
     served: AtomicUsize,
     max_requests: Option<usize>,
     shutdown: Arc<Notify>,
+}
+
+/// Per-connection metadata shared by the listener IO and request service.
+/// `header_received` flips only when hyper has parsed a complete request and
+/// invokes the tower service, so raw/partial TCP clients cannot bypass the
+/// pre-request timeout layers.
+#[derive(Clone, Debug)]
+struct HttpRemoteAddr {
+    socket_addr: SocketAddr,
+    header_received: Arc<AtomicBool>,
+}
+
+impl Connected<IncomingStream<'_, BoundedHttpListener>> for HttpRemoteAddr {
+    fn connect_info(stream: IncomingStream<'_, BoundedHttpListener>) -> Self {
+        stream.remote_addr().clone()
+    }
+}
+
+struct BoundedHttpListener {
+    inner: TcpListener,
+    permits: Arc<Semaphore>,
+}
+
+impl BoundedHttpListener {
+    fn new(inner: TcpListener) -> Self {
+        Self::with_limit(inner, MAX_ACTIVE_HTTP_CONNECTIONS)
+    }
+
+    fn with_limit(inner: TcpListener, limit: usize) -> Self {
+        assert!(limit > 0, "HTTP active-connection limit must be positive");
+        Self {
+            inner,
+            permits: Arc::new(Semaphore::new(limit)),
+        }
+    }
+}
+
+impl Listener for BoundedHttpListener {
+    type Io = HeaderTimedIo;
+    type Addr = HttpRemoteAddr;
+
+    async fn accept(&mut self) -> (Self::Io, Self::Addr) {
+        loop {
+            let permit = self
+                .permits
+                .clone()
+                .acquire_owned()
+                .await
+                .expect("HTTP connection semaphore remains open");
+            match self.inner.accept().await {
+                Ok((stream, socket_addr)) => {
+                    let header_received = Arc::new(AtomicBool::new(false));
+                    return (
+                        HeaderTimedIo {
+                            inner: stream,
+                            _permit: permit,
+                            header_received: header_received.clone(),
+                            deadline: Box::pin(tokio::time::sleep(HTTP_HEADER_TIMEOUT)),
+                        },
+                        HttpRemoteAddr {
+                            socket_addr,
+                            header_received,
+                        },
+                    );
+                }
+                Err(err) => {
+                    drop(permit);
+                    eprintln!("boole-node: HTTP accept failed: {err}");
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            }
+        }
+    }
+
+    fn local_addr(&self) -> std::io::Result<Self::Addr> {
+        Ok(HttpRemoteAddr {
+            socket_addr: self.inner.local_addr()?,
+            header_received: Arc::new(AtomicBool::new(false)),
+        })
+    }
+}
+
+struct HeaderTimedIo {
+    inner: tokio::net::TcpStream,
+    _permit: OwnedSemaphorePermit,
+    header_received: Arc<AtomicBool>,
+    deadline: Pin<Box<tokio::time::Sleep>>,
+}
+
+impl AsyncRead for HeaderTimedIo {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        if !self.header_received.load(Ordering::Acquire)
+            && self.deadline.as_mut().poll(cx).is_ready()
+        {
+            return Poll::Ready(Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "HTTP request header deadline exceeded",
+            )));
+        }
+        Pin::new(&mut self.inner).poll_read(cx, buf)
+    }
+}
+
+impl AsyncWrite for HeaderTimedIo {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        Pin::new(&mut self.inner).poll_write(cx, buf)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+}
+
+trait HeaderSignalTarget {
+    fn header_received(&self) -> Arc<AtomicBool>;
+}
+
+impl HeaderSignalTarget for IncomingStream<'_, BoundedHttpListener> {
+    fn header_received(&self) -> Arc<AtomicBool> {
+        self.remote_addr().header_received.clone()
+    }
 }
 
 /// Drop-once token: hyper clones the per-connection `tower::Service` for
@@ -1431,6 +1618,7 @@ struct ConnectionCountingMakeService<M> {
 impl<M, T> Service<T> for ConnectionCountingMakeService<M>
 where
     M: Service<T, Error = Infallible>,
+    T: HeaderSignalTarget,
 {
     type Response = ConnectionCountedService<M::Response>;
     type Error = Infallible;
@@ -1441,11 +1629,13 @@ where
     }
 
     fn call(&mut self, target: T) -> Self::Future {
+        let header_received = target.header_received();
         ConnectionCountedFuture {
             inner: Box::pin(self.inner.call(target)),
             lifetime: Some(Arc::new(ConnectionLifetime {
                 counter: self.counter.clone(),
             })),
+            header_received: Some(header_received),
         }
     }
 }
@@ -1453,6 +1643,7 @@ where
 struct ConnectionCountedFuture<F> {
     inner: Pin<Box<F>>,
     lifetime: Option<Arc<ConnectionLifetime>>,
+    header_received: Option<Arc<AtomicBool>>,
 }
 
 impl<F, S> Future for ConnectionCountedFuture<F>
@@ -1471,6 +1662,10 @@ where
                 Poll::Ready(Ok(ConnectionCountedService {
                     inner: svc,
                     _lifetime: lifetime,
+                    header_received: self
+                        .header_received
+                        .take()
+                        .expect("ConnectionCountedFuture header signal already consumed"),
                 }))
             }
             Poll::Ready(Err(_)) => unreachable!("Infallible"),
@@ -1483,6 +1678,7 @@ where
 struct ConnectionCountedService<S> {
     inner: S,
     _lifetime: Arc<ConnectionLifetime>,
+    header_received: Arc<AtomicBool>,
 }
 
 impl<S, R> Service<R> for ConnectionCountedService<S>
@@ -1498,6 +1694,7 @@ where
     }
 
     fn call(&mut self, req: R) -> Self::Future {
+        self.header_received.store(true, Ordering::Release);
         self.inner.call(req)
     }
 }
@@ -1510,7 +1707,7 @@ impl LocalNodeState {
         }
     }
 
-    fn from_config(config: LocalNodeConfig) -> anyhow::Result<Self> {
+    fn from_config(mut config: LocalNodeConfig) -> anyhow::Result<Self> {
         // M1-D — the authorization-required named network must never boot
         // with the legacy anonymous HTTP escape hatch enabled. Enforce this
         // before the state-dir lock or any durable store is opened so an
@@ -1536,6 +1733,41 @@ impl LocalNodeState {
         } else {
             None
         };
+        // C2 — canonicalize every mutable store path and take its sibling lock
+        // before any recover/open. This ownership is independent of the
+        // optional state-dir guard because two embeddings may name the same
+        // ledger while using different (or no) state directories.
+        config.block_path = LedgerLockSet::canonical_path(&config.block_path)?;
+        for path in [
+            &mut config.reward_ledger_path,
+            &mut config.bounty_event_ledger_path,
+            &mut config.session_registry_path,
+            &mut config.submit_nonce_ledger_path,
+            &mut config.signed_nonce_ledger_path,
+            &mut config.proof_dedup_ledger_path,
+            &mut config.submit_receipt_ledger_path,
+            &mut config.receipt_commitment_ledger_path,
+        ] {
+            if let Some(path) = path.as_mut() {
+                *path = LedgerLockSet::canonical_path(path)?;
+            }
+        }
+        let ledger_lock_set = LedgerLockSet::acquire(
+            std::iter::once(config.block_path.clone()).chain(
+                [
+                    config.reward_ledger_path.clone(),
+                    config.bounty_event_ledger_path.clone(),
+                    config.session_registry_path.clone(),
+                    config.submit_nonce_ledger_path.clone(),
+                    config.signed_nonce_ledger_path.clone(),
+                    config.proof_dedup_ledger_path.clone(),
+                    config.submit_receipt_ledger_path.clone(),
+                    config.receipt_commitment_ledger_path.clone(),
+                ]
+                .into_iter()
+                .flatten(),
+            ),
+        )?;
         let raw = std::fs::read_to_string(&config.scenario_path)?;
         let mut scenario: LocalNodeScenarioConfig = serde_json::from_str(&raw)?;
         if let Some(genesis) = config.genesis_override.as_ref() {
@@ -1801,6 +2033,7 @@ impl LocalNodeState {
             require_network_scoped_envelopes,
             state_dir: config.state_dir,
             _state_dir_guard: state_dir_guard,
+            _ledger_lock_set: ledger_lock_set,
             allow_anonymous_submit: config.allow_anonymous_submit,
             p2p_egress: None,
             p2p_metrics: Arc::new(P2pMetrics::default()),
@@ -2012,10 +2245,10 @@ fn replay_create_event(registry: &mut BountyRegistry, event: &Value) -> Result<(
     }
 }
 
-// Force `Connection: close` on every response so the existing wire-level
-// regression net (which uses `read_to_end()` after a single TCP write) sees
-// EOF after each request. Hyper's HTTP/1.1 keep-alive is otherwise correct
-// but would leave those test clients blocked indefinitely.
+// Force `Connection: close` on every response. Besides preserving the local
+// one-request-per-connection wire contract, this makes the first-header
+// deadline complete: a client cannot finish one request and then retain a
+// bounded connection slot forever with a partial keep-alive request.
 async fn connection_close_middleware(request: Request, next: Next) -> Response {
     let mut response = next.run(request).await;
     response.headers_mut().insert(
@@ -2053,6 +2286,27 @@ async fn request_id_middleware(request: Request, next: Next) -> Response {
         response.headers_mut().insert("x-request-id", value);
     }
     response
+}
+
+async fn write_authority_middleware(
+    State(state): State<AppState>,
+    request: Request,
+    next: Next,
+) -> Response {
+    if matches!(
+        *request.method(),
+        Method::GET | Method::HEAD | Method::OPTIONS
+    ) {
+        return next.run(request).await;
+    }
+    let failure = {
+        let guard = state.inner.read().await;
+        write_authority_failure(&guard)
+    };
+    match failure {
+        Some(reason) => error_response(HttpError::write_authority_lost(reason)),
+        None => next.run(request).await,
+    }
 }
 
 /// P1.7 — true for the bounty-proof route (`/bounties/{id}/proof`), which
@@ -2172,6 +2426,7 @@ async fn ready_handler(State(state): State<AppState>) -> Response {
     let canonical_state_consistent = canonical_state_failure.is_none();
     let replay_matches_runtime = compute_replay_matches_runtime(&guard);
     let state_dir_lock_held = compute_state_dir_lock_held(&guard);
+    let ledger_locks_held = guard._ledger_lock_set.is_current();
     // P2.6 audit: "set" alone is not enough — a typoed --lean-checker-dir
     // would leave the path pointing nowhere and every proof would
     // silently fail verification. Require either an explicit disable or
@@ -2207,6 +2462,7 @@ async fn ready_handler(State(state): State<AppState>) -> Response {
         "canonical_state_consistent": canonical_state_consistent,
         "replay_matches_runtime": replay_matches_runtime,
         "state_dir_lock_held": state_dir_lock_held,
+        "ledger_locks_held": ledger_locks_held,
         "lean_checker_configured": lean_checker_configured,
         "ledgers_loaded": ledgers_loaded,
         "disk_space_ok": disk_space_ok,
@@ -2258,6 +2514,18 @@ async fn ready_handler(State(state): State<AppState>) -> Response {
                 "ok": false,
                 "probe": "ready",
                 "reason": "state_dir_lock_lost",
+                "checks": checks,
+            })),
+        )
+            .into_response();
+    }
+    if !ledger_locks_held {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
+                "ok": false,
+                "probe": "ready",
+                "reason": "ledger_lock_lost",
                 "checks": checks,
             })),
         )
@@ -2343,9 +2611,23 @@ async fn ready_handler(State(state): State<AppState>) -> Response {
 /// existence check catches that drift without re-issuing flock(),
 /// which would race with our own held lock on the underlying inode.
 fn compute_state_dir_lock_held(state: &LocalNodeState) -> bool {
-    match state.state_dir.as_ref() {
-        None => true,
-        Some(dir) => dir.join(state_dir::STATE_LOCK_FILE).is_file(),
+    state
+        ._state_dir_guard
+        .as_ref()
+        .map(StateDirGuard::is_current)
+        .unwrap_or(true)
+}
+
+/// A live lock descriptor is insufficient after its pathname is replaced:
+/// another writer can lock the new inode. All mutation boundaries use this
+/// predicate to turn the old process into a diagnostic-only reader.
+fn write_authority_failure(state: &LocalNodeState) -> Option<&'static str> {
+    if !compute_state_dir_lock_held(state) {
+        Some("state_dir_lock_lost")
+    } else if !state._ledger_lock_set.is_current() {
+        Some("ledger_lock_lost")
+    } else {
+        None
     }
 }
 
@@ -2757,6 +3039,9 @@ async fn bounty_by_id_handler(
 
 async fn ticket_handler(State(state): State<AppState>, body: Bytes) -> Response {
     let mut guard = state.inner.write().await;
+    if let Some(reason) = write_authority_failure(&guard) {
+        return error_response(HttpError::write_authority_lost(reason));
+    }
     match ticket_json(&mut guard, &body) {
         Ok(value) => (StatusCode::OK, Json(value)).into_response(),
         Err(err) => error_response(err),
@@ -2765,10 +3050,10 @@ async fn ticket_handler(State(state): State<AppState>, body: Bytes) -> Response 
 
 async fn submit_handler(
     State(state): State<AppState>,
-    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    ConnectInfo(remote): ConnectInfo<HttpRemoteAddr>,
     body: Bytes,
 ) -> Response {
-    let peer_ip = addr.ip().to_string();
+    let peer_ip = remote.socket_addr.ip().to_string();
     // M6/P1.7 — phase 1 owns the write lock only for the cheap structural
     // admission and reservation. A checker-pinned submit moves its candidate
     // out of block-selection visibility before this scope ends. A deterministic
@@ -2776,6 +3061,10 @@ async fn submit_handler(
     // releases both so the exact request can retry.
     let (mut prepared, reverify_job, reverify_permit) = {
         let mut guard = state.inner.write().await;
+        if let Some(reason) = write_authority_failure(&guard) {
+            record_submit_outcome(false);
+            return error_response(HttpError::write_authority_lost(reason));
+        }
         if let Some(phase) = guard.runtime.canonical_state_failure_code() {
             record_submit_outcome(false);
             return error_response(HttpError::canonical_state_inconsistent(phase));
@@ -2890,6 +3179,10 @@ async fn submit_handler(
         Ok(outcome) => outcome,
         Err(join_err) => {
             let mut guard = state.inner.write().await;
+            if let Some(reason) = write_authority_failure(&guard) {
+                record_submit_outcome(false);
+                return error_response(HttpError::write_authority_lost(reason));
+            }
             reservation_cleanup.release_now(&mut guard);
             prepared.reserved_candidate = None;
             eprintln!("boole-node: share reverify task unavailable: {join_err}");
@@ -2912,6 +3205,10 @@ async fn submit_handler(
         Ok(outcome) => outcome,
         Err(_) => {
             let mut guard = state.inner.write().await;
+            if let Some(reason) = write_authority_failure(&guard) {
+                record_submit_outcome(false);
+                return error_response(HttpError::write_authority_lost(reason));
+            }
             reservation_cleanup.release_now(&mut guard);
             prepared.reserved_candidate = None;
             eprintln!("boole-node: share reverify worker panicked");
@@ -2926,6 +3223,10 @@ async fn submit_handler(
     // mutable premise crossed by the unlocked verifier window before the
     // candidate is restored or any gossip/nonce/block/reward/receipt effect.
     let mut guard = state.inner.write().await;
+    if let Some(reason) = write_authority_failure(&guard) {
+        record_submit_outcome(false);
+        return error_response(HttpError::write_authority_lost(reason));
+    }
     if let Some(phase) = guard.runtime.canonical_state_failure_code() {
         record_submit_outcome(false);
         return error_response(HttpError::canonical_state_inconsistent(phase));
@@ -3038,6 +3339,9 @@ fn submit_internal_error_response(state: &LocalNodeState, err: anyhow::Error) ->
 
 async fn session_register_handler(State(state): State<AppState>, body: Bytes) -> Response {
     let mut guard = state.inner.write().await;
+    if let Some(reason) = write_authority_failure(&guard) {
+        return error_response(HttpError::write_authority_lost(reason));
+    }
     match session_register_json(&mut guard, &body) {
         Ok(value) => (StatusCode::OK, Json(value)).into_response(),
         Err(err) => error_response(err),
@@ -3061,6 +3365,9 @@ async fn session_revoke_handler(
     body: Bytes,
 ) -> Response {
     let mut guard = state.inner.write().await;
+    if let Some(reason) = write_authority_failure(&guard) {
+        return error_response(HttpError::write_authority_lost(reason));
+    }
     match session_revoke_json(&mut guard, &session_pk, &body) {
         Ok(value) => (StatusCode::OK, Json(value)).into_response(),
         Err(err) => error_response(err),
@@ -3080,6 +3387,9 @@ async fn receipt_get_handler(
 
 async fn receipt_post_handler(State(state): State<AppState>, body: Bytes) -> Response {
     let mut guard = state.inner.write().await;
+    if let Some(reason) = write_authority_failure(&guard) {
+        return error_response(HttpError::write_authority_lost(reason));
+    }
     match receipt_post_json(&mut guard, &body) {
         Ok(value) => (StatusCode::OK, Json(value)).into_response(),
         Err(err) => error_response(err),
@@ -3224,6 +3534,9 @@ async fn verify_answer_handler(
     body: Bytes,
 ) -> Response {
     let mut guard = state.inner.write().await;
+    if let Some(reason) = write_authority_failure(&guard) {
+        return error_response(HttpError::write_authority_lost(reason));
+    }
     match verify_answer_json(&mut guard, &headers, &body) {
         Ok(value) => (StatusCode::OK, Json(value)).into_response(),
         Err(err) => error_response(err),
@@ -4297,6 +4610,10 @@ async fn bounty_proof_handler(
     };
 
     let mut guard = state.inner.write().await;
+    if let Some(reason) = write_authority_failure(&guard) {
+        record_proof_outcome(false);
+        return error_response(HttpError::write_authority_lost(reason));
+    }
     match bounty_proof_finalize(&mut guard, &id, prepared, outcome) {
         Ok(value) => {
             record_proof_outcome(true);
@@ -4311,6 +4628,9 @@ async fn bounty_proof_handler(
 
 async fn bounty_announce_handler(State(state): State<AppState>, body: Bytes) -> Response {
     let mut guard = state.inner.write().await;
+    if let Some(reason) = write_authority_failure(&guard) {
+        return error_response(HttpError::write_authority_lost(reason));
+    }
     match bounty_announce_json(&mut guard, &body) {
         Ok(value) => (StatusCode::OK, Json(value)).into_response(),
         Err(err) => error_response(err),
@@ -4490,6 +4810,9 @@ async fn bounty_status_handler(
     body: Bytes,
 ) -> Response {
     let mut guard = state.inner.write().await;
+    if let Some(reason) = write_authority_failure(&guard) {
+        return error_response(HttpError::write_authority_lost(reason));
+    }
     match bounty_status_json(&mut guard, &id, &body) {
         Ok(value) => (StatusCode::OK, Json(value)).into_response(),
         Err(err) => error_response(err),
@@ -5881,8 +6204,29 @@ fn candidate_chain_reverify_job(
     let pinned = boole_core::network_genesis_preset(&state.network_id)?
         .params
         .checker_artifact_hash?;
+    // A surviving verified-prefix checkpoint attests every block through its
+    // recorded height. Strict replay still checks the complete candidate in
+    // preflight and again at commit; Lean only needs the suffix above that
+    // exact prefix. A shorter/diverged chain does not inherit any skip.
+    let reverify_from = state
+        .verified_prefix_checkpoint
+        .as_ref()
+        .filter(|checkpoint| {
+            let block_hash_at_height = usize::try_from(checkpoint.height)
+                .ok()
+                .and_then(|height| height.checked_sub(1))
+                .and_then(|index| candidate.get(index))
+                .map(|block| block.c.as_str());
+            crate::checkpoint::checkpoint_survives_reorg(checkpoint, block_hash_at_height)
+        })
+        .and_then(|checkpoint| usize::try_from(checkpoint.height).ok())
+        .unwrap_or(0);
+    let suffix = candidate.get(reverify_from..)?;
+    if suffix.is_empty() {
+        return None;
+    }
     Some(CandidateChainReverifyJob {
-        candidate: candidate.to_vec(),
+        candidate: suffix.to_vec(),
         checker_dir: state.lean_checker_dir.clone()?,
         pinned,
         verifier_hash: boole_core::lean_bound_verifier_hash(BASE_LANE_VERIFIER_PROFILE),
@@ -6063,6 +6407,9 @@ fn prepare_announced_block(
     state: &mut LocalNodeState,
     block_value: &Value,
 ) -> IngressBlockPrepareOutcome {
+    if write_authority_failure(state).is_some() {
+        return IngressBlockPrepareOutcome::Immediate(IngressBlockOutcome::Deferred);
+    }
     let Ok(block) = serde_json::from_value::<PersistedBlock>(block_value.clone()) else {
         return IngressBlockPrepareOutcome::Immediate(IngressBlockOutcome::Rejected);
     };
@@ -6099,6 +6446,9 @@ fn commit_announced_block(
     skip_decision: crate::checkpoint::CheckpointSkipDecision,
     was_lean_reverified: bool,
 ) -> IngressBlockOutcome {
+    if write_authority_failure(state).is_some() {
+        return IngressBlockOutcome::Deferred;
+    }
     if skip_decision == crate::checkpoint::CheckpointSkipDecision::DivergedDiscardThenReverify {
         state.verified_prefix_checkpoint = None;
         let checkpoint_path = state.checkpoint_path.clone();
@@ -6340,6 +6690,9 @@ fn prepare_candidate_chain(
     state: &mut LocalNodeState,
     candidate_values: &[Value],
 ) -> CandidateChainPrepareOutcome {
+    if write_authority_failure(state).is_some() {
+        return CandidateChainPrepareOutcome::Immediate(CandidateChainOutcome::Deferred);
+    }
     if state.runtime.ensure_canonical_state_healthy().is_err() {
         return CandidateChainPrepareOutcome::Immediate(CandidateChainOutcome::Deferred);
     }
@@ -6349,6 +6702,28 @@ fn prepare_candidate_chain(
             return CandidateChainPrepareOutcome::Immediate(CandidateChainOutcome::Rejected);
         };
         candidate.push(block);
+    }
+    // Reject malformed/invalid chains and discard fork-choice losers before
+    // acquiring the scarce semantic-verifier permit or launching Lean. This
+    // preflight is read-only; `commit_candidate_chain` repeats both replay and
+    // fork-choice after Lean under the final state guard, so a concurrent head
+    // change still cannot publish a stale decision.
+    let genesis = state
+        .runtime
+        .config
+        .genesis_spec(&state.network_id, &state.genesis_c);
+    match state
+        .runtime
+        .preflight_reorg_candidate(&candidate, &genesis)
+    {
+        Ok(ReorgOutcome::KeptCurrent) => {
+            return CandidateChainPrepareOutcome::Immediate(CandidateChainOutcome::KeptCurrent)
+        }
+        Ok(ReorgOutcome::Reorged { .. }) => {}
+        Err(err) => {
+            eprintln!("boole-node: p2p competing-chain preflight rejected: {err:#}");
+            return CandidateChainPrepareOutcome::Immediate(CandidateChainOutcome::Rejected);
+        }
     }
     // SC.10-ii-c (ADR-0016 (c)) — the strict replay inside
     // `reorg_to_heavier_chain` proves the candidate's shape, selection and
@@ -6397,6 +6772,9 @@ fn commit_candidate_chain(
     state: &mut LocalNodeState,
     candidate: Vec<PersistedBlock>,
 ) -> CandidateChainOutcome {
+    if write_authority_failure(state).is_some() {
+        return CandidateChainOutcome::Deferred;
+    }
     if state.runtime.ensure_canonical_state_healthy().is_err() {
         return CandidateChainOutcome::Deferred;
     }
@@ -6663,6 +7041,11 @@ fn ingress_prepare_share(
     let rejected = |code: &str| IngressShareOutcome::Rejected {
         code: code.to_string(),
     };
+    if let Some(code) = write_authority_failure(state) {
+        return IngressSharePrepareOutcome::Immediate(IngressShareOutcome::Deferred {
+            code: code.to_string(),
+        });
+    }
     if state.runtime.ensure_canonical_state_healthy().is_err() {
         return IngressSharePrepareOutcome::Immediate(rejected("canonical_state_inconsistent"));
     }
@@ -6858,6 +7241,11 @@ fn ingress_finalize_share(
         admitted_at,
         peer_ip,
     } = prepared;
+    if let Some(code) = write_authority_failure(state) {
+        return IngressShareOutcome::Deferred {
+            code: code.to_string(),
+        };
+    }
     match reverify {
         ShareAdmissionReverifyOutcome::Verified => {
             if state.runtime.ensure_canonical_state_healthy().is_err() {
@@ -6999,6 +7387,36 @@ mod tests {
     use axum::body::{to_bytes, Body};
     use tower::ServiceExt;
 
+    #[tokio::test]
+    async fn active_connection_cap_releases_only_when_connection_io_drops() {
+        let inner = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let address = inner.local_addr().expect("address");
+        let mut listener = BoundedHttpListener::with_limit(inner, 1);
+
+        let first_client = tokio::net::TcpStream::connect(address);
+        let (first_client, first_accept) = tokio::join!(first_client, listener.accept());
+        let first_client = first_client.expect("first connect");
+        let (first_io, _) = first_accept;
+
+        let second_client = tokio::net::TcpStream::connect(address)
+            .await
+            .expect("second connect reaches kernel backlog");
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), listener.accept())
+                .await
+                .is_err(),
+            "listener must not accept beyond its active-connection cap"
+        );
+
+        drop(first_io);
+        tokio::time::timeout(Duration::from_secs(1), listener.accept())
+            .await
+            .expect("permit release wakes accept");
+        drop((first_client, second_client));
+    }
+
     const PK_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const PK_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const HASH_0: &str = "0000000000000000000000000000000000000000000000000000000000000000";
@@ -7011,12 +7429,17 @@ mod tests {
             now_unix_ms()
         ));
         std::fs::create_dir_all(&dir).expect("create test directory");
-        let scenario_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../fixtures/protocol/runtime-smoke/v1.json")
-            .canonicalize()
-            .expect("runtime smoke scenario");
-        let node = LocalNodeState::from_config(LocalNodeConfig {
-            scenario_path,
+        let node = LocalNodeState::from_config(test_local_node_config(&dir))
+            .expect("boot private route state");
+        (node, dir)
+    }
+
+    fn test_local_node_config(dir: &Path) -> LocalNodeConfig {
+        LocalNodeConfig {
+            scenario_path: PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../fixtures/protocol/runtime-smoke/v1.json")
+                .canonicalize()
+                .expect("runtime smoke scenario"),
             block_path: dir.join("blocks.ndjson"),
             reward_ledger_path: None,
             work_manifests_path: None,
@@ -7039,9 +7462,132 @@ mod tests {
             lean_checker_disabled: true,
             http_rate_limit_per_60s: None,
             allow_anonymous_submit: true,
-        })
-        .expect("boot private route state");
-        (node, dir)
+        }
+    }
+
+    #[test]
+    fn local_node_refuses_second_writer_for_same_ledger_without_state_dir() {
+        let (first, dir) = test_local_node("ledger-writer-contention");
+        let error = match LocalNodeState::from_config(test_local_node_config(&dir)) {
+            Ok(_) => panic!("second node must not recover a ledger held by the first"),
+            Err(error) => error,
+        };
+        assert!(matches!(
+            error.downcast_ref::<state_dir::StateDirError>(),
+            Some(state_dir::StateDirError::LedgerLocked(_))
+        ));
+        drop(first);
+        std::fs::remove_dir_all(dir).expect("remove test directory");
+    }
+
+    #[tokio::test]
+    async fn ready_turns_red_when_ledger_lock_path_is_replaced() {
+        let (node, dir) = test_local_node("ledger-lock-ready-drift");
+        let router = build_router(AppState {
+            inner: Arc::new(RwLock::new(node)),
+            rate_limiter: None,
+        });
+        let first = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/ready")
+                    .body(Body::empty())
+                    .expect("ready request"),
+            )
+            .await
+            .expect("ready response");
+        assert_eq!(first.status(), StatusCode::OK);
+
+        let lock_path = dir.join(".blocks.ndjson.boole-lock");
+        std::fs::remove_file(&lock_path).expect("unlink held ledger lock");
+        std::fs::write(&lock_path, b"").expect("replace ledger lock inode");
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .uri("/ready")
+                    .body(Body::empty())
+                    .expect("ready request"),
+            )
+            .await
+            .expect("ready response");
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let body: Value = serde_json::from_slice(
+            &to_bytes(response.into_body(), 16 * 1024)
+                .await
+                .expect("read ready body"),
+        )
+        .expect("parse ready body");
+        assert_eq!(body["reason"], "ledger_lock_lost");
+        assert_eq!(body["checks"]["ledger_locks_held"], false);
+        std::fs::remove_dir_all(dir).expect("remove test directory");
+    }
+
+    #[tokio::test]
+    async fn replaced_ledger_lock_blocks_http_writes_but_keeps_reads_available() {
+        let (mut node, dir) = test_local_node("ledger-lock-http-write-fence");
+        let (runtime, body, _) = admitted_runtime_body();
+        node.runtime = runtime;
+        let block_path = node.block_path.clone();
+        let block_bytes_before = std::fs::read(&block_path).unwrap_or_default();
+        let state = AppState {
+            inner: Arc::new(RwLock::new(node)),
+            rate_limiter: None,
+        };
+        let router = build_router(state.clone());
+
+        let lock_path = dir.join(".blocks.ndjson.boole-lock");
+        std::fs::remove_file(&lock_path).expect("unlink held ledger lock");
+        std::fs::write(&lock_path, b"").expect("replace ledger lock inode");
+
+        let submit = Request::builder()
+            .method(Method::POST)
+            .uri("/submit")
+            .header("content-type", "application/json")
+            .extension(ConnectInfo(HttpRemoteAddr {
+                socket_addr: SocketAddr::from(([127, 0, 0, 1], 32100)),
+                header_received: Arc::new(AtomicBool::new(true)),
+            }))
+            .body(Body::from(
+                serde_json::to_vec(&Value::Object(body)).expect("submit body"),
+            ))
+            .expect("submit request");
+        let response = router
+            .clone()
+            .oneshot(submit)
+            .await
+            .expect("write-fenced response");
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let response_body: Value = serde_json::from_slice(
+            &to_bytes(response.into_body(), 16 * 1024)
+                .await
+                .expect("read response body"),
+        )
+        .expect("parse response body");
+        assert_eq!(response_body["reason"], "ledger_lock_lost");
+        assert_eq!(response_body["retryable"], true);
+
+        let status = router
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/status")
+                    .body(Body::empty())
+                    .expect("status request"),
+            )
+            .await
+            .expect("read-only status response");
+        assert_eq!(status.status(), StatusCode::OK);
+        assert_eq!(
+            std::fs::read(&block_path).unwrap_or_default(),
+            block_bytes_before
+        );
+        let node = state.inner.read().await;
+        assert_eq!(node.runtime.pool_size(), 0);
+        assert!(node.runtime.candidate_shares_for_current_c().is_empty());
+        drop(node);
+        drop(state);
+        std::fs::remove_dir_all(dir).expect("remove test directory");
     }
 
     fn admitted_runtime_body() -> (RuntimeAdmissionState, serde_json::Map<String, Value>, i64) {
@@ -7348,7 +7894,10 @@ mod tests {
             .method(Method::POST)
             .uri("/submit")
             .header("content-type", "application/json")
-            .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 32001))))
+            .extension(ConnectInfo(HttpRemoteAddr {
+                socket_addr: SocketAddr::from(([127, 0, 0, 1], 32001)),
+                header_received: Arc::new(AtomicBool::new(true)),
+            }))
             .body(Body::from("{}"))
             .expect("submit request");
         let response = router.clone().oneshot(submit).await.expect("busy response");
@@ -7420,7 +7969,10 @@ mod tests {
                 .method(Method::POST)
                 .uri("/submit")
                 .header("content-type", "application/json")
-                .extension(ConnectInfo(SocketAddr::from(([198, 51, 100, 78], port))))
+                .extension(ConnectInfo(HttpRemoteAddr {
+                    socket_addr: SocketAddr::from(([198, 51, 100, 78], port)),
+                    header_received: Arc::new(AtomicBool::new(true)),
+                }))
                 .body(Body::from(body_bytes.clone()))
                 .expect("submit request")
         };
@@ -7523,7 +8075,10 @@ mod tests {
                 .method(Method::POST)
                 .uri("/submit")
                 .header("content-type", "application/json")
-                .extension(ConnectInfo(SocketAddr::from(([198, 51, 100, 79], port))))
+                .extension(ConnectInfo(HttpRemoteAddr {
+                    socket_addr: SocketAddr::from(([198, 51, 100, 79], port)),
+                    header_received: Arc::new(AtomicBool::new(true)),
+                }))
                 .body(Body::from(body_bytes.clone()))
                 .expect("submit request")
         };
@@ -7621,7 +8176,10 @@ mod tests {
                 .method(Method::POST)
                 .uri("/submit")
                 .header("content-type", "application/json")
-                .extension(ConnectInfo(SocketAddr::from(([198, 51, 100, 77], port))))
+                .extension(ConnectInfo(HttpRemoteAddr {
+                    socket_addr: SocketAddr::from(([198, 51, 100, 77], port)),
+                    header_received: Arc::new(AtomicBool::new(true)),
+                }))
                 .body(Body::from(body_bytes.clone()))
                 .expect("submit request")
         };
@@ -8004,7 +8562,10 @@ mod tests {
                     .method(Method::POST)
                     .uri("/submit")
                     .header("content-type", "application/json")
-                    .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 32005))))
+                    .extension(ConnectInfo(HttpRemoteAddr {
+                        socket_addr: SocketAddr::from(([127, 0, 0, 1], 32005)),
+                        header_received: Arc::new(AtomicBool::new(true)),
+                    }))
                     .body(Body::from("{}"))
                     .expect("submit request"),
             )
@@ -8116,6 +8677,86 @@ mod tests {
         std::fs::remove_dir_all(producer_dir).expect("remove producer dir");
     }
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn lost_ledger_lock_during_p2p_reverify_defers_before_durable_commit() {
+        let producer_dir = std::env::temp_dir().join(format!(
+            "boole-write-fence-producer-{}-{}",
+            std::process::id(),
+            now_unix_ms()
+        ));
+        std::fs::create_dir_all(&producer_dir).expect("create producer dir");
+        let producer_path = producer_dir.join("blocks.ndjson");
+        let (mut producer_runtime, producer_body, producer_reward_pk, producer_signed_work, _) =
+            testnet2_valid_booted_runtime_body(&producer_path);
+        let block = commit_one_fixture_block(
+            &mut producer_runtime,
+            &producer_body,
+            (&producer_reward_pk, &producer_signed_work),
+            &producer_path,
+            now_unix_ms() as i64,
+            "198.51.100.91",
+            FixtureTipSelection::First,
+        );
+        let block_value = serde_json::to_value(block).expect("peer block serializes");
+
+        let (mut target, target_dir) = test_local_node("p2p-final-write-fence");
+        let (target_runtime, _, _, _, _) = testnet2_valid_booted_runtime_body(&target.block_path);
+        target.runtime = target_runtime;
+        target.genesis_c = "0".repeat(64);
+        target.network_id = boole_core::AUTHORIZATION_REQUIRED_NETWORK_ID.to_string();
+        target.require_network_scoped_envelopes = true;
+        target.lean_checker_dir = Some(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../lean/checker")
+                .canonicalize()
+                .expect("checker directory"),
+        );
+        let target_block_path = target.block_path.clone();
+        let block_bytes_before = std::fs::read(&target_block_path).unwrap_or_default();
+        let gate = Arc::clone(&target.semantic_verifier);
+        gate.set_test_block_outcome(SemanticVerifierTestOutcome::Verified);
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        gate.set_test_latch(Arc::new(SemanticVerifierTestLatch {
+            started: started_tx,
+            release: StdMutex::new(release_rx),
+        }));
+        let shared = Arc::new(RwLock::new(target));
+        let worker_state = Arc::clone(&shared);
+        let worker =
+            std::thread::spawn(move || ingest_announced_block_shared(&worker_state, &block_value));
+        tokio::task::spawn_blocking(move || {
+            started_rx
+                .recv_timeout(Duration::from_secs(2))
+                .expect("block verifier reached latch")
+        })
+        .await
+        .expect("started observer joins");
+
+        let lock_path = target_dir.join(".blocks.ndjson.boole-lock");
+        std::fs::remove_file(&lock_path).expect("unlink held ledger lock");
+        std::fs::write(&lock_path, b"").expect("replace ledger lock inode");
+        release_tx.send(()).expect("release block verifier");
+        let outcome = tokio::task::spawn_blocking(move || worker.join().expect("block joins"))
+            .await
+            .expect("block join observer");
+        assert!(matches!(outcome, IngressBlockOutcome::Deferred));
+        assert_eq!(
+            std::fs::read(&target_block_path).unwrap_or_default(),
+            block_bytes_before,
+            "a verifier result must not publish after write authority is lost"
+        );
+        {
+            let target = shared.read().await;
+            assert_eq!(target.runtime.cached_block_count(), 0);
+        }
+        gate.clear_test_latch();
+        gate.clear_test_block_outcome();
+        drop(shared);
+        std::fs::remove_dir_all(target_dir).expect("remove target dir");
+        std::fs::remove_dir_all(producer_dir).expect("remove producer dir");
+    }
+
     #[test]
     fn panicked_p2p_block_and_reorg_checkers_defer_without_durable_mutation() {
         let producer_dir = std::env::temp_dir().join(format!(
@@ -8178,6 +8819,154 @@ mod tests {
                 .is_ok_and(|store| store.blocks().is_empty()));
         }
 
+        gate.clear_test_block_outcome();
+        drop(shared);
+        std::fs::remove_dir_all(target_dir).expect("remove target dir");
+        std::fs::remove_dir_all(producer_dir).expect("remove producer dir");
+    }
+
+    #[test]
+    fn p2p_reorg_rejects_structurally_invalid_candidate_before_lean_worker() {
+        let producer_dir = std::env::temp_dir().join(format!(
+            "boole-reorg-preflight-producer-{}-{}",
+            std::process::id(),
+            now_unix_ms()
+        ));
+        std::fs::create_dir_all(&producer_dir).expect("create producer dir");
+        let producer_path = producer_dir.join("blocks.ndjson");
+        let (mut producer_runtime, body, reward_pk, signed_work, _) =
+            testnet2_valid_booted_runtime_body(&producer_path);
+        let mut block = commit_one_fixture_block(
+            &mut producer_runtime,
+            &body,
+            (&reward_pk, &signed_work),
+            &producer_path,
+            now_unix_ms() as i64,
+            "198.51.100.86",
+            FixtureTipSelection::First,
+        );
+        block.prev_c = HASH_1.to_string();
+        let block_value = serde_json::to_value(block).expect("peer block serializes");
+
+        let (mut target, target_dir) = test_local_node("reorg-preflight-invalid");
+        let (runtime, _, _, _, _) = testnet2_valid_booted_runtime_body(&target.block_path);
+        target.runtime = runtime;
+        target.genesis_c = "0".repeat(64);
+        target.network_id = boole_core::AUTHORIZATION_REQUIRED_NETWORK_ID.to_string();
+        target.require_network_scoped_envelopes = true;
+        target.lean_checker_dir = Some(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../lean/checker")
+                .canonicalize()
+                .expect("checker directory"),
+        );
+        let gate = Arc::clone(&target.semantic_verifier);
+        // If prepare reaches the semantic worker this forced panic maps to
+        // Deferred. Strict replay must reject before acquiring/running it.
+        gate.set_test_block_outcome(SemanticVerifierTestOutcome::Panic);
+        let shared = Arc::new(RwLock::new(target));
+
+        assert!(matches!(
+            ingest_candidate_chain_shared(&shared, &[block_value]),
+            CandidateChainOutcome::Rejected
+        ));
+        assert!(
+            gate.try_acquire().is_some(),
+            "preflight leaves verifier idle"
+        );
+        gate.clear_test_block_outcome();
+        drop(shared);
+        std::fs::remove_dir_all(target_dir).expect("remove target dir");
+        std::fs::remove_dir_all(producer_dir).expect("remove producer dir");
+    }
+
+    #[test]
+    fn p2p_reorg_lean_job_contains_only_suffix_above_matching_checkpoint() {
+        let producer_dir = std::env::temp_dir().join(format!(
+            "boole-checkpoint-suffix-producer-{}-{}",
+            std::process::id(),
+            now_unix_ms()
+        ));
+        std::fs::create_dir_all(&producer_dir).expect("create producer dir");
+        let producer_path = producer_dir.join("blocks.ndjson");
+        let (mut producer_runtime, body, reward_pk, signed_work, _) =
+            testnet2_valid_booted_runtime_body(&producer_path);
+        let mut first = commit_one_fixture_block(
+            &mut producer_runtime,
+            &body,
+            (&reward_pk, &signed_work),
+            &producer_path,
+            now_unix_ms() as i64,
+            "198.51.100.87",
+            FixtureTipSelection::First,
+        );
+        let (mut target, target_dir) = test_local_node("reorg-checkpoint-suffix");
+        target.network_id = boole_core::AUTHORIZATION_REQUIRED_NETWORK_ID.to_string();
+        target.lean_checker_dir = Some(PathBuf::from("checker-fixture"));
+        first.height = 0;
+        first.c = HASH_1.to_string();
+        let mut second = first.clone();
+        second.height = 1;
+        second.prev_c = HASH_1.to_string();
+        second.c = "2".repeat(64);
+        target.verified_prefix_checkpoint = Some(crate::checkpoint::VerifiedPrefixCheckpoint {
+            genesis_spec_hash: target.genesis_spec_hash.clone(),
+            height: 1,
+            block_hash: HASH_1.to_string(),
+            checker_artifact_hash: boole_core::network_genesis_preset(&target.network_id)
+                .and_then(|preset| preset.params.checker_artifact_hash)
+                .expect("testnet2 checker pin"),
+            max_heartbeats: boole_core::BASE_LANE_MAX_HEARTBEATS,
+            max_rec_depth: boole_core::BASE_LANE_MAX_REC_DEPTH,
+        });
+
+        let job = candidate_chain_reverify_job(&target, &[first, second.clone()])
+            .expect("suffix requires verification");
+        assert_eq!(job.candidate, vec![second]);
+        std::fs::remove_dir_all(target_dir).expect("remove target dir");
+        std::fs::remove_dir_all(producer_dir).expect("remove producer dir");
+    }
+
+    #[test]
+    fn p2p_reorg_fork_choice_loser_does_not_run_lean_worker() {
+        let producer_dir = std::env::temp_dir().join(format!(
+            "boole-reorg-preflight-kept-producer-{}-{}",
+            std::process::id(),
+            now_unix_ms()
+        ));
+        std::fs::create_dir_all(&producer_dir).expect("create producer dir");
+        let producer_path = producer_dir.join("blocks.ndjson");
+        let (mut canonical_runtime, body, reward_pk, signed_work, _) =
+            testnet2_valid_booted_runtime_body(&producer_path);
+        let block = commit_one_fixture_block(
+            &mut canonical_runtime,
+            &body,
+            (&reward_pk, &signed_work),
+            &producer_path,
+            now_unix_ms() as i64,
+            "198.51.100.88",
+            FixtureTipSelection::First,
+        );
+        let block_value = serde_json::to_value(block).expect("peer block serializes");
+
+        let (mut target, target_dir) = test_local_node("reorg-preflight-kept");
+        target.runtime = canonical_runtime;
+        target.genesis_c = "0".repeat(64);
+        target.network_id = boole_core::AUTHORIZATION_REQUIRED_NETWORK_ID.to_string();
+        target.require_network_scoped_envelopes = true;
+        target.lean_checker_dir = Some(PathBuf::from("checker-fixture"));
+        let gate = Arc::clone(&target.semantic_verifier);
+        gate.set_test_block_outcome(SemanticVerifierTestOutcome::Panic);
+        let shared = Arc::new(RwLock::new(target));
+
+        assert!(matches!(
+            ingest_candidate_chain_shared(&shared, &[block_value]),
+            CandidateChainOutcome::KeptCurrent
+        ));
+        assert!(
+            gate.try_acquire().is_some(),
+            "fork-choice loser leaves verifier idle"
+        );
         gate.clear_test_block_outcome();
         drop(shared);
         std::fs::remove_dir_all(target_dir).expect("remove target dir");

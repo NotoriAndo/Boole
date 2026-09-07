@@ -16,7 +16,7 @@ use boole_core::{
     LocalPackageStoreError, PackageRoot, StagePackageOutcome, DEFAULT_MAX_PENDING_PACKAGES,
     MAX_PACKAGE_REFERENCE_BYTES,
 };
-use boole_p2p::{Frame, FrameError, Transport};
+use boole_p2p::{Frame, FrameError};
 use thiserror::Error;
 use tokio::sync::RwLock;
 
@@ -406,16 +406,24 @@ fn fetch_from_peer(
 ) -> Result<PeerFetchOutcome, PackageFetchError> {
     let mut validated = open_validated_conn(peer, identity, head, lifecycle)?;
     let expected_root = requested_root.to_hex();
-    validated.transport.send_frame(
+    validated.transport.send_frame_until(
         &mut validated.conn,
         &Frame::GetPackage {
             root: expected_root.clone(),
         },
+        validated.deadline,
     )?;
     let Frame::Package {
         root,
         canonical_bytes,
-    } = validated.transport.recv_frame(&mut validated.conn)?
+    } = validated
+        .transport
+        .recv_frame_counted_until(
+            &mut validated.conn,
+            boole_p2p::MAX_FRAME_BYTES,
+            validated.deadline,
+        )?
+        .0
     else {
         return Err(PackageFetchError::UnexpectedFrame);
     };

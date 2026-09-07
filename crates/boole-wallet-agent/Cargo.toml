@@ -24,6 +24,7 @@ ed25519-dalek.workspace = true
 hex.workspace = true
 libc.workspace = true
 rand_core.workspace = true
+zeroize.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true

@@ -100,10 +100,6 @@ end BooleVerifyMod
 
 #[test]
 fn rejects_custom_elab_io() {
-    if !lake_and_lean_available() {
-        eprintln!("skipping real Lean runner test: lake/lean unavailable");
-        return;
-    }
     let workspace = TestLeanWorkspace::new("poc1-elab-io");
     workspace.write_checker_project();
     let proof = workspace.write_proof("Poc1.lean", POC1_CUSTOM_ELAB_IO);
@@ -114,12 +110,29 @@ fn rejects_custom_elab_io() {
 }
 
 #[test]
+fn intake_blacklist_tests_do_not_require_or_launch_lean() {
+    for test in [
+        "rejects_custom_elab_io",
+        "rejects_addDecl_axiom_injection",
+        "rejects_debug_skip_kernel_tc",
+    ] {
+        let output = Command::new(std::env::current_exe().expect("test executable"))
+            .args(["--exact", test, "--nocapture"])
+            .env("PATH", "")
+            .output()
+            .expect("run isolated intake test");
+        assert!(
+            output.status.success(),
+            "{test} must reject at intake without invoking a toolchain: {}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+#[test]
 #[allow(non_snake_case)] // TB.1 spec pins this exact test name (addDecl).
 fn rejects_addDecl_axiom_injection() {
-    if !lake_and_lean_available() {
-        eprintln!("skipping real Lean runner test: lake/lean unavailable");
-        return;
-    }
     let workspace = TestLeanWorkspace::new("poc2-adddecl");
     workspace.write_checker_project();
     let proof = workspace.write_proof("Poc2.lean", POC2_ADDDECL_AXIOM_INJECTION);
@@ -131,10 +144,6 @@ fn rejects_addDecl_axiom_injection() {
 
 #[test]
 fn rejects_debug_skip_kernel_tc() {
-    if !lake_and_lean_available() {
-        eprintln!("skipping real Lean runner test: lake/lean unavailable");
-        return;
-    }
     let workspace = TestLeanWorkspace::new("poc3-debug-skip");
     workspace.write_checker_project();
     let proof = workspace.write_proof("Poc3.lean", POC3_DEBUG_SKIP_KERNEL_TC);
@@ -152,6 +161,7 @@ fn rejects_proof_depending_on_non_allowlisted_axiom() {
     }
     let workspace = TestLeanWorkspace::new("poc4-trust-compiler");
     workspace.write_checker_project();
+    workspace.build_helper();
     let proof = workspace.write_proof("Poc4.lean", POC4_NON_ALLOWLISTED_AXIOM_TERM);
 
     // `.expect` (not `assert_rejected`) is deliberate: PoC4 must reach
@@ -233,15 +243,25 @@ fn accepts_lenbound_style_proof_importing_helper_surface() {
 }
 
 fn assert_rejected(outcome: anyhow::Result<LeanCheckResult>, context: &str) {
-    match outcome {
-        // Rejected by the pre-spawn blacklist before `lake` ever ran.
-        Err(_) => {}
-        // Rejected by the primary checker or the axiom audit.
-        Ok(result) => assert!(
-            !result.accepted,
-            "{context} must be rejected under the TB.1 soundness boundary: {result:?}"
-        ),
-    }
+    // These three PoCs exercise intake, before a toolchain is needed. An
+    // unavailable runner or missing package must not satisfy this assertion;
+    // the separate PoC4 below requires the real post-elaboration axiom audit.
+    let error = outcome.expect_err("a forbidden source must fail before checker execution");
+    assert!(
+        error
+            .to_string()
+            .starts_with("Lean proof rejected: forbidden `"),
+        "{context} must report a forbidden source, not an infrastructure failure: {error:#}"
+    );
+}
+
+#[test]
+#[should_panic(expected = "forbidden")]
+fn blacklist_rejection_cannot_be_satisfied_by_an_unavailable_runner() {
+    assert_rejected(
+        Err(anyhow::anyhow!("Lean package directory does not exist")),
+        "an infrastructure failure is not an intake rejection",
+    );
 }
 
 fn runner_for(workspace: &TestLeanWorkspace) -> LeanRunner {
@@ -258,15 +278,7 @@ fn real_checker_package_dir() -> PathBuf {
 }
 
 fn lake_and_lean_available() -> bool {
-    let lake_ok = Command::new("lake")
-        .arg("--version")
-        .output()
-        .is_ok_and(|o| o.status.success());
-    let lean_ok = Command::new("lean")
-        .arg("--version")
-        .output()
-        .is_ok_and(|o| o.status.success());
-    lake_ok && lean_ok
+    boole_testkit::lake_and_lean_available()
 }
 
 struct TestLeanWorkspace {
@@ -338,6 +350,9 @@ lean_exe boole_check where
             "-- fixture stub: pinned by checker_artifact_hash\n",
         )
         .expect("write V0Helpers stub");
+    }
+
+    fn build_helper(&self) {
         let build = Command::new("lake")
             .args(["build", "Boole.Family.V0Helpers"])
             .current_dir(&self.root)

@@ -16,7 +16,7 @@
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
@@ -228,4 +228,229 @@ fn stdio_malformed_json_returns_parse_error_and_keeps_the_pipe_usable() {
     write_frame(&mut stdin, &request.to_string());
     let response: Value = serde_json::from_str(&read_frame(&mut stdout)).expect("next response");
     assert_eq!(response["id"], 9, "response={response}");
+}
+
+#[test]
+fn stdio_idless_tool_notification_does_not_hide_the_next_response() {
+    let (_guard, mut stdin, mut stdout) = spawn_stdio();
+
+    write_frame(
+        &mut stdin,
+        &json!({
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "params": { "name": "boole.status", "arguments": {} }
+        })
+        .to_string(),
+    );
+    write_frame(
+        &mut stdin,
+        &json!({"jsonrpc":"2.0","id":10,"method":"tools/list"}).to_string(),
+    );
+
+    let response: Value = serde_json::from_str(&read_frame(&mut stdout)).expect("list response");
+    assert_eq!(
+        response["id"], 10,
+        "the notification must not have a response"
+    );
+}
+
+#[test]
+fn stdio_mining_stays_responsive_and_cancel_has_one_terminal_response() {
+    let (_guard, mut stdin, mut stdout) = spawn_stdio();
+
+    // A high, bounded cycle count keeps the closed-local job alive long enough
+    // to prove stdio can serve a normal request instead of serially awaiting it.
+    write_frame(
+        &mut stdin,
+        &json!({
+            "jsonrpc": "2.0",
+            "id": 50,
+            "method": "tools/call",
+            "params": { "name": "boole.mine", "arguments": { "max_cycles": 100_000 } }
+        })
+        .to_string(),
+    );
+    write_frame(
+        &mut stdin,
+        &json!({"jsonrpc":"2.0","id":51,"method":"tools/list"}).to_string(),
+    );
+    let list: Value = serde_json::from_str(&read_frame(&mut stdout)).expect("list response");
+    assert_eq!(list["id"], 51, "mining must not block tools/list: {list}");
+
+    // A cancellation notification is scoped to its requestId; another request
+    // must not be able to stop this mine.
+    write_frame(
+        &mut stdin,
+        &json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/cancelled",
+            "params": { "requestId": 999 }
+        })
+        .to_string(),
+    );
+    write_frame(
+        &mut stdin,
+        &json!({
+            "jsonrpc": "2.0",
+            "id": 54,
+            "method": "tools/call",
+            "params": { "name": "boole.status", "arguments": {} }
+        })
+        .to_string(),
+    );
+    let running: Value = serde_json::from_str(&read_frame(&mut stdout)).expect("status response");
+    assert_eq!(running["id"], 54, "response={running}");
+    let running_text = running["result"]["content"][0]["text"]
+        .as_str()
+        .expect("running status text");
+    assert_eq!(
+        serde_json::from_str::<Value>(running_text).expect("running JSON")["state"],
+        "running"
+    );
+
+    // A second mine while the first is active must be rejected, rather than
+    // allowing two in-process miners to run concurrently.
+    write_frame(
+        &mut stdin,
+        &json!({
+            "jsonrpc": "2.0",
+            "id": 52,
+            "method": "tools/call",
+            "params": { "name": "boole.mine", "arguments": { "max_cycles": 0 } }
+        })
+        .to_string(),
+    );
+    let busy: Value = serde_json::from_str(&read_frame(&mut stdout)).expect("busy response");
+    assert_eq!(busy["id"], 52, "response={busy}");
+    let busy_text = busy["result"]["content"][0]["text"]
+        .as_str()
+        .expect("busy tool text");
+    assert_eq!(
+        serde_json::from_str::<Value>(busy_text).expect("busy JSON")["error"],
+        "mining-busy"
+    );
+
+    write_frame(
+        &mut stdin,
+        &json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/cancelled",
+            "params": { "requestId": 50 }
+        })
+        .to_string(),
+    );
+    let cancelled: Value =
+        serde_json::from_str(&read_frame(&mut stdout)).expect("cancelled terminal response");
+    assert_eq!(cancelled["id"], 50, "response={cancelled}");
+    assert_eq!(cancelled["error"]["code"], -32800, "response={cancelled}");
+
+    // There is exactly one terminal response for request 50: if completion and
+    // cancellation both wrote, this ping would instead read a duplicate 50.
+    write_frame(
+        &mut stdin,
+        &json!({"jsonrpc":"2.0","id":53,"method":"ping"}).to_string(),
+    );
+    let ping: Value = serde_json::from_str(&read_frame(&mut stdout)).expect("ping response");
+    assert_eq!(ping["id"], 53, "duplicate mining response leaked: {ping}");
+    assert_eq!(ping["result"], json!({}));
+}
+
+#[test]
+fn stdio_mining_rejects_non_integer_and_over_cap_cycles() {
+    let (_guard, mut stdin, mut stdout) = spawn_stdio();
+
+    for (id, max_cycles) in [(60, json!(-1)), (61, json!(100_001))] {
+        write_frame(
+            &mut stdin,
+            &json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "method": "tools/call",
+                "params": { "name": "boole.mine", "arguments": { "max_cycles": max_cycles } }
+            })
+            .to_string(),
+        );
+        let response: Value =
+            serde_json::from_str(&read_frame(&mut stdout)).expect("error response");
+        assert_eq!(response["id"], id, "response={response}");
+        let text = response["result"]["content"][0]["text"]
+            .as_str()
+            .expect("error tool text");
+        assert_eq!(
+            serde_json::from_str::<Value>(text).expect("error JSON")["error"],
+            "invalid-arg"
+        );
+    }
+}
+
+#[test]
+fn stdio_eof_cancels_active_mining_and_exits_bounded() {
+    let (mut guard, mut stdin, stdout) = spawn_stdio();
+    write_frame(
+        &mut stdin,
+        &json!({
+            "jsonrpc": "2.0",
+            "id": 70,
+            "method": "tools/call",
+            "params": { "name": "boole.mine", "arguments": { "max_cycles": 100_000 } }
+        })
+        .to_string(),
+    );
+    drop(stdin);
+    drop(stdout);
+
+    let deadline = Instant::now() + Duration::from_secs(4);
+    loop {
+        if let Some(status) = guard.child.try_wait().expect("poll boole-mcp") {
+            assert!(status.success(), "EOF shutdown status={status}");
+            return;
+        }
+        assert!(Instant::now() < deadline, "stdio did not stop after EOF");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+fn assert_framing_error_cancels_active_mining_and_exits_bounded(frame: &[u8]) {
+    let (mut guard, mut stdin, stdout) = spawn_stdio();
+    write_frame(
+        &mut stdin,
+        &json!({
+            "jsonrpc": "2.0",
+            "id": 71,
+            "method": "tools/call",
+            "params": { "name": "boole.mine", "arguments": { "max_cycles": 100_000 } }
+        })
+        .to_string(),
+    );
+    stdin.write_all(frame).expect("write malformed frame");
+    stdin.flush().expect("flush malformed frame");
+    drop(stdin);
+    drop(stdout);
+
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        if let Some(status) = guard.child.try_wait().expect("poll boole-mcp") {
+            assert!(
+                !status.success(),
+                "a framing error must still be reported after bounded cancellation"
+            );
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "stdio did not cancel active mining after a framing error"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[test]
+fn stdio_invalid_utf8_cancels_active_mining_and_exits_bounded() {
+    assert_framing_error_cancels_active_mining_and_exits_bounded(b"\xff\n");
+}
+
+#[test]
+fn stdio_truncated_frame_cancels_active_mining_and_exits_bounded() {
+    assert_framing_error_cancels_active_mining_and_exits_bounded(b"{\"");
 }

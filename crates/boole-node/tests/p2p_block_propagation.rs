@@ -250,8 +250,10 @@ fn hello_frame(genesis: &str, head: HeadSummary) -> Frame {
     Frame::Hello {
         protocol_version: PROTOCOL_VERSION,
         consensus_rule_version: CONSENSUS_RULE_VERSION,
+        authorization_policy: boole_p2p::AuthorizationPolicy::LegacyUnscopedV1,
         network_id: "boole-mvp".to_string(),
         genesis_hash: genesis.to_string(),
+        effective_family_manifest_root: boole_core::FamilyManifestRegistry::new().root().to_hex(),
         head,
     }
 }

@@ -4,10 +4,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-ADDR="${BOOLE_NODE_ADDR:-127.0.0.1:18120}"
+source "$ROOT/scripts/smoke-lifecycle.sh"
+ADDR="${BOOLE_NODE_ADDR:-127.0.0.1:$((20000 + ($$ % 20000)))}"
 SCENARIO="${SCENARIO:-fixtures/protocol/runtime-smoke/v1.json}"
-BLOCK_STORE="${BLOCK_STORE:-${TMPDIR:-/tmp}/boole-node-provider-model-smoke.ndjson}"
-REWARD_LEDGER="${REWARD_LEDGER:-${TMPDIR:-/tmp}/boole-node-provider-model-smoke-rewards.ndjson}"
+BLOCK_STORE="$(smoke_fresh_path "${BLOCK_STORE:-$SMOKE_WORK_DIR/blocks.ndjson}")"
+REWARD_LEDGER="$(smoke_fresh_path "${REWARD_LEDGER:-$SMOKE_WORK_DIR/rewards.ndjson}")"
 TRIALS="${TRIALS:-1}"
 LLM_BACKEND="${LLM_BACKEND:-mock}"
 LLM_MODEL="${LLM_MODEL:-}"
@@ -16,10 +17,11 @@ LLM_API_KEY_ENV="${LLM_API_KEY_ENV:-}"
 LLM_PROVIDER_LABEL="${LLM_PROVIDER_LABEL:-$LLM_BACKEND}"
 PROFILE="${PROFILE:-v1-lenbound}"
 FIXED_SEED="${FIXED_SEED:-b606f7037936d8191ded73d7051fb423e72d2b442b0e868da9e3b11e72c7f764}"
-STATE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/boole-provider-model-smoke.XXXXXX")"
+STATE_DIR="$SMOKE_WORK_DIR/state"
 STATE="$STATE_DIR/state.json"
 RESULTS_JSONL="$STATE_DIR/results.jsonl"
-rm -f "$BLOCK_STORE" "$REWARD_LEDGER"
+mkdir -p "$STATE_DIR"
+MINER_INIT_OUT="$SMOKE_WORK_DIR/miner-init.out"
 
 json_skip() {
   local reason="$1"
@@ -48,13 +50,11 @@ esac
 
 if [[ "$LLM_BACKEND" == "claude_cli" ]] && ! command -v claude >/dev/null 2>&1; then
   json_skip "claude_cli_not_found"
-  rm -rf "$STATE_DIR"
   exit 0
 fi
 
 if [[ -n "$LLM_API_KEY_ENV" && -z "${!LLM_API_KEY_ENV:-}" ]]; then
   json_skip "missing_api_key_env"
-  rm -rf "$STATE_DIR"
   exit 0
 fi
 
@@ -64,24 +64,28 @@ if [[ "$LLM_BACKEND" == "openai_compat" ]]; then
     exit 64
   fi
   if [[ "$LLM_BASE_URL" == http://127.0.0.1:* || "$LLM_BASE_URL" == http://localhost:* ]]; then
-    if ! curl -fsS "${LLM_BASE_URL%/}/models" >/dev/null 2>&1; then
+    if ! curl --connect-timeout 3 --max-time 10 -fsS "${LLM_BASE_URL%/}/models" >/dev/null 2>&1; then
       json_skip "openai_compat_endpoint_not_ready"
-      rm -rf "$STATE_DIR"
       exit 0
     fi
   fi
 fi
 
-cargo run -q -p boole-node -- run-local \
+# Build before the node readiness budget starts.
+NODE_BIN="$(smoke_build_binary boole-node boole-node)"
+MINER_BIN="$(smoke_build_binary boole-miner boole-miner --features boole-miner/dev-tools)"
+smoke_prewarm_binary "$NODE_BIN"
+smoke_prewarm_binary "$MINER_BIN"
+"$NODE_BIN" run-local \
   --addr "$ADDR" \
   --scenario "$SCENARIO" \
   --block-store "$BLOCK_STORE" \
   --reward-store "$REWARD_LEDGER" \
-  --max-requests 120 \
-  >/tmp/boole-node-provider-model-smoke.out \
-  2>/tmp/boole-node-provider-model-smoke.err &
+  --allow-anonymous-submit \
+  >"$SMOKE_WORK_DIR/node.out" \
+  2>"$SMOKE_WORK_DIR/node.err" &
 PID=$!
-trap 'kill "$PID" >/dev/null 2>&1 || true; rm -rf "$STATE_DIR"; rm -f /tmp/boole-node-provider-model-smoke.out /tmp/boole-node-provider-model-smoke.err /tmp/boole-provider-model-smoke-init.out /tmp/boole-provider-model-smoke-start.*.out "$REWARD_LEDGER"' EXIT
+smoke_register_child "$PID"
 
 python3 - "$ADDR" <<'PY'
 import http.client, sys, time
@@ -112,13 +116,13 @@ elif [[ "$LLM_BACKEND" == "openai_compat" ]]; then
   init_env+=(BOOLE_LLM_API_KEY=sk-no-key)
 fi
 
-env "${init_env[@]}" cargo run -q -p boole-miner -- "${init_args[@]}" >/tmp/boole-provider-model-smoke-init.out
+env "${init_env[@]}" "$MINER_BIN" "${init_args[@]}" >"$MINER_INIT_OUT"
 
 success=0
 for trial in $(seq 1 "$TRIALS"); do
-  out="/tmp/boole-provider-model-smoke-start.${trial}.out"
+  out="$SMOKE_WORK_DIR/miner-start.${trial}.out"
   set +e
-  cargo run -q -p boole-miner -- start \
+  "$MINER_BIN" start \
     --state "$STATE" \
     --max-shares 1 \
     --max-cycles 1 \
@@ -181,6 +185,6 @@ if not ok:
     raise SystemExit("boole-provider-model-smoke: no proof-to-block success")
 PY
 
-kill "$PID" >/dev/null 2>&1 || true
-wait "$PID" 2>/dev/null || true
+smoke_stop_and_wait "$PID"
+SMOKE_CHILD_PIDS=""
 printf 'boole-provider-model-smoke: PASS provider=%s model=%s\n' "$LLM_PROVIDER_LABEL" "$LLM_MODEL" >&2

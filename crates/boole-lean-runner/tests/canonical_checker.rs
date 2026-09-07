@@ -11,7 +11,6 @@
 
 use boole_lean_runner::{LeanRunner, LeanRunnerConfig};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 fn repo_root() -> PathBuf {
     // CARGO_MANIFEST_DIR is the crate dir (crates/boole-lean-runner). The
@@ -43,16 +42,7 @@ fn pinned_hash_from_readme() -> String {
 }
 
 fn lake_and_lean_available() -> bool {
-    Command::new("lake")
-        .arg("--version")
-        .output()
-        .map(|out| out.status.success())
-        .unwrap_or(false)
-        && Command::new("lean")
-            .arg("--version")
-            .output()
-            .map(|out| out.status.success())
-            .unwrap_or(false)
+    boole_testkit::lake_and_lean_available()
 }
 
 #[test]

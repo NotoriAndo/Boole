@@ -311,12 +311,25 @@ fn run_local_command(args: RunLocalArgs) -> anyhow::Result<()> {
     } else {
         "127.0.0.1:8080".to_string()
     };
-    let block_path = args
-        .block_store
-        .unwrap_or_else(|| "/tmp/boole-node-local.ndjson".to_string());
-    let reward_ledger_path = args
-        .reward_store
-        .unwrap_or_else(|| "/tmp/boole-node-rewards.ndjson".to_string());
+    // A state-dir run keeps unspecified ledgers inside that durable ownership
+    // boundary. A legacy/local run with missing paths uses a private,
+    // persistent per-user state root rather than the old process-global
+    // `/tmp/boole-node-*.ndjson` names. Restarts retain the same default
+    // ledgers while sibling locks prevent concurrent writers.
+    let persistent_default_root = if args.state_dir.is_none()
+        && (args.block_store.is_none() || args.reward_store.is_none())
+    {
+        Some(default_local_state_root()?)
+    } else {
+        None
+    };
+    let default_ledger_root = args
+        .state_dir
+        .as_deref()
+        .or(persistent_default_root.as_deref())
+        .unwrap_or_else(|| Path::new("."));
+    let (block_path, reward_ledger_path) =
+        resolve_local_ledger_paths(args.block_store, args.reward_store, default_ledger_root);
     let operator_signer_pks: Vec<String> = args
         .operator_signer_pks
         .map(|raw| {
@@ -335,8 +348,11 @@ fn run_local_command(args: RunLocalArgs) -> anyhow::Result<()> {
     let listener = TcpListener::bind(&addr)?;
     let bound = listener.local_addr()?;
     eprintln!("boole-node local listening on http://{bound}");
-    eprintln!("boole-node local blockStore={block_path}");
-    eprintln!("boole-node local rewardLedger={reward_ledger_path}");
+    eprintln!("boole-node local blockStore={}", block_path.display());
+    eprintln!(
+        "boole-node local rewardLedger={}",
+        reward_ledger_path.display()
+    );
     if let Some(path) = args.work_manifests.as_ref() {
         eprintln!("boole-node local workManifests={}", path.display());
     } else {
@@ -437,8 +453,8 @@ fn run_local_command(args: RunLocalArgs) -> anyhow::Result<()> {
         listener,
         LocalNodeConfig {
             scenario_path: args.scenario.into(),
-            block_path: block_path.into(),
-            reward_ledger_path: Some(reward_ledger_path.into()),
+            block_path,
+            reward_ledger_path: Some(reward_ledger_path),
             work_manifests_path: args.work_manifests,
             bounties_path: args.bounties,
             bounty_event_ledger_path: args.bounty_events,
@@ -466,23 +482,73 @@ fn run_local_command(args: RunLocalArgs) -> anyhow::Result<()> {
         Ok(()) => Ok(()),
         Err(err) => {
             if let Some(state_err) = err.downcast_ref::<boole_node::StateDirError>() {
-                if let boole_node::StateDirError::Locked(dir) = state_err {
-                    eprintln!(
-                        "{}",
-                        serde_json::to_string(&json!({
-                            "ok": false,
-                            "command": "run-local",
-                            "error": "state-dir-locked",
-                            "stateDir": dir.display().to_string(),
-                            "message": state_err.to_string(),
-                        }))?,
-                    );
-                    std::process::exit(74);
+                match state_err {
+                    boole_node::StateDirError::Locked(dir) => {
+                        eprintln!(
+                            "{}",
+                            serde_json::to_string(&json!({
+                                "ok": false,
+                                "command": "run-local",
+                                "error": "state-dir-locked",
+                                "stateDir": dir.display().to_string(),
+                                "message": state_err.to_string(),
+                            }))?,
+                        );
+                        std::process::exit(74);
+                    }
+                    boole_node::StateDirError::LedgerLocked(path) => {
+                        eprintln!(
+                            "{}",
+                            serde_json::to_string(&json!({
+                                "ok": false,
+                                "command": "run-local",
+                                "error": "ledger-locked",
+                                "ledgerPath": path.display().to_string(),
+                                "message": state_err.to_string(),
+                            }))?,
+                        );
+                        std::process::exit(74);
+                    }
+                    _ => {}
                 }
             }
             Err(err)
         }
     }
+}
+
+fn resolve_local_ledger_paths(
+    block_store: Option<String>,
+    reward_store: Option<String>,
+    default_root: &Path,
+) -> (PathBuf, PathBuf) {
+    (
+        block_store
+            .map(PathBuf::from)
+            .unwrap_or_else(|| default_root.join("blocks.ndjson")),
+        reward_store
+            .map(PathBuf::from)
+            .unwrap_or_else(|| default_root.join("rewards.ndjson")),
+    )
+}
+
+fn default_local_state_root() -> anyhow::Result<PathBuf> {
+    if let Some(root) = std::env::var_os("XDG_STATE_HOME").filter(|value| !value.is_empty()) {
+        return Ok(PathBuf::from(root).join("boole/node-local"));
+    }
+    let home = std::env::var_os("HOME")
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "cannot resolve a private persistent default ledger directory; set \
+                 --state-dir, --block-store/--reward-store, XDG_STATE_HOME, or HOME"
+            )
+        })?;
+    #[cfg(target_os = "macos")]
+    let root = PathBuf::from(home).join("Library/Application Support/Boole/node-local");
+    #[cfg(not(target_os = "macos"))]
+    let root = PathBuf::from(home).join(".local/state/boole/node-local");
+    Ok(root)
 }
 
 fn run_submit_lean_command(args: SubmitLeanArgs) -> anyhow::Result<()> {
@@ -805,7 +871,8 @@ fn invalid_accepted_count(verify_ok: bool, share_accepted: bool) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use super::invalid_accepted_count;
+    use super::{invalid_accepted_count, resolve_local_ledger_paths};
+    use std::path::Path;
 
     #[test]
     fn invalid_accepted_counts_only_unverified_yet_accepted_shares() {
@@ -814,5 +881,21 @@ mod tests {
         assert_eq!(invalid_accepted_count(false, false), 0);
         // The sentinel case: share accepted without a passing verification.
         assert_eq!(invalid_accepted_count(false, true), 1);
+    }
+
+    #[test]
+    fn omitted_local_ledgers_are_scoped_under_the_selected_private_root() {
+        let root = Path::new("/private-fixture/node-run");
+        let (blocks, rewards) = resolve_local_ledger_paths(None, None, root);
+        assert_eq!(blocks, root.join("blocks.ndjson"));
+        assert_eq!(rewards, root.join("rewards.ndjson"));
+
+        let (blocks, rewards) = resolve_local_ledger_paths(
+            Some("operator-blocks.ndjson".to_string()),
+            Some("operator-rewards.ndjson".to_string()),
+            root,
+        );
+        assert_eq!(blocks, Path::new("operator-blocks.ndjson"));
+        assert_eq!(rewards, Path::new("operator-rewards.ndjson"));
     }
 }

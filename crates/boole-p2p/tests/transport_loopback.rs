@@ -8,16 +8,18 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use boole_p2p::{
-    Frame, FrameError, HeadSummary, TcpTransport, Transport, GET_BLOCKS_RANGE_CAP, MAX_FRAME_BYTES,
-    MAX_PACKAGE_PAYLOAD_BYTES, PROTOCOL_VERSION,
+    AuthorizationPolicy, Frame, FrameError, HeadSummary, TcpTransport, Transport,
+    GET_BLOCKS_RANGE_CAP, MAX_FRAME_BYTES, MAX_PACKAGE_PAYLOAD_BYTES, PROTOCOL_VERSION,
 };
 
 fn hello(network_id: &str) -> Frame {
     Frame::Hello {
         protocol_version: PROTOCOL_VERSION,
         consensus_rule_version: 1,
+        authorization_policy: AuthorizationPolicy::NetworkScopedV1,
         network_id: network_id.to_string(),
         genesis_hash: "00".repeat(32),
+        effective_family_manifest_root: "11".repeat(32),
         head: HeadSummary {
             height: 7,
             c: "ab".repeat(32),
@@ -50,8 +52,10 @@ fn two_in_process_peers_complete_hello_handshake() {
     let Frame::Hello {
         protocol_version,
         consensus_rule_version,
+        authorization_policy,
         network_id,
         genesis_hash,
+        effective_family_manifest_root,
         head,
     } = reply
     else {
@@ -59,8 +63,10 @@ fn two_in_process_peers_complete_hello_handshake() {
     };
     assert_eq!(protocol_version, PROTOCOL_VERSION);
     assert_eq!(consensus_rule_version, 1);
+    assert_eq!(authorization_policy, AuthorizationPolicy::NetworkScopedV1);
     assert_eq!(network_id, "boole-closed-testnet");
     assert_eq!(genesis_hash, "00".repeat(32));
+    assert_eq!(effective_family_manifest_root, "11".repeat(32));
     assert_eq!(head.height, 7);
     assert_eq!(head.c, "ab".repeat(32));
 

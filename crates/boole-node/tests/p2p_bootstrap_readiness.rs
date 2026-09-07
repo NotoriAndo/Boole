@@ -299,8 +299,10 @@ fn newer_peer_hello_closes_ready_before_its_blocks_arrive() {
             let Frame::Hello {
                 protocol_version,
                 consensus_rule_version,
+                authorization_policy,
                 network_id,
                 genesis_hash,
+                effective_family_manifest_root,
                 head,
             } = hello
             else {
@@ -320,8 +322,10 @@ fn newer_peer_hello_closes_ready_before_its_blocks_arrive() {
                     &Frame::Hello {
                         protocol_version,
                         consensus_rule_version,
+                        authorization_policy,
                         network_id,
                         genesis_hash,
+                        effective_family_manifest_root,
                         head: advertised,
                     },
                 )

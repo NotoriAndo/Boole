@@ -375,8 +375,9 @@ class PreflightOrchestrationTests(unittest.TestCase):
             text = script.read_text()
             self.assertIn("REWARD_STORE", text, script.name)
             self.assertIn("--reward-store", text, script.name)
-            self.assertIn("--max-requests 10", text, script.name)
-            self.assertIn("wait \"$PID\" >/dev/null 2>&1 || true", text, script.name)
+            self.assertIn("smoke_build_binary", text, script.name)
+            self.assertIn("smoke_prewarm_binary", text, script.name)
+            self.assertIn("smoke_stop_and_wait", text, script.name)
 
     def test_agent_mine_evidence_dir_writes_redacted_local_claim_boundary(self) -> None:
         expected = json.loads((ROOT / "fixtures" / "protocol" / "agent-slash-mine" / "v1-evidence-summary.json").read_text())

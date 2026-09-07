@@ -41,6 +41,10 @@ fn version_flag_emits_canonical_line_with_sha_and_build_utc() {
         "version line must start with `boole-mcp `: {line:?}"
     );
     assert!(
+        !line.starts_with("boole-mcp boole-mcp "),
+        "clap already prefixes the binary name; it must not be repeated: {line:?}"
+    );
+    assert!(
         line.contains("(sha="),
         "version line must include `(sha=`: {line:?}"
     );

@@ -1,7 +1,8 @@
 //! Core protocol types and deterministic state transition logic for Boole.
 //!
-//! This crate is intentionally small at first. It will grow by matching
-//! TypeScript-generated golden fixtures from `legacy-pof`.
+//! Owns admission, replay, ledger, reward and proof-evidence contracts.
+//! Legacy TypeScript-generated golden fixtures remain compatibility evidence;
+//! the current runtime and consensus invariants are implemented here.
 
 pub mod accounting;
 pub mod admission;

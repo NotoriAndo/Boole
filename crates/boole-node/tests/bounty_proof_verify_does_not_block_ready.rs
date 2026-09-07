@@ -29,7 +29,7 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
-use std::sync::{mpsc, Arc};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -86,6 +86,23 @@ struct MockSlow {
 impl BountyProofVerifier for MockSlow {
     fn verify(&self, _bounty: &Bounty, _envelope: &Value) -> Result<bool, String> {
         std::thread::sleep(self.sleep);
+        Ok(true)
+    }
+}
+
+struct MockLatched {
+    started: mpsc::Sender<()>,
+    release: Mutex<mpsc::Receiver<()>>,
+}
+
+impl BountyProofVerifier for MockLatched {
+    fn verify(&self, _bounty: &Bounty, _envelope: &Value) -> Result<bool, String> {
+        self.started.send(()).expect("signal verifier start");
+        self.release
+            .lock()
+            .expect("release latch lock")
+            .recv_timeout(Duration::from_secs(5))
+            .expect("release verifier");
         Ok(true)
     }
 }
@@ -293,5 +310,98 @@ fn bounty_proof_verify_does_not_block_ready_probe() {
         .expect("server thread joined")
         .expect("server exits cleanly");
 
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn bounty_proof_losing_write_authority_during_verify_does_not_append() {
+    let dir = std::env::temp_dir().join(format!(
+        "boole-bounty-write-fence-{}-{}",
+        std::process::id(),
+        rand_suffix()
+    ));
+    std::fs::create_dir_all(&dir).expect("tmp dir");
+    let block_path = dir.join("blocks.ndjson");
+    let bounty_event_path = dir.join("bounty-events.ndjson");
+    let bounties_path = dir.join("bounties.json");
+    write_slow_bounty_fixture(&bounties_path);
+    let event_bytes_before = std::fs::read(&bounty_event_path).unwrap_or_default();
+
+    let (started_tx, started_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let mut verifiers: HashMap<String, Arc<dyn BountyProofVerifier>> = HashMap::new();
+    verifiers.insert(
+        "mock-slow".to_string(),
+        Arc::new(MockLatched {
+            started: started_tx,
+            release: Mutex::new(release_rx),
+        }),
+    );
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    let scenario = scenario_path();
+    let block_for_thread = block_path.clone();
+    let bounties_for_thread = bounties_path.clone();
+    let event_for_thread = bounty_event_path.clone();
+    let handle = thread::spawn(move || {
+        serve_local_node(
+            listener,
+            LocalNodeConfig {
+                proof_dedup_ledger_path: None,
+                scenario_path: scenario,
+                block_path: block_for_thread,
+                reward_ledger_path: None,
+                work_manifests_path: None,
+                bounties_path: Some(bounties_for_thread),
+                bounty_event_ledger_path: Some(event_for_thread),
+                bounty_verifiers: Some(verifiers),
+                family_manifests_dir: None,
+                max_requests: Some(1),
+                operator_signer_pks: vec![],
+                session_registry_path: None,
+                submit_nonce_ledger_path: None,
+                signed_nonce_ledger_path: None,
+                submit_receipt_ledger_path: None,
+                receipt_commitment_ledger_path: None,
+                genesis_override: None,
+                state_dir: None,
+                network_id: None,
+                lean_checker_dir: None,
+                lean_checker_disabled: true,
+                http_rate_limit_per_60s: None,
+                allow_anonymous_submit: true,
+            },
+        )
+    });
+    thread::sleep(Duration::from_millis(50));
+
+    let proof_worker = thread::spawn(move || {
+        let key = SigningKeyV2::from_dev_id("bounty-write-fence-proof");
+        let body = signed_proof_body(&key, "slow-1", json!({}));
+        http_post(addr, "/bounties/slow-1/proof", &body)
+    });
+    started_rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("proof reached unlocked verifier phase");
+
+    let lock_path = dir.join(".blocks.ndjson.boole-lock");
+    std::fs::remove_file(&lock_path).expect("unlink held block lock");
+    std::fs::write(&lock_path, b"").expect("replace block lock inode");
+    release_tx.send(()).expect("release verifier");
+
+    let (status, body) = proof_worker.join().expect("proof worker joins");
+    assert_eq!(status, 503, "lost authority must fence finalize: {body}");
+    assert_eq!(body["reason"], "ledger_lock_lost");
+    assert_eq!(body["retryable"], true);
+    assert_eq!(
+        std::fs::read(&bounty_event_path).unwrap_or_default(),
+        event_bytes_before,
+        "proof audit ledger must remain byte-identical"
+    );
+    handle
+        .join()
+        .expect("server thread joined")
+        .expect("server exits cleanly");
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -4,21 +4,23 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-ADDR="${BOOLE_NODE_ADDR:-127.0.0.1:18094}"
+source "$ROOT/scripts/smoke-lifecycle.sh"
+ADDR="${BOOLE_NODE_ADDR:-127.0.0.1:$((20000 + ($$ % 20000)))}"
 SCENARIO="${SCENARIO:-fixtures/protocol/runtime-smoke/v1.json}"
-BLOCK_STORE="${BLOCK_STORE:-${TMPDIR:-/tmp}/boole-node-hermes-real-verify-smoke.ndjson}"
+BLOCK_STORE="$(smoke_fresh_path "${BLOCK_STORE:-$SMOKE_WORK_DIR/blocks.ndjson}")"
 # Pin the reward ledger to a smoke-specific path so a stale
 # `/tmp/boole-node-rewards.ndjson` from another self-test cannot trip
 # `reward ledger divergence` at node boot.
-REWARD_LEDGER="${REWARD_LEDGER:-${TMPDIR:-/tmp}/boole-node-hermes-real-verify-smoke-rewards.ndjson}"
+REWARD_LEDGER="$(smoke_fresh_path "${REWARD_LEDGER:-$SMOKE_WORK_DIR/rewards.ndjson}")"
 TRIALS="${TRIALS:-3}"
 PROFILE="${PROFILE:-v1-lenbound}"
 LEAN_DIR="${LEAN_DIR:-$ROOT/lean/checker}"
 FIXED_SEED="${FIXED_SEED:-b606f7037936d8191ded73d7051fb423e72d2b442b0e868da9e3b11e72c7f764}"
-STATE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/boole-miner-hermes-real-verify-state.XXXXXX")"
+STATE_DIR="$SMOKE_WORK_DIR/state"
 STATE="$STATE_DIR/state.json"
 RESULTS_JSONL="$STATE_DIR/results.jsonl"
-rm -f "$BLOCK_STORE" "$REWARD_LEDGER"
+mkdir -p "$STATE_DIR"
+MINER_INIT_OUT="$SMOKE_WORK_DIR/miner-init.out"
 
 command -v hermes >/dev/null 2>&1 || {
   printf 'boole-miner-hermes-real-verify-smoke: SKIP hermes not found on PATH\n' >&2
@@ -26,16 +28,21 @@ command -v hermes >/dev/null 2>&1 || {
   exit 0
 }
 
-cargo run -q -p boole-node -- run-local \
+# Build before the node readiness budget starts.
+NODE_BIN="$(smoke_build_binary boole-node boole-node)"
+MINER_BIN="$(smoke_build_binary boole-miner boole-miner)"
+smoke_prewarm_binary "$NODE_BIN"
+smoke_prewarm_binary "$MINER_BIN"
+"$NODE_BIN" run-local \
   --addr "$ADDR" \
   --scenario "$SCENARIO" \
   --block-store "$BLOCK_STORE" \
   --reward-store "$REWARD_LEDGER" \
-  --max-requests 80 \
-  >/tmp/boole-node-hermes-real-verify-smoke.out \
-  2>/tmp/boole-node-hermes-real-verify-smoke.err &
+  --allow-anonymous-submit \
+  >"$SMOKE_WORK_DIR/node.out" \
+  2>"$SMOKE_WORK_DIR/node.err" &
 PID=$!
-trap 'kill "$PID" >/dev/null 2>&1 || true; rm -rf "$STATE_DIR"; rm -f /tmp/boole-node-hermes-real-verify-smoke.out /tmp/boole-node-hermes-real-verify-smoke.err /tmp/boole-miner-hermes-real-verify-smoke-init.out /tmp/boole-miner-hermes-real-verify-smoke-start.*.out "$REWARD_LEDGER"' EXIT
+smoke_register_child "$PID"
 
 python3 - "$ADDR" <<'PY'
 import http.client
@@ -58,19 +65,19 @@ for _ in range(80):
 raise SystemExit(f"boole-node did not become ready: {last}")
 PY
 
-cargo run -q -p boole-miner -- init \
+"$MINER_BIN" init \
   --state "$STATE" \
   --dispatcher-url "http://$ADDR" \
   --llm-backend agent_cli \
   --agent-command hermes \
   --agent-args '["chat","-Q","-t","","-q"]' \
-  --force >/tmp/boole-miner-hermes-real-verify-smoke-init.out
+  --force >"$MINER_INIT_OUT"
 
 success=0
 for trial in $(seq 1 "$TRIALS"); do
-  out="/tmp/boole-miner-hermes-real-verify-smoke-start.${trial}.out"
+  out="$SMOKE_WORK_DIR/miner-start.${trial}.out"
   set +e
-  cargo run -q -p boole-miner -- start \
+  "$MINER_BIN" start \
     --state "$STATE" \
     --max-shares 1 \
     --max-cycles 1 \
@@ -137,6 +144,6 @@ if not ok:
     raise SystemExit("boole-miner-hermes-real-verify-smoke: no real-verify block success")
 PY
 
-kill "$PID" >/dev/null 2>&1 || true
-wait "$PID" 2>/dev/null || true
+smoke_stop_and_wait "$PID"
+SMOKE_CHILD_PIDS=""
 printf 'boole-miner-hermes-real-verify-smoke: PASS\n' >&2

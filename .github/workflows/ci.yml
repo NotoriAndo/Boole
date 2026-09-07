@@ -561,7 +561,7 @@ jobs:
           set -euo pipefail
           # P0.7 (audit) — fetch the elan installer from an immutable release
           # tag (was `master`, a mutable branch tip).
-          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/v4.2.3/elan-init.sh -o /tmp/elan-init.sh
+          curl --connect-timeout 15 --max-time 120 -sSfL https://raw.githubusercontent.com/leanprover/elan/v4.2.3/elan-init.sh -o /tmp/elan-init.sh
           sh /tmp/elan-init.sh -y --default-toolchain leanprover/lean4:v4.29.1
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
 
@@ -570,7 +570,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.28.0/gitleaks_8.28.0_linux_x64.tar.gz -o /tmp/gitleaks.tar.gz
+          curl --connect-timeout 15 --max-time 120 -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.28.0/gitleaks_8.28.0_linux_x64.tar.gz -o /tmp/gitleaks.tar.gz
           # P0.7 (audit) — verify the published SHA-256 before trusting the
           # binary (mirrors the cargo-deny download in the supply-chain job).
           echo "a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb  /tmp/gitleaks.tar.gz" | sha256sum -c -
@@ -632,8 +632,8 @@ jobs:
           set -euo pipefail
           asset="cargo-deny-${CARGO_DENY_VERSION}-x86_64-unknown-linux-musl.tar.gz"
           base="https://github.com/EmbarkStudios/cargo-deny/releases/download/${CARGO_DENY_VERSION}"
-          curl -sSfL "${base}/${asset}" -o /tmp/cargo-deny.tar.gz
-          curl -sSfL "${base}/${asset}.sha256" -o /tmp/cargo-deny.tar.gz.sha256
+          curl --connect-timeout 15 --max-time 120 -sSfL "${base}/${asset}" -o /tmp/cargo-deny.tar.gz
+          curl --connect-timeout 15 --max-time 120 -sSfL "${base}/${asset}.sha256" -o /tmp/cargo-deny.tar.gz.sha256
           # Upstream .sha256 contains just the hex digest (no filename), so
           # rewrite it into the GNU coreutils-friendly "<digest>  <file>"
           # form before handing it to sha256sum -c.

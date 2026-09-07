@@ -15,7 +15,7 @@
     "D_max": 8,
     "EMAWindow": 32,
     "M": 1,
-    "perIpRateLimitPer60s": 1,
+    "perIpRateLimitPer60s": 2,
     "provenance": "calibration-final"
   },
   "genesisC": "0000000000000000000000000000000000000000000000000000000000000000",

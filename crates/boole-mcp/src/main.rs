@@ -50,7 +50,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufReader, Write};
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -89,7 +89,6 @@ use boole_miner::{
 /// so an operator can pin down exactly which binary is registered into
 /// their IDE config (`mcpServers.boole.command`).
 const VERSION_STRING: &str = concat!(
-    "boole-mcp ",
     env!("CARGO_PKG_VERSION"),
     " (sha=",
     env!("BOOLE_MCP_GIT_SHA"),
@@ -158,10 +157,10 @@ impl IdeTarget {
     /// install handler creates intermediate directories.
     fn settings_rel_path(&self) -> &'static [&'static str] {
         match self {
-            IdeTarget::Claude => &[".claude", "settings.json"],
+            IdeTarget::Claude => &[".claude.json"],
             IdeTarget::Codex => &[".codex", "config.toml"],
             IdeTarget::Cursor => &[".cursor", "mcp.json"],
-            IdeTarget::Opencode => &[".config", "opencode", "config.json"],
+            IdeTarget::Opencode => &[".config", "opencode", "opencode.json"],
         }
     }
 
@@ -186,7 +185,21 @@ struct AppState {
     /// process. `None` before any mine call; replaced wholesale on each
     /// successful invocation.
     last_mining_summary: Mutex<Option<MiningLoopOutcome>>,
+    /// The stdio transport permits one in-process mine at a time.  Keeping
+    /// the cancellation token in shared state lets the reader remain
+    /// responsive while the blocking mining loop is running elsewhere.
+    active_mining: Mutex<Option<ActiveMiningRequest>>,
 }
+
+struct ActiveMiningRequest {
+    request_id: Value,
+    cancel: Arc<AtomicBool>,
+    completed: Arc<tokio::sync::Notify>,
+}
+
+const MAX_MCP_MINING_CYCLES: u64 = 100_000;
+const MCP_MINING_DEADLINE: Duration = Duration::from_secs(30);
+const MCP_MINING_EOF_GRACE: Duration = Duration::from_secs(2);
 
 #[derive(Deserialize)]
 struct InvokeRequest {
@@ -502,7 +515,10 @@ fn run_install(target: IdeTarget, dry_run: bool) -> Result<()> {
     for seg in target.settings_rel_path() {
         settings_path.push(seg);
     }
-    let entry = stdio_entry();
+    let mut entry = stdio_entry();
+    if matches!(target, IdeTarget::Claude) {
+        entry["type"] = Value::String("stdio".to_string());
+    }
 
     if matches!(target, IdeTarget::Codex) {
         let existing = if settings_path.exists() {
@@ -591,23 +607,50 @@ fn run_install(target: IdeTarget, dry_run: bool) -> Result<()> {
     let root = settings
         .as_object_mut()
         .expect("settings root is object (checked above)");
-    let mcp_servers = root
-        .entry("mcpServers".to_string())
-        .or_insert_with(|| json!({}));
-    if !mcp_servers.is_object() {
-        eprintln!(
-            "{}",
-            install_envelope_err(
-                "mcp-servers-not-object",
-                json!({"settings_path": settings_path.to_string_lossy()})
-            )
-        );
-        std::process::exit(1);
+    if matches!(target, IdeTarget::Opencode) {
+        let mcp = root.entry("mcp".to_string()).or_insert_with(|| json!({}));
+        if !mcp.is_object() {
+            eprintln!(
+                "{}",
+                install_envelope_err(
+                    "opencode-mcp-not-object",
+                    json!({"settings_path": settings_path.to_string_lossy()})
+                )
+            );
+            std::process::exit(1);
+        }
+        let command = entry["command"]
+            .as_str()
+            .expect("stdio command is a string");
+        let args = entry["args"].as_array().expect("stdio args are an array");
+        let command = std::iter::once(Value::String(command.to_string()))
+            .chain(args.iter().cloned())
+            .collect::<Vec<_>>();
+        mcp.as_object_mut()
+            .expect("mcp is object (checked above)")
+            .insert(
+                "boole".to_string(),
+                json!({"type": "local", "command": command}),
+            );
+    } else {
+        let mcp_servers = root
+            .entry("mcpServers".to_string())
+            .or_insert_with(|| json!({}));
+        if !mcp_servers.is_object() {
+            eprintln!(
+                "{}",
+                install_envelope_err(
+                    "mcp-servers-not-object",
+                    json!({"settings_path": settings_path.to_string_lossy()})
+                )
+            );
+            std::process::exit(1);
+        }
+        mcp_servers
+            .as_object_mut()
+            .expect("mcpServers is object (checked above)")
+            .insert("boole".to_string(), entry);
     }
-    let mcp_obj = mcp_servers
-        .as_object_mut()
-        .expect("mcpServers is object (checked above)");
-    mcp_obj.insert("boole".to_string(), entry);
 
     let serialized =
         serde_json::to_string_pretty(&settings).context("serialize updated settings")?;
@@ -716,6 +759,7 @@ async fn serve(node_url: &str, native_shadow_url: Option<&str>, listen: &str) ->
         native_shadow_url,
         native_client: native_client()?,
         last_mining_summary: Mutex::new(None),
+        active_mining: Mutex::new(None),
     });
     let app = build_router(state);
     axum::serve(listener, app).await?;
@@ -754,9 +798,91 @@ enum ToolResult {
     BadRequest(Value),
     /// HTTP 502 — upstream unreachable (proxy tools only).
     BadGateway(Value),
+    /// HTTP 500 — an in-process tool worker did not complete safely.
+    Internal(Value),
     /// Preserve a native service status and JSON body without translating
     /// its adjudication vocabulary into the legacy MCP/node vocabulary.
     Native(StatusCode, Value),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum MiningRunError {
+    DeadlineExceeded,
+    WorkerFailed,
+}
+
+struct CancelMiningOnDrop(Arc<AtomicBool>);
+
+impl Drop for CancelMiningOnDrop {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
+
+async fn run_mining_bounded(
+    max_cycles: u64,
+    cancel: Arc<AtomicBool>,
+) -> Result<MiningLoopOutcome, MiningRunError> {
+    run_mining_bounded_for(max_cycles, cancel, MCP_MINING_DEADLINE).await
+}
+
+async fn run_mining_bounded_for(
+    max_cycles: u64,
+    cancel: Arc<AtomicBool>,
+    deadline: Duration,
+) -> Result<MiningLoopOutcome, MiningRunError> {
+    let loop_cancel = Arc::clone(&cancel);
+    let mut worker = tokio::task::spawn_blocking(move || {
+        run_mining_summary_with_cancel(max_cycles, Some(loop_cancel))
+    });
+    tokio::select! {
+        completed = &mut worker => completed.map_err(|_| MiningRunError::WorkerFailed),
+        _ = tokio::time::sleep(deadline) => {
+            cancel.store(true, Ordering::SeqCst);
+            let _ = worker.await;
+            Err(MiningRunError::DeadlineExceeded)
+        }
+    }
+}
+
+fn mining_max_cycles(args: &Value) -> Result<u64, ToolResult> {
+    let Some(object) = args.as_object() else {
+        return Err(ToolResult::BadRequest(json!({
+            "error": "invalid-arg",
+            "arg": "max_cycles"
+        })));
+    };
+    match object.get("max_cycles") {
+        None => Ok(0),
+        Some(value) => match value.as_u64() {
+            Some(cycles) if cycles <= MAX_MCP_MINING_CYCLES => Ok(cycles),
+            _ => Err(ToolResult::BadRequest(json!({
+                "error": "invalid-arg",
+                "arg": "max_cycles",
+                "max": MAX_MCP_MINING_CYCLES
+            }))),
+        },
+    }
+}
+
+fn mining_outcome_value(outcome: &MiningLoopOutcome) -> Value {
+    let p = &outcome.protocol;
+    let a = &outcome.agent;
+    json!({
+        // Protocol counters
+        "cycles_run": p.cycles_run,
+        "tickets_found": p.tickets_found,
+        "verify_accepted": p.verify_accepted,
+        "verify_rejected": p.verify_rejected,
+        "shares_accepted": p.shares_accepted,
+        "network_errors": p.network_errors,
+        "canonicalize_errors": p.canonicalize_errors,
+        "loop_class": p.loop_class,
+        // Agent runtime counters (driver → ProofIntakeV1 pipeline)
+        "driver_answered": a.driver_answered,
+        "proof_intake_accepted": a.proof_intake_accepted,
+        "proof_intake_rejected": a.proof_intake_rejected,
+    })
 }
 
 /// Shared async tool dispatcher used by both the HTTP `invoke` handler
@@ -786,6 +912,14 @@ async fn dispatch_tool(state: &AppState, tool: &str, args: &Value) -> ToolResult
         },
         "boole.verify_native" => proxy_native_submission(state, args).await,
         "boole.status" => {
+            if state
+                .active_mining
+                .lock()
+                .expect("active_mining mutex poisoned")
+                .is_some()
+            {
+                return ToolResult::Ok(json!({"state": "running"}));
+            }
             let guard = state
                 .last_mining_summary
                 .lock()
@@ -821,10 +955,23 @@ async fn dispatch_tool(state: &AppState, tool: &str, args: &Value) -> ToolResult
             // Optional `max_cycles` (default 0 = zero-cycle plumbing smoke;
             // >= 1 drives a closed-local real round-trip through the in-process
             // bundle with a real v1-lenbound target emitter).
-            let max_cycles = args.get("max_cycles").and_then(|v| v.as_u64()).unwrap_or(0);
-            let outcome = tokio::task::spawn_blocking(move || run_mining_summary(max_cycles))
-                .await
-                .expect("mining task panicked");
+            let max_cycles = match mining_max_cycles(args) {
+                Ok(cycles) => cycles,
+                Err(error) => return error,
+            };
+            // If Axum drops this request future because the HTTP client went
+            // away, the guard flips the miner's existing cancellation token.
+            let cancel = Arc::new(AtomicBool::new(false));
+            let _cancel_on_drop = CancelMiningOnDrop(Arc::clone(&cancel));
+            let outcome = match run_mining_bounded(max_cycles, cancel).await {
+                Ok(outcome) => outcome,
+                Err(MiningRunError::DeadlineExceeded) => {
+                    return ToolResult::Internal(json!({"error": "mining-deadline-exceeded"}));
+                }
+                Err(MiningRunError::WorkerFailed) => {
+                    return ToolResult::Internal(json!({"error": "mining-task-failed"}));
+                }
+            };
             {
                 let mut guard = state
                     .last_mining_summary
@@ -832,23 +979,7 @@ async fn dispatch_tool(state: &AppState, tool: &str, args: &Value) -> ToolResult
                     .expect("last_mining_summary mutex poisoned");
                 *guard = Some(outcome.clone());
             }
-            let p = &outcome.protocol;
-            let a = &outcome.agent;
-            ToolResult::Ok(json!({
-                // Protocol counters
-                "cycles_run": p.cycles_run,
-                "tickets_found": p.tickets_found,
-                "verify_accepted": p.verify_accepted,
-                "verify_rejected": p.verify_rejected,
-                "shares_accepted": p.shares_accepted,
-                "network_errors": p.network_errors,
-                "canonicalize_errors": p.canonicalize_errors,
-                "loop_class": p.loop_class,
-                // Agent runtime counters (driver → ProofIntakeV1 pipeline)
-                "driver_answered": a.driver_answered,
-                "proof_intake_accepted": a.proof_intake_accepted,
-                "proof_intake_rejected": a.proof_intake_rejected,
-            }))
+            ToolResult::Ok(mining_outcome_value(&outcome))
         }
         other => ToolResult::BadRequest(json!({"error":"unknown-tool","tool":other})),
     }
@@ -880,6 +1011,7 @@ async fn invoke(
         ToolResult::Ok(v) => (StatusCode::OK, Json(v)),
         ToolResult::BadRequest(v) => (StatusCode::BAD_REQUEST, Json(v)),
         ToolResult::BadGateway(v) => (StatusCode::BAD_GATEWAY, Json(v)),
+        ToolResult::Internal(v) => (StatusCode::INTERNAL_SERVER_ERROR, Json(v)),
         ToolResult::Native(status, v) => (status, Json(v)),
     })
 }
@@ -929,7 +1061,10 @@ impl ProverDriver for CanonicalProofDriver {
 ///
 /// Returns the full `MiningLoopOutcome` (protocol + agent counters) so the
 /// caller can surface the honest pipeline boundary to the MCP client.
-fn run_mining_summary(max_cycles: u64) -> MiningLoopOutcome {
+fn run_mining_summary_with_cancel(
+    max_cycles: u64,
+    cancel: Option<Arc<AtomicBool>>,
+) -> MiningLoopOutcome {
     let bundle = build_in_process_mining_deps(default_in_process_inputs());
     // Bound every grinder so a >0-cycle fixture run terminates promptly.
     // The cycle still completes (and `cycles_run` increments) whether or
@@ -948,6 +1083,7 @@ fn run_mining_summary(max_cycles: u64) -> MiningLoopOutcome {
         ticket_grind: bounded,
         share_grind: bounded,
         submit_grind: bounded,
+        cancel,
         ..Default::default()
     };
     run_mining_loop(bundle.deps, opts)
@@ -1130,6 +1266,10 @@ fn tool_result_to_mcp_content(id: &Value, result: &ToolResult) -> String {
             serde_json::to_string(v).unwrap_or_else(|_| "{}".to_string()),
             true,
         ),
+        ToolResult::Internal(v) => (
+            serde_json::to_string(v).unwrap_or_else(|_| "{}".to_string()),
+            true,
+        ),
         ToolResult::Native(status, v) => (
             serde_json::to_string(v).unwrap_or_else(|_| "{}".to_string()),
             !status.is_success(),
@@ -1146,6 +1286,135 @@ fn tool_result_to_mcp_content(id: &Value, result: &ToolResult) -> String {
     resp.to_string()
 }
 
+fn jsonrpc_error(id: &Value, code: i64, message: &str) -> String {
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "error": { "code": code, "message": message }
+    })
+    .to_string()
+}
+
+async fn write_stdio_response(stdout: Arc<Mutex<std::io::Stdout>>, response: String) {
+    tokio::task::spawn_blocking(move || {
+        let mut out = stdout.lock().expect("stdout mutex poisoned");
+        write_mcp_frame(&mut *out, &response).ok();
+        out.flush().ok();
+    })
+    .await
+    .expect("stdout writer task panicked");
+}
+
+/// Start one in-process mining loop without tying up the stdio reader.  Its
+/// terminal response is emitted exactly once by this completion task, using
+/// the ID of the original `tools/call` request.
+fn start_stdio_mining(
+    state: Arc<AppState>,
+    request_id: Value,
+    max_cycles: u64,
+    stdout: Arc<Mutex<std::io::Stdout>>,
+) -> bool {
+    let cancel = Arc::new(AtomicBool::new(false));
+    let completed = Arc::new(tokio::sync::Notify::new());
+    {
+        let mut active = state
+            .active_mining
+            .lock()
+            .expect("active_mining mutex poisoned");
+        if active.is_some() {
+            return false;
+        }
+        *active = Some(ActiveMiningRequest {
+            request_id: request_id.clone(),
+            cancel: Arc::clone(&cancel),
+            completed: Arc::clone(&completed),
+        });
+    }
+
+    tokio::spawn(async move {
+        let outcome = run_mining_bounded(max_cycles, Arc::clone(&cancel)).await;
+
+        let response = match outcome {
+            Err(MiningRunError::DeadlineExceeded) => {
+                jsonrpc_error(&request_id, -32000, "Mining deadline exceeded")
+            }
+            Ok(_) if cancel.load(Ordering::SeqCst) => {
+                jsonrpc_error(&request_id, -32800, "Request cancelled")
+            }
+            Ok(outcome) => {
+                {
+                    let mut summary = state
+                        .last_mining_summary
+                        .lock()
+                        .expect("last_mining_summary mutex poisoned");
+                    *summary = Some(outcome.clone());
+                }
+                tool_result_to_mcp_content(
+                    &request_id,
+                    &ToolResult::Ok(mining_outcome_value(&outcome)),
+                )
+            }
+            Err(MiningRunError::WorkerFailed) => {
+                jsonrpc_error(&request_id, -32603, "Mining task failed")
+            }
+        };
+
+        // Keep the slot occupied until the terminal response is serialized,
+        // so a second mine cannot slip in during completion/cancel races.
+        write_stdio_response(stdout, response).await;
+        {
+            let mut active = state
+                .active_mining
+                .lock()
+                .expect("active_mining mutex poisoned");
+            if active.as_ref().is_some_and(|running| {
+                running.request_id == request_id && Arc::ptr_eq(&running.cancel, &cancel)
+            }) {
+                *active = None;
+            }
+        }
+        // `notify_one` retains a permit when EOF reaches this after the job
+        // has finished, unlike `notify_waiters`; that closes the EOF race.
+        completed.notify_one();
+    });
+    true
+}
+
+fn cancel_stdio_mining(state: &AppState, request_id: &Value) {
+    let active = state
+        .active_mining
+        .lock()
+        .expect("active_mining mutex poisoned");
+    if let Some(running) = active
+        .as_ref()
+        .filter(|running| running.request_id == *request_id)
+    {
+        running.cancel.store(true, Ordering::SeqCst);
+    }
+}
+
+/// Cancel and bounded-drain an active mine before *any* stdio termination.
+/// This covers clean EOF as well as framing failures, because Tokio otherwise
+/// waits for the outstanding blocking worker while shutting down the runtime.
+async fn cancel_active_stdio_mining_and_drain(state: &AppState) {
+    let completed = {
+        let active = state
+            .active_mining
+            .lock()
+            .expect("active_mining mutex poisoned");
+        active.as_ref().map(|running| {
+            running.cancel.store(true, Ordering::SeqCst);
+            Arc::clone(&running.completed)
+        })
+    };
+    if let Some(completed) = completed {
+        // The miner checks its token at loop/target checkpoints.  Do not hold
+        // shutdown forever if a future dependency regresses that guarantee.
+        let observed = completed.notified();
+        let _ = tokio::time::timeout(MCP_MINING_EOF_GRACE, observed).await;
+    }
+}
+
 /// Run the MCP stdio transport loop.
 ///
 /// Reads newline-delimited JSON-RPC 2.0 messages from stdin, dispatches
@@ -1160,8 +1429,9 @@ fn tool_result_to_mcp_content(id: &Value, result: &ToolResult) -> String {
 /// Design: stdin reads are done via `tokio::task::spawn_blocking` because the
 /// standard `BufRead` framing API is synchronous.  `boole.mine` already uses
 /// `spawn_blocking` internally, so this fits the existing pattern and avoids
-/// an async IO dependency for a protocol that is inherently sequential (one
-/// request at a time on a single stdio pipe).
+/// an async IO dependency.  A mine call itself runs in a separate background
+/// task so the single stdio reader can still service protocol requests and its
+/// cancellation notification.
 async fn run_stdio(node_url: Option<String>, native_shadow_url: Option<String>) -> Result<()> {
     let node_url = node_url
         .as_deref()
@@ -1179,6 +1449,7 @@ async fn run_stdio(node_url: Option<String>, native_shadow_url: Option<String>) 
         native_shadow_url,
         native_client: native_client()?,
         last_mining_summary: Mutex::new(None),
+        active_mining: Mutex::new(None),
     });
 
     // Wrap stdin in a BufReader inside a Mutex so it can be sent across
@@ -1196,11 +1467,19 @@ async fn run_stdio(node_url: Option<String>, native_shadow_url: Option<String>) 
         .await
         .expect("stdin reader task panicked");
 
-        let msg = match frame_result? {
-            Some(s) => s,
-            None => {
+        let msg = match frame_result {
+            Ok(Some(s)) => s,
+            Ok(None) => {
                 // Clean EOF — MCP client closed stdin.
+                cancel_active_stdio_mining_and_drain(&state).await;
                 break;
+            }
+            Err(error) => {
+                // A malformed UTF-8 or truncated frame still closes this
+                // transport. Cancel first; returning directly would leave
+                // the blocking mine live until its deadline at runtime drop.
+                cancel_active_stdio_mining_and_drain(&state).await;
+                return Err(error);
             }
         };
 
@@ -1215,14 +1494,7 @@ async fn run_stdio(node_url: Option<String>, native_shadow_url: Option<String>) 
                 // Malformed JSON — handle_jsonrpc_sync will produce the
                 // -32700 error object.
                 if let Some(resp_str) = handle_jsonrpc_sync(&msg) {
-                    let stdout_clone = Arc::clone(&stdout);
-                    tokio::task::spawn_blocking(move || {
-                        let mut out = stdout_clone.lock().expect("stdout mutex poisoned");
-                        write_mcp_frame(&mut *out, &resp_str).ok();
-                        out.flush().ok();
-                    })
-                    .await
-                    .expect("stdout writer task panicked");
+                    write_stdio_response(Arc::clone(&stdout), resp_str).await;
                 }
                 continue;
             }
@@ -1230,6 +1502,17 @@ async fn run_stdio(node_url: Option<String>, native_shadow_url: Option<String>) 
 
         let method = req_val.get("method").and_then(|v| v.as_str()).unwrap_or("");
         let request_id = req_val.get("id").cloned();
+        if method == "notifications/cancelled" {
+            if let Some(cancelled_id) = req_val
+                .get("params")
+                .and_then(|params| params.get("requestId"))
+            {
+                cancel_stdio_mining(&state, cancelled_id);
+            }
+            // This is an MCP notification: it never has a response, and a
+            // missing/nonmatching requestId is deliberately a no-op.
+            continue;
+        }
         let is_native_tool_call = method == "tools/call"
             && req_val
                 .get("params")
@@ -1241,10 +1524,9 @@ async fn run_stdio(node_url: Option<String>, native_shadow_url: Option<String>) 
                 request.jsonrpc == "2.0" && (request.id.is_string() || request.id.is_number())
             });
 
-        // The mutating native tool must arrive as a correlated MCP request,
-        // never a fire-and-forget notification. Do not let an id-less call
-        // consume a one-use challenge when no response can be correlated.
-        if is_native_tool_call && request_id.is_none() {
+        // JSON-RPC notifications have no response channel. Do not execute any
+        // tools for an id-less call, especially the one-use native mutation.
+        if method == "tools/call" && request_id.is_none() {
             continue;
         }
         if is_native_tool_call && !native_envelope_is_exact {
@@ -1257,14 +1539,7 @@ async fn run_stdio(node_url: Option<String>, native_shadow_url: Option<String>) 
                 }
             })
             .to_string();
-            let stdout_clone = Arc::clone(&stdout);
-            tokio::task::spawn_blocking(move || {
-                let mut out = stdout_clone.lock().expect("stdout mutex poisoned");
-                write_mcp_frame(&mut *out, &response).ok();
-                out.flush().ok();
-            })
-            .await
-            .expect("stdout writer task panicked");
+            write_stdio_response(Arc::clone(&stdout), response).await;
             continue;
         }
         let id = request_id.unwrap_or(Value::Null);
@@ -1274,6 +1549,31 @@ async fn run_stdio(node_url: Option<String>, native_shadow_url: Option<String>) 
             let params = req_val.get("params").cloned().unwrap_or(json!({}));
             let tool_name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
             let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
+            if tool_name == "boole.mine" {
+                match mining_max_cycles(&arguments) {
+                    Ok(max_cycles) => {
+                        if start_stdio_mining(
+                            Arc::clone(&state),
+                            id.clone(),
+                            max_cycles,
+                            Arc::clone(&stdout),
+                        ) {
+                            continue;
+                        }
+                        let response = tool_result_to_mcp_content(
+                            &id,
+                            &ToolResult::BadRequest(json!({"error": "mining-busy"})),
+                        );
+                        write_stdio_response(Arc::clone(&stdout), response).await;
+                        continue;
+                    }
+                    Err(error) => {
+                        let response = tool_result_to_mcp_content(&id, &error);
+                        write_stdio_response(Arc::clone(&stdout), response).await;
+                        continue;
+                    }
+                }
+            }
             let result = if tool_name == "boole.verify_native"
                 && native_arguments != NativeArgumentsPrecheck::Exact
             {
@@ -1284,30 +1584,40 @@ async fn run_stdio(node_url: Option<String>, native_shadow_url: Option<String>) 
                 dispatch_tool(&state, tool_name, &arguments).await
             };
             let resp_str = tool_result_to_mcp_content(&id, &result);
-            let stdout_clone = Arc::clone(&stdout);
-            tokio::task::spawn_blocking(move || {
-                let mut out = stdout_clone.lock().expect("stdout mutex poisoned");
-                write_mcp_frame(&mut *out, &resp_str).ok();
-                out.flush().ok();
-            })
-            .await
-            .expect("stdout writer task panicked");
+            write_stdio_response(Arc::clone(&stdout), resp_str).await;
             continue;
         }
 
         // All other methods go through the stateless handler.
         if let Some(resp_str) = handle_jsonrpc_sync(&msg) {
-            let stdout_clone = Arc::clone(&stdout);
-            tokio::task::spawn_blocking(move || {
-                let mut out = stdout_clone.lock().expect("stdout mutex poisoned");
-                write_mcp_frame(&mut *out, &resp_str).ok();
-                out.flush().ok();
-            })
-            .await
-            .expect("stdout writer task panicked");
+            write_stdio_response(Arc::clone(&stdout), resp_str).await;
         }
         // Notifications produce None — no frame to write.
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod mining_execution_tests {
+    use super::*;
+
+    #[test]
+    fn dropped_http_request_sets_the_mining_cancel_token() {
+        let cancel = Arc::new(AtomicBool::new(false));
+        {
+            let _guard = CancelMiningOnDrop(Arc::clone(&cancel));
+        }
+        assert!(cancel.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn bounded_execution_stops_a_long_run_at_its_deadline() {
+        let cancel = Arc::new(AtomicBool::new(false));
+        let error = run_mining_bounded_for(100_000, Arc::clone(&cancel), Duration::ZERO)
+            .await
+            .expect_err("a zero deadline must not await the long mining run");
+        assert_eq!(error, MiningRunError::DeadlineExceeded);
+        assert!(cancel.load(Ordering::SeqCst));
+    }
 }

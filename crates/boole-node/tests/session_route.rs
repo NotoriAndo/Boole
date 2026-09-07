@@ -256,6 +256,85 @@ fn session_route_register_returns_ok_for_valid_session() {
 }
 
 #[test]
+fn delayed_session_body_losing_write_authority_does_not_append() {
+    let dir = fresh_dir("delayed-register-write-fence");
+    let registry = dir.join("sessions.ndjson");
+    let registry_bytes_before = std::fs::read(&registry).unwrap_or_default();
+    let boot = boot_with_registry(1, Some(registry.clone()));
+
+    let key = SigningKeyV2::from_dev_id("session-delayed-write-fence");
+    let body = serde_json::to_string(&signed_register_envelope(
+        &register_payload(owned_session(&key), 0),
+        &key,
+    ))
+    .expect("session body json");
+    let headers = format!(
+        "POST /sessions HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\nExpect: 100-continue\r\nConnection: close\r\n\r\n",
+        body.len()
+    );
+    let mut stream = TcpStream::connect(boot.addr).expect("connect delayed request");
+    stream
+        .set_write_timeout(Some(Duration::from_secs(5)))
+        .expect("write timeout");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .expect("read timeout");
+    // Hyper emits 100 Continue only after dispatching the request through the
+    // outer middleware and polling axum's Bytes extractor for the body. Seeing
+    // it therefore proves the initial authority check passed while the handler
+    // still cannot acquire its write lock.
+    stream.write_all(headers.as_bytes()).expect("write headers");
+    let mut interim = Vec::new();
+    while !interim.ends_with(b"\r\n\r\n") {
+        let mut chunk = [0_u8; 256];
+        let read = stream.read(&mut chunk).expect("read 100 Continue");
+        assert!(read > 0, "connection closed before 100 Continue");
+        interim.extend_from_slice(&chunk[..read]);
+    }
+    let interim_text = String::from_utf8_lossy(&interim);
+    assert!(
+        interim_text.starts_with("HTTP/1.1 100 Continue"),
+        "expected body-demand signal, got: {interim_text}"
+    );
+
+    let lock_path = boot.dir.join(".blocks.ndjson.boole-lock");
+    std::fs::remove_file(&lock_path).expect("unlink held block lock");
+    std::fs::write(&lock_path, b"").expect("replace block lock inode");
+    stream
+        .write_all(body.as_bytes())
+        .expect("finish request body");
+
+    let mut response = Vec::new();
+    let _ = stream.read_to_end(&mut response);
+    let raw = String::from_utf8_lossy(&response);
+    let status: u16 = raw
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(0);
+    let response_body: Value = raw
+        .split_once("\r\n\r\n")
+        .and_then(|(_, value)| serde_json::from_str(value).ok())
+        .unwrap_or(Value::Null);
+    assert_eq!(
+        status, 503,
+        "handler must recheck after the delayed body: {raw}"
+    );
+    assert_eq!(response_body["reason"], "ledger_lock_lost");
+    assert_eq!(response_body["retryable"], true);
+    assert_eq!(
+        std::fs::read(&registry).unwrap_or_default(),
+        registry_bytes_before,
+        "session registry must remain byte-identical"
+    );
+
+    boot.handle.join().expect("server thread").expect("exits");
+    let _ = std::fs::remove_dir_all(&boot.dir);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn session_route_get_returns_public_state_no_secret() {
     let dir = fresh_dir("get-ledger");
     let registry = dir.join("sessions.ndjson");

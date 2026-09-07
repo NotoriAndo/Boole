@@ -55,6 +55,29 @@ fn initialized_notification_returns_none() {
     );
 }
 
+#[test]
+fn idless_requests_do_not_receive_jsonrpc_responses() {
+    for notification in [
+        json!({"jsonrpc":"2.0","method":"initialize","params":{}}),
+        json!({"jsonrpc":"2.0","method":"tools/list"}),
+        json!({"jsonrpc":"2.0","method":"tools/call","params":{"name":"boole.status","arguments":{}}}),
+    ] {
+        assert!(
+            call_str(&notification).is_none(),
+            "notification must not receive a response: {notification}"
+        );
+    }
+}
+
+#[test]
+fn ping_returns_an_empty_result_with_the_request_id() {
+    let req = json!({"jsonrpc":"2.0","id":6,"method":"ping"});
+    let resp = call_str(&req).expect("ping response");
+    assert_eq!(resp["jsonrpc"], "2.0");
+    assert_eq!(resp["id"], 6);
+    assert_eq!(resp["result"], json!({}));
+}
+
 // ── tools/list ───────────────────────────────────────────────────────────────
 
 #[test]

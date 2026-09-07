@@ -432,10 +432,10 @@ pub fn reverify_block_selected_shares(
 /// valid), otherwise the first availability failure defers the whole chain,
 /// otherwise the chain is `Verified`.
 ///
-/// This re-verifies the full candidate from genesis; skipping an
-/// already-verified prefix is deferred to the SC.10-iii verified-prefix
-/// checkpoint store, which is the mechanism that records which blocks a node
-/// has already cleared.
+/// The caller may pass only the suffix above a matching SC.10-iii
+/// verified-prefix checkpoint. Structural replay remains full-chain; this
+/// helper's input is exactly the set of blocks whose Lean evidence still
+/// needs checking.
 pub fn reverify_candidate_chain_selected_shares(
     blocks: &[PersistedBlock],
     checker_dir: &Path,

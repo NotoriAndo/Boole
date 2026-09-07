@@ -20,15 +20,13 @@
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use boole_core::{bounty_proof_hash_hex, validate_bounty_ledger_event};
 use boole_lean_runner::{LeanRunner, LeanRunnerConfig, LeanVerdict};
 use serde_json::Value;
 
+use crate::durability::PrivateTempDir;
 use crate::ShareEvidenceVerdict;
-
-static REVERIFY_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Outcome of a deep verification pass over a bounty event ledger.
 #[derive(Debug, Clone, Default)]
@@ -243,33 +241,32 @@ fn reverify_lean_event(event: &Value, checker_dir: &Path) -> Vec<DeepVerifyDiver
         }
     };
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "boole-deep-verify-{}-{}",
-        std::process::id(),
-        REVERIFY_COUNTER.fetch_add(1, Ordering::Relaxed),
-    ));
-    if let Err(err) = std::fs::create_dir_all(&tmp_dir) {
-        divergences.push(DeepVerifyDivergence {
-            work_id,
-            proof_hash,
-            field: "tmpDir".to_string(),
-            expected: "writable".to_string(),
-            actual: err.to_string(),
-        });
-        return divergences;
-    }
-    let proof_path = tmp_dir.join("Proof.lean");
-    if let Err(err) = std::fs::write(&proof_path, execution_source) {
-        divergences.push(DeepVerifyDivergence {
-            work_id,
-            proof_hash,
-            field: "proofFile".to_string(),
-            expected: "writable".to_string(),
-            actual: err.to_string(),
-        });
-        let _ = std::fs::remove_dir_all(&tmp_dir);
-        return divergences;
-    }
+    let workspace = match PrivateTempDir::new("boole-deep-verify") {
+        Ok(workspace) => workspace,
+        Err(err) => {
+            divergences.push(DeepVerifyDivergence {
+                work_id,
+                proof_hash,
+                field: "tmpDir".to_string(),
+                expected: "writable".to_string(),
+                actual: err.to_string(),
+            });
+            return divergences;
+        }
+    };
+    let proof_path = match workspace.write_proof(execution_source.as_bytes()) {
+        Ok(path) => path,
+        Err(err) => {
+            divergences.push(DeepVerifyDivergence {
+                work_id,
+                proof_hash,
+                field: "proofFile".to_string(),
+                expected: "writable".to_string(),
+                actual: err.to_string(),
+            });
+            return divergences;
+        }
+    };
 
     let runner = LeanRunner::new(
         LeanRunnerConfig::new(verifier_hash).with_package_dir(checker_dir.to_path_buf()),
@@ -318,7 +315,6 @@ fn reverify_lean_event(event: &Value, checker_dir: &Path) -> Vec<DeepVerifyDiver
             });
         }
     }
-    let _ = std::fs::remove_dir_all(&tmp_dir);
     divergences
 }
 
@@ -342,6 +338,7 @@ pub struct DeepVerifyBlockReport {
 /// Cheap capability probe gating the OPTIONAL Lean re-elaboration step:
 /// the canon recompute is pure and always runs, but re-elaborating the
 /// proof needs `lake`/`lean` on PATH.
+#[cfg(not(test))]
 fn lake_and_lean_available() -> bool {
     use std::process::Command;
     let probe = |bin: &str| {
@@ -352,6 +349,11 @@ fn lake_and_lean_available() -> bool {
             .unwrap_or(false)
     };
     probe("lake") && probe("lean")
+}
+
+#[cfg(test)]
+fn lake_and_lean_available() -> bool {
+    boole_testkit::lake_and_lean_available()
 }
 
 /// N0.4c — deep-verify a block store's live-mined Lean-bound shares.
@@ -528,6 +530,50 @@ mod tests {
         assert_eq!(report.lean_proofs_skipped, 0);
         assert!(report.divergences.is_empty());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn deep_reverification_does_not_follow_a_preplanted_proof_path() {
+        use std::os::unix::fs::symlink;
+        let fixture = crate::durability::PrivateTempDir::new("boole-deep-path-fixture")
+            .expect("create private fixture");
+        let unrelated = fixture.path().join("unrelated");
+        std::fs::write(&unrelated, b"keep this fixture unchanged").expect("write victim fixture");
+        // Historical predictable candidate: a local user can reserve it before
+        // the first verification in this process. It must never become our workspace.
+        let planted =
+            std::env::temp_dir().join(format!("boole-deep-verify-{}-0", std::process::id()));
+        std::fs::create_dir(&planted).expect("exclusively reserve historical candidate");
+        symlink(&unrelated, planted.join("Proof.lean")).expect("plant proof symlink");
+        let artifact = "theorem fixture : True := by trivial\n";
+        let ledger = fixture.path().join("bounty-events.ndjson");
+        write_ndjson(
+            &ledger,
+            &[serde_json::json!({
+                "schemaVersion": 1, "kind": "proof", "workId": "fixture",
+                "problemHash": "99".repeat(32), "verifierKind": "lean", "ts": 1,
+                "proofHash": bounty_proof_hash_hex(artifact.as_bytes()), "solverPk": "11".repeat(32),
+                "accepted": true, "effectiveArtifact": artifact,
+                "verifierHash": "test-only", "checkerArtifactHash": "22".repeat(32),
+            })],
+        );
+        // A missing checker directory returns before a Lean process can spawn.
+        let report =
+            deep_verify_bounty_events(&ledger, Some(&fixture.path().join("missing-checker")))
+                .expect("read valid audit fixture");
+        let after = std::fs::read(&unrelated).expect("read victim fixture");
+        if planted.exists() {
+            std::fs::remove_dir_all(&planted).expect("remove our planted candidate");
+        }
+        assert!(
+            !report.divergences.is_empty(),
+            "missing checker stays unavailable"
+        );
+        assert_eq!(
+            after, b"keep this fixture unchanged",
+            "verification must not overwrite a preplanted proof symlink target"
+        );
     }
 
     #[test]

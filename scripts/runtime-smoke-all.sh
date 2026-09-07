@@ -3,9 +3,10 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+source "$ROOT/scripts/smoke-lifecycle.sh"
 
 export RUNTIME_SMOKE_CASES="${RUNTIME_SMOKE_CASES:-fixtures/protocol/runtime-smoke/cases.v1.json}"
-export BLOCK_STORE_DIR="${BLOCK_STORE_DIR:-/tmp/boole-runtime-smoke-cases}"
+export BLOCK_STORE_DIR="$(smoke_fresh_path "${BLOCK_STORE_DIR:-$SMOKE_WORK_DIR/cases}")"
 mkdir -p "$BLOCK_STORE_DIR"
 
 python3 <<'PY'
@@ -77,8 +78,10 @@ for case in manifest.get("cases", []):
     input_path = case["input"]
     expected_store_size = int(case["expectedStoreSize"])
     block_store = block_store_dir / f"{name}.ndjson"
-    if block_store.exists():
-        block_store.unlink()
+    if block_store.resolve().parent != block_store_dir.resolve():
+        raise SystemExit("runtime smoke case name must stay inside the output directory")
+    if block_store.exists() or block_store.is_symlink():
+        raise SystemExit(f"runtime smoke refuses existing case output: {block_store}")
 
     if mode == "scenario":
         args = ["runtime-smoke", "--scenario", input_path, "--block-store", str(block_store)]

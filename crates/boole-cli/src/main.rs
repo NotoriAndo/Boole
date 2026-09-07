@@ -5353,7 +5353,16 @@ fn session_key_create(
         "schema": SESSION_SCHEMA_V1,
     });
     let bytes = serde_json::to_vec_pretty(&disk_envelope)?;
-    atomic_write_0600(&path, &bytes)?;
+    if let Err(error) = atomic_create_0600(&path, &bytes) {
+        if error.kind() == std::io::ErrorKind::AlreadyExists {
+            emit_typed_error(
+                "session_already_exists",
+                3,
+                serde_json::json!({ "id": id, "path": path.to_string_lossy() }),
+            );
+        }
+        return Err(error.into());
+    }
 
     let public_view = session_public_view(&disk_envelope);
     println!(

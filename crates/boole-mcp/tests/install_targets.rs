@@ -1,11 +1,12 @@
 //! P2.2 closure (slice 40) — `boole-mcp install --target <ide>` writes
-//! an `mcpServers.boole` entry into the IDE's settings file. The
-//! contract under test:
+//! the target IDE's canonical MCP entry into its settings file. The contract
+//! under test:
 //!
 //!   * For each of `claude | codex | cursor | opencode`, a fresh
 //!     `$HOME` ends up with a settings file at the canonical IDE path
-//!     containing `mcpServers.boole.command` pointing at the running
-//!     binary, plus an `args` array that launches `stdio` (real MCP
+//!     containing its native MCP shape pointing at the running binary: Claude
+//!     and Cursor use `mcpServers.boole`, Codex uses `[mcp_servers.boole]`,
+//!     and OpenCode uses `mcp.boole`. Each launches `stdio` (real MCP
 //!     stdio transport) with `--node-url http://127.0.0.1:8080` so
 //!     the legacy proxy tools (bounty.list / receipt.get) keep working, and a
 //!     separate `--native-shadow-url http://127.0.0.1:8082` for native verdicts.
@@ -60,10 +61,10 @@ fn temp_home() -> PathBuf {
 
 fn settings_path(home: &Path, target: &str) -> PathBuf {
     match target {
-        "claude" => home.join(".claude").join("settings.json"),
+        "claude" => home.join(".claude.json"),
         "codex" => home.join(".codex").join("config.toml"),
         "cursor" => home.join(".cursor").join("mcp.json"),
-        "opencode" => home.join(".config").join("opencode").join("config.json"),
+        "opencode" => home.join(".config").join("opencode").join("opencode.json"),
         other => panic!("unknown target {other}"),
     }
 }
@@ -80,6 +81,74 @@ fn run_install(home: &Path, args: &[&str]) -> std::process::Output {
 fn parse_envelope(bytes: &[u8]) -> Value {
     let s = std::str::from_utf8(bytes).expect("utf8");
     serde_json::from_str(s.trim()).unwrap_or_else(|e| panic!("unified envelope parse: {e}: {s:?}"))
+}
+
+#[test]
+fn install_claude_writes_a_user_scope_stdio_server() {
+    let home = temp_home();
+    let out = run_install(&home, &["--target", "claude"]);
+    assert!(
+        out.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let settings = home.join(".claude.json");
+    let value: Value = serde_json::from_str(&fs::read_to_string(&settings).expect("Claude config"))
+        .expect("Claude config JSON");
+    let entry = &value["mcpServers"]["boole"];
+    assert_eq!(entry["type"], "stdio");
+    assert!(entry["command"].is_string());
+    assert_eq!(entry["args"][0], "stdio");
+    let _ = fs::remove_dir_all(&home);
+}
+
+#[test]
+fn install_opencode_writes_a_local_command_array() {
+    let home = temp_home();
+    let out = run_install(&home, &["--target", "opencode"]);
+    assert!(
+        out.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let settings = home.join(".config").join("opencode").join("opencode.json");
+    let value: Value =
+        serde_json::from_str(&fs::read_to_string(&settings).expect("OpenCode config"))
+            .expect("OpenCode config JSON");
+    let entry = &value["mcp"]["boole"];
+    assert_eq!(entry["type"], "local");
+    let command = entry["command"].as_array().expect("local command array");
+    assert!(command.len() > 1, "command includes binary and stdio args");
+    assert_eq!(command[1], "stdio");
+    let _ = fs::remove_dir_all(&home);
+}
+
+#[test]
+fn install_opencode_preserves_other_configuration_and_mcp_servers() {
+    let home = temp_home();
+    let settings = settings_path(&home, "opencode");
+    fs::create_dir_all(settings.parent().expect("settings parent")).expect("mkdir config");
+    fs::write(
+        &settings,
+        r#"{"theme":"dark","mcp":{"other":{"type":"local","command":["other"]}}}"#,
+    )
+    .expect("seed OpenCode config");
+
+    let out = run_install(&home, &["--target", "opencode"]);
+    assert!(
+        out.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let value: Value =
+        serde_json::from_str(&fs::read_to_string(&settings).expect("OpenCode config"))
+            .expect("OpenCode JSON");
+    assert_eq!(value["theme"], "dark");
+    assert_eq!(value["mcp"]["other"]["command"][0], "other");
+    assert_eq!(value["mcp"]["boole"]["type"], "local");
+    let _ = fs::remove_dir_all(&home);
 }
 
 #[test]
@@ -111,11 +180,25 @@ fn install_each_ide_writes_canonical_settings_entry() {
             continue;
         }
         let v: Value = serde_json::from_str(&txt).expect("settings json");
+        if target == "opencode" {
+            let entry = &v["mcp"]["boole"];
+            assert_eq!(entry["type"], "local", "{target}: {entry}");
+            let command = entry["command"]
+                .as_array()
+                .expect("OpenCode local command array");
+            assert!(command.len() > 1, "{target}: command={command:?}");
+            assert_eq!(command[1], "stdio", "{target}: command={command:?}");
+            let _ = fs::remove_dir_all(&home);
+            continue;
+        }
         let entry = &v["mcpServers"]["boole"];
         assert!(
             entry["command"].is_string(),
             "{target}: mcpServers.boole.command should be a string"
         );
+        if target == "claude" {
+            assert_eq!(entry["type"], "stdio", "{target}: {entry}");
+        }
         let cmd = entry["command"].as_str().unwrap();
         assert!(
             cmd.ends_with("boole-mcp") || cmd.ends_with("boole-mcp.exe"),

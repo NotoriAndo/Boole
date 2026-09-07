@@ -377,15 +377,7 @@ fn template_from_fixture(constants: &Constants) -> ProofSubmissionTemplate {
 }
 
 fn lake_and_lean_available() -> bool {
-    let lake_ok = Command::new("lake")
-        .arg("--version")
-        .output()
-        .is_ok_and(|o| o.status.success());
-    let lean_ok = Command::new("lean")
-        .arg("--version")
-        .output()
-        .is_ok_and(|o| o.status.success());
-    lake_ok && lean_ok
+    boole_testkit::lake_and_lean_available()
 }
 
 struct TestLeanWorkspace {

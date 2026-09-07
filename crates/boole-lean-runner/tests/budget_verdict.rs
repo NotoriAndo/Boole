@@ -12,7 +12,6 @@
 
 use boole_lean_runner::{LeanRunner, LeanRunnerConfig, LeanVerdict};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 fn canonical_checker_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -24,14 +23,7 @@ fn canonical_checker_dir() -> PathBuf {
 }
 
 fn lake_and_lean_available() -> bool {
-    Command::new("lake")
-        .arg("--version")
-        .output()
-        .is_ok_and(|o| o.status.success())
-        && Command::new("lean")
-            .arg("--version")
-            .output()
-            .is_ok_and(|o| o.status.success())
+    boole_testkit::lake_and_lean_available()
 }
 
 fn write_proof(name: &str, content: &str) -> PathBuf {

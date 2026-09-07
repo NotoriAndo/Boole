@@ -4,13 +4,16 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-ADDR="${BOOLE_NODE_ADDR:-127.0.0.1:18093}"
+source "$ROOT/scripts/smoke-lifecycle.sh"
+ADDR="${BOOLE_NODE_ADDR:-127.0.0.1:$((20000 + ($$ % 20000)))}"
 SCENARIO="${SCENARIO:-fixtures/protocol/runtime-smoke/v1.json}"
-BLOCK_STORE="${BLOCK_STORE:-${TMPDIR:-/tmp}/boole-node-hermes-cli-smoke.ndjson}"
-REWARD_STORE="${REWARD_STORE:-${TMPDIR:-/tmp}/boole-node-hermes-cli-smoke-rewards.ndjson}"
-STATE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/boole-miner-hermes-cli-state.XXXXXX")"
+BLOCK_STORE="$(smoke_fresh_path "${BLOCK_STORE:-$SMOKE_WORK_DIR/blocks.ndjson}")"
+REWARD_STORE="$(smoke_fresh_path "${REWARD_STORE:-$SMOKE_WORK_DIR/rewards.ndjson}")"
+STATE_DIR="$SMOKE_WORK_DIR/state"
 STATE="$STATE_DIR/state.json"
-rm -f "$BLOCK_STORE" "$REWARD_STORE"
+mkdir -p "$STATE_DIR"
+MINER_INIT_OUT="$SMOKE_WORK_DIR/miner-init.out"
+MINER_START_OUT="$SMOKE_WORK_DIR/miner-start.out"
 
 command -v hermes >/dev/null 2>&1 || {
   printf 'boole-miner-hermes-cli-smoke: SKIP hermes not found on PATH\n' >&2
@@ -18,16 +21,21 @@ command -v hermes >/dev/null 2>&1 || {
   exit 0
 }
 
-cargo run -q -p boole-node -- run-local \
+# Build before the node readiness budget starts.
+NODE_BIN="$(smoke_build_binary boole-node boole-node)"
+MINER_BIN="$(smoke_build_binary boole-miner boole-miner --features boole-miner/dev-tools)"
+smoke_prewarm_binary "$NODE_BIN"
+smoke_prewarm_binary "$MINER_BIN"
+"$NODE_BIN" run-local \
   --addr "$ADDR" \
   --scenario "$SCENARIO" \
   --block-store "$BLOCK_STORE" \
   --reward-store "$REWARD_STORE" \
-  --max-requests 10 \
-  >/tmp/boole-node-hermes-cli-smoke.out \
-  2>/tmp/boole-node-hermes-cli-smoke.err &
+  --allow-anonymous-submit \
+  >"$SMOKE_WORK_DIR/node.out" \
+  2>"$SMOKE_WORK_DIR/node.err" &
 PID=$!
-trap 'kill "$PID" >/dev/null 2>&1 || true; rm -rf "$STATE_DIR"; rm -f "$REWARD_STORE" /tmp/boole-node-hermes-cli-smoke.out /tmp/boole-node-hermes-cli-smoke.err /tmp/boole-miner-hermes-cli-smoke-start.out /tmp/boole-miner-hermes-cli-smoke-init.out' EXIT
+smoke_register_child "$PID"
 
 python3 - "$ADDR" <<'PY'
 import http.client
@@ -50,23 +58,23 @@ for _ in range(80):
 raise SystemExit(f"boole-node did not become ready: {last}")
 PY
 
-cargo run -q -p boole-miner -- init \
+"$MINER_BIN" init \
   --state "$STATE" \
   --dispatcher-url "http://$ADDR" \
   --llm-backend agent_cli \
   --agent-command hermes \
   --agent-args '["chat","-Q","-t","","-q"]' \
-  --force >/tmp/boole-miner-hermes-cli-smoke-init.out
-cargo run -q -p boole-miner -- start \
+  --force >"$MINER_INIT_OUT"
+"$MINER_BIN" start \
   --state "$STATE" \
   --max-shares 1 \
   --max-cycles 1 \
   --profile v01 \
   --difficulty 1 \
   --mock-verify-accept \
-  >/tmp/boole-miner-hermes-cli-smoke-start.out
+  >"$MINER_START_OUT"
 
-python3 - /tmp/boole-miner-hermes-cli-smoke-start.out "$ADDR" <<'PY'
+python3 - "$MINER_START_OUT" "$ADDR" <<'PY'
 import http.client
 import json
 import re
@@ -97,6 +105,6 @@ print(json.dumps({
 }, separators=(",", ":")))
 PY
 
-kill "$PID" >/dev/null 2>&1 || true
-wait "$PID" >/dev/null 2>&1 || true
+smoke_stop_and_wait "$PID"
+SMOKE_CHILD_PIDS=""
 printf 'boole-miner-hermes-cli-smoke: PASS\n' >&2

@@ -76,6 +76,7 @@ jobs:
         profile: [debug, release]
     env:
       RUST_TEST_THREADS: "1"
+      BOOLE_REQUIRE_LEAN: "1"
     steps:
       - name: Checkout
         # Pinned to the same immutable SHA ci.yml uses (v6.0.3).
@@ -91,7 +92,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/v4.2.3/elan-init.sh -o /tmp/elan-init.sh
+          curl --connect-timeout 15 --max-time 120 -sSfL https://raw.githubusercontent.com/leanprover/elan/v4.2.3/elan-init.sh -o /tmp/elan-init.sh
           sh /tmp/elan-init.sh -y --default-toolchain leanprover/lean4:v4.29.1
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
 

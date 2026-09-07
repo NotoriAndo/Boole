@@ -131,6 +131,18 @@ class InstallScriptTests(unittest.TestCase):
         self.assertIn("installs required dependencies", combined)
         self.assertIn("never prints API key values", combined)
 
+    def test_confirmation_is_bash_3_compatible_and_apt_requires_yes_when_piped(self) -> None:
+        script = INSTALLER.read_text(encoding="utf-8")
+        self.assertNotIn("${answer,,}", script)
+        self.assertIn('case "$answer" in', script)
+        self.assertIn("[yY]|[yY][eE][sS]", script)
+        self.assertIn("apt-get requires --yes when stdin is not a terminal", script)
+
+    def test_installer_downloads_have_connection_and_total_time_limits(self) -> None:
+        script = INSTALLER.read_text(encoding="utf-8")
+        self.assertIn("--connect-timeout", script)
+        self.assertIn("--max-time", script)
+
     def test_dry_run_prints_plan_without_cloning_or_leaking_secret_values(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             install_dir = Path(tmp) / "boole-install-target"

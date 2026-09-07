@@ -348,6 +348,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tracing",
  "tracing-subscriber",
+ "zeroize",
 ]
 
 [[package]]
@@ -379,6 +380,7 @@ name = "boole-lean-runner"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "boole-testkit",
  "hex",
  "landlock",
  "libc",
@@ -477,6 +479,7 @@ dependencies = [
  "clap",
  "hex",
  "libc",
+ "rand_core 0.6.4",
  "serde",
  "serde_json",
  "sha2",
@@ -520,6 +523,7 @@ dependencies = [
  "libc",
  "rand_core 0.6.4",
  "serde_json",
+ "zeroize",
 ]
 
 [[package]]

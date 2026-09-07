@@ -19,12 +19,16 @@ on:
     paths:
       - "crates/boole-lean-runner/**"
       - "lean/checker/**"
+      - "native/mac3/**"
+      - "scripts/native_shadow_closed_local_mac_readiness_arm64_v1.py"
       - ".github/workflows/macos-isolation.yml"
   pull_request:
     branches: [main]
     paths:
       - "crates/boole-lean-runner/**"
       - "lean/checker/**"
+      - "native/mac3/**"
+      - "scripts/native_shadow_closed_local_mac_readiness_arm64_v1.py"
       - ".github/workflows/macos-isolation.yml"
   workflow_dispatch:
 
@@ -40,6 +44,7 @@ jobs:
     # spawn probe processes, so keep test execution single-threaded.
     env:
       RUST_TEST_THREADS: "1"
+      BOOLE_REQUIRE_LEAN: "1"
     steps:
       - name: Checkout
         # Pinned to the same immutable SHA as ci.yml (actions/checkout v6.0.3).
@@ -51,11 +56,22 @@ jobs:
         with:
           toolchain: 1.95.0
 
+      - name: Check native VM lifecycle without starting a VM
+        run: |
+          set -euo pipefail
+          swiftc native/mac3/boole-mac3-closed-local-stop-state.swift native/mac3/boole-mac3-closed-local-stop-state-tests.swift -o "$RUNNER_TEMP/boole-stop-state-tests"
+          "$RUNNER_TEMP/boole-stop-state-tests"
+          cp native/mac3/boole-mac3-closed-local-boot.swift "$RUNNER_TEMP/main.swift"
+          swiftc -typecheck -sdk "$(xcrun --sdk macosx --show-sdk-path)" -target arm64-apple-macos14.0 \
+            -module-cache-path "$RUNNER_TEMP/boole-swift-module-cache" \
+            -Xcc -fmodules-cache-path="$RUNNER_TEMP/boole-clang-module-cache" \
+            native/mac3/boole-mac3-closed-local-stop-state.swift "$RUNNER_TEMP/main.swift"
+
       - name: Install pinned Lean toolchain
         shell: bash
         run: |
           set -euo pipefail
-          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/v4.2.3/elan-init.sh -o "$RUNNER_TEMP/elan-init.sh"
+          curl --connect-timeout 15 --max-time 120 -sSfL https://raw.githubusercontent.com/leanprover/elan/v4.2.3/elan-init.sh -o "$RUNNER_TEMP/elan-init.sh"
           echo "a620ff1641616222c8d37c54845492004bb84d6877cdbc944dd65c1aa685bf53  $RUNNER_TEMP/elan-init.sh" | shasum -a 256 -c -
           sh "$RUNNER_TEMP/elan-init.sh" -y --default-toolchain leanprover/lean4:v4.29.1
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"

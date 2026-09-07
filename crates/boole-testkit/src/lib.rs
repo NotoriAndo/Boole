@@ -577,10 +577,9 @@ pub fn rand_suffix() -> u64 {
 
 /// True iff both `lake` and `lean` are on `PATH` and respond to `--version`.
 ///
-/// Used by Lean-bridge tests to gate themselves: if the toolchain is missing
-/// the test must be `#[ignore = "needs-lean"]`-style annotated; the early
-/// `if !lake_and_lean_available() { return; }` pattern is being phased out
-/// (see master plan L10).
+/// Local tests may explicitly skip when the toolchain is missing. Required
+/// lanes export `BOOLE_REQUIRE_LEAN=1`, which turns an unavailable toolchain
+/// into a test failure at every consumer instead of a silent successful skip.
 pub fn lake_and_lean_available() -> bool {
     let lake_ok = Command::new("lake")
         .arg("--version")
@@ -592,7 +591,12 @@ pub fn lake_and_lean_available() -> bool {
         .output()
         .map(|out| out.status.success())
         .unwrap_or(false);
-    lake_ok && lean_ok
+    let available = lake_ok && lean_ok;
+    assert!(
+        available || std::env::var("BOOLE_REQUIRE_LEAN").as_deref() != Ok("1"),
+        "BOOLE_REQUIRE_LEAN=1: lake and lean must both answer --version; a required test cannot skip"
+    );
+    available
 }
 
 #[cfg(test)]

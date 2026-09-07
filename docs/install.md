@@ -143,15 +143,15 @@ Boole currently provides a one-line source bootstrapper for developers and local
 do not want to clone the repository or prepare every toolchain manually.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/NotoriAndo/Boole/main/install.sh | bash
+curl --connect-timeout 10 --max-time 120 -fsSL https://raw.githubusercontent.com/NotoriAndo/Boole/main/install.sh | bash -s -- --yes
 ```
 
 For review-before-run:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/NotoriAndo/Boole/main/install.sh -o install.sh
+curl --connect-timeout 10 --max-time 120 -fsSL https://raw.githubusercontent.com/NotoriAndo/Boole/main/install.sh -o install.sh
 less install.sh
-bash install.sh
+bash install.sh --yes
 ```
 
 ## What it installs

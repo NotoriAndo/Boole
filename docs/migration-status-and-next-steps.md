@@ -1,12 +1,11 @@
-# Boole Rust Core Migration — Current Status and Next Steps
+# Boole Rust Core Migration — Historical Status and Next Steps
 
 > **Superseded (2026-06-13, N0-pre.12).** This document is a historical
-> migration snapshot, not the current source of truth. The current gate
-> figures live in `README.md` and `scripts/self-test.sh`; the binding
-> execution order lives in `local-docs/todo/EXECUTION-ORDER.md`. The
-> figures below were refreshed to the current `self-test.sh` numbers so
-> this file no longer misleads an external reader, but new status must be
-> read from the README and the master plans, not here.
+> migration snapshot, not the current source of truth. Current progress and
+> next work live in [current development status](current-development-status.md).
+> The figures and next-step lists below describe the historical migration
+> snapshot, not the present checkout; current executable gates live in
+> `scripts/self-test.sh`.
 
 **Updated:** N0-pre.12 figure refresh (was `53ca071 test: expand runtime smoke preflight scenarios`)
 
@@ -14,7 +13,7 @@
 
 Boole Rust migration is **not fully complete as a production L1**, but the **Rust runtime proof-to-block spine and local preflight harness are now working end-to-end**.
 
-Current verified local benchmark (matches `README.md` / `self-test.sh`):
+Verified local benchmark at the historical figure refresh:
 
 ```text
 casesPassed: 7
@@ -235,7 +234,7 @@ Current benchmark command:
 ./scripts/proof-to-block-benchmark.sh
 ```
 
-Current expected output summary:
+Expected output summary at this historical snapshot:
 
 ```json
 {

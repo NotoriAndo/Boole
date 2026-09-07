@@ -76,8 +76,8 @@ do {
     fail("\(error)")
 }
 
-if timeoutSeconds <= 0 {
-    fail("--timeout must be a positive number of seconds")
+if !timeoutSeconds.isFinite || timeoutSeconds <= 0 {
+    fail("--timeout must be a finite positive number of seconds")
 }
 
 // The caller states the digests it intends to boot. This program recomputes
@@ -164,12 +164,13 @@ do {
     fail("the machine configuration is not valid: \(error)")
 }
 
-func writeReceipt(outcome: String, detail: String, startedAt: Date?, stoppedAt: Date?) {
+func writeReceipt(outcome: String, detail: String, startedAt: Date?, stoppedAt: Date?, stopConfirmed: Bool = false) {
     var receipt: [String: Any] = [
         "schema": "boole.native-shadow.mac3-closed-local-boot-run.v1",
         "outcome": outcome,
         "detail": detail,
         "dryRun": dryRun,
+        "stopConfirmed": stopConfirmed,
         "kernel": ["path": kernelPath, "sha256": kernelDigest],
         "rootDisk": [
             "path": rootDiskPath,
@@ -192,12 +193,14 @@ func writeReceipt(outcome: String, detail: String, startedAt: Date?, stoppedAt: 
     if let startedAt, let stoppedAt {
         receipt["ranForSeconds"] = stoppedAt.timeIntervalSince(startedAt)
     }
-    let data = try? JSONSerialization.data(
-        withJSONObject: receipt,
-        options: [.prettyPrinted, .sortedKeys]
-    )
-    if let data {
-        try? data.write(to: URL(fileURLWithPath: receiptPath))
+    do {
+        let data = try JSONSerialization.data(
+            withJSONObject: receipt,
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        try data.write(to: URL(fileURLWithPath: receiptPath), options: .atomic)
+    } catch {
+        fail("cannot persist the host receipt: \(error)")
     }
 }
 
@@ -219,25 +222,44 @@ let queue = DispatchQueue(label: "boole.mac3.closed-local-boot")
 let machine = VZVirtualMachine(configuration: configuration, queue: queue)
 
 final class StopWatcher: NSObject, VZVirtualMachineDelegate {
-    var stopped = false
-    var reason = ""
+    private let lock = NSLock()
+    private var state = StopState()
+
+    // Read local state without synchronously entering the VZ queue: a stuck
+    // start/stop callback must not also block timeout observation.
+    func snapshot() -> (stopped: Bool, reason: String, failed: Bool) {
+        lock.lock()
+        defer { lock.unlock() }
+        return (state.stopped, state.reason, state.failed)
+    }
+
+    func confirmStopped(_ detail: String, failed: Bool = false) {
+        lock.lock()
+        defer { lock.unlock() }
+        state.confirmStopped(detail, failed: failed)
+    }
+
+    func recordForcedStopCompletion(_ error: Error?) {
+        lock.lock()
+        defer { lock.unlock() }
+        state.recordForcedStopCompletion(error)
+    }
+
     func guestDidStop(_ virtualMachine: VZVirtualMachine) {
-        stopped = true
-        reason = "the guest stopped itself"
+        confirmStopped("the guest stopped itself")
     }
     func virtualMachine(_ virtualMachine: VZVirtualMachine, didStopWithError error: Error) {
-        stopped = true
-        reason = "the machine stopped with an error: \(error)"
+        confirmStopped("the machine stopped with an error: \(error)", failed: true)
     }
 }
 
 let watcher = StopWatcher()
-queue.sync { machine.delegate = watcher }
 
 let startedAt = Date()
 var startError: String?
 let started = DispatchSemaphore(value: 0)
 queue.async {
+    machine.delegate = watcher
     machine.start { result in
         if case .failure(let error) = result {
             startError = "\(error)"
@@ -245,7 +267,15 @@ queue.async {
         started.signal()
     }
 }
-started.wait()
+if started.wait(timeout: .now() + min(timeoutSeconds, 30)) != .success {
+    writeReceipt(
+        outcome: "start-timeout",
+        detail: "the VM start callback did not complete within its wall-clock budget",
+        startedAt: startedAt,
+        stoppedAt: Date()
+    )
+    fail("the machine start callback timed out")
+}
 
 if let startError {
     writeReceipt(
@@ -260,7 +290,7 @@ if let startError {
 let deadline = startedAt.addingTimeInterval(timeoutSeconds)
 var stoppedByTimeout = false
 while true {
-    if queue.sync(execute: { watcher.stopped }) { break }
+    if watcher.snapshot().stopped { break }
     if Date() >= deadline {
         stoppedByTimeout = true
         break
@@ -276,31 +306,60 @@ if stoppedByTimeout {
         }
         done.signal()
     }
-    done.wait()
+    let requestCompleted = done.wait(timeout: .now() + 5) == .success
     // A guest with no shutdown path of its own must not keep the host waiting
     // forever; the transcript up to here is the evidence either way.
     let graceDeadline = Date().addingTimeInterval(15)
-    while Date() < graceDeadline && !queue.sync(execute: { watcher.stopped }) {
+    while requestCompleted && Date() < graceDeadline && !watcher.snapshot().stopped {
         RunLoop.current.run(until: Date().addingTimeInterval(0.2))
     }
-    if !queue.sync(execute: { watcher.stopped }) {
+    if !watcher.snapshot().stopped {
         let forced = DispatchSemaphore(value: 0)
         queue.async {
-            machine.stop { _ in forced.signal() }
+            machine.stop { error in
+                watcher.recordForcedStopCompletion(error)
+                forced.signal()
+            }
         }
-        _ = forced.wait(timeout: .now() + 15)
+        let completed = forced.wait(timeout: .now() + 15) == .success
+        if !completed || !watcher.snapshot().stopped {
+            writeReceipt(
+                outcome: "stop-unconfirmed",
+                detail: "the forced stop failed or its callback did not confirm completion",
+                startedAt: startedAt,
+                stoppedAt: Date()
+            )
+            fail("the machine stop was not confirmed")
+        }
     }
 }
 
 let stoppedAt = Date()
-try? consoleWriter.close()
-
-let reason = queue.sync(execute: { watcher.reason })
+let finalState = watcher.snapshot()
+do {
+    try consoleWriter.close()
+} catch {
+    writeReceipt(
+        outcome: "console-close-failed", detail: "\(error)",
+        startedAt: startedAt, stoppedAt: stoppedAt,
+        stopConfirmed: finalState.stopped
+    )
+    fail("cannot close the console transcript: \(error)")
+}
+if !finalState.stopped || finalState.failed {
+    writeReceipt(
+        outcome: "guest-stop-failed", detail: finalState.reason,
+        startedAt: startedAt, stoppedAt: stoppedAt,
+        stopConfirmed: finalState.stopped
+    )
+    fail("the guest did not stop successfully: \(finalState.reason)")
+}
 writeReceipt(
     outcome: stoppedByTimeout ? "stopped-at-timeout" : "guest-stopped",
-    detail: reason.isEmpty ? "the run reached its timeout and the host stopped it" : reason,
+    detail: finalState.reason,
     startedAt: startedAt,
-    stoppedAt: stoppedAt
+    stoppedAt: stoppedAt,
+    stopConfirmed: true
 )
 print("mac3-boot: run complete")
 exit(0)

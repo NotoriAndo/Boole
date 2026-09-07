@@ -78,11 +78,13 @@ and compares it to the block's persisted `minShareScore`.
 Two policy-binding failures are intentionally stable regression surfaces:
 
 ```text
-selected share evidence requires minShareScoreMultiplierNanos
+selected share evidence minShareScoreMultiplierNanos must equal the consensus rule constant ..., got ...
 selected share evidence minShareScore mismatch
 ```
 
-The first protects against evidence-backed blocks silently falling back to a zero/default policy. The second protects against accepting a selected-share set under a different multiplier than the one used at admission.
+The first rejects any multiplier other than the consensus constant
+`1_000_000_000`, including missing/zero defaults. The second rejects a persisted
+minimum score that differs from the score recomputed under that fixed policy.
 
 ## Golden fixtures
 
