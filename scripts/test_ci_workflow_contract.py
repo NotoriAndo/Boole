@@ -9,6 +9,8 @@ block so the default GITHUB_TOKEN cannot write to the repository.
 import pathlib
 import re
 import shlex
+import subprocess
+import tempfile
 import unittest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -681,7 +683,6 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
         )
         for required in (
             'sudo test ! -e "$service_root"',
-            "mapfile -t values < <(sudo awk",
             'sudo cat "$service_root/cgroup.procs"',
             'sudo stat -c %U:%G:%a "$manager_root"',
             'sudo cat "$manager_root/cgroup.subtree_control"',
@@ -693,6 +694,10 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             "sudo awk -F: '$1 == \"0\" { print $3 }' \"/proc/$pid/cgroup\"",
         ):
             self.assertIn(required, body)
+        id_reader = body.split("single_numeric_id() {", 1)[1].split("\n}", 1)[0]
+        self.assertIn("sudo awk", id_reader)
+        self.assertIn("count == 1 && !malformed", id_reader)
+        self.assertNotIn("< <(", id_reader, "control-file read failures must propagate")
         self.assertNotIn(
             '<"$manager_root/',
             body,
@@ -1443,6 +1448,229 @@ class NativeShadowArm64LauncherBuildWorkflowContractTest(unittest.TestCase):
         self.assertIn("native-shadow-launcher-build-arm64-v2", job)
         self.assertIn("needs.native-shadow-launcher-build-arm64-v2.result", job)
         self.assertIn("arm64 launcher v2 double build did not pass", job)
+
+
+class NativeShadowManagerReadinessConsumerTest(unittest.TestCase):
+    """Run the shipped shell consumers against a clock-free startup lifecycle."""
+
+    def run_consumer(self, consumer, scenario="startup_probes"):
+        source = (
+            REPO_ROOT / "scripts/native-shadow-manager-cgroup-gate.sh"
+        ).read_text(encoding="utf-8")
+        functions = []
+        for name in (
+            "die", "wait_for_state", "single_numeric_id",
+            "manager_invariant_snapshot", "assert_manager_invariants",
+            "unit_invocation_id", "wait_for_fixed_socket", "wait_for_ready_manager",
+        ):
+            match = re.search(rf"(?ms)^{name}\(\) \{{\n.*?^\}}", source)
+            if match:
+                functions.append(match.group())
+        boundaries = {
+            "diagnostic": (
+                "    diagnostic_invocation=$(unit_invocation_id)",
+                "    local diagnostic_label=",
+            ),
+            "rollback": (
+                "  drift_invocation=$(unit_invocation_id)",
+                '  sudo python3 - "$mutation_target"',
+            ),
+            "qualification": (
+                "qualification_invocation=$(unit_invocation_id)",
+                "suffix=${GITHUB_RUN_ID:",
+            ),
+            "production": (
+                '  sudo systemctl start "$node_service_name"',
+                '  node_invocation=$(sudo systemctl show "$node_service_name"',
+            ),
+        }
+        start, end = boundaries[consumer]
+        consumer_body = source.split(start, 1)[1].split(end, 1)[0]
+        consumer_body = start + consumer_body
+        # Only privileged I/O and sleeping are mocked. The real parser,
+        # readiness helper, strict invariants, and consumer ordering execute.
+        mock = r'''
+unit_name=boole-native-shadow-launcher.service
+node_service_name=boole-native-shadow-replay-node.service
+service_root=/mock/service
+manager_root=$service_root/manager
+socket_path=/mock/launcher.sock
+launcher_path=/mock/launcher
+fixed_socket_wait_attempts=3
+sleep() { :; }
+timeout() {
+  [[ "$1" == --signal=TERM && "$2" == --kill-after=1s && "$3" == 5s ]] || return 93
+  shift 3
+  "$@"
+}
+# Bash 3.2 on macOS lacks mapfile. This exact -t subset also permits
+# testing the pre-fix parser without replacing its validation logic.
+mapfile() {
+  local target=$2 line quoted index=0
+  eval "$target=()"
+  while IFS= read -r line; do
+    printf -v quoted '%q' "$line"
+    eval "$target[$index]=$quoted"
+    index=$((index + 1))
+  done
+}
+control_text() {
+  case "$1" in
+    "$manager_root/cgroup.procs")
+      local reads=0
+      [[ ! -f "$state/procs-reads" ]] || read -r reads <"$state/procs-reads"
+      reads=$((reads + 1))
+      printf '%s\n' "$reads" >"$state/procs-reads"
+      if [[ ! -f "$state/ready" ]]; then
+        [[ $reads -eq 1 ]] && printf '123\n' || printf '123\n456\n'
+      elif [[ "$scenario" == read_error && $reads -gt 1 ]]; then
+        printf 'mock control read failed\n' >&2
+        return 2
+      elif [[ "$scenario" == ready_multi && $reads -gt 1 ]]; then
+        printf '123\n456\n'
+      elif [[ "$scenario" == ready_duplicate && $reads -gt 1 ]]; then
+        printf '123\n123\n'
+      elif [[ "$scenario" == ready_malformed && $reads -gt 1 ]]; then
+        printf '123 456\n'
+      else
+        printf '123\n'
+      fi ;;
+    "$manager_root/cgroup.threads")
+      [[ "$scenario" == wrong_thread ]] && printf '456\n' || printf '123\n' ;;
+    "$manager_root/cgroup.type") printf 'domain\n' ;;
+    "$service_root/cgroup.subtree_control") printf 'cpu memory pids\n' ;;
+    "$service_root/cgroup.procs"|"$manager_root/cgroup.subtree_control") : ;;
+    *) printf 'unexpected control read: %s\n' "$1" >&2; return 94 ;;
+  esac
+}
+sudo() {
+  local last="${!#}"
+  case "$1" in
+    systemctl)
+      if [[ "$2" == start && "$3" == "$node_service_name" ]]; then
+        : >"$state/node-started"
+        return 0
+      fi
+      [[ "$2" == show && "$3" == "$unit_name" ]] || return 95
+      if [[ "$last" != --value ]]; then
+        printf 'MainPID=123\nInvocationID=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nActiveState=active\nSubState=running\nNRestarts=0\nResult=success\nExecMainStatus=0\n'
+      elif [[ "$4" == --property=ActiveState ]]; then
+        printf 'active\n'
+      elif [[ "$4" == --property=MainPID ]]; then
+        if [[ "$scenario" == changed_pid && -f "$state/ready" ]] \
+          || [[ "$scenario" == changed_pid_after_validation && -f "$state/validated" ]]; then
+          printf '456\n'
+        else
+          printf '123\n'
+        fi
+      elif [[ "$4" == --property=InvocationID ]]; then
+        if [[ "$scenario" == stale_invocation && -f "$state/ready" ]] \
+          || [[ "$scenario" == stale_after_validation && -f "$state/validated" ]]; then
+          printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n'
+        else
+          printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n'
+        fi
+      else
+        return 96
+      fi ;;
+    test)
+      [[ "$2" == -d && "$3" == "$manager_root" ]] && return 0
+      [[ "$2" == -S && "$3" == "$socket_path" ]] || return 97
+      if [[ "$consumer" == production && ! -f "$state/node-started" ]]; then
+        printf 'socket wait preceded the sole node start\n' >&2
+        return 98
+      fi
+      if [[ ! -f "$state/socket-polled" ]]; then
+        : >"$state/socket-polled"
+        return 1
+      fi
+      : >"$state/ready" ;;
+    awk)
+      if [[ "$last" == /proc/123/cgroup ]]; then
+        : >"$state/validated"
+        printf '/system.slice/%s/manager\n' "$unit_name"
+      else
+        local -a args=("$@")
+        local contents
+        unset "args[$((${#args[@]} - 1))]"
+        if contents=$(control_text "$last"); then
+          printf '%s\n' "$contents" | command "${args[@]}"
+        else
+          return $?
+        fi
+      fi ;;
+    cat) control_text "$2" ;;
+    head) [[ "$2" == -c && "$3" == 4096 ]] || return 99; control_text "$4" ;;
+    stat)
+      if [[ "$last" == "$socket_path" ]]; then
+        printf 'root:boole-node:660\n'
+      elif [[ "$2" == -fc ]]; then
+        printf 'cgroup2fs\n'
+      elif [[ "$scenario" == wrong_metadata ]]; then
+        printf 'root:root:755\n'
+      else
+        printf 'root:root:700\n'
+      fi ;;
+    readlink) printf '%s\n' "$launcher_path" ;;
+    find|journalctl) : ;;
+    *) printf 'unexpected privileged call: %s\n' "$*" >&2; return 100 ;;
+  esac
+}
+'''
+        with tempfile.TemporaryDirectory(prefix="boole-manager-readiness-") as state:
+            script = "\n".join([
+                "set -euo pipefail", *functions,
+                f"state={shlex.quote(state)}",
+                f"scenario={shlex.quote(scenario)}",
+                f"consumer={shlex.quote(consumer)}", mock,
+                "exercise() {", consumer_body,
+                '[[ -f "$state/ready" ]] || die "consumer skipped readiness"',
+                'printf "manager-ready:PASS\\n"', "}", "exercise",
+            ])
+            return subprocess.run(
+                ["bash", "-c", script], capture_output=True, text=True, timeout=10,
+            )
+
+    def test_every_listener_consumer_waits_out_startup_trusted_probes(self):
+        for consumer in ("diagnostic", "rollback", "qualification", "production"):
+            with self.subTest(consumer=consumer):
+                result = self.run_consumer(consumer)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("manager-ready:PASS", result.stdout)
+
+    def test_readiness_does_not_relax_strict_manager_invariants(self):
+        for scenario, error in (
+            ("ready_multi", "exactly one numeric ID"),
+            ("ready_duplicate", "exactly one numeric ID"),
+            ("ready_malformed", "exactly one numeric ID"),
+            ("wrong_thread", "exactly the MainPID thread"),
+            ("wrong_metadata", "metadata does not match root:root:700"),
+        ):
+            with self.subTest(scenario=scenario):
+                result = self.run_consumer("diagnostic", scenario)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(error, result.stderr)
+                self.assertNotIn("manager-ready:PASS", result.stdout)
+
+    def test_readiness_remains_bound_to_the_starting_invocation_and_pid(self):
+        for scenario, error in (
+            ("stale_invocation", "InvocationID changed"),
+            ("changed_pid", "MainPID changed"),
+            ("stale_after_validation", "InvocationID changed"),
+            ("changed_pid_after_validation", "MainPID changed"),
+        ):
+            with self.subTest(scenario=scenario):
+                result = self.run_consumer("production", scenario)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(error, result.stderr)
+
+    def test_control_read_failure_keeps_status_and_bounded_diagnostics(self):
+        result = self.run_consumer("diagnostic", "read_error")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("predicate=cgroup.procs read_status=2", result.stderr)
+        self.assertIn("control=cgroup.procs read_status=2", result.stderr)
+        self.assertIn("MainPID=123", result.stderr)
+        self.assertNotIn("manager-ready:PASS", result.stdout)
 
 
 if __name__ == "__main__":

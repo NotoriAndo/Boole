@@ -43,7 +43,7 @@ if [[ "$authority_profile" == arm64 ]]; then
   [[ $(uname -m) == aarch64 ]] || die "arm64 replay mode requires native aarch64 Linux"
 fi
 [[ ${EUID} -ne 0 ]] || die "build phase must run as the unprivileged CI user"
-for command_name in awk cargo cp find findmnt getent grep install journalctl paste python3 readlink sed \
+for command_name in awk cargo cp find findmnt getent grep head install journalctl paste python3 readlink sed \
   sha256sum sort stat systemctl systemd-run systemd-tmpfiles tee timeout tr; do
   command -v "$command_name" >/dev/null || die "missing command: $command_name"
 done
@@ -782,10 +782,39 @@ wait_for_cgroup_removal() {
 
 single_numeric_id() {
   local path=$1
-  local -a values=()
-  mapfile -t values < <(sudo awk 'NF == 1 { print $1; next } NF > 1 { print "__malformed__" }' "$path")
-  [[ ${#values[@]} -eq 1 && ${values[0]} =~ ^[1-9][0-9]*$ ]] || return 1
-  printf '%s\n' "${values[0]}"
+  # Do not hide an I/O failure in process substitution, or deduplicate IDs.
+  sudo awk '
+    NF == 1 && $1 ~ /^[1-9][0-9]*$/ { count++; value = $1; next }
+    NF { malformed = 1 }
+    END { if (count == 1 && !malformed) print value; else exit 1 }
+  ' "$path"
+}
+
+manager_invariant_snapshot() {
+  local predicate=$1
+  local read_status=$2
+  local raw status path scope
+  printf 'manager-invariant-snapshot: predicate=%s read_status=%s\n' \
+    "$predicate" "$read_status" >&2
+  if raw=$(timeout --signal=TERM --kill-after=1s 5s sudo systemctl show "$unit_name" \
+    --property=MainPID,InvocationID,ActiveState,SubState,NRestarts,Result,ExecMainStatus 2>&1); then
+    status=0
+  else
+    status=$?
+  fi
+  printf 'manager-invariant-snapshot: unit read_status=%s raw=%q\n' "$status" "$raw" >&2
+  for path in "$manager_root/cgroup.procs" "$manager_root/cgroup.threads" \
+    "$service_root/cgroup.procs"; do
+    scope=manager
+    [[ "$path" != "$service_root/cgroup.procs" ]] || scope=service
+    if raw=$(timeout --signal=TERM --kill-after=1s 5s sudo head -c 4096 "$path" 2>&1); then
+      status=0
+    else
+      status=$?
+    fi
+    printf 'manager-invariant-snapshot: scope=%s control=%s read_status=%s raw=%q\n' \
+      "$scope" "${path##*/}" "$status" "$raw" >&2
+  done
 }
 
 assert_manager_invariants() {
@@ -804,13 +833,22 @@ assert_manager_invariants() {
     [[ "$manager_pid" == "$pid" ]] || { sleep 0.05; continue; }
     break
   done
-  [[ $i -lt 200 ]] || die "manager cgroup did not reach the post-move state"
+  [[ $i -lt 200 ]] || {
+    manager_invariant_snapshot post-move 1
+    die "manager cgroup did not reach the post-move state"
+  }
 
   local manager_tid
   manager_pid=$(single_numeric_id "$manager_root/cgroup.procs") \
-    || die "manager cgroup.procs does not contain exactly one numeric ID"
+    || {
+      manager_invariant_snapshot cgroup.procs "$?"
+      die "manager cgroup.procs does not contain exactly one numeric ID"
+    }
   manager_tid=$(single_numeric_id "$manager_root/cgroup.threads") \
-    || die "manager cgroup.threads does not contain exactly one numeric ID"
+    || {
+      manager_invariant_snapshot cgroup.threads "$?"
+      die "manager cgroup.threads does not contain exactly one numeric ID"
+    }
   [[ "$manager_pid" == "$pid" ]] \
     || die "manager cgroup does not contain exactly the MainPID process"
   [[ "$manager_tid" == "$pid" ]] \
@@ -908,6 +946,31 @@ wait_for_fixed_socket() {
   sudo systemctl show "$unit_name" --property=ActiveState,SubState,Result,ExecMainStatus,NRestarts >&2 || :
   sudo journalctl --no-pager -o cat -u "$unit_name" >&2 || :
   die "fixed qualification socket did not appear"
+}
+
+wait_for_ready_manager() {
+  local expected_invocation=$1
+  local expected_pid validated_pid
+  expected_pid=$(sudo systemctl show "$unit_name" --property=MainPID --value)
+  [[ "$expected_pid" =~ ^[1-9][0-9]*$ ]] || die "unit has invalid MainPID: $expected_pid"
+  [[ $(unit_invocation_id) == "$expected_invocation" ]] \
+    || die "launcher InvocationID changed before readiness"
+
+  # Type=exec active and a transient post-move singleton precede the trusted
+  # startup subprocess probes. The listener is published only after those
+  # probes and their strict cgroup revalidation have completed.
+  wait_for_fixed_socket
+  [[ $(unit_invocation_id) == "$expected_invocation" ]] \
+    || die "launcher InvocationID changed while waiting for readiness"
+  [[ $(sudo systemctl show "$unit_name" --property=MainPID --value) == "$expected_pid" ]] \
+    || die "launcher MainPID changed while waiting for readiness"
+  validated_pid=$(assert_manager_invariants) || return $?
+  [[ "$validated_pid" == "$expected_pid" \
+    && $(sudo systemctl show "$unit_name" --property=MainPID --value) == "$expected_pid" ]] \
+    || die "launcher MainPID changed during ready-state validation"
+  [[ $(unit_invocation_id) == "$expected_invocation" ]] \
+    || die "launcher InvocationID changed during ready-state validation"
+  printf '%s\n' "$validated_pid"
 }
 
 wait_for_leaf_event() {
@@ -1039,8 +1102,7 @@ run_containment_layer_diagnostics() {
     sudo systemctl start "$unit_name"
     local diagnostic_invocation
     diagnostic_invocation=$(unit_invocation_id)
-    assert_manager_invariants >/dev/null
-    wait_for_fixed_socket
+    wait_for_ready_manager "$diagnostic_invocation" >/dev/null
 
     local diagnostic_label=${diagnostic_mode#closed-local-replay-diagnostic-}
     diagnostic_label=${diagnostic_label//[^a-zA-Z0-9-]/-}
@@ -1131,8 +1193,7 @@ run_closed_local_replay_gate() {
   sudo systemctl start "$unit_name"
   local drift_invocation
   drift_invocation=$(unit_invocation_id)
-  assert_manager_invariants >/dev/null
-  wait_for_fixed_socket
+  wait_for_ready_manager "$drift_invocation" >/dev/null
   sudo python3 - "$mutation_target" <<'PY'
 import pathlib
 import sys
@@ -1240,7 +1301,8 @@ PY
   local node_invocation
   local node_pid_before
   launcher_invocation=$(unit_invocation_id)
-  launcher_pid=$(assert_manager_invariants)
+  # Observe readiness only after the node's sole explicit start above.
+  launcher_pid=$(wait_for_ready_manager "$launcher_invocation")
   node_invocation=$(sudo systemctl show "$node_service_name" --property=InvocationID --value)
   [[ "$node_invocation" =~ ^[0-9a-f]{32}$ ]] \
     || die "production replay node has invalid InvocationID: $node_invocation"
@@ -1513,8 +1575,7 @@ listener_mode="qualification-one-shot"
 set_mode "$listener_mode"
 sudo systemctl start boole-native-shadow-launcher.service
 qualification_invocation=$(unit_invocation_id)
-assert_manager_invariants >/dev/null
-wait_for_fixed_socket
+wait_for_ready_manager "$qualification_invocation" >/dev/null
 
 suffix=${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}-$$
 suffix=${suffix//[^a-zA-Z0-9-]/-}
