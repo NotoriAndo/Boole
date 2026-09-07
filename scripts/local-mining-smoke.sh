@@ -4,30 +4,28 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-ADDR="${BOOLE_NODE_ADDR:-127.0.0.1:18082}"
+source "$ROOT/scripts/smoke-lifecycle.sh"
+ADDR="${BOOLE_NODE_ADDR:-127.0.0.1:$((20000 + ($$ % 20000)))}"
 # This smoke validates the HTTP proof-to-block path, not rate-limit policy.
 # Its derived fixture keeps the canonical scenario intact and raises only the
 # node-local per-IP quota enough for both immediate loopback submissions.
 SCENARIO="${SCENARIO:-fixtures/protocol/runtime-smoke/local-mining-smoke.v1.json}"
-BLOCK_STORE="${BLOCK_STORE:-${TMPDIR:-/tmp}/boole-node-local-mining-smoke.ndjson}"
-# Pin the reward ledger to a smoke-specific path so the run cannot inherit
-# a stale `/tmp/boole-node-rewards.ndjson` left by an earlier self-test
-# stage (e.g. `submit-lean` from proof-to-block-benchmark) and bail at boot
-# with `reward ledger divergence: ledger=N replay=0`.
-REWARD_LEDGER="${REWARD_LEDGER:-${TMPDIR:-/tmp}/boole-node-local-mining-smoke-rewards.ndjson}"
-rm -f "$BLOCK_STORE" "$REWARD_LEDGER"
+BLOCK_STORE="$(smoke_fresh_path "${BLOCK_STORE:-$SMOKE_WORK_DIR/blocks.ndjson}")"
+REWARD_LEDGER="$(smoke_fresh_path "${REWARD_LEDGER:-$SMOKE_WORK_DIR/rewards.ndjson}")"
 
-cargo run -q -p boole-node -- run-local \
+# Finish compilation before the HTTP readiness budget starts.
+NODE_BIN="$(smoke_build_binary boole-node boole-node)"
+smoke_prewarm_binary "$NODE_BIN"
+"$NODE_BIN" run-local \
   --addr "$ADDR" \
   --scenario "$SCENARIO" \
   --block-store "$BLOCK_STORE" \
   --reward-store "$REWARD_LEDGER" \
-  --max-requests 9 \
   --allow-anonymous-submit \
-  >/tmp/boole-node-local-mining-smoke.out \
-  2>/tmp/boole-node-local-mining-smoke.err &
+  >"$SMOKE_WORK_DIR/node.out" \
+  2>"$SMOKE_WORK_DIR/node.err" &
 PID=$!
-trap 'kill "$PID" >/dev/null 2>&1 || true; rm -f /tmp/boole-node-local-mining-smoke.out /tmp/boole-node-local-mining-smoke.err "$BLOCK_STORE" "$REWARD_LEDGER"' EXIT
+smoke_register_child "$PID"
 
 python3 - "$ADDR" "$SCENARIO" <<'PY'
 import http.client
@@ -125,5 +123,6 @@ print(json.dumps({
 }, separators=(",", ":")))
 PY
 
-wait "$PID"
+smoke_stop_and_wait "$PID"
+SMOKE_CHILD_PIDS=""
 printf 'local-mining-smoke: PASS\n' >&2

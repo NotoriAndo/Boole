@@ -111,7 +111,7 @@ validation:
 ./scripts/self-test.sh
 ```
 
-The gate runs Rust formatting, strict clippy, the focused wallet/session/receipt gate, TypeScript-to-Rust parity, runtime smoke cases, Proof-to-Block Benchmark v0, local mock mining smoke, diff whitespace checks, and gitleaks when available. It emits machine-readable JSON on stdout and progress/PASS lines on stderr.
+The gate runs Rust formatting, strict clippy, the focused wallet/session/receipt gate, runtime smoke cases, Proof-to-Block Benchmark v0, local mock mining smoke, diff whitespace checks, and secret scanning. Lean and gitleaks are required in CI. Local gitleaks absence is reported as a skip unless `BOOLE_REQUIRE_GITLEAKS=1` is set. TypeScript-to-Rust parity is an optional legacy check that runs only when its external checkout is available. The gate emits machine-readable JSON on stdout and progress/PASS lines on stderr, including explicit skipped-stage status.
 
 ## Local node
 

@@ -16,7 +16,9 @@ use boole_core::{
 use boole_node::{
     serve_local_node_with_p2p, LocalNodeConfig, P2pConfig, PackageServingConfig, RuntimeConfig,
 };
-use boole_p2p::{Frame, HeadSummary, TcpTransport, Transport, PROTOCOL_VERSION};
+use boole_p2p::{
+    AuthorizationPolicy, Frame, HeadSummary, TcpTransport, Transport, PROTOCOL_VERSION,
+};
 use boole_testkit::rand_suffix;
 use serde_json::Value;
 use tokio::sync::Notify;
@@ -147,8 +149,12 @@ fn request_package(addr: SocketAddr, root: &str) -> Frame {
             &Frame::Hello {
                 protocol_version: PROTOCOL_VERSION,
                 consensus_rule_version: CONSENSUS_RULE_VERSION,
+                authorization_policy: AuthorizationPolicy::LegacyUnscopedV1,
                 network_id,
                 genesis_hash,
+                effective_family_manifest_root: boole_core::FamilyManifestRegistry::new()
+                    .root()
+                    .to_hex(),
                 head: HeadSummary {
                     height: 0,
                     c: "00".repeat(32),

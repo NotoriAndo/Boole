@@ -8,6 +8,7 @@ block so the default GITHUB_TOKEN cannot write to the repository.
 
 import pathlib
 import re
+import shlex
 import unittest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -60,6 +61,13 @@ SHA_PIN_RE = re.compile(r"@[0-9a-f]{40}$")
 
 
 class MacosIsolationWorkflowContractTest(unittest.TestCase):
+    def test_native_vm_lifecycle_source_is_compiled_without_boot(self):
+        text = MACOS_ISOLATION_WORKFLOW.read_text(encoding="utf-8")
+        self.assertEqual(text.count('- "native/mac3/**"'), 2)
+        self.assertIn('"$RUNNER_TEMP/boole-stop-state-tests"', text)
+        self.assertIn("swiftc -typecheck", text)
+        self.assertIn("native/mac3/boole-mac3-closed-local-stop-state.swift", text)
+
     def test_checker_sources_trigger_the_real_seatbelt_canary(self):
         text = MACOS_ISOLATION_WORKFLOW.read_text(encoding="utf-8")
         self.assertEqual(
@@ -73,6 +81,17 @@ class MacosIsolationWorkflowContractTest(unittest.TestCase):
 class CiWorkflowContractTest(unittest.TestCase):
     def setUp(self):
         self.text = WORKFLOW.read_text(encoding="utf-8")
+
+    def test_workflow_downloads_have_per_request_deadlines(self):
+        for workflow in (WORKFLOW, VERDICT_WORKFLOW, MACOS_ISOLATION_WORKFLOW):
+            for line in workflow.read_text(encoding="utf-8").splitlines():
+                if not line.strip().startswith("curl "):
+                    continue
+                args = shlex.split(line)
+                with self.subTest(workflow=workflow.name, command=line.strip()):
+                    for option in ("--connect-timeout", "--max-time"):
+                        self.assertIn(option, args)
+                        self.assertGreater(float(args[args.index(option) + 1]), 0)
 
     def test_ci_actions_are_sha_pinned(self):
         uses = USES_RE.findall(self.text)

@@ -4,10 +4,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+source "$ROOT/scripts/smoke-lifecycle.sh"
 SCENARIO="${SCENARIO:-fixtures/protocol/runtime-smoke/v1.json}"
-BLOCK_STORE="${BLOCK_STORE:-/tmp/boole-runtime-smoke.ndjson}"
+BLOCK_STORE="$(smoke_fresh_path "${BLOCK_STORE:-$SMOKE_WORK_DIR/blocks.ndjson}")"
 
-rm -f "$BLOCK_STORE"
 mkdir -p "$(dirname "$BLOCK_STORE")"
 
 if [[ -n "${BOOLE_NODE_BIN:-}" ]]; then

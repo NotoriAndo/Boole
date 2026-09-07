@@ -27,8 +27,8 @@ updates Boole, then runs the local setup doctor.
 
 Usage:
   bash install.sh [options]
-  curl -fsSL https://raw.githubusercontent.com/NotoriAndo/Boole/main/install.sh | bash
-  curl -fsSL https://raw.githubusercontent.com/NotoriAndo/Boole/main/install.sh | bash -s -- --yes --run-safe-preflight
+  curl --connect-timeout 10 --max-time 120 -fsSL https://raw.githubusercontent.com/NotoriAndo/Boole/main/install.sh | bash -s -- --yes
+  curl --connect-timeout 10 --max-time 120 -fsSL https://raw.githubusercontent.com/NotoriAndo/Boole/main/install.sh | bash -s -- --yes --run-safe-preflight
 
 Options:
   --yes                 Do not prompt for confirmations.
@@ -76,8 +76,8 @@ confirm() {
   fi
   local answer
   read -r -p "$prompt [y/N]: " answer
-  case "${answer,,}" in
-    y|yes) return 0 ;;
+  case "$answer" in
+    [yY]|[yY][eE][sS]) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -203,6 +203,9 @@ install_required_system_packages() {
       if [[ "$DEV" -eq 1 ]]; then packages+=(gitleaks); fi
       log "- installing/checking: ${packages[*]}"
       if [[ "$DRY_RUN" -eq 0 && "$YES" -eq 0 ]]; then
+        if [[ ! -t 0 ]]; then
+          fail "apt-get requires --yes when stdin is not a terminal"
+        fi
         confirm "This may require sudo. Continue" || fail "cancelled"
       fi
       run_cmd sudo apt-get update
@@ -225,7 +228,7 @@ install_rust() {
 
   if ! have rustup; then
     log "- rustup missing; installing rustup"
-    run_cmd sh -c 'curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal'
+    run_cmd sh -c 'curl --connect-timeout 10 --max-time 120 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal'
   else
     log "- rustup: present"
   fi
@@ -252,7 +255,7 @@ install_lean() {
     run_cmd sh -c '
       set -eu
       elan_init="$(mktemp)"
-      curl -sSfL https://raw.githubusercontent.com/leanprover/elan/v4.2.3/elan-init.sh -o "$elan_init"
+      curl --connect-timeout 10 --max-time 120 -sSfL https://raw.githubusercontent.com/leanprover/elan/v4.2.3/elan-init.sh -o "$elan_init"
       expected="a620ff1641616222c8d37c54845492004bb84d6877cdbc944dd65c1aa685bf53"
       if command -v sha256sum >/dev/null 2>&1; then
         echo "$expected  $elan_init" | sha256sum -c -
@@ -359,9 +362,9 @@ Next commands:
   ./scripts/boole-preflight-wizard.py
 
 Review-before-run installer URL:
-  curl -fsSL $RAW_INSTALL_URL -o install.sh
+  curl --connect-timeout 10 --max-time 120 -fsSL $RAW_INSTALL_URL -o install.sh
   less install.sh
-  bash install.sh
+  bash install.sh --yes
 EOF
 }
 

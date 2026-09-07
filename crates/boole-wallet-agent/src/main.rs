@@ -38,6 +38,7 @@ use boole_wallet_agent::VAULT_AAD;
 use clap::{Parser, Subcommand};
 use ed25519_dalek::{Signer, SigningKey, SECRET_KEY_LENGTH};
 use rand_core::{OsRng, RngCore};
+use zeroize::Zeroizing;
 
 #[derive(Parser)]
 #[command(name = "boole-wallet-agent", about = "Boole wallet signing agent")]
@@ -85,13 +86,13 @@ fn main() -> ExitCode {
     }
 }
 
-fn read_passphrase() -> Result<Vec<u8>> {
+fn read_passphrase() -> Result<Zeroizing<Vec<u8>>> {
     let line = read_stdin_line().context("read passphrase from stdin")?;
     let trimmed = line.trim_end_matches('\n').trim_end_matches('\r');
     if trimmed.is_empty() {
         bail!("passphrase must not be empty");
     }
-    Ok(trimmed.as_bytes().to_vec())
+    Ok(Zeroizing::new(trimmed.as_bytes().to_vec()))
 }
 
 fn cmd_init(vault_path: &Path) -> Result<()> {
@@ -102,11 +103,11 @@ fn cmd_init(vault_path: &Path) -> Result<()> {
         );
     }
     let passphrase = read_passphrase()?;
-    let mut seed = [0_u8; SECRET_KEY_LENGTH];
-    OsRng.fill_bytes(&mut seed);
+    let mut seed = Zeroizing::new([0_u8; SECRET_KEY_LENGTH]);
+    OsRng.fill_bytes(&mut seed[..]);
     let signing_key = SigningKey::from_bytes(&seed);
     let pubkey_hex = hex::encode(signing_key.verifying_key().to_bytes());
-    let vault = EncryptedVault::seal(&passphrase, &seed, VAULT_AAD, VaultParams::default())
+    let vault = EncryptedVault::seal(&passphrase, &seed[..], VAULT_AAD, VaultParams::default())
         .map_err(|e| anyhow!("seal vault: {e}"))?;
     let bytes = vault
         .to_json_bytes()
@@ -143,21 +144,27 @@ fn cmd_migrate_from_hex(vault_path: &Path) -> Result<()> {
         .trim_end_matches('\n')
         .trim_end_matches('\r')
         .trim();
-    let seed_bytes = hex::decode(seed_hex).context("seed must be hex-encoded bytes")?;
+    let seed_bytes =
+        Zeroizing::new(hex::decode(seed_hex).context("seed must be hex-encoded bytes")?);
     if seed_bytes.len() != SECRET_KEY_LENGTH {
         bail!(
             "seed length {} bytes; expected {SECRET_KEY_LENGTH}-byte ed25519 seed",
             seed_bytes.len()
         );
     }
-    let seed_array: [u8; SECRET_KEY_LENGTH] = seed_bytes
-        .as_slice()
-        .try_into()
-        .map_err(|_| anyhow!("seed slice -> array conversion"))?;
+    let seed_array = Zeroizing::new(
+        <[u8; SECRET_KEY_LENGTH]>::try_from(seed_bytes.as_slice())
+            .map_err(|_| anyhow!("seed slice -> array conversion"))?,
+    );
     let signing_key = SigningKey::from_bytes(&seed_array);
     let pubkey_hex = hex::encode(signing_key.verifying_key().to_bytes());
-    let vault = EncryptedVault::seal(&passphrase, &seed_array, VAULT_AAD, VaultParams::default())
-        .map_err(|e| anyhow!("seal vault: {e}"))?;
+    let vault = EncryptedVault::seal(
+        &passphrase,
+        &seed_array[..],
+        VAULT_AAD,
+        VaultParams::default(),
+    )
+    .map_err(|e| anyhow!("seal vault: {e}"))?;
     let bytes = vault
         .to_json_bytes()
         .map_err(|e| anyhow!("serialize vault: {e}"))?;
@@ -166,8 +173,8 @@ fn cmd_migrate_from_hex(vault_path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn read_stdin_line() -> Result<String> {
-    let mut line = String::new();
+fn read_stdin_line() -> Result<Zeroizing<String>> {
+    let mut line = Zeroizing::new(String::new());
     io::stdin().lock().read_line(&mut line)?;
     Ok(line)
 }
@@ -181,10 +188,11 @@ fn open_signing_key(vault_path: &Path) -> Result<SigningKey> {
     let seed = vault
         .open(&passphrase, VAULT_AAD)
         .map_err(|e| anyhow!("open vault: {e}"))?;
-    let seed_array: [u8; SECRET_KEY_LENGTH] = seed
-        .as_slice()
-        .try_into()
-        .map_err(|_| anyhow!("vault plaintext is not a {SECRET_KEY_LENGTH}-byte ed25519 seed"))?;
+    let seed_array = Zeroizing::new(
+        <[u8; SECRET_KEY_LENGTH]>::try_from(seed.as_slice()).map_err(|_| {
+            anyhow!("vault plaintext is not a {SECRET_KEY_LENGTH}-byte ed25519 seed")
+        })?,
+    );
     Ok(SigningKey::from_bytes(&seed_array))
 }
 
@@ -248,4 +256,18 @@ fn write_new_file_atomic_0600(path: &Path, bytes: &[u8]) -> Result<()> {
     fs::remove_file(&tmp).with_context(|| format!("remove staged vault {}", tmp.display()))?;
     sync_directory(parent).with_context(|| format!("sync vault directory {}", parent.display()))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod secret_owner_tests {
+    use super::*;
+
+    #[test]
+    fn stdin_secret_buffers_have_zero_on_drop_owners() {
+        fn require_protected_result<T: zeroize::ZeroizeOnDrop>(_: fn() -> Result<T>) {}
+        // Verify the error-path cleanup contract without reading real stdin
+        // or attempting to inspect freed memory (which would be undefined).
+        require_protected_result(read_passphrase);
+        require_protected_result(read_stdin_line);
+    }
 }

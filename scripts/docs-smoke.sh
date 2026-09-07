@@ -1851,7 +1851,8 @@ require_text docs/replay-consensus.md "fixtures/protocol/replay/v1.json"
 require_text docs/replay-consensus.md "fixtures/protocol/replay/v2.json"
 require_text docs/replay-consensus.md "legacy/no-evidence replay compatibility"
 require_text docs/replay-consensus.md "selected share evidence minShareScore mismatch"
-require_text docs/replay-consensus.md "selected share evidence requires minShareScoreMultiplierNanos"
+require_text docs/replay-consensus.md "selected share evidence minShareScoreMultiplierNanos must equal the"
+require_text crates/boole-core/src/replay_evidence.rs "selected share evidence minShareScoreMultiplierNanos must equal the"
 
 require_text docs/settlement-report.md "boole chain settlement-report"
 require_text docs/settlement-report.md "audit-receipts = full shape-only auditor report"
@@ -1897,11 +1898,10 @@ require_text docs/verified-answer-local-mvp-closeout.md "not a feature expansion
 # Design-decision records (ADRs) are operator-internal documents (relocated
 # 2026-07-02); their gate pins live outside this public script.
 
-# N0-pre.12 — stale tracked-docs corrections (audit R6): the migration
-# status doc carries a supersede banner with current gate figures and the
-# parity plan marks D3.2 done.
+# Historical migration snapshots must point to the current tracked authority;
+# their old measurement counts are not present-day executable contracts.
 require_text docs/migration-status-and-next-steps.md "Superseded"
-require_text docs/migration-status-and-next-steps.md "casesPassed: 7"
+require_text docs/migration-status-and-next-steps.md "current-development-status.md"
 require_text docs/boole-node-cli-parity-plan.md "D3.2 (done"
 
 # EVM census P0 — case-task-binding eligibility freeze (append-only attestation).

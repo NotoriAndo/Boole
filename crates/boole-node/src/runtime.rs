@@ -743,6 +743,49 @@ impl RuntimeAdmissionState {
     /// chain rather than diffing to the common ancestor) and bounty-event
     /// ledger rewind. The sync-path trigger that calls this on a divergent,
     /// heavier peer chain is `local_node::ingest_candidate_chain` (N4).
+    pub fn preflight_reorg_candidate(
+        &self,
+        candidate: &[PersistedBlock],
+        genesis: &boole_core::GenesisSpec,
+    ) -> anyhow::Result<ReorgOutcome> {
+        self.ensure_canonical_state_healthy()?;
+        let candidate_head = candidate
+            .last()
+            .ok_or_else(|| anyhow::anyhow!("reorg candidate chain is empty"))?;
+
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        check_block_ts_future_drift(candidate_head.ts, now_ms)?;
+
+        let authorization_network_id = self.authorization_network_id.as_deref().or_else(|| {
+            self.boot_genesis
+                .is_none()
+                .then_some(genesis.network_id.as_str())
+        });
+        replay_blocks_with_genesis_and_registry_for_authorization_network(
+            candidate,
+            genesis,
+            &self.family_registry,
+            authorization_network_id,
+        )?;
+
+        let candidate_head_hash = head_block_hash(candidate_head)?;
+        if let Some(current_head) = self.block_cache.last() {
+            if head_block_hash(current_head)? == candidate_head_hash {
+                return Ok(ReorgOutcome::KeptCurrent);
+            }
+            let winner = choose_canonical_head(&[self.block_cache.clone(), candidate.to_vec()])?;
+            if winner != candidate_head_hash {
+                return Ok(ReorgOutcome::KeptCurrent);
+            }
+        }
+        Ok(ReorgOutcome::Reorged {
+            new_head_height: candidate_head.height,
+        })
+    }
+
     pub fn reorg_to_heavier_chain(
         &mut self,
         block_path: impl AsRef<Path>,

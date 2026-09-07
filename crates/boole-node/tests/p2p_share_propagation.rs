@@ -27,7 +27,9 @@ use std::time::{Duration, Instant};
 
 use boole_core::CONSENSUS_RULE_VERSION;
 use boole_node::{serve_local_node_with_p2p, LocalNodeConfig, P2pConfig, RuntimeConfig};
-use boole_p2p::{Frame, FrameError, HeadSummary, TcpTransport, Transport, PROTOCOL_VERSION};
+use boole_p2p::{
+    AuthorizationPolicy, Frame, FrameError, HeadSummary, TcpTransport, Transport, PROTOCOL_VERSION,
+};
 use boole_testkit::rand_suffix;
 use serde_json::{json, Value};
 use tokio::sync::Notify;
@@ -570,8 +572,10 @@ fn p2p_share_roundtrip_preserves_reward_authorization() {
     let our_hello = || Frame::Hello {
         protocol_version: PROTOCOL_VERSION,
         consensus_rule_version: CONSENSUS_RULE_VERSION,
+        authorization_policy: AuthorizationPolicy::LegacyUnscopedV1,
         network_id: "boole-mvp".to_string(),
         genesis_hash: roundtrip_spec_hash.clone(),
+        effective_family_manifest_root: boole_core::FamilyManifestRegistry::new().root().to_hex(),
         head: HeadSummary {
             height: 0,
             c: roundtrip_genesis_c.clone(),
@@ -698,8 +702,12 @@ fn ingress_rejects_share_with_invalid_authorization() {
             &Frame::Hello {
                 protocol_version: PROTOCOL_VERSION,
                 consensus_rule_version: CONSENSUS_RULE_VERSION,
+                authorization_policy: AuthorizationPolicy::LegacyUnscopedV1,
                 network_id: "boole-mvp".to_string(),
                 genesis_hash: scenario_spec_hash(),
+                effective_family_manifest_root: boole_core::FamilyManifestRegistry::new()
+                    .root()
+                    .to_hex(),
                 head: HeadSummary {
                     height: 0,
                     c: scenario_genesis_c(),
@@ -802,8 +810,12 @@ fn testnet2_gossip_requires_matching_network_authorization() {
             &Frame::Hello {
                 protocol_version: PROTOCOL_VERSION,
                 consensus_rule_version: CONSENSUS_RULE_VERSION,
+                authorization_policy: AuthorizationPolicy::NetworkScopedV1,
                 network_id: NETWORK_ID.to_string(),
                 genesis_hash: preset.hash().to_hex(),
+                effective_family_manifest_root: boole_core::FamilyManifestRegistry::new()
+                    .root()
+                    .to_hex(),
                 head: HeadSummary {
                     height: 0,
                     c: preset.initial_state.genesis_c,
@@ -973,8 +985,12 @@ fn ingress_disconnects_on_network_id_mismatch_hello() {
             &Frame::Hello {
                 protocol_version: PROTOCOL_VERSION,
                 consensus_rule_version: CONSENSUS_RULE_VERSION,
+                authorization_policy: AuthorizationPolicy::LegacyUnscopedV1,
                 network_id: "not-the-b-network".to_string(),
                 genesis_hash: scenario_spec_hash(),
+                effective_family_manifest_root: boole_core::FamilyManifestRegistry::new()
+                    .root()
+                    .to_hex(),
                 head: HeadSummary {
                     height: 0,
                     c: scenario_genesis_c(),
@@ -1031,8 +1047,12 @@ fn hello_mismatched_consensus_rule_version_is_dropped() {
             &Frame::Hello {
                 protocol_version: PROTOCOL_VERSION,
                 consensus_rule_version: CONSENSUS_RULE_VERSION + 1,
+                authorization_policy: AuthorizationPolicy::LegacyUnscopedV1,
                 network_id: "boole-mvp".to_string(),
                 genesis_hash: scenario_spec_hash(),
+                effective_family_manifest_root: boole_core::FamilyManifestRegistry::new()
+                    .root()
+                    .to_hex(),
                 head: HeadSummary {
                     height: 0,
                     c: scenario_genesis_c(),
@@ -1085,8 +1105,12 @@ fn shutdown_interrupts_an_ingress_peer_stalled_mid_frame() {
             &Frame::Hello {
                 protocol_version: PROTOCOL_VERSION,
                 consensus_rule_version: CONSENSUS_RULE_VERSION,
+                authorization_policy: AuthorizationPolicy::LegacyUnscopedV1,
                 network_id: "boole-mvp".to_string(),
                 genesis_hash: scenario_spec_hash(),
+                effective_family_manifest_root: boole_core::FamilyManifestRegistry::new()
+                    .root()
+                    .to_hex(),
                 head: HeadSummary {
                     height: 0,
                     c: scenario_genesis_c(),

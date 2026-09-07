@@ -1,10 +1,11 @@
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use boole_core::{Bounty, BountyProofVerifier, VerifyOutcome};
 use boole_lean_runner::{IsolationMode, LeanCheckResult, LeanRunner, LeanRunnerConfig};
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
+
+use crate::durability::PrivateTempDir;
 
 /// Fixed wrapper the commissioned statement is rendered into — mirrors
 /// `family_v1_lenbound::lean_module`'s pattern: the theorem *statement* is
@@ -181,15 +182,10 @@ impl BountyProofVerifier for LeanBountyVerifier {
         let rendered_module = String::from_utf8(artifact.to_vec())
             .map_err(|_| "lean effective artifact must be UTF-8".to_string())?;
 
-        let tmp_dir = std::env::temp_dir().join(format!(
-            "boole-lean-bounty-{}-{}-{}",
-            std::process::id(),
-            random_suffix(),
-            COUNTER.fetch_add(1, Ordering::Relaxed),
-        ));
-        std::fs::create_dir_all(&tmp_dir).map_err(|err| err.to_string())?;
-        let proof_path = tmp_dir.join("Proof.lean");
-        std::fs::write(&proof_path, rendered_module).map_err(|err| err.to_string())?;
+        let workspace = PrivateTempDir::new("boole-lean-bounty").map_err(|err| err.to_string())?;
+        let proof_path = workspace
+            .write_proof(rendered_module.as_bytes())
+            .map_err(|err| err.to_string())?;
 
         let mut config = LeanRunnerConfig::new(verifier_hash)
             .with_package_dir(self.checker_dir.clone())
@@ -198,12 +194,10 @@ impl BountyProofVerifier for LeanBountyVerifier {
             config = config.with_timeout_ms(timeout_ms);
         }
         let runner = LeanRunner::new(config);
-        let outcome = match runner.check_file(&proof_path) {
+        match runner.check_file(&proof_path) {
             Ok(result) => outcome_from_check_result(&result),
             Err(err) => Err(err.to_string()),
-        };
-        let _ = std::fs::remove_dir_all(&tmp_dir);
-        outcome
+        }
     }
 
     /// SC.2-f1 — the artifact is the rendered module the checker
@@ -226,16 +220,6 @@ impl BountyProofVerifier for LeanBountyVerifier {
         let proof_term = extract_proof_term(lean_source)?;
         Ok(render_bounty_lean_module(statement, proof_term).into_bytes())
     }
-}
-
-static COUNTER: AtomicU64 = AtomicU64::new(0);
-
-fn random_suffix() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0)
 }
 
 #[cfg(test)]

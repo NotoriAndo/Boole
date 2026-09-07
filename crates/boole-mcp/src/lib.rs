@@ -5,8 +5,8 @@
 //! Pieces:
 //!   * **slice 47** — `InProcessChainHead` (`ChainHeadFetcher`).
 //!   * **slice 48** — `InProcessSubmitter` (`Submitter`) + capture
-//!     buffers so a test or the future `boole.mine` tool can read
-//!     back what shares/blocks the miner emitted.
+//!     buffers so the `boole.mine` tool can report what shares/blocks
+//!     the miner emitted.
 //!   * **slice 49** — `build_in_process_mining_deps` factory that
 //!     bundles both impls + caller-injected heavy collaborators
 //!     (driver, verifier, emitter, canonicalizer) into a
@@ -24,8 +24,9 @@
 //!     stateless requests (initialize, tools/list, tools/call on status).
 //!     The binary's async loop calls this from a spawn_blocking task.
 //!
-//! Actual mining-loop invocation + the `boole.mine` / `boole.status`
-//! MCP tool wiring ride on follow-up slices.
+//! The binary executes bounded, cancellable `boole.mine` calls from both
+//! HTTP and stdio while preserving service of `ping`, `tools/list`, and
+//! `boole.status`; `boole.status` reports the captured in-process result.
 
 use std::io::{self, BufRead, Write};
 use std::sync::{Arc, Mutex};
@@ -433,8 +434,19 @@ pub fn handle_jsonrpc_sync(msg: &str) -> Option<String> {
 
     // Notifications have no `id`. Return None (no response).
     let is_notification = id.is_none();
+    if is_notification {
+        return None;
+    }
 
     match method {
+        "ping" => {
+            let resp = json!({
+                "jsonrpc": "2.0",
+                "id": id.expect("non-notification request has an id"),
+                "result": {}
+            });
+            Some(resp.to_string())
+        }
         "initialize" => {
             let resp = json!({
                 "jsonrpc": "2.0",
@@ -517,10 +529,6 @@ pub fn handle_jsonrpc_sync(msg: &str) -> Option<String> {
                     Some(resp.to_string())
                 }
             }
-        }
-        _other if is_notification => {
-            // Generic notification — no response.
-            None
         }
         other => {
             let resp = json!({

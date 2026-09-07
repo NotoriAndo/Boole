@@ -61,15 +61,7 @@ struct DeepVerifyOutput {
 }
 
 fn lake_and_lean_available() -> bool {
-    let lake_ok = Command::new("lake")
-        .arg("--version")
-        .output()
-        .is_ok_and(|o| o.status.success());
-    let lean_ok = Command::new("lean")
-        .arg("--version")
-        .output()
-        .is_ok_and(|o| o.status.success());
-    lake_ok && lean_ok
+    boole_testkit::lake_and_lean_available()
 }
 
 fn canonical_checker_dir() -> PathBuf {
@@ -188,7 +180,7 @@ fn deep_verify_with_checker_dir_re_executes_lean_and_increments_reverified() {
     });
     write_ndjson(&events_path, &[event]);
 
-    let output = Command::new(env!("CARGO_BIN_EXE_boole-cli"))
+    let output = Command::new(env!("CARGO_BIN_EXE_boole"))
         .args([
             "state",
             "verify",
@@ -269,7 +261,7 @@ fn deep_verify_reports_checker_artifact_hash_divergence_with_exit_3() {
     });
     write_ndjson(&events_path, &[event]);
 
-    let output = Command::new(env!("CARGO_BIN_EXE_boole-cli"))
+    let output = Command::new(env!("CARGO_BIN_EXE_boole"))
         .args([
             "state",
             "verify",

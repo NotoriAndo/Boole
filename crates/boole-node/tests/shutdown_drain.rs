@@ -174,3 +174,90 @@ fn sigint_triggers_bounded_graceful_shutdown() {
     assert_bounded_clean_exit(&mut child, "SIGINT");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn partial_header_cannot_hold_sigterm_drain_open() {
+    let (mut child, addr, dir) = spawn_run_local("partial-header");
+    wait_until_live(addr);
+
+    let mut stalled = TcpStream::connect(addr).expect("connect stalled client");
+    stalled
+        .write_all(b"GET /live HTTP/1.1\r\nHost: localhost\r\nX-Stall:")
+        .expect("write partial header");
+    thread::sleep(Duration::from_millis(100));
+
+    let started = Instant::now();
+    send_signal(child.id(), "-TERM");
+    assert_bounded_clean_exit(&mut child, "SIGTERM with partial header");
+    assert!(
+        started.elapsed() < Duration::from_secs(8),
+        "an incomplete header must not hold graceful drain beyond its absolute cap"
+    );
+
+    drop(stalled);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn partial_header_is_closed_by_absolute_header_timeout() {
+    let (mut child, addr, dir) = spawn_run_local("header-timeout");
+    wait_until_live(addr);
+
+    let mut stalled = TcpStream::connect(addr).expect("connect stalled client");
+    stalled
+        .set_read_timeout(Some(Duration::from_secs(8)))
+        .expect("set watchdog timeout");
+    stalled
+        .write_all(b"GET /live HTTP/1.1\r\nHost: localhost\r\nX-Stall:")
+        .expect("write partial header");
+
+    let started = Instant::now();
+    let mut response = Vec::new();
+    stalled
+        .read_to_end(&mut response)
+        .expect("server must close an incomplete-header connection");
+    assert!(
+        started.elapsed() < Duration::from_secs(7),
+        "incomplete headers must be closed by the server's absolute timeout"
+    );
+
+    send_signal(child.id(), "-TERM");
+    assert_bounded_clean_exit(&mut child, "SIGTERM after header timeout");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn valid_request_then_partial_keep_alive_header_is_closed() {
+    let (mut child, addr, dir) = spawn_run_local("keep-alive-partial-second");
+    wait_until_live(addr);
+
+    let mut stream = TcpStream::connect(addr).expect("connect keep-alive client");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .expect("set watchdog timeout");
+    stream
+        .write_all(b"GET /live HTTP/1.1\r\nHost: localhost\r\n\r\nGET /ready HTTP/1.1\r\nX-Stall:")
+        .expect("write first request and partial second header");
+    let started = Instant::now();
+    let mut response = Vec::new();
+    stream
+        .read_to_end(&mut response)
+        .expect("server closes after the first response");
+    let raw = String::from_utf8_lossy(&response).to_ascii_lowercase();
+    assert!(
+        raw.starts_with("http/1.1 200"),
+        "first request must complete: {raw}"
+    );
+    assert!(
+        raw.contains("connection: close"),
+        "one-request HTTP contract must be explicit on the wire: {raw}"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "a partial second header must not retain the connection slot"
+    );
+
+    send_signal(child.id(), "-TERM");
+    assert_bounded_clean_exit(&mut child, "SIGTERM after partial second header");
+    let _ = std::fs::remove_dir_all(&dir);
+}

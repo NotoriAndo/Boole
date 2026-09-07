@@ -31,10 +31,12 @@ fixtures/protocol/runtime-smoke/cases.v1.json
 ```
 
 Current cases:
+
 - `runtime-smoke-multistep`: `--scenario fixtures/protocol/runtime-smoke/v1.json`, expected `storeSize == 2`.
 - `admission-fixture-compat`: `--fixture fixtures/protocol/admission/v1.json`, expected `storeSize == 1`.
 - `runtime-smoke-restart-replay`: `--scenario fixtures/protocol/runtime-smoke/restart-replay.v1.json`, expected `storeSize == 3`; restarts the runtime from the recovered block store before continuing.
 - `runtime-smoke-three-block`: `--scenario fixtures/protocol/runtime-smoke/three-block.v1.json`, expected `storeSize == 3`.
+- `runtime-smoke-retarget-v0`: `--scenario fixtures/protocol/runtime-smoke/retarget.v1.json`, expected `storeSize == 3`; covers deterministic retargeting.
 - `runtime-smoke-multiminer`: `--scenario fixtures/protocol/runtime-smoke/multiminer.v1.json`, expected `storeSize == 4`; rotates deterministic local proposer PKs.
 
 The harness prints per-case PASS lines and `runtime-smoke-all: PASS` to stderr, and emits aggregate JSON to stdout:
@@ -42,7 +44,7 @@ The harness prints per-case PASS lines and `runtime-smoke-all: PASS` to stderr, 
 ```json
 {
   "ok": true,
-  "caseCount": 5,
+  "caseCount": 6,
   "cases": [
     {
       "name": "runtime-smoke-multistep",
@@ -199,10 +201,14 @@ cargo test -q -p boole-node --test runtime_smoke_cli -- --nocapture
 cargo test -q -p boole-node --test runtime_smoke_library -- --nocapture
 ```
 
-Use the full Rust parity gate before committing changes:
+For changed Rust consumers, run formatting and the focused tests above. The
+full gate belongs to CI under the [development policy](development-throughput-and-evidence-policy-v1.md):
 
 ```bash
 cargo fmt --all
-./scripts/check-rust-parity.sh
 git diff --check
 ```
+
+`./scripts/check-rust-parity.sh` is an optional legacy comparison requiring the
+external `../pof` checkout and its TypeScript tooling; it is not a prerequisite
+for ordinary commits in this Rust repository.

@@ -33,7 +33,9 @@ use std::time::{Duration, Instant};
 
 use boole_core::{block_hash, CONSENSUS_RULE_VERSION};
 use boole_node::{serve_local_node_with_p2p, LocalNodeConfig, P2pConfig, RuntimeConfig};
-use boole_p2p::{Frame, HeadSummary, TcpTransport, Transport, PROTOCOL_VERSION};
+use boole_p2p::{
+    AuthorizationPolicy, Frame, HeadSummary, TcpTransport, Transport, PROTOCOL_VERSION,
+};
 use boole_testkit::rand_suffix;
 use serde_json::{json, Value};
 use tokio::sync::Notify;
@@ -403,8 +405,12 @@ fn sync_rejects_tampered_chain_from_peer() {
                 &Frame::Hello {
                     protocol_version: PROTOCOL_VERSION,
                     consensus_rule_version: CONSENSUS_RULE_VERSION,
+                    authorization_policy: AuthorizationPolicy::LegacyUnscopedV1,
                     network_id: "boole-mvp".to_string(),
                     genesis_hash: genesis_for_peer.clone(),
+                    effective_family_manifest_root: boole_core::FamilyManifestRegistry::new()
+                        .root()
+                        .to_hex(),
                     head: HeadSummary {
                         height: 1,
                         c: forged_c.clone(),
@@ -469,8 +475,12 @@ fn sync_rejects_an_over_returned_batch_before_first_state_mutation() {
                 &Frame::Hello {
                     protocol_version: PROTOCOL_VERSION,
                     consensus_rule_version: CONSENSUS_RULE_VERSION,
+                    authorization_policy: AuthorizationPolicy::LegacyUnscopedV1,
                     network_id: "boole-mvp".to_string(),
                     genesis_hash: genesis_for_peer,
+                    effective_family_manifest_root: boole_core::FamilyManifestRegistry::new()
+                        .root()
+                        .to_hex(),
                     head: HeadSummary {
                         height: 1,
                         c: "33".repeat(32),

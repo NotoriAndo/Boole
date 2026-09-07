@@ -93,10 +93,11 @@ server and preserves unrelated settings.
 
 Canonical settings paths (relative to `$HOME`):
 
-- `claude` → `.claude/settings.json`
+- `claude` → `.claude.json` (`mcpServers.boole` with `type: "stdio"`)
 - `codex` → `.codex/config.toml` (`[mcp_servers.boole]`)
 - `cursor` → `.cursor/mcp.json`
-- `opencode` → `.config/opencode/config.json`
+- `opencode` → `.config/opencode/opencode.json`
+  (`mcp.boole` with `type: "local"` and a command array)
 
 ## Step 3 — perform the IDE install
 
@@ -123,6 +124,8 @@ Typed errors land on stderr (still unified-envelope):
 - `settings-parse-failed` — existing settings file is unparseable JSON.
 - `mcp-servers-not-object` — existing `mcpServers` key is not an
   object.
+- `opencode-mcp-not-object` — existing OpenCode `mcp` key is not an
+  object.
 - `codex-config-merge-failed` — the Codex TOML is invalid or its
   `mcp_servers`/`mcp_servers.boole` entries are not tables; repair it by hand.
 
@@ -138,6 +141,15 @@ install` registers separate `--node-url http://127.0.0.1:8080` and
 `boole-mcp stdio` as a subprocess speaking JSON-RPC 2.0 over stdin/stdout with
 newline-delimited messages. The HTTP `serve` surface below exists for curl-driven
 smokes like this one; both transports dispatch the same tools:
+
+On stdio, only one `boole.mine` may run at once. Its original `tools/call`
+response remains pending until the normal summary is available, while
+`tools/list`, `ping`, and `boole.status` continue to work (`status` reports
+`running`). `max_cycles` must be an integer from 0 through 100000. Send the
+id-less MCP notification `notifications/cancelled` with a matching
+`params.requestId` to stop an active run; its one terminal response is the
+JSON-RPC `-32800` cancellation error. EOF also requests cancellation and waits
+only briefly for the bounded local loop to stop.
 
 ```
 ./target/release/boole-mcp serve \
@@ -221,10 +233,10 @@ curl -s -H 'Content-Type: application/json' \
 Expected response (HTTP 200):
 
 ```
-{"cycles_run":0,"tickets_found":0,"shares_accepted":0,"network_errors":0}
+{"cycles_run":0,"tickets_found":0,"verify_accepted":0,"verify_rejected":0,"shares_accepted":0,"network_errors":0,"canonicalize_errors":0,"loop_class":"","driver_answered":0,"proof_intake_accepted":0,"proof_intake_rejected":0}
 ```
 
-All four counters are 0 because the round-trip runs with
+All numeric counters are 0 because the round-trip runs with
 `max_cycles: Some(0)` — the loop body short-circuits before any
 driver/verifier/Lean call, so no real proof work happens. The point of
 this step is to verify end-to-end MCP → `MiningLoopDeps` →
@@ -241,7 +253,7 @@ curl -s -H 'Content-Type: application/json' \
 Expected response (HTTP 200):
 
 ```
-{"state":"completed","last_summary":{"cycles_run":0,"tickets_found":0,"shares_accepted":0,"network_errors":0}}
+{"state":"completed","last_summary":{"cycles_run":0,"tickets_found":0,"verify_accepted":0,"verify_rejected":0,"shares_accepted":0,"network_errors":0,"canonicalize_errors":0,"loop_class":"","driver_answered":0,"proof_intake_accepted":0,"proof_intake_rejected":0}}
 ```
 
 The `completed` envelope reflects the protocol counters from the most
@@ -304,10 +316,10 @@ case where the node and launcher processes themselves are replaced.
 
 ## Transcript capture
 
-The transcripts for this smoke are captured under
-`tests/fixtures/boole-mcp-e2e/` (added in a follow-up slice; for now,
-re-run the curl commands and verify the responses match this
-document).
+The transcript for this smoke is captured at
+`tests/fixtures/boole-mcp-e2e/transcript.v1.json`. It pins the stable
+zero-cycle envelope subset; the complete field set above is the live
+response contract.
 
 ## Boundary statements
 

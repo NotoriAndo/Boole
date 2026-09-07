@@ -4,11 +4,12 @@ set -euo pipefail
 ORIGINAL_ARGS=("$@")
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+source "$ROOT/scripts/smoke-lifecycle.sh"
 
-ADDR="${BOOLE_NODE_ADDR:-127.0.0.1:18096}"
+ADDR="${BOOLE_NODE_ADDR:-127.0.0.1:$((20000 + ($$ % 20000)))}"
 SCENARIO="${SCENARIO:-fixtures/protocol/runtime-smoke/v1.json}"
-BLOCK_STORE="${BLOCK_STORE:-${TMPDIR:-/tmp}/boole-node-ollama-gemma-smoke.ndjson}"
-REWARD_LEDGER="${REWARD_LEDGER:-${TMPDIR:-/tmp}/boole-node-ollama-gemma-smoke-rewards.ndjson}"
+BLOCK_STORE="$(smoke_fresh_path "${BLOCK_STORE:-$SMOKE_WORK_DIR/blocks.ndjson}")"
+REWARD_LEDGER="$(smoke_fresh_path "${REWARD_LEDGER:-$SMOKE_WORK_DIR/rewards.ndjson}")"
 TRIALS="${TRIALS:-1}"
 OLLAMA_BASE_URL="${OLLAMA_BASE_URL:-http://127.0.0.1:11434}"
 OLLAMA_MODEL="${OLLAMA_MODEL:-gemma4:26b}"
@@ -39,9 +40,11 @@ EOF
 done
 
 if [[ -n "$EVIDENCE_DIR" && -z "${BOOLE_OLLAMA_GEMMA_CAPTURED:-}" ]]; then
+  EVIDENCE_DIR="$(smoke_fresh_path "$EVIDENCE_DIR")"
   mkdir -p "$EVIDENCE_DIR"
   set +e
-  BOOLE_OLLAMA_GEMMA_CAPTURED=1 "$0" "${ORIGINAL_ARGS[@]}" >"$EVIDENCE_DIR/stdout.json" 2>"$EVIDENCE_DIR/stderr.txt"
+  BOOLE_OLLAMA_GEMMA_CAPTURED=1 BOOLE_OLLAMA_GEMMA_EVIDENCE_DIR="$EVIDENCE_DIR" \
+    "$0" "${ORIGINAL_ARGS[@]}" >"$EVIDENCE_DIR/stdout.json" 2>"$EVIDENCE_DIR/stderr.txt"
   code=$?
   set -e
   python3 - "$EVIDENCE_DIR" "$code" <<'PY'
@@ -86,35 +89,39 @@ PY
   exit "$code"
 fi
 
-STATE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/boole-miner-ollama-gemma-state.XXXXXX")"
+STATE_DIR="$SMOKE_WORK_DIR/state"
 STATE="$STATE_DIR/state.json"
 RESULTS_JSONL="$STATE_DIR/results.jsonl"
-rm -f "$BLOCK_STORE" "$REWARD_LEDGER"
+mkdir -p "$STATE_DIR"
+MINER_INIT_OUT="$SMOKE_WORK_DIR/miner-init.out"
 
 command -v ollama >/dev/null 2>&1 || {
   printf 'boole-miner-ollama-gemma-smoke: SKIP ollama not found on PATH\n' >&2
   printf '{"ok":true,"kind":"boole-miner-ollama-gemma-smoke","skipped":true,"reason":"ollama_not_found","model":"%s"}\n' "$OLLAMA_MODEL"
-  rm -rf "$STATE_DIR"
   exit 0
 }
 
-if ! curl -fsS "${OLLAMA_BASE_URL%/}/v1/models" >/dev/null 2>&1; then
+if ! curl --connect-timeout 3 --max-time 10 -fsS "${OLLAMA_BASE_URL%/}/v1/models" >/dev/null 2>&1; then
   printf 'boole-miner-ollama-gemma-smoke: SKIP ollama OpenAI-compatible endpoint not ready\n' >&2
   printf '{"ok":true,"kind":"boole-miner-ollama-gemma-smoke","skipped":true,"reason":"ollama_endpoint_not_ready","model":"%s"}\n' "$OLLAMA_MODEL"
-  rm -rf "$STATE_DIR"
   exit 0
 fi
 
-cargo run -q -p boole-node -- run-local \
+# Build before the node readiness budget starts.
+NODE_BIN="$(smoke_build_binary boole-node boole-node)"
+MINER_BIN="$(smoke_build_binary boole-miner boole-miner --features boole-miner/dev-tools)"
+smoke_prewarm_binary "$NODE_BIN"
+smoke_prewarm_binary "$MINER_BIN"
+"$NODE_BIN" run-local \
   --addr "$ADDR" \
   --scenario "$SCENARIO" \
   --block-store "$BLOCK_STORE" \
   --reward-store "$REWARD_LEDGER" \
-  --max-requests 80 \
-  >/tmp/boole-node-ollama-gemma-smoke.out \
-  2>/tmp/boole-node-ollama-gemma-smoke.err &
+  --allow-anonymous-submit \
+  >"$SMOKE_WORK_DIR/node.out" \
+  2>"$SMOKE_WORK_DIR/node.err" &
 PID=$!
-trap 'kill "$PID" >/dev/null 2>&1 || true; rm -rf "$STATE_DIR"; rm -f /tmp/boole-node-ollama-gemma-smoke.out /tmp/boole-node-ollama-gemma-smoke.err /tmp/boole-miner-ollama-gemma-smoke-init.out /tmp/boole-miner-ollama-gemma-smoke-start.*.out "$REWARD_LEDGER"' EXIT
+smoke_register_child "$PID"
 
 python3 - "$ADDR" <<'PY'
 import http.client, sys, time
@@ -132,19 +139,19 @@ for _ in range(80):
 raise SystemExit(f"boole-node did not become ready: {last}")
 PY
 
-BOOLE_LLM_API_KEY=sk-no-key cargo run -q -p boole-miner -- init \
+BOOLE_LLM_API_KEY=sk-no-key "$MINER_BIN" init \
   --state "$STATE" \
   --dispatcher-url "http://$ADDR" \
   --llm-backend openai_compat \
   --llm-base-url "$OLLAMA_BASE_URL" \
   --llm-model "$OLLAMA_MODEL" \
-  --force >/tmp/boole-miner-ollama-gemma-smoke-init.out
+  --force >"$MINER_INIT_OUT"
 
 success=0
 for trial in $(seq 1 "$TRIALS"); do
-  out="/tmp/boole-miner-ollama-gemma-smoke-start.${trial}.out"
+  out="$SMOKE_WORK_DIR/miner-start.${trial}.out"
   set +e
-  cargo run -q -p boole-miner -- start \
+  "$MINER_BIN" start \
     --state "$STATE" \
     --max-shares 1 \
     --max-cycles 1 \
@@ -194,6 +201,6 @@ if not ok:
     raise SystemExit("boole-miner-ollama-gemma-smoke: no proof-to-block success")
 PY
 
-kill "$PID" >/dev/null 2>&1 || true
-wait "$PID" 2>/dev/null || true
+smoke_stop_and_wait "$PID"
+SMOKE_CHILD_PIDS=""
 printf 'boole-miner-ollama-gemma-smoke: PASS\n' >&2

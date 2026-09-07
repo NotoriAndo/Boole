@@ -14,6 +14,8 @@ import json
 import os
 import pathlib
 import platform
+import shutil
+import signal
 import subprocess
 import sys
 
@@ -31,6 +33,7 @@ COMPARISON_SCHEMA = (
 )
 RESULT_SCHEMA = "boole.native-shadow.closed-local-mac-readiness.arm64.v1"
 HOST_SOURCE = REPO / "native/mac3/boole-mac3-closed-local-boot.swift"
+HOST_STOP_STATE_SOURCE = REPO / "native/mac3/boole-mac3-closed-local-stop-state.swift"
 ENTITLEMENTS = REPO / "native/mac3/boole-mac3-closed-local-boot.entitlements"
 LAUNCHER_BUILD_RESULT = (
     REPO / "native/containment/native-shadow-launcher-build-result-arm64-v2.json"
@@ -50,6 +53,20 @@ EXACT_MACHINE = {
     "storageDevices": 1,
     "serialPorts": 1,
 }
+
+# These are wall-clock bounds for local helper processes, not guest-policy
+# timeouts.  A stuck compiler, signer, or dry-run host must not turn this
+# disposable readiness lane into an unbounded macOS job.
+COMPILE_SUBPROCESS_TIMEOUT_SECONDS = 120
+SIGN_SUBPROCESS_TIMEOUT_SECONDS = 30
+DRY_RUN_SUBPROCESS_TIMEOUT_SECONDS = 30
+# `startedAt` is recorded before the host waits for the VM start callback, so
+# the requested guest timeout already covers that startup wait.  Once that
+# deadline is reached, though, the host can spend five seconds queuing a
+# graceful stop, fifteen seconds waiting for the guest, and fifteen seconds
+# awaiting forced-stop completion.  Leave ten seconds of scheduler margin so
+# this parent does not kill a host that is still within that finite teardown.
+BOOT_SUBPROCESS_GRACE_SECONDS = 45
 
 
 def _json(path):
@@ -190,6 +207,8 @@ def _host_receipt_matches(receipt, expected_images=None):
             return False, "the Mac host receipt names a different root-disk digest"
     if receipt.get("outcome") not in ("stopped-at-timeout", "guest-stopped"):
         return False, "the Mac host did not complete or stop the guest"
+    if receipt.get("stopConfirmed") is not True:
+        return False, "the Mac host did not positively confirm the guest stopped"
     return True, "the Mac host used the exact closed, read-only VM shape"
 
 
@@ -259,11 +278,29 @@ def make_result(
     }
 
 
-def _run(argv):
-    subprocess.run(argv, check=True)
+def boot_subprocess_timeout(guest_timeout):
+    return guest_timeout + BOOT_SUBPROCESS_GRACE_SECONDS
 
 
-def swiftc_argv(swiftc, sdk, module_cache, binary):
+def _run(argv, *, timeout, phase):
+    # The compiler and signing tools can themselves launch helpers.  Give each
+    # phase its own session, so a timeout cannot leave a descendant running
+    # after the direct child has been killed.
+    process = subprocess.Popen(argv, start_new_session=True)
+    try:
+        returncode = process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired as error:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait()
+        raise ValueError("%s timed out after %s seconds" % (phase, timeout)) from error
+    if returncode:
+        raise subprocess.CalledProcessError(returncode, argv)
+
+
+def swiftc_argv(swiftc, sdk, module_cache, binary, host_source=HOST_SOURCE):
     return [
         str(swiftc),
         "-sdk",
@@ -275,7 +312,8 @@ def swiftc_argv(swiftc, sdk, module_cache, binary):
         "-O",
         "-framework",
         "Virtualization",
-        str(HOST_SOURCE),
+        str(HOST_STOP_STATE_SOURCE),
+        str(host_source),
         "-o",
         str(binary),
     ]
@@ -318,6 +356,8 @@ def execute(args):
         raise ValueError("closed-local Mac readiness requires Apple Silicon macOS")
     if tuple(int(piece) for piece in platform.mac_ver()[0].split(".")[:1]) < (14,):
         raise ValueError("closed-local Mac readiness requires macOS 14 or newer")
+    if isinstance(args.timeout, bool) or args.timeout <= 0:
+        raise ValueError("--timeout must be a positive number of seconds")
     work = pathlib.Path(args.work).resolve()
     result_path = pathlib.Path(args.result).resolve()
     if work.exists() and any(work.iterdir()):
@@ -336,10 +376,16 @@ def execute(args):
         raise ValueError("the selected macOS SDK is not one directory")
     module_cache = work / "swift-module-cache"
     module_cache.mkdir(mode=0o700)
+    # Swift permits the host's top-level executable statements alongside the
+    # tested stop-state helper only when that host source is named main.swift.
+    # This is a private copy in the disposable work directory, never a
+    # caller-selected source path.
+    host_main = work / "main.swift"
+    shutil.copyfile(HOST_SOURCE, host_main)
     _run(
-        swiftc_argv(
-            pathlib.Path(args.swiftc), sdk, module_cache, binary
-        )
+        swiftc_argv(pathlib.Path(args.swiftc), sdk, module_cache, binary, host_main),
+        timeout=COMPILE_SUBPROCESS_TIMEOUT_SECONDS,
+        phase="compile",
     )
     _run(
         [
@@ -350,11 +396,17 @@ def execute(args):
             "--entitlements",
             str(ENTITLEMENTS),
             str(binary),
-        ]
+        ],
+        timeout=SIGN_SUBPROCESS_TIMEOUT_SECONDS,
+        phase="sign",
     )
     dry_console = work / "dry-run.console"
     dry_receipt = work / "dry-run.receipt.json"
-    _run(_host_argv(binary, before, dry_console, dry_receipt, args.timeout, True))
+    _run(
+        _host_argv(binary, before, dry_console, dry_receipt, args.timeout, True),
+        timeout=DRY_RUN_SUBPROCESS_TIMEOUT_SECONDS,
+        phase="dry-run",
+    )
     dry = _json(dry_receipt)
     if dry.get("outcome") != "dry-run-configuration-valid" or dry.get("dryRun") is not True:
         raise ValueError("the Mac host dry run did not validate the exact configuration")
@@ -374,7 +426,11 @@ def execute(args):
 
     console = work / "boot.console"
     receipt_path = work / "boot.receipt.json"
-    _run(_host_argv(binary, before, console, receipt_path, args.timeout, False))
+    _run(
+        _host_argv(binary, before, console, receipt_path, args.timeout, False),
+        timeout=boot_subprocess_timeout(args.timeout),
+        phase="boot",
+    )
     receipt = _json(receipt_path)
     transcript = console.read_text(encoding="utf-8", errors="replace")
     assessment = assess_readiness(transcript, receipt, before)

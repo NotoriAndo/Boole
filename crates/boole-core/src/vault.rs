@@ -17,6 +17,7 @@
 use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use zeroize::Zeroizing;
 
 use argon2::{Algorithm, Argon2, Params, Version};
 use chacha20poly1305::{
@@ -130,7 +131,7 @@ impl EncryptedVault {
         OsRng.fill_bytes(&mut nonce_bytes);
 
         let key = derive_key(passphrase, &salt, &params)?;
-        let cipher = ChaCha20Poly1305::new(Key::from_slice(&key));
+        let cipher = ChaCha20Poly1305::new(Key::from_slice(&key[..]));
         let ciphertext = cipher
             .encrypt(
                 Nonce::from_slice(&nonce_bytes),
@@ -158,7 +159,10 @@ impl EncryptedVault {
         })
     }
 
-    pub fn open(&self, passphrase: &[u8], aad: &[u8]) -> Result<Vec<u8>, VaultError> {
+    /// Decrypted bytes retain a zero-on-drop owner across caller error paths.
+    /// The encrypted JSON format is unchanged; callers borrow the plaintext
+    /// slice rather than copying it into an unprotected buffer.
+    pub fn open(&self, passphrase: &[u8], aad: &[u8]) -> Result<Zeroizing<Vec<u8>>, VaultError> {
         if self.version != VAULT_SCHEMA_VERSION {
             return Err(VaultError::UnsupportedVersion(self.version));
         }
@@ -192,7 +196,7 @@ impl EncryptedVault {
             parallelism: self.kdf.parallelism,
         };
         let key = derive_key(passphrase, &salt, &params)?;
-        let cipher = ChaCha20Poly1305::new(Key::from_slice(&key));
+        let cipher = ChaCha20Poly1305::new(Key::from_slice(&key[..]));
         cipher
             .decrypt(
                 Nonce::from_slice(&nonce),
@@ -201,6 +205,7 @@ impl EncryptedVault {
                     aad,
                 },
             )
+            .map(Zeroizing::new)
             .map_err(|_| VaultError::DecryptionFailed)
     }
 
@@ -217,7 +222,7 @@ fn derive_key(
     passphrase: &[u8],
     salt: &[u8],
     params: &VaultParams,
-) -> Result<[u8; KEY_LEN], VaultError> {
+) -> Result<Zeroizing<[u8; KEY_LEN]>, VaultError> {
     let argon_params = Params::new(
         params.memory_kib,
         params.time_cost,
@@ -226,9 +231,9 @@ fn derive_key(
     )
     .map_err(|e| VaultError::InvalidKdfParams(e.to_string()))?;
     let argon = Argon2::new(Algorithm::Argon2id, Version::V0x13, argon_params);
-    let mut key = [0_u8; KEY_LEN];
+    let mut key = Zeroizing::new([0_u8; KEY_LEN]);
     argon
-        .hash_password_into(passphrase, salt, &mut key)
+        .hash_password_into(passphrase, salt, &mut key[..])
         .map_err(|e| VaultError::KdfFailure(e.to_string()))?;
     Ok(key)
 }
@@ -242,11 +247,21 @@ mod tests {
     const AAD: &[u8] = b"boole-vault.v1:wallet/default";
 
     #[test]
+    fn decrypted_vault_plaintext_is_zeroized_when_its_owner_drops() {
+        fn requires_zeroize_on_drop<T: zeroize::ZeroizeOnDrop>(_: &T) {}
+        let vault = EncryptedVault::seal(PASSPHRASE, PLAINTEXT, AAD, VaultParams::test_fast())
+            .expect("seal fixture");
+        let plaintext = vault.open(PASSPHRASE, AAD).expect("decrypt fixture");
+        requires_zeroize_on_drop(&plaintext);
+        assert_eq!(plaintext.as_slice(), PLAINTEXT);
+    }
+
+    #[test]
     fn vault_seal_then_open_roundtrips_plaintext() {
         let vault = EncryptedVault::seal(PASSPHRASE, PLAINTEXT, AAD, VaultParams::test_fast())
             .expect("seal");
         let recovered = vault.open(PASSPHRASE, AAD).expect("open");
-        assert_eq!(recovered, PLAINTEXT);
+        assert_eq!(recovered.as_slice(), PLAINTEXT);
     }
 
     #[test]
@@ -314,7 +329,7 @@ mod tests {
         let parsed = EncryptedVault::from_json_bytes(&bytes).expect("decode");
         assert_eq!(parsed, vault);
         let recovered = parsed.open(PASSPHRASE, AAD).expect("open after json");
-        assert_eq!(recovered, PLAINTEXT);
+        assert_eq!(recovered.as_slice(), PLAINTEXT);
     }
 
     #[test]

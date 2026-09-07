@@ -19,7 +19,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use boole_p2p::{Frame, FrameError, HeadSummary, TcpTransport, Transport};
+use boole_p2p::{Frame, FrameError, HeadSummary, TcpTransport};
 use serde_json::Value;
 
 use crate::p2p_ingress::{P2pIdentity, P2pMetrics};
@@ -27,6 +27,10 @@ use crate::p2p_lifecycle::{P2pLifecycle, SocketLease};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_millis(500);
 const EGRESS_IO_TIMEOUT: Duration = Duration::from_secs(5);
+/// One absolute wall shared by connect, Hello, and the remaining gossip or
+/// package exchange. Per-I/O timeouts alone can be renewed indefinitely by a
+/// peer that trickles progress between operations.
+const EGRESS_CONNECTION_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Per-peer pending-event cap. With the wire-level 16 MiB frame cap this
 /// keeps one slow peer's retained payloads bounded, while separate workers
@@ -185,6 +189,7 @@ pub(crate) struct ValidatedConn {
     pub(crate) conn: boole_p2p::TcpConn,
     pub(crate) peer_head: HeadSummary,
     pub(crate) peer_hello_wire_bytes: usize,
+    pub(crate) deadline: Instant,
     _lease: SocketLease,
 }
 
@@ -199,7 +204,16 @@ pub(crate) fn open_validated_conn(
     head: HeadSummary,
     lifecycle: &Arc<P2pLifecycle>,
 ) -> Result<ValidatedConn, FrameError> {
-    open_validated_conn_with_limits(peer, identity, head, lifecycle, None)
+    open_validated_conn_with_limits(
+        peer,
+        identity,
+        head,
+        lifecycle,
+        Some((
+            boole_p2p::MAX_FRAME_BYTES,
+            Instant::now() + EGRESS_CONNECTION_TIMEOUT,
+        )),
+    )
 }
 
 /// Sync-only handshake variant: connect and Hello receive share the same
@@ -235,41 +249,34 @@ fn open_validated_conn_with_limits(
             "P2P lifecycle is stopped",
         )));
     }
-    let connect_timeout = if let Some((_, deadline)) = receive_limits {
-        deadline
-            .checked_duration_since(Instant::now())
-            .filter(|remaining| !remaining.is_zero())
-            .ok_or(FrameError::ReceiveDeadlineExceeded)?
-            .min(CONNECT_TIMEOUT)
-    } else {
-        CONNECT_TIMEOUT
-    };
+    let (remaining_wire_bytes, deadline) = receive_limits.unwrap_or((
+        boole_p2p::MAX_FRAME_BYTES,
+        Instant::now() + EGRESS_CONNECTION_TIMEOUT,
+    ));
+    let connect_timeout = deadline
+        .checked_duration_since(Instant::now())
+        .filter(|remaining| !remaining.is_zero())
+        .ok_or(FrameError::ReceiveDeadlineExceeded)?
+        .min(CONNECT_TIMEOUT);
     let stream = TcpStream::connect_timeout(peer, connect_timeout)?;
-    let io_timeout = if let Some((_, deadline)) = receive_limits {
-        deadline
-            .checked_duration_since(Instant::now())
-            .filter(|remaining| !remaining.is_zero())
-            .ok_or(FrameError::ReceiveDeadlineExceeded)?
-            .min(EGRESS_IO_TIMEOUT)
-    } else {
-        EGRESS_IO_TIMEOUT
-    };
+    let io_timeout = deadline
+        .checked_duration_since(Instant::now())
+        .filter(|remaining| !remaining.is_zero())
+        .ok_or(FrameError::ReceiveDeadlineExceeded)?
+        .min(EGRESS_IO_TIMEOUT);
     stream.set_read_timeout(Some(io_timeout))?;
     stream.set_write_timeout(Some(io_timeout))?;
     let lease = lifecycle.register(&stream)?;
     let transport = TcpTransport::new();
     let mut conn = TcpTransport::conn_from_stream(stream)?;
-    transport.send_frame(&mut conn, &identity.hello(head))?;
+    transport.send_frame_until(&mut conn, &identity.hello(head), deadline)?;
     let (reply, peer_hello_wire_bytes) =
-        if let Some((remaining_wire_bytes, deadline)) = receive_limits {
-            transport.recv_frame_counted_until(&mut conn, remaining_wire_bytes, deadline)?
-        } else {
-            transport.recv_frame_counted(&mut conn)?
-        };
+        transport.recv_frame_counted_until(&mut conn, remaining_wire_bytes, deadline)?;
     if !identity.matches(&reply) {
         return Err(FrameError::Malformed {
             detail: "peer hello mismatch \
-                     (protocol_version/consensus_rule_version/network_id/genesis_hash)"
+                     (protocol_version/consensus_rule_version/authorization_policy/network_id/\
+                      genesis_hash/effective_family_manifest_root)"
                 .to_string(),
         });
     }
@@ -287,6 +294,7 @@ fn open_validated_conn_with_limits(
         conn,
         peer_head,
         peer_hello_wire_bytes,
+        deadline,
         _lease: lease,
     })
 }
@@ -298,11 +306,12 @@ fn announce_share_to_peer(
     lifecycle: &Arc<P2pLifecycle>,
 ) -> Result<(), FrameError> {
     let mut validated = open_validated_conn(peer, identity, announcement.head.clone(), lifecycle)?;
-    validated.transport.send_frame(
+    validated.transport.send_frame_until(
         &mut validated.conn,
         &Frame::ShareAnnounce {
             submission: announcement.submission.clone(),
         },
+        validated.deadline,
     )
 }
 
@@ -313,25 +322,31 @@ fn announce_block_to_peer(
     lifecycle: &Arc<P2pLifecycle>,
 ) -> Result<(), FrameError> {
     let mut validated = open_validated_conn(peer, identity, announcement.head.clone(), lifecycle)?;
-    validated.transport.send_frame(
+    validated.transport.send_frame_until(
         &mut validated.conn,
         &Frame::BlockAnnounce {
             height: announcement.height,
             c: announcement.c.clone(),
         },
+        validated.deadline,
     )?;
     // The peer either pulls the body with GetBlocks or closes the
     // connection (it already has the block, or the announce doesn't extend
     // its head). A close/timeout after the announce is a normal outcome,
     // not a delivery failure.
-    match validated.transport.recv_frame(&mut validated.conn) {
-        Ok(Frame::GetBlocks { from, to }) => {
+    match validated.transport.recv_frame_counted_until(
+        &mut validated.conn,
+        boole_p2p::MAX_FRAME_BYTES,
+        validated.deadline,
+    ) {
+        Ok((Frame::GetBlocks { from, to }, _)) => {
             if from <= announcement.height && announcement.height <= to {
-                validated.transport.send_frame(
+                validated.transport.send_frame_until(
                     &mut validated.conn,
                     &Frame::Blocks {
                         blocks: vec![announcement.block.clone()],
                     },
+                    validated.deadline,
                 )?;
             }
             Ok(())
@@ -351,6 +366,7 @@ mod tests {
     use boole_core::CONSENSUS_RULE_VERSION;
     use boole_p2p::{Transport, PROTOCOL_VERSION};
     use serde_json::json;
+    use std::io::Write;
     use std::net::TcpListener;
     use std::sync::mpsc;
     use std::time::Instant;
@@ -358,7 +374,11 @@ mod tests {
     fn identity() -> P2pIdentity {
         P2pIdentity {
             network_id: "bounded-egress-test".to_string(),
+            authorization_policy: boole_p2p::AuthorizationPolicy::NetworkScopedV1,
             genesis_hash: "11".repeat(32),
+            effective_family_manifest_root: boole_core::FamilyManifestRegistry::new()
+                .root()
+                .to_hex(),
         }
     }
 
@@ -424,6 +444,76 @@ mod tests {
     }
 
     #[test]
+    fn handshake_and_followup_receive_share_one_absolute_deadline() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind peer");
+        let peer = listener.local_addr().expect("peer address");
+        let peer_identity = identity();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().expect("accept client");
+            let mut raw = stream.try_clone().expect("clone peer stream");
+            let transport = TcpTransport::new();
+            let mut conn = TcpTransport::conn_from_stream(stream).expect("peer conn");
+            let hello = transport.recv_frame(&mut conn).expect("client Hello");
+            assert!(peer_identity.matches(&hello));
+            thread::sleep(Duration::from_millis(60));
+            transport
+                .send_frame(
+                    &mut conn,
+                    &Frame::Hello {
+                        protocol_version: PROTOCOL_VERSION,
+                        consensus_rule_version: CONSENSUS_RULE_VERSION,
+                        authorization_policy: peer_identity.authorization_policy,
+                        network_id: peer_identity.network_id,
+                        genesis_hash: peer_identity.genesis_hash,
+                        effective_family_manifest_root: peer_identity
+                            .effective_family_manifest_root,
+                        head: HeadSummary {
+                            height: 0,
+                            c: "22".repeat(32),
+                        },
+                    },
+                )
+                .expect("peer Hello");
+            for byte in b"{\"type\":\"getBlocks\",\"from\":0,\"to\":0}\n" {
+                if raw.write_all(std::slice::from_ref(byte)).is_err() {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+        });
+
+        let lifecycle = Arc::new(P2pLifecycle::new());
+        let deadline = Instant::now() + Duration::from_millis(140);
+        let started = Instant::now();
+        let mut validated = open_validated_conn_with_limits(
+            &peer,
+            &identity(),
+            HeadSummary {
+                height: 0,
+                c: "22".repeat(32),
+            },
+            &lifecycle,
+            Some((boole_p2p::MAX_FRAME_BYTES, deadline)),
+        )
+        .expect("Hello completes within shared deadline");
+        let result = validated.transport.recv_frame_counted_until(
+            &mut validated.conn,
+            boole_p2p::MAX_FRAME_BYTES,
+            validated.deadline,
+        );
+        assert!(
+            matches!(result, Err(FrameError::ReceiveDeadlineExceeded)),
+            "follow-up must not receive a fresh per-operation timeout: {result:?}"
+        );
+        assert!(
+            started.elapsed() < Duration::from_millis(500),
+            "shared deadline bounded the whole connection"
+        );
+        drop(validated);
+        server.join().expect("peer joins");
+    }
+
+    #[test]
     fn bounded_peer_queues_do_not_let_a_slow_peer_delay_a_healthy_peer() {
         let slow_listener = TcpListener::bind("127.0.0.1:0").expect("slow bind");
         let slow_addr = slow_listener.local_addr().expect("slow address");
@@ -456,8 +546,12 @@ mod tests {
                         &Frame::Hello {
                             protocol_version: PROTOCOL_VERSION,
                             consensus_rule_version: CONSENSUS_RULE_VERSION,
+                            authorization_policy: healthy_identity.authorization_policy,
                             network_id: healthy_identity.network_id.clone(),
                             genesis_hash: healthy_identity.genesis_hash.clone(),
+                            effective_family_manifest_root: healthy_identity
+                                .effective_family_manifest_root
+                                .clone(),
                             head: HeadSummary {
                                 height: 0,
                                 c: "22".repeat(32),

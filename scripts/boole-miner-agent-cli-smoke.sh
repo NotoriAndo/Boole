@@ -4,15 +4,18 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-ADDR="${BOOLE_NODE_ADDR:-127.0.0.1:18092}"
+source "$ROOT/scripts/smoke-lifecycle.sh"
+ADDR="${BOOLE_NODE_ADDR:-127.0.0.1:$((20000 + ($$ % 20000)))}"
 SCENARIO="${SCENARIO:-fixtures/protocol/runtime-smoke/v1.json}"
-BLOCK_STORE="${BLOCK_STORE:-${TMPDIR:-/tmp}/boole-node-agent-cli-smoke.ndjson}"
-REWARD_STORE="${REWARD_STORE:-${TMPDIR:-/tmp}/boole-node-agent-cli-smoke-rewards.ndjson}"
-STATE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/boole-miner-agent-cli-state.XXXXXX")"
+BLOCK_STORE="$(smoke_fresh_path "${BLOCK_STORE:-$SMOKE_WORK_DIR/blocks.ndjson}")"
+REWARD_STORE="$(smoke_fresh_path "${REWARD_STORE:-$SMOKE_WORK_DIR/rewards.ndjson}")"
+STATE_DIR="$SMOKE_WORK_DIR/state"
 STATE="$STATE_DIR/state.json"
-FAKE_AGENT="$STATE_DIR/fake-agent-cli.sh"
-AGENT_CALL_LOG="$STATE_DIR/agent-call.json"
-rm -f "$BLOCK_STORE" "$REWARD_STORE"
+mkdir -p "$STATE_DIR"
+FAKE_AGENT="$SMOKE_WORK_DIR/fake-agent-cli.sh"
+AGENT_CALL_LOG="$SMOKE_WORK_DIR/agent-call.json"
+MINER_INIT_OUT="$SMOKE_WORK_DIR/miner-init.out"
+MINER_START_OUT="$SMOKE_WORK_DIR/miner-start.out"
 
 cat >"$FAKE_AGENT" <<'SH'
 #!/usr/bin/env bash
@@ -34,16 +37,21 @@ printf 'agent_cli proof candidate:\n```lean\nfun xs => rfl\n```\n'
 SH
 chmod +x "$FAKE_AGENT"
 
-cargo run -q -p boole-node -- run-local \
+# Build before the node readiness budget starts.
+NODE_BIN="$(smoke_build_binary boole-node boole-node)"
+MINER_BIN="$(smoke_build_binary boole-miner boole-miner --features boole-miner/dev-tools)"
+smoke_prewarm_binary "$NODE_BIN"
+smoke_prewarm_binary "$MINER_BIN"
+"$NODE_BIN" run-local \
   --addr "$ADDR" \
   --scenario "$SCENARIO" \
   --block-store "$BLOCK_STORE" \
   --reward-store "$REWARD_STORE" \
-  --max-requests 10 \
-  >/tmp/boole-node-agent-cli-smoke.out \
-  2>/tmp/boole-node-agent-cli-smoke.err &
+  --allow-anonymous-submit \
+  >"$SMOKE_WORK_DIR/node.out" \
+  2>"$SMOKE_WORK_DIR/node.err" &
 PID=$!
-trap 'kill "$PID" >/dev/null 2>&1 || true; rm -rf "$STATE_DIR"; rm -f "$REWARD_STORE" /tmp/boole-node-agent-cli-smoke.out /tmp/boole-node-agent-cli-smoke.err /tmp/boole-miner-agent-cli-smoke-start.out /tmp/boole-miner-agent-cli-smoke-init.out' EXIT
+smoke_register_child "$PID"
 
 python3 - "$ADDR" <<'PY'
 import http.client
@@ -66,23 +74,23 @@ for _ in range(80):
 raise SystemExit(f"boole-node did not become ready: {last}")
 PY
 
-cargo run -q -p boole-miner -- init \
+"$MINER_BIN" init \
   --state "$STATE" \
   --dispatcher-url "http://$ADDR" \
   --llm-backend agent_cli \
   --agent-command "$FAKE_AGENT" \
   --agent-args '["--mode","boole-proof"]' \
-  --force >/tmp/boole-miner-agent-cli-smoke-init.out
-BOOLE_AGENT_CALL_LOG="$AGENT_CALL_LOG" cargo run -q -p boole-miner -- start \
+  --force >"$MINER_INIT_OUT"
+BOOLE_AGENT_CALL_LOG="$AGENT_CALL_LOG" "$MINER_BIN" start \
   --state "$STATE" \
   --max-shares 1 \
   --max-cycles 1 \
   --profile v01 \
   --difficulty 1 \
   --mock-verify-accept \
-  >/tmp/boole-miner-agent-cli-smoke-start.out
+  >"$MINER_START_OUT"
 
-python3 - /tmp/boole-miner-agent-cli-smoke-start.out "$ADDR" "$AGENT_CALL_LOG" <<'PY'
+python3 - "$MINER_START_OUT" "$ADDR" "$AGENT_CALL_LOG" <<'PY'
 import http.client
 import json
 import re
@@ -117,6 +125,6 @@ print(json.dumps({
 }, separators=(",", ":")))
 PY
 
-kill "$PID" >/dev/null 2>&1 || true
-wait "$PID" >/dev/null 2>&1 || true
+smoke_stop_and_wait "$PID"
+SMOKE_CHILD_PIDS=""
 printf 'boole-miner-agent-cli-smoke: PASS\n' >&2

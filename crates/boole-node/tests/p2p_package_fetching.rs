@@ -159,28 +159,38 @@ fn serve_drop_after_get_once(
             let transport = TcpTransport::new();
             let mut conn = TcpTransport::conn_from_stream(stream).expect("peer connection");
             let hello = transport.recv_frame(&mut conn).expect("receive Hello");
-            let (network_id, genesis_hash) = match hello {
-                Frame::Hello {
-                    protocol_version,
-                    consensus_rule_version,
-                    network_id,
-                    genesis_hash,
-                    ..
-                } => {
-                    assert_eq!(protocol_version, PROTOCOL_VERSION);
-                    assert_eq!(consensus_rule_version, CONSENSUS_RULE_VERSION);
-                    (network_id, genesis_hash)
-                }
-                other => panic!("expected Hello, got {other:?}"),
-            };
+            let (authorization_policy, network_id, genesis_hash, effective_family_manifest_root) =
+                match hello {
+                    Frame::Hello {
+                        protocol_version,
+                        consensus_rule_version,
+                        authorization_policy,
+                        network_id,
+                        genesis_hash,
+                        effective_family_manifest_root,
+                        ..
+                    } => {
+                        assert_eq!(protocol_version, PROTOCOL_VERSION);
+                        assert_eq!(consensus_rule_version, CONSENSUS_RULE_VERSION);
+                        (
+                            authorization_policy,
+                            network_id,
+                            genesis_hash,
+                            effective_family_manifest_root,
+                        )
+                    }
+                    other => panic!("expected Hello, got {other:?}"),
+                };
             transport
                 .send_frame(
                     &mut conn,
                     &Frame::Hello {
                         protocol_version: PROTOCOL_VERSION,
                         consensus_rule_version: CONSENSUS_RULE_VERSION,
+                        authorization_policy,
                         network_id,
                         genesis_hash,
+                        effective_family_manifest_root,
                         head: HeadSummary {
                             height: 0,
                             c: "00".repeat(32),
@@ -263,17 +273,29 @@ fn serve_package_responses(
                 let Ok(hello) = transport.recv_frame(&mut conn) else {
                     return;
                 };
-                let (network_id, genesis_hash) = match hello {
+                let (
+                    authorization_policy,
+                    network_id,
+                    genesis_hash,
+                    effective_family_manifest_root,
+                ) = match hello {
                     Frame::Hello {
                         protocol_version,
                         consensus_rule_version,
+                        authorization_policy,
                         network_id,
                         genesis_hash,
+                        effective_family_manifest_root,
                         ..
                     } => {
                         assert_eq!(protocol_version, PROTOCOL_VERSION);
                         assert_eq!(consensus_rule_version, CONSENSUS_RULE_VERSION);
-                        (network_id, genesis_hash)
+                        (
+                            authorization_policy,
+                            network_id,
+                            genesis_hash,
+                            effective_family_manifest_root,
+                        )
                     }
                     other => panic!("expected Hello, got {other:?}"),
                 };
@@ -283,8 +305,10 @@ fn serve_package_responses(
                         &Frame::Hello {
                             protocol_version: PROTOCOL_VERSION,
                             consensus_rule_version: CONSENSUS_RULE_VERSION,
+                            authorization_policy,
                             network_id,
                             genesis_hash,
+                            effective_family_manifest_root,
                             head: HeadSummary {
                                 height: 0,
                                 c: "00".repeat(32),

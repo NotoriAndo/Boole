@@ -2,7 +2,7 @@ use std::path::Path;
 use std::process::Command;
 
 fn cli() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_boole-cli"))
+    Command::new(env!("CARGO_BIN_EXE_boole"))
 }
 
 fn fresh_tmp(label: &str) -> std::path::PathBuf {
@@ -284,4 +284,160 @@ fn session_key_create_requires_explicit_allowed_route() {
     assert_eq!(envelope["ok"], false);
     assert_eq!(envelope["reason"], "bad_request");
     assert_eq!(envelope["field"], "allowed-route");
+}
+
+fn create_session_command(keys: &Path, sessions: &Path, id: &str) -> Command {
+    let mut command = cli();
+    command
+        .env("BOOLE_KEYS_DIR", keys)
+        .env("BOOLE_SESSIONS_DIR", sessions)
+        .args([
+            "session-key",
+            "create",
+            "--local",
+            "--id",
+            id,
+            "--owner-id",
+            "owner",
+            "--agent-id",
+            "agent",
+            "--allowed-route",
+            "/submit",
+            "--allowed-family",
+            "boole.protocol-invariant.v01",
+            "--allowed-verifier",
+            "lean-runner-v01",
+            "--max-fee",
+            "12",
+            "--daily-fee-cap",
+            "100",
+            "--expiry-height",
+            "1000",
+        ]);
+    command
+}
+
+fn write_public_key_fixtures(keys: &Path) {
+    std::fs::create_dir_all(keys).expect("create fixture keys directory");
+    for (name, pk) in [("owner", "11".repeat(32)), ("agent", "22".repeat(32))] {
+        std::fs::write(
+            keys.join(format!("{name}.json")),
+            serde_json::to_vec(&serde_json::json!({"pk": pk})).expect("serialize public key"),
+        )
+        .expect("write public key fixture");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn session_create_does_not_replace_a_reserved_dangling_symlink() {
+    use std::os::unix::fs::symlink;
+    let dir = fresh_tmp("reserved-path");
+    let keys = dir.join("keys");
+    let sessions = dir.join("sessions");
+    write_public_key_fixtures(&keys);
+    std::fs::create_dir(&sessions).expect("create session fixture directory");
+    let destination = sessions.join("reserved.json");
+    let reserved_target = dir.join("not-yet-created");
+    symlink(&reserved_target, &destination).expect("reserve final path");
+
+    let output = create_session_command(&keys, &sessions, "reserved")
+        .output()
+        .expect("run session create");
+    let still_symlink = std::fs::symlink_metadata(&destination)
+        .expect("reserved path remains")
+        .file_type()
+        .is_symlink();
+    std::fs::remove_dir_all(&dir).expect("remove isolated fixtures");
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "an occupied pathname must not be replaced"
+    );
+    assert_eq!(
+        parse_json(&output.stderr)["reason"],
+        "session_already_exists"
+    );
+    assert!(
+        still_symlink,
+        "a session creator must never overwrite a preexisting directory entry"
+    );
+}
+
+#[test]
+fn session_create_collision_preserves_existing_bytes() {
+    let dir = fresh_tmp("existing-path");
+    let keys = dir.join("keys");
+    let sessions = dir.join("sessions");
+    write_public_key_fixtures(&keys);
+    std::fs::create_dir(&sessions).expect("session fixture directory");
+    let destination = sessions.join("existing.json");
+    let original = b"existing fixture bytes; do not replace";
+    std::fs::write(&destination, original).expect("reserve existing path");
+    let output = create_session_command(&keys, &sessions, "existing")
+        .output()
+        .expect("session create");
+    let after = std::fs::read(&destination).expect("read existing fixture");
+    std::fs::remove_dir_all(&dir).expect("remove isolated fixture");
+    assert_eq!(output.status.code(), Some(3));
+    assert_eq!(
+        parse_json(&output.stderr)["reason"],
+        "session_already_exists"
+    );
+    assert_eq!(after, original);
+}
+
+#[test]
+fn concurrent_session_creators_publish_exactly_one_winner() {
+    use std::sync::{Arc, Barrier};
+    let dir = fresh_tmp("concurrent-create");
+    let keys = dir.join("keys");
+    let sessions = dir.join("sessions");
+    write_public_key_fixtures(&keys);
+    let barrier = Arc::new(Barrier::new(16));
+    let outputs = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..16)
+            .map(|_| {
+                let barrier = Arc::clone(&barrier);
+                let mut command = create_session_command(&keys, &sessions, "same-session");
+                scope.spawn(move || {
+                    barrier.wait();
+                    command.output().expect("run competing creator")
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| handle.join().expect("creator thread"))
+            .collect::<Vec<_>>()
+    });
+    let disk = parse_json(&std::fs::read(sessions.join("same-session.json")).expect("read winner"));
+    let entries = std::fs::read_dir(&sessions)
+        .expect("list session files")
+        .count();
+    std::fs::remove_dir_all(&dir).expect("remove isolated fixtures");
+    let winners: Vec<_> = outputs
+        .iter()
+        .filter(|output| output.status.success())
+        .collect();
+    assert_eq!(
+        winners.len(),
+        1,
+        "exactly one process may publish a session"
+    );
+    assert_eq!(
+        parse_json(&winners[0].stdout)["session"]["sessionPk"],
+        disk["sessionPk"]
+    );
+    for output in outputs.iter().filter(|output| !output.status.success()) {
+        assert_eq!(output.status.code(), Some(3));
+        assert_eq!(
+            parse_json(&output.stderr)["reason"],
+            "session_already_exists"
+        );
+    }
+    assert_eq!(
+        entries, 1,
+        "failed creators must not leave temporary key files"
+    );
 }

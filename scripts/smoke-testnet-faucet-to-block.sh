@@ -31,33 +31,40 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-ADDR="${BOOLE_NODE_ADDR:-127.0.0.1:18090}"
+source "$ROOT/scripts/smoke-lifecycle.sh"
+ADDR="${BOOLE_NODE_ADDR:-127.0.0.1:$((20000 + ($$ % 20000)))}"
 # N3-pre.5 — this smoke is the only one that boots with --state-dir +
 # --proof-dedup-ledger, so its two /submit steps need distinct proof
 # `bytes` (the dedup ledger keys on SHA-256(bytes) cross-pk). The shared
 # runtime-smoke/v1.json fixture intentionally reuses one `bytes` value
 # across steps (dozens of other tests/scripts depend on that), so this
 # smoke uses its own dedicated copy instead of mutating the shared one.
+# Its node-local per-IP quota is two because both actual TCP submissions come
+# from loopback; body.ip is not trusted as the request's source address.
 SCENARIO="${SCENARIO:-fixtures/protocol/runtime-smoke/faucet-smoke.v1.json}"
 NETWORK_ID="boole-testnet"
 ADDRESS_HEX="${FAUCET_ADDRESS_HEX:-1111111111111111111111111111111111111111111111111111111111111111}"
-BLOCK_STORE="${BLOCK_STORE:-${TMPDIR:-/tmp}/boole-node-faucet-smoke.ndjson}"
+BLOCK_STORE="$(smoke_fresh_path "${BLOCK_STORE:-$SMOKE_WORK_DIR/blocks.ndjson}")"
 # Pin the reward ledger to a smoke-specific path so the run cannot
 # inherit a stale ledger left by an earlier self-test stage and bail at
 # boot with `reward ledger divergence`.
-REWARD_LEDGER="${REWARD_LEDGER:-${TMPDIR:-/tmp}/boole-node-faucet-smoke-rewards.ndjson}"
+REWARD_LEDGER="$(smoke_fresh_path "${REWARD_LEDGER:-$SMOKE_WORK_DIR/rewards.ndjson}")"
 # `--network-id` only takes effect with an opt-in state dir, so pin one
-# to a smoke-specific temp path and pre-clean it.
-STATE_DIR="${STATE_DIR:-${TMPDIR:-/tmp}/boole-node-faucet-smoke-state}"
+# to a fresh private path, never deleting an existing caller directory.
+STATE_DIR="$(smoke_fresh_path "${STATE_DIR:-$SMOKE_WORK_DIR/state}")"
 # N3-pre.5 — production posture (`--state-dir` set) now requires the
 # cross-pk proof-dedup ledger for `/ready`; this is the only smoke that
 # boots with `--state-dir`, so it is the one that must pass the flag.
-PROOF_DEDUP_LEDGER="${PROOF_DEDUP_LEDGER:-${TMPDIR:-/tmp}/boole-node-faucet-smoke-proof-dedup.ndjson}"
-FAUCET_OUT="${TMPDIR:-/tmp}/boole-faucet-smoke-mock.out"
-NODE_OUT="${TMPDIR:-/tmp}/boole-node-faucet-smoke.out"
-NODE_ERR="${TMPDIR:-/tmp}/boole-node-faucet-smoke.err"
-rm -f "$BLOCK_STORE" "$REWARD_LEDGER" "$PROOF_DEDUP_LEDGER" "$FAUCET_OUT" "$NODE_OUT" "$NODE_ERR"
-rm -rf "$STATE_DIR"
+PROOF_DEDUP_LEDGER="$(smoke_fresh_path "${PROOF_DEDUP_LEDGER:-$SMOKE_WORK_DIR/proof-dedup.ndjson}")"
+FAUCET_OUT="$SMOKE_WORK_DIR/faucet.out"
+NODE_OUT="$SMOKE_WORK_DIR/node.out"
+NODE_ERR="$SMOKE_WORK_DIR/node.err"
+
+# Both binaries must be ready before either service's startup budget starts.
+NODE_BIN="$(smoke_build_binary boole-node boole-node)"
+CLI_BIN="$(smoke_build_binary boole boole-cli)"
+smoke_prewarm_binary "$NODE_BIN"
+smoke_prewarm_binary "$CLI_BIN"
 
 # --- mock faucet -----------------------------------------------------
 # One-shot HTTP server: accepts a single POST /claim, records the body
@@ -94,6 +101,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 server = HTTPServer(("127.0.0.1", 0), Handler)
+server.timeout = 15
 port = server.server_address[1]
 with open(out_path, "w") as fh:
     fh.write(json.dumps({"port": port}) + "\n")
@@ -105,9 +113,10 @@ with open(out_path, "a") as fh:
     fh.flush()
 PY
 FAUCET_PID=$!
+smoke_register_child "$FAUCET_PID"
 
 # --- node ------------------------------------------------------------
-cargo run -q -p boole-node -- run-local \
+"$NODE_BIN" run-local \
   --addr "$ADDR" \
   --scenario "$SCENARIO" \
   --block-store "$BLOCK_STORE" \
@@ -118,11 +127,9 @@ cargo run -q -p boole-node -- run-local \
   --lean-checker-disabled \
   --allow-insecure-verifier \
   --allow-anonymous-submit \
-  --max-requests 9 \
   >"$NODE_OUT" 2>"$NODE_ERR" &
 NODE_PID=$!
-
-trap 'kill "$NODE_PID" "$FAUCET_PID" >/dev/null 2>&1 || true; rm -f "$NODE_OUT" "$NODE_ERR" "$FAUCET_OUT" "$BLOCK_STORE" "$REWARD_LEDGER" "$PROOF_DEDUP_LEDGER"; rm -rf "$STATE_DIR"' EXIT
+smoke_register_child "$NODE_PID"
 
 # Wait for the mock faucet to publish its ephemeral port.
 FAUCET_URL=""
@@ -142,7 +149,7 @@ if [ -z "$FAUCET_URL" ]; then
 fi
 
 # --- faucet claim ----------------------------------------------------
-CLAIM_JSON="$(cargo run -q -p boole-cli -- faucet claim \
+CLAIM_JSON="$("$CLI_BIN" faucet claim \
   --network testnet \
   --address "$ADDRESS_HEX" \
   --faucet-url "$FAUCET_URL" \
@@ -230,15 +237,14 @@ steps = scenario["steps"]
 initial_head = request("GET", "/head", attempts=50)
 if not initial_head.get("ok") or initial_head.get("height") != 0:
     raise SystemExit(f"bad initial head: {initial_head}")
-# Mirror local-mining-smoke.sh's request count exactly: GET /head +
-# GET /config + per-step (ticket+submit+head)×N + GET /status sums to
-# the node's `--max-requests` so it self-terminates and `wait` returns.
+# Shutdown is explicit and bounded, independent of connection reuse/count.
 config = request("GET", "/config")
 if not config.get("ok") or not config.get("T_share"):
     raise SystemExit(f"bad node config: {config}")
 
 mined = []
 head = initial_head
+run_timestamp_ms = int(time.time() * 1000)
 for i, step in enumerate(steps):
     body_step = dict(step["body"])
     if step.get("cFromRuntimeHead"):
@@ -247,7 +253,9 @@ for i, step in enumerate(steps):
         "body": body_step,
         "ip": step.get("ip", f"192.0.2.{10 + i}"),
         "canonTag": step.get("canonTag", 0),
-        "ts": step.get("ts", 1800000000000 + i),
+        # This smoke exercises faucet/submission, not timestamp rejection.
+        # A frozen future date becomes invalid under the real drift bound.
+        "ts": run_timestamp_ms + i,
     }
     ticket = request("POST", "/ticket", {"c": body_step["c"], "pk": body_step["pk"], "n": body_step["n"]})
     if not ticket.get("ok") or len(ticket.get("hashHex", "")) != 64:
@@ -303,5 +311,7 @@ print(json.dumps({
 }, separators=(",", ":")))
 PY
 
-wait "$NODE_PID" >/dev/null 2>&1 || true
+smoke_stop_and_wait "$NODE_PID"
+smoke_stop_and_wait "$FAUCET_PID"
+SMOKE_CHILD_PIDS=""
 printf 'smoke-testnet-faucet-to-block: PASS\n' >&2

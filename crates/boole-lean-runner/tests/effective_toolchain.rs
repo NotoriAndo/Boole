@@ -25,14 +25,24 @@ fn canonical_checker_dir() -> PathBuf {
 }
 
 fn lake_and_lean_available() -> bool {
-    Command::new("lake")
-        .arg("--version")
-        .output()
-        .is_ok_and(|o| o.status.success())
-        && Command::new("lean")
-            .arg("--version")
-            .output()
-            .is_ok_and(|o| o.status.success())
+    boole_testkit::lake_and_lean_available()
+}
+
+#[test]
+fn explicit_log_mode_toolchain_evidence_preserves_the_opt_out() {
+    if !lake_and_lean_available() {
+        return;
+    }
+    let package = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lean/checker");
+    let runner = boole_lean_runner::LeanRunner::new(
+        boole_lean_runner::LeanRunnerConfig::new("log-mode-probe")
+            .with_package_dir(package)
+            .with_isolation_mode(boole_lean_runner::IsolationMode::Log),
+    );
+    let evidence = runner
+        .evidence()
+        .expect("Log discovery retains portable containment without requiring Enforce support");
+    assert!(!evidence.lean_version.is_empty());
 }
 
 fn effective_output(dir: &Path, cmd: &str, args: &[&str]) -> String {

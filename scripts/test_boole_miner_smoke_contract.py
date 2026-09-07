@@ -12,7 +12,11 @@ SMOKE = ROOT / "scripts" / "boole-miner-smoke.sh"
 class BooleMinerSmokeContractTests(unittest.TestCase):
     def test_mock_verifier_is_explicitly_dev_tools_only(self) -> None:
         body = SMOKE.read_text(encoding="utf-8")
-        self.assertIn("cargo build -q -p boole-node -p boole-miner --features boole-miner/dev-tools", body)
+        self.assertIn(
+            'smoke_build_binary boole-miner boole-miner --features boole-miner/dev-tools',
+            body,
+        )
+        self.assertIn('smoke_prewarm_binary "$MINER_BIN"', body)
         self.assertIn('"$MINER_BIN" start', body)
         self.assertIn("--mock-verify-accept", body)
         self.assertIn("--profile v1-lenbound", body)
@@ -20,16 +24,15 @@ class BooleMinerSmokeContractTests(unittest.TestCase):
 
     def test_smoke_owns_its_temporary_outputs(self) -> None:
         body = SMOKE.read_text(encoding="utf-8")
-        self.assertIn('mktemp -d "${TMPDIR:-/tmp}/boole-miner-smoke.', body)
-        self.assertIn('rm -rf "$TMP_DIR"', body)
+        self.assertIn('source "$ROOT/scripts/smoke-lifecycle.sh"', body)
+        self.assertIn('SMOKE_WORK_DIR', body)
         self.assertNotIn("/tmp/boole-miner-smoke-", body)
 
     def test_owned_node_cleanup_has_a_bounded_term_then_kill_path(self) -> None:
         body = SMOKE.read_text(encoding="utf-8")
-        self.assertIn("stop_owned_node()", body)
-        self.assertIn('kill -TERM "$owned_pid"', body)
-        self.assertIn('kill -KILL "$owned_pid"', body)
-        self.assertNotIn('wait "$PID"', body)
+        self.assertIn('smoke_register_child "$PID"', body)
+        self.assertIn('smoke_stop_and_wait "$PID"', body)
+        self.assertNotIn('\nwait "$PID"', body)
 
 
 if __name__ == "__main__":

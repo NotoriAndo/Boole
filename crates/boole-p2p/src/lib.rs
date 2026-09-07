@@ -24,7 +24,11 @@ use serde_json::Value;
 /// v2: `Hello` gained the required `consensus_rule_version` field
 /// (ADR-0009 amendment 2026-07-08, ADR-0014 (b)).
 /// v3: useful-work package request/response frames were added (BF.6a).
-pub const PROTOCOL_VERSION: u32 = 3;
+/// v4: `Hello` gained required signed-work `authorization_policy` and
+/// `effective_family_manifest_root` commitments. Peers with the same declared
+/// network/genesis but different effective validation rules must never exchange
+/// blocks.
+pub const PROTOCOL_VERSION: u32 = 4;
 
 /// Max encoded frame size, newline included (ADR-0009 (c) — mirrors the MCP
 /// stdio frame cap, N0-pre.6). Applies to both directions.
@@ -46,6 +50,19 @@ pub struct HeadSummary {
     pub c: String,
 }
 
+/// Signed-work validity posture committed by each peer during Hello.
+///
+/// This stays separate from the genesis hash for backward compatibility: an
+/// embedding with no explicit network keeps accepting legacy-unscoped signed
+/// work, while an explicitly named embedding requires network-scoped signed
+/// work. The handshake prevents those distinct validators from peering.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AuthorizationPolicy {
+    LegacyUnscopedV1,
+    NetworkScopedV1,
+}
+
 /// The five wire frames fixed by ADR-0009 (b). Payloads that re-enter the
 /// local admission/replay path (`ShareAnnounce.submission`, `Blocks.blocks`)
 /// stay schemaless `Value`s on the wire: ingress re-parses them through the
@@ -62,9 +79,17 @@ pub enum Frame {
         /// disconnect — nodes on different rules must not gossip, or they
         /// silently fork on the same shares.
         consensus_rule_version: u32,
+        /// Required commitment to the signed-work validity policy. No serde
+        /// default: pre-v4/missing commitments fail closed during decoding.
+        authorization_policy: AuthorizationPolicy,
         network_id: String,
         /// Load-bearing for N5.2 (per-network genesis commitment).
         genesis_hash: String,
+        /// Canonical root of the registry this process will actually use for
+        /// family-dependent replay and settlement, including the empty set.
+        /// This remains distinct from an optional genesis pin: it prevents
+        /// unpinned peers with different effective validators from peering.
+        effective_family_manifest_root: String,
         head: HeadSummary,
     },
     ShareAnnounce {
@@ -124,6 +149,17 @@ impl Frame {
     /// Frame-level contract checks beyond JSON shape. Enforced by the codec
     /// on ingress; send-side runs it before encoding as well.
     pub fn validate(&self) -> Result<(), FrameError> {
+        if let Frame::Hello {
+            effective_family_manifest_root,
+            ..
+        } = self
+        {
+            if !is_lowercase_hex32(effective_family_manifest_root) {
+                return Err(FrameError::InvalidFamilyManifestRoot {
+                    root: effective_family_manifest_root.clone(),
+                });
+            }
+        }
         if let Frame::GetBlocks { from, to } = self {
             // Compare the zero-based span instead of forming the inclusive
             // length: `to - from + 1` overflows for an untrusted `u64::MAX`
@@ -179,6 +215,10 @@ pub enum FrameError {
     RangeTooWide { from: u64, to: u64 },
     #[error("package root must be exactly 32 bytes encoded as lowercase hexadecimal: {root}")]
     InvalidPackageRoot { root: String },
+    #[error(
+        "effective family manifest root must be exactly 32 bytes encoded as lowercase hexadecimal: {root}"
+    )]
+    InvalidFamilyManifestRoot { root: String },
     #[error(
         "decoded package payload is {size} bytes; maximum is {MAX_PACKAGE_PAYLOAD_BYTES} bytes"
     )]
@@ -482,8 +522,10 @@ mod tests {
         let frame = Frame::Hello {
             protocol_version: PROTOCOL_VERSION,
             consensus_rule_version: 1,
+            authorization_policy: AuthorizationPolicy::NetworkScopedV1,
             network_id: "net".to_string(),
             genesis_hash: "00".repeat(32),
+            effective_family_manifest_root: "11".repeat(32),
             head: HeadSummary {
                 height: 1,
                 c: "ab".repeat(32),
@@ -491,11 +533,62 @@ mod tests {
         };
         let encoded = serde_json::to_value(&frame).expect("encode");
         assert_eq!(encoded["type"], "hello");
-        assert_eq!(encoded["protocolVersion"], 3);
+        assert_eq!(encoded["protocolVersion"], 4);
         assert_eq!(encoded["consensusRuleVersion"], 1);
+        assert_eq!(encoded["authorizationPolicy"], "networkScopedV1");
         assert_eq!(encoded["networkId"], "net");
         assert!(encoded["genesisHash"].is_string());
+        assert_eq!(encoded["effectiveFamilyManifestRoot"], "11".repeat(32));
         assert_eq!(encoded["head"]["height"], 1);
+    }
+
+    #[test]
+    fn hello_requires_authorization_policy_commitment() {
+        let missing_policy = serde_json::json!({
+            "type": "hello",
+            "protocolVersion": PROTOCOL_VERSION,
+            "consensusRuleVersion": 1,
+            "networkId": "net",
+            "genesisHash": "00".repeat(32),
+            "effectiveFamilyManifestRoot": "11".repeat(32),
+            "head": { "height": 0, "c": "00".repeat(32) }
+        });
+
+        assert!(
+            serde_json::from_value::<Frame>(missing_policy).is_err(),
+            "a peer must commit its signed-work authorization posture in Hello"
+        );
+    }
+
+    #[test]
+    fn hello_requires_valid_effective_family_manifest_root_commitment() {
+        let missing_root = serde_json::json!({
+            "type": "hello",
+            "protocolVersion": PROTOCOL_VERSION,
+            "consensusRuleVersion": 1,
+            "authorizationPolicy": "networkScopedV1",
+            "networkId": "net",
+            "genesisHash": "00".repeat(32),
+            "head": { "height": 0, "c": "00".repeat(32) }
+        });
+        assert!(serde_json::from_value::<Frame>(missing_root).is_err());
+
+        let invalid = Frame::Hello {
+            protocol_version: PROTOCOL_VERSION,
+            consensus_rule_version: 1,
+            authorization_policy: AuthorizationPolicy::NetworkScopedV1,
+            network_id: "net".to_string(),
+            genesis_hash: "00".repeat(32),
+            effective_family_manifest_root: "not-a-root".to_string(),
+            head: HeadSummary {
+                height: 0,
+                c: "00".repeat(32),
+            },
+        };
+        assert!(matches!(
+            invalid.validate(),
+            Err(FrameError::InvalidFamilyManifestRoot { .. })
+        ));
     }
 
     #[test]
