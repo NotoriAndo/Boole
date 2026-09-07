@@ -776,7 +776,15 @@ fn unavailable_stage_result(
 }
 
 fn apply_remaining_timeout(config: &mut LeanRunnerConfig, deadline: Instant) -> bool {
-    let remaining = deadline.saturating_duration_since(Instant::now());
+    apply_remaining_timeout_at(config, deadline, Instant::now())
+}
+
+fn apply_remaining_timeout_at(
+    config: &mut LeanRunnerConfig,
+    deadline: Instant,
+    now: Instant,
+) -> bool {
+    let remaining = deadline.saturating_duration_since(now);
     if remaining.is_zero() {
         return false;
     }
@@ -3295,44 +3303,93 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
     #[test]
     fn helper_primary_and_audit_share_one_wall_clock_deadline() {
+        let config = LeanRunnerConfig::new("shared-deadline").with_timeout_ms(500);
+        let started = Instant::now();
+        let deadline = started + Duration::from_millis(500);
+
+        // Each production stage starts from a clone of the original config.
+        // Inject only the clock observation so host scheduling cannot decide
+        // whether the test reaches the remainder/no-renewal assertions.
+        for (stage, elapsed_ms, expected_ms) in [
+            ("helper", 0, 500),
+            ("primary", 300, 200),
+            ("audit", 450, 50),
+        ] {
+            let mut stage_config = config.clone();
+            assert!(apply_remaining_timeout_at(
+                &mut stage_config,
+                deadline,
+                started + Duration::from_millis(elapsed_ms),
+            ));
+            assert_eq!(
+                stage_config.timeout_ms, expected_ms,
+                "{stage} must receive the common deadline remainder, not a fresh budget"
+            );
+        }
+    }
+
+    #[test]
+    fn shared_deadline_exhaustion_after_scheduler_pause_blocks_the_next_stage() {
+        let config = LeanRunnerConfig::new("exhausted-deadline").with_timeout_ms(500);
+        let started = Instant::now();
+        let deadline = started + Duration::from_millis(500);
+        let first_stage_finished = started + Duration::from_millis(300);
+        let resumed_after_pause = first_stage_finished + Duration::from_millis(600);
+
+        // Cover both exact exhaustion and a scheduler pause longer than the
+        // remaining budget. Neither path may launch a stage with a new 500ms.
+        for observed in [deadline, resumed_after_pause] {
+            let mut stage_config = config.clone();
+            assert!(!apply_remaining_timeout_at(
+                &mut stage_config,
+                deadline,
+                observed,
+            ));
+            assert_eq!(stage_config.timeout_ms, config.timeout_ms);
+        }
+
+        // Also exercise the production clock wrapper without a timing race:
+        // a deadline observed before this call can only be exhausted.
+        let expired_deadline = Instant::now();
+        let mut stage_config = config;
+        assert!(!apply_remaining_timeout(
+            &mut stage_config,
+            expired_deadline
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn shared_deadline_remainder_limits_a_real_subprocess() {
         let runner = LeanRunner::new(
-            LeanRunnerConfig::new("shared-deadline")
+            LeanRunnerConfig::new("shared-deadline-subprocess")
                 .with_isolation_mode(IsolationMode::Log)
                 .with_timeout_ms(500),
         );
-        let deadline = Instant::now() + Duration::from_millis(500);
+        let started = Instant::now();
+        let mut stage_config = runner.config.clone();
+        assert!(apply_remaining_timeout_at(
+            &mut stage_config,
+            started + Duration::from_millis(500),
+            started + Duration::from_millis(450),
+        ));
+        assert_eq!(stage_config.timeout_ms, 50);
 
-        let mut first_config = runner.config.clone();
-        assert!(apply_remaining_timeout(&mut first_config, deadline));
-        let mut first = Command::new("/bin/sh");
-        first.arg("-c").arg("sleep 0.30");
-        let first = runner
-            .run_sandboxed_with_config(first, &first_config)
-            .expect("first stage runs");
+        // Real process enforcement remains covered independently from clock
+        // arithmetic. Avoid elapsed-time assertions that merely reintroduce
+        // the scheduler race this test is meant to remove.
+        let mut command = Command::new("/bin/sh");
+        command.arg("-c").arg("sleep 10");
+        let outcome = runner
+            .run_sandboxed_with_config(command, &stage_config)
+            .expect("a stage returns a timeout envelope");
         assert!(
-            first.success,
-            "first stage must fit: exit={} stderr={}",
-            first.exit_code, first.stderr
-        );
-
-        let mut second_config = runner.config.clone();
-        assert!(apply_remaining_timeout(&mut second_config, deadline));
-        assert!(
-            second_config.timeout_ms < 300,
-            "the next stage must receive only the common deadline remainder"
-        );
-        let mut second = Command::new("/bin/sh");
-        second.arg("-c").arg("sleep 0.30");
-        let second = runner
-            .run_sandboxed_with_config(second, &second_config)
-            .expect("second stage returns a timeout envelope");
-        assert!(
-            second.timed_out,
-            "the second stage must not receive a fresh 500ms budget: exit={} stderr={}",
-            second.exit_code, second.stderr
+            outcome.timed_out && !outcome.success,
+            "the remainder must bound the subprocess: exit={} stderr={}",
+            outcome.exit_code,
+            outcome.stderr
         );
     }
 

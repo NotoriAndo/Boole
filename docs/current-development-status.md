@@ -8,7 +8,8 @@ Work methods are governed by [the development policy](development-throughput-and
 ## Current audit-remediation boundary
 
 The first audit-remediation pass merged as [PR #370](https://github.com/NotoriAndo/Boole/pull/370),
-main `374f7bbb943457f2cfebdb90d8f276f705fd5bd9`. The follow-up addresses the
+main `374f7bbb943457f2cfebdb90d8f276f705fd5bd9`. The follow-up,
+[PR #371](https://github.com/NotoriAndo/Boole/pull/371), addresses the
 remaining verified boundaries and records explicit exclusions in
 [September audit follow-up](audit-remediation-2026-09.md). Required integration
 evidence is the containing PR's protected CI under the
