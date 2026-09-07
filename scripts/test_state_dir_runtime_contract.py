@@ -76,17 +76,39 @@ class StateDirRuntimeContractTests(unittest.TestCase):
         )
 
     def test_from_config_calls_acquire(self) -> None:
-        body = _read(LOCAL_NODE)
+        function = re.search(
+            r"(?ms)^    fn from_config\([^)]*\)[^{]*\{(.*?)^    \}",
+            _read(LOCAL_NODE),
+        )
+        self.assertIsNotNone(function, "LocalNodeState::from_config must exist")
+        body = re.sub(r"(?m)//[^\n]*", "", function.group(1))
+        acquisition = re.search(r"\blet\s+state_dir_guard\b[^;]*;", body)
+        self.assertIsNotNone(acquisition, "from_config must acquire its state-dir guard")
+        expression = acquisition.group()
+        # Option::map passes the same locking function as a value; requiring
+        # an opening parenthesis after its name rejects this valid call path.
         self.assertRegex(
+            expression,
+            r"\.map\s*\(\s*state_dir::acquire\s*\)\s*\.transpose\s*\(\s*\)\s*\?",
+            "optional state-dir acquisition must propagate a lock failure",
+        )
+        consumers = list(re.finditer(
+            r"\b(?:LedgerLockSet::acquire|state_dir::ensure_manifest|"
+            r"File\w+::(?:recover|rebuild\w*)|"
+            r"RuntimeAdmissionState::boot_from_store\w*)\s*\(",
             body,
-            re.compile(
-                r"\b(?:acquire_state_dir|state_dir::acquire|crate::acquire_state_dir)\s*\(",
-                re.MULTILINE,
-            ),
-            "P1.1b: LocalNodeState::from_config must call "
-            "`acquire_state_dir` (or `state_dir::acquire`) when "
-            "`state_dir` is set, so a second process is rejected before "
-            "any ledger open.",
+        ))
+        self.assertTrue(consumers, "from_config must retain durable-store consumers")
+        for consumer in consumers:
+            self.assertLess(
+                acquisition.end(), consumer.start(),
+                f"state-dir lock must precede {consumer.group()}",
+            )
+        returned_state = re.search(r"(?s)\bOk\s*\(\s*Self\s*\{(.*)\}\s*\)", body)
+        self.assertIsNotNone(returned_state, "from_config must return its node state")
+        self.assertTrue(
+            re.search(r"\b_state_dir_guard\s*:\s*state_dir_guard\b", returned_state.group(1)),
+            "the acquired guard must move into the returned node state",
         )
 
     def test_from_config_calls_ensure_manifest(self) -> None:
