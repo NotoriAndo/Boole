@@ -14,11 +14,15 @@ fn proof_to_block_benchmark_script_reports_smoke_metrics() {
     ));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("tmp dir");
+    let block_store_dir = dir.join("outputs");
 
     let output = Command::new("bash")
         .arg(&script_path)
         .env("BOOLE_NODE_BIN", env!("CARGO_BIN_EXE_boole-node"))
-        .env("BLOCK_STORE_DIR", dir.to_str().expect("utf8 temp path"))
+        .env(
+            "BLOCK_STORE_DIR",
+            block_store_dir.to_str().expect("utf8 output path"),
+        )
         .output()
         .expect("run proof-to-block benchmark script");
     assert!(
@@ -65,11 +69,15 @@ fn proof_to_block_benchmark_can_opt_into_agent_fixture_candidate_case() {
     ));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("tmp dir");
+    let block_store_dir = dir.join("outputs");
 
     let output = Command::new("bash")
         .arg(&script_path)
         .env("BOOLE_NODE_BIN", env!("CARGO_BIN_EXE_boole-node"))
-        .env("BLOCK_STORE_DIR", dir.to_str().expect("utf8 temp path"))
+        .env(
+            "BLOCK_STORE_DIR",
+            block_store_dir.to_str().expect("utf8 output path"),
+        )
         .env("BOOLE_ENABLE_AGENT_PROOF_CANDIDATE", "1")
         .output()
         .expect("run proof-to-block benchmark script with agent row");
@@ -441,11 +449,15 @@ fn runtime_smoke_all_script_runs_multiple_checked_cases() {
     ));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("tmp dir");
+    let block_store_dir = dir.join("outputs");
 
     let output = Command::new("bash")
         .arg(&script_path)
         .env("BOOLE_NODE_BIN", env!("CARGO_BIN_EXE_boole-node"))
-        .env("BLOCK_STORE_DIR", dir.to_str().expect("utf8 temp path"))
+        .env(
+            "BLOCK_STORE_DIR",
+            block_store_dir.to_str().expect("utf8 output path"),
+        )
         .output()
         .expect("run runtime smoke all script");
     assert!(
@@ -493,11 +505,15 @@ fn runtime_smoke_all_script_uses_tracked_case_manifest() {
     ));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("tmp dir");
+    let block_store_dir = dir.join("outputs");
 
     let output = Command::new("bash")
         .arg(&script_path)
         .env("BOOLE_NODE_BIN", env!("CARGO_BIN_EXE_boole-node"))
-        .env("BLOCK_STORE_DIR", dir.to_str().expect("utf8 temp path"))
+        .env(
+            "BLOCK_STORE_DIR",
+            block_store_dir.to_str().expect("utf8 output path"),
+        )
         .env("RUNTIME_SMOKE_CASES", &manifest_path)
         .output()
         .expect("run runtime smoke all script with manifest");
@@ -621,11 +637,15 @@ fn proof_to_block_benchmark_includes_restart_nblock_and_multiminer_cases() {
     ));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("tmp dir");
+    let block_store_dir = dir.join("outputs");
 
     let output = Command::new("bash")
         .arg(&script_path)
         .env("BOOLE_NODE_BIN", env!("CARGO_BIN_EXE_boole-node"))
-        .env("BLOCK_STORE_DIR", dir.to_str().expect("utf8 temp path"))
+        .env(
+            "BLOCK_STORE_DIR",
+            block_store_dir.to_str().expect("utf8 output path"),
+        )
         .output()
         .expect("run expanded proof-to-block benchmark script");
     assert!(
