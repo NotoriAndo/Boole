@@ -6,7 +6,8 @@ cd "$ROOT"
 source "$ROOT/scripts/smoke-lifecycle.sh"
 
 export RUNTIME_SMOKE_CASES="${RUNTIME_SMOKE_CASES:-fixtures/protocol/runtime-smoke/cases.v1.json}"
-export BLOCK_STORE_DIR="$(smoke_fresh_path "${BLOCK_STORE_DIR:-$SMOKE_WORK_DIR/cases}")"
+BLOCK_STORE_DIR="$(smoke_fresh_path "${BLOCK_STORE_DIR:-$SMOKE_WORK_DIR/cases}")"
+export BLOCK_STORE_DIR
 mkdir -p "$BLOCK_STORE_DIR"
 
 python3 <<'PY'

@@ -3,7 +3,15 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+source "$ROOT/scripts/smoke-lifecycle.sh"
 
+# The benchmark owns this fresh path for its complete lifetime.  Keep it absent
+# here: runtime-smoke-all creates the case directory after independently
+# rejecting any caller-owned output path.  With the default it lives below this
+# benchmark's private work directory and is removed by its EXIT trap; an
+# explicitly supplied fresh path remains available to its caller.
+BLOCK_STORE_DIR="$(smoke_fresh_path "${BLOCK_STORE_DIR:-$SMOKE_WORK_DIR/cases}")"
+export BLOCK_STORE_DIR
 SMOKE_JSON="$(${ROOT}/scripts/runtime-smoke-all.sh)"
 
 python3 - "$SMOKE_JSON" <<'PY'
@@ -17,8 +25,7 @@ import sys
 
 smoke = json.loads(sys.argv[1])
 root = pathlib.Path.cwd()
-block_store_dir = pathlib.Path(os.environ.get("BLOCK_STORE_DIR", "/tmp/boole-runtime-smoke-cases"))
-block_store_dir.mkdir(parents=True, exist_ok=True)
+block_store_dir = pathlib.Path(os.environ["BLOCK_STORE_DIR"])
 node_bin = os.environ.get("BOOLE_NODE_BIN")
 
 

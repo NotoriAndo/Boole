@@ -73,6 +73,7 @@ class SmokeLifecycleTests(unittest.TestCase):
             "local-mining-smoke.sh": "\n# Finish compilation",
             "runtime-smoke.sh": '\nif [[ -n "${BOOLE_NODE_BIN',
             "runtime-smoke-all.sh": "\npython3",
+            "proof-to-block-benchmark.sh": "\nSMOKE_JSON=",
             "boole-miner-agent-cli-smoke.sh": "\n# Build before",
             "boole-miner-hermes-cli-smoke.sh": "\ncommand -v hermes",
             "boole-miner-hermes-real-verify-smoke.sh": "\ncommand -v hermes",
@@ -105,6 +106,23 @@ class SmokeLifecycleTests(unittest.TestCase):
                 self.assertEqual(sentinel.read_text(), "caller-owned\n")
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("existing", result.stderr)
+
+    def test_existing_runtime_output_rejection_stops_before_directory_creation(self):
+        # A shell export declaration can hide a failed command substitution.
+        # Observe the next filesystem action directly: rejection must stop the
+        # script before it tries to create an output directory, even if that
+        # action would otherwise succeed.
+        with tempfile.TemporaryDirectory() as temp:
+            body = (ROOT / "scripts/runtime-smoke-all.sh").read_text().split("\npython3", 1)[0]
+            body = body.replace('ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"', f'ROOT="{ROOT}"')
+            result = subprocess.run(
+                ["/bin/bash", "-c", 'mkdir() { printf "unexpected_output_creation\\n" >&2; }\n' + body],
+                env={**os.environ, "BLOCK_STORE_DIR": temp},
+                capture_output=True, text=True, timeout=10,
+            )
+            self.assertNotEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn("unexpected_output_creation", result.stderr)
+            self.assertIn("existing output path", result.stderr)
 
 
 if __name__ == "__main__":
