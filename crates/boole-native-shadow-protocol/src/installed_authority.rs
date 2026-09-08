@@ -35,6 +35,8 @@ const AUTHORITY_FILE_MODE: u32 = 0o444;
 
 #[cfg(feature = "fresh-answer-canary")]
 mod canary;
+#[cfg(feature = "development-task-admission")]
+pub use canary::open_installed_development_task;
 #[cfg(feature = "fresh-answer-canary")]
 pub use canary::{
     open_installed_canary, InstalledCanaryAuthority, InstalledCanaryRedeliveryAuthority,

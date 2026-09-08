@@ -253,7 +253,7 @@ class CrashRestartGateWiringTests(unittest.TestCase):
         self.assertRegex(
             manager,
             r"run_closed_local_replay_gate\n\s*run_crash_restart_replay_gate\n"
-            r"\s*run_fresh_answer_canary_gate\n\s*exit 0",
+            r"\s*run_fresh_answer_canary_gate\n\s*run_fresh_answer_canary_gate development-task\n\s*exit 0",
         )
 
     def test_portable_gate_budget_covers_crash_scenarios(self) -> None:

@@ -16,6 +16,7 @@ import signal
 import subprocess
 import tempfile
 from pathlib import Path
+from typing import Optional
 
 try:
     from . import native_shadow_crash_restart_gate as crash
@@ -61,6 +62,40 @@ def payload(grant: dict, raw: str) -> dict:
     }
 
 
+def development_spec(label: str) -> dict:
+    # Independent small tasks, generated here, not derived from any accepted
+    # historical answer. Production never accepts caller-provided Rust anchors.
+    third = label == "rejected"
+    return {"typeName": "DevelopmentTriple" if third else "DevelopmentPoint",
+            "fieldTypes": ["u16", "i64", "bool"] if third else ["i32", "bool"],
+            "taskSeed": hashlib.sha256(label.encode()).hexdigest(),
+            "a0": -9 if third else 17, "mul": 7 if third else 3,
+            "coeffs": [3, -1, 2] if third else [2, -5]}
+
+
+def development_answer(task: dict, label: str) -> str:
+    c = task["constants"]
+    body = "let mut acc = {}i64;\n    for item in items {{\n        let mut projection = 0i64;\n".format(c["a0"])
+    for index, coefficient in enumerate(c["coeffs"]):
+        body += "        projection = projection.wrapping_add((item.{} as i64).wrapping_mul({}i64));\n".format(index, coefficient)
+    body += "        acc = acc.wrapping_mul({}i64).wrapping_add(projection);\n    }}\n    acc".format(c["mul"])
+    if label == "rejected":
+        body = "0i64"
+    source = task["scaffold"].replace("todo!()", body)
+    if label == "tampered":
+        source = "// unauthorized scaffold change\n" + source
+    return "Synthetic development task answer, not a model answer.\n```rust\n" + source + "```"
+
+
+def cross_task_probe(previous: Optional[dict], current: dict) -> Optional[dict]:
+    # Historical canary cases deliberately share one problem. Relabeling only
+    # the epoch would make a valid candidate, not a cross-task negative control.
+    fields = ("familyVersion", "templateId", "challengeSha256")
+    if previous is None or all(previous[key] == current[key] for key in fields):
+        return None
+    return dict(previous, epoch=current["epoch"])
+
+
 def run(command: list, *, check: bool = True) -> subprocess.CompletedProcess:
     return subprocess.run([str(value) for value in command], check=check, capture_output=True, text=True, timeout=300)
 
@@ -76,10 +111,13 @@ def run_gate(args: argparse.Namespace) -> None:
     if os.geteuid() != 0 or os.uname().sysname != "Linux":
         raise RuntimeError("canary integration gate requires the disposable root-owned Linux test environment")
     node = pwd.getpwnam("boole-node")
-    authority = args.authority_directory / "development-canary-v1"
-    roots = [STATE / "canary-node", STATE / "canary-launcher"]
-    launcher = LIBEXEC / "boole-fresh-answer-canary-launcher"
-    node_binary = LIBEXEC / "boole-fresh-answer-canary-node"
+    development_tasks = getattr(args, "development_tasks", False)
+    prefix = "development-task" if development_tasks else "fresh-answer-canary"
+    authority = args.authority_directory / ("development-task-v1" if development_tasks else "development-canary-v1")
+    state_prefix = "development-task" if development_tasks else "canary"
+    roots = [STATE / (state_prefix + "-node"), STATE / (state_prefix + "-launcher")]
+    launcher = LIBEXEC / ("boole-" + prefix + "-launcher")
+    node_binary = LIBEXEC / ("boole-" + prefix + "-node")
     dropins = [
         Path("/run/systemd/system") / (crash.LAUNCHER_SERVICE + ".d") / "20-fresh-answer-canary.conf",
         Path("/run/systemd/system") / (crash.NODE_SERVICE + ".d") / "20-fresh-answer-canary.conf",
@@ -118,7 +156,12 @@ def run_gate(args: argparse.Namespace) -> None:
                 output.mkdir(mode=0o700)
                 run_id = hashlib.sha256((scratch_name + label).encode()).hexdigest()
                 journal_id = hashlib.sha256((run_id + ":private-journal").encode()).hexdigest()
-                run([args.operator_binary, "create-grant", key, run_id, journal_id, epoch, output])
+                if development_tasks:
+                    spec = scratch / (label + "-spec.json")
+                    spec.write_text(json.dumps(development_spec(label)))
+                    run([args.operator_binary, "create-task-grant", key, spec, run_id, journal_id, epoch, output])
+                else:
+                    run([args.operator_binary, "create-grant", key, run_id, journal_id, epoch, output])
                 for name in ("grant.json", "grant.sig", "operator-public-key.bin"):
                     destination = authority / name
                     shutil.copyfile(output / name, destination)
@@ -143,14 +186,18 @@ def run_gate(args: argparse.Namespace) -> None:
             crash.wait_for_unit_state(crash.NODE_SERVICE, ("failed",), 120)
             crash.require_listener_refused()
             stop()
-            print("fresh-answer-canary:unsigned-startup-refused:PASS", flush=True)
+            print("{}:unsigned-startup-refused:PASS".format(prefix), flush=True)
 
-            for label, epoch, filename, verdict in [
+            cases = [
                 ("accepted", 10, "replay-accepted.raw.txt", "accepted"),
                 ("rejected", 11, "replay-constant.raw.txt", "rejected"),
-            ]:
+            ]
+            if development_tasks:
+                cases.append(("tampered", 13, "", "rejected"))
+            previous_arguments = None
+            for label, epoch, filename, verdict in cases:
                 grant, output, node_state, launcher_state = provision(label, epoch)
-                raw = synthetic_answer((args.fixture_directory / filename).read_text(), label)
+                raw = development_answer(json.loads((output / "task.json").read_text()), label) if development_tasks else synthetic_answer((args.fixture_directory / filename).read_text(), label)
                 arguments = payload(grant, raw)
                 cursor = crash.freeze_journal_cursor()
                 run(["systemctl", "start", crash.NODE_SERVICE])
@@ -161,6 +208,11 @@ def run_gate(args: argparse.Namespace) -> None:
                     error, body = client.call("wrong-task", wrong)
                     if not error or body.get("reasonCode") != "canary_task_mismatch":
                         raise ValueError("canary wrong-task admission was not refused")
+                    probe = cross_task_probe(previous_arguments, arguments)
+                    if probe is not None:
+                        error, body = client.call("cross-task", probe)
+                        if not error or body.get("reasonCode") != "canary_task_mismatch":
+                            raise ValueError("another admitted task was not refused before spending budget")
                     error, first = client.call("fresh-" + label, arguments)
                     if error:
                         raise ValueError("canary fresh answer did not reach contained checker: {}".format(first))
@@ -188,7 +240,7 @@ def run_gate(args: argparse.Namespace) -> None:
                 stop()
                 recovery = scratch / (label + "-recovery")
                 recovery.mkdir(mode=0o700)
-                run([args.operator_binary, "create-redelivery", key, output, attempt["candidateDigest"], attempt["submissionDigest"], recovery])
+                run([args.operator_binary, "create-task-redelivery" if development_tasks else "create-redelivery", key, output, attempt["candidateDigest"], attempt["submissionDigest"], recovery])
                 for name in ("redelivery.json", "redelivery.sig"):
                     destination = authority / name
                     shutil.copyfile(recovery / name, destination)
@@ -218,10 +270,11 @@ def run_gate(args: argparse.Namespace) -> None:
                 if len(crash.peer_marker_pids(cursor)) != 1:
                     raise ValueError("canary sent more than one request to the launcher")
                 stop()
-                print("fresh-answer-canary:{}-mcp-restart-redelivery:PASS".format(label), flush=True)
+                previous_arguments = arguments
+                print("{}:{}-mcp-restart-redelivery:PASS".format(prefix, label), flush=True)
 
-            grant, _, node_state, launcher_state = provision("inflight-crash", 12)
-            raw = synthetic_answer((args.fixture_directory / "replay-accepted.raw.txt").read_text(), "crash")
+            grant, output, node_state, launcher_state = provision("inflight-crash", 12)
+            raw = development_answer(json.loads((output / "task.json").read_text()), "accepted") if development_tasks else synthetic_answer((args.fixture_directory / "replay-accepted.raw.txt").read_text(), "crash")
             cursor = crash.freeze_journal_cursor()
             run(["systemctl", "start", crash.NODE_SERVICE])
             crash.wait_for_listener()
@@ -244,9 +297,9 @@ def run_gate(args: argparse.Namespace) -> None:
             if before != (node_state / "verdict-v1.ndjson").read_bytes() or crash.peer_marker_pids(cursor):
                 raise ValueError("ambiguous canary execution was retried after restart")
             stop()
-            print("fresh-answer-canary:inflight-crash-fail-closed:PASS", flush=True)
+            print("{}:inflight-crash-fail-closed:PASS".format(prefix), flush=True)
             mcp.require_no_legacy_node_contact(legacy.connections)
-            print("fresh-answer-canary:real-mcp-contained-checker:PASS", flush=True)
+            print("{}:real-mcp-contained-checker:PASS".format(prefix), flush=True)
     finally:
         stop()
         legacy.close()
@@ -268,6 +321,7 @@ def main() -> None:
 
     signal.signal(signal.SIGTERM, interrupted)
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--development-tasks", action="store_true")
     for name in ("launcher-binary", "node-binary", "operator-binary", "mcp-binary", "authority-directory", "fixture-directory"):
         parser.add_argument("--" + name, type=Path, required=True)
     run_gate(parser.parse_args())

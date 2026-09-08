@@ -189,6 +189,8 @@ struct AuthorizedCheckerCase<R> {
 
 #[cfg(all(unix, feature = "fresh-answer-canary"))]
 mod canary;
+#[cfg(all(target_os = "linux", feature = "development-task-admission"))]
+pub use canary::serve_installed_development_task;
 #[cfg(all(target_os = "linux", feature = "fresh-answer-canary"))]
 pub use canary::serve_installed_fresh_answer_canary;
 

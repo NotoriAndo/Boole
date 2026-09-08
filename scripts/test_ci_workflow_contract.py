@@ -365,7 +365,7 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
         self.assertRegex(
             manager,
             re.compile(
-                r"run_closed_local_replay_gate\n\s*run_crash_restart_replay_gate\n\s*run_fresh_answer_canary_gate\n\s*exit 0"
+                r"run_closed_local_replay_gate\n\s*run_crash_restart_replay_gate\n\s*run_fresh_answer_canary_gate\n\s*run_fresh_answer_canary_gate development-task\n\s*exit 0"
             ),
         )
         for required in (
@@ -1127,7 +1127,7 @@ class NativeShadowArm64RootfsWorkflowContractTest(unittest.TestCase):
     def test_arm64_rootfs_replay_is_named_native_and_non_skippable(self):
         job = self._job("native-shadow-rootfs-replay-linux-arm64")
         self.assertIn("runs-on: ubuntu-24.04-arm", job)
-        self.assertIn("timeout-minutes: 45", job)
+        self.assertIn("timeout-minutes: 60", job)
         self.assertIn("dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9", job)
         self.assertIn("toolchain: 1.95.0", job)
         self.assertIn("groupadd --system boole-node", job)
@@ -1147,17 +1147,19 @@ class NativeShadowArm64RootfsWorkflowContractTest(unittest.TestCase):
         )
         self.assertIsNotNone(deadline_match)
         manager_seconds = int(deadline_match.group(1))
-        self.assertEqual(manager_seconds, 2100)
+        # Retain the prior 2100-second matrix and add one bounded 900-second
+        # development-task gate; this does not change any checker deadline.
+        self.assertEqual(manager_seconds, 2100 + 900)
         self.assertEqual(gate.count('"${arm64_manager_deadline_seconds}s"'), 1)
         self.assertLess(
-            gate.index("arm64_manager_deadline_seconds=2100"),
+            gate.index("arm64_manager_deadline_seconds=3000"),
             gate.index('"${arm64_manager_deadline_seconds}s"'),
         )
 
         workflow_match = re.search(r"timeout-minutes: ([0-9]+)", job)
         self.assertIsNotNone(workflow_match)
         workflow_seconds = int(workflow_match.group(1)) * 60
-        self.assertEqual(workflow_seconds, 45 * 60)
+        self.assertEqual(workflow_seconds, 60 * 60)
         self.assertGreaterEqual(workflow_seconds - manager_seconds, 600)
         self.assertIn("global CI orchestration cap", gate)
         self.assertNotIn("frozen inner deadlines total", gate)

@@ -10,6 +10,7 @@ publish = false
 default = []
 linux-arm64-authority = []
 fresh-answer-canary = ["dep:ed25519-dalek", "dep:zeroize"]
+development-task-admission = ["fresh-answer-canary"]
 
 [dependencies]
 base64.workspace = true

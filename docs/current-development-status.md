@@ -1,6 +1,6 @@
 # Boole — current development status
 
-Updated: 2026-09-08. This is the tracked entrypoint for current progress and next
+Updated: 2026-09-09. This is the tracked entrypoint for current progress and next
 work. Edit it in place; historical experiment results remain in their own records.
 Local Master/Execution documents summarize current contracts and milestones and
 point here for status. Historical planning text is archived locally; unresolved
@@ -50,6 +50,19 @@ Evidence: [MCP path](boole-mcp-e2e.md),
 [CI](https://github.com/NotoriAndo/Boole/actions/runs/33954999938).
 
 ## Next development boundary
+
+The separately approved [development tuple-task admission](development-tuple-task-admission.md)
+extends the fixed task to operator-signed generated problems in the existing
+Rust tuple-projection family. It has separate default-disabled Linux binaries,
+signature/schema/registry identity and per-task durable state. The profile admits
+only bounded typed specifications, not arbitrary source or runtime policy.
+Each installed grant still permits one candidate and at most one checker run;
+multiple problems use separate grants and state. The containing PR's full CI
+checks accepted/incorrect/tampered synthetic answers through actual MCP and the
+qualified checker, cross-task rejection and restart/redelivery safety.
+No new model execution is included. After this development boundary, the next
+evidence is a separately scoped real-model evaluation on new admitted problems,
+followed by general-user installation validation when that scope is selected.
 
 Real MCP-client/LLM [canary preparation](boole-mcp-canary-preparation.md) and the
 separate development implementation are complete. The newly approved

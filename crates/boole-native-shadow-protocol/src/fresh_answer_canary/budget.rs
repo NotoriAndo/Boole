@@ -38,17 +38,24 @@ enum Event {
 #[derive(Debug)]
 pub struct VerifiedCanaryExecutionAuthorization {
     request: Box<ExecutionRequest>,
+    materials: Option<std::sync::Arc<(Vec<u8>, Vec<u8>)>>,
 }
 
 impl VerifiedCanaryExecutionAuthorization {
     pub fn request(&self) -> &ExecutionRequest {
         &self.request
     }
-    pub fn task_bytes(&self) -> &'static [u8] {
-        crate::closed_local_replay_grant::TRACKED_REAL_HISTORY_TASK_BYTES
+    pub fn task_bytes(&self) -> &[u8] {
+        self.materials.as_ref().map_or(
+            crate::closed_local_replay_grant::TRACKED_REAL_HISTORY_TASK_BYTES,
+            |m| m.0.as_slice(),
+        )
     }
-    pub fn anchor_bytes(&self) -> &'static [u8] {
-        crate::closed_local_replay_grant::TRACKED_REAL_HISTORY_ANCHOR_BYTES
+    pub fn anchor_bytes(&self) -> &[u8] {
+        self.materials.as_ref().map_or(
+            crate::closed_local_replay_grant::TRACKED_REAL_HISTORY_ANCHOR_BYTES,
+            |m| m.1.as_slice(),
+        )
     }
 }
 
@@ -231,6 +238,7 @@ impl CanaryBudget {
         self.executed = true;
         Ok(VerifiedCanaryExecutionAuthorization {
             request: Box::new(request.clone()),
+            materials: grant.materials.clone(),
         })
     }
 

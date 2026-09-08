@@ -347,12 +347,15 @@ run_home=$(getent passwd "$run_user" | awk -F: 'NF == 7 { print $6 }')
 chmod 0711 "$scratch"
 # A 1,200-second global cap cut the native ARM run after every diagnostic,
 # rootfs-drift rejection and HTTP case had passed, while crash/restart was
-# still advancing normally. Use a 2,100-second global CI orchestration cap for
-# this manager invocation and leave another 600 seconds in the 45-minute job
+# still advancing normally. The subsequent 2,100-second matrix completed the
+# historical canary, but timed out after building the new task binaries in PR
+# CI 34246937751. Add the separate task gate's bounded 900-second allowance:
+# use a 3,000-second global CI orchestration cap for this manager invocation
+# and leave another 600 seconds in the 60-minute job
 # for acquisition, exact rootfs construction and direct parity. This is not a
 # claim that one outer cap sums every theoretical nested wait. Every checker,
 # HTTP, crash/restart and resource-policy deadline remains independently frozen.
-arm64_manager_deadline_seconds=2100
+arm64_manager_deadline_seconds=3000
 (
   cd "$ROOT"
   timeout --foreground --signal=TERM --kill-after=15s \

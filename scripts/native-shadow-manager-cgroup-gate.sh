@@ -1474,13 +1474,20 @@ run_crash_restart_replay_gate() {
 }
 
 run_fresh_answer_canary_gate() {
-  local features=boole-node/fresh-answer-canary,boole-native-shadow-launcher/fresh-answer-canary,boole-native-shadow-protocol/fresh-answer-canary
+  local mode=${1:-canary}
+  local prefix=fresh-answer-canary
+  local -a admission_args=()
+  if [[ "$mode" == development-task ]]; then
+    prefix=development-task
+    admission_args+=(--development-tasks)
+  fi
+  local features=boole-node/development-task-admission,boole-native-shadow-launcher/development-task-admission,boole-native-shadow-protocol/development-task-admission
   if [[ "$authority_profile" == arm64 ]]; then
     features+=,boole-node/linux-arm64-authority,boole-native-shadow-launcher/linux-arm64-authority,boole-native-shadow-protocol/linux-arm64-authority
   fi
   cargo build --locked -p boole-node -p boole-native-shadow-launcher -p boole-native-shadow-protocol \
     --features "$features" \
-    --bin boole-fresh-answer-canary-node --bin boole-fresh-answer-canary-launcher \
+    --bin "boole-$prefix-node" --bin "boole-$prefix-launcher" \
     --bin boole-canary-authority --message-format=json >"$canary_build_json"
   local -a canary_binaries=()
   mapfile -t canary_binaries < <(python3 -c '
@@ -1490,13 +1497,14 @@ for line in open(sys.argv[1], encoding="utf-8"):
     row = json.loads(line)
     if row.get("reason") == "compiler-artifact" and row.get("executable"):
         executables[row["target"]["name"]] = row["executable"]
-for name in ("boole-fresh-answer-canary-node", "boole-fresh-answer-canary-launcher", "boole-canary-authority"):
+for name in ("boole-" + sys.argv[2] + "-node", "boole-" + sys.argv[2] + "-launcher", "boole-canary-authority"):
     print(executables[name])
-' "$canary_build_json")
+' "$canary_build_json" "$prefix")
   [[ ${#canary_binaries[@]} -eq 3 ]] || die "canary binaries were not built"
   set +e
   timeout --foreground --signal=TERM --kill-after=30s 900s \
     sudo env PYTHONDONTWRITEBYTECODE=1 python3 scripts/native_shadow_canary_gate.py \
+      "${admission_args[@]}" \
       --node-binary "${canary_binaries[0]}" --launcher-binary "${canary_binaries[1]}" \
       --operator-binary "${canary_binaries[2]}" --mcp-binary "$boole_mcp_path" \
       --authority-directory "$authority_directory" \
@@ -1509,7 +1517,7 @@ for name in ("boole-fresh-answer-canary-node", "boole-fresh-answer-canary-launch
     sudo journalctl --no-pager -o cat -u "$unit_name" -n 100 >&2 || :
     die "fresh-answer canary integration gate failed"
   fi
-  grep -Fx 'fresh-answer-canary:real-mcp-contained-checker:PASS' "$canary_log" >/dev/null \
+  grep -Fx "$prefix:real-mcp-contained-checker:PASS" "$canary_log" >/dev/null \
     || die "canary actual MCP/checker result was not confirmed"
 }
 
@@ -1517,6 +1525,7 @@ if [[ "$closed_local_replay_only" == true ]]; then
   run_closed_local_replay_gate
   run_crash_restart_replay_gate
   run_fresh_answer_canary_gate
+  run_fresh_answer_canary_gate development-task
   exit 0
 fi
 

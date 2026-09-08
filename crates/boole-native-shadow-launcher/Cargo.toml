@@ -10,6 +10,12 @@ publish = false
 manager-cgroup-linux-gate = []
 linux-arm64-authority = ["boole-native-shadow-protocol/linux-arm64-authority"]
 fresh-answer-canary = ["boole-native-shadow-protocol/fresh-answer-canary"]
+development-task-admission = ["fresh-answer-canary", "boole-native-shadow-protocol/development-task-admission"]
+
+[[bin]]
+name = "boole-development-task-launcher"
+path = "src/bin/boole-development-task-launcher.rs"
+required-features = ["development-task-admission"]
 
 [dependencies]
 boole-native-shadow-protocol = { path = "../boole-native-shadow-protocol" }

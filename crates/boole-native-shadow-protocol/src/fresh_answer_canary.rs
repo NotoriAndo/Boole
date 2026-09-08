@@ -13,6 +13,9 @@ pub const SIGNING_DOMAIN: &[u8] = b"BOOLE-DEVELOPMENT-FRESH-ANSWER-CANARY-V1\0";
 pub const REDELIVERY_SIGNING_DOMAIN: &[u8] = b"BOOLE-DEVELOPMENT-CANARY-REDELIVERY-V1\0";
 const SCHEMA: &str = "boole.development.fresh-answer-canary.v1";
 
+#[cfg(feature = "development-task-admission")]
+pub mod development_task;
+
 #[derive(Debug, Error)]
 pub enum CanaryError {
     #[error("canary authorization rejected: {0}")]
@@ -127,6 +130,10 @@ impl CanaryTrustRoot {
 pub struct VerifiedCanaryGrant {
     grant: CanaryGrant,
     digest: String,
+    // Shared one-shot machinery; only the separate signed task verifier can
+    // supply generated materials. The historical verifier never selects these.
+    materials: Option<std::sync::Arc<(Vec<u8>, Vec<u8>)>>,
+    signing_domain: &'static [u8],
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -218,6 +225,8 @@ pub fn verify_grant(
     }
     Ok(VerifiedCanaryGrant {
         grant,
+        materials: None,
+        signing_domain: SIGNING_DOMAIN,
         // Bind the out-of-band signer as well as the exact signed bytes. Key
         // rotation cannot silently adopt an already provisioned run journal.
         digest: sha256_hex(&[SIGNING_DOMAIN, root.0.as_bytes(), bytes].concat()),
@@ -225,6 +234,21 @@ pub fn verify_grant(
 }
 
 impl VerifiedCanaryGrant {
+    pub fn task_bytes(&self) -> &[u8] {
+        self.materials.as_ref().map_or(
+            crate::closed_local_replay_grant::TRACKED_REAL_HISTORY_TASK_BYTES,
+            |materials| materials.0.as_slice(),
+        )
+    }
+    pub fn anchor_bytes(&self) -> &[u8] {
+        self.materials.as_ref().map_or(
+            crate::closed_local_replay_grant::TRACKED_REAL_HISTORY_ANCHOR_BYTES,
+            |materials| materials.1.as_slice(),
+        )
+    }
+    pub fn is_development_task(&self) -> bool {
+        self.materials.is_some()
+    }
     pub fn run_id(&self) -> &str {
         &self.grant.run_id
     }
@@ -244,7 +268,7 @@ impl VerifiedCanaryGrant {
     pub fn operation_id(&self) -> String {
         sha256_hex(
             &[
-                SIGNING_DOMAIN,
+                self.signing_domain,
                 self.digest.as_bytes(),
                 self.run_id().as_bytes(),
                 self.journal_id().as_bytes(),
