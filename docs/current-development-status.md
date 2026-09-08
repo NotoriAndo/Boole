@@ -51,17 +51,23 @@ Evidence: [MCP path](boole-mcp-e2e.md),
 
 ## Next development boundary
 
-With the independent-review remediation integrated, prepare—but do not execute—one real
-MCP-client/LLM canary through the existing verification path.
-First identify the available client, its authentication/billing path and the
-node/launcher environment; prepare a bounded end-to-end run and safe local
-rehearsal. A test driver is already proven; a real model acting as caller has
-not yet been demonstrated by this milestone. Do not assume a specific paid model
-or require a new paid API before checking available integration paths.
+Real MCP-client/LLM [canary preparation](boole-mcp-canary-preparation.md) is complete,
+but real execution is **not ready**. The current MCP binary passed a no-model
+transport rehearsal and 38 focused transport/grant tests. Native responses in
+the local rehearsal were synthetic; no model, checker or VM was executed.
 
-The current instruction does not itself approve a paid model call. Any later
-canary run must use the existing applicable approval, or obtain only the missing
-scope/budget approval.
+The key uncovered prerequisite is that the installed replay grant accepts only
+four fixed fixture answers and epochs. An arbitrary fresh model answer is not
+authorized by that service. The proposed next implementation is a separate,
+default-disabled, one-task fresh-answer canary capability with durable candidate
+binding, a single checker execution and exact redelivery; retain the frozen
+replay grant and qualified containment unchanged. Select its operator authority
+and explicit installed node/launcher environment before implementation/execution.
+
+An authenticated client path is available without assuming a new API key, but
+authentication is not spending approval. The preparation scope did not authorize
+a model call or the new runtime capability. A later implementation/run must use
+the applicable user approval and obtain only missing scope/budget authority.
 
 ## Operational boundaries
 
