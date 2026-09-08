@@ -1,8 +1,10 @@
 # Boole — current development status
 
-Updated: 2026-09-07. This is the tracked entrypoint for current progress and next
+Updated: 2026-09-08. This is the tracked entrypoint for current progress and next
 work. Edit it in place; historical experiment results remain in their own records.
-Local Master/Execution documents retain detailed plans and point here for status.
+Local Master/Execution documents summarize current contracts and milestones and
+point here for status. Historical planning text is archived locally; unresolved
+requirements have a separate local owner rather than competing current cursors.
 Work methods are governed by [the development policy](development-throughput-and-evidence-policy-v1.md).
 
 ## Current audit-remediation boundary
@@ -20,7 +22,9 @@ fork convergence, MCP transport replacement/responsiveness, and portable subproc
 storage pass also fixes bounty create/status/proof publication before durable
 audit storage. Independent review is separate from implementation ownership;
 the linked follow-up records the tested scope and remaining design limitations.
-Required integration evidence is the containing PR's protected CI under the
+PR #372 merged to main `a0a8f81c9a1fdc4988d0a4f846e7a682cd1f8199` after its
+required checks passed. Integration evidence is the containing PR's protected CI
+under the
 [development policy](development-throughput-and-evidence-policy-v1.md).
 No fresh VM execution or real-model success is claimed; historical execution
 evidence below remains preserved.
@@ -47,7 +51,7 @@ Evidence: [MCP path](boole-mcp-e2e.md),
 
 ## Next development boundary
 
-After the independent-review remediation's required CI/main integration, prepare—but do not execute—one real
+With the independent-review remediation integrated, prepare—but do not execute—one real
 MCP-client/LLM canary through the existing verification path.
 First identify the available client, its authentication/billing path and the
 node/launcher environment; prepare a bounded end-to-end run and safe local
