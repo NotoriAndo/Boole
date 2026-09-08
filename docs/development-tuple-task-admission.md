@@ -3,6 +3,12 @@
 Status: implemented development path; real Linux integration is checked by the
 containing PR's protected CI. No additional model session or public activation.
 
+The subsequent, separately approved
+[three-new-task model evaluation](boole-new-task-model-evaluation-2026-09-09.md)
+passed direct MCP submission, checker ACCEPT and model receipt delivery on all
+three generated problems. That completed execution is separate from this
+implementation's synthetic CI coverage and grants no further model sessions.
+
 This extends the [completed direct-client canary](boole-direct-model-canary-2026-09-08.md)
 to separately admitted problems in the existing
 `TUPLE-STRUCT-PROJECT/RUST-TUPLE-STRUCT-PROJECT-V1` family. The historical replay
