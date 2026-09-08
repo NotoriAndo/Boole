@@ -1,6 +1,12 @@
 # Real-model MCP canary preparation
 
-Status: **DEVELOPMENT CAPABILITY IMPLEMENTED; REAL-MODEL EXECUTION NOT READY** (2026-09-08).
+Status: **DEVELOPMENT CAPABILITY IMPLEMENTED; ACTUAL RUN RECORDED SEPARATELY** (2026-09-08).
+
+The subsequent approved [actual run](boole-real-model-canary-2026-09-08.md)
+obtained ACCEPT for a real model-generated candidate through operator-assisted
+MCP delivery. Direct client transmission was blocked by its approval settings
+and did not pass. The original preparation results below remain historical;
+they are not the current actual-run counts.
 
 The preparation milestone identifies a client path, exercises the current MCP
 transport without a model, and records the missing execution boundary. It does
@@ -45,6 +51,9 @@ Prepare an unregistered, disabled server entry until all execution gates pass:
   model credentials belong to the client, not to the MCP child.
 - Configure only `boole.verify_native` in `enabled_tools`; exclude mining,
   wallet/payment tools, and legacy receipt lookup from this canary.
+- Explicitly configure approval for that single allowed tool and exercise a
+  no-model dispatch preflight. `enabled_tools` controls exposure, not approval;
+  `approval_policy=never` alone can prevent the permitted MCP call from running.
 - Use a numeric-loopback native origin distinct from the legacy node origin.
 - Set the client tool timeout to 150 seconds, above the MCP upstream deadline
   of 120 seconds and its cleanup grace. A client timeout is not a verdict.
