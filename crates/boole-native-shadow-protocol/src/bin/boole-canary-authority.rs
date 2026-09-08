@@ -89,7 +89,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             bindings.clone(),
         );
         let bytes = serde_json::to_vec(&grant)?;
-        let signature = key.sign(&[SIGNING_DOMAIN, bytes.as_slice()].concat());
+        let signature = key.sign(&[SIGNING_DOMAIN, bytes.as_slice()].concat()); // P2.10-exempt: domain-separated development grant, not SignedEnvelope.
         verify_grant(&bytes, &signature.to_bytes(), &root, &bindings)?;
         write_new(output, "grant.json", &bytes)?;
         write_new(output, "grant.sig", &signature.to_bytes())?;
@@ -104,7 +104,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let signature = public_read(&source.join("grant.sig"), 64)?;
         let grant = verify_grant(&bytes, &signature, &root, &bindings)?;
         let bytes = serde_json::to_vec(&CanaryRedelivery::for_candidate(&grant, second, third))?;
-        let signature = key.sign(&[REDELIVERY_SIGNING_DOMAIN, bytes.as_slice()].concat());
+        let signature = key.sign(&[REDELIVERY_SIGNING_DOMAIN, bytes.as_slice()].concat()); // P2.10-exempt: domain-separated development redelivery, not SignedEnvelope.
         verify_redelivery(&bytes, &signature.to_bytes(), &root, &grant)?;
         write_new(output, "redelivery.json", &bytes)?;
         write_new(output, "redelivery.sig", &signature.to_bytes())?;

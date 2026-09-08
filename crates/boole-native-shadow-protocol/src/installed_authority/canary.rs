@@ -179,7 +179,7 @@ mod tests {
             ),
             (
                 "grant.sig",
-                key.sign(&[SIGNING_DOMAIN, bytes.as_slice()].concat())
+                key.sign(&[SIGNING_DOMAIN, bytes.as_slice()].concat()) // P2.10-exempt: disposable test key for the development grant domain.
                     .to_bytes()
                     .to_vec(),
             ),

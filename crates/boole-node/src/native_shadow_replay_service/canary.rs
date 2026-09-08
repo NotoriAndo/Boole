@@ -324,7 +324,7 @@ mod tests {
         .unwrap();
         verify_grant(
             &bytes,
-            &key.sign(&[SIGNING_DOMAIN, bytes.as_slice()].concat())
+            &key.sign(&[SIGNING_DOMAIN, bytes.as_slice()].concat()) // P2.10-exempt: disposable test key for the development grant domain.
                 .to_bytes(),
             &CanaryTrustRoot::new(key.verifying_key().to_bytes()).unwrap(),
             &bindings,
