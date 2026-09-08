@@ -60,9 +60,15 @@ Each installed grant still permits one candidate and at most one checker run;
 multiple problems use separate grants and state. The containing PR's full CI
 checks accepted/incorrect/tampered synthetic answers through actual MCP and the
 qualified checker, cross-task rejection and restart/redelivery safety.
-No new model execution is included. After this development boundary, the next
-evidence is a separately scoped real-model evaluation on new admitted problems,
-followed by general-user installation validation when that scope is selected.
+PR #378 completed that implementation without model execution. The separately
+approved [new-task model evaluation](boole-new-task-model-evaluation-2026-09-09.md)
+then passed **3/3 new generated problems**: three independent model sessions,
+three direct MCP submissions and three single checker executions, each with
+ACCEPT and model receipt delivery. There was no operator answer forwarding,
+second candidate or redelivery. The disposable VM and development key were
+removed after evidence collection. This is a bounded one-family result, not a
+benchmark or new operational authority. The three-session allowance is complete;
+the next proposed boundary is clean-Mac general-user installation validation.
 
 Real MCP-client/LLM [canary preparation](boole-mcp-canary-preparation.md) and the
 separate development implementation are complete. The newly approved
@@ -87,8 +93,9 @@ approval/dispatch/response regression check before inference.
 Both separately approved sessions used existing ChatGPT authentication, not a
 new API key. Their isolated Linux installations were removed after evidence
 collection, including the development private keys. The direct-client canary
-boundary is now closed. Broader task admission, general-user installation and
-any additional model execution require their own applicable scope; completing
+boundary is now closed. The later generated-task evaluation above is separate.
+Broader task families, general-user installation and any further model execution
+require their own applicable scope; completing
 these capped runs does not grant further model sessions, production keys or
 public deployment authority. The existing Mac replay path is unchanged.
 
