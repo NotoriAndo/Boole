@@ -187,10 +187,26 @@ struct AuthorizedCheckerCase<R> {
     bootstrap: VerifiedNativeShadowReplayBootstrap,
 }
 
+#[cfg(all(unix, feature = "fresh-answer-canary"))]
+mod canary;
+#[cfg(all(target_os = "linux", feature = "fresh-answer-canary"))]
+pub use canary::serve_installed_fresh_answer_canary;
+
 trait ReplayAuthority: Send + Sync + 'static {
     type CheckerPrepared: Send + 'static;
     type PreIntakePrepared: Send + 'static;
     type Request: Send + Sync + 'static;
+
+    fn admit_candidate(&self, _submission: &NativeShadowSubmission) -> Result<(), &'static str> {
+        Ok(())
+    }
+
+    fn authorize_redelivery(
+        &self,
+        _identity: &ReplayRedeliveryIdentity,
+    ) -> Result<(), &'static str> {
+        Ok(())
+    }
 
     fn redelivery_identity(
         &self,
@@ -1509,6 +1525,7 @@ where
     )
 }
 
+#[cfg(any(target_os = "macos", test))]
 async fn serve_router_until_shutdown<F>(
     listener: tokio::net::TcpListener,
     router: Router,
@@ -1597,6 +1614,10 @@ where
         Ok(Some(response)) => return response,
         Ok(None) => {}
         Err(()) => return poison_response(&service),
+    }
+
+    if let Err(reason) = service.replay_authority.admit_candidate(&submission) {
+        return error_response(StatusCode::CONFLICT, "precheck_reject", reason);
     }
 
     let work = match submission.extract_submission_source() {
@@ -1706,6 +1727,13 @@ where
         NativeShadowEvidenceVerdict::Accepted => "accepted",
         NativeShadowEvidenceVerdict::DeterministicReject => "deterministic_reject",
     };
+    if let Err(reason) = service.replay_authority.authorize_redelivery(identity) {
+        return Ok(Some(error_response(
+            StatusCode::CONFLICT,
+            "precheck_reject",
+            reason,
+        )));
+    }
     Ok(Some(adjudication_response(
         &receipt,
         outcome,

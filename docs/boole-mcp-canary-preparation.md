@@ -1,6 +1,6 @@
 # Real-model MCP canary preparation
 
-Status: **PREPARATION COMPLETE; REAL EXECUTION NOT READY** (2026-09-08).
+Status: **DEVELOPMENT CAPABILITY IMPLEMENTED; REAL-MODEL EXECUTION NOT READY** (2026-09-08).
 
 The preparation milestone identifies a client path, exercises the current MCP
 transport without a model, and records the missing execution boundary. It does
@@ -80,15 +80,15 @@ needs its own bounded working state and a qualified launcher/checker path;
 starting the existing replay service would still leave the new-answer grant
 restriction in place.
 
-## Proposed next implementation boundary — not execution approval
+## Adopted development implementation — not model execution approval
 
-Add a separate, default-disabled **one-task fresh-answer canary capability**.
-Retain the existing replay capability and its fixed fixtures unchanged. Before
-implementation, resolve how the operator's authorization is verified and bound
-to the exact task, checker, policy, toolchain, private journal and run identity.
-It must not be self-issued by model input or promoted into production authority.
+The subsequent user approval selected a separate development-only operator
+signing root. The default-disabled `fresh-answer-canary` Cargo feature supplies
+separate Linux node/launcher binaries; existing replay binaries, fixed grants and
+Mac VM behavior are unchanged. The new binaries refuse non-Linux execution.
+Model input cannot issue this authority or promote it into production authority.
 
-The proposed bounded behavior is:
+The implemented runtime bounds, with a proposed future client limit, are:
 
 1. One selected client session and one new answer candidate for one non-issuable
    task. One client session may contain multiple provider inference requests;
@@ -104,11 +104,53 @@ The proposed bounded behavior is:
    and activation unavailable. This is a development capability, not a public
    task-admission API.
 
-Required tests include wrong task/checker/authority rejection, second-candidate
-rejection, durable single-execution enforcement across restart, exact redelivery,
-and contained checker ACCEPT/REJECT through the actual MCP path. Implementing
-this changes runtime authority and requires normal behavior tests and full CI;
-the documentation-only preparation PR does not implement or authorize it.
+The signed grant fixes the run/journal IDs, epoch (outside replay epochs 0–3),
+task, checker/artifact/release, policy, toolchain and intake/registry bindings.
+The selected task is the existing permanently non-issuable historical task.
+“Fresh” describes answer bytes, not a novel problem or a new benchmark task.
+The public packet must still omit the known accepted answer.
+
+The independent Ed25519 public key is provisioned as a root-owned read-only
+`operator-public-key.bin` under
+`/usr/share/boole/native-shadow/development-canary-v1`, alongside `grant.json`
+and `grant.sig`. The directory is root:root 0555 and files are single-link regular
+0444 files; descriptor-relative traversal rejects symlinks and ownership drift.
+The grant digest includes its signing domain, public key and exact payload, so
+key rotation cannot silently reuse old private state. The model never supplies
+the trust root. This is not a production release key or activation signature.
+
+Offline `boole-canary-authority` commands are:
+
+```text
+create-grant KEY_FILE RUN_ID JOURNAL_ID EPOCH OUTPUT_DIRECTORY
+create-redelivery KEY_FILE GRANT_DIRECTORY CANDIDATE_DIGEST SUBMISSION_DIGEST OUTPUT_DIRECTORY
+```
+
+The tool requires an existing owner-only 0600 32-byte signing seed and an existing
+0700 output directory; it neither generates keys nor installs files, and refuses
+output replacement. No secret is printed or passed as an environment value.
+Root/operator provisioning is separate from model/client work. Redelivery needs
+its own domain-separated `redelivery.json`/`redelivery.sig`, bound to the verified
+grant and exact candidate/submission, installed with the same public-file rules.
+
+Private pre-provisioned state lives under
+`/var/lib/boole/native-shadow/canary-node/<journalId>` (node-owned 0700) and
+`canary-launcher/<journalId>` (root-owned 0700), below root-owned parents.
+Node and launcher independently fsync and lock their one-execution budgets;
+the node retains the durable verdict journal in its private directory. Partial
+tails, empty existing files, wrong authority, changed candidates and ambiguous
+in-flight recovery fail closed. Operator-signed terminal redelivery spends its
+budget durably before returning and cannot re-execute. A crash can consume an
+allowance without delivering a result; these are at-most-once guarantees, not
+guarantees of eventual success. Deleting/recreating state is not a recovery path.
+
+Focused behavior tests cover wrong task/checker/key, signer rotation, changed
+candidates, corrupted/concurrent journals, single execution across restart and
+separately signed redelivery. The containing PR's full Linux CI adds actual
+MCP → HTTP → qualified contained checker ACCEPT/REJECT, terminal crash recovery
+and in-flight fail-closed cases. It uses synthetic answers and disposable test
+keys only. This does not establish a real-model solving result or a ready local
+installation. Qualified containment and frozen authority checks remain required.
 
 ## Prompt, run budget and success criteria
 

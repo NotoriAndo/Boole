@@ -365,7 +365,7 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
         self.assertRegex(
             manager,
             re.compile(
-                r"run_closed_local_replay_gate\n\s*run_crash_restart_replay_gate\n\s*exit 0"
+                r"run_closed_local_replay_gate\n\s*run_crash_restart_replay_gate\n\s*run_fresh_answer_canary_gate\n\s*exit 0"
             ),
         )
         for required in (

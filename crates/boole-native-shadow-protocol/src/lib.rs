@@ -19,6 +19,8 @@ mod closed_local_replay_execution_wire;
 mod closed_local_replay_grant;
 mod execution_active_wire;
 mod execution_wire;
+#[cfg(feature = "fresh-answer-canary")]
+pub mod fresh_answer_canary;
 #[cfg(unix)]
 pub mod installed_authority;
 pub mod service_identities;
