@@ -7,7 +7,10 @@ which things, how much material each needs, and how much of that material is
 already in hand -- before any of it is built.
 
 Two kinds of claim live in the record and they are not tested the same way.
-Claims about tracked files are re-derived here from those files, so drift fails.
+Claims about sealed tracked inputs are re-derived here from those files, so drift fails.
+The CI orchestration digest records the measured generation; it is not authority
+over future orchestration budgets. Its historical value stays preserved while
+the current script must still consume the same independently checked expectation.
 Claims about the developer machine's local cache cannot be re-derived on a clean
 runner, so what is tested is that they are labelled as local observations and
 carry the method that produced them, never that they are reproducible here.
@@ -333,10 +336,20 @@ class NotAnAcquisitionTests(unittest.TestCase):
         self.assertIn(self.section["ciScript"], workflow)
         self.assertTrue((REPO / self.section["ciScript"]).is_file())
 
-    def test_the_script_digest_matches_the_file_it_names(self) -> None:
+    def test_the_measured_script_digest_is_preserved_as_historical_evidence(self) -> None:
         self.assertEqual(
-            self.section["ciScriptSha256"], digest_of(self.section["ciScript"])
+            self.section["ciScriptSha256"],
+            "5b4fbde81a538d68fd01e96dcb5e9c02c76628dda75035d2f392a82ef3bdb68d",
         )
+
+    def test_the_current_rebuild_still_consumes_the_sealed_expectation(self) -> None:
+        script = (REPO / self.section["ciScript"]).read_text(encoding="utf-8")
+        self.assertIn(f'expectation="$ROOT/{self.section["expectationPath"]}"', script)
+        self.assertIn(".expectedOutput.layerDigest", script)
+        self.assertIn(".expectedOutput.rootfsContentManifestSha256", script)
+        self.assertIn('--expected-layer-digest "$layer_digest"', script)
+        self.assertIn('--expected-content-manifest-sha256 "$content_sha"', script)
+        self.assertIn('if builder != independent:', script)
 
     def test_the_expectation_the_rebuild_is_checked_against_is_named(self) -> None:
         self.assertEqual(

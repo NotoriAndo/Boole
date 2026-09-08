@@ -135,6 +135,13 @@ wiring and kernel/network restrictions instead of freezing unrelated CI budgets.
 Frozen package, builder, checker and output identities are unchanged and retain
 their independent authority checks. Full required CI still gates adoption.
 
+Run `34255846637` again passed both complete Linux matrices, then exposed one
+additional historical/current-script comparison in the 3,058-test Python batch.
+The old serving-gap measurement's script digest remains unchanged as evidence;
+its test now distinguishes that historical digest from the current CI script's
+continued use of the sealed output expectation and independent receipt check.
+The measured record and all artifact authority bytes remain unchanged.
+
 Every admitted task remains `nonIssuable=true`; `activationAllowed=false`.
 This is a generated development problem family, not new real-world-source supply,
 a formal proof corpus, a benchmark result or reward-ready mining. The fixed
