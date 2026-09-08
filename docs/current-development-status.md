@@ -52,13 +52,13 @@ Evidence: [MCP path](boole-mcp-e2e.md),
 ## Next development boundary
 
 Real MCP-client/LLM [canary preparation](boole-mcp-canary-preparation.md) and the
-separate development implementation are complete. The
-[2026-09-08 actual run](boole-real-model-canary-2026-09-08.md) generated one real
-model candidate and obtained an actual contained-checker ACCEPT and BF.3 receipt
-through operator-assisted MCP delivery. The direct CLI tool call was blocked
-before transmission by its approval configuration; it is **not passed** as an
-uninterrupted client path. The identical answer was forwarded without another
-model call or editing. Both budgets confirm one candidate and one execution.
+separate development implementation are complete. The newly approved
+[direct-client run](boole-direct-model-canary-2026-09-08.md) **passed**:
+model → actual MCP → qualified Linux-contained checker → ACCEPT/BF.3 receipt →
+model response. There was one model session, one MCP submission, one candidate
+and one checker execution, with no operator forwarding or redelivery.
+The earlier [operator-assisted result](boole-real-model-canary-2026-09-08.md)
+and its blocked CLI attempt remain preserved as separate history.
 
 The fixed-fixture replay grant remains unchanged. The separately approved
 implementation adds a default-disabled, Linux-only one-task fresh-answer canary
@@ -68,15 +68,16 @@ identical redelivery. Its task remains the permanently non-issuable historical
 task: fresh answer bytes do not mean a novel problem or benchmark result.
 PR #375's full CI checks the actual MCP/contained-checker path with synthetic
 answers and disposable test keys. That coverage remains separate from the actual
-model result and its client-delivery limitation above.
+model results above; the successful direct-client run also passed a no-model
+approval/dispatch/response regression check before inference.
 
-The approved one-session run used existing ChatGPT authentication, not a new API
-key. Its isolated Linux installation was qualified and removed after evidence
-collection, including the development private key. The next direct-client
-boundary is explicit per-tool approval plus a no-model dispatch preflight, then
-a separately authorized bounded session and fresh installation. The completed
-session cap does not authorize another model run. Production keys, public
-deployment and the existing Mac replay path remain outside this work.
+Both separately approved sessions used existing ChatGPT authentication, not a
+new API key. Their isolated Linux installations were removed after evidence
+collection, including the development private keys. The direct-client canary
+boundary is now closed. Broader task admission, general-user installation and
+any additional model execution require their own applicable scope; completing
+these capped runs does not grant further model sessions, production keys or
+public deployment authority. The existing Mac replay path is unchanged.
 
 ## Operational boundaries
 
