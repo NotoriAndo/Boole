@@ -119,6 +119,14 @@ identity first, with a regression test for same-problem and different-problem
 cases. The failed run remains preserved; no checker acceptance rule or budget
 was relaxed.
 
+In the next run (`34246937751`), x86_64 passed the complete new-task matrix.
+ARM64 passed the historical replay/canary matrix, then the existing 2,100-second
+outer orchestration limit expired after the new-task binaries built (exit 124),
+before any new-task result was established. The outer ARM64 matrix budget now
+includes the added gate's bounded 900 seconds: 3,000 seconds plus 600 seconds of
+workflow reserve. Individual checker, HTTP, containment and recovery limits are
+unchanged; the ARM64 new-task result still requires a successful complete run.
+
 Every admitted task remains `nonIssuable=true`; `activationAllowed=false`.
 This is a generated development problem family, not new real-world-source supply,
 a formal proof corpus, a benchmark result or reward-ready mining. The fixed
