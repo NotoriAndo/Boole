@@ -111,6 +111,14 @@ generated accepted, incorrect and scaffold-tampered answers, cross-task rejectio
 terminal crash/restart/redelivery and ambiguous in-flight crash refusal. Synthetic
 CI answers are generated from each public spec; they are not model results.
 
+The first PR CI run (`34245174844`) exposed a harness mistake before reaching
+the new-task matrix: the cross-task negative probe reused the historical
+canary's same problem with only its epoch changed. That is a valid historical
+candidate, not a different task. The corrected probe compares actual problem
+identity first, with a regression test for same-problem and different-problem
+cases. The failed run remains preserved; no checker acceptance rule or budget
+was relaxed.
+
 Every admitted task remains `nonIssuable=true`; `activationAllowed=false`.
 This is a generated development problem family, not new real-world-source supply,
 a formal proof corpus, a benchmark result or reward-ready mining. The fixed

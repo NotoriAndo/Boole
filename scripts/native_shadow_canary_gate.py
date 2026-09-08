@@ -16,6 +16,7 @@ import signal
 import subprocess
 import tempfile
 from pathlib import Path
+from typing import Optional
 
 try:
     from . import native_shadow_crash_restart_gate as crash
@@ -84,6 +85,15 @@ def development_answer(task: dict, label: str) -> str:
     if label == "tampered":
         source = "// unauthorized scaffold change\n" + source
     return "Synthetic development task answer, not a model answer.\n```rust\n" + source + "```"
+
+
+def cross_task_probe(previous: Optional[dict], current: dict) -> Optional[dict]:
+    # Historical canary cases deliberately share one problem. Relabeling only
+    # the epoch would make a valid candidate, not a cross-task negative control.
+    fields = ("familyVersion", "templateId", "challengeSha256")
+    if previous is None or all(previous[key] == current[key] for key in fields):
+        return None
+    return dict(previous, epoch=current["epoch"])
 
 
 def run(command: list, *, check: bool = True) -> subprocess.CompletedProcess:
@@ -198,8 +208,9 @@ def run_gate(args: argparse.Namespace) -> None:
                     error, body = client.call("wrong-task", wrong)
                     if not error or body.get("reasonCode") != "canary_task_mismatch":
                         raise ValueError("canary wrong-task admission was not refused")
-                    if previous_arguments is not None:
-                        error, body = client.call("cross-task", dict(previous_arguments, epoch=epoch))
+                    probe = cross_task_probe(previous_arguments, arguments)
+                    if probe is not None:
+                        error, body = client.call("cross-task", probe)
                         if not error or body.get("reasonCode") != "canary_task_mismatch":
                             raise ValueError("another admitted task was not refused before spending budget")
                     error, first = client.call("fresh-" + label, arguments)

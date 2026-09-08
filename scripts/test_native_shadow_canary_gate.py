@@ -8,6 +8,16 @@ from scripts import native_shadow_canary_gate as gate
 
 
 class FreshAnswerCanaryGateTests(unittest.TestCase):
+    def test_cross_task_probe_does_not_resubmit_the_same_historical_task(self):
+        first = {"familyVersion": "family", "templateId": "template", "challengeSha256": "challenge", "epoch": 10, "rawAnswer": "first"}
+        current = dict(first, epoch=11, rawAnswer="second")
+        self.assertIsNone(gate.cross_task_probe(first, current))
+        self.assertIsNone(gate.cross_task_probe(None, current))
+        current["challengeSha256"] = "different-challenge"
+        probe = gate.cross_task_probe(first, current)
+        self.assertEqual(probe, dict(first, epoch=11))
+        self.assertEqual(first["epoch"], 10)
+
     def test_development_answers_follow_each_new_task_without_fixture_answers(self):
         task = {"scaffold": "prefix\n    todo!()\nsuffix\n", "constants": {"a0": 17, "mul": 3, "coeffs": [2, -5]}}
         answer = gate.development_answer(task, "accepted")
