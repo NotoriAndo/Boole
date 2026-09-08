@@ -15,27 +15,47 @@ struct CanaryReplayAuthority {
 /// replay binary into this service and no HTTP request can select its keys.
 #[cfg(target_os = "linux")]
 pub async fn serve_installed_fresh_answer_canary() -> anyhow::Result<()> {
+    serve_installed_one_task(
+        boole_native_shadow_protocol::installed_authority::open_installed_canary()?,
+    )
+    .await
+}
+
+#[cfg(all(target_os = "linux", feature = "development-task-admission"))]
+pub async fn serve_installed_development_task() -> anyhow::Result<()> {
+    serve_installed_one_task(
+        boole_native_shadow_protocol::installed_authority::open_installed_development_task()?,
+    )
+    .await
+}
+
+#[cfg(target_os = "linux")]
+async fn serve_installed_one_task(
+    canary: boole_native_shadow_protocol::installed_authority::InstalledCanaryAuthority,
+) -> anyhow::Result<()> {
     use boole_native_shadow_protocol::{
         fresh_answer_canary::CanaryBudgetRole,
-        installed_authority::{
-            open_installed_canary,
-            open_verified_installed_closed_local_replay_execution_authorities,
-        },
+        installed_authority::open_verified_installed_closed_local_replay_execution_authorities,
         resolve_fixed_service_identities,
     };
     let identities = resolve_fixed_service_identities()?;
     // Retain and verify every existing checker, toolchain and containment
     // authority. None of the frozen fixture-answer permissions are spent.
     let installed = open_verified_installed_closed_local_replay_execution_authorities()?;
-    let canary = open_installed_canary()?;
     let (budget, directory) = canary.open_budget(
         CanaryBudgetRole::Node,
         identities.node_uid(),
         identities.node_gid(),
     )?;
     let grant = canary.grant();
-    let label =
-        std::path::Path::new("/var/lib/boole/native-shadow/canary-node").join(grant.journal_id());
+    let state = if grant.is_development_task() {
+        "development-task-node"
+    } else {
+        "canary-node"
+    };
+    let label = std::path::Path::new("/var/lib/boole/native-shadow")
+        .join(state)
+        .join(grant.journal_id());
     let mut journal_authority = NativeShadowJournalAuthority::open_retained_production_dir(
         directory,
         &label,
@@ -349,6 +369,10 @@ mod tests {
 
     fn request(raw: &str) -> Request<Body> {
         let grant = grant();
+        request_for(&grant, raw)
+    }
+
+    fn request_for(grant: &VerifiedCanaryGrant, raw: &str) -> Request<Body> {
         Request::builder()
             .method("POST")
             .uri(SUBMISSION_ROUTE)
@@ -370,7 +394,14 @@ mod tests {
         path: &std::path::Path,
         launcher: Arc<BoundaryLauncher>,
     ) -> Arc<ClosedLocalReplayService<CanaryReplayAuthority, Arc<BoundaryLauncher>>> {
-        let grant = grant();
+        service_with_grant(path, launcher, grant())
+    }
+
+    fn service_with_grant(
+        path: &std::path::Path,
+        launcher: Arc<BoundaryLauncher>,
+        grant: VerifiedCanaryGrant,
+    ) -> Arc<ClosedLocalReplayService<CanaryReplayAuthority, Arc<BoundaryLauncher>>> {
         let directory = std::fs::File::open(path).unwrap();
         let metadata = directory.metadata().unwrap();
         let budget = CanaryBudget::open(
@@ -418,6 +449,91 @@ mod tests {
             }),
             poisoned: Arc::new(AtomicBool::new(false)),
         })
+    }
+
+    #[cfg(feature = "development-task-admission")]
+    #[tokio::test]
+    async fn separate_admitted_problems_receive_distinct_receipts_and_cannot_swap_after_restart() {
+        use boole_native_shadow_protocol::fresh_answer_canary::development_task::{
+            self, DevelopmentTaskGrant, DevelopmentTaskSpec,
+        };
+        let key = SigningKey::from_bytes(&[51; 32]);
+        let make = |a0| {
+            let grant = DevelopmentTaskGrant::one_task(
+                "11".repeat(32),
+                "22".repeat(32),
+                10,
+                DevelopmentTaskSpec {
+                    type_name: "DevelopmentPoint".into(),
+                    field_types: vec!["i32".into(), "bool".into()],
+                    task_seed: "33".repeat(32),
+                    a0,
+                    mul: 3,
+                    coeffs: vec![2, -5],
+                },
+            )
+            .unwrap();
+            let bytes = serde_json::to_vec(&grant).unwrap();
+            development_task::verify_grant(
+                &bytes,
+                &key.sign(&[development_task::SIGNING_DOMAIN, bytes.as_slice()].concat()) // P2.10-exempt: disposable test key for the separate development task domain.
+                    .to_bytes(),
+                &CanaryTrustRoot::new(key.verifying_key().to_bytes()).unwrap(),
+            )
+            .unwrap()
+        };
+        let mut receipts = Vec::new();
+        for a0 in [17, 18] {
+            let path = std::env::temp_dir().join(format!(
+                "boole-development-task-node-{}-{a0}",
+                std::process::id()
+            ));
+            std::fs::create_dir(&path).unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+            let launcher = Arc::new(BoundaryLauncher(std::sync::atomic::AtomicUsize::new(0)));
+            let raw = "```rust\nfn main() {}\n```";
+            let first = service_with_grant(&path, launcher.clone(), make(a0));
+            assert_eq!(
+                build_router(first.clone())
+                    .oneshot(request_for(&make(a0 + 1), raw))
+                    .await
+                    .unwrap()
+                    .status(),
+                StatusCode::CONFLICT
+            );
+            let response = build_router(first.clone())
+                .oneshot(request_for(&make(a0), raw))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let body: Value = serde_json::from_slice(
+                &to_bytes(response.into_body(), HTTP_BODY_LIMIT_BYTES)
+                    .await
+                    .unwrap(),
+            )
+            .unwrap();
+            receipts.push(body["receipt"].clone());
+            drop(first);
+            let restarted = service_with_grant(&path, launcher.clone(), make(a0));
+            assert_eq!(
+                build_router(restarted.clone())
+                    .oneshot(request_for(&make(a0), raw))
+                    .await
+                    .unwrap()
+                    .status(),
+                StatusCode::CONFLICT
+            );
+            assert_eq!(launcher.0.load(Ordering::SeqCst), 1);
+            drop(restarted);
+            std::fs::remove_file(path.join("node-budget-v1.jsonl")).unwrap();
+            std::fs::remove_file(path.join("verdict.ndjson")).unwrap();
+            std::fs::remove_dir(path).unwrap();
+        }
+        // BF.3 deliberately keeps the stable template taskId across challenge
+        // instances; instance identity belongs in submissionId/artifactRoot.
+        assert_eq!(receipts[0]["taskId"], receipts[1]["taskId"]);
+        assert_ne!(receipts[0]["submissionId"], receipts[1]["submissionId"]);
+        assert_ne!(receipts[0]["artifactRoot"], receipts[1]["artifactRoot"]);
     }
 
     #[tokio::test]

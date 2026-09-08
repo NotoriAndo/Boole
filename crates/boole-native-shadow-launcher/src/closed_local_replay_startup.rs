@@ -115,6 +115,21 @@ pub fn assemble_verified_fresh_answer_canary_startup(
     Ok(VerifiedFreshAnswerCanaryStartup(startup))
 }
 
+#[cfg(all(target_os = "linux", feature = "development-task-admission"))]
+pub fn assemble_verified_development_task_startup(
+    compatibility: VerifiedStartupToolchainCompatibility,
+    rootfs: VerifiedRuntimeRootfsReplay,
+) -> Result<VerifiedFreshAnswerCanaryStartup, ClosedLocalReplayStartupError> {
+    use boole_native_shadow_protocol::{
+        fresh_answer_canary::CanaryBudgetRole, installed_authority::open_installed_development_task,
+    };
+    let mut startup = assemble_verified_closed_local_replay_startup(compatibility, rootfs)?;
+    let installed = open_installed_development_task()?;
+    let (budget, _) = installed.open_budget(CanaryBudgetRole::Launcher, 0, 0)?;
+    startup.canary = Some(CanaryStartup { installed, budget });
+    Ok(VerifiedFreshAnswerCanaryStartup(startup))
+}
+
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 impl VerifiedClosedLocalReplayStartup {
     #[cfg(target_os = "linux")]
@@ -201,7 +216,8 @@ impl VerifiedClosedLocalReplayStartup {
         self.qualification
             .verified_toolchain()
             .reverify_for_execution()?;
-        let installed_materials = self.installed.reverify_execution_materials()?;
+        #[allow(unused_mut)]
+        let mut installed_materials = self.installed.reverify_execution_materials()?;
         self.rootfs
             .reverify_for_execution()
             .map_err(|error| ClosedLocalReplayStartupError::Rootfs(error.to_string()))?;
@@ -213,6 +229,9 @@ impl VerifiedClosedLocalReplayStartup {
         let submission_source_digest = sha256_hex(&submission);
         #[cfg(feature = "fresh-answer-canary")]
         if let Some(canary) = self.canary.as_mut() {
+            canary
+                .installed
+                .reverify_task_materials(&mut installed_materials)?;
             let authorization = canary
                 .budget
                 .reserve_execution(canary.installed.grant(), request)?;

@@ -20,7 +20,13 @@ default = []
 dev-mock-payment = []
 native-shadow-closed-local-replay = []
 fresh-answer-canary = ["native-shadow-closed-local-replay", "boole-native-shadow-protocol/fresh-answer-canary"]
+development-task-admission = ["fresh-answer-canary", "boole-native-shadow-protocol/development-task-admission"]
 linux-arm64-authority = ["boole-native-shadow-protocol/linux-arm64-authority"]
+
+[[bin]]
+name = "boole-development-task-node"
+path = "src/bin/boole-development-task-node.rs"
+required-features = ["development-task-admission"]
 
 [[bin]]
 name = "boole-native-shadow-replay-node"

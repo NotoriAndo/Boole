@@ -87,6 +87,8 @@ pub use local_node::{
 };
 #[cfg(feature = "native-shadow-closed-local-replay")]
 pub use native_shadow_replay_service::serve_installed_closed_local_native_shadow_replay;
+#[cfg(all(target_os = "linux", feature = "development-task-admission"))]
+pub use native_shadow_replay_service::serve_installed_development_task;
 #[cfg(all(target_os = "linux", feature = "fresh-answer-canary"))]
 pub use native_shadow_replay_service::serve_installed_fresh_answer_canary;
 #[cfg(all(feature = "native-shadow-closed-local-replay", target_os = "macos"))]

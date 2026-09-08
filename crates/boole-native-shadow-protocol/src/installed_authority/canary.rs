@@ -12,6 +12,7 @@ pub struct InstalledCanaryAuthority {
     grant: VerifiedCanaryGrant,
     uid: u32,
     gid: u32,
+    development_task: bool,
 }
 
 pub struct InstalledCanaryRedeliveryAuthority {
@@ -58,14 +59,71 @@ impl InstalledCanaryAuthority {
         gid: u32,
     ) -> Result<(CanaryBudget, File), InstalledAuthorityError> {
         let root = filesystem_root()?;
-        let directory = open_state_directory(&root, self.grant.journal_id(), role, uid, gid)?;
+        let directory = open_state_directory(
+            &root,
+            self.grant.journal_id(),
+            role,
+            uid,
+            gid,
+            self.development_task,
+        )?;
         let budget = CanaryBudget::open(&directory, &self.grant, role, uid, gid)?;
         Ok((budget, directory))
+    }
+
+    /// Re-read the root-owned signature and spec before each execution. A
+    /// replaced configuration cannot adopt this process's already-open budget.
+    pub fn reverify_task_materials(
+        &self,
+        materials: &mut VerifiedInstalledClosedLocalReplayExecutionMaterials,
+    ) -> Result<(), InstalledAuthorityError> {
+        if self.development_task {
+            let bytes = read_bounded(&self.directory, "grant.json", 16_384, self.uid, self.gid)?;
+            let signature = read_bounded(&self.directory, "grant.sig", 64, self.uid, self.gid)?;
+            let verified = verify_selected_grant(&bytes, &signature, &self.root, true)?;
+            if verified.digest() != self.grant.digest() {
+                return Err(unsafe_metadata(
+                    "development task grant",
+                    "changed after startup",
+                ));
+            }
+            materials.task = verified.task_bytes().to_vec();
+            materials.anchor = verified.anchor_bytes().to_vec();
+        }
+        Ok(())
     }
 }
 
 pub fn open_installed_canary() -> Result<InstalledCanaryAuthority, InstalledAuthorityError> {
     open_beneath(&filesystem_root()?, 0, 0)
+}
+
+#[cfg(feature = "development-task-admission")]
+pub fn open_installed_development_task() -> Result<InstalledCanaryAuthority, InstalledAuthorityError>
+{
+    open_selected_beneath(&filesystem_root()?, 0, 0, true)
+}
+
+fn verify_selected_grant(
+    bytes: &[u8],
+    signature: &[u8],
+    root: &CanaryTrustRoot,
+    development_task: bool,
+) -> Result<VerifiedCanaryGrant, InstalledAuthorityError> {
+    if development_task {
+        #[cfg(feature = "development-task-admission")]
+        return Ok(crate::fresh_answer_canary::development_task::verify_grant(
+            bytes, signature, root,
+        )?);
+        #[cfg(not(feature = "development-task-admission"))]
+        return Err(unsafe_metadata("development task", "feature disabled"));
+    }
+    Ok(verify_grant(
+        bytes,
+        signature,
+        root,
+        &CanaryBindings::installed()?,
+    )?)
 }
 
 fn filesystem_root() -> Result<File, InstalledAuthorityError> {
@@ -81,8 +139,22 @@ fn open_beneath(
     uid: u32,
     gid: u32,
 ) -> Result<InstalledCanaryAuthority, InstalledAuthorityError> {
+    open_selected_beneath(root, uid, gid, false)
+}
+
+fn open_selected_beneath(
+    root: &File,
+    uid: u32,
+    gid: u32,
+    development_task: bool,
+) -> Result<InstalledCanaryAuthority, InstalledAuthorityError> {
     let (parent, _) = open_verified_authority_directory(root, uid, gid)?;
-    let directory = open_child(&parent, "development-canary-v1", true, "canary authority")?;
+    let name = if development_task {
+        "development-task-v1"
+    } else {
+        "development-canary-v1"
+    };
+    let directory = open_child(&parent, name, true, "canary authority")?;
     validate_directory(&directory, "canary authority", uid, gid, Some(0o555))?;
     let key = read_bounded(&directory, "operator-public-key.bin", 32, uid, gid)?;
     let root = CanaryTrustRoot::new(
@@ -91,13 +163,14 @@ fn open_beneath(
     )?;
     let bytes = read_bounded(&directory, "grant.json", 16_384, uid, gid)?;
     let signature = read_bounded(&directory, "grant.sig", 64, uid, gid)?;
-    let grant = verify_grant(&bytes, &signature, &root, &CanaryBindings::installed()?)?;
+    let grant = verify_selected_grant(&bytes, &signature, &root, development_task)?;
     Ok(InstalledCanaryAuthority {
         directory,
         root,
         grant,
         uid,
         gid,
+        development_task,
     })
 }
 
@@ -122,12 +195,15 @@ fn open_state_directory(
     role: CanaryBudgetRole,
     uid: u32,
     gid: u32,
+    development_task: bool,
 ) -> Result<File, InstalledAuthorityError> {
     validate_directory(root, "/", 0, 0, None)?;
     let mut current = root.try_clone().map_err(|e| io_failure("root", e))?;
-    let role_directory = match role {
-        CanaryBudgetRole::Node => "canary-node",
-        CanaryBudgetRole::Launcher => "canary-launcher",
+    let role_directory = match (development_task, role) {
+        (false, CanaryBudgetRole::Node) => "canary-node",
+        (false, CanaryBudgetRole::Launcher) => "canary-launcher",
+        (true, CanaryBudgetRole::Node) => "development-task-node",
+        (true, CanaryBudgetRole::Launcher) => "development-task-launcher",
     };
     for component in ["var", "lib", "boole", "native-shadow", role_directory] {
         current = open_child(&current, component, true, component)?;
@@ -150,6 +226,93 @@ mod tests {
     use crate::fresh_answer_canary::{CanaryGrant, SIGNING_DOMAIN};
     use ed25519_dalek::{Signer, SigningKey};
     use std::os::unix::fs::{symlink, PermissionsExt};
+
+    #[cfg(feature = "development-task-admission")]
+    #[test]
+    fn installed_development_task_is_separate_and_rejects_replacement_before_execution() {
+        use crate::fresh_answer_canary::development_task::{
+            DevelopmentTaskGrant, DevelopmentTaskSpec, SIGNING_DOMAIN,
+        };
+        let path = std::env::temp_dir().join(format!(
+            "boole-installed-development-task-{}",
+            std::process::id()
+        ));
+        let directory = path.join("usr/share/boole/native-shadow/development-task-v1");
+        std::fs::create_dir_all(&directory).unwrap();
+        let key = SigningKey::from_bytes(&[51; 32]);
+        let make = |seed: &str| {
+            serde_json::to_vec(
+                &DevelopmentTaskGrant::one_task(
+                    "11".repeat(32),
+                    "22".repeat(32),
+                    30,
+                    DevelopmentTaskSpec {
+                        type_name: "DevelopmentPoint".into(),
+                        field_types: vec!["i32".into()],
+                        task_seed: seed.repeat(32),
+                        a0: 17,
+                        mul: 3,
+                        coeffs: vec![2],
+                    },
+                )
+                .unwrap(),
+            )
+            .unwrap()
+        };
+        let provision = |bytes: &[u8]| {
+            for (name, value) in [
+                ("grant.json", bytes.to_vec()),
+                (
+                    "grant.sig",
+                    key.sign(&[SIGNING_DOMAIN, bytes].concat()) // P2.10-exempt: disposable test key for the separate development task domain.
+                        .to_bytes()
+                        .to_vec(),
+                ),
+                (
+                    "operator-public-key.bin",
+                    key.verifying_key().to_bytes().to_vec(),
+                ),
+            ] {
+                let file = directory.join(name);
+                // The fixture owner replaces exact entries, not the runtime.
+                if file.exists() {
+                    std::fs::remove_file(&file).unwrap();
+                }
+                std::fs::write(&file, value).unwrap();
+                std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o444)).unwrap();
+            }
+        };
+        provision(&make("33"));
+        std::fs::set_permissions(
+            directory.parent().unwrap(),
+            std::fs::Permissions::from_mode(0o555),
+        )
+        .unwrap();
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let root = File::open(&path).unwrap();
+        let metadata = root.metadata().unwrap();
+        assert!(open_beneath(&root, metadata.uid(), metadata.gid()).is_err());
+        let installed = open_selected_beneath(&root, metadata.uid(), metadata.gid(), true).unwrap();
+        let mut materials = VerifiedInstalledClosedLocalReplayExecutionMaterials {
+            task: vec![],
+            anchor: vec![],
+        };
+        installed.reverify_task_materials(&mut materials).unwrap();
+        assert_eq!(materials.task_bytes(), installed.grant().task_bytes());
+        let before = materials.task_bytes().to_vec();
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o755)).unwrap();
+        provision(&make("44"));
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o555)).unwrap();
+        assert!(installed.reverify_task_materials(&mut materials).is_err());
+        assert_eq!(materials.task_bytes(), before);
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::set_permissions(
+            directory.parent().unwrap(),
+            std::fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
+        std::fs::remove_dir_all(path).unwrap();
+    }
 
     #[test]
     fn installed_canary_requires_out_of_band_owned_key_and_regular_read_only_files() {

@@ -8,6 +8,19 @@ from scripts import native_shadow_canary_gate as gate
 
 
 class FreshAnswerCanaryGateTests(unittest.TestCase):
+    def test_development_answers_follow_each_new_task_without_fixture_answers(self):
+        task = {"scaffold": "prefix\n    todo!()\nsuffix\n", "constants": {"a0": 17, "mul": 3, "coeffs": [2, -5]}}
+        answer = gate.development_answer(task, "accepted")
+        self.assertIn("let mut acc = 17i64", answer)
+        self.assertIn("wrapping_mul(3i64)", answer)
+        self.assertIn("(item.1 as i64).wrapping_mul(-5i64)", answer)
+        self.assertNotIn("todo!", answer)
+        self.assertIn("prefix", answer)
+        other = dict(task, constants={"a0": -2, "mul": 7, "coeffs": [3]})
+        self.assertNotEqual(answer, gate.development_answer(other, "accepted"))
+        self.assertIn("0i64", gate.development_answer(task, "rejected"))
+        self.assertNotEqual(answer, gate.development_answer(task, "tampered"))
+
     def test_synthetic_answers_change_both_digests_without_changing_the_scaffold(self):
         root = Path(__file__).resolve().parents[1]
         for case in ("accepted", "constant"):

@@ -46,11 +46,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let [command, key_path, first, second, third, output] = args.as_slice() else {
-        return Err("usage: boole-canary-authority create-grant KEY_FILE RUN_ID JOURNAL_ID EPOCH OUTPUT_DIRECTORY | create-redelivery KEY_FILE GRANT_DIRECTORY CANDIDATE_DIGEST SUBMISSION_DIGEST OUTPUT_DIRECTORY".into());
+    let (command, key_path, first, second, third, output, task_spec) = match args.as_slice() {
+        [command, key, first, second, third, output] => (command, key, first, second, third, output, None),
+        #[cfg(feature = "development-task-admission")]
+        [command, key, spec, run, journal, epoch, output] if command == "create-task-grant" =>
+            (command, key, run, journal, epoch, output, Some(spec)),
+        _ => return Err("usage: boole-canary-authority create-grant KEY RUN JOURNAL EPOCH OUTPUT | create-redelivery KEY GRANT_DIR CANDIDATE SUBMISSION OUTPUT | create-task-grant KEY SPEC_JSON RUN JOURNAL EPOCH OUTPUT | create-task-redelivery KEY GRANT_DIR CANDIDATE SUBMISSION OUTPUT".into()),
     };
-    if command != "create-grant" && command != "create-redelivery" {
+    let development_task = command == "create-task-grant" || command == "create-task-redelivery";
+    if command != "create-grant" && command != "create-redelivery" && !development_task {
         return Err("unknown operator command".into());
+    }
+    #[cfg(not(feature = "development-task-admission"))]
+    if development_task {
+        return Err("development task admission feature disabled".into());
+    }
+    let task_spec: Option<&String> = task_spec;
+    if command == "create-task-grant" && task_spec.is_none() {
+        return Err("create-task-grant requires SPEC_JSON before RUN_ID".into());
     }
     let key_file = OpenOptions::new()
         .read(true)
@@ -81,16 +94,51 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("output must be a precreated private directory owned by the operator".into());
     }
     let bindings = CanaryBindings::installed()?;
-    if command == "create-grant" {
-        let grant = CanaryGrant::one_task(
-            first.clone(),
-            second.clone(),
-            third.parse()?,
-            bindings.clone(),
-        );
-        let bytes = serde_json::to_vec(&grant)?;
-        let signature = key.sign(&[SIGNING_DOMAIN, bytes.as_slice()].concat()); // P2.10-exempt: domain-separated development grant, not SignedEnvelope.
-        verify_grant(&bytes, &signature.to_bytes(), &root, &bindings)?;
+    if command == "create-grant" || command == "create-task-grant" {
+        let (bytes, domain) = if let Some(spec_path) = task_spec {
+            #[cfg(feature = "development-task-admission")]
+            {
+                use boole_native_shadow_protocol::fresh_answer_canary::development_task::{
+                    DevelopmentTaskGrant, DevelopmentTaskSpec, SIGNING_DOMAIN,
+                };
+                let spec_bytes = public_read(Path::new(spec_path), 8192)?;
+                boole_native_shadow_protocol::validate_strict_json(&spec_bytes)?;
+                let spec: DevelopmentTaskSpec = serde_json::from_slice(&spec_bytes)?;
+                (
+                    serde_json::to_vec(&DevelopmentTaskGrant::one_task(
+                        first.clone(),
+                        second.clone(),
+                        third.parse()?,
+                        spec,
+                    )?)?,
+                    SIGNING_DOMAIN,
+                )
+            }
+            #[cfg(not(feature = "development-task-admission"))]
+            {
+                let _ = spec_path;
+                return Err("development task admission feature disabled".into());
+            }
+        } else {
+            let grant = CanaryGrant::one_task(
+                first.clone(),
+                second.clone(),
+                third.parse()?,
+                bindings.clone(),
+            );
+            (serde_json::to_vec(&grant)?, SIGNING_DOMAIN)
+        };
+        let signature = key.sign(&[domain, bytes.as_slice()].concat()); // P2.10-exempt: domain-separated development grant, not SignedEnvelope.
+        if development_task {
+            #[cfg(feature = "development-task-admission")]
+            {
+                let verified = boole_native_shadow_protocol::fresh_answer_canary::development_task::verify_grant(&bytes, &signature.to_bytes(), &root)?;
+                write_new(output, "task.json", verified.task_bytes())?;
+                write_new(output, "anchor.rs", verified.anchor_bytes())?;
+            }
+        } else {
+            verify_grant(&bytes, &signature.to_bytes(), &root, &bindings)?;
+        }
         write_new(output, "grant.json", &bytes)?;
         write_new(output, "grant.sig", &signature.to_bytes())?;
         write_new(
@@ -102,7 +150,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let source = Path::new(first);
         let bytes = public_read(&source.join("grant.json"), 16_384)?;
         let signature = public_read(&source.join("grant.sig"), 64)?;
-        let grant = verify_grant(&bytes, &signature, &root, &bindings)?;
+        let grant = if development_task {
+            #[cfg(feature = "development-task-admission")]
+            {
+                boole_native_shadow_protocol::fresh_answer_canary::development_task::verify_grant(
+                    &bytes, &signature, &root,
+                )?
+            }
+            #[cfg(not(feature = "development-task-admission"))]
+            {
+                return Err("development task admission feature disabled".into());
+            }
+        } else {
+            verify_grant(&bytes, &signature, &root, &bindings)?
+        };
         let bytes = serde_json::to_vec(&CanaryRedelivery::for_candidate(&grant, second, third))?;
         let signature = key.sign(&[REDELIVERY_SIGNING_DOMAIN, bytes.as_slice()].concat()); // P2.10-exempt: domain-separated development redelivery, not SignedEnvelope.
         verify_redelivery(&bytes, &signature.to_bytes(), &root, &grant)?;
