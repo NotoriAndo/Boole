@@ -10,11 +10,14 @@ import importlib
 import json
 import pathlib
 import shutil
+import subprocess
 import tempfile
 import unittest
 
 
 SEALED_RESULT_SHA256 = "0ffa4035b8f7f3e698c2ac57eead4b8122cb0c462ab2cb170a87c1973bb01b08"
+# Same immutable source generation as the historical v2 double-build CI job.
+SEALED_SOURCE_COMMIT = "ff7982e9fd4583a4a7dd22825f647cea170cc3fe"
 
 
 def launcher_v2():
@@ -310,15 +313,25 @@ class FrozenOverlayTests(unittest.TestCase):
     def test_real_overlay_materializes_the_exact_successor_files(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             exported = pathlib.Path(raw)
-            destinations = [
-                row["destination"] for row in self.record["completeFiles"]
-            ] + [row["destination"] for row in self.record["exactReplacements"]]
-            for relative in destinations:
-                source = self.module.REPO_ROOT / relative
-                if source.is_file():
-                    destination = exported / relative
-                    destination.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copyfile(source, destination)
+            # Complete files are supplied by the overlay itself. Its exact
+            # replacements must start from the sealed predecessor, not today's
+            # development source, which is intentionally free to evolve.
+            for row in self.record["exactReplacements"]:
+                relative = row["destination"]
+                original = subprocess.run(
+                    ["git", "show", f"{SEALED_SOURCE_COMMIT}:{relative}"],
+                    cwd=self.module.REPO_ROOT,
+                    stdin=subprocess.DEVNULL,
+                    capture_output=True,
+                    check=True,
+                    timeout=30,
+                ).stdout
+                self.assertEqual(
+                    self.module.sha256_bytes(original), row["predecessorSha256"]
+                )
+                destination = exported / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(original)
             fixture = self.record["sharedConsoleFixture"]["path"]
             fixture_destination = exported / fixture
             fixture_destination.parent.mkdir(parents=True, exist_ok=True)
