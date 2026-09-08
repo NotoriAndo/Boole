@@ -33,8 +33,18 @@ const AUTHORITY_DIRECTORY_COMPONENTS: [&str; 4] = ["usr", "share", "boole", "nat
 const AUTHORITY_DIRECTORY_MODE: u32 = 0o555;
 const AUTHORITY_FILE_MODE: u32 = 0o444;
 
+#[cfg(feature = "fresh-answer-canary")]
+mod canary;
+#[cfg(feature = "fresh-answer-canary")]
+pub use canary::{
+    open_installed_canary, InstalledCanaryAuthority, InstalledCanaryRedeliveryAuthority,
+};
+
 #[derive(Debug, Error)]
 pub enum InstalledAuthorityError {
+    #[cfg(feature = "fresh-answer-canary")]
+    #[error(transparent)]
+    Canary(#[from] crate::fresh_answer_canary::CanaryError),
     #[error("installed authority I/O failed at {label}: {source}")]
     Io {
         label: String,

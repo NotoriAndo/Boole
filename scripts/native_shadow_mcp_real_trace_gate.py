@@ -19,7 +19,7 @@ import subprocess
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -211,7 +211,7 @@ class LegacyNodeTrap:
 
 
 class McpStdio:
-    def __init__(self, binary: Path, node_url: str) -> None:
+    def __init__(self, binary: Path, node_url: str, *, user: Optional[int] = None, group: Optional[int] = None) -> None:
         self._process = subprocess.Popen(
             [
                 str(binary),
@@ -225,6 +225,10 @@ class McpStdio:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             bufsize=0,
+            env={"PATH": os.defpath, "LANG": "C.UTF-8"},
+            user=user,
+            group=group,
+            extra_groups=[] if user is not None else None,
         )
         if self._process.stdin is None or self._process.stdout is None:
             raise RuntimeError("real MCP trace did not receive stdio pipes")

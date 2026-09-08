@@ -141,6 +141,25 @@ pub(crate) struct VerifiedNativeShadowReplayBootstrap {
 }
 
 impl VerifiedNativeShadowReplayBootstrap {
+    #[cfg(all(unix, feature = "fresh-answer-canary"))]
+    pub(crate) fn from_canary_authorization(
+        authorization: &boole_native_shadow_protocol::fresh_answer_canary::VerifiedCanaryExecutionAuthorization,
+    ) -> Result<Self, String> {
+        let request = authorization.request();
+        Ok(Self {
+            four_tuple: NativeShadowFourTuple {
+                family_version: request.family_version().to_string(),
+                template_id: request.template_id().to_string(),
+                challenge_sha256: request.challenge_sha256().to_string(),
+                epoch: request.epoch(),
+            },
+            registry_version: request.registry_version().to_string(),
+            registry_digest: request.registry_digest_hex().to_string(),
+            execution_policy_digest: NativeShadowExecutionPolicyDigest::try_from(
+                request.execution_policy_digest_hex(),
+            )?,
+        })
+    }
     pub(crate) fn from_authorization(
         authorization: &VerifiedClosedLocalReplayAuthorization,
     ) -> Result<Self, String> {
@@ -808,6 +827,35 @@ pub(crate) struct NativeShadowGrantAttemptLedgerV1 {
 }
 
 impl NativeShadowGrantAttemptLedgerV1 {
+    #[cfg(all(unix, feature = "fresh-answer-canary"))]
+    pub(crate) fn validate_against_canary(
+        &self,
+        grant: &boole_native_shadow_protocol::fresh_answer_canary::VerifiedCanaryGrant,
+        budget: &boole_native_shadow_protocol::fresh_answer_canary::CanaryBudget,
+        policy: &NativeShadowExecutionPolicyDigest,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.records.len() <= 1 && self.checker_attempts <= 1,
+            "canary attempt cap"
+        );
+        for record in self.records.values() {
+            let tuple = &record.four_tuple;
+            anyhow::ensure!(
+                grant.matches_task(
+                    &tuple.family_version,
+                    &tuple.template_id,
+                    &tuple.challenge_sha256,
+                    tuple.epoch
+                ) && record.operation_id_hex == grant.operation_id()
+                    && record.registry_digest == grant.bindings().get("registryDigest")
+                    && &record.execution_policy_digest == policy
+                    && budget
+                        .matches_candidate(&record.candidate_digest, &record.submission_digest),
+                "canary durable attempt/authority/candidate mismatch"
+            );
+        }
+        Ok(())
+    }
     pub(crate) fn total_attempts(&self) -> usize {
         self.records.len()
     }
@@ -1208,7 +1256,6 @@ impl NativeShadowJournalAuthority {
                 directory.join(file_name),
             ));
         }
-        let diagnostic_path = directory.join(file_name);
         let directory_file = OpenOptions::new()
             .read(true)
             .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
@@ -1220,6 +1267,37 @@ impl NativeShadowJournalAuthority {
                     NativeShadowJournalAuthorityError::Io(directory.to_path_buf(), err)
                 }
             })?;
+        Self::open_retained_production_dir(
+            directory_file,
+            directory,
+            file_name,
+            expected_uid,
+            expected_gid,
+        )
+    }
+
+    /// Retain the already-verified run directory. The label is used for errors
+    /// only; the journal is opened relative to the descriptor, never reopened
+    /// through a mutable pathname after canary authority validation.
+    #[cfg(unix)]
+    #[allow(unsafe_code)]
+    pub(crate) fn open_retained_production_dir(
+        directory_file: File,
+        directory: &Path,
+        file_name: &std::ffi::OsStr,
+        expected_uid: u32,
+        expected_gid: u32,
+    ) -> Result<Self, NativeShadowJournalAuthorityError> {
+        if file_name.as_bytes().is_empty()
+            || file_name.as_bytes().contains(&b'/')
+            || file_name == std::ffi::OsStr::new(".")
+            || file_name == std::ffi::OsStr::new("..")
+        {
+            return Err(NativeShadowJournalAuthorityError::UnsafePath(
+                directory.join(file_name),
+            ));
+        }
+        let diagnostic_path = directory.join(file_name);
         let directory_metadata = directory_file
             .metadata()
             .map_err(|err| NativeShadowJournalAuthorityError::Io(directory.to_path_buf(), err))?;

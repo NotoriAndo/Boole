@@ -9,6 +9,7 @@ publish = false
 [features]
 manager-cgroup-linux-gate = []
 linux-arm64-authority = ["boole-native-shadow-protocol/linux-arm64-authority"]
+fresh-answer-canary = ["boole-native-shadow-protocol/fresh-answer-canary"]
 
 [dependencies]
 boole-native-shadow-protocol = { path = "../boole-native-shadow-protocol" }
@@ -34,6 +35,11 @@ workspace = true
 [[bin]]
 name = "boole-native-shadow-launcher"
 path = "src/bin/boole-native-shadow-launcher.rs"
+
+[[bin]]
+name = "boole-fresh-answer-canary-launcher"
+path = "src/bin/boole-fresh-answer-canary-launcher.rs"
+required-features = ["fresh-answer-canary"]
 
 [[test]]
 name = "boole-native-shadow-manager-cgroup-linux"

@@ -93,7 +93,21 @@ pub enum ActiveExecutionListenerError {
 /// startup proof span the complete four-connection session, so a different
 /// process with the same UID/GID cannot enter after qualification.
 pub fn serve_qualified_three_fixed_unix_executions(
+    startup: VerifiedClosedLocalReplayStartup,
+) -> Result<(), ActiveExecutionListenerError> {
+    serve_qualified_bounded_executions(startup, 3)
+}
+
+#[cfg(feature = "fresh-answer-canary")]
+pub fn serve_qualified_one_canary_execution(
+    startup: crate::closed_local_replay_startup::VerifiedFreshAnswerCanaryStartup,
+) -> Result<(), ActiveExecutionListenerError> {
+    serve_qualified_bounded_executions(startup.into_inner(), 1)
+}
+
+fn serve_qualified_bounded_executions(
     mut startup: VerifiedClosedLocalReplayStartup,
+    connection_count: usize,
 ) -> Result<(), ActiveExecutionListenerError> {
     require_fixed_umask()?;
     let identities = startup.identities();
@@ -115,7 +129,7 @@ pub fn serve_qualified_three_fixed_unix_executions(
         startup.qualification_startup(),
     )
     .map_err(|error| ActiveExecutionListenerError::Qualification(error.to_string()))?;
-    for connection in 1..=3 {
+    for connection in 1..=connection_count {
         let stream = listener.accept_one()?;
         unix::serve_connected_unix_execution(stream, &mut startup, Some(qualified_peer.pid()))
             .map_err(|source| ActiveExecutionListenerError::Session {

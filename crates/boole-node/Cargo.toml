@@ -19,6 +19,7 @@ publish = false
 default = []
 dev-mock-payment = []
 native-shadow-closed-local-replay = []
+fresh-answer-canary = ["native-shadow-closed-local-replay", "boole-native-shadow-protocol/fresh-answer-canary"]
 linux-arm64-authority = ["boole-native-shadow-protocol/linux-arm64-authority"]
 
 [[bin]]
@@ -30,6 +31,11 @@ required-features = ["native-shadow-closed-local-replay"]
 name = "boole-mac-native-shadow-replay-node"
 path = "src/bin/boole-mac-native-shadow-replay-node.rs"
 required-features = ["native-shadow-closed-local-replay", "linux-arm64-authority"]
+
+[[bin]]
+name = "boole-fresh-answer-canary-node"
+path = "src/bin/boole-fresh-answer-canary-node.rs"
+required-features = ["fresh-answer-canary"]
 
 [dependencies]
 anyhow.workspace = true
@@ -62,6 +68,7 @@ tracing.workspace = true
 # link the mock surface; production crates must never depend on it.
 [dev-dependencies]
 boole-testkit = { path = "../boole-testkit" }
+ed25519-dalek.workspace = true
 
 # P0.6b — inherit `[workspace.lints]` so the workspace-wide deny set
 # (currently `unsafe_code = "deny"`) is enforced uniformly on this crate.

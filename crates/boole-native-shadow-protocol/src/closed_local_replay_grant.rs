@@ -800,7 +800,9 @@ fn validated_tracked_source<'a>(
 /// Frozen parity copy of the public intake algorithm. It exists only to
 /// prove that the tracked raw envelopes bind the separately tracked source
 /// digests; it never repairs or normalizes candidate code.
-fn extract_replay_source(raw: &[u8]) -> Result<Option<&[u8]>, ClosedLocalReplayGrantError> {
+pub(crate) fn extract_replay_source(
+    raw: &[u8],
+) -> Result<Option<&[u8]>, ClosedLocalReplayGrantError> {
     let text = std::str::from_utf8(raw)
         .map_err(|_| ClosedLocalReplayGrantError::Invariant("tracked replay rawAnswer UTF-8"))?;
     if text.trim().is_empty() {

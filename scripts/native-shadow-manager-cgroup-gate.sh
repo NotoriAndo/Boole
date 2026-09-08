@@ -103,6 +103,8 @@ replay_client_build_json=$(mktemp "$temp_root/boole-native-shadow-replay-client-
 production_launcher_build_json=$(mktemp "$temp_root/boole-native-shadow-production-launcher-build.XXXXXX")
 production_node_build_json=$(mktemp "$temp_root/boole-native-shadow-production-node-build.XXXXXX")
 production_mcp_build_json=$(mktemp "$temp_root/boole-native-shadow-production-mcp-build.XXXXXX")
+canary_build_json=$(mktemp "$temp_root/boole-native-shadow-canary-build.XXXXXX")
+canary_log=$(mktemp "$temp_root/boole-native-shadow-canary.XXXXXX")
 log=$(mktemp "$temp_root/boole-native-shadow-manager.XXXXXX")
 node_log=$(mktemp "$temp_root/boole-native-shadow-node.XXXXXX")
 replay_client_log=$(mktemp "$temp_root/boole-native-shadow-replay-client.XXXXXX")
@@ -236,7 +238,7 @@ cleanup_gate() {
   [[ -z "$toolchain_stage" ]] || rm -rf "$toolchain_stage"
   rm -f "$build_json" "$node_build_json" "$replay_client_build_json" \
     "$production_launcher_build_json" "$production_node_build_json" \
-    "$production_mcp_build_json" \
+    "$production_mcp_build_json" "$canary_build_json" "$canary_log" \
     "$log" "$node_log" "$replay_client_log" "$dropin_source" "$node_dropin_source"
 }
 trap cleanup_gate EXIT
@@ -1471,9 +1473,50 @@ run_crash_restart_replay_gate() {
   echo "native-shadow production crash/restart replay gate: PASS"
 }
 
+run_fresh_answer_canary_gate() {
+  local features=boole-node/fresh-answer-canary,boole-native-shadow-launcher/fresh-answer-canary,boole-native-shadow-protocol/fresh-answer-canary
+  if [[ "$authority_profile" == arm64 ]]; then
+    features+=,boole-node/linux-arm64-authority,boole-native-shadow-launcher/linux-arm64-authority,boole-native-shadow-protocol/linux-arm64-authority
+  fi
+  cargo build --locked -p boole-node -p boole-native-shadow-launcher -p boole-native-shadow-protocol \
+    --features "$features" \
+    --bin boole-fresh-answer-canary-node --bin boole-fresh-answer-canary-launcher \
+    --bin boole-canary-authority --message-format=json >"$canary_build_json"
+  local -a canary_binaries=()
+  mapfile -t canary_binaries < <(python3 -c '
+import json, sys
+executables = {}
+for line in open(sys.argv[1], encoding="utf-8"):
+    row = json.loads(line)
+    if row.get("reason") == "compiler-artifact" and row.get("executable"):
+        executables[row["target"]["name"]] = row["executable"]
+for name in ("boole-fresh-answer-canary-node", "boole-fresh-answer-canary-launcher", "boole-canary-authority"):
+    print(executables[name])
+' "$canary_build_json")
+  [[ ${#canary_binaries[@]} -eq 3 ]] || die "canary binaries were not built"
+  set +e
+  timeout --foreground --signal=TERM --kill-after=30s 900s \
+    sudo env PYTHONDONTWRITEBYTECODE=1 python3 scripts/native_shadow_canary_gate.py \
+      --node-binary "${canary_binaries[0]}" --launcher-binary "${canary_binaries[1]}" \
+      --operator-binary "${canary_binaries[2]}" --mcp-binary "$boole_mcp_path" \
+      --authority-directory "$authority_directory" \
+      --fixture-directory "$http_replay_fixture_directory" >"$canary_log" 2>&1
+  local canary_status=$?
+  set -e
+  cat "$canary_log"
+  if [[ $canary_status -ne 0 ]]; then
+    sudo journalctl --no-pager -o cat -u "$node_service_name" -n 100 >&2 || :
+    sudo journalctl --no-pager -o cat -u "$unit_name" -n 100 >&2 || :
+    die "fresh-answer canary integration gate failed"
+  fi
+  grep -Fx 'fresh-answer-canary:real-mcp-contained-checker:PASS' "$canary_log" >/dev/null \
+    || die "canary actual MCP/checker result was not confirmed"
+}
+
 if [[ "$closed_local_replay_only" == true ]]; then
   run_closed_local_replay_gate
   run_crash_restart_replay_gate
+  run_fresh_answer_canary_gate
   exit 0
 fi
 

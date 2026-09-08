@@ -56,18 +56,22 @@ but real execution is **not ready**. The current MCP binary passed a no-model
 transport rehearsal and 38 focused transport/grant tests. Native responses in
 the local rehearsal were synthetic; no model, checker or VM was executed.
 
-The key uncovered prerequisite is that the installed replay grant accepts only
-four fixed fixture answers and epochs. An arbitrary fresh model answer is not
-authorized by that service. The proposed next implementation is a separate,
-default-disabled, one-task fresh-answer canary capability with durable candidate
-binding, a single checker execution and exact redelivery; retain the frozen
-replay grant and qualified containment unchanged. Select its operator authority
-and explicit installed node/launcher environment before implementation/execution.
+The fixed-fixture replay grant remains unchanged. The separately approved
+implementation adds a default-disabled, Linux-only one-task fresh-answer canary
+with an independent development operator signing root, durable candidate binding,
+at most one checker execution across restart, and at most one separately signed
+identical redelivery. Its task remains the permanently non-issuable historical
+task: fresh answer bytes do not mean a novel problem or benchmark result.
+The containing PR's full CI checks the actual MCP/contained-checker path with
+synthetic answers and disposable test keys. No actual-model result is claimed.
 
 An authenticated client path is available without assuming a new API key, but
-authentication is not spending approval. The preparation scope did not authorize
-a model call or the new runtime capability. A later implementation/run must use
-the applicable user approval and obtain only missing scope/budget authority.
+authentication is not spending approval. Runtime implementation and the separate
+development trust root were approved after preparation; a model call was not.
+The next execution boundary is an explicitly provisioned qualified Linux
+installation and model-client session with applicable scope/usage approval.
+Production key generation, public deployment and the existing Mac replay path
+are outside this implementation.
 
 ## Operational boundaries
 
