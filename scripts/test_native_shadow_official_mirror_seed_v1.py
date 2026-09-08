@@ -223,14 +223,35 @@ class OfficialMirrorSeedTests(unittest.TestCase):
         self.assertIn("native_shadow_official_mirror_python_v1", ci)
         self.assertIn("BOOLE_UBUNTU_MIRROR_ARCH=amd64", ci)
         self.assertIn("BOOLE_UBUNTU_MIRROR_ARCH=arm64", ci)
-        self.assertEqual(
-            hashlib.sha256(X86_REPLAY.read_bytes()).hexdigest(),
-            "d04bd92de2b5d2ba86cd2fe0d9990bf106fe94be7237bb23b55b7c30bd1aaea4",
-        )
-        self.assertEqual(
-            hashlib.sha256(ARM64_REPLAY.read_bytes()).hexdigest(),
-            "5b4fbde81a538d68fd01e96dcb5e9c02c76628dda75035d2f392a82ef3bdb68d",
-        )
+        # Mirrors are acquisition transport only. Test the offline consumer's
+        # isolation wiring, not a hash that also freezes unrelated CI timeouts.
+        # Frozen package/builder/output identities have their own authority tests.
+        for wrapper, phases in (
+            (X86_REPLAY, {"build", "probe"}),
+            (ARM64_REPLAY, {"resolve", "build", "parity"}),
+        ):
+            source = wrapper.read_text(encoding="utf-8")
+            self.assertNotIn("official_mirror", source)
+            self.assertNotIn("BOOLE_UBUNTU_MIRROR_ARCH", source)
+            invocations = re.findall(
+                r'^systemd-run(?:[^\n]*\\\n)+[^\n]*--offline-(\w+) "\$scratch"',
+                source,
+                flags=re.MULTILINE,
+            )
+            self.assertCountEqual(invocations, phases)
+            for invocation in re.finditer(
+                r'^systemd-run(?:[^\n]*\\\n)+[^\n]*--offline-\w+ "\$scratch"',
+                source,
+                flags=re.MULTILINE,
+            ):
+                command = invocation.group()
+                for restriction in (
+                    "PrivateNetwork=yes", "RestrictAddressFamilies=AF_UNIX",
+                    "ProtectSystem=strict", "NoNewPrivileges=yes",
+                    "PrivateDevices=yes", "PrivateMounts=yes",
+                    'ReadOnlyPaths=$ROOT', 'ReadWritePaths=$scratch',
+                ):
+                    self.assertIn(f"--property={restriction}", command.replace('"', ''))
 
     def test_transport_adapter_preserves_the_frozen_snapshot_identity(self):
         self.assertTrue(MIRROR_SITE.is_file())

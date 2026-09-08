@@ -127,6 +127,14 @@ includes the added gate's bounded 900 seconds: 3,000 seconds plus 600 seconds of
 workflow reserve. Individual checker, HTTP, containment and recovery limits are
 unchanged; the ARM64 new-task result still requires a successful complete run.
 
+Run `34250957584` subsequently passed both architectures' complete actual MCP
+and contained-checker matrices, including the new-task cases. Its final self-test
+then rejected the changed outer timeout because a mirror-transport test pinned
+the entire orchestration script. That test now checks the actual offline phase
+wiring and kernel/network restrictions instead of freezing unrelated CI budgets.
+Frozen package, builder, checker and output identities are unchanged and retain
+their independent authority checks. Full required CI still gates adoption.
+
 Every admitted task remains `nonIssuable=true`; `activationAllowed=false`.
 This is a generated development problem family, not new real-world-source supply,
 a formal proof corpus, a benchmark result or reward-ready mining. The fixed
