@@ -2,6 +2,9 @@
 
 Status: **SOURCE BOOTSTRAP AVAILABLE / CURL PRODUCT PATH IMPLEMENTED — NO PUBLIC SIGNED RELEASE**.
 
+한국어 로컬 체험 순서: [내 Mac에서 Boole 따라 해 보기](mac-local-tryout-ko.md).
+준비된 개발용 테스트 번들이 필요하며, 공개 원라인 설치 또는 clean-Mac 검증 완료를 뜻하지 않는다.
+
 The command below is the current developer/source bootstrap. It clones or updates the repository
 and installs development toolchains. It is the only public one-line install command today and
 **must not be presented as the finished Mac product installer**.
