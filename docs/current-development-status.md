@@ -1,6 +1,6 @@
 # Boole — current development status
 
-Updated: 2026-09-09. This is the tracked entrypoint for current progress and next
+Updated: 2026-09-15. This is the tracked entrypoint for current progress and next
 work. Edit it in place; historical experiment results remain in their own records.
 Local Master/Execution documents summarize current contracts and milestones and
 point here for status. Historical planning text is archived locally; unresolved
@@ -50,6 +50,17 @@ Evidence: [MCP path](boole-mcp-e2e.md),
 [CI](https://github.com/NotoriAndo/Boole/actions/runs/33954999938).
 
 ## Next development boundary
+
+The subsequent user-operated [developer-Mac MCP trial](boole-local-mcp-trial-2026-09-15.md)
+accepted one newly prepared tuple problem. Original MCP events, both durable
+budgets and the terminal evidence agree on one candidate, one checker execution
+and no redelivery. The dedicated VM was normally stopped after evidence capture;
+its disk, development key and spent state were retained, not deleted or reset.
+This is separate from the earlier three-session evaluation below. It demonstrates
+the developer-machine interaction, not clean-Mac installation or automatic
+problem discovery. VM setup and public-file handoff simplification are proposed
+follow-up work; no extra model execution or new product behavior occurred during
+the evidence-only closeout.
 
 The separately approved [development tuple-task admission](development-tuple-task-admission.md)
 extends the fixed task to operator-signed generated problems in the existing
