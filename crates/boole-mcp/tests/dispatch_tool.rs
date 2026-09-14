@@ -22,18 +22,20 @@
 // For now we test the behaviour through the library's exported helpers.
 
 /// Check that the library crate re-exports the tools list and the tools
-/// contain exactly the 5 expected names.  This exercises the shared
+/// contain exactly the 7 expected names.  This exercises the shared
 /// `mcp_tools_array()` that will feed both HTTP /mcp/tools and stdio tools/list.
 #[test]
-fn tools_array_has_exactly_five_tools() {
+fn tools_array_has_exactly_seven_tools() {
     let tools = boole_mcp::mcp_tools_array();
-    assert_eq!(tools.len(), 5, "expected 5 tools, got {}", tools.len());
+    assert_eq!(tools.len(), 7, "expected 7 tools, got {}", tools.len());
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
     assert!(names.contains(&"bounty.list"), "names={names:?}");
     assert!(names.contains(&"receipt.get"), "names={names:?}");
     assert!(names.contains(&"boole.mine"), "names={names:?}");
     assert!(names.contains(&"boole.status"), "names={names:?}");
     assert!(names.contains(&"boole.verify_native"), "names={names:?}");
+    assert!(names.contains(&"boole.problem_native"), "names={names:?}");
+    assert!(names.contains(&"boole.status_native"), "names={names:?}");
 
     let tool = tools
         .iter()

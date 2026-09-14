@@ -68,7 +68,22 @@ pub struct CanaryBudget {
     poisoned: bool,
 }
 
+/// A read-only snapshot, never an execution or redelivery capability.
+/// `execution_reserved` means authority was spent, not that the checker finished.
+pub struct CanaryBudgetStatus {
+    pub candidate_bound: bool,
+    pub execution_reserved: bool,
+}
+
 impl CanaryBudget {
+    pub fn status(&self, grant: &VerifiedCanaryGrant) -> Result<CanaryBudgetStatus, CanaryError> {
+        self.check_grant(grant)?;
+        Ok(CanaryBudgetStatus {
+            candidate_bound: self.candidate.is_some(),
+            execution_reserved: self.executed,
+        })
+    }
+
     pub fn open(
         directory: &File,
         grant: &VerifiedCanaryGrant,

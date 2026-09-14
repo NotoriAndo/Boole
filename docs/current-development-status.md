@@ -51,6 +51,20 @@ Evidence: [MCP path](boole-mcp-e2e.md),
 
 ## Next development boundary
 
+The approved [development MCP workflow](development-mcp-workflow.md) adds
+read-only public problem/identity discovery and verifier/candidate status to
+the separate development-task service, plus consistent start/status/stop for
+an already-provisioned closed-local Lima VM. Reads do not reserve candidates,
+execute a checker, reset spent state or retrieve/redeliver receipts. The full
+CI boundary exercises discovery → synthetic submission → contained checker →
+receipt and restart/spent-state safety; it is not another real-model evaluation.
+The previous user-trial VM, key, disk and spent problem remain untouched.
+
+The user deferred clean-Mac installation validation to the final installation
+step because a clean machine is not currently available. It does not block
+current-Mac development or CI, but CURL.3 remains unpassed and this workflow is
+not a public signed release or an automatic VM/task provisioning system.
+
 The subsequent user-operated [developer-Mac MCP trial](boole-local-mcp-trial-2026-09-15.md)
 accepted one newly prepared tuple problem. Original MCP events, both durable
 budgets and the terminal evidence agree on one candidate, one checker execution
@@ -58,9 +72,9 @@ and no redelivery. The dedicated VM was normally stopped after evidence capture;
 its disk, development key and spent state were retained, not deleted or reset.
 This is separate from the earlier three-session evaluation below. It demonstrates
 the developer-machine interaction, not clean-Mac installation or automatic
-problem discovery. VM setup and public-file handoff simplification are proposed
-follow-up work; no extra model execution or new product behavior occurred during
-the evidence-only closeout.
+problem discovery. The workflow implementation above is subsequent work;
+no extra model execution or new product behavior occurred during that
+evidence-only closeout.
 
 The separately approved [development tuple-task admission](development-tuple-task-admission.md)
 extends the fixed task to operator-signed generated problems in the existing
@@ -79,7 +93,8 @@ ACCEPT and model receipt delivery. There was no operator answer forwarding,
 second candidate or redelivery. The disposable VM and development key were
 removed after evidence collection. This is a bounded one-family result, not a
 benchmark or new operational authority. The three-session allowance is complete;
-the next proposed boundary is clean-Mac general-user installation validation.
+its originally proposed clean-Mac installation follow-up is now deferred to the
+last installation-validation step as described above.
 
 Real MCP-client/LLM [canary preparation](boole-mcp-canary-preparation.md) and the
 separate development implementation are complete. The newly approved

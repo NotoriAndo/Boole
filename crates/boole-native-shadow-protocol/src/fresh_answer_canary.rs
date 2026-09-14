@@ -31,7 +31,9 @@ pub enum CanaryError {
 #[cfg(unix)]
 mod budget;
 #[cfg(unix)]
-pub use budget::{CanaryBudget, CanaryBudgetRole, VerifiedCanaryExecutionAuthorization};
+pub use budget::{
+    CanaryBudget, CanaryBudgetRole, CanaryBudgetStatus, VerifiedCanaryExecutionAuthorization,
+};
 
 /// Public material identity, not authority. Exact comparison at verification
 /// rejects additional fields as well as changed task/checker/policy values.

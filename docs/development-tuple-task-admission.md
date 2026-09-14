@@ -3,6 +3,11 @@
 Status: implemented development path; real Linux integration is checked by the
 containing PR's protected CI. No additional model session or public activation.
 
+The [development MCP workflow](development-mcp-workflow.md) now exposes the
+verified installed task's public problem and read-only candidate status, and
+provides consistent start/status/stop commands for an already-provisioned Lima
+VM. It does not create tasks, reset budgets or add redelivery/receipt authority.
+
 The subsequent, separately approved
 [three-new-task model evaluation](boole-new-task-model-evaluation-2026-09-09.md)
 passed direct MCP submission, checker ACCEPT and model receipt delivery on all

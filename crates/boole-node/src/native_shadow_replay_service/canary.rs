@@ -11,6 +11,23 @@ struct CanaryReplayAuthority {
     redelivery: Option<InstalledCanaryRedeliveryAuthority>,
 }
 
+#[cfg(all(feature = "development-task-admission", any(target_os = "linux", test)))]
+mod discovery;
+
+#[cfg(any(target_os = "linux", test))]
+fn build_one_task_router<L>(
+    service: Arc<ClosedLocalReplayService<CanaryReplayAuthority, L>>,
+) -> Router
+where
+    L: LauncherTransport<ExecutionRequest>,
+{
+    #[cfg(feature = "development-task-admission")]
+    if service.replay_authority.grant.is_development_task() {
+        return build_router(service.clone()).merge(discovery::router(service));
+    }
+    build_router(service)
+}
+
 /// Development-only Linux service. No runtime flag can turn the existing
 /// replay binary into this service and no HTTP request can select its keys.
 #[cfg(target_os = "linux")]
@@ -108,7 +125,7 @@ async fn serve_installed_one_task(
         poisoned: Arc::new(AtomicBool::new(false)),
     });
     let listener = tokio::net::TcpListener::bind(fixed_http_listener_address()).await?;
-    axum::serve(listener, build_router(service)).await?;
+    axum::serve(listener, build_one_task_router(service)).await?;
     Ok(())
 }
 
@@ -449,6 +466,253 @@ mod tests {
             }),
             poisoned: Arc::new(AtomicBool::new(false)),
         })
+    }
+
+    #[cfg(feature = "development-task-admission")]
+    fn discovery_grant() -> VerifiedCanaryGrant {
+        use boole_native_shadow_protocol::fresh_answer_canary::development_task::{
+            self, DevelopmentTaskGrant, DevelopmentTaskSpec,
+        };
+        let key = SigningKey::from_bytes(&[53; 32]);
+        let bytes = serde_json::to_vec(
+            &DevelopmentTaskGrant::one_task(
+                "11".repeat(32),
+                "22".repeat(32),
+                10,
+                DevelopmentTaskSpec {
+                    type_name: "DiscoveryPoint".into(),
+                    field_types: vec!["u64".into(), "bool".into()],
+                    task_seed: "33".repeat(32),
+                    a0: 17,
+                    mul: -9,
+                    coeffs: vec![2, -5],
+                },
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        development_task::verify_grant(
+            &bytes,
+            &key.sign(&[development_task::SIGNING_DOMAIN, bytes.as_slice()].concat()) // P2.10-exempt: disposable discovery test grant.
+                .to_bytes(),
+            &CanaryTrustRoot::new(key.verifying_key().to_bytes()).unwrap(),
+        )
+        .unwrap()
+    }
+
+    #[cfg(feature = "development-task-admission")]
+    #[tokio::test]
+    async fn public_problem_discovery_is_complete_and_does_not_spend_a_candidate() {
+        let grant = discovery_grant();
+        let expected_task: Value = serde_json::from_slice(grant.task_bytes()).unwrap();
+        let expected_anchor = std::str::from_utf8(grant.anchor_bytes())
+            .unwrap()
+            .to_owned();
+        let path = std::env::temp_dir().join(format!(
+            "boole-discovery-{}-{}",
+            std::process::id(),
+            boole_testkit::rand_suffix()
+        ));
+        std::fs::create_dir(&path).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let launcher = Arc::new(BoundaryLauncher(std::sync::atomic::AtomicUsize::new(0)));
+        let service = service_with_grant(&path, launcher.clone(), grant);
+        let before = std::fs::read(path.join("node-budget-v1.jsonl")).unwrap();
+        for _ in 0..2 {
+            let response = build_one_task_router(service.clone())
+                .oneshot(
+                    Request::builder()
+                        .uri("/native-shadow/problem")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let problem: Value = serde_json::from_slice(
+                &to_bytes(response.into_body(), HTTP_BODY_LIMIT_BYTES)
+                    .await
+                    .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(problem["schema"], "boole.development.public-problem.v1");
+            assert_eq!(
+                problem["submissionIdentity"]["templateId"],
+                expected_task["templateId"]
+            );
+            assert_eq!(
+                problem["submissionIdentity"]["challengeSha256"],
+                expected_task["challengeSha256"]
+            );
+            assert_eq!(problem["submissionIdentity"]["epoch"], 10);
+            assert_eq!(problem["task"]["scaffold"], expected_task["scaffold"]);
+            assert_eq!(problem["task"]["constants"], expected_task["constants"]);
+            assert_eq!(problem["officialSurface"]["anchorSource"], expected_anchor);
+            assert!(problem["globalContract"]
+                .as_str()
+                .unwrap()
+                .contains("ACFR-PATCH-BEGIN"));
+            assert!(problem["outputContract"]
+                .as_str()
+                .unwrap()
+                .contains("ACTION: FINAL"));
+            assert!(problem["task"].get("taskSeed").is_none());
+            assert!(problem.get("rawAnswer").is_none());
+        }
+        assert_eq!(
+            before,
+            std::fs::read(path.join("node-budget-v1.jsonl")).unwrap()
+        );
+        assert_eq!(launcher.0.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            build_one_task_router(service.clone())
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/native-shadow/problem")
+                        .body(Body::empty())
+                        .unwrap()
+                )
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::METHOD_NOT_ALLOWED
+        );
+        // The retrieved task still accepts its first candidate.
+        let request = request_for(
+            &service.replay_authority.grant,
+            "```rust\nfn main() {}\n```",
+        );
+        assert_eq!(
+            build_one_task_router(service.clone())
+                .oneshot(request)
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+        drop(service);
+        std::fs::remove_file(path.join("node-budget-v1.jsonl")).unwrap();
+        std::fs::remove_file(path.join("verdict.ndjson")).unwrap();
+        std::fs::remove_dir(path).unwrap();
+    }
+
+    #[cfg(feature = "development-task-admission")]
+    #[tokio::test]
+    async fn historical_canary_never_advertises_a_generated_development_problem() {
+        let path = std::env::temp_dir().join(format!(
+            "boole-no-discovery-{}-{}",
+            std::process::id(),
+            boole_testkit::rand_suffix()
+        ));
+        std::fs::create_dir(&path).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let launcher = Arc::new(BoundaryLauncher(std::sync::atomic::AtomicUsize::new(0)));
+        let service = service(&path, launcher.clone());
+        let before = std::fs::read(path.join("node-budget-v1.jsonl")).unwrap();
+        for uri in ["/native-shadow/problem", "/native-shadow/status"] {
+            assert_eq!(
+                build_one_task_router(service.clone())
+                    .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+                    .await
+                    .unwrap()
+                    .status(),
+                StatusCode::NOT_FOUND
+            );
+        }
+        assert_eq!(
+            before,
+            std::fs::read(path.join("node-budget-v1.jsonl")).unwrap()
+        );
+        assert_eq!(launcher.0.load(Ordering::SeqCst), 0);
+        drop(service);
+        std::fs::remove_file(path.join("node-budget-v1.jsonl")).unwrap();
+        std::fs::remove_file(path.join("verdict.ndjson")).unwrap();
+        std::fs::remove_dir(path).unwrap();
+    }
+
+    #[cfg(feature = "development-task-admission")]
+    #[tokio::test]
+    async fn native_status_distinguishes_health_from_spent_state_without_redelivery() {
+        async fn status(router: Router) -> (StatusCode, Value) {
+            let response = router
+                .oneshot(
+                    Request::builder()
+                        .uri("/native-shadow/status")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            let code = response.status();
+            let bytes = to_bytes(response.into_body(), HTTP_BODY_LIMIT_BYTES)
+                .await
+                .unwrap();
+            (code, serde_json::from_slice(&bytes).unwrap_or(Value::Null))
+        }
+        for raw in ["```rust\nfn main() {}\n```", ""] {
+            let path = std::env::temp_dir().join(format!(
+                "boole-discovery-status-{}-{}",
+                std::process::id(),
+                boole_testkit::rand_suffix()
+            ));
+            std::fs::create_dir(&path).unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+            let launcher = Arc::new(BoundaryLauncher(std::sync::atomic::AtomicUsize::new(0)));
+            let service = service_with_grant(&path, launcher.clone(), discovery_grant());
+            let before = std::fs::read(path.join("node-budget-v1.jsonl")).unwrap();
+            let (code, initial) = status(build_one_task_router(service.clone())).await;
+            assert_eq!(code, StatusCode::OK);
+            assert_eq!(initial["serviceReady"], true);
+            assert_eq!(initial["submissionAllowed"], true);
+            assert_eq!(initial["taskState"], "unused");
+            assert_eq!(initial["checkerExecutionReserved"], false);
+            assert_eq!(
+                before,
+                std::fs::read(path.join("node-budget-v1.jsonl")).unwrap()
+            );
+            let submit = request_for(&service.replay_authority.grant, raw);
+            let _ = build_one_task_router(service.clone())
+                .oneshot(submit)
+                .await
+                .unwrap();
+            let spent_budget = std::fs::read(path.join("node-budget-v1.jsonl")).unwrap();
+            let spent_verdict = std::fs::read(path.join("verdict.ndjson")).unwrap();
+            let (code, spent) = status(build_one_task_router(service.clone())).await;
+            assert_eq!(code, StatusCode::OK);
+            assert_eq!(spent["serviceReady"], true);
+            assert_eq!(spent["submissionAllowed"], false);
+            assert_eq!(spent["taskState"], "consumed");
+            assert_eq!(spent["checkerExecutionReserved"], !raw.is_empty());
+            assert!(spent.get("receipt").is_none());
+            drop(service);
+            let restarted = service_with_grant(&path, launcher.clone(), discovery_grant());
+            assert_eq!(
+                status(build_one_task_router(restarted.clone())).await.1,
+                spent
+            );
+            assert_eq!(
+                spent_budget,
+                std::fs::read(path.join("node-budget-v1.jsonl")).unwrap()
+            );
+            assert_eq!(
+                spent_verdict,
+                std::fs::read(path.join("verdict.ndjson")).unwrap()
+            );
+            restarted.poisoned.store(true, Ordering::Release);
+            let (code, poisoned) = status(build_one_task_router(restarted.clone())).await;
+            assert_eq!(code, StatusCode::SERVICE_UNAVAILABLE);
+            assert_eq!(poisoned["serviceReady"], false);
+            assert_eq!(poisoned["submissionAllowed"], false);
+            assert_eq!(
+                launcher.0.load(Ordering::SeqCst),
+                usize::from(!raw.is_empty())
+            );
+            drop(restarted);
+            std::fs::remove_file(path.join("node-budget-v1.jsonl")).unwrap();
+            std::fs::remove_file(path.join("verdict.ndjson")).unwrap();
+            std::fs::remove_dir(path).unwrap();
+        }
     }
 
     #[cfg(feature = "development-task-admission")]

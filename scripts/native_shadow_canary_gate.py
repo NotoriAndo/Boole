@@ -96,6 +96,20 @@ def cross_task_probe(previous: Optional[dict], current: dict) -> Optional[dict]:
     return dict(previous, epoch=current["epoch"])
 
 
+def require_development_status(client, request_id: str, identity: dict, *, consumed: bool) -> None:
+    error, status = client.call_tool(request_id, "boole.status_native", {})
+    expected = {
+        "schema": "boole.development.verifier-status.v1", "serviceReady": True,
+        "submissionAllowed": not consumed, "taskState": "consumed" if consumed else "unused",
+        "candidateBound": consumed, "checkerExecutionReserved": consumed,
+        "submissionIdentity": identity, "maxCandidates": 1, "maxCheckerExecutions": 1,
+        "redeliveryRequiresOperatorAuthorization": True, "loopbackOnly": True,
+        "nonIssuable": True, "mineableNow": False, "activationAllowed": False,
+    }
+    if error or status != expected:
+        raise ValueError("development read-only status drifted: {}".format(status))
+
+
 def run(command: list, *, check: bool = True) -> subprocess.CompletedProcess:
     return subprocess.run([str(value) for value in command], check=check, capture_output=True, text=True, timeout=300)
 
@@ -197,13 +211,28 @@ def run_gate(args: argparse.Namespace) -> None:
             previous_arguments = None
             for label, epoch, filename, verdict in cases:
                 grant, output, node_state, launcher_state = provision(label, epoch)
-                raw = development_answer(json.loads((output / "task.json").read_text()), label) if development_tasks else synthetic_answer((args.fixture_directory / filename).read_text(), label)
-                arguments = payload(grant, raw)
+                raw = None if development_tasks else synthetic_answer((args.fixture_directory / filename).read_text(), label)
+                arguments = None if development_tasks else payload(grant, raw)
                 cursor = crash.freeze_journal_cursor()
                 run(["systemctl", "start", crash.NODE_SERVICE])
                 crash.wait_for_listener()
                 client = mcp.McpStdio(args.mcp_binary, legacy.url, user=node.pw_uid, group=node.pw_gid)
                 try:
+                    if development_tasks:
+                        # The solver side receives all inputs through MCP, not
+                        # the operator's exported files or a hand-copied identity.
+                        identity = payload(grant, "")
+                        del identity["rawAnswer"]
+                        budgets = [node_state / "node-budget-v1.jsonl", launcher_state / "launcher-budget-v1.jsonl"]
+                        initial_budgets = [path.read_bytes() for path in budgets]
+                        require_development_status(client, "status-unused", identity, consumed=False)
+                        error, problem = client.call_tool("public-problem", "boole.problem_native", {})
+                        if error or problem.get("schema") != "boole.development.public-problem.v1" or problem.get("submissionIdentity") != identity:
+                            raise ValueError("MCP discovery did not return the installed signed problem")
+                        raw = development_answer(problem["task"], label)
+                        arguments = dict(problem["submissionIdentity"], rawAnswer=raw)
+                        if initial_budgets != [path.read_bytes() for path in budgets]:
+                            raise ValueError("public discovery spent an execution/candidate budget")
                     wrong = dict(arguments, epoch=epoch + 100)
                     error, body = client.call("wrong-task", wrong)
                     if not error or body.get("reasonCode") != "canary_task_mismatch":
@@ -217,6 +246,12 @@ def run_gate(args: argparse.Namespace) -> None:
                     if error:
                         raise ValueError("canary fresh answer did not reach contained checker: {}".format(first))
                     mcp._validate_terminal("accepted" if verdict == "accepted" else "constant", first, False)
+                    if development_tasks:
+                        used_budgets = [path.read_bytes() for path in budgets]
+                        require_development_status(client, "status-consumed", identity, consumed=True)
+                        require_development_status(client, "status-consumed-again", identity, consumed=True)
+                        if used_budgets != [path.read_bytes() for path in budgets]:
+                            raise ValueError("status query mutated a spent budget")
                     error, body = client.call("unapproved-recovery", arguments)
                     if not error or body.get("reasonCode") != "canary_redelivery_not_authorized":
                         raise ValueError("canary redelivery did not require independent operator approval")
@@ -251,6 +286,8 @@ def run_gate(args: argparse.Namespace) -> None:
                 crash.wait_for_listener()
                 client = mcp.McpStdio(args.mcp_binary, legacy.url, user=node.pw_uid, group=node.pw_gid)
                 try:
+                    if development_tasks:
+                        require_development_status(client, "status-after-restart", identity, consumed=True)
                     error, recovered = client.call("operator-recovery", arguments)
                     if error:
                         raise ValueError("signed canary recovery failed: {}".format(recovered))
