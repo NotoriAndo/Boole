@@ -5,6 +5,9 @@ Status: **SOURCE BOOTSTRAP AVAILABLE / CURL PRODUCT PATH IMPLEMENTED — NO PUBL
 한국어 로컬 체험 순서: [내 Mac에서 Boole 따라 해 보기](mac-local-tryout-ko.md).
 준비된 개발용 테스트 번들이 필요하며, 공개 원라인 설치 또는 clean-Mac 검증 완료를 뜻하지 않는다.
 
+별도의 Lima 개발용 경로는 [MCP 문제 조회와 VM 시작·상태·종료](development-mcp-workflow.md)를 따른다.
+운영자가 준비한 개발 VM용이며 위 Mac 제품 번들 설치와 혼동하지 않는다.
+
 The command below is the current developer/source bootstrap. It clones or updates the repository
 and installs development toolchains. It is the only public one-line install command today and
 **must not be presented as the finished Mac product installer**.

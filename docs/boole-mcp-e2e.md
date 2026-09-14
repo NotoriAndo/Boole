@@ -155,7 +155,7 @@ JSON-RPC `-32800` cancellation error. EOF also requests cancellation and waits
 only briefly for the bounded local loop to stop.
 
 One additional stdio slot owns an HTTP proxy call (`boole.verify_native`,
-`bounty.list` or `receipt.get`). Overlapping proxy calls return
+`boole.problem_native`, `boole.status_native`, `bounty.list` or `receipt.get`). Overlapping proxy calls return
 `upstream-request-busy`; protocol control remains responsive. An active request
 ID cannot be reused until its terminal response is serialized. Input/output
 queues each hold one frame, and a response that cannot be written within two
@@ -273,6 +273,14 @@ process. The slot is wiped when the process exits.
 
 ## Native verification — strict six-field bridge
 
+For operator-prepared generated problems, the separate
+[development MCP workflow](development-mcp-workflow.md) adds read-only
+`boole.problem_native` and `boole.status_native` tools. They supply the public
+problem/identity and distinguish verifier health from an already-consumed task.
+They do not use legacy `bounty.list`, retrieve a receipt or spend a candidate.
+The historical replay and fresh-answer canary services do not expose those
+generated-development-task routes.
+
 With the native service running, submit exactly the six fields owned by that
 service:
 
@@ -308,10 +316,13 @@ beyond the verifier's frozen 115-second outer deadline. It follows no redirect
 and performs no automatic retry. If any response cannot be forwarded after the
 request may have reached the service—including a connection loss, oversized
 body or invalid JSON—the MCP response says only that the outcome is unknown,
-with the transport problem as non-verdict detail. Resubmit the identical six
-fields manually: the native service can return its durable terminal result with
-`redelivered: true` without a second checker execution, even if the MCP process
-restarted in between.
+with the transport problem as non-verdict detail. It sets `retryAuthorized: false`
+and `retry: "check-task-specific-redelivery-authority"`: a transport error is not
+redelivery authority. The historical replay service can return its durable
+terminal result for an authorized identical six-field redelivery with
+`redelivered: true` and no second checker execution, even across MCP restart.
+The development canary/task service additionally requires its separate signed
+operator redelivery permission. Never change the candidate or reset state to retry.
 
 Unlike local mining, native verification is node-owned: a cancellation
 notification does not stop it or manufacture a cancelled verdict. The original

@@ -339,6 +339,22 @@ pub fn mcp_tools_array() -> Vec<Value> {
             }),
         ),
         (
+            "boole.problem_native",
+            "Read the installed operator-signed development problem, public contract, scaffold \
+             and exact submission identity from the separate native verifier. No arguments, \
+             no candidate reservation, no answer generation and no checker execution. \
+             Requires the development-task service; legacy bounty.list is a different lane.",
+            json!({"type": "object", "properties": {}, "additionalProperties": false}),
+        ),
+        (
+            "boole.status_native",
+            "Read development verifier readiness and whether its one candidate has been used. \
+             A healthy service can have a consumed task. This read never reserves a candidate, \
+             executes a checker, retrieves a receipt, resets state or authorizes redelivery. \
+             Unlike boole.status, this is not an in-process mining simulation.",
+            json!({"type": "object", "properties": {}, "additionalProperties": false}),
+        ),
+        (
             "boole.verify_native",
             "Submit one raw native answer to the separately configured closed-local native \
              verifier and return its adjudication and BF.3 receipt without rewriting them.",
@@ -368,14 +384,19 @@ pub fn mcp_tools_array() -> Vec<Value> {
     tools_raw
         .iter()
         .map(|(name, desc, schema)| {
-            json!({
+            let mut tool = json!({
                 "name": name,
                 "description": desc,
                 // snake_case: backward-compat for HTTP /mcp/tools consumers
                 "input_schema": schema,
                 // camelCase: required by MCP spec for stdio tools/list
                 "inputSchema": schema,
-            })
+            });
+            if matches!(*name, "boole.problem_native" | "boole.status_native") {
+                tool["annotations"] = json!({"readOnlyHint": true, "destructiveHint": false,
+                    "idempotentHint": true, "openWorldHint": false});
+            }
+            tool
         })
         .collect()
 }

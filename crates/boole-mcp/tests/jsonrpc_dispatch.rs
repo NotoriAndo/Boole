@@ -3,7 +3,7 @@
 //! RED contract:
 //!   * `initialize` → result with protocolVersion == "2024-11-05"
 //!   * `notifications/initialized` (notification, no id) → None
-//!   * `tools/list` → result.tools has exactly 5 tools
+//!   * `tools/list` → result.tools has exactly 7 tools
 //!   * `tools/call` boole.status → content[0].type=="text" with idle state
 //!   * unknown method → JSON-RPC error code -32601
 //!   * malformed JSON → JSON-RPC error code -32700
@@ -81,19 +81,21 @@ fn ping_returns_an_empty_result_with_the_request_id() {
 // ── tools/list ───────────────────────────────────────────────────────────────
 
 #[test]
-fn tools_list_returns_exactly_five_tools() {
+fn tools_list_returns_exactly_seven_tools() {
     let req = json!({"jsonrpc":"2.0","id":2,"method":"tools/list"});
     let resp = call_str(&req).expect("Some");
     assert_eq!(resp["jsonrpc"], "2.0");
     assert_eq!(resp["id"], 2);
     let tools = resp["result"]["tools"].as_array().expect("tools array");
-    assert_eq!(tools.len(), 5, "expected 5 tools; got {}", tools.len());
+    assert_eq!(tools.len(), 7, "expected 7 tools; got {}", tools.len());
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
     assert!(names.contains(&"bounty.list"), "names={names:?}");
     assert!(names.contains(&"receipt.get"), "names={names:?}");
     assert!(names.contains(&"boole.mine"), "names={names:?}");
     assert!(names.contains(&"boole.status"), "names={names:?}");
     assert!(names.contains(&"boole.verify_native"), "names={names:?}");
+    assert!(names.contains(&"boole.problem_native"), "names={names:?}");
+    assert!(names.contains(&"boole.status_native"), "names={names:?}");
 }
 
 #[test]

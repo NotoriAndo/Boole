@@ -51,6 +51,7 @@ run_logged cargo-fmt cargo fmt --all --check
 run_logged bounded-snapshot-retry-tests python3 -m unittest scripts/test_native_shadow_bounded_snapshot_retry_v1.py
 run_logged official-mirror-seed-tests python3 -m unittest scripts/test_native_shadow_official_mirror_seed_v1.py
 run_logged fresh-answer-canary-gate-contract python3 -m unittest scripts/test_native_shadow_canary_gate.py
+run_logged development-vm-lifecycle-contract env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_boole_dev.py
 run_logged fresh-answer-canary-protocol cargo test --locked -p boole-native-shadow-protocol --features development-task-admission --lib --test fresh_answer_canary --test development_task_admission
 run_logged fresh-answer-canary-node cargo test --locked -p boole-node --features development-task-admission --lib native_shadow_replay_service::canary
 run_logged fresh-answer-canary-clippy cargo clippy --locked -p boole-node -p boole-native-shadow-protocol -p boole-native-shadow-launcher --features boole-node/development-task-admission,boole-native-shadow-protocol/development-task-admission,boole-native-shadow-launcher/development-task-admission --all-targets -- -D warnings

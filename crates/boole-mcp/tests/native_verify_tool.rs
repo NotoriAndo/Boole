@@ -410,6 +410,179 @@ fn native_call(id: u64) -> Value {
 }
 
 #[test]
+fn native_discovery_tools_use_read_only_routes_on_both_transports() {
+    let upstream = NativeUpstream::start_with(|request, _| {
+        assert_eq!(request.method, "GET");
+        assert!(request.body.is_null());
+        let schema = match request.path.as_str() {
+            "/native-shadow/problem" => "boole.development.public-problem.v1",
+            "/native-shadow/status" => "boole.development.verifier-status.v1",
+            path => panic!("unexpected discovery path {path}"),
+        };
+        Some(RawResponse::json(
+            200,
+            json!({"schema": schema, "submissionAllowed": false}),
+        ))
+    });
+    let (_http, address) = spawn_serve(&upstream.url());
+    let (_stdio, mut stdin, responses) = native_stdio_session(&upstream.url());
+    for (id, name, schema) in [
+        (
+            1,
+            "boole.problem_native",
+            "boole.development.public-problem.v1",
+        ),
+        (
+            2,
+            "boole.status_native",
+            "boole.development.verifier-status.v1",
+        ),
+    ] {
+        let expected = json!({"schema": schema, "submissionAllowed": false});
+        let body = json!({"tool": name, "args": {}}).to_string();
+        assert_eq!(invoke_raw(address, &body), (200, expected.clone()));
+        write_mcp_frame(
+            &mut stdin,
+            &json!({"jsonrpc": "2.0", "id": id, "method": "tools/call",
+            "params": {"name": name, "arguments": {}}}),
+        );
+        let response = responses.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(response["result"]["isError"], false, "{response}");
+        assert_eq!(
+            serde_json::from_str::<Value>(
+                response["result"]["content"][0]["text"].as_str().unwrap()
+            )
+            .unwrap(),
+            expected
+        );
+        let definition = boole_mcp::mcp_tools_array()
+            .into_iter()
+            .find(|tool| tool["name"] == name)
+            .unwrap();
+        assert_eq!(definition["annotations"]["readOnlyHint"], true);
+        assert_eq!(definition["inputSchema"]["additionalProperties"], false);
+        for invalid in [
+            Value::Null,
+            json!([]),
+            json!({"path": "/private/key"}),
+            json!({"rawAnswer": "candidate"}),
+        ] {
+            let bad = json!({"tool": name, "args": invalid}).to_string();
+            assert_eq!(invoke_raw(address, &bad).0, 400);
+        }
+    }
+    assert_eq!(upstream.requests().len(), 4);
+}
+
+#[test]
+fn native_discovery_failures_never_fall_back_redirect_retry_or_invent_readiness() {
+    let trap = NativeUpstream::start(json!({"must": "not be reached"}));
+    for (response, detail) in [
+        (
+            RawResponse::json(404, json!({})),
+            "development-discovery-not-supported",
+        ),
+        (
+            RawResponse::json(200, json!({"state": "idle"})),
+            "native-response-contract-mismatch",
+        ),
+        (
+            RawResponse {
+                status: 200,
+                headers: vec![],
+                body: b"not json".to_vec(),
+                chunked: false,
+            },
+            "native-response-invalid-json",
+        ),
+        (
+            RawResponse::json(
+                200,
+                json!({"padding": "x".repeat(NATIVE_VERIFIER_RESPONSE_MAX_BYTES)}),
+            ),
+            "native-response-too-large",
+        ),
+        (
+            RawResponse {
+                status: 307,
+                headers: vec![("Location".into(), trap.url())],
+                body: b"{}".to_vec(),
+                chunked: false,
+            },
+            "native-response-contract-mismatch",
+        ),
+    ] {
+        let upstream = NativeUpstream::start_with(move |_, _| Some(response.clone()));
+        let (_mcp, address) = spawn_serve_config(&trap.url(), &upstream.url(), Some(&trap.url()));
+        let (code, body) = invoke_raw(
+            address,
+            &json!({"tool": "boole.status_native", "args": {}}).to_string(),
+        );
+        assert_eq!(code, 502);
+        assert_eq!(body["error"], "native-read-unavailable");
+        assert_eq!(body["detail"], detail);
+        assert_eq!(body["submissionAllowed"], false);
+        assert!(body.get("receipt").is_none());
+        assert!(body.get("retry").is_none());
+        assert_eq!(upstream.requests().len(), 1);
+    }
+    assert!(trap.requests().is_empty());
+    let response = json!({"schema": "boole.development.verifier-status.v1", "serviceReady": false,
+        "submissionAllowed": false, "taskState": "unavailable"});
+    let expected = response.clone();
+    let upstream =
+        NativeUpstream::start_with(move |_, _| Some(RawResponse::json(503, response.clone())));
+    let (_mcp, address) = spawn_serve(&upstream.url());
+    assert_eq!(
+        invoke_raw(
+            address,
+            &json!({"tool": "boole.status_native", "args": {}}).to_string()
+        ),
+        (503, expected)
+    );
+}
+
+#[test]
+fn stdio_discovery_does_not_block_control_messages() {
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let release_rx = Mutex::new(release_rx);
+    let upstream = NativeUpstream::start_with(move |_, _| {
+        started_tx.send(()).unwrap();
+        release_rx
+            .lock()
+            .unwrap()
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap();
+        Some(RawResponse::json(
+            200,
+            json!({"schema": "boole.development.public-problem.v1"}),
+        ))
+    });
+    let (_mcp, mut input, output) = native_stdio_session(&upstream.url());
+    write_mcp_frame(
+        &mut input,
+        &json!({"jsonrpc":"2.0", "id":1, "method":"tools/call",
+        "params":{"name":"boole.problem_native", "arguments":{}}}),
+    );
+    started_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+    write_mcp_frame(
+        &mut input,
+        &json!({"jsonrpc":"2.0", "id":2, "method":"ping"}),
+    );
+    assert_eq!(
+        output.recv_timeout(Duration::from_secs(1)).unwrap()["id"],
+        2
+    );
+    release_tx.send(()).unwrap();
+    assert_eq!(
+        output.recv_timeout(Duration::from_secs(3)).unwrap()["id"],
+        1
+    );
+    assert_eq!(upstream.requests().len(), 1);
+}
+
+#[test]
 fn stdio_ping_remains_responsive_during_native_verification() {
     let (started_tx, started_rx) = std::sync::mpsc::channel();
     let (release_tx, release_rx) = std::sync::mpsc::channel();
@@ -1121,7 +1294,11 @@ fn native_transport_is_distinct_loopback_proxyless_redirectless_and_bounded() {
         assert_eq!(status, 502, "chunked={chunked} response={response}");
         assert_eq!(response["error"], "native-upstream-outcome-unknown");
         assert_eq!(response["detail"], "native-response-too-large");
-        assert_eq!(response["retry"], "resubmit-exact-six-fields");
+        assert_eq!(
+            response["retry"],
+            "check-task-specific-redelivery-authority"
+        );
+        assert_eq!(response["retryAuthorized"], false);
         assert_eq!(response["maxBytes"], NATIVE_VERIFIER_RESPONSE_MAX_BYTES);
     }
 
@@ -1139,7 +1316,11 @@ fn native_transport_is_distinct_loopback_proxyless_redirectless_and_bounded() {
         assert_eq!(status, 502, "response={response}");
         assert_eq!(response["error"], "native-upstream-outcome-unknown");
         assert_eq!(response["detail"], "native-response-invalid-json");
-        assert_eq!(response["retry"], "resubmit-exact-six-fields");
+        assert_eq!(
+            response["retry"],
+            "check-task-specific-redelivery-authority"
+        );
+        assert_eq!(response["retryAuthorized"], false);
         assert!(response.get("outcome").is_none(), "response={response}");
         assert!(response.get("receipt").is_none(), "response={response}");
     }
@@ -1423,7 +1604,11 @@ fn manual_redelivery_transport_survives_mcp_restart_without_automatic_retry() {
         let (status, response) = invoke(mcp_addr, accepted_submission.clone());
         assert_eq!(status, 502, "response={response}");
         assert_eq!(response["error"], "native-upstream-outcome-unknown");
-        assert_eq!(response["retry"], "resubmit-exact-six-fields");
+        assert_eq!(
+            response["retry"],
+            "check-task-specific-redelivery-authority"
+        );
+        assert_eq!(response["retryAuthorized"], false);
         assert!(response.get("outcome").is_none(), "response={response}");
         assert!(response.get("receipt").is_none(), "response={response}");
         thread::sleep(Duration::from_millis(100));

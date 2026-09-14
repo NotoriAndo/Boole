@@ -38,7 +38,7 @@
 //!   * missing required arg-> 400 {"error":"missing-arg","arg":"<name>"}
 //!   * upstream unreachable-> 502 {"error":"upstream-unreachable"}
 //!   * native transport unknown -> 502 with no invented verdict; manually
-//!     resubmit the identical six fields to recover any durable redelivery
+//!     inspect the task-specific redelivery authority before any manual recovery
 //!   * not-implemented     -> 501 {"error":"not-implemented","tool":"<name>"}
 //!
 //! No signing or key material lives here. Native submission may consume one
@@ -932,6 +932,24 @@ async fn dispatch_tool(state: &AppState, tool: &str, args: &Value) -> ToolResult
             _ => ToolResult::BadRequest(json!({"error":"missing-arg","arg":"receipt_id"})),
         },
         "boole.verify_native" => proxy_native_submission(state, args).await,
+        "boole.problem_native" => {
+            proxy_native_read(
+                state,
+                args,
+                "/native-shadow/problem",
+                "boole.development.public-problem.v1",
+            )
+            .await
+        }
+        "boole.status_native" => {
+            proxy_native_read(
+                state,
+                args,
+                "/native-shadow/status",
+                "boole.development.verifier-status.v1",
+            )
+            .await
+        }
         "boole.status" => {
             if state
                 .active_mining
@@ -1180,6 +1198,41 @@ async fn proxy_get(state: &AppState, path: &str) -> (StatusCode, Json<Value>) {
     }
 }
 
+async fn proxy_native_read(state: &AppState, args: &Value, path: &str, schema: &str) -> ToolResult {
+    if !args.as_object().is_some_and(Map::is_empty) {
+        return ToolResult::BadRequest(json!({"error": "native-read-requires-empty-arguments"}));
+    }
+    let Some(base_url) = state.native_shadow_url.as_deref() else {
+        return ToolResult::BadGateway(json!({"error": "native-upstream-not-configured"}));
+    };
+    let unavailable = |detail: &str| {
+        ToolResult::BadGateway(json!({
+            "error": "native-read-unavailable", "detail": detail, "submissionAllowed": false
+        }))
+    };
+    let response = match state
+        .native_client
+        .get(format!("{base_url}{path}"))
+        .timeout(Duration::from_secs(5))
+        .send()
+        .await
+    {
+        Ok(response) => response,
+        Err(_) => return unavailable("native-transport-failed"),
+    };
+    if response.status() == StatusCode::NOT_FOUND {
+        return unavailable("development-discovery-not-supported");
+    }
+    let (status, parsed) = match bounded_native_response(response).await {
+        Ok(result) => result,
+        Err(detail) => return unavailable(detail),
+    };
+    if !parsed.is_object() || parsed["schema"] != schema || status.is_redirection() {
+        return unavailable("native-response-contract-mismatch");
+    }
+    ToolResult::Native(status, parsed)
+}
+
 async fn proxy_native_submission(state: &AppState, args: &Value) -> ToolResult {
     if !has_exact_native_submission_shape(args) {
         return ToolResult::BadRequest(json!({
@@ -1190,7 +1243,7 @@ async fn proxy_native_submission(state: &AppState, args: &Value) -> ToolResult {
         return ToolResult::BadGateway(json!({"error":"native-upstream-not-configured"}));
     };
     let url = format!("{base_url}/native-shadow/submissions");
-    let mut response = match state
+    let response = match state
         .native_client
         .post(url)
         .header(reqwest::header::CONTENT_TYPE, "application/json")
@@ -1201,38 +1254,48 @@ async fn proxy_native_submission(state: &AppState, args: &Value) -> ToolResult {
         Ok(response) => response,
         Err(_) => return native_outcome_unknown("native-transport-failed"),
     };
+    match bounded_native_response(response).await {
+        Ok((status, parsed)) => ToolResult::Native(status, parsed),
+        Err("native-response-too-large") => {
+            native_outcome_unknown_with_limit("native-response-too-large")
+        }
+        Err(detail) => native_outcome_unknown(detail),
+    }
+}
+
+async fn bounded_native_response(
+    mut response: reqwest::Response,
+) -> std::result::Result<(StatusCode, Value), &'static str> {
     let status =
         StatusCode::from_u16(response.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
     if response
         .content_length()
         .is_some_and(|length| length > NATIVE_VERIFIER_RESPONSE_MAX_BYTES as u64)
     {
-        return native_outcome_unknown_with_limit("native-response-too-large");
+        return Err("native-response-too-large");
     }
     let mut body = Vec::new();
     loop {
         let chunk = match response.chunk().await {
             Ok(Some(chunk)) => chunk,
             Ok(None) => break,
-            Err(_) => return native_outcome_unknown("native-response-read-failed"),
+            Err(_) => return Err("native-response-read-failed"),
         };
         if body.len().saturating_add(chunk.len()) > NATIVE_VERIFIER_RESPONSE_MAX_BYTES {
-            return native_outcome_unknown_with_limit("native-response-too-large");
+            return Err("native-response-too-large");
         }
         body.extend_from_slice(&chunk);
     }
-    let parsed = match serde_json::from_slice(&body) {
-        Ok(parsed) => parsed,
-        Err(_) => return native_outcome_unknown("native-response-invalid-json"),
-    };
-    ToolResult::Native(status, parsed)
+    let parsed = serde_json::from_slice(&body).map_err(|_| "native-response-invalid-json")?;
+    Ok((status, parsed))
 }
 
 fn native_outcome_unknown(detail: &str) -> ToolResult {
     ToolResult::BadGateway(json!({
         "error": "native-upstream-outcome-unknown",
         "detail": detail,
-        "retry": "resubmit-exact-six-fields"
+        "retry": "check-task-specific-redelivery-authority",
+        "retryAuthorized": false
     }))
 }
 
@@ -1240,7 +1303,8 @@ fn native_outcome_unknown_with_limit(detail: &str) -> ToolResult {
     ToolResult::BadGateway(json!({
         "error": "native-upstream-outcome-unknown",
         "detail": detail,
-        "retry": "resubmit-exact-six-fields",
+        "retry": "check-task-specific-redelivery-authority",
+        "retryAuthorized": false,
         "maxBytes": NATIVE_VERIFIER_RESPONSE_MAX_BYTES
     }))
 }
@@ -1742,7 +1806,11 @@ async fn run_stdio(node_url: Option<String>, native_shadow_url: Option<String>) 
             }
             let result = if matches!(
                 tool_name,
-                "boole.verify_native" | "bounty.list" | "receipt.get"
+                "boole.verify_native"
+                    | "boole.problem_native"
+                    | "boole.status_native"
+                    | "bounty.list"
+                    | "receipt.get"
             ) {
                 if tool_name == "boole.verify_native"
                     && native_arguments != NativeArgumentsPrecheck::Exact

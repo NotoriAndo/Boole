@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import unittest
 from pathlib import Path
 
@@ -102,6 +103,21 @@ class NativeShadowMcpRealTraceGateTests(unittest.TestCase):
 
         client._read_bytes = read_bytes
         self.assertEqual(client._read(), {"jsonrpc": "2.0", "id": 1, "result": {}})
+
+    def test_read_only_tool_call_is_not_rewritten_to_a_submission(self) -> None:
+        client = gate.McpStdio.__new__(gate.McpStdio)
+        client._stdin = io.BytesIO()
+        body = {"schema": "boole.development.public-problem.v1"}
+        frame = {"jsonrpc": "2.0", "id": "discover", "result": {
+            "isError": False, "content": [{"type": "text", "text": json.dumps(body)}]}}
+        read_fd, write_fd = os.pipe()
+        with os.fdopen(read_fd, "rb") as incoming, os.fdopen(write_fd, "wb") as outgoing:
+            outgoing.write(json.dumps(frame).encode() + b"\n")
+            outgoing.flush()
+            client._stdout = incoming
+            self.assertEqual(client.call_tool("discover", "boole.problem_native", {}), (False, body))
+        request = json.loads(client._stdin.getvalue())
+        self.assertEqual(request["params"], {"name": "boole.problem_native", "arguments": {}})
 
     def test_both_named_linux_authorities_supply_the_same_four_case_shape(self) -> None:
         root = Path(__file__).resolve().parents[1]

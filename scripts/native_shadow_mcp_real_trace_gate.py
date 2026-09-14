@@ -301,12 +301,15 @@ class McpStdio:
         self._write({"jsonrpc": "2.0", "method": "notifications/initialized"})
 
     def call(self, request_id: str, arguments: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
+        return self.call_tool(request_id, "boole.verify_native", arguments)
+
+    def call_tool(self, request_id: str, name: str, arguments: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
         self._write(
             {
                 "jsonrpc": "2.0",
                 "id": request_id,
                 "method": "tools/call",
-                "params": {"name": "boole.verify_native", "arguments": arguments},
+                "params": {"name": name, "arguments": arguments},
             }
         )
         response = self._read()
