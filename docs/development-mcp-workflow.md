@@ -126,3 +126,13 @@ VM 제어 순서·실패·보존 경계는 외부 Lima CLI를 대체하는 계�
 자동 업그레이드했다거나 전체 새 사용 흐름을 이 Mac에서 다시 실행했다는 뜻은 아니다.
 clean-Mac 설치, 공개 서명 release, 추가 모델 실행, 공개망·채굴·보상은 완료 주장에 포함하지 않는다.
 유료 검증 구매자/LOI의 최신 확인값은 이번 개발에서 확보하지 않았다.
+
+### 공급망 검사에서 발견한 의존성 수정
+
+첫 [CI 실행의 supply-chain 실패](https://github.com/NotoriAndo/Boole/actions/runs/34866798198/job/104052589257)는
+기존 `rustls 0.23.40`에 대한 새 보안 권고
+[RUSTSEC-2026-0285 / GHSA-2mjx-qc3c-rqvc](https://github.com/rustls/rustls/security/advisories/GHSA-2mjx-qc3c-rqvc)였다.
+검사 예외를 추가하지 않고 `rustls 0.23.45`와 필요한 `rustls-webpki 0.103.15`로 잠금 파일만 갱신했다.
+최신 권고 데이터베이스로 로컬 `cargo deny`와 `cargo audit --deny warnings`가 통과했으며,
+직접 소비자 MCP·miner·CLI의 통신 회귀 검사와 수정 commit의 full CI를 별도로 적용한다.
+원래 실패한 실행은 삭제하거나 성공으로 재분류하지 않는다.
