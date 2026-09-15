@@ -8,6 +8,8 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+mod native;
+
 #[derive(Debug, Parser)]
 #[command(name = "boole")]
 #[command(about = "Boole native CLI migration spike")]
@@ -18,6 +20,8 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Test-only native coins: keyless node RPC and owner-vault signing.
+    Native(native::NativeArgs),
     /// Print CLI version information.
     Version {
         /// Emit JSON output.
@@ -1118,6 +1122,7 @@ fn main() {
 
 fn run(cli: Cli) -> anyhow::Result<()> {
     match cli.command {
+        Some(Command::Native(args)) => native::run(args),
         Some(Command::Version { json }) => print_version(json),
         Some(Command::Chain { command }) => match command {
             ChainCommand::Replay { fixture, json } => replay_fixture(&fixture, json),

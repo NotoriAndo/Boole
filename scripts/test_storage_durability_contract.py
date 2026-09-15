@@ -34,6 +34,9 @@ that records bootstrap, execution intent, node-owned evidence and the
 combined Consumed+Exhausted terminal fact) joins the set — same
 reuse-from-day-one pattern as `useful_work_store.rs` above. Exhaustion is
 derived from that journal rather than written to a second authority file.
+
+R1: `native_node.rs` adds the native block and pending-transfer journals to
+the same durable-append and stable-prefix recovery contract.
 """
 from __future__ import annotations
 
@@ -56,6 +59,7 @@ DURABLE_STORES = {
     "proof_dedup_ledger.rs",
     "useful_work_store.rs",
     "native_shadow.rs",
+    "native_node.rs",
 }
 
 
