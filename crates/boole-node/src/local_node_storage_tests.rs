@@ -31,6 +31,16 @@ fn config(dir: &Path) -> LocalNodeConfig {
 }
 
 #[test]
+fn legacy_node_cannot_impersonate_the_native_transfer_network() {
+    let dir = crate::durability::PrivateTempDir::new("boole-native-network-separation").unwrap();
+    let mut cfg = config(dir.path());
+    cfg.network_id = Some(boole_core::native_network::NATIVE_TESTNET_NETWORK_ID.into());
+    let result = LocalNodeState::from_config(cfg);
+    assert!(matches!(result, Err(error) if error.to_string().contains("run-native-local")));
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+}
+
+#[test]
 fn boot_rejects_role_collisions_before_recovering_canonical_bytes() {
     for role in 0..8 {
         let dir = crate::durability::PrivateTempDir::new("boole-storage-role-collision")

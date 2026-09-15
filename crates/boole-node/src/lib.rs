@@ -25,6 +25,8 @@ mod family_manifest_store;
 mod http_error;
 mod lean_bounty_verifier;
 mod local_node;
+pub mod native_http;
+pub mod native_node;
 #[allow(dead_code)]
 mod native_shadow;
 #[cfg(feature = "native-shadow-closed-local-replay")]

@@ -8,22 +8,30 @@ a second current cursor. Work methods follow the
 
 ## Current boundary
 
-**R1 has started: the native transfer accounting kernel is implemented.**
+**R1: the 1-billion-cap native test-coin path is connected and verified locally.**
 The operator approved producer-only base issuance for the new base testnet,
 with all transfer fees to the producer and useful-work rewards remaining OFF.
-The isolated core ledger now checks network-bound owner signatures, atomic
-debit/credit/nonce transitions and capped halving issuance using fixture values.
-See the [contract, tests and integration limits](native-transfer-ledger-contract.md).
+The operator selected a test-only 1,000,000,000 tBOOLE ceiling, 50,000 initial
+block reward, 10,000-block halving, 8 decimals and 60-second target; the compiled
+policy also fixes the minimum fee and reward maturity. The new
+`boole-native-testnet-1` binds these values into its own genesis. Actual mined
+and owner-signed blocks now drive durable balances, mempool, replay/reorg,
+bounded loopback RPC and encrypted-vault CLI transfers. Two independent local
+nodes agree after block import; the CLI preserves signed transactions before
+broadcast and retries the same nonce. See the
+[contract, tests and limits](native-transfer-ledger-contract.md).
 
-**Next: decide testnet monetary parameters and connect the versioned native
-transfer network.** No named-network monetary preset has been selected. The
-running node still has credit-only legacy accounting: native transfer block
-inclusion, mempool, CLI, durability and node replay/reorg are not connected.
-The kernel's accounting reconstruction is not an actual mining or multi-node
-transfer test. Existing v3 data and verification rules remain unchanged.
+**Next: R1 secure transport, bounded incremental synchronization and operator
+recovery/abuse readiness.** The new foreground native node is separate from the
+legacy credit-only node. Its manual full-chain RPC import is a bounded local
+prototype, not authenticated public P2P, automatic gossip or production-scale
+storage. Public/untrusted participation still needs encryption/peer identity,
+the relevant resource/partition/recovery tests and R2/R3 release/launch decisions.
+Existing v3 data and verification rules remain unchanged; R1 is not complete.
 
-The completed MCP workflow remains recorded below. No new VM/model run,
-public deployment, mining or wallet transaction has been executed.
+The completed MCP workflow remains recorded below. Only disposable closed-local
+tests mined and moved test coins; no new VM/model run, public deployment,
+operator mining or operator wallet transaction was executed.
 [Reconciliation findings](development-plan-reconciliation.md) preserve the
 earlier roadmap review; this status owns the current implementation cursor.
 
@@ -39,7 +47,7 @@ proceed alongside it without making all of R1 one oversized change.
 
 | ID | Boundary / completion evidence | Dependency and current state |
 |---|---|---|
-| R1 | Native transfer and launch-critical product/security/operations: signed network-bound transfers, debit/fee/nonce state, block/replay/reorg integration, wallet safety/recovery for the selected testnet UX, secure public P2P/RPC, resource limits and operator recovery/observability. Pin test-only monetary parameters and experiment criteria before running the new network. | **In progress, incomplete.** Producer-only base issuance is approved; the isolated core accounting contract is implemented with fixture constants. Network policy and node/wallet integration remain. Prove mining → reward → A-to-B transfer → consistent balances in closed-local integration first. |
+| R1 | Native transfer and launch-critical product/security/operations: signed network-bound transfers, debit/fee/nonce state, block/replay/reorg integration, wallet safety/recovery for the selected testnet UX, secure public P2P/RPC, resource limits and operator recovery/observability. Pin test-only monetary parameters and experiment criteria before running the new network. | **In progress, incomplete.** The 1-billion testnet ceiling and native genesis are pinned. Real closed-local mining → mature reward → A-to-B transfer → consistent balances passes through durable nodes and owner-vault CLI. Authenticated/encrypted public transport, incremental sync and broader operator/abuse acceptance remain. |
 | R2 | Public-testnet launch readiness: versioned network/genesis and release artifacts, scoped key custody, participant risk notice/onboarding, bootstrap/incident/upgrade/rollback runbook and launch approval. | After the applicable R1 acceptance tests. **Not passed.** Clean-Mac CURL.3 is the last installation-validation step, deferred until a clean machine is available; current-Mac/CI work continues. A supported-Mac public-release claim still needs that evidence, or an explicit narrower platform scope. |
 | R3 | Public base-network testnet: independently operated nodes actually mine test coins, send them between wallets, include/confirm transactions and agree on balances/fees/supply; exercise rejection, restart, partitions/rejoin, reorg and operator recovery. | After R2 and explicit public-network/mining/test-wallet scope. **Not started.** Test coins carry no real-money or future-mainnet entitlement. Mock-only accounting does not pass. Useful-work reward remains OFF unless separately authorized. |
 | U1 | BF.7: new-rule receipt consensus with `no_protocol_reward`, independent replay and DA recovery. | **HOLD.** Adapter-scoped RP0-MD/supply, BF.6a DA and deterministic resource contracts are prerequisites. Closed-local integration precedes any separately approved public extension. Existing v3 is preserved; this branch does not block R1–R3 base transfers. |
@@ -88,6 +96,7 @@ implementation is not a public-network transport certificate.
 | Three actual new-task model evaluations | PR #379; [3/3 new generated problems](boole-new-task-model-evaluation-2026-09-09.md), independent sessions with one candidate/checker each, direct MCP and receipt delivery, no retry/redelivery/operator forwarding. Disposable VM/key removed. One-family bounded result, not a benchmark. |
 | Developer-Mac user trial | PR #381; [one new tuple ACCEPT](boole-local-mcp-trial-2026-09-15.md), original MCP/budgets/terminal evidence agree on one candidate/checker and no redelivery. VM normally stopped; this trial's disk/key/spent state retained. Not clean-Mac evidence or a run of the subsequent PR #382 workflow. |
 | Prepared development MCP workflow | PR #382; problem/status reads and prepared-VM control complete. No extra model run; existing trial VM was only queried while stopped, not upgraded or reset. [Workflow](development-mcp-workflow.md). |
+| R1 native transfer integration | Compiled test-only monetary policy, actual PoW/owner-signed transfer blocks, durable pool/replay/reorg, bounded loopback RPC and owner-vault CLI/outbox. [Contract and automated closed-local evidence](native-transfer-ledger-contract.md). Not public P2P, public mining or R1 completion. |
 | Mac/curl and custody foundations | Closed-local VM, install/update/rollback and non-operational trust-policy/custody rehearsal implemented. **Clean-Mac CURL.3 and operational release custody are not complete.** |
 
 Completed actual-model allowances are exhausted, not recurring permission.

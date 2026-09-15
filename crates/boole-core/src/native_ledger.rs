@@ -8,7 +8,7 @@
 
 use std::collections::BTreeMap;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
@@ -40,6 +40,8 @@ pub enum NativeLedgerError {
     SenderMismatch,
     #[error("native ledger: amount must be nonzero")]
     ZeroAmount,
+    #[error("native ledger: fee is below the network minimum")]
+    FeeBelowMinimum,
     #[error("native ledger: transfer expired")]
     Expired,
     #[error("native ledger: expected nonce {expected}, got {actual}")]
@@ -50,16 +52,73 @@ pub enum NativeLedgerError {
 
 /// Signed payload integers are canonical decimal strings, including nonce and
 /// height, so clients never round u128/u64 values through JSON floating point.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct TransferPayload {
-    schema: String,
-    from: String,
-    to: String,
-    amount: String,
-    fee: String,
-    nonce: String,
-    valid_before: String,
+pub struct NativeTransferPayload {
+    pub schema: String,
+    pub from: String,
+    pub to: String,
+    pub amount: String,
+    pub fee: String,
+    pub nonce: String,
+    pub valid_before: String,
+}
+
+/// Parsed fields for admission and account views. This is not an authority to
+/// debit: `apply_block` always re-verifies the actual signed envelope.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeTransferFields {
+    pub from: String,
+    pub to: String,
+    pub amount: u128,
+    pub fee: u128,
+    pub nonce: u64,
+    pub valid_before: u64,
+}
+
+pub(crate) fn validate_native_transfer(
+    envelope: &SignedEnvelope,
+    network_id: &str,
+    minimum_fee: u128,
+) -> Result<NativeTransferFields, NativeLedgerError> {
+    if envelope.schema != SIGNED_ENVELOPE_SCHEMA {
+        return Err(NativeLedgerError::InvalidTransfer);
+    }
+    if envelope.network_id.as_deref() != Some(network_id) {
+        return Err(NativeLedgerError::WrongNetwork);
+    }
+    let payload: NativeTransferPayload = serde_json::from_value(envelope.payload.clone())
+        .map_err(|_| NativeLedgerError::InvalidTransfer)?;
+    if payload.schema != NATIVE_TRANSFER_SCHEMA {
+        return Err(NativeLedgerError::InvalidTransfer);
+    }
+    if payload.from != envelope.pk {
+        return Err(NativeLedgerError::SenderMismatch);
+    }
+    for pk in [&payload.from, &payload.to] {
+        Hex32::from_hex(pk).map_err(|_| NativeLedgerError::InvalidPublicKey)?;
+    }
+    if !envelope
+        .verify_strict()
+        .map_err(|_| NativeLedgerError::InvalidSignature)?
+    {
+        return Err(NativeLedgerError::InvalidSignature);
+    }
+    let fields = NativeTransferFields {
+        from: payload.from,
+        to: payload.to,
+        amount: decimal(&payload.amount)?,
+        fee: decimal(&payload.fee)?,
+        nonce: decimal(&payload.nonce)?,
+        valid_before: decimal(&payload.valid_before)?,
+    };
+    if fields.amount == 0 {
+        return Err(NativeLedgerError::ZeroAmount);
+    }
+    if fields.fee < minimum_fee {
+        return Err(NativeLedgerError::FeeBelowMinimum);
+    }
+    Ok(fields)
 }
 
 fn decimal<T: std::str::FromStr>(value: &str) -> Result<T, NativeLedgerError> {
@@ -121,11 +180,52 @@ pub struct NativeLedger {
     issued: u128,
     balances: BTreeMap<String, u128>,
     next_nonces: BTreeMap<String, u64>,
+    minimum_fee: u128,
+    reward_maturity: u64,
+    locked_balances: BTreeMap<String, u128>,
+    pending_rewards: BTreeMap<u64, (String, u128)>,
+}
+
+/// Non-authoritative reservations for the next block. It cannot be converted
+/// into a canonical ledger; fees are reserved, not credited to an unknown
+/// future producer, and no new block reward is created.
+#[derive(Debug, Clone)]
+pub struct NativePendingView {
+    ledger: NativeLedger,
+    height: u64,
+}
+
+impl NativePendingView {
+    pub fn push(&mut self, envelope: &SignedEnvelope) -> Result<(), NativeLedgerError> {
+        let mut next = self.ledger.clone();
+        next.apply_transfer(self.height, None, envelope)?;
+        self.ledger = next;
+        Ok(())
+    }
+
+    pub fn available_balance(&self, pk: &str) -> u128 {
+        self.ledger.spendable_balance(pk)
+    }
+
+    pub fn next_nonce(&self, pk: &str) -> u64 {
+        self.ledger.next_nonce(pk)
+    }
 }
 
 impl NativeLedger {
     /// Genesis has height zero, no issuance and no preallocated balances.
     pub fn new(network_id: &str, schedule: EmissionSchedule) -> Result<Self, NativeLedgerError> {
+        Self::new_with_rules(network_id, schedule, 0, 0)
+    }
+
+    /// Construct an immutable accounting policy. Named-network callers must
+    /// obtain these rules from their code-pinned genesis, not runtime knobs.
+    pub fn new_with_rules(
+        network_id: &str,
+        schedule: EmissionSchedule,
+        minimum_fee: u128,
+        reward_maturity: u64,
+    ) -> Result<Self, NativeLedgerError> {
         if network_id.is_empty()
             || network_id.len() > 128
             || !network_id
@@ -141,11 +241,25 @@ impl NativeLedger {
             issued: 0,
             balances: BTreeMap::new(),
             next_nonces: BTreeMap::new(),
+            minimum_fee,
+            reward_maturity,
+            locked_balances: BTreeMap::new(),
+            pending_rewards: BTreeMap::new(),
         })
     }
 
     pub fn balance(&self, pk: &str) -> u128 {
         self.balances.get(pk).copied().unwrap_or(0)
+    }
+
+    /// Balance available at the current applied height. A reward maturing in
+    /// the next block becomes available when that block's transition begins.
+    pub fn spendable_balance(&self, pk: &str) -> u128 {
+        self.balance(pk) - self.locked_balance(pk)
+    }
+
+    pub fn locked_balance(&self, pk: &str) -> u128 {
+        self.locked_balances.get(pk).copied().unwrap_or(0)
     }
 
     pub fn height(&self) -> u64 {
@@ -160,11 +274,22 @@ impl NativeLedger {
         self.next_nonces.get(pk).copied().unwrap_or(0)
     }
 
+    pub fn pending_view(&self) -> Result<NativePendingView, NativeLedgerError> {
+        let mut ledger = self.clone();
+        let height = self
+            .height
+            .checked_add(1)
+            .ok_or(NativeLedgerError::Overflow)?;
+        ledger.unlock_rewards(height)?;
+        Ok(NativePendingView { ledger, height })
+    }
+
     /// Atomically settle accounting inputs from one already-validated block.
     /// Transactions execute in committed order, then scheduled issuance is
     /// credited. Consequently this block's issuance cannot finance its own
-    /// transactions. This kernel does not select a reward-maturity policy,
-    /// validate PoW/linkage, or decide whether a block is canonical.
+    /// transactions. Base issuance matures at creation height + the immutable
+    /// maturity distance; ordinary credits and fees have no such lock. The
+    /// kernel does not validate PoW/linkage or decide canonicality.
     pub fn apply_block(
         &mut self,
         height: u64,
@@ -195,11 +320,27 @@ impl NativeLedger {
         }
         Hex32::from_hex(authenticated_reward_pk)
             .map_err(|_| NativeLedgerError::InvalidPublicKey)?;
+        self.unlock_rewards(height)?;
         for transfer in transfers {
-            self.apply_transfer(height, authenticated_reward_pk, transfer)?;
+            self.apply_transfer(height, Some(authenticated_reward_pk), transfer)?;
         }
         let emission = self.schedule.emission(height, self.issued)?;
         self.credit(authenticated_reward_pk, emission)?;
+        if emission != 0 && self.reward_maturity != 0 {
+            let unlock_height = height
+                .checked_add(self.reward_maturity)
+                .ok_or(NativeLedgerError::Overflow)?;
+            let locked = self
+                .locked_balance(authenticated_reward_pk)
+                .checked_add(emission)
+                .ok_or(NativeLedgerError::Overflow)?;
+            self.locked_balances
+                .insert(authenticated_reward_pk.to_string(), locked);
+            self.pending_rewards.insert(
+                unlock_height,
+                (authenticated_reward_pk.to_string(), emission),
+            );
+        }
         self.issued = self
             .issued
             .checked_add(emission)
@@ -208,61 +349,62 @@ impl NativeLedger {
         Ok(())
     }
 
+    fn unlock_rewards(&mut self, height: u64) -> Result<(), NativeLedgerError> {
+        while self
+            .pending_rewards
+            .first_key_value()
+            .is_some_and(|(unlock_height, _)| *unlock_height <= height)
+        {
+            let (_, (pk, amount)) = self.pending_rewards.pop_first().expect("pending reward");
+            let remaining = self
+                .locked_balance(&pk)
+                .checked_sub(amount)
+                .ok_or(NativeLedgerError::Overflow)?;
+            if remaining == 0 {
+                self.locked_balances.remove(&pk);
+            } else {
+                self.locked_balances.insert(pk, remaining);
+            }
+        }
+        Ok(())
+    }
+
     fn apply_transfer(
         &mut self,
         height: u64,
-        reward_pk: &str,
+        reward_pk: Option<&str>,
         envelope: &SignedEnvelope,
     ) -> Result<(), NativeLedgerError> {
-        if envelope.schema != SIGNED_ENVELOPE_SCHEMA {
-            return Err(NativeLedgerError::InvalidTransfer);
-        }
-        if envelope.network_id.as_deref() != Some(&self.network_id) {
-            return Err(NativeLedgerError::WrongNetwork);
-        }
-        let payload: TransferPayload = serde_json::from_value(envelope.payload.clone())
-            .map_err(|_| NativeLedgerError::InvalidTransfer)?;
-        if payload.schema != NATIVE_TRANSFER_SCHEMA {
-            return Err(NativeLedgerError::InvalidTransfer);
-        }
-        if payload.from != envelope.pk {
-            return Err(NativeLedgerError::SenderMismatch);
-        }
-        for pk in [&payload.from, &payload.to] {
-            Hex32::from_hex(pk).map_err(|_| NativeLedgerError::InvalidPublicKey)?;
-        }
-        if !envelope
-            .verify_strict()
-            .map_err(|_| NativeLedgerError::InvalidSignature)?
-        {
-            return Err(NativeLedgerError::InvalidSignature);
-        }
-        let amount: u128 = decimal(&payload.amount)?;
-        let fee: u128 = decimal(&payload.fee)?;
-        let nonce: u64 = decimal(&payload.nonce)?;
-        let valid_before: u64 = decimal(&payload.valid_before)?;
-        if amount == 0 {
-            return Err(NativeLedgerError::ZeroAmount);
-        }
-        if height > valid_before {
+        let payload = validate_native_transfer(envelope, &self.network_id, self.minimum_fee)?;
+        if height > payload.valid_before {
             return Err(NativeLedgerError::Expired);
         }
         let expected = self.next_nonce(&payload.from);
-        if nonce != expected {
+        if payload.nonce != expected {
             return Err(NativeLedgerError::UnexpectedNonce {
                 expected,
-                actual: nonce,
+                actual: payload.nonce,
             });
         }
-        let debit = amount.checked_add(fee).ok_or(NativeLedgerError::Overflow)?;
+        let debit = payload
+            .amount
+            .checked_add(payload.fee)
+            .ok_or(NativeLedgerError::Overflow)?;
+        if debit > self.spendable_balance(&payload.from) {
+            return Err(NativeLedgerError::InsufficientBalance);
+        }
         let remaining = self
             .balance(&payload.from)
             .checked_sub(debit)
             .ok_or(NativeLedgerError::InsufficientBalance)?;
-        let next_nonce = nonce.checked_add(1).ok_or(NativeLedgerError::Overflow)?;
+        let next_nonce = payload
+            .nonce
+            .checked_add(1)
+            .ok_or(NativeLedgerError::Overflow)?;
         self.balances.insert(payload.from.clone(), remaining);
-        for (pk, credit) in [(payload.to.as_str(), amount), (reward_pk, fee)] {
-            self.credit(pk, credit)?;
+        self.credit(&payload.to, payload.amount)?;
+        if let Some(reward_pk) = reward_pk {
+            self.credit(reward_pk, payload.fee)?;
         }
         self.next_nonces.insert(payload.from, next_nonce);
         Ok(())
