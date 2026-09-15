@@ -272,8 +272,8 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn run_native_local(addr: std::net::SocketAddr, state_dir: &Path) -> anyhow::Result<()> {
-    let listener = boole_node::native_http::bind_loopback(addr)?;
-    let node = boole_node::native_node::NativeNode::open(state_dir)?;
+    let listener = boole_node::bind_native_loopback(addr)?;
+    let node = boole_node::NativeNode::open(state_dir)?;
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
@@ -299,7 +299,7 @@ fn run_native_local(addr: std::net::SocketAddr, state_dir: &Path) -> anyhow::Res
                 }
             })
         };
-        let result = boole_node::native_http::serve(listener, node, stop).await;
+        let result = boole_node::serve_native_node(listener, node, stop).await;
         signal_task.abort();
         result
     })

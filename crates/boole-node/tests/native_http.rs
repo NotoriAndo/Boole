@@ -3,7 +3,7 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::Arc;
 
 use boole_core::native_network::native_testnet;
-use boole_node::native_node::NativeNode;
+use boole_node::NativeNode;
 use serde_json::Value;
 
 struct TestDir(std::path::PathBuf);
@@ -27,7 +27,7 @@ fn native_http_reports_pinned_network_and_refuses_browser_cross_origin_and_publi
     let stop = Arc::new(tokio::sync::Notify::new());
     let shutdown = stop.clone();
     let node = NativeNode::open(&dir).unwrap();
-    let task = runtime.spawn(boole_node::native_http::serve(listener, node, shutdown));
+    let task = runtime.spawn(boole_node::serve_native_node(listener, node, shutdown));
     let request = |origin: &str| {
         let mut stream = TcpStream::connect(addr).unwrap();
         stream
@@ -60,18 +60,14 @@ fn native_http_reports_pinned_network_and_refuses_browser_cross_origin_and_publi
     let mut rejected = String::new();
     oversized.read_to_string(&mut rejected).unwrap();
     assert!(rejected.starts_with("HTTP/1.1 413"), "{rejected}");
-    std::fs::write(
-        dir.join(boole_node::native_node::NATIVE_BLOCKS_FILE),
-        b"{}\n",
-    )
-    .unwrap();
+    std::fs::write(dir.join(boole_node::NATIVE_BLOCKS_FILE), b"{}\n").unwrap();
     assert!(
         request("").starts_with("HTTP/1.1 503"),
         "stale state cannot be reported ready"
     );
     stop.notify_one();
     runtime.block_on(task).unwrap().unwrap();
-    assert!(boole_node::native_http::bind_loopback("0.0.0.0:0".parse().unwrap()).is_err());
+    assert!(boole_node::bind_native_loopback("0.0.0.0:0".parse().unwrap()).is_err());
 }
 
 fn rpc(addr: std::net::SocketAddr, method: &str, path: &str, body: Value) -> Value {
@@ -108,7 +104,7 @@ fn two_independent_rpc_nodes_mine_transfer_and_rejoin_with_identical_accounting(
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let stop = Arc::new(tokio::sync::Notify::new());
-        let task = runtime.spawn(boole_node::native_http::serve(
+        let task = runtime.spawn(boole_node::serve_native_node(
             listener,
             NativeNode::open(&dir).unwrap(),
             stop.clone(),

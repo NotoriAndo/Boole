@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use boole_core::native_chain::{NativeBlock, NativeChain, NativeTransfer};
 use boole_core::native_network::native_testnet;
 use boole_core::signed_envelope::SigningKeyV2;
-use boole_node::native_node::NativeNode;
+use boole_node::NativeNode;
 
 struct TestDir(PathBuf);
 impl TestDir {
@@ -190,13 +190,9 @@ fn heavier_fork_rebuilds_balances_and_restores_an_orphaned_transfer_for_safe_ret
             bytes.push_str(&serde_json::to_string(block).unwrap());
             bytes.push('\n');
         }
+        std::fs::write(dir.0.join(boole_node::NATIVE_BLOCKS_FILE), bytes).unwrap();
         std::fs::write(
-            dir.0.join(boole_node::native_node::NATIVE_BLOCKS_FILE),
-            bytes,
-        )
-        .unwrap();
-        std::fs::write(
-            dir.0.join(boole_node::native_node::NATIVE_MEMPOOL_FILE),
+            dir.0.join(boole_node::NATIVE_MEMPOOL_FILE),
             format!("{}\n", serde_json::to_string(&transfer).unwrap()),
         )
         .unwrap();
@@ -237,7 +233,7 @@ fn future_drift_is_rejected_at_ingress_reorg_and_boot_without_putting_a_clock_in
         assert_eq!(node.chain(), &empty);
     }
     std::fs::write(
-        dir.0.join(boole_node::native_node::NATIVE_BLOCKS_FILE),
+        dir.0.join(boole_node::NATIVE_BLOCKS_FILE),
         format!("{}\n", serde_json::to_string(&future).unwrap()),
     )
     .unwrap();
@@ -253,7 +249,7 @@ fn losing_or_replacing_live_state_files_cannot_append_from_stale_memory() {
         node.submit_block(mine(node.chain(), &miner, &miner.pk_hex(), 60_000))
             .unwrap();
         let second = mine(node.chain(), &miner, &miner.pk_hex(), 120_000);
-        let path = dir.0.join(boole_node::native_node::NATIVE_BLOCKS_FILE);
+        let path = dir.0.join(boole_node::NATIVE_BLOCKS_FILE);
         let bytes = std::fs::read(&path).unwrap();
         std::fs::remove_file(&path).unwrap();
         if replace {
@@ -272,14 +268,8 @@ fn losing_or_replacing_live_state_files_cannot_append_from_stale_memory() {
 #[test]
 fn oversized_recovery_files_are_rejected_without_reading_or_truncating_them() {
     for (name, limit) in [
-        (
-            boole_node::native_node::NATIVE_BLOCKS_FILE,
-            256 * 1024 * 1024,
-        ),
-        (
-            boole_node::native_node::NATIVE_MEMPOOL_FILE,
-            5 * 1024 * 1024,
-        ),
+        (boole_node::NATIVE_BLOCKS_FILE, 256 * 1024 * 1024),
+        (boole_node::NATIVE_MEMPOOL_FILE, 5 * 1024 * 1024),
     ] {
         let dir = TestDir::new();
         let path = dir.0.join(name);

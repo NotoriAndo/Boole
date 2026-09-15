@@ -359,7 +359,7 @@ pub(super) fn run(args: NativeArgs) -> anyhow::Result<()> {
 }
 
 fn sync(target: &Client, source: &Client) -> anyhow::Result<Value> {
-    use boole_node::native_http::{MAX_NATIVE_SYNC_BLOCKS, MAX_NATIVE_SYNC_BYTES};
+    use boole_node::{MAX_NATIVE_SYNC_BLOCKS, MAX_NATIVE_SYNC_BYTES};
     let info = source.info()?;
     let height = number(&info, "height")?;
     anyhow::ensure!(
