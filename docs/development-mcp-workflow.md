@@ -134,5 +134,6 @@ clean-Mac 설치, 공개 서명 release, 추가 모델 실행, 공개망·채굴
 [RUSTSEC-2026-0285 / GHSA-2mjx-qc3c-rqvc](https://github.com/rustls/rustls/security/advisories/GHSA-2mjx-qc3c-rqvc)였다.
 검사 예외를 추가하지 않고 `rustls 0.23.45`와 필요한 `rustls-webpki 0.103.15`로 잠금 파일만 갱신했다.
 최신 권고 데이터베이스로 로컬 `cargo deny`와 `cargo audit --deny warnings`가 통과했으며,
-직접 소비자 MCP·miner·CLI의 통신 회귀 검사와 수정 commit의 full CI를 별도로 적용한다.
+직접 소비자 MCP·miner·CLI의 통신 회귀 검사와 수정 commit의 full CI도 통과해
+[PR #382](https://github.com/NotoriAndo/Boole/pull/382), main `649fcff`로 병합했다.
 원래 실패한 실행은 삭제하거나 성공으로 재분류하지 않는다.
