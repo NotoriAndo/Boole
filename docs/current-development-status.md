@@ -8,25 +8,24 @@ a second current cursor. Work methods follow the
 
 ## Current boundary
 
-**The prepared development MCP workflow is complete**, merged in
-[PR #382](https://github.com/NotoriAndo/Boole/pull/382), main
-`649fcff6abd2630efc52543f189bb7ad45e2f802`.
-Read-only problem/identity and verifier/candidate status, plus start/status/stop
-for an already-provisioned closed-local Lima VM, passed direct-consumer checks
-and full CI including both Linux contained-checker architectures.
-This is not automatic VM/task provisioning or another actual-model evaluation.
-See the [workflow and evidence limits](development-mcp-workflow.md).
+**R1 has started: the native transfer accounting kernel is implemented.**
+The operator approved producer-only base issuance for the new base testnet,
+with all transfer fees to the producer and useful-work rewards remaining OFF.
+The isolated core ledger now checks network-bound owner signatures, atomic
+debit/credit/nonce transitions and capped halving issuance using fixture values.
+See the [contract, tests and integration limits](native-transfer-ledger-contract.md).
 
-**Next in the plan: R1, native test-coin transfer and public-testnet prerequisites.**
-Native accounting currently credits rewards and exposes balances; signed
-wallet-to-wallet transfer, debit/nonce replay and transfer block inclusion are
-not implemented. A verification receipt, mock faucet transaction ID or generic
-wallet signature does not close that gap.
+**Next: decide testnet monetary parameters and connect the versioned native
+transfer network.** No named-network monetary preset has been selected. The
+running node still has credit-only legacy accounting: native transfer block
+inclusion, mempool, CLI, durability and node replay/reorg are not connected.
+The kernel's accounting reconstruction is not an actual mining or multi-node
+transfer test. Existing v3 data and verification rules remain unchanged.
 
-This roadmap reconciliation changes documents only. It does not start R1 code,
-a VM/model run, public deployment, mining or a wallet transaction.
-[Reconciliation findings](development-plan-reconciliation.md) distinguish closed
-work, actual gaps, optional designs and checks still needed.
+The completed MCP workflow remains recorded below. No new VM/model run,
+public deployment, mining or wallet transaction has been executed.
+[Reconciliation findings](development-plan-reconciliation.md) preserve the
+earlier roadmap review; this status owns the current implementation cursor.
 
 ## Ordered roadmap
 
@@ -40,7 +39,7 @@ proceed alongside it without making all of R1 one oversized change.
 
 | ID | Boundary / completion evidence | Dependency and current state |
 |---|---|---|
-| R1 | Native transfer and launch-critical product/security/operations: signed network-bound transfers, debit/fee/nonce state, block/replay/reorg integration, wallet safety/recovery for the selected testnet UX, secure public P2P/RPC, resource limits and operator recovery/observability. Pin test-only monetary parameters and experiment criteria before running the new network. | **Planned, incomplete.** Start from accepted transfer/monetary structure and the residual scope, not a repeat of completed N5.3 or MCP work. Prove mining → reward → A-to-B transfer → consistent balances in closed-local integration first. |
+| R1 | Native transfer and launch-critical product/security/operations: signed network-bound transfers, debit/fee/nonce state, block/replay/reorg integration, wallet safety/recovery for the selected testnet UX, secure public P2P/RPC, resource limits and operator recovery/observability. Pin test-only monetary parameters and experiment criteria before running the new network. | **In progress, incomplete.** Producer-only base issuance is approved; the isolated core accounting contract is implemented with fixture constants. Network policy and node/wallet integration remain. Prove mining → reward → A-to-B transfer → consistent balances in closed-local integration first. |
 | R2 | Public-testnet launch readiness: versioned network/genesis and release artifacts, scoped key custody, participant risk notice/onboarding, bootstrap/incident/upgrade/rollback runbook and launch approval. | After the applicable R1 acceptance tests. **Not passed.** Clean-Mac CURL.3 is the last installation-validation step, deferred until a clean machine is available; current-Mac/CI work continues. A supported-Mac public-release claim still needs that evidence, or an explicit narrower platform scope. |
 | R3 | Public base-network testnet: independently operated nodes actually mine test coins, send them between wallets, include/confirm transactions and agree on balances/fees/supply; exercise rejection, restart, partitions/rejoin, reorg and operator recovery. | After R2 and explicit public-network/mining/test-wallet scope. **Not started.** Test coins carry no real-money or future-mainnet entitlement. Mock-only accounting does not pass. Useful-work reward remains OFF unless separately authorized. |
 | U1 | BF.7: new-rule receipt consensus with `no_protocol_reward`, independent replay and DA recovery. | **HOLD.** Adapter-scoped RP0-MD/supply, BF.6a DA and deterministic resource contracts are prerequisites. Closed-local integration precedes any separately approved public extension. Existing v3 is preserved; this branch does not block R1–R3 base transfers. |

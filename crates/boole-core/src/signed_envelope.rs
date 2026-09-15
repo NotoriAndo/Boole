@@ -168,6 +168,19 @@ impl SignedEnvelope {
             self.network_id.as_deref(),
         )
     }
+
+    /// Strict Ed25519 verification for new value-transfer contracts. Rejects
+    /// low-order public keys and R points, in addition to malformed encodings.
+    /// Existing consumers keep `verify()` and its legacy compatibility rules.
+    pub fn verify_strict(&self) -> Result<bool, String> {
+        let pk_bytes = decode_hex32(&self.pk, "pk")?;
+        let sig_bytes = decode_hex64(&self.signature, "signature")?;
+        let verifying = VerifyingKey::from_bytes(&pk_bytes)
+            .map_err(|err| format!("bad_pk: ed25519 point invalid: {err}"))?;
+        let signature = Signature::from_bytes(&sig_bytes);
+        let digest = digest_for(&self.payload, self.network_id.as_deref());
+        Ok(verifying.verify_strict(&digest, &signature).is_ok())
+    }
 }
 
 /// Stateless verification primitive (legacy: no network binding). The

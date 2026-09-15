@@ -29,6 +29,7 @@ pub mod genesis;
 pub mod guest_boot;
 pub mod hash;
 pub mod lean_bound_canon;
+pub mod native_ledger;
 pub mod native_shadow_update;
 pub mod operational_key_custody_plan;
 pub mod operational_release_key_ceremony;
