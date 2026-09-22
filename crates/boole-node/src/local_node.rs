@@ -1460,9 +1460,15 @@ struct ConnectionCounter {
 /// invokes the tower service, so raw/partial TCP clients cannot bypass the
 /// pre-request timeout layers.
 #[derive(Clone, Debug)]
-struct HttpRemoteAddr {
+pub(crate) struct HttpRemoteAddr {
     socket_addr: SocketAddr,
     header_received: Arc<AtomicBool>,
+}
+
+impl HttpRemoteAddr {
+    pub(crate) fn mark_header_received(&self) {
+        self.header_received.store(true, Ordering::Release);
+    }
 }
 
 impl Connected<IncomingStream<'_, BoundedHttpListener>> for HttpRemoteAddr {
@@ -1471,13 +1477,13 @@ impl Connected<IncomingStream<'_, BoundedHttpListener>> for HttpRemoteAddr {
     }
 }
 
-struct BoundedHttpListener {
+pub(crate) struct BoundedHttpListener {
     inner: TcpListener,
     permits: Arc<Semaphore>,
 }
 
 impl BoundedHttpListener {
-    fn new(inner: TcpListener) -> Self {
+    pub(crate) fn new(inner: TcpListener) -> Self {
         Self::with_limit(inner, MAX_ACTIVE_HTTP_CONNECTIONS)
     }
 
@@ -1535,7 +1541,7 @@ impl Listener for BoundedHttpListener {
     }
 }
 
-struct HeaderTimedIo {
+pub(crate) struct HeaderTimedIo {
     inner: tokio::net::TcpStream,
     _permit: OwnedSemaphorePermit,
     header_received: Arc<AtomicBool>,
@@ -1712,6 +1718,11 @@ impl LocalNodeState {
     }
 
     fn from_config(mut config: LocalNodeConfig) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            config.network_id.as_deref()
+                != Some(boole_core::native_network::NATIVE_TESTNET_NETWORK_ID),
+            "native transfer network requires run-native-local; legacy rules are incompatible"
+        );
         // M1-D — the authorization-required named network must never boot
         // with the legacy anonymous HTTP escape hatch enabled. Enforce this
         // before the state-dir lock or any durable store is opened so an

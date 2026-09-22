@@ -35,6 +35,13 @@ enum Command {
     RuntimeSmoke(RuntimeSmokeArgs),
     /// Run the local HTTP node. Flags override the matching env vars.
     RunLocal(Box<RunLocalArgs>),
+    /// Foreground closed-local native test-coin node; no legacy verifier or public peers.
+    RunNativeLocal {
+        #[arg(long, default_value = "127.0.0.1:8383")]
+        addr: std::net::SocketAddr,
+        #[arg(long)]
+        state_dir: PathBuf,
+    },
     /// Submit a Lean proof to the deterministic verifier and (optionally)
     /// commit a block on success.
     SubmitLean(SubmitLeanArgs),
@@ -258,9 +265,66 @@ fn main() -> anyhow::Result<()> {
     match cli.command {
         Command::RuntimeSmoke(args) => run_runtime_smoke_command(args),
         Command::RunLocal(args) => run_local_command(*args),
+        Command::RunNativeLocal { addr, state_dir } => run_native_local(addr, &state_dir),
         Command::SubmitLean(args) => run_submit_lean_command(args),
         Command::AgentProof(args) => run_agent_proof_command(args),
     }
+}
+
+fn run_native_local(addr: std::net::SocketAddr, state_dir: &Path) -> anyhow::Result<()> {
+    let listener = boole_node::bind_native_loopback(addr)?;
+    let node = boole_node::NativeNode::open(state_dir)?;
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    let stop = Arc::new(tokio::sync::Notify::new());
+    runtime.block_on(async move {
+        #[cfg(unix)]
+        let signal_task = {
+            use tokio::signal::unix::{signal, SignalKind};
+            let mut term = signal(SignalKind::terminate())?;
+            let mut int = signal(SignalKind::interrupt())?;
+            let stop = stop.clone();
+            tokio::spawn(async move {
+                tokio::select! { _ = term.recv() => {}, _ = int.recv() => {} }
+                stop.notify_one();
+            })
+        };
+        #[cfg(not(unix))]
+        let signal_task = {
+            let stop = stop.clone();
+            tokio::spawn(async move {
+                if tokio::signal::ctrl_c().await.is_ok() {
+                    stop.notify_one();
+                }
+            })
+        };
+        let result = boole_node::serve_native_node(listener, node, stop).await;
+        signal_task.abort();
+        result
+    })
+}
+
+#[test]
+fn native_identity_is_rejected_by_legacy_cli_before_resolving_or_binding_any_address() {
+    let parsed = Cli::try_parse_from([
+        "boole-node",
+        "run-local",
+        "--network-id",
+        boole_core::native_network::NATIVE_TESTNET_NETWORK_ID,
+        "--addr",
+        "not-a-socket-address",
+        "--block-store",
+        "/unused/native-test-blocks",
+        "--reward-store",
+        "/unused/native-test-rewards",
+    ])
+    .unwrap();
+    let Command::RunLocal(args) = parsed.command else {
+        panic!("run-local parsed")
+    };
+    let error = run_local_command(*args).unwrap_err();
+    assert!(error.to_string().contains("run-native-local"), "{error}");
 }
 
 fn run_runtime_smoke_command(args: RuntimeSmokeArgs) -> anyhow::Result<()> {
@@ -279,6 +343,10 @@ fn run_runtime_smoke_command(args: RuntimeSmokeArgs) -> anyhow::Result<()> {
 }
 
 fn run_local_command(args: RunLocalArgs) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        args.network_id.as_deref() != Some(boole_core::native_network::NATIVE_TESTNET_NETWORK_ID),
+        "native transfer network requires run-native-local; legacy rules are incompatible"
+    );
     // P1.9 — refuse to boot a node whose proofs are NOT Lean-verified
     // unless the operator explicitly opted in. This fires before binding a
     // port or touching any ledger, so a misconfigured production node
