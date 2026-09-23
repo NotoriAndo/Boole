@@ -111,6 +111,12 @@ fork and pending-transfer cancellation with unchanged independent replay. Actual
 running validation/publication still finishes under the existing mutation gate;
 this is not CPU/disk preemption or a universal shutdown-time promise. See the
 [bounded wait evidence and requalification status](native-peer-lock-wait-2026-09.md).
+The unchanged large distinct-fork criteria passed again after this change:
+68.778s stable convergence, 764.203125MiB peak RSS, 55.089s independent replay,
+372-microsecond drained stop, and the same exact winner/accounting/journals.
+Thirty-one transient failed rounds remain recorded. Compared with the earlier
+source this run converged sooner but used more peak RSS; it is not a general
+performance improvement claim.
 Each outgoing worker also remembers at most one fully verified losing fork for
 the exact unchanged local/remote heads, avoiding repeated suffix downloads and
 revalidation. Head changes/restart invalidate that memory; malformed candidates

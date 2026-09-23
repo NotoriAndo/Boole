@@ -232,8 +232,10 @@ last chosen retry interval. `connect` directs attention to the intended local
 process/address; `tls_handshake` to both administratively approved endpoint pins
 and transport-key setup. Never bypass a pin to make the error disappear. `hello`
 requires checking the expected binary/network/genesis configuration, without
-adopting the peer's declared chain as authority. `local_state` requires preserving
-the local state and investigating ownership/readiness/storage before recovery.
+adopting the peer's declared chain as authority. `local_state` can also mean the
+local ledger lock wait exhausted its round deadline. Preserve the state and
+investigate contention, ownership, readiness and storage before deciding on
+recovery; this label alone does not prove damage.
 `local_snapshot` can be an ordinary race with another successful update; a single
 occurrence is not evidence of corruption. Block/fork/pending stages locate data
 exchange, validation or publication work; they do not alone establish bad remote

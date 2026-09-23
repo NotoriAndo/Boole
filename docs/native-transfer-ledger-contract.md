@@ -748,6 +748,11 @@ and HTTP operation lifetimes are unchanged. Real pinned-TLS tests cover incoming
 and outgoing hello waits, deadline expiry, and cancellation of queued extension,
 fork and pending mutations with unchanged independent replay. See the
 [diagnosis, evidence and limits](native-peer-lock-wait-2026-09.md).
+The same preregistered large competing-fork scenario passed after this correction:
+68.778s to stable polling, 764.203125MiB peak RSS, 55.089s independent replay,
+372-microsecond stop and identical winner IDs/accounting/journal digests. It still
+recorded 31 failed rounds; this is neither a universal convergence guarantee nor
+a general speed/memory improvement over the earlier source.
 
 `GET /native/peers` and `boole native peers` report the fixed configured identities,
 last outbound state, retry counts/delay, active/peak inbound workers and aggregate
