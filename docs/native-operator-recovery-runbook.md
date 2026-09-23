@@ -212,6 +212,24 @@ an unexpected replacement key by trial-and-error. Inspect `boole native peers`
 for successful snapshot agreement and repeated failures. Peer agreement is an
 observation, not finality, public-connectivity certification or launch approval.
 
+For `retrying`, inspect `lastFailureStage` together with failure counts and the
+last chosen retry interval. `connect` directs attention to the intended local
+process/address; `tls_handshake` to both administratively approved endpoint pins
+and transport-key setup. Never bypass a pin to make the error disappear. `hello`
+requires checking the expected binary/network/genesis configuration, without
+adopting the peer's declared chain as authority. `local_state` requires preserving
+the local state and investigating ownership/readiness/storage before recovery.
+`local_snapshot` can be an ordinary race with another successful update; a single
+occurrence is not evidence of corruption. Block/fork/pending stages locate data
+exchange, validation or publication work; they do not alone establish bad remote
+data, an attack, or a broken local disk. See the
+[complete phase vocabulary](native-transfer-ledger-contract.md#mutually-authenticated-native-peers).
+The value describes the last completed failure, remains during an in-progress
+retry and clears to `null` on a successful round. It intentionally includes no
+raw error strings or peer-supplied diagnostics. Shutdown can count as a failure;
+do not rotate keys, erase journals or repeatedly rebroadcast based only on a
+counter or phase label.
+
 ## 6. Stop conditions and evidence to retain
 
 Stop the affected action and preserve original material if there is a head/

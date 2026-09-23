@@ -405,6 +405,62 @@ fn two_independent_rpc_nodes_mine_transfer_and_rejoin_with_identical_accounting(
 }
 
 #[test]
+fn native_peer_rpc_exposes_the_bounded_outbound_failure_stage() {
+    use boole_node::NativePeerConfig;
+    use boole_p2p::TlsIdentity;
+    use std::time::{Duration, Instant};
+    let dir = std::env::temp_dir().join(format!(
+        "boole-native-http-peer-diagnostics-{}",
+        boole_testkit::rand_suffix()
+    ));
+    std::fs::create_dir(&dir).unwrap();
+    let cleanup = TestDir(dir);
+    let identity = || TlsIdentity::from_pkcs8(&TlsIdentity::generate_pkcs8().unwrap()).unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let peer_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let unused = TcpListener::bind("127.0.0.1:0").unwrap();
+    let remote_address = unused.local_addr().unwrap();
+    drop(unused);
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let stop = Arc::new(tokio::sync::Notify::new());
+    let task = runtime.spawn(boole_node::serve_native_node_with_peers(
+        listener,
+        NativeNode::open(&cleanup.0).unwrap(),
+        peer_listener,
+        NativePeerConfig {
+            identity: identity(),
+            peers: vec![(remote_address, identity().peer_id())],
+        },
+        stop.clone(),
+    ));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let status = rpc(address, "GET", "/native/peers", Value::Null);
+        if status["peers"][0]["failedRounds"].as_u64().unwrap() > 0 {
+            assert_eq!(status["peers"][0]["state"], "retrying");
+            assert_eq!(status["peers"][0]["lastFailureStage"], "connect");
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "peer failure was not exposed by RPC"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    stop.notify_one();
+    runtime.block_on(task).unwrap().unwrap();
+    assert_eq!(
+        NativeNode::open(&cleanup.0)
+            .unwrap()
+            .chain()
+            .ledger()
+            .height(),
+        0
+    );
+}
+
+#[test]
 fn native_rpc_and_secure_peers_share_the_same_durable_state_and_shutdown_boundary() {
     use boole_core::native_chain::NativeBlockTemplate;
     use boole_core::SigningKeyV2;

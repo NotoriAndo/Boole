@@ -86,6 +86,170 @@ fn start_pair(
 }
 
 #[test]
+fn outbound_connection_failure_exposes_a_bounded_diagnostic_stage() {
+    let dir = TestDir::new();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let unused = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = unused.local_addr().unwrap();
+    drop(unused);
+    let mut service = NativePeerService::start(
+        listener,
+        dir.node(),
+        NativePeerConfig {
+            identity: identity(),
+            peers: vec![(address, identity().peer_id())],
+        },
+    )
+    .unwrap();
+    await_condition(|| service.status()[0].failed_rounds > 0);
+    let snapshot = serde_json::to_value(service.monitor().snapshot()).unwrap();
+    assert_eq!(snapshot["peers"][0]["state"], "retrying");
+    assert_eq!(snapshot["peers"][0]["lastFailureStage"], "connect");
+    service.stop();
+    assert_eq!(service.monitor().snapshot().active_outbound_rounds, 0);
+}
+
+#[test]
+fn peer_failure_stages_distinguish_tls_hello_and_signature_and_clear_after_recovery() {
+    let dir = TestDir::new();
+    let node = dir.node();
+    let local = TcpListener::bind("127.0.0.1:0").unwrap();
+    let local_address = local.local_addr().unwrap();
+    let remote = TcpListener::bind("127.0.0.1:0").unwrap();
+    remote.set_nonblocking(true).unwrap();
+    let remote_address = remote.local_addr().unwrap();
+    let local_key = identity();
+    let remote_key = identity();
+    let expected_remote = remote_key.peer_id();
+    let authenticated =
+        TlsTransport::new(remote_key, vec![(local_address, local_key.peer_id())]).unwrap();
+    let wrong_key =
+        TlsTransport::new(identity(), vec![(local_address, local_key.peer_id())]).unwrap();
+    let owner = SigningKeyV2::from_dev_id("native-diagnostic-invalid-pending");
+    let transfer = NativeTransfer::try_from(
+        &owner
+            .sign_for_network(
+                &serde_json::json!({
+                    "schema": "boole.transfer.v1", "from": owner.pk_hex(), "to": owner.pk_hex(),
+                    "amount": "1", "fee": "1000", "nonce": "0", "validBefore": "100"
+                }),
+                Some(native_testnet().network_id()),
+            )
+            .unwrap(),
+    )
+    .unwrap();
+    let mut invalid_transfer = serde_json::to_value(transfer).unwrap();
+    invalid_transfer["signature"] = "00".repeat(64).into();
+    let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+    let fixture = std::thread::spawn(move || {
+        let accept = || {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            loop {
+                match remote.accept() {
+                    Ok((socket, _)) => return socket,
+                    Err(error)
+                        if error.kind() == std::io::ErrorKind::WouldBlock
+                            && Instant::now() < deadline =>
+                    {
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(error) => panic!("diagnostic peer accept: {error}"),
+                }
+            }
+        };
+        // A pinned identity mismatch must stay a TLS-phase failure, not a
+        // claimed invalid block or a leaked remote diagnostic string.
+        let rejected =
+            wrong_key.accept_stream_until(accept(), Instant::now() + Duration::from_secs(2));
+        assert!(rejected.is_err());
+        release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        for (bad_hello, bad_pending) in [(true, false), (false, true), (false, false)] {
+            let socket = accept();
+            let deadline = Instant::now() + Duration::from_secs(2);
+            let mut connection = authenticated.accept_stream_until(socket, deadline).unwrap();
+            let (request, _): (serde_json::Value, _) = authenticated
+                .recv_json_counted_until(&mut connection, 4096, deadline)
+                .unwrap();
+            assert_eq!(request["type"], "hello");
+            let mut greeting = wire_hello();
+            if bad_hello {
+                greeting["networkId"] = "do-not-echo-untrusted-native-peer-text".into();
+            }
+            authenticated
+                .send_json_counted_until(&mut connection, &greeting, 4096, deadline)
+                .unwrap();
+            if bad_hello {
+                assert!(authenticated
+                    .recv_json_counted_until::<serde_json::Value>(&mut connection, 4096, deadline)
+                    .is_err());
+            } else {
+                let (request, _): (serde_json::Value, _) = authenticated
+                    .recv_json_counted_until(&mut connection, 4096, deadline)
+                    .unwrap();
+                assert_eq!(request["type"], "getPending");
+                let transfers = if bad_pending {
+                    vec![invalid_transfer.clone()]
+                } else {
+                    vec![]
+                };
+                authenticated.send_json_counted_until(&mut connection,
+                    &serde_json::json!({"type": "pending", "snapshot": greeting["head"], "offset": 0, "total": transfers.len(), "transfers": transfers}),
+                    4096, deadline).unwrap();
+                if bad_pending {
+                    assert!(authenticated
+                        .recv_json_counted_until::<serde_json::Value>(
+                            &mut connection,
+                            4096,
+                            deadline
+                        )
+                        .is_err());
+                } else {
+                    let (done, _): (serde_json::Value, _) = authenticated
+                        .recv_json_counted_until(&mut connection, 4096, deadline)
+                        .unwrap();
+                    assert_eq!(done["type"], "done");
+                }
+            }
+            release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        }
+    });
+    let mut service = NativePeerService::start(
+        local,
+        node.clone(),
+        NativePeerConfig {
+            identity: local_key,
+            peers: vec![(remote_address, expected_remote)],
+        },
+    )
+    .unwrap();
+    await_condition(|| service.status()[0].failed_rounds == 1);
+    let failed = serde_json::to_value(service.monitor().snapshot()).unwrap();
+    assert_eq!(failed["peers"][0]["lastFailureStage"], "tls_handshake");
+    release_tx.send(()).unwrap();
+    await_condition(|| service.status()[0].failed_rounds == 2);
+    let failed = serde_json::to_value(service.monitor().snapshot()).unwrap();
+    assert_eq!(failed["peers"][0]["lastFailureStage"], "hello");
+    assert!(!failed
+        .to_string()
+        .contains("do-not-echo-untrusted-native-peer-text"));
+    release_tx.send(()).unwrap();
+    await_condition(|| service.status()[0].failed_rounds == 3);
+    let failed = serde_json::to_value(service.monitor().snapshot()).unwrap();
+    assert_eq!(failed["peers"][0]["lastFailureStage"], "pending_signature");
+    assert!(node.lock().unwrap().pending().is_empty());
+    release_tx.send(()).unwrap();
+    await_condition(|| service.status()[0].successful_rounds == 1);
+    let recovered = serde_json::to_value(service.monitor().snapshot()).unwrap();
+    assert_eq!(recovered["peers"][0]["state"], "snapshot_match");
+    assert!(recovered["peers"][0]["lastFailureStage"].is_null());
+    assert_eq!(recovered["peers"][0]["consecutiveFailures"], 0);
+    service.stop();
+    release_tx.send(()).unwrap();
+    fixture.join().unwrap();
+    assert_eq!(node.lock().unwrap().chain().ledger().height(), 0);
+}
+
+#[test]
 fn approved_encrypted_peers_incrementally_catch_up_and_replay_identically() {
     let dir_a = TestDir::new();
     let dir_b = TestDir::new();
@@ -449,6 +613,7 @@ fn invalid_owner_signature_from_an_approved_peer_never_becomes_a_block() {
     .unwrap();
     malicious.join().unwrap();
     await_condition(|| service.status()[0].failed_rounds > 0);
+    assert_eq!(service.status()[0].last_failure_stage, Some("block_apply"));
     service.stop();
     assert_eq!(node.lock().unwrap().chain().ledger().height(), 0);
 }
@@ -909,6 +1074,7 @@ fn a_remembered_fork_preference_does_not_hide_storage_loss_during_the_next_hello
     .unwrap();
     remote.join().unwrap();
     await_condition(|| service.status()[0].failed_rounds >= 1);
+    assert_eq!(service.status()[0].last_failure_stage, Some("local_state"));
     service.stop();
     assert!(local_node.lock().unwrap().ensure_ready().is_err());
     assert_eq!(local_node.lock().unwrap().chain(), &expected);

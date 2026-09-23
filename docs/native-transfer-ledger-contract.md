@@ -684,6 +684,35 @@ TLS handshake and round work but not backoff; `peakOutboundRounds` is the lifeti
 maximum, bounded by the configured peer count. Shutdown drains these counts to
 zero. A retained read-only monitor does not retain the node's state ownership.
 
+Each configured peer also reports `lastFailureStage`: a fixed local phase name
+for its most recently completed failed outgoing round. It is `null` before any
+failure and is cleared by the next successful round (including a valid local
+chain preference). An in-progress retry does not itself clear the old value.
+The field contains no exception text, remote message, file path or key material.
+The bounded vocabulary is:
+
+| Phase | Work being attempted, not a root-cause verdict |
+|---|---|
+| `connect`, `tls_handshake` | Socket connection/registration, then pinned TLS handshake |
+| `local_state`, `local_snapshot` | Local node access/readiness, or checking that the captured head is still current |
+| `hello`, `hash_sync` | Exchanging/validating a network greeting or common-prefix hash response |
+| `block_download`, `block_response`, `block_apply` | Block-page exchange/shape, per-block sequence/advertised head, or verified durable extension |
+| `fork_response`, `fork_apply` | Candidate's advertised head, or verified recent-fork evaluation/publication |
+| `pending_sync`, `pending_signature`, `pending_admission` | Pending-page exchange/shape, signature/format validation, or local queue admission |
+| `round_finish` | Sending the terminal message |
+
+These are best-effort failure locations, not proof of an attack or a precise
+diagnosis: deadlines, shutdown, local lock/storage faults and ordinary concurrent
+head changes can fail a phase. Rejected benign pending conflicts may be skipped
+under the existing rules, so this is not a per-transaction rejection log. Inbound
+failures remain aggregate counters and are not attributed to this outgoing field.
+No admission, cryptographic verification, fork choice, retry timing or protocol
+message changes are part of this observability addition. Direct tests distinguish
+connection refusal, pinned-key mismatch, invalid hello, bad pending signature,
+invalid block and local storage loss; recovery clears the previous failure and
+untrusted hello text is not reflected. The actual loopback RPC also reports the
+connection-refusal stage; the CLI forwards this endpoint's JSON unchanged.
+
 ### Local peer key change and recovery limits
 
 - Allowlist edits and key rotation require a controlled restart; there is no
