@@ -181,8 +181,6 @@ atoms and empty pending. Journal digests and manifest bytes matched before/after
 independent replay. This qualifies the same fixed incomplete-input combination
 on the corrected source; it is not arbitrary successful mixed traffic or R1 PASS.
 
-## Raw outcomes and follow-up checks
-
 ## Held mixed-input shutdown — preregistered follow-up
 
 The earlier mixed scenario completes HTTP bodies and rejects final excess peer
@@ -219,7 +217,33 @@ not change the original qualification's criteria or replace its result.
   actual server before asserting failure. This is not new public exposure,
   signature relaxation, paid work or an overall R1 acceptance claim.
 
-Status: **criteria fixed; not yet executed.**
+Status: **small held-input and original-fixture regression PASS; large held-input measurement pending.**
+
+The first small held-input run passed in 26.365s (26.37s harness, 10.63s build).
+With the exact 8/4/8 overlap still held, normal stop took 5.007066s and the entire
+network/shutdown phase 5.545s. All eight HTTP, four incoming TLS and eight outgoing
+TLS connections reached actual closure; timeout was not accepted as closure.
+Outgoing sent bytes stayed at the exact paused 8,188,312 bytes per peer, proving
+the fixture did not send missing pages to make shutdown finish. The original
+HTTP clients never supplied their final bytes. Old client handles and the Tokio
+runtime remained alive during fresh ownership/replay, which took 409ms.
+Exact original height-13 head, 1,025 balances/1,024 confirmed transfers, 552,737
+history bytes, issuance/locks and journal/manifest comparisons passed. Maximum
+diagnostic response was 435µs; template/append/candidate append 171/204/178ms.
+
+The shared fixture's original completion-before-stop path then passed unchanged
+acceptance in 21.628s (21.63s harness): 912ms network, 550µs drained stop, 446µs
+maximum diagnostic response and 396ms replay, with the same original state.
+Focused `boole-node --test native_capacity` clippy with warnings denied passed
+(7.47s), as did fmt, docs-smoke and diff-check. No production code or limit changed,
+and neither test required a corrective retry or artificial RED.
+
+The forthcoming large run uses the root feature checkout after temporary-worktree
+cleanup. Its only excluded pre-existing tracked change is the user's unrelated
+`tasks/lessons.md`; source/test/dependency paths must have no uncommitted diff,
+and the user's file remains unchanged. Do not label the entire root worktree clean.
+
+## Raw outcomes and follow-up checks
 
 ### Initial unfinished-body RED
 
@@ -524,4 +548,55 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; fin
 ecb549cb4cf646648eee269304898a8c2c53f7a5
 51c917e9d761a5c3c67d49f3f78963540c9d8aeb
 60b09f7048081a83eebcb05f1a3cd1091588ae566dec977f73dfd646971a9f50  /Users/seoyong/projects/Boole/target/debug/deps/native_capacity-6f26ba504621f258
+```
+
+### First held-input small regression
+
+```text
+   Compiling ring v0.17.14
+   Compiling boole-core v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-core)
+   Compiling boole-native-shadow-protocol v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-native-shadow-protocol)
+   Compiling boole-evm-adapter v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-evm-adapter)
+   Compiling rustls v0.23.45
+   Compiling rustls-webpki v0.103.15
+   Compiling boole-testkit v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-testkit)
+   Compiling boole-p2p v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-p2p)
+   Compiling boole-node v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-node)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.63s
+     Running tests/native_capacity.rs (target/debug/deps/native_capacity-6f26ba504621f258)
+
+running 1 test
+test mixed::small_mixed_shutdown_closes_held_inputs_and_replays_unchanged ... boole-node: native HTTP drain expired; closing remaining client sockets
+mixed-network {"advertised":{"hash":"0000238874213f313ec8275b19912f2e9e9630a5481480e8dc3288e937507042","height":45},"diagnosticMaxMicros":435,"drained":{"closedHttp":8,"closedInbound":4,"closedOutbound":8,"completedMissingInputs":false},"elapsedMs":25944,"finalSentBytesPerPeer":[8188312,8188312,8188312,8188312,8188312,8188312,8188312,8188312],"fundedBlocks":2,"httpBodyBytesSentPerClient":8388607,"localHead":"00009efa3c0a5376c32ed2818d39c89193e09180d72fbfe155a586df1f5f1887","networkMs":5545,"overlap":{"authority":"local_process_only","ledgerReadiness":"not_checked","peers":{"acceptedConnections":4,"activeInboundWorkers":4,"activeOutboundRounds":8,"authenticatedConnections":4,"authenticationFailures":0,"completedInboundRounds":0,"enabled":true,"failedInboundRounds":0,"limits":{"handshakeTimeoutMs":2000,"inboundKeyCooldownMs":500,"maxHandshakesPerSecond":8,"maxInboundWorkers":4,"maxMessageBytes":1048576,"maxOutboundWorkers":8,"maxPeers":8,"maxRoundBlocks":256,"maxRoundBytes":8388608,"maxRoundRequests":64,"roundTimeoutMs":10000},"listenAddress":"127.0.0.1:52062","localPeerId":"926f78ee3dd521114d277210f06bc89fe74c0db2fa153f78ef8d7cdb603ef138","peakInboundWorkers":4,"peakOutboundRounds":8,"peers":[{"address":"127.0.0.1:52064","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"c15b3b6ca05e92771bba89f0470b79c85e84f99f27a346bcfaf647837b9a73e5","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:52065","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"2ce156ca0401c1ec08dff75d30482d0298efab84e1069c8d7a503b72d5658618","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:52066","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"e94aad8680cf2c44914f0571effc9d79bbd37a75ba71c50a549e854c945c0591","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:52067","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"a4ea514419428e6f8f131d5276978f41816a856354e8fd5e3ff7cf3373ecf2d5","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:52068","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"48ee0ea4f35b035ec498683ffb7f5600d38c13e0f006619e3d022cb713ce4267","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:52069","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"67ed9a373bd30c4c06b2c58008e5423ded2c7829e9d40a9f114f236d6b4b1561","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:52070","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"012a7ea596e207b2f073c726cacc295c779688023b363b8cc04aac08a2474ff0","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:52071","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"7970f91663bba852214da3664f92abd1234b55cee3c83b4b54574815f2ae593a","retryDelayMs":0,"state":"not_connected","successfulRounds":0}],"rejectedConnections":1,"rejectedPeerRounds":0,"running":true},"rpc":{"activeDiagnostics":1,"activeRequests":8,"diagnosticLimit":2,"requestLimit":8},"schema":"boole.native.diagnostics.v1","stopping":false},"partialBytesPerPeer":[8188312,8188312,8188312,8188312,8188312,8188312,8188312,8188312],"stopMicros":5007066,"stopWithHeldInputs":true}
+mixed-result {"elapsedMs":26365,"fundedBlocks":2,"genesisHash":"933a672120674efa9ec6205f344e1830febdec58b0ffcd2603ccc8a9723610c1","head":"00009efa3c0a5376c32ed2818d39c89193e09180d72fbfe155a586df1f5f1887","issued":"65000000000000","maxAppendMs":204,"maxCandidateAppendMs":178,"maxTemplateMs":171,"networkId":"boole-native-testnet-1","resources":{"balanceEntries":1025,"confirmedTransfers":1024,"historyBlocks":13,"historyBytes":552737,"historyLimitBlocks":100000,"historyLimitBytes":268435456,"nonceEntries":1,"pendingBytes":0,"pendingLimitBytes":5242880,"pendingLimitTransfers":512,"pendingTransfers":0},"restartMs":409,"stopWithHeldInputs":true}
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 15 filtered out; finished in 26.37s
+```
+
+### Shared original fixture and focused static checks
+
+```text
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running tests/native_capacity.rs (target/debug/deps/native_capacity-6f26ba504621f258)
+
+running 1 test
+test mixed::small_mixed_p2p_http_pressure_preserves_state_and_diagnostics ... mixed-network {"advertised":{"hash":"0000238874213f313ec8275b19912f2e9e9630a5481480e8dc3288e937507042","height":45},"diagnosticMaxMicros":446,"drained":{"authority":"local_process_only","ledgerReadiness":"not_checked","peers":{"acceptedConnections":4,"activeInboundWorkers":0,"activeOutboundRounds":0,"authenticatedConnections":4,"authenticationFailures":0,"completedInboundRounds":0,"enabled":true,"failedInboundRounds":4,"limits":{"handshakeTimeoutMs":2000,"inboundKeyCooldownMs":500,"maxHandshakesPerSecond":8,"maxInboundWorkers":4,"maxMessageBytes":1048576,"maxOutboundWorkers":8,"maxPeers":8,"maxRoundBlocks":256,"maxRoundBytes":8388608,"maxRoundRequests":64,"roundTimeoutMs":10000},"listenAddress":"127.0.0.1:52263","localPeerId":"dd3c38b95bdba69f64a0dff96ca91e0a9cb800f6eacf0133c96024bdbffae065","peakInboundWorkers":4,"peakOutboundRounds":8,"peers":[{"address":"127.0.0.1:52265","consecutiveFailures":1,"failedRounds":1,"lastFailureStage":"block_download","peerId":"fd062616053a796add040f5c632d5e0f61736f80945a32b805b84d874e830ad7","retryDelayMs":500,"state":"retrying","successfulRounds":0},{"address":"127.0.0.1:52266","consecutiveFailures":1,"failedRounds":1,"lastFailureStage":"block_download","peerId":"e6b7aadd43df631d934b28876776792f7bc8608bf39464358538635cf07f57fd","retryDelayMs":500,"state":"retrying","successfulRounds":0},{"address":"127.0.0.1:52267","consecutiveFailures":1,"failedRounds":1,"lastFailureStage":"block_download","peerId":"2a3730b14daf631bab1fe7e584e76ccdddfa2cfe5f222934709de57d5bb24a22","retryDelayMs":500,"state":"retrying","successfulRounds":0},{"address":"127.0.0.1:52268","consecutiveFailures":1,"failedRounds":1,"lastFailureStage":"block_download","peerId":"1887eedaa7763bf65bbecf44382bbb9411de2f4ad3746a1c9eebee21d22d0871","retryDelayMs":500,"state":"retrying","successfulRounds":0},{"address":"127.0.0.1:52269","consecutiveFailures":1,"failedRounds":1,"lastFailureStage":"block_download","peerId":"a65db44f4062d33919c1ce860c6f0d5ee2d6a54c100b7fe5523f4d16f2c45518","retryDelayMs":500,"state":"retrying","successfulRounds":0},{"address":"127.0.0.1:52270","consecutiveFailures":1,"failedRounds":1,"lastFailureStage":"block_download","peerId":"7cca1b0ae9d06b65475273142586de25a0031e058611f9574b5c5fee26248482","retryDelayMs":500,"state":"retrying","successfulRounds":0},{"address":"127.0.0.1:52271","consecutiveFailures":1,"failedRounds":1,"lastFailureStage":"block_download","peerId":"b32a4c4b626e7fc160ef4919a5cde631f0eb7b28f3e4845a932b049aa235c28e","retryDelayMs":500,"state":"retrying","successfulRounds":0},{"address":"127.0.0.1:52272","consecutiveFailures":1,"failedRounds":1,"lastFailureStage":"block_download","peerId":"4798cb1245a012115032586b6605fc1bac529869c4499e4ab5d2e326e41c5837","retryDelayMs":500,"state":"retrying","successfulRounds":0}],"rejectedConnections":1,"rejectedPeerRounds":0,"running":true},"rpc":{"activeDiagnostics":1,"activeRequests":0,"diagnosticLimit":2,"requestLimit":8},"schema":"boole.native.diagnostics.v1","stopping":false},"elapsedMs":21222,"finalSentBytesPerPeer":[9007936,9007936,9007936,9007936,9007936,9007936,9007936,9007936],"fundedBlocks":2,"httpBodyBytesSentPerClient":8388607,"localHead":"00009efa3c0a5376c32ed2818d39c89193e09180d72fbfe155a586df1f5f1887","networkMs":912,"overlap":{"authority":"local_process_only","ledgerReadiness":"not_checked","peers":{"acceptedConnections":4,"activeInboundWorkers":4,"activeOutboundRounds":8,"authenticatedConnections":4,"authenticationFailures":0,"completedInboundRounds":0,"enabled":true,"failedInboundRounds":0,"limits":{"handshakeTimeoutMs":2000,"inboundKeyCooldownMs":500,"maxHandshakesPerSecond":8,"maxInboundWorkers":4,"maxMessageBytes":1048576,"maxOutboundWorkers":8,"maxPeers":8,"maxRoundBlocks":256,"maxRoundBytes":8388608,"maxRoundRequests":64,"roundTimeoutMs":10000},"listenAddress":"127.0.0.1:52263","localPeerId":"dd3c38b95bdba69f64a0dff96ca91e0a9cb800f6eacf0133c96024bdbffae065","peakInboundWorkers":4,"peakOutboundRounds":8,"peers":[{"address":"127.0.0.1:52265","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"fd062616053a796add040f5c632d5e0f61736f80945a32b805b84d874e830ad7","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:52266","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"e6b7aadd43df631d934b28876776792f7bc8608bf39464358538635cf07f57fd","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:52267","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"2a3730b14daf631bab1fe7e584e76ccdddfa2cfe5f222934709de57d5bb24a22","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:52268","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"1887eedaa7763bf65bbecf44382bbb9411de2f4ad3746a1c9eebee21d22d0871","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:52269","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"a65db44f4062d33919c1ce860c6f0d5ee2d6a54c100b7fe5523f4d16f2c45518","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:52270","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"7cca1b0ae9d06b65475273142586de25a0031e058611f9574b5c5fee26248482","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:52271","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"b32a4c4b626e7fc160ef4919a5cde631f0eb7b28f3e4845a932b049aa235c28e","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:52272","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"4798cb1245a012115032586b6605fc1bac529869c4499e4ab5d2e326e41c5837","retryDelayMs":0,"state":"not_connected","successfulRounds":0}],"rejectedConnections":1,"rejectedPeerRounds":0,"running":true},"rpc":{"activeDiagnostics":1,"activeRequests":8,"diagnosticLimit":2,"requestLimit":8},"schema":"boole.native.diagnostics.v1","stopping":false},"partialBytesPerPeer":[8188312,8188312,8188312,8188312,8188312,8188312,8188312,8188312],"stopMicros":550,"stopWithHeldInputs":false}
+mixed-result {"elapsedMs":21628,"fundedBlocks":2,"genesisHash":"933a672120674efa9ec6205f344e1830febdec58b0ffcd2603ccc8a9723610c1","head":"00009efa3c0a5376c32ed2818d39c89193e09180d72fbfe155a586df1f5f1887","issued":"65000000000000","maxAppendMs":199,"maxCandidateAppendMs":178,"maxTemplateMs":173,"networkId":"boole-native-testnet-1","resources":{"balanceEntries":1025,"confirmedTransfers":1024,"historyBlocks":13,"historyBytes":552737,"historyLimitBlocks":100000,"historyLimitBytes":268435456,"nonceEntries":1,"pendingBytes":0,"pendingLimitBytes":5242880,"pendingLimitTransfers":512,"pendingTransfers":0},"restartMs":396,"stopWithHeldInputs":false}
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 15 filtered out; finished in 21.63s
+
+    Checking ring v0.17.14
+    Checking boole-core v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-core)
+    Checking boole-native-shadow-protocol v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-native-shadow-protocol)
+    Checking boole-lean-runner v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-lean-runner)
+    Checking boole-evm-adapter v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-evm-adapter)
+    Checking rustls-webpki v0.103.15
+    Checking rustls v0.23.45
+    Checking boole-p2p v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-p2p)
+    Checking boole-testkit v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-testkit)
+    Checking boole-node v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-node)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.47s
+docs-smoke: PASS
 ```

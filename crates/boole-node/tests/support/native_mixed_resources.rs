@@ -93,8 +93,54 @@ struct ForkGroup {
     peers: Vec<(SocketAddr, boole_p2p::PeerId)>,
     identities: Vec<TlsIdentity>,
     paused: mpsc::Receiver<(usize, usize)>,
-    releases: Vec<mpsc::Sender<()>>,
+    releases: Vec<mpsc::Sender<ForkRelease>>,
     workers: Vec<std::thread::JoinHandle<anyhow::Result<usize>>>,
+}
+
+enum ForkRelease {
+    SendExcessPage,
+    ObserveShutdown,
+}
+
+fn require_tls_closed(
+    transport: &TlsTransport,
+    connection: &mut boole_p2p::TlsConn,
+) -> anyhow::Result<()> {
+    match transport.recv_json_counted_until::<Value>(
+        connection,
+        4096,
+        Instant::now() + Duration::from_secs(1),
+    ) {
+        Err(boole_p2p::FrameError::ConnectionClosed) => Ok(()),
+        Err(boole_p2p::FrameError::Io(error))
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::UnexpectedEof
+                    | std::io::ErrorKind::ConnectionReset
+                    | std::io::ErrorKind::BrokenPipe
+            ) =>
+        {
+            Ok(())
+        }
+        other => anyhow::bail!("held TLS connection did not close: {other:?}"),
+    }
+}
+
+fn require_http_closed(socket: &mut TcpStream) -> anyhow::Result<()> {
+    socket.set_read_timeout(Some(Duration::from_secs(1)))?;
+    let mut tail = Vec::new();
+    match socket.take(4097).read_to_end(&mut tail) {
+        Ok(_) if tail.len() <= 4096 => Ok(()),
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::BrokenPipe
+            ) =>
+        {
+            Ok(())
+        }
+        other => anyhow::bail!("held HTTP connection did not close: {other:?}"),
+    }
 }
 
 impl ForkGroup {
@@ -167,7 +213,13 @@ impl ForkGroup {
                             if blocks == 30 {
                                 anyhow::ensure!(sent < 8 * 1024 * 1024, "partial fork already over budget");
                                 paused.send((index, sent))?;
-                                release_rx.recv_timeout(Duration::from_secs(10))?;
+                                match release_rx.recv_timeout(Duration::from_secs(10))? {
+                                    ForkRelease::SendExcessPage => {}
+                                    ForkRelease::ObserveShutdown => {
+                                        require_tls_closed(&transport, &mut connection)?;
+                                        return Ok(sent);
+                                    }
+                                }
                             }
                             let first = blocks;
                             blocks += 3;
@@ -194,7 +246,7 @@ impl Drop for StopOnDrop {
     }
 }
 
-fn run_mixed_scenario(funded_blocks: u64) {
+fn run_mixed_scenario(funded_blocks: u64, stop_with_held_inputs: bool) {
     let started = Instant::now();
     let dir = TestDir::new();
     let owner = SigningKeyV2::from_dev_id("native-capacity-producer");
@@ -292,7 +344,7 @@ fn run_mixed_scenario(funded_blocks: u64) {
     let shutdown = Arc::new(tokio::sync::Notify::new());
     let _stop_on_drop = StopOnDrop(shutdown.clone());
     let network_started = Instant::now();
-    let server = runtime.spawn(boole_node::serve_native_node_with_peers(
+    let mut server = runtime.spawn(boole_node::serve_native_node_with_peers(
         rpc_listener,
         node,
         listener,
@@ -326,7 +378,7 @@ fn run_mixed_scenario(funded_blocks: u64) {
             .unwrap();
         assert_eq!(reply["type"], "hello");
         assert_eq!(reply["head"]["hash"], local_head.to_hex());
-        inbound.push(connection);
+        inbound.push((transport, connection));
     }
     let before = diagnostics(rpc_address);
     assert_eq!(before["peers"]["activeInboundWorkers"], 4);
@@ -378,51 +430,106 @@ fn run_mixed_scenario(funded_blocks: u64) {
         assert_eq!(observed["peers"]["activeInboundWorkers"], 4);
     }
     assert_eq!(journal_digests(&dir), before_digests);
-    for mut upload in uploads {
-        upload.write_all(b" ").unwrap();
-        let (header, body) = response(upload);
-        assert!(header.starts_with("HTTP/1.1 200 "), "{header} {body}");
-        assert_eq!(body["adopted"], false);
-    }
-    wait("ordinary permits drain", || {
-        diagnostics(rpc_address)["rpc"]["activeRequests"] == 0
-    });
-    drop(inbound);
-    wait("inbound workers drain", || {
-        diagnostics(rpc_address)["peers"]["activeInboundWorkers"] == 0
-    });
-    for release in group.releases {
-        release.send(()).unwrap();
-    }
-    wait("all oversized forks refused", || {
-        diagnostics(rpc_address)["peers"]["peers"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|peer| peer["failedRounds"].as_u64().unwrap() > 0)
-    });
-    let drained = diagnostics(rpc_address);
-    let info = get(rpc_address, "/native/info");
-    assert_eq!(info["headHash"], local_head.to_hex());
-    assert_eq!(info["resources"], resources);
-    assert_eq!(journal_digests(&dir), before_digests);
-    assert!(network_started.elapsed() < Duration::from_secs(15));
-    let stop_started = Instant::now();
-    shutdown.notify_one();
-    runtime.block_on(async {
-        tokio::time::timeout(Duration::from_secs(3), server)
-            .await
-            .unwrap()
-            .unwrap()
-            .unwrap();
-    });
-    let stopping = stop_started.elapsed();
-    assert!(stopping < Duration::from_secs(3));
-    let sent_bytes: Vec<_> = group
-        .workers
-        .into_iter()
-        .map(|worker| worker.join().unwrap().unwrap())
-        .collect();
+    let mut held_clients = None;
+    let (drained, stopping, sent_bytes) = if stop_with_held_inputs {
+        let stop_started = Instant::now();
+        shutdown.notify_one();
+        let completion = runtime
+            .block_on(async { tokio::time::timeout(Duration::from_secs(7), &mut server).await });
+        let stopping = stop_started.elapsed();
+        let timely = completion.is_ok();
+        if let Ok(result) = completion {
+            result.unwrap().unwrap();
+        } else {
+            // A RED must not strand the server or real state ownership. Close
+            // only fixture clients, then join before asserting the deadline.
+            uploads.clear();
+            inbound.clear();
+            runtime.block_on(async {
+                tokio::time::timeout(Duration::from_secs(5), &mut server)
+                    .await
+                    .expect("cleanup after held-client deadline")
+                    .unwrap()
+                    .unwrap();
+            });
+        }
+        let mut closed_http = 0;
+        for upload in &mut uploads {
+            require_http_closed(upload).unwrap();
+            closed_http += 1;
+        }
+        let mut closed_inbound = 0;
+        for (transport, connection) in &mut inbound {
+            require_tls_closed(transport, connection).unwrap();
+            closed_inbound += 1;
+        }
+        for release in group.releases {
+            release.send(ForkRelease::ObserveShutdown).unwrap();
+        }
+        let sent_bytes: Vec<_> = group
+            .workers
+            .into_iter()
+            .map(|worker| worker.join().unwrap().unwrap())
+            .collect();
+        assert!(timely, "held-input shutdown exceeded seven seconds");
+        assert_eq!((closed_http, closed_inbound), (8, 4));
+        assert_eq!(sent_bytes, partial_bytes);
+        // Preserve old client handles through independent fresh ownership.
+        held_clients = Some((uploads, inbound));
+        (
+            json!({"closedHttp":closed_http,"closedInbound":closed_inbound,
+                "closedOutbound":sent_bytes.len(),"completedMissingInputs":false}),
+            stopping,
+            sent_bytes,
+        )
+    } else {
+        for mut upload in uploads {
+            upload.write_all(b" ").unwrap();
+            let (header, body) = response(upload);
+            assert!(header.starts_with("HTTP/1.1 200 "), "{header} {body}");
+            assert_eq!(body["adopted"], false);
+        }
+        wait("ordinary permits drain", || {
+            diagnostics(rpc_address)["rpc"]["activeRequests"] == 0
+        });
+        drop(inbound);
+        wait("inbound workers drain", || {
+            diagnostics(rpc_address)["peers"]["activeInboundWorkers"] == 0
+        });
+        for release in group.releases {
+            release.send(ForkRelease::SendExcessPage).unwrap();
+        }
+        wait("all oversized forks refused", || {
+            diagnostics(rpc_address)["peers"]["peers"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|peer| peer["failedRounds"].as_u64().unwrap() > 0)
+        });
+        let drained = diagnostics(rpc_address);
+        let info = get(rpc_address, "/native/info");
+        assert_eq!(info["headHash"], local_head.to_hex());
+        assert_eq!(info["resources"], resources);
+        assert_eq!(journal_digests(&dir), before_digests);
+        assert!(network_started.elapsed() < Duration::from_secs(15));
+        let stop_started = Instant::now();
+        shutdown.notify_one();
+        runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(3), server)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+        });
+        let stopping = stop_started.elapsed();
+        assert!(stopping < Duration::from_secs(3));
+        let sent_bytes: Vec<_> = group
+            .workers
+            .into_iter()
+            .map(|worker| worker.join().unwrap().unwrap())
+            .collect();
+        (drained, stopping, sent_bytes)
+    };
     let network_elapsed = network_started.elapsed();
     assert!(network_elapsed < Duration::from_secs(15));
     for address in [rpc_address, address].into_iter().chain(peer_addresses) {
@@ -435,13 +542,21 @@ fn run_mixed_scenario(funded_blocks: u64) {
     );
     eprintln!(
         "mixed-network {}",
-        json!({"fundedBlocks":funded_blocks, "localHead":local_head.to_hex(),
+        json!({"fundedBlocks":funded_blocks, "stopWithHeldInputs":stop_with_held_inputs,
+        "localHead":local_head.to_hex(),
         "advertised":advertised, "partialBytesPerPeer":partial_bytes, "finalSentBytesPerPeer":sent_bytes,
         "httpBodyBytesSentPerClient":BODY_BYTES-1, "overlap":overlap, "drained":drained,
         "diagnosticMaxMicros":diagnostic_max.as_micros(), "networkMs":network_elapsed.as_millis(),
         "stopMicros":stopping.as_micros(), "elapsedMs":started.elapsed().as_millis()})
     );
-    drop(runtime);
+    // In the held-input case, runtime teardown must not be what releases state
+    // ownership. Keep both runtime and old client handles alive through reopen.
+    let held_runtime = if stop_with_held_inputs {
+        Some(runtime)
+    } else {
+        drop(runtime);
+        None
+    };
     drop(suffix);
     drop(hashes);
     let reopen_started = Instant::now();
@@ -457,10 +572,13 @@ fn run_mixed_scenario(funded_blocks: u64) {
         fs::read(dir.path.join("state.manifest.json")).unwrap(),
         manifest
     );
+    drop(held_clients);
+    drop(held_runtime);
     assert!(started.elapsed() < Duration::from_secs(900));
     eprintln!(
         "mixed-result {}",
-        json!({"fundedBlocks":funded_blocks, "head":local_head.to_hex(),
+        json!({"fundedBlocks":funded_blocks, "stopWithHeldInputs":stop_with_held_inputs,
+        "head":local_head.to_hex(),
         "networkId":native_testnet().network_id(), "genesisHash":native_testnet().genesis_hash().to_hex(),
         "resources":node.resource_usage().unwrap(), "issued":node.chain().ledger().issued().to_string(),
         "restartMs":replay.as_millis(), "elapsedMs":started.elapsed().as_millis(),
@@ -471,11 +589,22 @@ fn run_mixed_scenario(funded_blocks: u64) {
 
 #[test]
 fn small_mixed_p2p_http_pressure_preserves_state_and_diagnostics() {
-    run_mixed_scenario(2);
+    run_mixed_scenario(2, false);
 }
 
 #[test]
 #[ignore = "explicit preregistered combined P2P/HTTP resource qualification; not routine CI"]
 fn native_mixed_p2p_http_pressure_131072_accounts() {
-    run_mixed_scenario(256);
+    run_mixed_scenario(256, false);
+}
+
+#[test]
+fn small_mixed_shutdown_closes_held_inputs_and_replays_unchanged() {
+    run_mixed_scenario(2, true);
+}
+
+#[test]
+#[ignore = "explicit preregistered held-input shutdown qualification; not routine CI"]
+fn native_mixed_shutdown_131072_accounts() {
+    run_mixed_scenario(256, true);
 }
