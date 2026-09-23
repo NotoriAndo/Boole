@@ -83,6 +83,9 @@ the exact unchanged local/remote heads, avoiding repeated suffix downloads and
 revalidation. Head changes/restart invalidate that memory; malformed candidates
 do not create it, and readiness remains checked. First verification and changing
 candidate costs remain; this is not a general CPU-abuse guarantee.
+A [preregistered 131,073-balance repeated-fork scenario](native-peer-repeat-qualification-2026-09.md)
+passed: first full candidate 4.999s, seven following polls without data requests,
+8.637s network phase, 480.078125MiB peak RSS and unchanged accounting/journals.
 Tests remain
 closed-local and public operation still requires R2/R3 launch authority.
 

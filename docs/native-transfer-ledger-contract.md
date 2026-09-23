@@ -552,6 +552,11 @@ validation of a new candidate or prove that the peer's current body is valid.
 It does not protect against continuously changing candidates or remove the
 first full verification cost. At most eight pairs exist, one per configured
 worker; there is no disk cache or remote-sized map.
+The [preregistered repeated-fork scenario](native-peer-repeat-qualification-2026-09.md)
+passed with 131,073 balances: first full 16-block losing candidate 4.999s, seven
+subsequent hello/done-only polls, 8.637s for all eight rounds, 480.078125MiB peak
+process RSS and 51.791s independent replay, with unchanged journals/accounting.
+This measures one peer and unchanged heads, not the general changing-fork cost.
 
 When both heads match, each configured node periodically pulls the other's
 bounded pending snapshot. Transfers pass the same signature and admission path
