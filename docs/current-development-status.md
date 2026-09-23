@@ -94,8 +94,15 @@ and 51.784s restart. A subsequent
 passed with all eight peers simultaneously holding fifteen blocks before final
 release: one 16-block adoption, seven stale-snapshot retries, no duplicate
 accounting and all peers matching within 8.292s at 544.6875MiB peak RSS. Full
-independent replay took 55.040s. Distinct competing forks, mixed traffic and
-worst-case shared-lock read latency remain unqualified. All non-loopback
+independent replay took 55.040s. A separate
+[distinct-candidate qualification](native-competing-forks-qualification-2026-09.md)
+then passed eight fixed valid branches at the same large state: 75.618s to the
+normal same-work/hash winner and stable peer polling, 702.84375MiB peak RSS and
+54.989s independent replay. Only the winner's 8,192 added IDs were confirmed;
+57,344 conflicting loser IDs were neither confirmed nor pending. Thirty-two
+failed rounds and at least three observed candidate adoptions are part of the
+result, not hidden by the final success. Continuously changing candidates, mixed
+traffic and worst-case shared-lock read latency remain unqualified. All non-loopback
 listeners/endpoints are still refused; an explicit exposure option is not implemented.
 Each outgoing worker also remembers at most one fully verified losing fork for
 the exact unchanged local/remote heads, avoiding repeated suffix downloads and

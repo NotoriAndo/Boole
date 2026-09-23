@@ -715,6 +715,17 @@ All 8,192 added transfers, supply and nonce were reflected once, and independent
 544.6875MiB including the eight fixtures. This does not qualify eight distinct
 competing adoptions or worst-case read latency: its immediate post-release
 queries were not forced to wait behind the long validation/publication lock.
+A subsequent [eight-distinct-candidate qualification](native-competing-forks-qualification-2026-09.md)
+used conflicting signed IDs at the same sender nonces, equal-work 16-block
+branches and the normal lower-hash tiebreak. At the same 131,073-balance state,
+all peers stabilized at the winning choice in 75.618s with 702.84375MiB peak RSS.
+Only 8,192 winner IDs were confirmed; 57,344 losing IDs were absent from both
+confirmed and pending sets. At least three candidate adoptions were observed,
+with 32 failed rounds before stable success; independent 54.989s replay preserved
+the winner, all accounting and journals. It does not guarantee eight adoptions,
+bounded read latency under lock contention, or convergence against endlessly
+changing candidates. The longer stabilization and transient failures remain part
+of the result; this is not blanket public/mixed-load readiness.
 The focused loopback isolation test failed at its fixed two-second
 healthy-peer progress limit with the serial worker; the changed implementation
 passed (0.14s total test time on the developer Mac). Eight authenticated stalled
