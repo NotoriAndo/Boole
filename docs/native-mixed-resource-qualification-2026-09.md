@@ -9,6 +9,11 @@ large scenarios passed again. The [corrected-source result and raw output](nativ
 record 234.772s total, 623.875MiB RSS, 3.118s network phase, 39.786ms drained stop,
 456µs maximum diagnostic response and 51.871s replay with exact original state.
 The original measured source/results below remain unchanged and distinct.
+A later [separate held-input shutdown scenario](native-http-shutdown-drain-2026-09.md#large-held-input-result--first-run-pass)
+stopped before completing the 8/4/8 inputs, closed all twenty connections in
+5.071s and independently replayed unchanged state at 610.375MiB RSS. Its fixed
+seven-second held stop criterion does not replace this record's three-second
+already-drained stop criterion.
 
 ## Why this combination
 

@@ -194,6 +194,12 @@ Actual partial-body/unread-response, immediate-reopen, retained-owner timeout
 and admitted-block regressions pass. See the
 [shutdown correction and retained failures](native-http-shutdown-drain-2026-09.md).
 This is not CPU/disk preemption or a universal five-second process-stop promise.
+A separate [held mixed-input qualification](native-http-shutdown-drain-2026-09.md#large-held-input-result--first-run-pass)
+also passed at 131,073 balances: with all 8/4/8 inputs still unfinished, normal
+stop closed eight HTTP and twelve TLS connections in 5.071s at 610.375MiB RSS.
+Old client handles/runtime remained alive during 51.803s independent replay,
+with exact original accounting and files. No missing body/page was sent first.
+This input-only combination does not qualify concurrent successful mutations.
 `native diagnostics` now uses two separate small observation slots and no ledger
 lock/readiness check. It explicitly reports `ledgerReadiness=not_checked`, bounded
 RPC occupancy, shutdown state and the peer monitor without exposing ledger data

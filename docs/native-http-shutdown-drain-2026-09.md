@@ -1,6 +1,6 @@
 # Native HTTP shutdown drain — 2026-09-23
 
-Status: **Correction, direct regressions and unchanged large mixed-resource follow-up PASS.**
+Status: **Correction, direct regressions, drained mixed pressure and held-input large shutdown PASS.**
 
 ## Selected boundary
 
@@ -217,7 +217,7 @@ not change the original qualification's criteria or replace its result.
   actual server before asserting failure. This is not new public exposure,
   signature relaxation, paid work or an overall R1 acceptance claim.
 
-Status: **small held-input and original-fixture regression PASS; large held-input measurement pending.**
+Status: **small held-input, original-fixture regression and large held-input measurement PASS.**
 
 The first small held-input run passed in 26.365s (26.37s harness, 10.63s build).
 With the exact 8/4/8 overlap still held, normal stop took 5.007066s and the entire
@@ -238,10 +238,42 @@ Focused `boole-node --test native_capacity` clippy with warnings denied passed
 (7.47s), as did fmt, docs-smoke and diff-check. No production code or limit changed,
 and neither test required a corrective retry or artificial RED.
 
-The forthcoming large run uses the root feature checkout after temporary-worktree
-cleanup. Its only excluded pre-existing tracked change is the user's unrelated
-`tasks/lessons.md`; source/test/dependency paths must have no uncommitted diff,
-and the user's file remains unchanged. Do not label the entire root worktree clean.
+### Large held-input result — first run PASS
+
+The large run executed approximately 15:15–15:19 UTC on September 23 using
+source `eb97bb092a755279d21cec4f29f6612cf8fdc089`, tree
+`5c5bd5ae1420e608a29eba493c886a0b1ed05797`, executable SHA-256
+`366d3bdc75c770d6f366b1e228a0d93ff3bfb235962a81e83a4eef11ab9c3174`.
+These identities matched before/after. No other build/test was intentionally
+run concurrently. The root feature checkout had only the explicitly excluded
+pre-existing `tasks/lessons.md` user edit; source/test/dependency diff was empty
+and that user file's bytes also matched before/after. The whole root worktree
+was not clean, and the user's edit was neither staged nor used as test source.
+
+Exactly eight thirty-block outgoing buffers (8,213,762 bytes each), four
+authenticated incomplete incoming requests and eight incomplete HTTP bodies
+(8,388,607 bytes sent each) were held when normal shutdown was requested. Excess
+admission was refused; all ten diagnostics retained 8/4/8 occupancy and the
+non-authoritative markers, with maximum response 438µs. The server returned in
+5.071433s. All eight HTTP and twelve TLS connections closed without completing
+the missing input. Every outgoing fixture sent exactly its original paused byte
+count, and every listener could be rebound after workers joined. Network plus
+shutdown took 7.082s, within the fixed 15s criterion.
+
+The old HTTP/incoming client handles and runtime remained alive while a fresh
+node independently replayed the same state in 51.803s. Exact original height-267
+head `000002700a9b5f795da3ff71cad2588c0180e2f6213ba0f0e983ea42b1b63d1b`,
+131,073 balance entries, 131,072 confirmed transfers, 69,958,251 history bytes,
+1,335,000,000,000,000 issued atoms, every recipient/owner/nonce/lock and empty
+pending matched. Journal digests and manifest bytes were unchanged. Maximum
+template/append/candidate append were 209/234/192ms.
+
+Total scenario was 239.702s (harness 239.74s, OS wall 239.75s), maximum RSS
+640,024,576 bytes (610.375MiB). Test and enclosing measurement/identity commands
+exited 0. All preregistered criteria passed on the first run; no production
+behavior or limit was changed. This is a fixed input-only shutdown qualification,
+not successful competing mutation under load, arbitrary slow storage, public
+availability, hard real-time whole-process shutdown or R1 completion.
 
 ## Raw outcomes and follow-up checks
 
@@ -599,4 +631,56 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 15 filtered out; fin
     Checking boole-node v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-node)
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.47s
 docs-smoke: PASS
+```
+
+### First large held-input shutdown measurement and identity checks
+
+Command: `/usr/bin/time -l /Users/seoyong/projects/Boole/target/debug/deps/native_capacity-6f26ba504621f258 --ignored --exact mixed::native_mixed_shutdown_131072_accounts --nocapture --test-threads=1`
+
+```text
+ M tasks/lessons.md
+eb97bb092a755279d21cec4f29f6612cf8fdc089
+5c5bd5ae1420e608a29eba493c886a0b1ed05797
+366d3bdc75c770d6f366b1e228a0d93ff3bfb235962a81e83a4eef11ab9c3174  target/debug/deps/native_capacity-6f26ba504621f258
+0e071475840f2ec9b36549507c18004847923eeb121b9baf86b6338ab76ff793  tasks/lessons.md
+
+running 1 test
+test mixed::native_mixed_shutdown_131072_accounts ... mixed-progress fundedBlocks=32 elapsedMs=19257
+mixed-progress fundedBlocks=64 elapsedMs=38398
+mixed-progress fundedBlocks=96 elapsedMs=57737
+mixed-progress fundedBlocks=128 elapsedMs=77842
+mixed-progress fundedBlocks=160 elapsedMs=98068
+mixed-progress fundedBlocks=192 elapsedMs=117624
+mixed-progress fundedBlocks=224 elapsedMs=137600
+mixed-progress fundedBlocks=256 elapsedMs=157922
+boole-node: native HTTP drain expired; closing remaining client sockets
+mixed-network {"advertised":{"hash":"000092c6b9368f84167d9bdbe28083aaa3c3a54ec6f0886623daef36cd3ca5cc","height":299},"diagnosticMaxMicros":438,"drained":{"closedHttp":8,"closedInbound":4,"closedOutbound":8,"completedMissingInputs":false},"elapsedMs":187080,"finalSentBytesPerPeer":[8213762,8213762,8213762,8213762,8213762,8213762,8213762,8213762],"fundedBlocks":256,"httpBodyBytesSentPerClient":8388607,"localHead":"000002700a9b5f795da3ff71cad2588c0180e2f6213ba0f0e983ea42b1b63d1b","networkMs":7082,"overlap":{"authority":"local_process_only","ledgerReadiness":"not_checked","peers":{"acceptedConnections":4,"activeInboundWorkers":4,"activeOutboundRounds":8,"authenticatedConnections":4,"authenticationFailures":0,"completedInboundRounds":0,"enabled":true,"failedInboundRounds":0,"limits":{"handshakeTimeoutMs":2000,"inboundKeyCooldownMs":500,"maxHandshakesPerSecond":8,"maxInboundWorkers":4,"maxMessageBytes":1048576,"maxOutboundWorkers":8,"maxPeers":8,"maxRoundBlocks":256,"maxRoundBytes":8388608,"maxRoundRequests":64,"roundTimeoutMs":10000},"listenAddress":"127.0.0.1:53066","localPeerId":"98bd8dc9100974def01ce85f6e70f8867efe511b6ce5ca2c6ec5a56caf8da949","peakInboundWorkers":4,"peakOutboundRounds":8,"peers":[{"address":"127.0.0.1:53068","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"1afa7af6c84c534c52585457cee8e85a5492d2640ec0be34bbf4208974edf77b","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:53069","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"d4bf8f3042cc15bfb9cf1f2236f9935cae04a733ca6a7a08bf5b468dd6c1b8bc","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:53070","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"86f125697a8cf67d25461576bd1fdfd5990e10d4d6d5617052bdf7e7b43af7c6","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:53071","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"de03d68c2c9904ca827f292a13918a60c3ff15336eecca5cad442640e251c4cd","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:53072","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"8ea0c2486ccce6dd1dbff0c4b3a03b9f36b25925f3ab06bfd593118a99c6953f","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:53073","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"b824249f2c72bf31905c132d7e05b9307deaf3dd7a87b0df6da293b454a1f975","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:53074","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"f0aed3b191712479f3187a48892c7d5b27c2103e8b2b2fa7e3c96373637913d7","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:53075","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"8030107bc5fec5b0991772a4d8ed9327302db6b2f5287c2d4ba29871fc8a3849","retryDelayMs":0,"state":"not_connected","successfulRounds":0}],"rejectedConnections":1,"rejectedPeerRounds":0,"running":true},"rpc":{"activeDiagnostics":1,"activeRequests":8,"diagnosticLimit":2,"requestLimit":8},"schema":"boole.native.diagnostics.v1","stopping":false},"partialBytesPerPeer":[8213762,8213762,8213762,8213762,8213762,8213762,8213762,8213762],"stopMicros":5071433,"stopWithHeldInputs":true}
+mixed-result {"elapsedMs":239702,"fundedBlocks":256,"genesisHash":"933a672120674efa9ec6205f344e1830febdec58b0ffcd2603ccc8a9723610c1","head":"000002700a9b5f795da3ff71cad2588c0180e2f6213ba0f0e983ea42b1b63d1b","issued":"1335000000000000","maxAppendMs":234,"maxCandidateAppendMs":192,"maxTemplateMs":209,"networkId":"boole-native-testnet-1","resources":{"balanceEntries":131073,"confirmedTransfers":131072,"historyBlocks":267,"historyBytes":69958251,"historyLimitBlocks":100000,"historyLimitBytes":268435456,"nonceEntries":1,"pendingBytes":0,"pendingLimitBytes":5242880,"pendingLimitTransfers":512,"pendingTransfers":0},"restartMs":51803,"stopWithHeldInputs":true}
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 15 filtered out; finished in 239.74s
+
+      239.75 real       235.71 user         0.63 sys
+           640024576  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+               39948  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                5771  messages sent
+                7793  messages received
+                   0  signals received
+                1732  voluntary context switches
+                2983  involuntary context switches
+       3647336256193  instructions retired
+       1017367569113  cycles elapsed
+           427295656  peak memory footprint
+ M tasks/lessons.md
+eb97bb092a755279d21cec4f29f6612cf8fdc089
+5c5bd5ae1420e608a29eba493c886a0b1ed05797
+366d3bdc75c770d6f366b1e228a0d93ff3bfb235962a81e83a4eef11ab9c3174  target/debug/deps/native_capacity-6f26ba504621f258
+0e071475840f2ec9b36549507c18004847923eeb121b9baf86b6338ab76ff793  tasks/lessons.md
 ```

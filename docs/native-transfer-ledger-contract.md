@@ -517,6 +517,12 @@ caller and can keep shutdown waiting longer than the HTTP drain limit. A truncat
 or absent response remains an unknown result requiring exact-ID reconciliation,
 not authorization for another payment or removal of a state lock. This does not
 qualify legacy-server cleanup or promise hard real-time CPU/disk preemption.
+A separate preregistered [held-input large scenario](native-http-shutdown-drain-2026-09.md#large-held-input-result--first-run-pass)
+kept 131,073 balances plus eight incomplete fork buffers, four incoming TLS
+requests and eight near-8MiB HTTP bodies alive at normal shutdown. All twenty
+connections closed in a 5.071s server stop; replay with old clients/runtime still
+held took 51.803s and preserved exact state. Peak RSS was 610.375MiB. This distinct
+input-only result is not a successful-mutation concurrency or public-host SLA.
 
 ### Non-authoritative process diagnostics
 
