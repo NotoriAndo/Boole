@@ -1,7 +1,7 @@
 //! Durable owner-coin state for the isolated native testnet. The block log is
 //! authoritative; balances, locked rewards and nonces are re-derived at boot.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, OpenOptions};
 use std::io::Read;
 use std::os::unix::fs::OpenOptionsExt;
@@ -29,12 +29,21 @@ pub const MAX_NATIVE_HISTORY_BLOCKS: usize = 100_000;
 // atomic replacement, so a crash cannot lose the previous pending queue.
 const MAX_NATIVE_RECOVERY_TRANSFERS: usize = 2 * MAX_NATIVE_PENDING_TRANSFERS;
 
+/// A derived, non-authoritative snapshot of the durable queue at one head.
+/// Keep its ordered transactions, duplicate index and reservations together.
+#[derive(Debug)]
+struct PendingState {
+    transfers: Vec<NativeTransfer>,
+    ids: BTreeSet<Hex32>,
+    view: NativePendingView,
+}
+
 #[derive(Debug)]
 pub struct NativeNode {
     chain: NativeChain,
     block_path: PathBuf,
     pool_path: PathBuf,
-    pending: Vec<NativeTransfer>,
+    pending: PendingState,
     confirmed: BTreeMap<Hex32, u64>,
     block_stamp: Option<FileStamp>,
     pool_stamp: Option<FileStamp>,
@@ -117,8 +126,8 @@ impl NativeNode {
             }
         }
         let retained = retain_pending(&chain, &confirmed, &pending)?;
-        if pending != retained && repair {
-            write_pool(&pool_path, &retained)?;
+        if pending != retained.transfers && repair {
+            write_pool(&pool_path, &retained.transfers)?;
         }
         let block_stamp = file_stamp(&block_path)?;
         let pool_stamp = file_stamp(&pool_path)?;
@@ -150,15 +159,16 @@ impl NativeNode {
     }
 
     pub fn pending(&self) -> &[NativeTransfer] {
-        &self.pending
+        &self.pending.transfers
     }
 
-    pub fn pending_view(&self) -> anyhow::Result<NativePendingView> {
-        let mut view = self.chain.ledger().pending_view()?;
-        for transfer in &self.pending {
-            view.push(&transfer.envelope()?)?;
-        }
-        Ok(view)
+    pub fn is_pending(&self, id: &Hex32) -> bool {
+        self.pending.ids.contains(id)
+    }
+
+    pub fn pending_view(&self) -> anyhow::Result<&NativePendingView> {
+        self.ensure_ready()?;
+        Ok(&self.pending.view)
     }
 
     pub fn confirmed_height(&self, id: &Hex32) -> Option<u64> {
@@ -171,14 +181,14 @@ impl NativeNode {
         self.ensure_writable()?;
         transfer.validated_fields()?;
         let id = transfer.id();
-        if self.confirmed.contains_key(&id) || self.pending.iter().any(|row| row.id() == id) {
+        if self.confirmed.contains_key(&id) || self.pending.ids.contains(&id) {
             return Ok(false);
         }
         anyhow::ensure!(
-            self.pending.len() < MAX_NATIVE_PENDING_TRANSFERS,
+            self.pending.transfers.len() < MAX_NATIVE_PENDING_TRANSFERS,
             "native mempool is full"
         );
-        self.pending_view()?.push(&transfer.envelope()?)?;
+        let reservation = self.pending.view.prepare(&transfer.envelope()?)?;
         let publish = append_bounded(
             &self.pool_path,
             &serde_json::to_string(&transfer)?,
@@ -192,7 +202,9 @@ impl NativeNode {
                 return Err(error);
             }
         }
-        self.pending.push(transfer);
+        reservation.commit();
+        self.pending.transfers.push(transfer);
+        self.pending.ids.insert(id);
         Ok(true)
     }
 
@@ -205,7 +217,7 @@ impl NativeNode {
         self.ensure_writable()?;
         check_block_ts_future_drift(timestamp_ms, unix_time_ms()?)?;
         self.chain
-            .template(producer_pk, reward_pk, timestamp_ms, &self.pending)
+            .template(producer_pk, reward_pk, timestamp_ms, self.pending())
     }
 
     /// Verify a complete candidate independently, then atomically publish it
@@ -230,9 +242,8 @@ impl NativeNode {
             return Ok(false);
         }
         let confirmed = confirmed_index(&candidate);
-        let mut recovery = self.pending.clone();
-        let mut seen: std::collections::BTreeSet<Hex32> =
-            recovery.iter().map(NativeTransfer::id).collect();
+        let mut recovery = self.pending.transfers.clone();
+        let mut seen = self.pending.ids.clone();
         for block in self.chain.blocks() {
             for transfer in &block.transfers {
                 let id = transfer.id();
@@ -246,7 +257,7 @@ impl NativeNode {
         }
         let retained = retain_pending(&candidate, &confirmed, &recovery)?;
         let publish = (|| -> anyhow::Result<()> {
-            if recovery != self.pending {
+            if recovery != self.pending.transfers {
                 write_pool(&self.pool_path, &recovery)?;
                 self.pool_stamp = file_stamp(&self.pool_path)?;
             }
@@ -254,7 +265,7 @@ impl NativeNode {
             self.block_stamp = file_stamp(&self.block_path)?;
             self.chain = candidate;
             self.confirmed = confirmed;
-            write_pool(&self.pool_path, &retained)?;
+            write_pool(&self.pool_path, &retained.transfers)?;
             self.pool_stamp = file_stamp(&self.pool_path)?;
             self.pending = retained;
             Ok(())
@@ -326,15 +337,15 @@ impl NativeNode {
         for transfer in &block.transfers {
             self.confirmed.insert(transfer.id(), block.header.height);
         }
-        let retained = match retain_pending(&self.chain, &self.confirmed, &self.pending) {
+        let retained = match retain_pending(&self.chain, &self.confirmed, self.pending()) {
             Ok(retained) => retained,
             Err(error) => {
                 self.poisoned = true;
                 return Err(error);
             }
         };
-        if retained != self.pending {
-            if let Err(error) = write_pool(&self.pool_path, &retained).and_then(|()| {
+        if retained.transfers != self.pending.transfers {
+            if let Err(error) = write_pool(&self.pool_path, &retained.transfers).and_then(|()| {
                 self.pool_stamp = file_stamp(&self.pool_path)?;
                 Ok(())
             }) {
@@ -345,8 +356,8 @@ impl NativeNode {
                     error.context("native block committed; pending cleanup requires recovery")
                 );
             }
-            self.pending = retained;
         }
+        self.pending = retained;
         Ok(true)
     }
 }
@@ -485,19 +496,28 @@ fn retain_pending(
     chain: &NativeChain,
     confirmed: &BTreeMap<Hex32, u64>,
     candidates: &[NativeTransfer],
-) -> anyhow::Result<Vec<NativeTransfer>> {
+) -> anyhow::Result<PendingState> {
     let mut view = chain.ledger().pending_view()?;
     let mut retained = Vec::new();
+    let mut ids = BTreeSet::new();
     for transfer in candidates {
-        if confirmed.contains_key(&transfer.id()) || retained.len() == MAX_NATIVE_PENDING_TRANSFERS
+        let id = transfer.id();
+        if confirmed.contains_key(&id)
+            || ids.contains(&id)
+            || retained.len() == MAX_NATIVE_PENDING_TRANSFERS
         {
             continue;
         }
         if view.push(&transfer.envelope()?).is_ok() {
             retained.push(transfer.clone());
+            ids.insert(id);
         }
     }
-    Ok(retained)
+    Ok(PendingState {
+        transfers: retained,
+        ids,
+        view,
+    })
 }
 
 fn write_pool(path: &Path, pending: &[NativeTransfer]) -> anyhow::Result<()> {
@@ -509,6 +529,94 @@ mod tests {
     use super::*;
     use crate::durability::{fail_next_append, AppendFault, PrivateTempDir};
     use boole_core::SigningKeyV2;
+
+    #[test]
+    fn failed_pending_append_never_reserves_a_nonce_or_balance_after_recovery() {
+        for fault in [
+            AppendFault {
+                write_bytes: Some(7),
+                ..Default::default()
+            },
+            AppendFault {
+                fail_sync: true,
+                ..Default::default()
+            },
+        ] {
+            let dir = PrivateTempDir::new("boole-native-pending-fault").unwrap();
+            let key = SigningKeyV2::from_dev_id("native-pending-fault-owner");
+            let receiver = SigningKeyV2::from_dev_id("native-pending-fault-recipient");
+            let mut node = NativeNode::open(dir.path()).unwrap();
+            for height in 1..=10 {
+                let mined = node
+                    .template(&key.pk_hex(), &key.pk_hex(), height * 60_000)
+                    .unwrap()
+                    .mine(0, 2_000_000)
+                    .unwrap()
+                    .unwrap();
+                let auth = key
+                    .sign_for_network(
+                        &mined.authorization_payload().unwrap(),
+                        Some(native_testnet().network_id()),
+                    )
+                    .unwrap();
+                node.submit_block(mined.authorize(&auth).unwrap()).unwrap();
+            }
+            let transfer = NativeTransfer::try_from(
+                &key.sign_for_network(
+                    &serde_json::json!({
+                        "schema": "boole.transfer.v1", "from": key.pk_hex(),
+                        "to": receiver.pk_hex(), "amount": "1", "fee": "1000",
+                        "nonce": "0", "validBefore": "100"
+                    }),
+                    Some(native_testnet().network_id()),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+            let available = node
+                .pending_view()
+                .unwrap()
+                .available_balance(&key.pk_hex());
+            let canonical = node.chain().clone();
+            fail_next_append(fault);
+            assert!(node.submit_transfer(transfer.clone()).is_err());
+            assert_eq!(node.chain(), &canonical);
+            assert!(node.pending().is_empty());
+            assert!(
+                node.pending_view().is_err(),
+                "indeterminate state is fenced"
+            );
+            assert!(node.submit_transfer(transfer.clone()).is_err());
+            drop(node);
+            let mut recovered = NativeNode::open(dir.path()).unwrap();
+            assert_eq!(recovered.chain(), &canonical);
+            assert!(recovered.pending().is_empty());
+            assert_eq!(
+                recovered.pending_view().unwrap().next_nonce(&key.pk_hex()),
+                0
+            );
+            assert_eq!(
+                recovered
+                    .pending_view()
+                    .unwrap()
+                    .available_balance(&key.pk_hex()),
+                available
+            );
+            assert!(recovered.submit_transfer(transfer.clone()).unwrap());
+            assert!(!recovered.submit_transfer(transfer).unwrap());
+            assert_eq!(
+                recovered.pending_view().unwrap().next_nonce(&key.pk_hex()),
+                1
+            );
+            assert_eq!(
+                recovered
+                    .pending_view()
+                    .unwrap()
+                    .available_balance(&key.pk_hex()),
+                available - 1001
+            );
+        }
+    }
 
     #[test]
     fn failed_native_append_never_publishes_a_reward_and_requires_recovery() {

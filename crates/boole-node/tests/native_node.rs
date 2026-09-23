@@ -220,11 +220,22 @@ fn heavier_fork_rebuilds_balances_and_restores_an_orphaned_transfer_for_safe_ret
         assert_eq!(node.chain().ledger().next_nonce(&alice.pk_hex()), 0);
         assert_eq!(node.pending(), std::slice::from_ref(&transfer));
         assert_eq!(node.confirmed_height(&transfer.id()), None);
+        assert_eq!(node.pending_view().unwrap().next_nonce(&alice.pk_hex()), 1);
+        assert_eq!(
+            node.pending_view().unwrap().available_balance(&bob),
+            100_000_000
+        );
+        assert!(!node.submit_transfer(transfer.clone()).unwrap());
         candidate = alternative;
     }
     let node = NativeNode::open(&dir.0).unwrap();
     assert_eq!(node.chain(), &candidate);
     assert_eq!(node.pending(), std::slice::from_ref(&transfer));
+    assert_eq!(node.pending_view().unwrap().next_nonce(&alice.pk_hex()), 1);
+    assert_eq!(
+        node.pending_view().unwrap().available_balance(&bob),
+        100_000_000
+    );
     drop(node);
     // Valid crash-boundary snapshots: the recovery union has reached disk,
     // while the atomic canonical-file replacement may or may not have won.
@@ -243,6 +254,17 @@ fn heavier_fork_rebuilds_balances_and_restores_an_orphaned_transfer_for_safe_ret
         let recovered = NativeNode::open(&dir.0).unwrap();
         assert_eq!(recovered.chain(), chain);
         assert_eq!(recovered.pending().len(), usize::from(pending));
+        assert_eq!(
+            recovered
+                .pending_view()
+                .unwrap()
+                .next_nonce(&alice.pk_hex()),
+            1
+        );
+        assert_eq!(
+            recovered.pending_view().unwrap().available_balance(&bob),
+            100_000_000
+        );
         assert_eq!(
             recovered.confirmed_height(&transfer.id()).is_none(),
             pending

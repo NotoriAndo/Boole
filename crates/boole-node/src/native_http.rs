@@ -259,7 +259,7 @@ fn transaction_status(node: &NativeNode, id: &Hex32) -> Value {
         json!({"txid": id.to_hex(), "status": "confirmed", "height": height.to_string(),
             "confirmations": (node.chain().ledger().height() - height + 1).to_string(), "final": false})
     } else {
-        let pending = node.pending().iter().any(|transfer| transfer.id() == *id);
+        let pending = node.is_pending(id);
         json!({"txid": id.to_hex(), "status": if pending { "pending" } else { "unknown" }, "final": false})
     }
 }

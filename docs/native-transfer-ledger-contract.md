@@ -120,6 +120,41 @@ non-authoritative pool; invalid stored signatures are corruption, not silently
 erased. Requeue is bounded/best-effort, so the wallet must retain its signed file.
 Confirmation depth is reported but never labeled irreversible finality.
 
+### Pending-state resource and publication boundary
+
+The live node keeps one non-authoritative pending view and a bounded transaction-ID
+index beside its ordered durable queue. Admission no longer replays all earlier
+pending signatures or hashes every earlier transaction; account/status reads do
+not reconstruct the queue. All new signatures, amounts, fees, nonces, expiry and
+spendability still pass the same core checks. Block validation independently
+verifies its actual transfers and never trusts this cache as canonical state.
+
+Core preparation stages at most the sender, recipient and producer account
+updates instead of copying the entire account map per transfer. A pending
+reservation exclusively borrows its original view, has private fields and cannot
+be cloned, deserialized or committed to a different/stale view. Dropping it has
+no effects. The node commits it only after its bounded journal append and file
+identity read succeed; an uncertain write fences the node. Canonical block
+accounting still rolls back as a whole on any error.
+
+Block confirmation, expiry, reward maturity, reorg and restart rebuild the derived
+view at the current head, even if the queue's rows did not change. Pending rows,
+their ID index and reservations are published together. Full-queue, rejection,
+partial-write/sync-failure and orphan-recovery tests cover these transitions.
+The 512-entry limit, journal byte limits and monetary rules are unchanged.
+
+Local debug measurements on the same developer Mac observed admission exceed a
+20-second regression budget after 384 of 512 transactions (26.021s) before the
+change. The final focused run admitted all 512 in 3.177s and performed 100
+direct full-queue account/status lookups in 1.609ms. An accounting-only fixture
+with 16,384 unrelated accounts measured 512 reservations at 882.279ms before affected-account
+staging and 144.372ms after it. The large fixture deliberately bypasses node
+block-size policy; it is not a network block or throughput claim. These samples
+are regression evidence, not production SLAs. The node still retains full
+history, a canonical account map and a derived pending copy; block transitions,
+startup and fork replay still have whole-state work and need larger-state
+operational acceptance.
+
 ### Bounded offline chain recovery
 
 [`native_archive`](../crates/boole-node/src/native_archive.rs) supplies the
@@ -448,6 +483,12 @@ Added executable evidence:
 - [Durable node](../crates/boole-node/tests/native_node.rs) and its append-fault
   unit test: restart, duplicate submission, reorg/orphan requeue, future guard,
   file replacement/loss, pre-read byte bounds and failed-publication fencing.
+- [Pending resources](../crates/boole-node/tests/native_pending_resources.rs) and
+  [accounting preparation](../crates/boole-core/tests/native_pending_view.rs):
+  a full 512-transfer queue, repeated reads, whole-block confirmation/restart,
+  maturity/expiry/invalid nonce, discarded preparation, self-transfers and 16,384
+  unrelated accounts. The durable pending append-fault test checks partial writes
+  and failed sync without leaking reservations across restart/retry.
 - [Offline archive CLI](../crates/boole-node/tests/native_archive.rs): recovered
   balances/nonces/confirmations, unchanged source and repeated import, 1,025-block
   long-fork recovery with orphan requeue, invalid input before destination creation,

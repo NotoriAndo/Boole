@@ -29,7 +29,10 @@ pull and local partition/rejoin are implemented; public listeners remain refused
 Bounded offline export/import now covers long-fork recovery beyond the online
 suffix and manual RPC caps, with source preservation, expected-head binding and
 independent validation. A 1,025-block recovery preserves orphaned transfers.
-The full-replay store and its large-state CPU/memory cost remain.
+Pending admission now retains verified reservations and IDs, stages only affected
+accounts and publishes after durable append. Full 512-transaction queues,
+16,384-account fixtures and failure/reorg/restart paths pass focused checks.
+The full-replay store and its larger-state CPU/memory cost remain.
 Encrypted owner-wallet backup/restore, bounded vault/KDF/file handling, isolated
 agent environment/lifetime/output and native stdin passphrases now pass direct
 recovery tests, including a restored-wallet on-chain transfer. This is the selected

@@ -1,7 +1,7 @@
-//! Native-coin accounting contract for a future, explicitly versioned network.
+//! Native-coin accounting for the explicitly versioned native testnet.
 //!
-//! This module is not connected to v3 block validation, the node, or a network
-//! preset. The caller must validate block identity, linkage, PoW and reward
+//! This module does not reinterpret v3 blocks or credit ledgers. Its native-chain
+//! caller must validate block identity, linkage, PoW and reward
 //! authorization before applying its accounting inputs. Monetary values passed
 //! here are immutable per ledger, not a runtime configuration mechanism for an
 //! existing network. There is no import path for legacy development credits.
@@ -195,12 +195,47 @@ pub struct NativePendingView {
     height: u64,
 }
 
+/// A verified reservation exclusively borrows its originating view until it is
+/// committed or dropped. It cannot be applied to a different/stale view, cloned,
+/// deserialized, or used to publish canonical state. Dropping it does nothing.
+#[derive(Debug)]
+#[must_use = "commit after durable publication, or drop to leave reservations unchanged"]
+pub struct NativePendingTransfer<'a> {
+    view: &'a mut NativePendingView,
+    prepared: PreparedTransfer,
+}
+
+impl NativePendingTransfer<'_> {
+    /// All fallible accounting and signature checks ran during preparation.
+    pub fn commit(self) {
+        self.view.ledger.commit_transfer(self.prepared);
+    }
+}
+
+#[derive(Debug)]
+struct PreparedTransfer {
+    balances: BTreeMap<String, u128>,
+    sender: String,
+    next_nonce: u64,
+}
+
 impl NativePendingView {
     pub fn push(&mut self, envelope: &SignedEnvelope) -> Result<(), NativeLedgerError> {
-        let mut next = self.ledger.clone();
-        next.apply_transfer(self.height, None, envelope)?;
-        self.ledger = next;
+        self.prepare(envelope)?.commit();
         Ok(())
+    }
+
+    /// Prepare only the affected accounts; the rest of the ledger is neither
+    /// copied nor mutated. The exclusive borrow prevents intervening changes.
+    pub fn prepare(
+        &mut self,
+        envelope: &SignedEnvelope,
+    ) -> Result<NativePendingTransfer<'_>, NativeLedgerError> {
+        let prepared = self.ledger.prepare_transfer(self.height, None, envelope)?;
+        Ok(NativePendingTransfer {
+            view: self,
+            prepared,
+        })
     }
 
     pub fn available_balance(&self, pk: &str) -> u128 {
@@ -375,6 +410,17 @@ impl NativeLedger {
         reward_pk: Option<&str>,
         envelope: &SignedEnvelope,
     ) -> Result<(), NativeLedgerError> {
+        let prepared = self.prepare_transfer(height, reward_pk, envelope)?;
+        self.commit_transfer(prepared);
+        Ok(())
+    }
+
+    fn prepare_transfer(
+        &self,
+        height: u64,
+        reward_pk: Option<&str>,
+        envelope: &SignedEnvelope,
+    ) -> Result<PreparedTransfer, NativeLedgerError> {
         let payload = validate_native_transfer(envelope, &self.network_id, self.minimum_fee)?;
         if height > payload.valid_before {
             return Err(NativeLedgerError::Expired);
@@ -401,13 +447,43 @@ impl NativeLedger {
             .nonce
             .checked_add(1)
             .ok_or(NativeLedgerError::Overflow)?;
-        self.balances.insert(payload.from.clone(), remaining);
-        self.credit(&payload.to, payload.amount)?;
+        let mut balances = BTreeMap::new();
+        balances.insert(payload.from.clone(), remaining);
+        self.stage_credit(&mut balances, &payload.to, payload.amount)?;
         if let Some(reward_pk) = reward_pk {
-            self.credit(reward_pk, payload.fee)?;
+            self.stage_credit(&mut balances, reward_pk, payload.fee)?;
         }
-        self.next_nonces.insert(payload.from, next_nonce);
+        Ok(PreparedTransfer {
+            balances,
+            sender: payload.from,
+            next_nonce,
+        })
+    }
+
+    fn stage_credit(
+        &self,
+        balances: &mut BTreeMap<String, u128>,
+        pk: &str,
+        amount: u128,
+    ) -> Result<(), NativeLedgerError> {
+        if amount != 0 {
+            let balance = balances
+                .get(pk)
+                .copied()
+                .unwrap_or_else(|| self.balance(pk))
+                .checked_add(amount)
+                .ok_or(NativeLedgerError::Overflow)?;
+            balances.insert(pk.to_string(), balance);
+        }
         Ok(())
+    }
+
+    fn commit_transfer(&mut self, prepared: PreparedTransfer) {
+        for (pk, balance) in prepared.balances {
+            self.balances.insert(pk, balance);
+        }
+        self.next_nonces
+            .insert(prepared.sender, prepared.next_nonce);
     }
 
     fn credit(&mut self, pk: &str, amount: u128) -> Result<(), NativeLedgerError> {
