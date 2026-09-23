@@ -49,6 +49,12 @@ failure and recovery regressions pass. The unchanged
 [large-state follow-up](native-replay-input-fence-2026-09.md) also passed:
 131,073 balances, 512 pending transfers, 52.074s/52.020s independent reopens and
 350.96875MiB peak RSS, with the exact original final head/accounting/history.
+Runtime publication now also rejects files changed during block/fork/reservation
+validation or atomic-write staging, and binds new file baselines to the actual
+durable output descriptors. A detected failure after I/O requires reconciliation,
+not automatic rollback. Direct mutation, replay, common-storage and integration
+regressions pass; the unchanged capacity/competing-fork follow-ups are preregistered
+in the [runtime publication record](native-publication-input-fence-2026-09.md).
 Storage bytes/limits and canonical account/transaction counts are now observable
 through `native info`. A [preregistered developer-Mac scenario](native-capacity-qualification-2026-09.md)
 passes at 131,073 balance entries and ~67MiB history, including a full queue and

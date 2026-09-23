@@ -309,6 +309,17 @@ restoration of old bytes. See the
 [reproduction, correction and limits](native-replay-input-fence-2026-09.md).
 These checks are not an atomic multi-file transaction or protection against a
 privileged malicious host; existing filesystem/ownership assumptions remain.
+Runtime block, pending and fork publication also recheck input versions and
+ownership after validation, and atomic replacement rechecks after staging just
+before rename. Native writes retain the actual output descriptor's observed
+version until the path is compared, instead of trusting a later path lookup.
+An append validates its opened input and exact length change; a missing expected
+canonical file is not recreated. Other authoritative files are checked before
+new block/fork/reservation publication. See the
+[runtime publication regressions and limits](native-publication-input-fence-2026-09.md).
+An error after durable I/O is an unknown outcome requiring restart/reconciliation,
+not proof of rollback. No per-append full-history reread or signature shortcut is
+introduced, and these checks do not make multi-file publication atomic.
 
 ### Offline canonical accounting audit
 

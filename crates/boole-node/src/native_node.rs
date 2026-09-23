@@ -16,7 +16,9 @@ use boole_core::native_network::native_testnet;
 use boole_core::Hex32;
 use serde::Serialize;
 
-use crate::durability::{append_ndjson_line_durable, write_ndjson_rows_atomic};
+use crate::durability::{
+    append_ndjson_line_versioned, write_ndjson_rows_versioned, DurableFileVersion,
+};
 use crate::runtime::check_block_ts_future_drift;
 use crate::state_dir::{acquire, ensure_manifest, LedgerLockSet, StateDirGuard, StateManifest};
 
@@ -213,7 +215,9 @@ impl NativeNode {
         // replace source evidence. Never establish readiness from a late stamp.
         node.ensure_ready()?;
         if pending != node.pending.transfers && repair {
-            write_pool(&node.pool_path, &node.pending.transfers)?;
+            write_pool(&node.pool_path, &node.pending.transfers, || {
+                node.ensure_ready()
+            })?;
             #[cfg(test)]
             tests::mutate_after_pending_cleanup(&node.pool_path);
             let (raw, observed) =
@@ -286,18 +290,44 @@ impl NativeNode {
             "native mempool is full"
         );
         let reservation = self.pending.view.prepare(&transfer.envelope()?)?;
+        #[cfg(test)]
+        tests::mutate_before_publication(&self.pool_path);
+        // The staged reservation borrows only pending.view. Storage ownership
+        // and every authoritative version must still match before its append.
+        ensure_storage_current(
+            &self.state_guard,
+            &self.ledger_locks,
+            [
+                (&self.block_path, self.block_stamp.as_ref()),
+                (&self.pool_path, self.pool_stamp.as_ref()),
+                (&self.manifest_path, self.manifest_stamp.as_ref()),
+            ],
+        )?;
         let publish = append_bounded(
             &self.pool_path,
             &serde_json::to_string(&transfer)?,
             MAX_NATIVE_POOL_BYTES,
+            self.pool_stamp.as_ref(),
         )
-        .and_then(|()| file_stamp(&self.pool_path));
+        .map(Some);
         match publish {
             Ok(stamp) => self.pool_stamp = stamp,
             Err(error) => {
                 self.poisoned = true;
                 return Err(error);
             }
+        }
+        if let Err(error) = ensure_storage_current(
+            &self.state_guard,
+            &self.ledger_locks,
+            [
+                (&self.block_path, self.block_stamp.as_ref()),
+                (&self.pool_path, self.pool_stamp.as_ref()),
+                (&self.manifest_path, self.manifest_stamp.as_ref()),
+            ],
+        ) {
+            self.poisoned = true;
+            return Err(error.context("native pending append published; restart and reconcile"));
         }
         reservation.commit();
         self.pending.transfers.push(transfer);
@@ -404,17 +434,28 @@ impl NativeNode {
         // Keep room for every old pending input in the durable recovery union.
         recovery.extend(self.pending.transfers.iter().cloned());
         let retained = retain_pending(&candidate, &confirmed, &recovery)?;
+        #[cfg(test)]
+        tests::mutate_before_publication(&self.block_path);
+        self.ensure_writable()?;
         let publish = (|| -> anyhow::Result<()> {
             if recovery != self.pending.transfers {
-                write_pool(&self.pool_path, &recovery)?;
-                self.pool_stamp = file_stamp(&self.pool_path)?;
+                self.pool_stamp = Some(write_pool(&self.pool_path, &recovery, || {
+                    self.ensure_writable()
+                })?);
             }
-            write_ndjson_rows_atomic(&self.block_path, candidate.blocks())?;
-            self.block_stamp = file_stamp(&self.block_path)?;
+            self.block_stamp = Some(published_stamp(
+                &self.block_path,
+                write_ndjson_rows_versioned(&self.block_path, candidate.blocks(), || {
+                    self.ensure_writable()
+                })?,
+            )?);
+            self.ensure_writable()?;
             self.chain = candidate;
             self.confirmed = confirmed;
-            write_pool(&self.pool_path, &retained.transfers)?;
-            self.pool_stamp = file_stamp(&self.pool_path)?;
+            self.pool_stamp = Some(write_pool(&self.pool_path, &retained.transfers, || {
+                self.ensure_writable()
+            })?);
+            self.ensure_writable()?;
             self.pending = retained;
             Ok(())
         })();
@@ -428,19 +469,18 @@ impl NativeNode {
     /// Readiness includes live ownership and all authoritative file identities.
     pub fn ensure_ready(&self) -> anyhow::Result<()> {
         anyhow::ensure!(
-            !self.poisoned
-                && self.state_guard.is_current()
-                && self.ledger_locks.is_current()
-                && !self.ledger_locks.has_indeterminate_write(),
+            !self.poisoned,
             "native state ownership or durability lost; restart and recover"
         );
-        anyhow::ensure!(
-            file_stamp(&self.block_path)? == self.block_stamp
-                && file_stamp(&self.pool_path)? == self.pool_stamp
-                && file_stamp(&self.manifest_path)? == self.manifest_stamp,
-            "native state file changed outside this writer; restart and recover"
-        );
-        Ok(())
+        ensure_storage_current(
+            &self.state_guard,
+            &self.ledger_locks,
+            [
+                (&self.block_path, self.block_stamp.as_ref()),
+                (&self.pool_path, self.pool_stamp.as_ref()),
+                (&self.manifest_path, self.manifest_stamp.as_ref()),
+            ],
+        )
     }
 
     fn ensure_writable(&self) -> anyhow::Result<()> {
@@ -464,18 +504,28 @@ impl NativeNode {
             "native history block limit"
         );
         let prepared = self.chain.prepare(block)?;
+        #[cfg(test)]
+        tests::mutate_before_publication(&self.block_path);
+        // Core preparation can be expensive. Its starting snapshot is not
+        // permission to append after authoritative storage changed meanwhile.
+        self.ensure_writable()?;
         let publish = append_bounded(
             &self.block_path,
             &serde_json::to_string(prepared.block())?,
             MAX_NATIVE_HISTORY_BYTES,
+            self.block_stamp.as_ref(),
         )
-        .and_then(|()| file_stamp(&self.block_path));
+        .map(Some);
         match publish {
             Ok(stamp) => self.block_stamp = stamp,
             Err(error) => {
                 self.poisoned = true;
                 return Err(error);
             }
+        }
+        if let Err(error) = self.ensure_writable() {
+            self.poisoned = true;
+            return Err(error.context("native block append published; restart and reconcile"));
         }
         if let Err(error) = self.chain.commit(prepared) {
             self.poisoned = true;
@@ -493,9 +543,12 @@ impl NativeNode {
             }
         };
         if retained.transfers != self.pending.transfers {
-            if let Err(error) = write_pool(&self.pool_path, &retained.transfers).and_then(|()| {
-                self.pool_stamp = file_stamp(&self.pool_path)?;
-                Ok(())
+            if let Err(error) = write_pool(&self.pool_path, &retained.transfers, || {
+                self.ensure_writable()
+            })
+            .and_then(|observed| {
+                self.pool_stamp = Some(observed);
+                self.ensure_writable()
             }) {
                 // The block is already authoritative. A restart reconstructs
                 // the ledger and discards included/stale pending rows.
@@ -508,6 +561,26 @@ impl NativeNode {
         self.pending = retained;
         Ok(true)
     }
+}
+
+fn ensure_storage_current(
+    state_guard: &StateDirGuard,
+    ledger_locks: &LedgerLockSet,
+    files: [(&Path, Option<&FileStamp>); 3],
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        state_guard.is_current()
+            && ledger_locks.is_current()
+            && !ledger_locks.has_indeterminate_write(),
+        "native state ownership or durability lost; restart and recover"
+    );
+    for (path, expected) in files {
+        anyhow::ensure!(
+            file_stamp(path)?.as_ref() == expected,
+            "native state file changed outside this writer; restart and recover"
+        );
+    }
+    Ok(())
 }
 
 fn check_file_budget(path: &Path, limit: u64) -> anyhow::Result<u64> {
@@ -536,13 +609,48 @@ fn check_candidate_budget(blocks: &[NativeBlock]) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn append_bounded(path: &Path, line: &str, limit: u64) -> anyhow::Result<()> {
+fn append_bounded(
+    path: &Path,
+    line: &str,
+    limit: u64,
+    expected: Option<&FileStamp>,
+) -> anyhow::Result<FileStamp> {
     let len = check_file_budget(path, limit)?;
     anyhow::ensure!(
         len + (line.len() as u64) < limit,
         "native state file exceeds byte limit"
     );
-    append_ndjson_line_durable(path, line)
+    let written =
+        append_ndjson_line_versioned(path, line, expected.is_none(), |metadata, created| {
+            let opened = stamp(metadata)?;
+            let matches = if created {
+                expected.is_none() && opened.len == 0
+            } else {
+                expected == Some(&opened)
+            };
+            anyhow::ensure!(
+                matches && file_stamp(path)?.as_ref() == Some(&opened),
+                "native append input changed before write"
+            );
+            Ok(())
+        })?;
+    let observed = published_stamp(path, written)?;
+    anyhow::ensure!(
+        observed.len == len + line.len() as u64 + 1,
+        "native append length changed during publication"
+    );
+    Ok(observed)
+}
+
+fn published_stamp(path: &Path, written: DurableFileVersion) -> anyhow::Result<FileStamp> {
+    #[cfg(test)]
+    tests::mutate_after_publication(path);
+    let observed = stamp(written.metadata())?;
+    anyhow::ensure!(
+        file_stamp(path)?.as_ref() == Some(&observed),
+        "native durable output changed before publication"
+    );
+    Ok(observed)
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -694,8 +802,15 @@ fn retain_pending(
     })
 }
 
-fn write_pool(path: &Path, pending: &[NativeTransfer]) -> anyhow::Result<()> {
-    write_ndjson_rows_atomic(path, pending)
+fn write_pool(
+    path: &Path,
+    pending: &[NativeTransfer],
+    before_publish: impl FnOnce() -> anyhow::Result<()>,
+) -> anyhow::Result<FileStamp> {
+    published_stamp(
+        path,
+        write_ndjson_rows_versioned(path, pending, before_publish)?,
+    )
 }
 
 #[cfg(test)]
@@ -737,6 +852,14 @@ mod tests {
     }
 
     pub(super) fn mutate_after_pending_cleanup(path: &Path) {
+        mutate_replay_file(path, true);
+    }
+
+    pub(super) fn mutate_before_publication(path: &Path) {
+        mutate_replay_file(path, false);
+    }
+
+    pub(super) fn mutate_after_publication(path: &Path) {
         mutate_replay_file(path, true);
     }
 
@@ -1071,6 +1194,295 @@ mod tests {
         assert_eq!(audit.resources.pending_transfers, 1);
         for (path, bytes) in originals {
             assert_eq!(std::fs::read(path).unwrap(), bytes);
+        }
+    }
+
+    #[test]
+    fn prepared_block_refuses_a_source_changed_before_durable_append() {
+        for phase in 0..3 {
+            let dir = PrivateTempDir::new("boole-native-prepared-block-fence").unwrap();
+            let key = SigningKeyV2::from_dev_id("native-prepared-block-owner");
+            let mut node = NativeNode::open(dir.path()).unwrap();
+            let mine = |node: &NativeNode| {
+                let block = node
+                    .template(
+                        &key.pk_hex(),
+                        &key.pk_hex(),
+                        (node.chain().ledger().height() + 1) * 60_000,
+                    )
+                    .unwrap()
+                    .mine(0, 2_000_000)
+                    .unwrap()
+                    .unwrap();
+                let auth = key
+                    .sign_for_network(
+                        &block.authorization_payload().unwrap(),
+                        Some(native_testnet().network_id()),
+                    )
+                    .unwrap();
+                block.authorize(&auth).unwrap()
+            };
+            node.submit_block(mine(&node)).unwrap();
+            let previous = node.chain().clone();
+            let next = mine(&node);
+            let history = dir.path().join(NATIVE_BLOCKS_FILE);
+            let changed = if phase == 2 {
+                let mut bytes = std::fs::read(&history).unwrap();
+                bytes[0] = b'[';
+                crate::durability::change_before_append_open(&history, bytes.clone());
+                bytes
+            } else {
+                change_after_read(&history, &history, Vec::new());
+                REPLAY_READ_MUTATION.with(|slot| {
+                    slot.borrow_mut().as_mut().unwrap().after_cleanup = phase == 1;
+                });
+                Vec::new()
+            };
+            let result = node.submit_block(next);
+            REPLAY_READ_MUTATION.with(|slot| assert!(slot.borrow().is_none()));
+            assert!(crate::durability::append_open_fault_consumed());
+            assert!(
+                result.is_err(),
+                "prepared block accepted changed input: ready={}, height={}",
+                node.ensure_ready().is_ok(),
+                node.chain().ledger().height()
+            );
+            assert!(node.ensure_ready().is_err());
+            assert_eq!(node.chain(), &previous, "unpublished reward became visible");
+            assert_eq!(
+                std::fs::read(history).unwrap(),
+                changed,
+                "changed source was overwritten"
+            );
+        }
+    }
+
+    #[test]
+    fn verified_fork_refuses_a_source_changed_before_atomic_publication() {
+        for recent in [false, true] {
+            for phase in 0..3 {
+                let dir = PrivateTempDir::new("boole-native-verified-fork-fence").unwrap();
+                let old_key = SigningKeyV2::from_dev_id("native-fork-old-owner");
+                let new_key = SigningKeyV2::from_dev_id("native-fork-new-owner");
+                let mine = |chain: &NativeChain, key: &SigningKeyV2| {
+                    let block = chain
+                        .template(
+                            &key.pk_hex(),
+                            &key.pk_hex(),
+                            (chain.ledger().height() + 1) * 60_000,
+                            &[],
+                        )
+                        .unwrap()
+                        .mine(0, 2_000_000)
+                        .unwrap()
+                        .unwrap();
+                    let auth = key
+                        .sign_for_network(
+                            &block.authorization_payload().unwrap(),
+                            Some(native_testnet().network_id()),
+                        )
+                        .unwrap();
+                    block.authorize(&auth).unwrap()
+                };
+                let mut node = NativeNode::open(dir.path()).unwrap();
+                node.submit_block(mine(node.chain(), &old_key)).unwrap();
+                let previous = node.chain().clone();
+                let mut candidate = NativeChain::new().unwrap();
+                for _ in 0..2 {
+                    candidate.append(mine(&candidate, &new_key)).unwrap();
+                }
+                let history = dir.path().join(NATIVE_BLOCKS_FILE);
+                let changed = b"external canonical evidence\n".to_vec();
+                if phase == 2 {
+                    crate::durability::change_before_atomic_replace(
+                        &history,
+                        &history,
+                        changed.clone(),
+                    );
+                } else {
+                    change_after_read(&history, &history, changed.clone());
+                    REPLAY_READ_MUTATION.with(|slot| {
+                        slot.borrow_mut().as_mut().unwrap().after_cleanup = phase == 1;
+                    });
+                }
+                let result = if recent {
+                    node.adopt_recent_suffix(0, candidate.blocks())
+                } else {
+                    node.adopt_chain(candidate.blocks())
+                };
+                REPLAY_READ_MUTATION.with(|slot| assert!(slot.borrow().is_none()));
+                assert!(crate::durability::atomic_rewrite_fault_consumed());
+                assert!(
+                    result.is_err(),
+                    "verified fork accepted changed input: ready={}, height={}",
+                    node.ensure_ready().is_ok(),
+                    node.chain().ledger().height()
+                );
+                assert!(node.ensure_ready().is_err());
+                assert_eq!(node.chain(), &previous);
+                assert!(node.pending().is_empty());
+                assert_eq!(
+                    std::fs::read(history).unwrap(),
+                    changed,
+                    "changed source was overwritten"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn prepared_pending_refuses_changed_storage_without_reserving_another_nonce() {
+        for phase in 0..3 {
+            let dir = PrivateTempDir::new("boole-native-pending-publication-fence").unwrap();
+            let key = SigningKeyV2::from_dev_id("native-pending-publication-owner");
+            let mut node = NativeNode::open(dir.path()).unwrap();
+            for height in 1..=10 {
+                let block = node
+                    .template(&key.pk_hex(), &key.pk_hex(), height * 60_000)
+                    .unwrap()
+                    .mine(0, 2_000_000)
+                    .unwrap()
+                    .unwrap();
+                let auth = key
+                    .sign_for_network(
+                        &block.authorization_payload().unwrap(),
+                        Some(native_testnet().network_id()),
+                    )
+                    .unwrap();
+                node.submit_block(block.authorize(&auth).unwrap()).unwrap();
+            }
+            let transfer = |nonce: u64| {
+                NativeTransfer::try_from(&key.sign_for_network(&serde_json::json!({
+            "schema": "boole.transfer.v1", "from": key.pk_hex(), "to": key.pk_hex(),
+            "amount": "1", "fee": "1000", "nonce": nonce.to_string(), "validBefore": "100"
+        }), Some(native_testnet().network_id())).unwrap()).unwrap()
+            };
+            let first = transfer(0);
+            let second = transfer(1);
+            if phase != 2 {
+                node.submit_transfer(first.clone()).unwrap();
+            }
+            let old_pending = node.pending().to_vec();
+            let previous = node.chain().clone();
+            let pool = dir.path().join(NATIVE_MEMPOOL_FILE);
+            let (attempted, changed) = if phase == 2 {
+                let changed = b"unexpected first-pool file\n".to_vec();
+                crate::durability::change_before_append_open(&pool, changed.clone());
+                (first, changed)
+            } else {
+                change_after_read(&pool, &pool, Vec::new());
+                REPLAY_READ_MUTATION.with(|slot| {
+                    slot.borrow_mut().as_mut().unwrap().after_cleanup = phase == 1;
+                });
+                (second, Vec::new())
+            };
+            let result = node.submit_transfer(attempted.clone());
+            REPLAY_READ_MUTATION.with(|slot| assert!(slot.borrow().is_none()));
+            assert!(crate::durability::append_open_fault_consumed());
+            assert!(
+                result.is_err(),
+                "pending accepted changed input: ready={}, pending={}",
+                node.ensure_ready().is_ok(),
+                node.pending().len()
+            );
+            assert!(node.ensure_ready().is_err());
+            assert!(node.pending_view().is_err());
+            assert_eq!(node.chain(), &previous);
+            assert_eq!(node.pending(), old_pending);
+            assert!(!node.is_pending(&attempted.id()));
+            assert_eq!(std::fs::read(pool).unwrap(), changed);
+        }
+    }
+
+    #[test]
+    fn append_cannot_publish_memory_after_another_authoritative_file_changes() {
+        for transfer_action in [false, true] {
+            let dir = PrivateTempDir::new("boole-native-cross-file-publication").unwrap();
+            let key = SigningKeyV2::from_dev_id("native-cross-file-owner");
+            let mut node = NativeNode::open(dir.path()).unwrap();
+            let mine = |node: &NativeNode| {
+                let block = node
+                    .template(
+                        &key.pk_hex(),
+                        &key.pk_hex(),
+                        (node.chain().ledger().height() + 1) * 60_000,
+                    )
+                    .unwrap()
+                    .mine(0, 2_000_000)
+                    .unwrap()
+                    .unwrap();
+                let auth = key
+                    .sign_for_network(
+                        &block.authorization_payload().unwrap(),
+                        Some(native_testnet().network_id()),
+                    )
+                    .unwrap();
+                block.authorize(&auth).unwrap()
+            };
+            for _ in 0..10 {
+                node.submit_block(mine(&node)).unwrap();
+            }
+            let transfer = NativeTransfer::try_from(
+                &key.sign_for_network(
+                    &serde_json::json!({
+                        "schema": "boole.transfer.v1", "from": key.pk_hex(), "to": key.pk_hex(),
+                        "amount": "1", "fee": "1000", "nonce": "0", "validBefore": "100"
+                    }),
+                    Some(native_testnet().network_id()),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+            // Ensure an existing pool path can be used as an exact hook key.
+            if transfer_action {
+                node.submit_transfer(transfer.clone()).unwrap();
+                node.submit_block(mine(&node)).unwrap();
+            }
+            let nonce = node.chain().ledger().next_nonce(&key.pk_hex());
+            let next_transfer = NativeTransfer::try_from(&key.sign_for_network(&serde_json::json!({
+                "schema": "boole.transfer.v1", "from": key.pk_hex(), "to": key.pk_hex(),
+                "amount": "1", "fee": "1000", "nonce": nonce.to_string(), "validBefore": "100"
+            }), Some(native_testnet().network_id())).unwrap()).unwrap();
+            let previous = node.chain().clone();
+            let manifest = dir.path().join("state.manifest.json");
+            let original_manifest = std::fs::read(&manifest).unwrap();
+            let output = dir.path().join(if transfer_action {
+                NATIVE_MEMPOOL_FILE
+            } else {
+                NATIVE_BLOCKS_FILE
+            });
+            let changed = b"changed cross-file manifest\n".to_vec();
+            change_after_read(&output, &manifest, changed.clone());
+            REPLAY_READ_MUTATION
+                .with(|slot| slot.borrow_mut().as_mut().unwrap().after_cleanup = true);
+            let result = if transfer_action {
+                node.submit_transfer(next_transfer.clone())
+            } else {
+                node.submit_block(mine(&node))
+            };
+            REPLAY_READ_MUTATION.with(|slot| assert!(slot.borrow().is_none()));
+            assert!(
+                result.is_err(),
+                "append returned success after another source changed"
+            );
+            assert!(node.ensure_ready().is_err());
+            assert_eq!(node.chain(), &previous);
+            assert!(node.pending().is_empty());
+            assert_eq!(std::fs::read(&manifest).unwrap(), changed);
+            drop(node);
+            // The durable output may already exist: do not erase it or claim
+            // rollback. A trusted fixture manifest restoration permits replay.
+            std::fs::write(&manifest, original_manifest).unwrap();
+            let recovered = NativeNode::open(dir.path()).unwrap();
+            if transfer_action {
+                assert_eq!(recovered.chain(), &previous);
+                assert_eq!(recovered.pending(), &[next_transfer]);
+            } else {
+                assert_eq!(
+                    recovered.chain().ledger().height(),
+                    previous.ledger().height() + 1
+                );
+            }
         }
     }
 

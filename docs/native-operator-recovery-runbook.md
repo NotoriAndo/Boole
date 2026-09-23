@@ -267,6 +267,11 @@ Record binary/source identity, network/genesis, intended head, public addresses,
 transaction IDs, redacted command arguments, exit status, public receipts and
 which source/destination paths were preserved. Do not record passphrases,
 plaintext seeds, transport private-key bytes or raw vault/backup contents.
+The runtime also checks input/output file versions across validation and durable
+publication. A detected change can return an error after a block or transfer was
+already written. Preserve all files, stop/recover the affected node and reconcile
+the exact saved transaction ID; do not infer rollback or sign a replacement just
+because the call failed. The failure fence is not an atomic multi-file rollback.
 Keep access-controlled recovery artifacts separately from ordinary diagnostics.
 
 The existing bounds still apply: 256MiB/100,000 canonical blocks, 512 pending
