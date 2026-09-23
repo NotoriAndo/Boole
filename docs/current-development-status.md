@@ -78,6 +78,11 @@ at 551.90625MiB process RSS, with budget rejection, unchanged journals/accountin
 and 51.784s restart. Shared state/disk contention and concurrent successful
 adoptions remain unqualified. All non-loopback
 listeners/endpoints are still refused; an explicit exposure option is not implemented.
+Each outgoing worker also remembers at most one fully verified losing fork for
+the exact unchanged local/remote heads, avoiding repeated suffix downloads and
+revalidation. Head changes/restart invalidate that memory; malformed candidates
+do not create it, and readiness remains checked. First verification and changing
+candidate costs remain; this is not a general CPU-abuse guarantee.
 Tests remain
 closed-local and public operation still requires R2/R3 launch authority.
 

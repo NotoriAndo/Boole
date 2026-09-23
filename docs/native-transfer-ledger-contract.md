@@ -540,6 +540,19 @@ Recent validated prefixes use the internal inverse described above. The suffix
 bound is not a constant-time or constant-memory reorg guarantee. Full startup,
 long-fork replay and broader storage/abuse acceptance remain R1 work.
 
+After a complete candidate passes validation but loses normal fork choice, its
+fixed outgoing worker remembers one local-head/remote-head pair. If both heads
+are unchanged on a later authenticated hello, it returns `local_chain_preferred`
+without downloading or revalidating that same losing suffix. Either head change
+discards the pair; service restart loses it. Invalid, incomplete or merely
+advertised candidates cannot populate it. Readiness and the local head are
+checked again after the hello before using this preference. This bounded memory
+can avoid work but can never authorize adoption, supply a checkpoint, bypass
+validation of a new candidate or prove that the peer's current body is valid.
+It does not protect against continuously changing candidates or remove the
+first full verification cost. At most eight pairs exist, one per configured
+worker; there is no disk cache or remote-sized map.
+
 When both heads match, each configured node periodically pulls the other's
 bounded pending snapshot. Transfers pass the same signature and admission path
 as RPC, with confirmed/pending duplicates idempotent. Valid but stale nonce,
@@ -690,6 +703,10 @@ Added executable evidence:
   stalled peer alongside healthy progress, eight simultaneous stalled rounds and
   shutdown leases. Three concurrent pulls of one signed transfer retain one
   pending transaction and confirm one recipient credit/nonce after restart.
+  Repeated fully verified losing forks require no new block download while both
+  heads stay fixed; restart or either head change requires validation again.
+  A prior invalid signature cannot suppress a corrected body at the same hash,
+  and cached preference cannot hide journal loss during the hello exchange.
 - [Native process/key CLI](../crates/boole-node/tests/native_peer_cli.rs): actual
   two-process encrypted sync and clean signal shutdown, restart, no secret output,
   no overwrite, unsafe file rejection and public/dangling peer-configuration refusal

@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use boole_core::native_chain::NativeTransfer;
+use boole_core::native_chain::{NativeChain, NativeTransfer};
 use boole_core::native_network::native_testnet;
 use boole_core::signed_envelope::SigningKeyV2;
 use boole_node::{NativeNode, NativePeerConfig, NativePeerService};
@@ -630,6 +630,293 @@ fn consecutive_outbound_failures_back_off_without_growing_peer_state() {
     assert_eq!(service.status().len(), 1);
     assert_eq!(service.status()[0].state, "retrying");
     service.stop();
+}
+
+fn serve_fork_round(
+    listener: &TcpListener,
+    transport: &TlsTransport,
+    chain: &NativeChain,
+    corrupt_signature: bool,
+) -> usize {
+    serve_fork_round_after_hello(listener, transport, chain, corrupt_signature, || false)
+}
+
+fn serve_fork_round_after_hello(
+    listener: &TcpListener,
+    transport: &TlsTransport,
+    chain: &NativeChain,
+    corrupt_signature: bool,
+    after_hello: impl FnOnce() -> bool,
+) -> usize {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    listener.set_nonblocking(true).unwrap();
+    let socket = loop {
+        match listener.accept() {
+            Ok((socket, _)) => break socket,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                assert!(Instant::now() < deadline, "peer did not start next round");
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            Err(error) => panic!("accept: {error}"),
+        }
+    };
+    let mut connection = transport.accept_stream_until(socket, deadline).unwrap();
+    let (hello, _): (serde_json::Value, _) = transport
+        .recv_json_counted_until(&mut connection, 4096, deadline)
+        .unwrap();
+    assert_eq!(hello["type"], "hello");
+    let expect_disconnect = after_hello();
+    let snapshot = serde_json::json!({
+        "height": chain.ledger().height(), "hash": chain.head_hash().to_hex()
+    });
+    transport
+        .send_json_counted_until(
+            &mut connection,
+            &serde_json::json!({
+                "type": "hello", "protocolVersion": 1,
+                "networkId": native_testnet().network_id(),
+                "genesisHash": native_testnet().genesis_hash().to_hex(),
+                "head": snapshot
+            }),
+            4096,
+            deadline,
+        )
+        .unwrap();
+    if expect_disconnect {
+        assert!(transport
+            .recv_json_counted_until::<serde_json::Value>(&mut connection, 4096, deadline)
+            .is_err());
+        return 0;
+    }
+    let mut block_requests = 0;
+    loop {
+        let (request, _): (serde_json::Value, _) = transport
+            .recv_json_counted_until(&mut connection, 4096, deadline)
+            .unwrap();
+        let response = match request["type"].as_str().unwrap() {
+            "done" => return block_requests,
+            "getHash" => {
+                let height = request["height"].as_u64().unwrap();
+                let hash = if height == 0 {
+                    native_testnet().genesis_hash()
+                } else {
+                    chain.blocks()[height as usize - 1].hash().unwrap()
+                };
+                serde_json::json!({
+                    "type": "hash", "snapshot": snapshot, "height": height, "hash": hash.to_hex()
+                })
+            }
+            "getBlocks" => {
+                block_requests += 1;
+                let from = request["from"].as_u64().unwrap() as usize;
+                let limit = request["limit"].as_u64().unwrap() as usize;
+                let end = (from - 1 + limit).min(chain.blocks().len());
+                let mut blocks = chain.blocks()[from - 1..end].to_vec();
+                if corrupt_signature {
+                    assert_eq!(end, chain.blocks().len());
+                    blocks[0].producer_signature = "00".repeat(64);
+                }
+                serde_json::json!({
+                    "type": "blocks", "snapshot": snapshot, "from": from,
+                    "blocks": blocks
+                })
+            }
+            "getPending" => serde_json::json!({
+                "type": "pending", "snapshot": snapshot, "offset": 0, "total": 0, "transfers": []
+            }),
+            other => panic!("unexpected peer request: {other}"),
+        };
+        transport
+            .send_json_counted_until(&mut connection, &response, 1024 * 1024, deadline)
+            .unwrap();
+        if corrupt_signature && request["type"] == "getBlocks" {
+            assert!(transport
+                .recv_json_counted_until::<serde_json::Value>(&mut connection, 4096, deadline)
+                .is_err());
+            return block_requests;
+        }
+    }
+}
+
+#[test]
+fn an_unchanged_verified_losing_fork_is_not_downloaded_on_every_poll() {
+    let local_dir = TestDir::new();
+    let remote_dir = TestDir::new();
+    let local_node = local_dir.node();
+    let remote_node = remote_dir.node();
+    let local_miner = SigningKeyV2::from_dev_id("native-repeat-fork-local");
+    let remote_miner = SigningKeyV2::from_dev_id("native-repeat-fork-remote");
+    mine(&local_node, &local_miner, &local_miner.pk_hex(), 2);
+    mine(&remote_node, &remote_miner, &remote_miner.pk_hex(), 1);
+    let remote_chain = remote_node.lock().unwrap().chain().clone();
+    mine(&remote_node, &remote_miner, &remote_miner.pk_hex(), 3);
+    let winning_chain = remote_node.lock().unwrap().chain().clone();
+    let expected = local_node.lock().unwrap().chain().clone();
+    assert!(!remote_chain.outranks(&expected));
+    let local_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let remote_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let remote_address = remote_listener.local_addr().unwrap();
+    let local_key = identity();
+    let remote_key = identity();
+    let transport = TlsTransport::new(
+        remote_key.clone(),
+        vec![(local_listener.local_addr().unwrap(), local_key.peer_id())],
+    )
+    .unwrap();
+    let final_chain = winning_chain.clone();
+    let (observed_tx, observed_rx) = std::sync::mpsc::channel();
+    let (advance_tx, advance_rx) = std::sync::mpsc::channel::<()>();
+    let remote = std::thread::spawn(move || {
+        for index in 0..5 {
+            let chain = if index == 4 {
+                &winning_chain
+            } else {
+                &remote_chain
+            };
+            let requests = serve_fork_round(&remote_listener, &transport, chain, false);
+            if observed_tx.send(requests).is_err()
+                || (index < 4 && advance_rx.recv_timeout(Duration::from_secs(5)).is_err())
+            {
+                break;
+            }
+        }
+    });
+    let config = NativePeerConfig {
+        identity: local_key,
+        peers: vec![(remote_address, remote_key.peer_id())],
+    };
+    let mut service =
+        NativePeerService::start(local_listener, local_node.clone(), config.clone()).unwrap();
+    let observed = || observed_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(observed(), 1, "first candidate must be fully downloaded");
+    advance_tx.send(()).unwrap();
+    assert_eq!(observed(), 0, "unchanged losing fork was downloaded again");
+    assert_eq!(local_node.lock().unwrap().chain(), &expected);
+    // The memory belongs to this configured worker's lifetime, not the disk.
+    service.stop();
+    service = NativePeerService::start(
+        TcpListener::bind("127.0.0.1:0").unwrap(),
+        local_node.clone(),
+        config,
+    )
+    .unwrap();
+    advance_tx.send(()).unwrap();
+    assert_eq!(observed(), 1, "service restart reused stale fork memory");
+    mine(&local_node, &local_miner, &local_miner.pk_hex(), 1);
+    advance_tx.send(()).unwrap();
+    assert_eq!(observed(), 1, "changed local head skipped revalidation");
+    advance_tx.send(()).unwrap();
+    assert_eq!(observed(), 1, "changed remote head skipped revalidation");
+    service.stop();
+    remote.join().unwrap();
+    assert_eq!(local_node.lock().unwrap().chain(), &final_chain);
+    drop(service);
+    drop(local_node);
+    assert_eq!(
+        NativeNode::open(&local_dir.0).unwrap().chain(),
+        &final_chain
+    );
+}
+
+#[test]
+fn an_invalid_candidate_cannot_suppress_a_later_valid_body_at_the_same_head() {
+    let local_dir = TestDir::new();
+    let remote_dir = TestDir::new();
+    let local_node = local_dir.node();
+    let remote_node = remote_dir.node();
+    let local_miner = SigningKeyV2::from_dev_id("native-invalid-cache-local");
+    let remote_miner = SigningKeyV2::from_dev_id("native-invalid-cache-remote");
+    mine(&local_node, &local_miner, &local_miner.pk_hex(), 2);
+    mine(&remote_node, &remote_miner, &remote_miner.pk_hex(), 1);
+    let remote_chain = remote_node.lock().unwrap().chain().clone();
+    let expected = local_node.lock().unwrap().chain().clone();
+    let local_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let remote_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let remote_address = remote_listener.local_addr().unwrap();
+    let local_key = identity();
+    let remote_key = identity();
+    let transport = TlsTransport::new(
+        remote_key.clone(),
+        vec![(local_listener.local_addr().unwrap(), local_key.peer_id())],
+    )
+    .unwrap();
+    let remote = std::thread::spawn(move || {
+        [true, false, false]
+            .map(|corrupt| serve_fork_round(&remote_listener, &transport, &remote_chain, corrupt))
+    });
+    let mut service = NativePeerService::start(
+        local_listener,
+        local_node.clone(),
+        NativePeerConfig {
+            identity: local_key,
+            peers: vec![(remote_address, remote_key.peer_id())],
+        },
+    )
+    .unwrap();
+    assert_eq!(remote.join().unwrap(), [1, 1, 0]);
+    service.stop();
+    assert!(service.status()[0].failed_rounds >= 1);
+    assert_eq!(local_node.lock().unwrap().chain(), &expected);
+}
+
+#[test]
+fn a_remembered_fork_preference_does_not_hide_storage_loss_during_the_next_hello() {
+    let local_dir = TestDir::new();
+    let remote_dir = TestDir::new();
+    let local_node = local_dir.node();
+    let remote_node = remote_dir.node();
+    let local_miner = SigningKeyV2::from_dev_id("native-cache-readiness-local");
+    let remote_miner = SigningKeyV2::from_dev_id("native-cache-readiness-remote");
+    mine(&local_node, &local_miner, &local_miner.pk_hex(), 2);
+    mine(&remote_node, &remote_miner, &remote_miner.pk_hex(), 1);
+    let remote_chain = remote_node.lock().unwrap().chain().clone();
+    let expected = local_node.lock().unwrap().chain().clone();
+    let history = local_dir.0.join(boole_node::NATIVE_BLOCKS_FILE);
+    let preserved = local_dir.0.join("preserved-history.ndjson");
+    let before = std::fs::read(&history).unwrap();
+    let local_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let remote_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let remote_address = remote_listener.local_addr().unwrap();
+    let local_key = identity();
+    let remote_key = identity();
+    let transport = TlsTransport::new(
+        remote_key.clone(),
+        vec![(local_listener.local_addr().unwrap(), local_key.peer_id())],
+    )
+    .unwrap();
+    let history_to_move = history.clone();
+    let preserved_copy = preserved.clone();
+    let remote = std::thread::spawn(move || {
+        assert_eq!(
+            serve_fork_round(&remote_listener, &transport, &remote_chain, false),
+            1
+        );
+        serve_fork_round_after_hello(&remote_listener, &transport, &remote_chain, false, || {
+            // The local hello has already read a ready node and its unchanged
+            // head. Move only this disposable fixture's file, preserving bytes.
+            std::fs::rename(history_to_move, preserved_copy).unwrap();
+            true
+        });
+    });
+    let mut service = NativePeerService::start(
+        local_listener,
+        local_node.clone(),
+        NativePeerConfig {
+            identity: local_key,
+            peers: vec![(remote_address, remote_key.peer_id())],
+        },
+    )
+    .unwrap();
+    remote.join().unwrap();
+    await_condition(|| service.status()[0].failed_rounds >= 1);
+    service.stop();
+    assert!(local_node.lock().unwrap().ensure_ready().is_err());
+    assert_eq!(local_node.lock().unwrap().chain(), &expected);
+    assert_eq!(std::fs::read(&preserved).unwrap(), before);
+    drop(service);
+    drop(local_node);
+    std::fs::rename(preserved, history).unwrap();
+    assert_eq!(NativeNode::open(&local_dir.0).unwrap().chain(), &expected);
 }
 
 #[test]

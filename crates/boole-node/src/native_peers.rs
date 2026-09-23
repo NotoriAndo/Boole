@@ -292,10 +292,12 @@ fn lock_node(node: &Mutex<NativeNode>) -> anyhow::Result<MutexGuard<'_, NativeNo
 }
 
 fn outbound_loop(shared: Arc<Shared>, index: usize, address: SocketAddr) {
+    // One ephemeral entry per fixed peer, never an attacker-sized hash cache.
+    let mut declined = None;
     while !shared.lifecycle.is_stopped() {
         let delay = {
             let _round = OutboundRound::new(shared.monitor.clone());
-            let outcome = synchronize(&shared, address);
+            let outcome = synchronize(&shared, address, &mut declined);
             let mut snapshot = shared
                 .monitor
                 .snapshot
@@ -348,6 +350,13 @@ struct Head {
     height: u64,
     #[serde(with = "wire_hash")]
     hash: Hex32,
+}
+
+/// Remembers only a fully verified candidate that lost normal fork choice.
+/// This can avoid work, never authorize adoption or trust a claimed balance.
+struct DeclinedFork {
+    local: Head,
+    remote: Head,
 }
 
 mod wire_hash {
@@ -770,7 +779,11 @@ fn get_hash(round: &mut Round<'_>, snapshot: &Head, height: u64) -> anyhow::Resu
     }
 }
 
-fn synchronize(shared: &Shared, address: SocketAddr) -> anyhow::Result<&'static str> {
+fn synchronize(
+    shared: &Shared,
+    address: SocketAddr,
+    declined: &mut Option<DeclinedFork>,
+) -> anyhow::Result<&'static str> {
     let socket = TcpStream::connect_timeout(&address, Duration::from_millis(500))?;
     let _socket = shared.lifecycle.register(&socket)?;
     let connection = shared
@@ -793,6 +806,24 @@ fn synchronize(shared: &Shared, address: SocketAddr) -> anyhow::Result<&'static 
         )
     };
     let remote = remote_head(round.request(&greeting)?)?;
+    if declined
+        .as_ref()
+        .is_some_and(|known| known.local == original && known.remote == remote)
+    {
+        // The network exchange may have raced a local block or a storage fault.
+        // A cached preference must not mask either change in readiness/state.
+        {
+            let node = lock_node(&shared.node)?;
+            node.ensure_ready()?;
+            anyhow::ensure!(
+                head(node.chain()) == original,
+                "native local snapshot changed"
+            );
+        }
+        round.send(&Message::Done)?;
+        return Ok("local_chain_preferred");
+    }
+    *declined = None;
     if remote == original {
         synchronize_pending(&mut round, &remote)?;
         round.send(&Message::Done)?;
@@ -882,7 +913,12 @@ fn synchronize(shared: &Shared, address: SocketAddr) -> anyhow::Result<&'static 
             head(node.chain()) == original,
             "native local snapshot changed"
         );
-        node.adopt_recent_suffix(common, &fork)?;
+        if !node.adopt_recent_suffix(common, &fork)? {
+            *declined = Some(DeclinedFork {
+                local: original.clone(),
+                remote: remote.clone(),
+            });
+        }
         current = head(node.chain());
     }
     if extension && target == remote.height {
