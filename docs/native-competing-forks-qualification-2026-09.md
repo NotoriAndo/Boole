@@ -77,4 +77,25 @@ runtime/security failure requires diagnosis and a separately verified correction
 
 ## Results
 
-Not yet executed.
+### Small harness — PASS before the large run
+
+The initial small test passed in 16.40s: all eight clients retained fifteen
+blocks, final-head stabilization took 3.234s, stop 142 microseconds, and independent
+replay 494ms. Candidate amount 7 (peer index 6) won the normal same-work hash
+tiebreak. The observer saw the initial head and two candidate heads, establishing
+at least two adoptions, not proving their exact number. Final state was 28 blocks,
+1,025 balances, 1,280 confirmed transfers, empty pending, and 700,341 history bytes.
+All 256 winning IDs had the proper heights; 1,792 losing IDs were absent.
+
+Before large measurement, the harness was refined to retain only public expected
+IDs/heights for recovery checks and release all candidate bodies/hash vectors
+before reopening. The changed small test passed in 16.19s, with 3.250s network
+stabilization, the same final head/journal/accounting, 142-microsecond stop and
+500ms independent replay. It again observed two candidate heads (a different
+initial winner due to scheduling) and required each final-head peer's subsequent
+polls to request no hashes/blocks. No runtime behavior changed. The following
+clippy check rejected the equivalent `x + 1 <= 64` test expression; it was changed
+to `x < 64`, preserving the cap including hello. This was a lint failure, not a
+behavior or acceptance failure.
+
+The large scenario has not yet run.

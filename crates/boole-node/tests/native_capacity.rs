@@ -20,6 +20,9 @@ const PER_BLOCK: u64 = 512;
 const REWARD: u128 = 50_000 * NATIVE_COIN_UNIT;
 const HISTORY_BUDGET: u64 = 96 * 1024 * 1024;
 
+#[path = "support/native_competing_forks.rs"]
+mod competing;
+
 struct TestDir {
     path: PathBuf,
     identity: (u64, u64),
