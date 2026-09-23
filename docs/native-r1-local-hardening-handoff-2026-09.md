@@ -5,6 +5,16 @@ R1 is incomplete, R2 has not passed and R3 has not started. This record locates
 the work completed during the operator's twelve-hour autonomous-development
 window; it does not turn local results into release or execution authority.
 
+**Window closed:** the delegated interval was 2026-09-23 04:02:30–16:02:30 UTC
+(ending September 24 at 01:02:30 KST). Its follow-up automation was verified
+PAUSED at closeout, with the original prompt, schedule and target preserved.
+No new feature or experiment was started after the deadline. Final runtime,
+test and dependency sources remain identical to `df6a32c`; subsequent commits
+record verification and reconcile the already-selected operator-local RPC scope.
+The project-root integration branch is the handoff checkout, while main and all
+three safety holds below remain unchanged. Only the pre-existing user edit in
+`tasks/lessons.md` remains uncommitted; no clean-worktree claim is made.
+
 ## Main versus the prepared integration
 
 - Recorded main `9be7cb0cd4e2f5c41ec09cd50709bb6a7e7e6960` includes native
