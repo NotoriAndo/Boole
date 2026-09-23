@@ -1,6 +1,6 @@
 # Native HTTP shutdown drain — 2026-09-23
 
-Status: **REPRODUCTION PREPARED — no runtime change or successful result yet.**
+Status: **Correction and direct regressions PASS; large mixed-resource follow-up pending.**
 
 ## Selected boundary
 
@@ -40,3 +40,367 @@ Only disposable numeric-loopback sockets, development identities and temporary
 state are in scope. No public listener, external transmission, operator key/fund,
 model/VM/paid run, signature shortcut or release is involved. Keep each observed
 failure, cause and corrective result below. A local pass does not close R1/R2/R3.
+
+## First reproduction — RED
+
+On the unchanged runtime at `b38b832`, with preregistration `854b850`, the actual
+eight-client unfinished-body test exceeded its unchanged seven-second limit:
+`elapsedMs=7003 timely=false`, test exit 101 (7.05s harness, 9.92s build).
+Closing the fixture clients then allowed the server to join normally; the test
+released its listener/state owner and verified unchanged canonical/manifest bytes
+before reporting failure. This is not a hung fixture or a changed ledger.
+
+The ranked hypotheses were client-input drain, shutdown-signal delivery and
+already admitted state work. This fixture starts no ledger operation, and closing
+only the client sockets releases the wait. Static tracing connects that outcome
+to the request's ten-second body deadline and unbounded outer graceful drain.
+Existing prompt/drained service tests already exercised delivery of the same
+normal shutdown signal. No random repeated pass attempt was used.
+
+The prepared correction retains a shutdown handle per already-bounded HTTP
+connection, gives it five seconds to drain normally and then shuts down actual
+sockets before awaiting Axum's connection tasks. Native mutation admission and
+peer I/O still close immediately on the shutdown signal. The existing state
+mutation barrier remains after HTTP drain; even a disconnected client cannot
+abort an admitted durable write. The optional listener wiring is native-only;
+legacy listener behavior is not silently changed or newly qualified here.
+Tracking uses one extra shutdown descriptor per admitted connection, bounded
+by the existing 128-connection limit. It is not zero-cost: the operating system's
+file-descriptor budget remains relevant. Failed registration drops the accepted
+connection and its permit, with the existing accept-error backoff rather than a
+busy retry. No connection, request or peer limit was increased to compensate.
+
+The unchanged actual eight-client body regression then passed in 5.05s (build
+4.07s), reporting `elapsedMs=5003 timely=true`. The five-second drain expired,
+actual sockets closed, the server joined, every old held client reached closure,
+the listener could be rebound and a fresh native node immediately reopened the
+unchanged height-zero state. This is the initial GREEN, not yet the unread-large-
+response or already-admitted-mutation verification.
+
+## Unread response and last-owner follow-up
+
+The first unread-response regression exposed an additional last-owner race:
+the server completed, but an immediate `NativeNode::open` still found the state
+locked. That run failed in 1.58s (build 0.98s). A targeted temporary probe retained
+the server's own state reference and reported one remaining owner after drain;
+immediate reopen then succeeded. It also exposed a **fixture** error: the test
+incorrectly required a minimum four-second wait even when Axum already returned.
+That probe failed only that extra assertion in 1.77s (build 3.27s), reporting
+zero-millisecond drain and an incomplete 130,500-byte tail from the real
+272,026-byte block response. The fixed requirement is a maximum, not a mandatory
+sleep. The seven-second maximum, real client closure, incomplete response and
+immediate ownership/replay checks remain unchanged; the artificial minimum was
+removed. Both failed outcomes are retained, not reported as successful runs.
+
+A proposed unbounded final-owner retry was rejected by safety review before it
+was applied. The implemented alternative uses a **one-second cleanup timeout**
+after the existing durable-mutation barrier. The server retains its last state
+reference, explicitly releases the sole owner before reporting success, and
+returns a fixed error if another reference remains. It does not force a lock
+off another owner or silently return success. This new cleanup limit does not
+preempt already admitted validation/disk work. Temporary probe logs were removed.
+
+The two public-server regressions then passed together in 6.77s (build 3.56s):
+the unread 272,026-byte response closed promptly with only 130,500 trailing bytes,
+immediate reopen matched all 512 confirmed transfers/head/accounting and source
+bytes, and eight incomplete input bodies closed in 5.003s. The response case
+does not claim that all bytes reached the client or that a truncated response
+is a usable receipt. It verifies closure and durable-state recovery.
+
+The deliberately retained-state-owner test returned the fixed error at 1.000s,
+kept the old lock and canonical/manifest bytes intact, then reopened normally
+after that owner was deliberately dropped. The actual admitted-block regression
+confirmed entry into the existing mutation gate before requesting shutdown,
+held the real ledger mutex, and kept seven other HTTP bodies unfinished. After
+client-I/O expiry all eight clients were closed, but the admitted block's one
+request permit and state ownership remained. The server did not report completion
+while that work was delayed. Releasing the delay produced exactly one block and
+one 50,000-tBOOLE reward; independent replay and duplicate-block submission
+confirmed no extra issuance. This passed in 6.16s (6.016s measured shutdown flow).
+The test-only gate observation coordinates a real admitted operation; it does
+not replace the block validation/publication path or add a production API.
+
+Focused consumers passed: nine native HTTP integration tests (18.29s), five
+native HTTP unit/router tests (17.33s), the unchanged shared connection-cap test
+(0.05s) and five existing socket/mutation-lifecycle tests (0.10s). The following
+all-target node clippy identified one pre-existing expression in this local
+stack's peer-rotation fixture: comparing a JSON value to a freshly allocated
+decimal string. Its correction must preserve the wire's string type, not accept
+clippy's suggested numeric JSON comparison. This is a fixture/static-check
+finding, not a failure of the completed HTTP operating scenarios.
+
+The fixture now computes the expected decimal height once and compares it using
+`as_str()`, preserving the existing JSON string contract. Node all-target clippy
+then passed in 21.25s. The actual three-process transport-key retirement/re-
+enrollment rehearsal passed in 6.300s with normal stops 12–18ms, the exact prior
+height-12 canonical head, two confirmed transfers and matching independent audits.
+Normal drained shutdown therefore does not impose a mandatory five-second wait.
+
+The unchanged small mixed-pressure companion also passed: 1,025 balances and
+8/4/8 outgoing/incoming/HTTP occupancy, rejected excess admission, 440µs maximum
+diagnostic response, 916ms network phase, 498µs drained stop, 399ms independent
+reopen and 21.800s total. Exact original accounting/head/journal/manifest checks
+passed. The full 131,073-balance mixed case will be rerun alone under OS resource
+measurement on a clean committed source with the original criteria unchanged.
+No successful mixed-fork, public-network, arbitrary slow-disk or whole-R1 claim
+follows from these direct regressions.
+
+## Raw outcomes and follow-up checks
+
+### Initial unfinished-body RED
+
+```text
+Compiling boole-node v0.1.0 (/private/tmp/boole-r1-http-drain-worktree.kl1exv/crates/boole-node)
+   Compiling boole-testkit v0.1.0 (/private/tmp/boole-r1-http-drain-worktree.kl1exv/crates/boole-testkit)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.92s
+     Running tests/native_http.rs (/Users/seoyong/projects/Boole/target/debug/deps/native_http-1b121ee1a1d92267)
+
+running 1 test
+test native_shutdown_closes_unfinished_http_bodies_before_the_request_deadline ... native-http-shutdown-body elapsedMs=7003 timely=false
+
+thread 'native_shutdown_closes_unfinished_http_bodies_before_the_request_deadline' (8538557) panicked at crates/boole-node/tests/native_http.rs:285:5:
+shutdown waited beyond its 5s client-I/O drain window plus scheduling margin
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    native_shutdown_closes_unfinished_http_bodies_before_the_request_deadline
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 7 filtered out; finished in 7.05s
+
+error: test failed, to rerun pass `-p boole-node --test native_http`
+```
+
+### Unread-response ownership failure
+
+```text
+Finished `test` profile [unoptimized + debuginfo] target(s) in 0.98s
+     Running tests/native_http.rs (/Users/seoyong/projects/Boole/target/debug/deps/native_http-1b121ee1a1d92267)
+
+running 1 test
+test native_shutdown_closes_an_unread_large_response_and_releases_state_ownership ...
+thread 'native_shutdown_closes_an_unread_large_response_and_releases_state_ownership' (8558701) panicked at crates/boole-node/tests/native_http.rs:396:36:
+unread response must not retain state ownership: state directory is already locked by another process: /var/folders/rz/vz57tt8555zcz4r6hr4cbqv80000gn/T/boole-native-http-shutdown-response-1790174074259729000
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    native_shutdown_closes_an_unread_large_response_and_releases_state_ownership
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 8 filtered out; finished in 1.58s
+
+error: test failed, to rerun pass `-p boole-node --test native_http`
+```
+
+### Temporary diagnostic probe and fixture-minimum failure
+
+```text
+Finished `test` profile [unoptimized + debuginfo] target(s) in 3.27s
+     Running tests/native_http.rs (/Users/seoyong/projects/Boole/target/debug/deps/native_http-1b121ee1a1d92267)
+
+running 1 test
+test native_shutdown_closes_an_unread_large_response_and_releases_state_ownership ... [DEBUG-native-http-drain] remaining state owners=1
+[DEBUG-native-http-drain] response server elapsedMs=0 timely=true bodyBytes=272026
+native-http-shutdown-response elapsedMs=0 timely=true responseBytes=272026 trailingBytes=130500
+
+thread 'native_shutdown_closes_an_unread_large_response_and_releases_state_ownership' (8561547) panicked at crates/boole-node/tests/native_http.rs:437:5:
+fixture did not hold the response drain
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    native_shutdown_closes_an_unread_large_response_and_releases_state_ownership
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 8 filtered out; finished in 1.77s
+
+error: test failed, to rerun pass `-p boole-node --test native_http`
+```
+
+### Bounded correction: public-server GREEN
+
+```text
+Finished `test` profile [unoptimized + debuginfo] target(s) in 3.56s
+     Running tests/native_http.rs (/Users/seoyong/projects/Boole/target/debug/deps/native_http-1b121ee1a1d92267)
+
+running 2 tests
+test native_shutdown_closes_an_unread_large_response_and_releases_state_ownership ... native-http-shutdown-response elapsedMs=0 timely=true responseBytes=272026 trailingBytes=130500
+ok
+test native_shutdown_closes_unfinished_http_bodies_before_the_request_deadline ... boole-node: native HTTP drain expired; closing remaining client sockets
+native-http-shutdown-body elapsedMs=5003 timely=true
+ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 6.77s
+```
+
+### Retained-owner deadline
+
+```text
+Finished `test` profile [unoptimized + debuginfo] target(s) in 5.54s
+     Running unittests src/lib.rs (/Users/seoyong/projects/Boole/target/debug/deps/boole_node-9cd49e707f28be6c)
+
+running 1 test
+test native_http::tests::shutdown_state_owner_cleanup_is_bounded_and_never_forces_a_retained_owner ... native-http-state-owner-timeout elapsedMs=1000 retainedLockPreserved=true
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 313 filtered out; finished in 1.04s
+```
+
+### Already-admitted durable block
+
+```text
+Finished `test` profile [unoptimized + debuginfo] target(s) in 2.83s
+     Running unittests src/lib.rs (/Users/seoyong/projects/Boole/target/debug/deps/boole_node-9cd49e707f28be6c)
+
+running 1 test
+test native_http::tests::shutdown_disconnects_clients_but_waits_for_an_already_admitted_block ... boole-node: native HTTP drain expired; closing remaining client sockets
+native-http-shutdown-mutation elapsedMs=6016 closedClients=8 admittedBlockPreserved=true
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 314 filtered out; finished in 6.16s
+```
+
+### Focused consumers and original clippy finding
+
+```text
+Finished `test` profile [unoptimized + debuginfo] target(s) in 2.56s
+     Running tests/native_http.rs (/Users/seoyong/projects/Boole/target/debug/deps/native_http-1b121ee1a1d92267)
+
+running 9 tests
+test native_http_reports_pinned_network_and_refuses_browser_cross_origin_and_public_bind ... ok
+test native_json_errors_do_not_reflect_large_unknown_field_names_into_responses ... ok
+test native_peer_rpc_exposes_the_bounded_outbound_failure_stage ... ok
+test native_request_limit_applies_before_reading_another_large_json_body ... ok
+test native_rpc_and_secure_peers_share_the_same_durable_state_and_shutdown_boundary ... ok
+test native_shutdown_closes_an_unread_large_response_and_releases_state_ownership ... native-http-shutdown-response elapsedMs=0 timely=true responseBytes=272026 trailingBytes=130500
+ok
+test native_shutdown_closes_unfinished_http_bodies_before_the_request_deadline ... boole-node: native HTTP drain expired; closing remaining client sockets
+native-http-shutdown-body elapsedMs=5003 timely=true
+ok
+test stalled_native_request_bodies_expire_and_return_all_admission_slots ... ok
+test two_independent_rpc_nodes_mine_transfer_and_rejoin_with_identical_accounting ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.29s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (/Users/seoyong/projects/Boole/target/debug/deps/boole_node-9cd49e707f28be6c)
+
+running 5 tests
+test native_http::tests::diagnostics_do_not_confer_readiness_or_bypass_their_own_limit_and_shutdown_boundary ... ok
+test native_http::tests::process_diagnostics_remain_available_while_all_state_requests_wait_on_the_ledger ... ok
+test native_http::tests::shutdown_disconnects_clients_but_waits_for_an_already_admitted_block ... boole-node: native HTTP drain expired; closing remaining client sockets
+native-http-shutdown-mutation elapsedMs=6014 closedClients=8 admittedBlockPreserved=true
+ok
+test native_http::tests::shutdown_state_owner_cleanup_is_bounded_and_never_forces_a_retained_owner ... native-http-state-owner-timeout elapsedMs=1000 retainedLockPreserved=true
+ok
+test native_http::tests::timed_out_http_callers_do_not_release_admission_while_their_actual_mutations_wait ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 310 filtered out; finished in 17.33s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (/Users/seoyong/projects/Boole/target/debug/deps/boole_node-9cd49e707f28be6c)
+
+running 1 test
+test local_node::tests::active_connection_cap_releases_only_when_connection_io_drops ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 314 filtered out; finished in 0.05s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running unittests src/lib.rs (/Users/seoyong/projects/Boole/target/debug/deps/boole_node-9cd49e707f28be6c)
+
+running 5 tests
+test p2p_lifecycle::tests::dropping_a_lease_removes_only_its_socket ... ok
+test p2p_lifecycle::tests::request_stop_wakes_sockets_before_an_earlier_mutation_finishes ... ok
+test p2p_lifecycle::tests::stop_closes_every_registered_socket_and_rejects_late_registration ... ok
+test p2p_lifecycle::tests::stop_waits_for_an_earlier_mutation_and_rejects_every_later_one ... ok
+test p2p_lifecycle::tests::stop_wakes_a_lifecycle_wait_without_polling_the_full_duration ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 310 filtered out; finished in 0.10s
+
+    Checking boole-core v0.1.0 (/private/tmp/boole-r1-http-drain-worktree.kl1exv/crates/boole-core)
+    Checking boole-native-shadow-protocol v0.1.0 (/private/tmp/boole-r1-http-drain-worktree.kl1exv/crates/boole-native-shadow-protocol)
+    Checking boole-lean-runner v0.1.0 (/private/tmp/boole-r1-http-drain-worktree.kl1exv/crates/boole-lean-runner)
+    Checking boole-p2p v0.1.0 (/private/tmp/boole-r1-http-drain-worktree.kl1exv/crates/boole-p2p)
+    Checking boole-evm-adapter v0.1.0 (/private/tmp/boole-r1-http-drain-worktree.kl1exv/crates/boole-evm-adapter)
+    Checking boole-node v0.1.0 (/private/tmp/boole-r1-http-drain-worktree.kl1exv/crates/boole-node)
+    Checking boole-testkit v0.1.0 (/private/tmp/boole-r1-http-drain-worktree.kl1exv/crates/boole-testkit)
+error: this creates an owned instance just for comparison
+   --> crates/boole-node/tests/native_peer_rotation.rs:207:63
+    |
+207 |                 info["headHash"] == head && info["height"] == height.to_string()
+    |                                                               ^^^^^^^^^^^^^^^^^^ help: try: `height`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#cmp_owned
+    = note: `-D clippy::cmp-owned` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::cmp_owned)]`
+
+error: could not compile `boole-node` (test "native_peer_rotation") due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+```
+
+### Corrected clippy, real process rotation and small mixed pressure
+
+```text
+Finished `dev` profile [unoptimized + debuginfo] target(s) in 21.25s
+   Compiling boole-node v0.1.0 (/private/tmp/boole-r1-http-drain-worktree.kl1exv/crates/boole-node)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.89s
+     Running tests/native_peer_rotation.rs (/Users/seoyong/projects/Boole/target/debug/deps/native_peer_rotation-5c23921ecc6a47a1)
+
+running 1 test
+test stopped_configuration_revokes_old_transport_key_and_explicit_reenrollment_preserves_ledger ... native-peer-rotation-phase process-ready elapsedMs=36
+native-peer-rotation-phase process-ready elapsedMs=70
+native-peer-rotation-phase process-ready elapsedMs=70
+native-peer-rotation-phase head-agreement elapsedMs=1
+native-peer-rotation-phase reciprocal-membership elapsedMs=410
+native-peer-rotation-stop elapsedMs=16
+native-peer-rotation-phase old-key-live-authenticated-connection elapsedMs=19
+native-peer-rotation-stop elapsedMs=12
+native-peer-rotation-stop elapsedMs=17
+native-peer-rotation-phase process-ready elapsedMs=33
+native-peer-rotation-phase process-ready elapsedMs=32
+native-peer-rotation-phase reciprocal-membership elapsedMs=483
+native-peer-rotation-phase process-ready elapsedMs=30
+native-peer-rotation-phase unapproved-identity-refused elapsedMs=0
+native-peer-rotation-phase retired-key-authentication-failure elapsedMs=0
+native-peer-rotation-phase retired-key-authentication-failure elapsedMs=0
+native-peer-rotation-stop elapsedMs=16
+native-peer-rotation-phase process-ready elapsedMs=35
+native-peer-rotation-phase unapproved-identity-refused elapsedMs=0
+native-peer-rotation-phase replacement-key-server-authentication-refusal elapsedMs=0
+native-peer-rotation-phase healthy-peer-transfer-propagation elapsedMs=396
+native-peer-rotation-phase head-agreement elapsedMs=276
+native-peer-rotation-stop elapsedMs=18
+native-peer-rotation-stop elapsedMs=17
+native-peer-rotation-phase process-ready elapsedMs=36
+native-peer-rotation-phase process-ready elapsedMs=35
+native-peer-rotation-phase head-agreement elapsedMs=471
+native-peer-rotation-phase reciprocal-membership elapsedMs=68
+native-peer-rotation-phase retired-key-authentication-failure elapsedMs=0
+native-peer-rotation-phase retired-key-authentication-failure elapsedMs=0
+native-peer-rotation-phase replacement-peer-transfer-propagation elapsedMs=444
+native-peer-rotation-phase head-agreement elapsedMs=448
+native-peer-rotation-phase reciprocal-membership elapsedMs=486
+native-peer-rotation-stop elapsedMs=16
+native-peer-rotation-stop elapsedMs=16
+native-peer-rotation-stop elapsedMs=16
+native-peer-rotation-result {"audit":{"accounting":{"balanceAtoms":"60000000000000","issuedAtoms":"60000000000000","lockedAtoms":"50000000000000","pendingRewardEntries":10,"spendableAtoms":"10000000000000","supplyCapAtoms":"100000000000000000"},"confirmedTransfers":{"amountAtoms":"200000000","count":2,"feeAtoms":"2000"},"genesisHash":"933a672120674efa9ec6205f344e1830febdec58b0ffcd2603ccc8a9723610c1","headHash":"000006c6b50e64fc92c8c5de8bd13f44a212110d2fd3270df7d303487649d769","height":"12","networkId":"boole-native-testnet-1","resources":{"balanceEntries":3,"confirmedTransfers":2,"historyBlocks":12,"historyBytes":10396,"historyLimitBlocks":100000,"historyLimitBytes":268435456,"nonceEntries":1,"pendingBytes":0,"pendingLimitBytes":5242880,"pendingLimitTransfers":512,"pendingTransfers":0},"schema":"boole.native.audit.v1","scope":"confirmed_canonical"},"closedOldConnection":true,"elapsedMs":6300,"explicitReenrollment":true,"head":"000006c6b50e64fc92c8c5de8bd13f44a212110d2fd3270df7d303487649d769","ownerPk":"6738a145e4568df7963726a3920ba15b79873afd1d59783a006bec94202cb89e","preservedOriginalKey":true,"replacementPeerId":"3f09627a6cc7a70faea30a64263e996cffcd460aee96892320858080e6950c77","retiredPeerId":"2ef8f75d1fbb7f9839a28208c859bf36b347faa2305db941edab6d8610200bd8"}
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.30s
+
+   Compiling boole-node v0.1.0 (/private/tmp/boole-r1-http-drain-worktree.kl1exv/crates/boole-node)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.39s
+     Running tests/native_capacity.rs (/Users/seoyong/projects/Boole/target/debug/deps/native_capacity-6f26ba504621f258)
+
+running 1 test
+test mixed::small_mixed_p2p_http_pressure_preserves_state_and_diagnostics ... mixed-network {"advertised":{"hash":"0000238874213f313ec8275b19912f2e9e9630a5481480e8dc3288e937507042","height":45},"diagnosticMaxMicros":440,"drained":{"authority":"local_process_only","ledgerReadiness":"not_checked","peers":{"acceptedConnections":4,"activeInboundWorkers":0,"activeOutboundRounds":0,"authenticatedConnections":4,"authenticationFailures":0,"completedInboundRounds":0,"enabled":true,"failedInboundRounds":4,"limits":{"handshakeTimeoutMs":2000,"inboundKeyCooldownMs":500,"maxHandshakesPerSecond":8,"maxInboundWorkers":4,"maxMessageBytes":1048576,"maxOutboundWorkers":8,"maxPeers":8,"maxRoundBlocks":256,"maxRoundBytes":8388608,"maxRoundRequests":64,"roundTimeoutMs":10000},"listenAddress":"127.0.0.1:64513","localPeerId":"7123b8762614eff919fae17b68ec1d1d7a357b70cb61f4e4ed93ea72099484ed","peakInboundWorkers":4,"peakOutboundRounds":8,"peers":[{"address":"127.0.0.1:64515","consecutiveFailures":1,"failedRounds":1,"lastFailureStage":"block_download","peerId":"9b0e4117c92abc3fb41b73199bb0e07a918f6a468c1fa2fca595e482af4d3c11","retryDelayMs":500,"state":"retrying","successfulRounds":0},{"address":"127.0.0.1:64516","consecutiveFailures":1,"failedRounds":1,"lastFailureStage":"block_download","peerId":"c29d1215729e0cbea8e555a1906503cbcca9b60d831627607f4c59491f4ad884","retryDelayMs":500,"state":"retrying","successfulRounds":0},{"address":"127.0.0.1:64517","consecutiveFailures":1,"failedRounds":1,"lastFailureStage":"block_download","peerId":"7bbd2ffa3590a19d44384d4bd8b2a44db3e129205dbd27b5484ebcc0de14d842","retryDelayMs":500,"state":"retrying","successfulRounds":0},{"address":"127.0.0.1:64518","consecutiveFailures":1,"failedRounds":1,"lastFailureStage":"block_download","peerId":"b3feff5c7e7ffe92dc30e5cb52bc4a32693ee28e396b6fa31fdf413638af250e","retryDelayMs":500,"state":"retrying","successfulRounds":0},{"address":"127.0.0.1:64519","consecutiveFailures":1,"failedRounds":1,"lastFailureStage":"block_download","peerId":"e0a55c86b5730af552dc9066e41080ff1795f34347bb3eb03261cc9341abd0a7","retryDelayMs":500,"state":"retrying","successfulRounds":0},{"address":"127.0.0.1:64520","consecutiveFailures":1,"failedRounds":1,"lastFailureStage":"block_download","peerId":"7e6c5a044eba486ce2be92cdd9c822dffaea77a89361bc904cfa534db7c0196c","retryDelayMs":500,"state":"retrying","successfulRounds":0},{"address":"127.0.0.1:64521","consecutiveFailures":1,"failedRounds":1,"lastFailureStage":"block_download","peerId":"a115a60f4ff8721859de43fcc9f56ace97dcfdce6d4c117da7c97e9d85c57ccf","retryDelayMs":500,"state":"retrying","successfulRounds":0},{"address":"127.0.0.1:64522","consecutiveFailures":1,"failedRounds":1,"lastFailureStage":"block_download","peerId":"2a6a57fdb29aea0c4b2a21977d55bce08b7cd0febc6c02ec3ddf9438358302f1","retryDelayMs":500,"state":"retrying","successfulRounds":0}],"rejectedConnections":1,"rejectedPeerRounds":0,"running":true},"rpc":{"activeDiagnostics":1,"activeRequests":0,"diagnosticLimit":2,"requestLimit":8},"schema":"boole.native.diagnostics.v1","stopping":false},"elapsedMs":21391,"finalSentBytesPerPeer":[9007936,9007936,9007936,9007936,9007936,9007936,9007936,9007936],"fundedBlocks":2,"httpBodyBytesSentPerClient":8388607,"localHead":"00009efa3c0a5376c32ed2818d39c89193e09180d72fbfe155a586df1f5f1887","networkMs":916,"overlap":{"authority":"local_process_only","ledgerReadiness":"not_checked","peers":{"acceptedConnections":4,"activeInboundWorkers":4,"activeOutboundRounds":8,"authenticatedConnections":4,"authenticationFailures":0,"completedInboundRounds":0,"enabled":true,"failedInboundRounds":0,"limits":{"handshakeTimeoutMs":2000,"inboundKeyCooldownMs":500,"maxHandshakesPerSecond":8,"maxInboundWorkers":4,"maxMessageBytes":1048576,"maxOutboundWorkers":8,"maxPeers":8,"maxRoundBlocks":256,"maxRoundBytes":8388608,"maxRoundRequests":64,"roundTimeoutMs":10000},"listenAddress":"127.0.0.1:64513","localPeerId":"7123b8762614eff919fae17b68ec1d1d7a357b70cb61f4e4ed93ea72099484ed","peakInboundWorkers":4,"peakOutboundRounds":8,"peers":[{"address":"127.0.0.1:64515","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"9b0e4117c92abc3fb41b73199bb0e07a918f6a468c1fa2fca595e482af4d3c11","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:64516","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"c29d1215729e0cbea8e555a1906503cbcca9b60d831627607f4c59491f4ad884","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:64517","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"7bbd2ffa3590a19d44384d4bd8b2a44db3e129205dbd27b5484ebcc0de14d842","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:64518","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"b3feff5c7e7ffe92dc30e5cb52bc4a32693ee28e396b6fa31fdf413638af250e","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:64519","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"e0a55c86b5730af552dc9066e41080ff1795f34347bb3eb03261cc9341abd0a7","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:64520","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"7e6c5a044eba486ce2be92cdd9c822dffaea77a89361bc904cfa534db7c0196c","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:64521","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"a115a60f4ff8721859de43fcc9f56ace97dcfdce6d4c117da7c97e9d85c57ccf","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:64522","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"2a6a57fdb29aea0c4b2a21977d55bce08b7cd0febc6c02ec3ddf9438358302f1","retryDelayMs":0,"state":"not_connected","successfulRounds":0}],"rejectedConnections":1,"rejectedPeerRounds":0,"running":true},"rpc":{"activeDiagnostics":1,"activeRequests":8,"diagnosticLimit":2,"requestLimit":8},"schema":"boole.native.diagnostics.v1","stopping":false},"partialBytesPerPeer":[8188312,8188312,8188312,8188312,8188312,8188312,8188312,8188312],"stopMicros":498}
+mixed-result {"elapsedMs":21800,"fundedBlocks":2,"genesisHash":"933a672120674efa9ec6205f344e1830febdec58b0ffcd2603ccc8a9723610c1","head":"00009efa3c0a5376c32ed2818d39c89193e09180d72fbfe155a586df1f5f1887","issued":"65000000000000","maxAppendMs":205,"maxCandidateAppendMs":180,"maxTemplateMs":172,"networkId":"boole-native-testnet-1","resources":{"balanceEntries":1025,"confirmedTransfers":1024,"historyBlocks":13,"historyBytes":552737,"historyLimitBlocks":100000,"historyLimitBytes":268435456,"nonceEntries":1,"pendingBytes":0,"pendingLimitBytes":5242880,"pendingLimitTransfers":512,"pendingTransfers":0},"restartMs":399}
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 21.80s
+```

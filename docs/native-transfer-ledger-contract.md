@@ -484,12 +484,25 @@ successful competing validation under mixed pressure or public availability.
 | Pending journal | 5 MiB; pre-read bound also applies during recovery |
 | RPC full-chain import | 8 MiB and 1,024 blocks; entire candidate validated before adoption |
 | Native request admission / deadline | 8 permits before body decode / 10 seconds; actual queued/running work retains its permit after caller timeout |
+| Native normal HTTP shutdown | At most 5 seconds of client-I/O drain, then actual socket closure; already admitted work still finishes under the mutation barrier; final state-reference cleanup has a separate 1-second error deadline |
 | Process-only diagnostics | 2 separate request permits, within the unchanged shared 128 TCP connections/header deadline; no ledger lock or state files |
 | Single CLI mining attempt | 1–10,000,000 hashes, then return; no unlimited loop |
 
 Full-map staged accounting and the manual full-chain RPC import remain bounded
 local prototypes. Automatic incremental peer synchronization is described below;
 production-scale storage and broader fault/abuse acceptance are not complete.
+
+The [native shutdown correction](native-http-shutdown-drain-2026-09.md) closes
+actual client sockets, not merely the outer server future. A completed native
+server releases its final state owner before success; a retained reference after
+the one-second cleanup window produces an explicit error, without deleting locks
+or forcing another owner out. One shutdown descriptor per connection is tracked
+within the existing 128-connection cap, so OS descriptor headroom still matters.
+Already admitted validation/durable work is not cancelled by a disconnected
+caller and can keep shutdown waiting longer than the HTTP drain limit. A truncated
+or absent response remains an unknown result requiring exact-ID reconciliation,
+not authorization for another payment or removal of a state lock. This does not
+qualify legacy-server cleanup or promise hard real-time CPU/disk preemption.
 
 ### Non-authoritative process diagnostics
 

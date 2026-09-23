@@ -13,7 +13,7 @@ use crate::p2p_ingress::{
     spawn_ingress_thread, spawn_sync_thread, P2pBootstrapReadiness, P2pConfig, P2pIdentity,
     P2pIngressRuntimeConfig, P2pMetrics,
 };
-use crate::p2p_lifecycle::P2pLifecycle;
+use crate::p2p_lifecycle::{P2pLifecycle, SocketLease};
 use crate::p2p_package_fetch::spawn_package_fetch_thread;
 use crate::proof_dedup_ledger::FileProofDedupLedger;
 use crate::receipt_store::FileReceiptStore;
@@ -1480,6 +1480,7 @@ impl Connected<IncomingStream<'_, BoundedHttpListener>> for HttpRemoteAddr {
 pub(crate) struct BoundedHttpListener {
     inner: TcpListener,
     permits: Arc<Semaphore>,
+    socket_lifecycle: Option<Arc<P2pLifecycle>>,
 }
 
 impl BoundedHttpListener {
@@ -1492,7 +1493,29 @@ impl BoundedHttpListener {
         Self {
             inner,
             permits: Arc::new(Semaphore::new(limit)),
+            socket_lifecycle: None,
         }
+    }
+
+    /// Retain a bounded shutdown handle for every accepted HTTP connection.
+    /// Ordinary listeners keep their existing behavior unless explicitly wired.
+    pub(crate) fn with_socket_lifecycle(mut self, lifecycle: Arc<P2pLifecycle>) -> Self {
+        self.socket_lifecycle = Some(lifecycle);
+        self
+    }
+
+    fn track_socket(
+        &self,
+        stream: tokio::net::TcpStream,
+    ) -> std::io::Result<(tokio::net::TcpStream, Option<SocketLease>)> {
+        let Some(lifecycle) = &self.socket_lifecycle else {
+            return Ok((stream, None));
+        };
+        // Conversion keeps nonblocking mode and avoids unsafe descriptor
+        // ownership. The registry's clone can shutdown the same live socket.
+        let standard = stream.into_std()?;
+        let lease = lifecycle.register(&standard)?;
+        Ok((tokio::net::TcpStream::from_std(standard)?, Some(lease)))
     }
 }
 
@@ -1510,11 +1533,21 @@ impl Listener for BoundedHttpListener {
                 .expect("HTTP connection semaphore remains open");
             match self.inner.accept().await {
                 Ok((stream, socket_addr)) => {
+                    let (stream, socket_lease) = match self.track_socket(stream) {
+                        Ok(tracked) => tracked,
+                        Err(error) => {
+                            drop(permit);
+                            eprintln!("boole-node: HTTP socket registration failed: {error}");
+                            tokio::time::sleep(Duration::from_millis(100)).await;
+                            continue;
+                        }
+                    };
                     let header_received = Arc::new(AtomicBool::new(false));
                     return (
                         HeaderTimedIo {
                             inner: stream,
                             _permit: permit,
+                            _socket_lease: socket_lease,
                             header_received: header_received.clone(),
                             deadline: Box::pin(tokio::time::sleep(HTTP_HEADER_TIMEOUT)),
                         },
@@ -1544,6 +1577,7 @@ impl Listener for BoundedHttpListener {
 pub(crate) struct HeaderTimedIo {
     inner: tokio::net::TcpStream,
     _permit: OwnedSemaphorePermit,
+    _socket_lease: Option<SocketLease>,
     header_received: Arc<AtomicBool>,
     deadline: Pin<Box<tokio::time::Sleep>>,
 }

@@ -201,10 +201,12 @@ impl Drop for Actor {
 }
 
 fn await_head(actors: &[&Actor], head: &str, height: u64) {
+    let expected_height = height.to_string();
     wait("head-agreement", || {
         actors.iter().all(|actor| {
             rpc(actor.rpc, "GET", "/native/info", Value::Null).is_some_and(|info| {
-                info["headHash"] == head && info["height"] == height.to_string()
+                info["headHash"] == head
+                    && info["height"].as_str() == Some(expected_height.as_str())
             })
         })
     });

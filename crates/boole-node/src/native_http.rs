@@ -1,5 +1,6 @@
 //! Closed-local, keyless native RPC. No public/untrusted transport claim.
 
+use std::future::IntoFuture;
 use std::net::{SocketAddr, TcpListener};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -17,7 +18,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore};
 
-use crate::local_node::{BoundedHttpListener, HttpRemoteAddr};
+use crate::local_node::{BoundedHttpListener, HttpRemoteAddr, HTTP_SHUTDOWN_DRAIN_TIMEOUT};
 use crate::native_node::NativeNode;
 use crate::p2p_lifecycle::P2pLifecycle;
 use crate::{NativePeerConfig, NativePeerMonitor, NativePeerService};
@@ -75,10 +76,12 @@ pub async fn serve(
 struct StopGuard {
     lifecycle: Arc<P2pLifecycle>,
     peers: Option<NativePeerService>,
+    http_connections: Arc<P2pLifecycle>,
 }
 
 impl Drop for StopGuard {
     fn drop(&mut self) {
+        self.http_connections.request_stop();
         self.lifecycle.stop();
         if let Some(peers) = &mut self.peers {
             peers.stop();
@@ -98,7 +101,9 @@ async fn serve_inner(
         "native RPC is closed-local only"
     );
     listener.set_nonblocking(true)?;
-    let listener = BoundedHttpListener::new(tokio::net::TcpListener::from_std(listener)?);
+    let http_connections = Arc::new(P2pLifecycle::new());
+    let listener = BoundedHttpListener::new(tokio::net::TcpListener::from_std(listener)?)
+        .with_socket_lifecycle(http_connections.clone());
     let node = Arc::new(Mutex::new(node));
     let lifecycle = Arc::new(P2pLifecycle::new());
     let peers = peers
@@ -115,9 +120,10 @@ async fn serve_inner(
     let guard = StopGuard {
         lifecycle: lifecycle.clone(),
         peers,
+        http_connections: http_connections.clone(),
     };
     let api = Api {
-        node,
+        node: node.clone(),
         workers: Arc::new(Semaphore::new(MAX_NATIVE_REQUESTS)),
         diagnostic_workers: Arc::new(Semaphore::new(MAX_NATIVE_DIAGNOSTICS)),
         authority,
@@ -125,6 +131,50 @@ async fn serve_inner(
         peers: peer_monitor,
     };
     let app = router(api);
+    let result = serve_http(listener, app, lifecycle, http_connections, shutdown).await;
+    // Timed-out or disconnected HTTP callers retain their mutation permit until
+    // their actual blocking work finishes. Client-I/O expiry never releases the
+    // state owner before this existing durable-mutation barrier is crossed.
+    tokio::task::spawn_blocking(move || drop(guard)).await?;
+    release_node_owner(node).await?;
+    result?;
+    Ok(())
+}
+
+async fn release_node_owner(mut owner: Arc<Mutex<NativeNode>>) -> anyhow::Result<()> {
+    // Connection completion can precede the final service-reference drop.
+    // Success must release the real file locks here, not on another task later.
+    // This is bounded cleanup after the existing mutation barrier, never a new
+    // indefinite wait or permission to force an active owner off its locks.
+    tokio::time::timeout(Duration::from_secs(1), async move {
+        loop {
+            match Arc::try_unwrap(owner) {
+                Ok(node) => {
+                    drop(node);
+                    return;
+                }
+                Err(retained) => owner = retained,
+            }
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .map_err(|_| {
+        anyhow::anyhow!(
+            "native shutdown retained state ownership; do not force a replacement owner"
+        )
+    })
+}
+
+async fn serve_http(
+    listener: BoundedHttpListener,
+    app: Router,
+    lifecycle: Arc<P2pLifecycle>,
+    http_connections: Arc<P2pLifecycle>,
+    shutdown: Arc<Notify>,
+) -> std::io::Result<()> {
+    let drain_started = Arc::new(Notify::new());
+    let signal_drain = drain_started.clone();
     let server = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<HttpRemoteAddr>(),
@@ -133,13 +183,26 @@ async fn serve_inner(
         shutdown.notified().await;
         // Close both network mutation boundaries before draining HTTP.
         lifecycle.request_stop();
-    });
-    let result = server.await;
-    // Timed-out HTTP requests retain their mutation permit until their actual
-    // blocking work finishes. State ownership is not released before this.
-    tokio::task::spawn_blocking(move || drop(guard)).await?;
-    result?;
-    Ok(())
+        signal_drain.notify_one();
+    })
+    .into_future();
+    tokio::pin!(server);
+    tokio::select! {
+        result = &mut server => result,
+        _ = drain_started.notified() => {
+            match tokio::time::timeout(HTTP_SHUTDOWN_DRAIN_TIMEOUT, &mut server).await {
+                Ok(result) => result,
+                Err(_) => {
+                    eprintln!("boole-node: native HTTP drain expired; closing remaining client sockets");
+                    // Axum owns independent connection tasks. Dropping only the
+                    // outer future would leave their I/O/state references alive.
+                    // Wake actual sockets, then wait for those tasks to finish.
+                    http_connections.request_stop();
+                    server.await
+                }
+            }
+        }
+    }
 }
 
 fn router(api: Api) -> Router {
@@ -488,6 +551,222 @@ mod tests {
         let mut response = String::new();
         socket.read_to_string(&mut response).unwrap();
         response
+    }
+
+    #[test]
+    fn shutdown_state_owner_cleanup_is_bounded_and_never_forces_a_retained_owner() {
+        let dir = crate::durability::PrivateTempDir::new_in(
+            &std::env::temp_dir(),
+            "boole-native-http-retained-owner",
+        )
+        .unwrap();
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let node = Arc::new(Mutex::new(NativeNode::open(dir.path()).unwrap()));
+        let retained = node.clone();
+        let history = std::fs::read(dir.path().join(crate::NATIVE_BLOCKS_FILE)).unwrap();
+        let manifest = std::fs::read(dir.path().join("state.manifest.json")).unwrap();
+        let started = Instant::now();
+        let error = runtime.block_on(release_node_owner(node)).unwrap_err();
+        let elapsed = started.elapsed();
+        assert!(error.to_string().contains("retained state ownership"));
+        assert!(
+            elapsed < Duration::from_secs(3),
+            "cleanup is not bounded: {elapsed:?}"
+        );
+        assert!(
+            NativeNode::open(dir.path()).is_err(),
+            "cleanup must not force another owner off its locks"
+        );
+        assert_eq!(
+            std::fs::read(dir.path().join(crate::NATIVE_BLOCKS_FILE)).unwrap(),
+            history
+        );
+        assert_eq!(
+            std::fs::read(dir.path().join("state.manifest.json")).unwrap(),
+            manifest
+        );
+        drop(retained);
+        let reopened = NativeNode::open(dir.path()).unwrap();
+        assert_eq!(reopened.chain().ledger().height(), 0);
+        runtime
+            .block_on(release_node_owner(Arc::new(Mutex::new(reopened))))
+            .unwrap();
+        assert_eq!(
+            NativeNode::open(dir.path())
+                .unwrap()
+                .chain()
+                .ledger()
+                .height(),
+            0
+        );
+        eprintln!(
+            "native-http-state-owner-timeout elapsedMs={} retainedLockPreserved=true",
+            elapsed.as_millis()
+        );
+    }
+
+    #[test]
+    fn shutdown_disconnects_clients_but_waits_for_an_already_admitted_block() {
+        let dir = crate::durability::PrivateTempDir::new_in(
+            &std::env::temp_dir(),
+            "boole-native-http-shutdown-admitted-block",
+        )
+        .unwrap();
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let address = listener.local_addr().unwrap();
+        let node = NativeNode::open(dir.path()).unwrap();
+        let owner = boole_core::SigningKeyV2::from_dev_id("native-http-shutdown-admitted-owner");
+        let block = node
+            .template(&owner.pk_hex(), &owner.pk_hex(), 60_000)
+            .unwrap()
+            .mine(0, 2_000_000)
+            .unwrap()
+            .unwrap();
+        let authorization = owner
+            .sign_for_network(
+                &block.authorization_payload().unwrap(),
+                Some(boole_core::native_network::native_testnet().network_id()),
+            )
+            .unwrap();
+        let block = block.authorize(&authorization).unwrap();
+        let api = Api {
+            node: Arc::new(Mutex::new(node)),
+            workers: Arc::new(Semaphore::new(MAX_NATIVE_REQUESTS)),
+            diagnostic_workers: Arc::new(Semaphore::new(MAX_NATIVE_DIAGNOSTICS)),
+            authority: address,
+            lifecycle: Arc::new(P2pLifecycle::new()),
+            peers: None,
+        };
+        let http_connections = Arc::new(P2pLifecycle::new());
+        let guard = StopGuard {
+            lifecycle: api.lifecycle.clone(),
+            peers: None,
+            http_connections: http_connections.clone(),
+        };
+        let final_owner = api.node.clone();
+        let lifecycle = api.lifecycle.clone();
+        let app = router(api.clone());
+        let stop = Arc::new(Notify::new());
+        let shutdown = stop.clone();
+        let mut server = runtime.spawn(async move {
+            let result = serve_http(
+                BoundedHttpListener::new(tokio::net::TcpListener::from_std(listener).unwrap())
+                    .with_socket_lifecycle(http_connections.clone()),
+                app,
+                lifecycle,
+                http_connections,
+                shutdown,
+            )
+            .await;
+            tokio::task::spawn_blocking(move || drop(guard))
+                .await
+                .unwrap();
+            release_node_owner(final_owner).await.unwrap();
+            result.unwrap();
+        });
+        // Hold the real node mutex, not a fake mutation. A test-only read of
+        // the existing lifecycle gate confirms the real HTTP work was admitted
+        // before requesting shutdown; no sleep guesses that ordering.
+        let held = api.node.lock().unwrap();
+        let mut clients = Vec::new();
+        let body = serde_json::to_string(&block).unwrap();
+        let mut block_client = TcpStream::connect(address).unwrap();
+        write!(block_client, "POST /native/blocks HTTP/1.1\r\nHost: {address}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+        clients.push(block_client);
+        let admitted_by = Instant::now() + Duration::from_secs(3);
+        while !api.lifecycle.has_active_mutation() {
+            assert!(
+                Instant::now() < admitted_by,
+                "actual block operation was not admitted"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        for _ in 1..MAX_NATIVE_REQUESTS {
+            let mut socket = TcpStream::connect(address).unwrap();
+            socket
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            write!(socket, "POST /native/chain HTTP/1.1\r\nHost: {address}\r\nContent-Type: application/json\r\nContent-Length: 8192\r\nExpect: 100-continue\r\nConnection: close\r\n\r\n").unwrap();
+            let mut headers = Vec::new();
+            while !headers.ends_with(b"\r\n\r\n") {
+                assert!(headers.len() < 8192);
+                let mut byte = [0];
+                socket.read_exact(&mut byte).unwrap();
+                headers.push(byte[0]);
+            }
+            assert!(String::from_utf8(headers)
+                .unwrap()
+                .starts_with("HTTP/1.1 100"));
+            socket.write_all(b"[").unwrap();
+            clients.push(socket);
+        }
+        assert_eq!(api.workers.available_permits(), 0);
+        let started = Instant::now();
+        stop.notify_one();
+        let completion = runtime
+            .block_on(async { tokio::time::timeout(Duration::from_secs(6), &mut server).await });
+        let waited_for_mutation = completion.is_err();
+        let mut closed_clients = 0;
+        for socket in &mut clients {
+            socket
+                .set_read_timeout(Some(Duration::from_secs(1)))
+                .unwrap();
+            let mut response = Vec::new();
+            match socket.read_to_end(&mut response) {
+                Ok(_) => closed_clients += 1,
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::BrokenPipe
+                    ) =>
+                {
+                    closed_clients += 1
+                }
+                Err(_) => {}
+            }
+        }
+        let mutation_still_admitted = api.lifecycle.has_active_mutation();
+        let original_height = held.chain().ledger().height();
+        let original_locked = NativeNode::open(dir.path()).is_err();
+        let remaining_permits = api.workers.available_permits();
+        // Always release the injected delay and fixture references before any
+        // outcome assertion, so RED cannot strand the real mutation barrier.
+        drop(clients);
+        drop(held);
+        drop(api);
+        if let Ok(result) = completion {
+            result.unwrap();
+        } else {
+            runtime.block_on(async {
+                tokio::time::timeout(Duration::from_secs(5), &mut server)
+                    .await
+                    .expect("admitted block completes after release")
+                    .unwrap();
+            });
+        }
+        let mut reopened = NativeNode::open(dir.path()).unwrap();
+        assert!(waited_for_mutation && mutation_still_admitted && original_locked);
+        assert_eq!(original_height, 0);
+        assert_eq!(closed_clients, 8);
+        assert_eq!(
+            remaining_permits, 7,
+            "only the admitted block keeps its request slot"
+        );
+        assert_eq!(reopened.chain().head_hash(), block.hash().unwrap());
+        assert_eq!(reopened.chain().ledger().height(), 1);
+        assert_eq!(
+            reopened.chain().ledger().issued(),
+            50_000 * boole_core::native_network::NATIVE_COIN_UNIT
+        );
+        assert_eq!(reopened.resource_usage().unwrap().history_blocks, 1);
+        assert!(
+            !reopened.submit_block(block).unwrap(),
+            "same block cannot issue twice"
+        );
+        assert_eq!(reopened.chain().ledger().height(), 1);
+        eprintln!("native-http-shutdown-mutation elapsedMs={} closedClients={closed_clients} admittedBlockPreserved=true", started.elapsed().as_millis());
     }
 
     #[test]

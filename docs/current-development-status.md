@@ -177,6 +177,14 @@ retaining the same slot through actual node work even after a caller timeout.
 Raw slow-upload and delayed-mutation tests cover early 429, slot return and
 one durable block/reward after eight timed-out duplicate submissions. This bounds
 admission, not total memory or guaranteed read availability under saturation.
+Normal native shutdown now gives HTTP client I/O up to five seconds to drain,
+then closes actual sockets while preserving already admitted durable work. A
+one-second final-owner cleanup reports an explicit error instead of claiming
+success if state references remain; it never forces an old owner off its locks.
+Actual partial-body/unread-response, immediate-reopen, retained-owner timeout
+and admitted-block regressions pass. See the
+[shutdown correction and retained failures](native-http-shutdown-drain-2026-09.md).
+This is not CPU/disk preemption or a universal five-second process-stop promise.
 `native diagnostics` now uses two separate small observation slots and no ledger
 lock/readiness check. It explicitly reports `ledgerReadiness=not_checked`, bounded
 RPC occupancy, shutdown state and the peer monitor without exposing ledger data
