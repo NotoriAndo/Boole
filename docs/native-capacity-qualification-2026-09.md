@@ -1,6 +1,6 @@
 # Native state capacity qualification — 2026-09-23
 
-Status: **PASS — bounded scenario on the recorded developer Mac; retry 1.** This is a disposable closed-local
+Status: **PASS — initial retry 1 and the recorded new-product follow-up.** This is a disposable closed-local
 engineering scenario, not a public benchmark or an operational wallet run.
 The existing [native contract](native-transfer-ledger-contract.md) and monetary,
 signature, replay, file-ownership and publication rules remain unchanged.
@@ -157,3 +157,58 @@ independently operated wallets or a representative random-workload benchmark.
 The 53-second full replay remains a real operational cost; no maximum-history,
 large-fork, concurrency/attack, other-hardware or public-network qualification is
 claimed. No history or memory limit was raised to obtain this result.
+
+### Follow-up after recent-fork implementation — PASS, new product source
+
+The [recent-fork implementation and separate qualification](native-recent-fork-qualification-2026-09.md)
+added a bounded inverse cache and removed an unnecessary full-ledger preparation
+copy. Because those changes affect memory and replay, the original capacity
+scenario was run again with **all original criteria unchanged**. This is a new
+product verification, not another infrastructure retry of the initial source.
+
+Executed source `4bf45f494690af41e4c8bad5db0fd5e64a3ac3bf`, tree
+`5c268c4799e1aafc325631c6d514289e50f976ea`; exact debug executable SHA-256
+`86a6053d275b2cf742c8f485f4f1f2e7f06441fafd78728563492c60c4b8240a` was checked
+before invoking the original command. Same developer Mac, one test thread and
+no other local compile/test load intentionally scheduled; approximately
+07:48–07:52 UTC. No threshold, network rule or history limit changed.
+
+Unmodified result object:
+
+```json
+{"confirmedHead":"0000da6a4a5bd3939b76de746634716bc105be8aa6fb813ab4a4586ecbc17dee","elapsedMs":265743,"fundedBlocks":256,"fundedHead":"00009943584cb04f821a9cc0675de0f42b80de834a700e6d4b7ce92d10624b0a","genesisHash":"933a672120674efa9ec6205f344e1830febdec58b0ffcd2603ccc8a9723610c1","issued":"1335000000000000","lookup100Micros":2895,"maxAppendMs":252,"maxTemplateMs":202,"networkId":"boole-native-testnet-1","pendingAdmissionMs":3317,"resources":{"balanceEntries":131073,"confirmedTransfers":131584,"historyBlocks":267,"historyBytes":70231145,"historyLimitBlocks":100000,"historyLimitBytes":268435456,"nonceEntries":1,"pendingBytes":0,"pendingLimitBytes":5242880,"pendingLimitTransfers":512,"pendingTransfers":0},"restartConfirmedMs":52068,"restartPendingMs":52086,"transfersPerBlock":512}
+```
+
+OS output:
+
+```text
+265.78 real       261.56 user         0.89 sys
+305889280 maximum resident set size
+0 average shared memory size
+0 average unshared data size
+0 average unshared stack size
+23782 page reclaims
+0 page faults
+0 swaps
+0 block input operations
+0 block output operations
+0 messages sent
+0 messages received
+0 signals received
+3275 voluntary context switches
+2234 involuntary context switches
+4079241023579 instructions retired
+1121652781626 cycles elapsed
+178766424 peak memory footprint
+exit: 0
+```
+
+The funded/final heads, genesis, supply, account/index counts and journal bytes
+match the original scenario exactly. All original bounds passed: 265.743s total,
+202/252ms maximum template/append, 3.317s admission, 2.895ms for 100 reads,
+52.086/52.068s reopens, 70,231,145 history bytes and 305,889,280 bytes maximum RSS
+(291.71875MiB). The temporary state was cleaned normally. This one workload's
+lower RSS is not a general memory-reduction guarantee: the separate fork scenario
+uses additional simultaneous candidate copies and measured 551.0625MiB. The
+full-history/copying, maximum-capacity, concurrency and public-operation limits
+described above still apply.

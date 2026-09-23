@@ -142,10 +142,13 @@ fork; stop the node and preserve its state for the documented recovery path.
 This endpoint reports storage usage, not process RSS or a latency guarantee.
 The [preregistered developer-Mac capacity scenario](native-capacity-qualification-2026-09.md)
 passes its 131,073-balance-entry / ~67MiB journal envelope, including a full queue
-and two reopens. Maximum RSS was 327.125MiB; full replay took about 53 seconds.
+and two reopens. The initial code measured 327.125MiB maximum RSS and about 53s
+full replay; the recent-fork source was requalified under identical criteria at
+291.71875MiB and about 52s. These are source-specific samples, not an RSS guarantee.
 The record preserves the initially blocked OS measurement and the identical-code
 infrastructure retry. This is not qualification of the full history cap, large
-forks, untrusted concurrent traffic or other hardware.
+forks, untrusted concurrent traffic or other hardware; recent small-fork results
+are recorded separately below.
 
 ### Pending-state resource and publication boundary
 
@@ -208,7 +211,9 @@ exceeds 256 blocks or the required local inverse is unavailable.
 
 The [recent-fork qualification](native-recent-fork-qualification-2026-09.md)
 preserves the previous full-prefix replay failure at 58.049s against a fixed 10s
-adoption bound. Corrected large-state measurements are still pending. Prefix
+adoption bound. The corrected developer-Mac attempt passed at 3.251s, with
+51.869s independent restart and 551.0625MiB peak RSS. The baseline peak RSS was
+480.203125MiB, so this speedup does not claim a memory reduction. Prefix
 history cloning, canonical-map copying, journal replacement and startup remain
 linear costs; this is not a hard CPU deadline or constant-memory reorganization.
 
