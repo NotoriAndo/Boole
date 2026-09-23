@@ -6,6 +6,14 @@ own result record. Local Master/Execution documents link here instead of owning
 a second current cursor. Work methods follow the
 [development policy](development-throughput-and-evidence-policy-v1.md).
 
+**Publication state:** main is recorded at `9be7cb0` through secure peers and
+encrypted wallet recovery. The additional recovery/resource/diagnostic/storage
+hardening below is prepared on local branch `codex/native-r1-hardening-integration`,
+not pushed, CI-qualified, merged or released. Original measurement commits are
+preserved; the initial main-based rebase was verified byte-identical. See the
+[local integration handoff and three safety holds](native-r1-local-hardening-handoff-2026-09.md).
+R1 remains incomplete, R2 not passed and R3 not started.
+
 ## Current boundary
 
 **R1: the 1-billion-cap native test-coin path and secure local peers are connected.**
