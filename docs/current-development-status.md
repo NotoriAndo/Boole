@@ -78,8 +78,13 @@ shutdown and concurrent duplicate-transfer pulls. A subsequent
 [eight-peer resource qualification](native-peer-resource-qualification-2026-09.md)
 passed 131,073 canonical balances plus eight simultaneous incomplete fork buffers
 at 551.90625MiB process RSS, with budget rejection, unchanged journals/accounting
-and 51.784s restart. Shared state/disk contention and concurrent successful
-adoptions remain unqualified. All non-loopback
+and 51.784s restart. A subsequent
+[same-candidate convergence qualification](native-peer-convergence-qualification-2026-09.md)
+passed with all eight peers simultaneously holding fifteen blocks before final
+release: one 16-block adoption, seven stale-snapshot retries, no duplicate
+accounting and all peers matching within 8.292s at 544.6875MiB peak RSS. Full
+independent replay took 55.040s. Distinct competing forks, mixed traffic and
+worst-case shared-lock read latency remain unqualified. All non-loopback
 listeners/endpoints are still refused; an explicit exposure option is not implemented.
 Each outgoing worker also remembers at most one fully verified losing fork for
 the exact unchanged local/remote heads, avoiding repeated suffix downloads and

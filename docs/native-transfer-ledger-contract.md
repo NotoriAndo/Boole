@@ -645,6 +645,16 @@ fork downloads at 551.90625MiB process peak RSS, including local TLS fixtures.
 The oversized candidates were all refused, journals/accounting were preserved,
 and independent restart took 51.784s. This is not qualification of concurrent
 successful adoptions or arbitrary inbound/outbound traffic mixes.
+A separate [same-candidate convergence scenario](native-peer-convergence-qualification-2026-09.md)
+then passed on the same large canonical state: eight peers simultaneously held
+fifteen blocks, released the final page together, and converged to the same
+16-block winning candidate within 8.292s. Exactly one initial round completed;
+seven stale-local-snapshot rounds retried without further block downloads.
+All 8,192 added transfers, supply and nonce were reflected once, and independent
+55.040s replay matched the adopted journals/accounting. Process peak RSS was
+544.6875MiB including the eight fixtures. This does not qualify eight distinct
+competing adoptions or worst-case read latency: its immediate post-release
+queries were not forced to wait behind the long validation/publication lock.
 The focused loopback isolation test failed at its fixed two-second
 healthy-peer progress limit with the serial worker; the changed implementation
 passed (0.14s total test time on the developer Mac). Eight authenticated stalled
