@@ -104,6 +104,13 @@ failed rounds and at least three observed candidate adoptions are part of the
 result, not hidden by the final success. Continuously changing candidates, mixed
 traffic and worst-case shared-lock read latency remain unqualified. All non-loopback
 listeners/endpoints are still refused; an explicit exposure option is not implemented.
+Peer round state-lock waits now observe shutdown and the existing ten-second
+round deadline. Real pinned-TLS regression tests reproduce/fix an authenticated
+wait that previously held shutdown, and cover inbound waits plus queued block,
+fork and pending-transfer cancellation with unchanged independent replay. Actual
+running validation/publication still finishes under the existing mutation gate;
+this is not CPU/disk preemption or a universal shutdown-time promise. See the
+[bounded wait evidence and requalification status](native-peer-lock-wait-2026-09.md).
 Each outgoing worker also remembers at most one fully verified losing fork for
 the exact unchanged local/remote heads, avoiding repeated suffix downloads and
 revalidation. Head changes/restart invalidate that memory; malformed candidates

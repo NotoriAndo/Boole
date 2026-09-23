@@ -683,7 +683,7 @@ periodic pull, not instantaneous broadcast or a finality guarantee.
 | Native message / round plaintext bytes | 1MiB / 8MiB, counting both directions |
 | Round / range | 64 requests, 256 downloaded blocks; page at most 16 blocks |
 | Pending snapshot | 512 transfers; page at most 128 |
-| Round I/O deadline | 10 seconds from completed authentication; not a hard real-time disk/CPU preemption guarantee |
+| Round I/O and state-lock wait deadline | 10 seconds from completed authentication; not a hard real-time disk/CPU preemption guarantee |
 | Outbound retry | 500ms on success; exponential 500ms–30s after consecutive failures |
 
 Outbound scheduling is independent per fixed peer. An authenticated peer that
@@ -737,6 +737,17 @@ work; sockets are registered before handshake so shutdown interrupts stalled
 I/O. Shutdown closes admission, waits for actual in-flight mutation completion
 and joins workers before releasing state ownership. A timed-out RPC or network
 caller cannot release a still-running mutation's permit.
+
+Native peer round waits for the shared ledger mutex also observe that existing
+deadline and the lifecycle stop signal. A bounded five-millisecond retry wait is
+woken by shutdown; checks before and after acquisition prevent expired/stopped
+waiters from starting state work. Readiness, snapshot and cryptographic checks
+remain in place. Actual validation/publication is not preempted, and its existing
+mutation permit still keeps shutdown waiting until completion. Startup readiness
+and HTTP operation lifetimes are unchanged. Real pinned-TLS tests cover incoming
+and outgoing hello waits, deadline expiry, and cancellation of queued extension,
+fork and pending mutations with unchanged independent replay. See the
+[diagnosis, evidence and limits](native-peer-lock-wait-2026-09.md).
 
 `GET /native/peers` and `boole native peers` report the fixed configured identities,
 last outbound state, retry counts/delay, active/peak inbound workers and aggregate

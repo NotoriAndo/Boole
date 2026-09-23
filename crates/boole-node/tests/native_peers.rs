@@ -86,6 +86,323 @@ fn start_pair(
 }
 
 #[test]
+fn stop_cancels_authenticated_outbound_wait_for_local_state_lock() {
+    check_authenticated_outbound_state_lock_wait(false);
+}
+
+#[test]
+fn authenticated_outbound_state_lock_wait_obeys_the_existing_round_deadline() {
+    check_authenticated_outbound_state_lock_wait(true);
+}
+
+fn check_authenticated_outbound_state_lock_wait(wait_for_expiration: bool) {
+    let dir = TestDir::new();
+    let node = dir.node();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let local_address = listener.local_addr().unwrap();
+    let remote_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let remote_address = remote_listener.local_addr().unwrap();
+    let local_key = identity();
+    let remote_key = identity();
+    let remote_id = remote_key.peer_id();
+    let transport =
+        TlsTransport::new(remote_key, vec![(local_address, local_key.peer_id())]).unwrap();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let (waiting_tx, waiting_rx) = std::sync::mpsc::channel();
+    let remote = std::thread::spawn(move || {
+        let (socket, _) = remote_listener.accept().unwrap();
+        release_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+        let mut connection = transport
+            .accept_stream_until(socket, Instant::now() + Duration::from_secs(2))
+            .unwrap();
+        // The authenticated client cannot create its hello while the real
+        // ledger mutex is held. Keep TLS open after observing that wait.
+        assert!(transport
+            .recv_json_counted_until::<serde_json::Value>(
+                &mut connection,
+                4096,
+                Instant::now() + Duration::from_millis(100),
+            )
+            .is_err());
+        waiting_tx.send(()).unwrap();
+        let _ = transport.recv_json_counted_until::<serde_json::Value>(
+            &mut connection,
+            4096,
+            Instant::now() + Duration::from_secs(15),
+        );
+    });
+    let mut service = NativePeerService::start(
+        listener,
+        node.clone(),
+        NativePeerConfig {
+            identity: local_key,
+            peers: vec![(remote_address, remote_id)],
+        },
+    )
+    .unwrap();
+    let monitor = service.monitor();
+    let guard = node.lock().unwrap();
+    release_tx.send(()).unwrap();
+    waiting_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+    assert_eq!(monitor.snapshot().peers[0].failed_rounds, 0);
+    let expired_while_locked = if wait_for_expiration {
+        let deadline = Instant::now() + Duration::from_secs(11);
+        while service.status()[0].failed_rounds == 0 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let status = &service.status()[0];
+        status.failed_rounds > 0 && status.last_failure_stage == Some("local_state")
+    } else {
+        true
+    };
+    let (stopped_tx, stopped_rx) = std::sync::mpsc::channel();
+    let stopper = std::thread::spawn(move || {
+        service.stop();
+        stopped_tx.send(()).unwrap();
+    });
+    let stopped_while_locked = stopped_rx.recv_timeout(Duration::from_secs(1)).is_ok();
+    // Always release and join before asserting, including the pre-fix failure.
+    drop(guard);
+    stopper.join().unwrap();
+    remote.join().unwrap();
+    assert!(
+        expired_while_locked,
+        "peer round deadline did not bound the ledger lock wait"
+    );
+    assert!(
+        stopped_while_locked,
+        "peer shutdown waited for an unrelated ledger lock holder"
+    );
+    assert_eq!(monitor.snapshot().active_outbound_rounds, 0);
+    assert_eq!(node.lock().unwrap().chain().ledger().height(), 0);
+}
+
+#[test]
+fn stop_cancels_authenticated_inbound_wait_for_local_state_lock() {
+    let dir = TestDir::new();
+    let node = dir.node();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let local_address = listener.local_addr().unwrap();
+    let remote_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let remote_address = remote_listener.local_addr().unwrap();
+    let local_key = identity();
+    let remote_key = identity();
+    let remote_id = remote_key.peer_id();
+    let transport =
+        TlsTransport::new(remote_key, vec![(local_address, local_key.peer_id())]).unwrap();
+    let mut service = NativePeerService::start(
+        listener,
+        node.clone(),
+        NativePeerConfig {
+            identity: local_key,
+            peers: vec![(remote_address, remote_id)],
+        },
+    )
+    .unwrap();
+    let monitor = service.monitor();
+    let mut connection = transport.connect(&local_address).unwrap();
+    let guard = node.lock().unwrap();
+    transport
+        .send_json_counted_until(
+            &mut connection,
+            &wire_hello(),
+            4096,
+            Instant::now() + Duration::from_secs(1),
+        )
+        .unwrap();
+    assert!(transport
+        .recv_json_counted_until::<serde_json::Value>(
+            &mut connection,
+            4096,
+            Instant::now() + Duration::from_millis(100),
+        )
+        .is_err());
+    assert_eq!(monitor.snapshot().failed_inbound_rounds, 0);
+    let (stopped_tx, stopped_rx) = std::sync::mpsc::channel();
+    let stopper = std::thread::spawn(move || {
+        service.stop();
+        stopped_tx.send(()).unwrap();
+    });
+    let stopped_while_locked = stopped_rx.recv_timeout(Duration::from_secs(1)).is_ok();
+    drop(guard);
+    stopper.join().unwrap();
+    assert!(
+        stopped_while_locked,
+        "inbound shutdown waited for the ledger lock"
+    );
+    let after = monitor.snapshot();
+    assert_eq!(after.active_inbound_workers, 0);
+    assert_eq!(after.active_outbound_rounds, 0);
+    assert_eq!(node.lock().unwrap().chain().ledger().height(), 0);
+}
+
+#[test]
+fn stop_cancels_queued_block_fork_and_pending_mutations_without_publishing_them() {
+    for kind in ["extension", "fork", "pending"] {
+        let dir = TestDir::new();
+        let remote_dir = TestDir::new();
+        let node = dir.node();
+        let remote_node = remote_dir.node();
+        let owner = SigningKeyV2::from_dev_id("native-queued-mutation-owner");
+        mine(&node, &owner, &owner.pk_hex(), 10);
+        for block in node.lock().unwrap().chain().blocks() {
+            remote_node
+                .lock()
+                .unwrap()
+                .submit_block(block.clone())
+                .unwrap();
+        }
+        if kind == "fork" {
+            let local_miner = SigningKeyV2::from_dev_id("native-queued-fork-local");
+            mine(&node, &local_miner, &owner.pk_hex(), 1);
+        }
+        if kind != "pending" {
+            mine(
+                &remote_node,
+                &owner,
+                &owner.pk_hex(),
+                if kind == "fork" { 2 } else { 1 },
+            );
+        }
+        let transfer = NativeTransfer::try_from(
+            &owner
+                .sign_for_network(
+                    &serde_json::json!({
+                        "schema": "boole.transfer.v1", "from": owner.pk_hex(), "to": owner.pk_hex(),
+                        "amount": "1", "fee": "1000", "nonce": "0", "validBefore": "100"
+                    }),
+                    Some(native_testnet().network_id()),
+                )
+                .unwrap(),
+        )
+        .unwrap();
+        let chain = remote_node.lock().unwrap().chain().clone();
+        let expected = node.lock().unwrap().chain().clone();
+        let local = TcpListener::bind("127.0.0.1:0").unwrap();
+        let remote = TcpListener::bind("127.0.0.1:0").unwrap();
+        let remote_address = remote.local_addr().unwrap();
+        let local_key = identity();
+        let remote_key = identity();
+        let remote_id = remote_key.peer_id();
+        let transport = TlsTransport::new(
+            remote_key,
+            vec![(local.local_addr().unwrap(), local_key.peer_id())],
+        )
+        .unwrap();
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let (waiting_tx, waiting_rx) = std::sync::mpsc::channel();
+        let fixture = std::thread::spawn(move || {
+            let (socket, _) = remote.accept().unwrap();
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let mut connection = transport.accept_stream_until(socket, deadline).unwrap();
+            let (hello, _): (serde_json::Value, _) = transport
+                .recv_json_counted_until(&mut connection, 4096, deadline)
+                .unwrap();
+            assert_eq!(hello["type"], "hello");
+            let snapshot = serde_json::json!({"height": chain.ledger().height(), "hash": chain.head_hash().to_hex()});
+            let mut greeting = wire_hello();
+            greeting["head"] = snapshot.clone();
+            transport
+                .send_json_counted_until(&mut connection, &greeting, 4096, deadline)
+                .unwrap();
+            loop {
+                let (request, _): (serde_json::Value, _) = transport
+                    .recv_json_counted_until(&mut connection, 4096, deadline)
+                    .unwrap();
+                let response = match request["type"].as_str().unwrap() {
+                    "getHash" => {
+                        let height = request["height"].as_u64().unwrap();
+                        let hash = if height == 0 {
+                            native_testnet().genesis_hash()
+                        } else {
+                            chain.blocks()[height as usize - 1].hash().unwrap()
+                        };
+                        serde_json::json!({"type": "hash", "snapshot": snapshot, "height": height, "hash": hash.to_hex()})
+                    }
+                    "getBlocks" => {
+                        let from = request["from"].as_u64().unwrap() as usize;
+                        serde_json::json!({"type": "blocks", "snapshot": snapshot, "from": from, "blocks": &chain.blocks()[from - 1..]})
+                    }
+                    "getPending" => {
+                        serde_json::json!({"type": "pending", "snapshot": snapshot, "offset": 0, "total": 1, "transfers": [transfer]})
+                    }
+                    other => panic!("unexpected queued mutation request: {other}"),
+                };
+                let final_data = request["type"] != "getHash";
+                if final_data {
+                    ready_tx.send(()).unwrap();
+                    release_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+                }
+                transport
+                    .send_json_counted_until(&mut connection, &response, 1024 * 1024, deadline)
+                    .unwrap();
+                if final_data {
+                    assert!(transport
+                        .recv_json_counted_until::<serde_json::Value>(
+                            &mut connection,
+                            4096,
+                            Instant::now() + Duration::from_millis(100)
+                        )
+                        .is_err());
+                    waiting_tx.send(()).unwrap();
+                    let _ = transport.recv_json_counted_until::<serde_json::Value>(
+                        &mut connection,
+                        4096,
+                        deadline,
+                    );
+                    break;
+                }
+            }
+        });
+        let mut service = NativePeerService::start(
+            local,
+            node.clone(),
+            NativePeerConfig {
+                identity: local_key,
+                peers: vec![(remote_address, remote_id)],
+            },
+        )
+        .unwrap();
+        let monitor = service.monitor();
+        ready_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+        let guard = node.lock().unwrap();
+        release_tx.send(()).unwrap();
+        waiting_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+        assert_eq!(monitor.snapshot().peers[0].failed_rounds, 0);
+        let (stopped_tx, stopped_rx) = std::sync::mpsc::channel();
+        let stopper = std::thread::spawn(move || {
+            service.stop();
+            stopped_tx.send(()).unwrap();
+        });
+        let stopped_while_locked = stopped_rx.recv_timeout(Duration::from_secs(1)).is_ok();
+        drop(guard);
+        stopper.join().unwrap();
+        fixture.join().unwrap();
+        assert!(
+            stopped_while_locked,
+            "queued {kind} held the shutdown mutation barrier"
+        );
+        let status = monitor.snapshot();
+        assert_eq!(status.active_outbound_rounds, 0);
+        assert_eq!(
+            status.peers[0].last_failure_stage,
+            Some(match kind {
+                "extension" => "block_apply",
+                "fork" => "fork_apply",
+                _ => "pending_admission",
+            })
+        );
+        assert_eq!(node.lock().unwrap().chain(), &expected);
+        assert!(node.lock().unwrap().pending().is_empty());
+        drop(node);
+        let reopened = NativeNode::open(&dir.0).unwrap();
+        assert_eq!(reopened.chain(), &expected);
+        assert!(reopened.pending().is_empty());
+    }
+}
+
+#[test]
 fn outbound_connection_failure_exposes_a_bounded_diagnostic_stage() {
     let dir = TestDir::new();
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();

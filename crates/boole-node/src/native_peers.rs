@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::net::{SocketAddr, TcpListener, TcpStream};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -451,6 +451,32 @@ struct Round<'a> {
 }
 
 impl<'a> Round<'a> {
+    fn lock_node(&self) -> anyhow::Result<MutexGuard<'a, NativeNode>> {
+        loop {
+            anyhow::ensure!(!self.shared.lifecycle.is_stopped(), "native peer stopped");
+            anyhow::ensure!(Instant::now() < self.deadline, "native peer round expired");
+            match self.shared.node.try_lock() {
+                Ok(node) => {
+                    // Recheck after acquisition. Only waiting is cancellable;
+                    // an admitted validation/write retains its mutation permit
+                    // and runs to completion under the existing shutdown gate.
+                    anyhow::ensure!(!self.shared.lifecycle.is_stopped(), "native peer stopped");
+                    anyhow::ensure!(Instant::now() < self.deadline, "native peer round expired");
+                    return Ok(node);
+                }
+                Err(TryLockError::Poisoned(_)) => {
+                    anyhow::bail!("native state lock poisoned");
+                }
+                Err(TryLockError::WouldBlock) => {
+                    let remaining = self.deadline.saturating_duration_since(Instant::now());
+                    self.shared
+                        .lifecycle
+                        .wait_or_stop(remaining.min(Duration::from_millis(5)));
+                }
+            }
+        }
+    }
+
     fn send(&mut self, message: &Message) -> anyhow::Result<()> {
         let cap = MAX_NATIVE_PEER_MESSAGE_BYTES.min(MAX_NATIVE_PEER_ROUND_BYTES - self.bytes);
         self.bytes += self.shared.transport.send_json_counted_until(
@@ -679,7 +705,7 @@ fn serve_round(shared: &Shared, socket: TcpStream) -> anyhow::Result<()> {
     };
     remote_head(round.recv()?)?;
     let (greeting, advertised) = {
-        let node = lock_node(&shared.node)?;
+        let node = round.lock_node()?;
         node.ensure_ready()?;
         (hello(&node), head(node.chain()))
     };
@@ -691,7 +717,7 @@ fn serve_round(shared: &Shared, socket: TcpStream) -> anyhow::Result<()> {
             return Ok(());
         }
         let response = {
-            let node = lock_node(&shared.node)?;
+            let node = round.lock_node()?;
             node.ensure_ready()?;
             match request {
                 Message::GetHash { snapshot, height } => {
@@ -807,7 +833,7 @@ fn synchronize(
     };
     *stage = "local_state";
     let (greeting, original, earliest_recent_fork) = {
-        let node = lock_node(&shared.node)?;
+        let node = round.lock_node()?;
         node.ensure_ready()?;
         (
             hello(&node),
@@ -825,7 +851,7 @@ fn synchronize(
         // A cached preference must not mask either change in readiness/state.
         {
             *stage = "local_state";
-            let node = lock_node(&shared.node)?;
+            let node = round.lock_node()?;
             node.ensure_ready()?;
             *stage = "local_snapshot";
             anyhow::ensure!(
@@ -852,7 +878,7 @@ fn synchronize(
         *stage = "hash_sync";
         let remote_hash = get_hash(&mut round, &remote, height)?;
         *stage = "local_state";
-        let node = lock_node(&shared.node)?;
+        let node = round.lock_node()?;
         *stage = "local_snapshot";
         anyhow::ensure!(
             head(node.chain()) == original,
@@ -908,7 +934,7 @@ fn synchronize(
                     .lifecycle
                     .begin_mutation()
                     .ok_or_else(|| anyhow::anyhow!("native peer stopped"))?;
-                let mut node = lock_node(&shared.node)?;
+                let mut node = round.lock_node()?;
                 *stage = "local_snapshot";
                 anyhow::ensure!(
                     head(node.chain()) == current,
@@ -934,7 +960,7 @@ fn synchronize(
             .lifecycle
             .begin_mutation()
             .ok_or_else(|| anyhow::anyhow!("native peer stopped"))?;
-        let mut node = lock_node(&shared.node)?;
+        let mut node = round.lock_node()?;
         *stage = "local_snapshot";
         anyhow::ensure!(
             head(node.chain()) == original,
@@ -1016,7 +1042,7 @@ fn synchronize_pending(
                 .lifecycle
                 .begin_mutation()
                 .ok_or_else(|| anyhow::anyhow!("native peer stopped"))?;
-            let mut node = lock_node(&round.shared.node)?;
+            let mut node = round.lock_node()?;
             *stage = "local_snapshot";
             anyhow::ensure!(
                 head(node.chain()) == *snapshot,
