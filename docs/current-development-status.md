@@ -104,7 +104,8 @@ signature without another debit, then explicitly sent/confirmed the next nonce
 and independently audited it while preserving the original state and outbox.
 This is prepared closed-local recovery evidence, not operational custody or R2.
 Public/untrusted participation still needs the remaining operational acceptance,
-public RPC scope and R2/R3 release/launch decisions.
+approved public P2P and R2/R3 release/launch decisions. Initial RPC is operator-local;
+public RPC is excluded, not an unfinished mandatory feature.
 Existing v3 data and verification rules remain unchanged; R1 is not complete.
 
 The [native launch-readiness checklist](native-testnet-readiness.md) now separates
@@ -258,7 +259,7 @@ proceed alongside it without making all of R1 one oversized change.
 
 | ID | Boundary / completion evidence | Dependency and current state |
 |---|---|---|
-| R1 | Native transfer and launch-critical product/security/operations: signed network-bound transfers, debit/fee/nonce state, block/replay/reorg integration, wallet safety/recovery for the selected testnet UX, secure public P2P/RPC, resource limits and operator recovery/observability. Pin test-only monetary parameters and experiment criteria before running the new network. | **In progress, incomplete.** Native issuance/transfer, owner-vault recovery, mutually pinned TLS, incremental sync, local rejoin and bounded offline long-fork recovery pass direct tests. Broader fault/abuse acceptance, public RPC scope and large-state storage readiness remain. |
+| R1 | Native transfer and launch-critical product/security/operations: signed network-bound transfers, debit/fee/nonce state, block/replay/reorg integration, wallet safety/recovery for the selected testnet UX, secure authenticated P2P, operator-local RPC, resource limits and operator recovery/observability. Pin test-only monetary parameters and experiment criteria before running the new network. | **In progress, incomplete.** Native issuance/transfer, owner-vault recovery, mutually pinned TLS, incremental sync, local rejoin and bounded offline long-fork recovery pass direct tests. Broader fault/abuse acceptance, approved public P2P and large-state storage readiness remain; public RPC is excluded from the initial scope. |
 | R2 | Public-testnet launch readiness: versioned network/genesis and release artifacts, scoped key custody, participant risk notice/onboarding, bootstrap/incident/upgrade/rollback runbook and launch approval. | After the applicable R1 acceptance tests. **Not passed.** Clean-Mac CURL.3 is the last installation-validation step, deferred until a clean machine is available; current-Mac/CI work continues. A supported-Mac public-release claim still needs that evidence, or an explicit narrower platform scope. |
 | R3 | Public base-network testnet: independently operated nodes actually mine test coins, send them between wallets, include/confirm transactions and agree on balances/fees/supply; exercise rejection, restart, partitions/rejoin, reorg and operator recovery. | After R2 and explicit public-network/mining/test-wallet scope. **Not started.** Test coins carry no real-money or future-mainnet entitlement. Mock-only accounting does not pass. Useful-work reward remains OFF unless separately authorized. |
 | U1 | BF.7: new-rule receipt consensus with `no_protocol_reward`, independent replay and DA recovery. | **HOLD.** Adapter-scoped RP0-MD/supply, BF.6a DA and deterministic resource contracts are prerequisites. Closed-local integration precedes any separately approved public extension. Existing v3 is preserved; this branch does not block R1–R3 base transfers. |

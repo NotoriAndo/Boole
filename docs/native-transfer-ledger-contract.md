@@ -991,6 +991,7 @@ v3 hashes/genesis/replay and session restrictions; no legacy fixture was rewritt
 These runs use disposable local directories and test keys. They are not an
 operator wallet movement, public mining result or mainnet entitlement. No new
 VM/model execution, useful-work reward or public activation occurred. R1 still
-requires broader node recovery/abuse/operations acceptance, a scoped
-public RPC strategy and the selected public-facing product scope before R2/R3
-launch review. Closed-local TLS tests are not public-testnet operation evidence.
+requires broader node recovery/abuse/operations acceptance and the approved
+public P2P boundary before R2/R3 launch review. The selected initial RPC remains
+operator-local; a public RPC gateway is excluded, not an unimplemented launch
+requirement. Closed-local TLS tests are not public-testnet operation evidence.
