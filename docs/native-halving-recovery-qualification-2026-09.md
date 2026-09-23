@@ -72,3 +72,40 @@ This is a closed-local durable monetary-transition/recovery qualification, not
 a speed claim for normal one-minute block production, public finality, a test of
 all halvings, many accounts, maximum history, network reorg delivery, slower
 hardware or complete R1/R2/R3 acceptance.
+
+## Small companion — first run PASS
+
+The H=16 companion passed on the existing runtime in 4.180 seconds (build 12.01s,
+harness 4.18s). Recent-fork adoption took 33ms, the fork/final independent reopens
+17/22ms and the independent final audit 22ms. Maximum measured durable append
+was 14ms; template and candidate append were each below one millisecond.
+The original transaction was rejected while locked, confirmed at height 26,
+removed with its funding reward by the longer fork, rejected while unfunded,
+then reconfirmed with the exact same ID at height 40 after a new reward matured.
+Repeated submission before and after final reopen made no additional debit.
+
+The final audit reported 40 blocks, 200,000,000,000,000 issued/balance atoms,
+50,000,000,000,000 locked atoms, three balance entries, one nonce entry and one
+confirmed one-tBOOLE transfer with the 1,000-atom fee. Canonical/pending/manifest
+comparisons and all independent per-account/reward checks passed. No production
+behavior was changed and no failed execution preceded this pass. This small
+case does not itself cross the actual first halving.
+
+Raw execution output:
+
+```text
+Compiling ring v0.17.14
+   Compiling boole-testkit v0.1.0 (/private/tmp/boole-r1-integration-worktree.LGTdSb/crates/boole-testkit)
+   Compiling rustls v0.23.45
+   Compiling rustls-webpki v0.103.15
+   Compiling boole-p2p v0.1.0 (/private/tmp/boole-r1-integration-worktree.LGTdSb/crates/boole-p2p)
+   Compiling boole-node v0.1.0 (/private/tmp/boole-r1-integration-worktree.LGTdSb/crates/boole-node)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.01s
+     Running tests/native_halving_recovery.rs (/Users/seoyong/projects/Boole/target/debug/deps/native_halving_recovery-e1a82046755316b7)
+
+running 1 test
+test small_reward_maturity_fork_recovery_preserves_original_transfer ... halving-result {"audit":{"accounting":{"balanceAtoms":"200000000000000","issuedAtoms":"200000000000000","lockedAtoms":"50000000000000","pendingRewardEntries":10,"spendableAtoms":"150000000000000","supplyCapAtoms":"100000000000000000"},"confirmedTransfers":{"amountAtoms":"100000000","count":1,"feeAtoms":"1000"},"genesisHash":"933a672120674efa9ec6205f344e1830febdec58b0ffcd2603ccc8a9723610c1","headHash":"00003c4da1ff44e121a4daf4219f4b73eafcd053427307ae2eb4ba7df0ebf7ff","height":"40","networkId":"boole-native-testnet-1","resources":{"balanceEntries":3,"confirmedTransfers":1,"historyBlocks":40,"historyBytes":31677,"historyLimitBlocks":100000,"historyLimitBytes":268435456,"nonceEntries":1,"pendingBytes":0,"pendingLimitBytes":5242880,"pendingLimitTransfers":512,"pendingTransfers":0},"schema":"boole.native.audit.v1","scope":"confirmed_canonical"},"auditMs":22,"elapsedMs":4180,"finalFilesBlake3":["18c0f2e533e0ddd5ba88fd7e5e4cf4f81597be30a63f5bef8aee7c77b44f3c61","af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262","6c47e834ab12aab1a3969a72628b5ea3d83de6e2dc2207b3cb6fa3cbf2cab270"],"finalReopenMs":22,"forkAdoptionMs":33,"forkHead":"0000ec593e904ad1a3fa0485361920582780e9bf3516412b376727e80c7dc5ce","forkReopenMs":17,"maxAppendMs":14,"maxCandidateAppendMs":0,"maxTemplateMs":0,"oldHead":"00006775a2347dbfe26ac90074fcd07427593420d90c879ac948f4b5dcd0e699","reconfirmedHeight":40,"specialRewardAtoms":"5000000000000","specialRewardHeight":16,"transferId":"cdb4efacad08ff3e0a51470961e26d5704ebfd5d09d69747caf5c8ae7f3ff7a4"}
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 4.18s
+```
