@@ -120,6 +120,22 @@ non-authoritative pool; invalid stored signatures are corruption, not silently
 erased. Requeue is bounded/best-effort, so the wallet must retain its signed file.
 Confirmation depth is reported but never labeled irreversible finality.
 
+`boole native info` / `GET /native/info` includes a `resources` object for the
+current local state: canonical history bytes/blocks and their hard limits,
+confirmed transaction-index entries, pending journal bytes/rows and their limits,
+and canonical balance/nonce-map entry counts. Counts are operational diagnostics,
+not numbers of users or active wallets; zero-balance map entries are included.
+Reservations do not increase canonical counts before confirmation. File identity
+and readiness are checked before cached lengths are returned, and the query does
+not replay signatures or sum the account maps. No filesystem paths or private
+keys are returned. The existing CLI forwards this object unchanged.
+
+Watch these values before reaching the local history limits. There is no automatic
+history eviction, trusted checkpoint or pruning escape hatch. A capacity/write
+failure is not permission to delete journals, bypass validation or force a weaker
+fork; stop the node and preserve its state for the documented recovery path.
+This endpoint reports storage usage, not process RSS or a latency guarantee.
+
 ### Pending-state resource and publication boundary
 
 The live node keeps one non-authoritative pending view and a bounded transaction-ID

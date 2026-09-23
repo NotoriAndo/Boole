@@ -98,7 +98,7 @@ pub use native_http::{
     serve_with_peers as serve_native_node_with_peers, MAX_NATIVE_SYNC_BLOCKS,
     MAX_NATIVE_SYNC_BYTES,
 };
-pub use native_node::{NativeNode, NATIVE_BLOCKS_FILE, NATIVE_MEMPOOL_FILE};
+pub use native_node::{NativeNode, NativeResourceUsage, NATIVE_BLOCKS_FILE, NATIVE_MEMPOOL_FILE};
 pub use native_peer_key::{create_native_peer_key, load_native_peer_key};
 pub use native_peers::{
     NativePeerConfig, NativePeerLimits, NativePeerMonitor, NativePeerService, NativePeerSnapshot,

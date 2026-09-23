@@ -12,6 +12,7 @@ use boole_core::native_chain::{NativeBlock, NativeBlockTemplate, NativeChain, Na
 use boole_core::native_ledger::NativePendingView;
 use boole_core::native_network::native_testnet;
 use boole_core::Hex32;
+use serde::Serialize;
 
 use crate::durability::{append_ndjson_line_durable, write_ndjson_rows_atomic};
 use crate::runtime::check_block_ts_future_drift;
@@ -36,6 +37,24 @@ struct PendingState {
     transfers: Vec<NativeTransfer>,
     ids: BTreeSet<Hex32>,
     view: NativePendingView,
+}
+
+/// Current authoritative-file sizes and bounded state counts. No paths, private
+/// keys, process addresses or claimed remote balances are exposed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeResourceUsage {
+    pub history_bytes: u64,
+    pub history_limit_bytes: u64,
+    pub history_blocks: usize,
+    pub history_limit_blocks: usize,
+    pub confirmed_transfers: usize,
+    pub pending_bytes: u64,
+    pub pending_limit_bytes: u64,
+    pub pending_transfers: usize,
+    pub pending_limit_transfers: usize,
+    pub balance_entries: usize,
+    pub nonce_entries: usize,
 }
 
 #[derive(Debug)]
@@ -173,6 +192,26 @@ impl NativeNode {
 
     pub fn confirmed_height(&self, id: &Hex32) -> Option<u64> {
         self.confirmed.get(id).copied()
+    }
+
+    /// File stamps are checked before exposing these cached lengths. The map
+    /// counts are constant-time; observing capacity never sums all accounts or
+    /// replays history/pending transfers.
+    pub fn resource_usage(&self) -> anyhow::Result<NativeResourceUsage> {
+        self.ensure_ready()?;
+        Ok(NativeResourceUsage {
+            history_bytes: self.block_stamp.as_ref().map_or(0, |stamp| stamp.len),
+            history_limit_bytes: MAX_NATIVE_HISTORY_BYTES,
+            history_blocks: self.chain.blocks().len(),
+            history_limit_blocks: MAX_NATIVE_HISTORY_BLOCKS,
+            confirmed_transfers: self.confirmed.len(),
+            pending_bytes: self.pool_stamp.as_ref().map_or(0, |stamp| stamp.len),
+            pending_limit_bytes: MAX_NATIVE_POOL_BYTES,
+            pending_transfers: self.pending.transfers.len(),
+            pending_limit_transfers: MAX_NATIVE_PENDING_TRANSFERS,
+            balance_entries: self.chain.ledger().balance_entry_count(),
+            nonce_entries: self.chain.ledger().nonce_entry_count(),
+        })
     }
 
     /// Admission reserves nonce/balance only in the pending view. It does not

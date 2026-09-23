@@ -51,6 +51,13 @@ fn native_http_reports_pinned_network_and_refuses_browser_cross_origin_and_publi
         native_testnet().genesis_hash().to_hex()
     );
     assert_eq!(info["height"], "0");
+    assert_eq!(info["resources"]["historyBytes"], 0);
+    assert_eq!(info["resources"]["historyBlocks"], 0);
+    assert_eq!(info["resources"]["pendingBytes"], 0);
+    assert_eq!(info["resources"]["balanceEntries"], 0);
+    assert_eq!(info["resources"]["nonceEntries"], 0);
+    assert_eq!(info["resources"]["historyLimitBytes"], 256 * 1024 * 1024);
+    assert_eq!(info["resources"]["pendingLimitTransfers"], 512);
     assert!(request("Origin: https://untrusted.example\r\n").starts_with("HTTP/1.1 403"));
     let mut oversized = TcpStream::connect(addr).unwrap();
     oversized
@@ -142,6 +149,12 @@ fn two_independent_rpc_nodes_mine_transfer_and_rejoin_with_identical_accounting(
     for height in 1..=10 {
         blocks.push(mine(height, &alice.pk_hex()));
     }
+    let initial_resources = rpc(a, "GET", "/native/info", Value::Null)["resources"].clone();
+    assert_eq!(initial_resources["historyBlocks"], 10);
+    assert!(initial_resources["historyBytes"].as_u64().unwrap() > 0);
+    assert_eq!(initial_resources["balanceEntries"], 1);
+    assert_eq!(initial_resources["nonceEntries"], 0);
+    assert_eq!(initial_resources["confirmedTransfers"], 0);
     assert_eq!(
         rpc(b, "POST", "/native/chain", json!(blocks))["adopted"],
         true
@@ -163,6 +176,17 @@ fn two_independent_rpc_nodes_mine_transfer_and_rejoin_with_identical_accounting(
         rpc(a, "POST", "/native/transfers", json!(tx))["status"],
         "pending"
     );
+    let pending_resources = rpc(a, "GET", "/native/info", Value::Null)["resources"].clone();
+    assert_eq!(
+        pending_resources["historyBytes"],
+        initial_resources["historyBytes"]
+    );
+    assert_eq!(pending_resources["pendingTransfers"], 1);
+    assert!(pending_resources["pendingBytes"].as_u64().unwrap() > 0);
+    assert_eq!(
+        pending_resources["balanceEntries"], 1,
+        "canonical entries, not reservations"
+    );
     assert_eq!(
         rpc(
             a,
@@ -178,6 +202,17 @@ fn two_independent_rpc_nodes_mine_transfer_and_rejoin_with_identical_accounting(
         true
     );
     for node in [a, b] {
+        let resources = rpc(node, "GET", "/native/info", Value::Null)["resources"].clone();
+        assert_eq!(resources["historyBlocks"], 11);
+        assert!(
+            resources["historyBytes"].as_u64().unwrap()
+                > initial_resources["historyBytes"].as_u64().unwrap()
+        );
+        assert_eq!(resources["pendingTransfers"], 0);
+        assert_eq!(resources["pendingBytes"], 0);
+        assert_eq!(resources["balanceEntries"], 3);
+        assert_eq!(resources["nonceEntries"], 1);
+        assert_eq!(resources["confirmedTransfers"], 1);
         assert_eq!(
             rpc(
                 node,

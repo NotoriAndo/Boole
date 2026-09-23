@@ -305,6 +305,16 @@ impl NativeLedger {
         self.issued
     }
 
+    /// Stored map entries, including accounts whose current balance is zero.
+    /// This is a resource count, not a count of unique people or active wallets.
+    pub fn balance_entry_count(&self) -> usize {
+        self.balances.len()
+    }
+
+    pub fn nonce_entry_count(&self) -> usize {
+        self.next_nonces.len()
+    }
+
     pub fn next_nonce(&self, pk: &str) -> u64 {
         self.next_nonces.get(pk).copied().unwrap_or(0)
     }

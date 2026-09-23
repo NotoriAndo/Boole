@@ -342,6 +342,7 @@ async fn info(State(api): State<Api>) -> Response {
             "cumulativeWork": node.chain().cumulative_work().to_string(),
             "minimumTimestampMs": node.chain().minimum_timestamp_ms()?.to_string(),
             "issued": node.chain().ledger().issued().to_string(), "pending": node.pending().len(),
+            "resources": node.resource_usage()?,
             "transport": "closed-local", "ready": true}),
         )
     })
