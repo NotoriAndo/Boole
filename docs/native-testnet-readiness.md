@@ -144,3 +144,115 @@ key/fund, public endpoint, artifact publication or release ceremony is involved.
 Even a pass would be one-host process integration, not three independent human
 operators, public network/latency behavior, a supported release/install result,
 hardware capacity qualification, finality, R2 or R3 completion.
+
+## Rehearsal results — PASS, not launch approval
+
+Criteria were committed before implementation/execution in `67759b5d40e3373dbdfbcb6979ac7a941a74653e`.
+The [real three-process CLI test](../crates/boole-cli/tests/native_operator_rehearsal.rs)
+uses the unchanged runtime from the preceding peer-lock-wait source. No product
+code or launch setting changed in this readiness work.
+
+The first run passed in **79.330s** after its sibling build (92.05s test total,
+including 12.70s nested build). The longest readiness/agreement polling phase was
+1.537s and the longest normal stop 17ms, within the fixed 15s/3s/180s limits.
+B used its restored encrypted vault. C's isolated height-13 transaction returned
+to pending on the greater-work height-14 branch and was confirmed with the same
+ID at 15. Three independent stopped-node audits agreed, then B restored A's
+archive into a fresh directory and reconciled/re-submitted its old height-12
+outbox without a new debit, nonce or signature. All retained source journals/
+manifest, original vault, wallet backup, transport keys, archive and outboxes
+remained byte-identical. The disposable fixture cleaned its own exact directory
+and child processes afterward; no operator material was removed.
+
+The following focused clippy run flagged two test-only temporary allocations in
+height comparisons. The fix precomputes the expected decimal string and compares
+JSON strings explicitly; it does **not** take the suggested numeric comparison,
+which would change this wire contract. The unchanged operating criteria then
+passed again with fresh disposable keys: **78.770s** scenario, 85.31s test total
+including 6.51s nested build, longest phase 1.172s and stop 17ms. Different public
+keys naturally produced different block/transaction hashes and history byte
+counts (13,263 and 13,262); both runs had the same exact expected accounting.
+Focused test clippy passed in 0.61s, and formatting, docs smoke and diff checks
+passed. Neither run was a retry after an operating acceptance failure.
+
+Final test-source SHA-256:
+`39591a86c60d47196f551988eea5c82ed7eb441063ca10143503db54df088dbe`.
+Final test executable SHA-256:
+`067d4a81c2d8aba4eca87baae1f2455eae40e6e8497413fc57a3b503277fc240`.
+Commands used the existing Rust 1.95 workspace target, with no paid/external run:
+
+```sh
+CARGO_TARGET_DIR=/Users/seoyong/projects/Boole/target cargo test -p boole-cli \\
+  --test native_operator_rehearsal -- --nocapture --test-threads=1
+CARGO_TARGET_DIR=/Users/seoyong/projects/Boole/target cargo clippy -p boole-cli \\
+  --test native_operator_rehearsal -- -D warnings
+```
+
+The trace below is the complete bounded workflow/result trace, excluding Cargo
+build chatter. It contains only disposable public identities and accounting.
+
+### First execution
+
+```text
+native-operator-phase process-ready elapsedMs=34
+native-operator-phase process-ready elapsedMs=35
+native-operator-phase process-ready elapsedMs=35
+native-operator-phase head-agreement elapsedMs=405
+native-operator-phase reciprocal-pinned-peers elapsedMs=398
+native-operator-phase transaction-agreement elapsedMs=278
+native-operator-phase head-agreement elapsedMs=452
+native-operator-phase transaction-agreement elapsedMs=1
+native-operator-phase transaction-agreement elapsedMs=174
+native-operator-phase head-agreement elapsedMs=176
+native-operator-phase transaction-agreement elapsedMs=1
+native-operator-stop elapsedMs=17
+native-operator-phase process-ready elapsedMs=35
+native-operator-phase head-agreement elapsedMs=322
+native-operator-phase transaction-agreement elapsedMs=0
+native-operator-stop elapsedMs=16
+native-operator-phase process-ready elapsedMs=48
+native-operator-phase head-agreement elapsedMs=1
+native-operator-phase transaction-agreement elapsedMs=1537
+native-operator-phase head-agreement elapsedMs=297
+native-operator-phase transaction-agreement elapsedMs=1
+native-operator-stop elapsedMs=11
+native-operator-stop elapsedMs=16
+native-operator-stop elapsedMs=16
+native-operator-phase process-ready elapsedMs=35
+native-operator-stop elapsedMs=15
+native-operator-result {"audit":{"accounting":{"balanceAtoms":"75000000000000","issuedAtoms":"75000000000000","lockedAtoms":"50000000000000","pendingRewardEntries":10,"spendableAtoms":"25000000000000","supplyCapAtoms":"100000000000000000"},"confirmedTransfers":{"amountAtoms":"375000000","count":3,"feeAtoms":"3000"},"genesisHash":"933a672120674efa9ec6205f344e1830febdec58b0ffcd2603ccc8a9723610c1","headHash":"0000194511d8aa516457a2b685adafa20e39af217b85dc10ed3f8e8946142597","height":"15","networkId":"boole-native-testnet-1","resources":{"balanceEntries":3,"confirmedTransfers":3,"historyBlocks":15,"historyBytes":13263,"historyLimitBlocks":100000,"historyLimitBytes":268435456,"nonceEntries":3,"pendingBytes":0,"pendingLimitBytes":5242880,"pendingLimitTransfers":512,"pendingTransfers":0},"schema":"boole.native.audit.v1","scope":"confirmed_canonical"},"balancesAtoms":["64999825000000","5000050000000","5000125000000"],"elapsedMs":79330,"head":"0000194511d8aa516457a2b685adafa20e39af217b85dc10ed3f8e8946142597","lockedAtoms":["40000000000000","5000000000000","5000000000000"],"originalsPreserved":true,"orphanedHead":"00000aa1521b94c615ada240717681ee127b6ad1111eca79972ea2315920795c","owners":["2e29aa958080af484869c8af227de341ede47dce9c5c8a9e1720d97da08bd904","45fcde4373658df4f77a2e9f40648f7be5fc72c1aacd4604ed9ae0dc9c9a57c7","294a2849efc98f8424fe6466b1d3a6eb80df616209fb8c74734bdd06e79cd494"],"publicActivation":false,"scope":"one-host-three-loopback-processes","spendableAtoms":["24999825000000","50000000","125000000"],"transactionIds":["e86ca5f41fac7f453c30cf806945e59a3f5e544aecd14dcdde0d6f1c91166f88","f43639a87578ceebf2470fb784ecb234d89ff6f73dde6a3fb2110af15e939739","2934796c5c2561f1c25a75fca55be6840e87ac1554e987d8b7822c179acaaa5a"]}
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 92.05s
+```
+
+### Post-lint regression
+
+```text
+native-operator-phase process-ready elapsedMs=36
+native-operator-phase process-ready elapsedMs=30
+native-operator-phase process-ready elapsedMs=35
+native-operator-phase head-agreement elapsedMs=142
+native-operator-phase reciprocal-pinned-peers elapsedMs=1
+native-operator-phase transaction-agreement elapsedMs=172
+native-operator-phase head-agreement elapsedMs=451
+native-operator-phase transaction-agreement elapsedMs=1
+native-operator-phase transaction-agreement elapsedMs=137
+native-operator-phase head-agreement elapsedMs=515
+native-operator-phase transaction-agreement elapsedMs=1
+native-operator-stop elapsedMs=17
+native-operator-phase process-ready elapsedMs=35
+native-operator-phase head-agreement elapsedMs=292
+native-operator-phase transaction-agreement elapsedMs=0
+native-operator-stop elapsedMs=16
+native-operator-phase process-ready elapsedMs=53
+native-operator-phase head-agreement elapsedMs=1
+native-operator-phase transaction-agreement elapsedMs=1172
+native-operator-phase head-agreement elapsedMs=391
+native-operator-phase transaction-agreement elapsedMs=1
+native-operator-stop elapsedMs=16
+native-operator-stop elapsedMs=16
+native-operator-stop elapsedMs=16
+native-operator-phase process-ready elapsedMs=29
+native-operator-stop elapsedMs=16
+native-operator-result {"audit":{"accounting":{"balanceAtoms":"75000000000000","issuedAtoms":"75000000000000","lockedAtoms":"50000000000000","pendingRewardEntries":10,"spendableAtoms":"25000000000000","supplyCapAtoms":"100000000000000000"},"confirmedTransfers":{"amountAtoms":"375000000","count":3,"feeAtoms":"3000"},"genesisHash":"933a672120674efa9ec6205f344e1830febdec58b0ffcd2603ccc8a9723610c1","headHash":"000052409efcc57133268fc69c60c72183a37f0749cbd6442a2dda5ef847db1a","height":"15","networkId":"boole-native-testnet-1","resources":{"balanceEntries":3,"confirmedTransfers":3,"historyBlocks":15,"historyBytes":13262,"historyLimitBlocks":100000,"historyLimitBytes":268435456,"nonceEntries":3,"pendingBytes":0,"pendingLimitBytes":5242880,"pendingLimitTransfers":512,"pendingTransfers":0},"schema":"boole.native.audit.v1","scope":"confirmed_canonical"},"balancesAtoms":["64999825000000","5000050000000","5000125000000"],"elapsedMs":78770,"head":"000052409efcc57133268fc69c60c72183a37f0749cbd6442a2dda5ef847db1a","lockedAtoms":["40000000000000","5000000000000","5000000000000"],"originalsPreserved":true,"orphanedHead":"00008123f54cf56072701801b8f01d6bb1352b3106dd0e2b76ae6bccdf140908","owners":["8fc5b2d1f2d68c31c73ba5fdba47265a0f9fba41ff55a146e03c95181f97069f","b8e3c526b42d0a64072cb19f1d9fada8839299034a4d9a1ae985c3e3476482f0","9a0e6fab3cb664bb68952644e70435519e9774c27be1c1796be89624ce94b88d"],"publicActivation":false,"scope":"one-host-three-loopback-processes","spendableAtoms":["24999825000000","50000000","125000000"],"transactionIds":["652a3586d02ee9c38a9d71feefb494f129a5050c82c39eb8cbe15708189ff377","6bffca32585987069f52be8a8ed1f5ff3910ad342dcd22bc855e366be123b740","248969a645524d463df936a41c3e3f4b1e84c6786152b45255123c48fc7853ad"]}
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 85.31s
+```

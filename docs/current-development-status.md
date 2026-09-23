@@ -72,6 +72,20 @@ Public/untrusted participation still needs the remaining operational acceptance,
 public RPC scope and R2/R3 release/launch decisions.
 Existing v3 data and verification rules remain unchanged; R1 is not complete.
 
+The [native launch-readiness checklist](native-testnet-readiness.md) now separates
+source/CI, authenticated artifacts, actual custody, platform evidence, participant
+onboarding and explicit R3 execution authority. Initial native RPC remains local
+to each operator; public RPC/gateway/faucet/admin exposure is excluded. A
+[Korean participant technical notice](native-testnet-participant-notice-ko.md)
+is prepared, not a legal agreement, actual acknowledgement or launch approval.
+Public P2P remains unimplemented and refused; documentation is not a workaround.
+The preregistered three-process local operator rehearsal passed twice (79.330s
+and 78.770s scenario time): A→B→C signed transfers, restored B vault, actual C
+partition/rejoin with same-ID orphan requeue/reconfirmation, matching independent
+audits, and fresh B node restore/old-outbox reconciliation without duplicate
+payment. All original recovery material was preserved. This is one-host process
+integration, not independent external operators or R2/R3 completion.
+
 Under the operator's twelve-hour autonomous-development delegation on September
 23, the selected initial external-participant policy is an explicit node-key
 allowlist, not open enrollment. TLS 1.3 mutual raw-public-key authentication uses

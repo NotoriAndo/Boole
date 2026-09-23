@@ -294,6 +294,13 @@ preserves the original bytes and explicitly restarts before continuing. The node
 file-change/readiness guards were not weakened to pass the test.
 
 This prepares one selected recovery workflow. It does **not** pass R2 or R3.
+Use the [release/participant readiness checklist](native-testnet-readiness.md)
+and [Korean technical notice draft](native-testnet-participant-notice-ko.md)
+to distinguish prepared local recovery from actual onboarding and launch authority.
+The checklist's later three-process rehearsal passed twice, including actual
+partition/rejoin, same-ID orphan reconfirmation, three matching offline audits
+and fresh-node/previously-restored-wallet recovery without a duplicate payment.
+It remains one-host loopback evidence, not independent external operation.
 Required launch decisions/evidence still include applicable R1 abuse/resource
 acceptance and public exposure scope, versioned authenticated release artifacts,
 operational signing/key custody, supported-platform qualification (clean-Mac
