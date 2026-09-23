@@ -30,6 +30,15 @@ signed transfers; the CLI preserves transactions before broadcast and retries
 the same nonce. See the
 [contract, tests and limits](native-transfer-ledger-contract.md).
 
+The [actual first-halving recovery qualification](native-halving-recovery-qualification-2026-09.md)
+also passes through 10,024 real PoW/authorized blocks: height-10,000 issuance
+halves, maturity controls spending, a fork removes the old reward/payment, and
+the exact original signature confirms once after new funding matures. Independent
+restart/audit matches 500,575,000 tBOOLE issued and 250,000 locked. The complete
+fixed run took 876.337s at 52.875MiB RSS; its earlier functional pass with unavailable
+OS memory instrumentation is retained separately. This mostly empty-block,
+three-account history is not the large-account or maximum-storage envelope.
+
 **Next: R1 large-state resource limits and broader abuse/operations readiness.**
 The foreground native node remains separate
 from the legacy credit-only node. TLS identity, incremental sync, bounded pending
@@ -239,8 +248,8 @@ Transfer authorization must not weaken the existing work-session
 `canTransfer=false` / `canWithdraw=false` boundary.
 
 Public transport encryption and peer authentication remain required before
-public/untrusted participation; the closed-local plaintext/static-peer
-implementation is not a public-network transport certificate.
+public/untrusted participation; the implemented pinned-TLS closed-local service
+does not by itself qualify public exposure or a public-network operating envelope.
 
 ### Parallel work and conditional research
 

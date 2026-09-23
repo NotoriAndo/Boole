@@ -54,6 +54,17 @@ at **999,949,999.9986 tBOOLE**. The full emission walk is tested through height
 block cadence or a public-network security claim. These fast retarget settings
 are experimental, not adopted mainnet economics.
 
+The [actual first-halving recovery qualification](native-halving-recovery-qualification-2026-09.md)
+builds 10,024 real PoW/producer-authorized blocks under these unchanged rules.
+It verifies the 50,000→25,000 transition at height 10,000, ten-block maturity,
+a recent fork removing a spent reward, refusal of the now-unfunded original
+signature, and exactly-once confirmation of that same ID after new funding
+matures. Independent replay/audit agrees on 500,575,000 tBOOLE issued and
+250,000 locked. The complete fixed scenario took 876.337s at 52.875MiB peak RSS;
+an earlier functional pass with failed OS memory instrumentation is preserved.
+This mostly empty-block, three-account scenario does not qualify all halvings,
+maximum history or the separate 131,073-account operating envelope.
+
 ## Executable accounting boundary
 
 [`NativeLedger`](../crates/boole-core/src/native_ledger.rs) starts at empty
