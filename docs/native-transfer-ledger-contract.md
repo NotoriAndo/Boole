@@ -512,7 +512,13 @@ bounded additional sockets, threads and per-round buffers for independent progre
 It is not a global memory/CPU guarantee or protection against shared disk/state-lock
 contention, all approved peers misbehaving, or an untrusted-host denial of service.
 The earlier capacity qualifications did not include eight simultaneous peer
-downloads. The focused loopback isolation test failed at its fixed two-second
+downloads. The [subsequent preregistered peer-buffer scenario](native-peer-resource-qualification-2026-09.md)
+passed with 131,073 canonical balance entries and eight simultaneous incomplete
+fork downloads at 551.90625MiB process peak RSS, including local TLS fixtures.
+The oversized candidates were all refused, journals/accounting were preserved,
+and independent restart took 51.784s. This is not qualification of concurrent
+successful adoptions or arbitrary inbound/outbound traffic mixes.
+The focused loopback isolation test failed at its fixed two-second
 healthy-peer progress limit with the serial worker; the changed implementation
 passed (0.14s total test time on the developer Mac). Eight authenticated stalled
 rounds, ninth-peer refusal and shutdown interruption also pass a direct test.

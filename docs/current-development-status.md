@@ -63,8 +63,12 @@ tests. The CLI exposes peer status, resource counters, cooldown and retry backof
 Each configured peer now has its own bounded outgoing worker (at most eight),
 so one stalled authenticated peer does not serialize every other peer's I/O.
 Focused tests cover healthy progress during a stall, eight stalled rounds with
-shutdown and concurrent duplicate-transfer pulls. Shared state/disk contention
-and full concurrent-download capacity remain unqualified. All non-loopback
+shutdown and concurrent duplicate-transfer pulls. A subsequent
+[eight-peer resource qualification](native-peer-resource-qualification-2026-09.md)
+passed 131,073 canonical balances plus eight simultaneous incomplete fork buffers
+at 551.90625MiB process RSS, with budget rejection, unchanged journals/accounting
+and 51.784s restart. Shared state/disk contention and concurrent successful
+adoptions remain unqualified. All non-loopback
 listeners/endpoints are still refused; an explicit exposure option is not implemented.
 Tests remain
 closed-local and public operation still requires R2/R3 launch authority.
