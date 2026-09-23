@@ -62,6 +62,12 @@ local-vault path, not operational custody or an OS-keychain/mnemonic implementat
 Saved signed transfers can also be inspected offline for their exact ID and
 public fields without a node, wallet, password or broadcast. The report explicitly
 checks only signature/format, not balance, current nonce/expiry or chain status.
+The [operator recovery runbook](native-operator-recovery-runbook.md) now connects
+the selected wallet, canonical archive/audit and outbox steps. A real disposable
+CLI rehearsal restored both wallet and node state, reconciled an old confirmed
+signature without another debit, then explicitly sent/confirmed the next nonce
+and independently audited it while preserving the original state and outbox.
+This is prepared closed-local recovery evidence, not operational custody or R2.
 Public/untrusted participation still needs the remaining operational acceptance,
 public RPC scope and R2/R3 release/launch decisions.
 Existing v3 data and verification rules remain unchanged; R1 is not complete.

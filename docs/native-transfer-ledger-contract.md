@@ -382,6 +382,10 @@ response, query the saved transaction ID and retry that file; do not create a ne
 nonce as an automatic retry. Keep the encrypted vault, passphrase and outbox
 backup separately; losing the vault/passphrase means this implementation cannot
 recover the spending key. These are owner commands, not delegated agent rights.
+For the combined stop/preserve → archive/audit → wallet restore → outbox
+reconciliation procedure and its actual closed-local CLI rehearsal, follow the
+[operator recovery runbook](native-operator-recovery-runbook.md). Its prepared
+workflow does not grant release, public-network or operator-fund authority.
 
 ### Offline signed-transfer inspection
 

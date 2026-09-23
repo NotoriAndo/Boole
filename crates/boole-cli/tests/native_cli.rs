@@ -66,6 +66,10 @@ fn ok_stdin(args: &[&str]) -> Value {
 
 fn spawn_node(dir: PathBuf) -> (Fixture, String) {
     std::fs::create_dir(&dir).unwrap();
+    start_node(dir)
+}
+
+fn start_node(dir: PathBuf) -> (Fixture, String) {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
     drop(listener);
@@ -97,6 +101,21 @@ fn spawn_node(dir: PathBuf) -> (Fixture, String) {
         std::thread::sleep(Duration::from_millis(30));
     }
     (fixture, url)
+}
+
+fn node_json(args: &[&str]) -> Value {
+    let output = Command::new(sibling("boole-node"))
+        .args(args)
+        .env_remove("BOOLE_WALLET_PASSPHRASE")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).unwrap()
 }
 
 #[test]
@@ -262,7 +281,7 @@ fn encrypted_owner_cli_mines_transfers_and_retries_only_the_saved_signed_transac
         !repeated.status.success(),
         "must not replace the saved signature with a new nonce"
     );
-    assert_eq!(std::fs::read(outbox).unwrap(), signed);
+    assert_eq!(std::fs::read(&outbox).unwrap(), signed);
     let (_replica, replica_url) = spawn_node(fixture.dir.join("replica"));
     assert_eq!(
         ok(&["native", "--node", &replica_url, "sync", "--from", &url])["adopted"],
@@ -325,4 +344,208 @@ fn encrypted_owner_cli_mines_transfers_and_retries_only_the_saved_signed_transac
         ok(&["native", "--node", &url, "account", "--pk", &receiver])["balance"],
         "125000000"
     );
+
+    // Operator recovery: preserve the stopped original, restore canonical
+    // history into a fresh node, compare audits and reconcile the old outbox
+    // before spending with the already-restored owner vault.
+    let source_info = ok(&["native", "--node", &url, "info"]);
+    let source_head = source_info["headHash"].as_str().unwrap();
+    fixture.child.kill().unwrap();
+    fixture.child.wait().unwrap();
+    let source = fixture.dir.join("node");
+    let source_files = [
+        boole_node::NATIVE_BLOCKS_FILE,
+        boole_node::NATIVE_MEMPOOL_FILE,
+        "state.manifest.json",
+    ];
+    let source_bytes: Vec<_> = source_files
+        .iter()
+        .map(|file| std::fs::read(source.join(file)).unwrap())
+        .collect();
+    let source_audit = node_json(&[
+        "native-audit",
+        "--state-dir",
+        source.to_str().unwrap(),
+        "--expected-head",
+        source_head,
+    ]);
+    let archive = fixture.dir.join("verified-chain.ndjson");
+    let exported = node_json(&[
+        "native-export",
+        "--state-dir",
+        source.to_str().unwrap(),
+        "--output",
+        archive.to_str().unwrap(),
+    ]);
+    assert_eq!(exported["headHash"], source_info["headHash"]);
+    let restored_dir = fixture.dir.join("recovered-node");
+    std::fs::create_dir(&restored_dir).unwrap();
+    let restored_state = restored_dir.join("node");
+    let imported = node_json(&[
+        "native-import",
+        "--state-dir",
+        restored_state.to_str().unwrap(),
+        "--blocks",
+        archive.to_str().unwrap(),
+        "--expected-head",
+        source_head,
+    ]);
+    assert_eq!(imported["adopted"], true);
+    assert_eq!(imported["headHash"], exported["headHash"]);
+    assert_eq!(
+        node_json(&[
+            "native-audit",
+            "--state-dir",
+            restored_state.to_str().unwrap(),
+            "--expected-head",
+            source_head
+        ]),
+        source_audit
+    );
+    let (mut recovered, recovered_url) = start_node(restored_dir);
+    assert_eq!(
+        ok(&["native", "--node", &recovered_url, "info"])["headHash"],
+        source_info["headHash"]
+    );
+    let offline = ok(&[
+        "native",
+        "--node",
+        "offline-no-rpc",
+        "inspect-transfer",
+        "--file",
+        outbox.to_str().unwrap(),
+    ]);
+    assert_eq!(offline["txid"], transfer["txid"]);
+    assert_eq!(
+        ok(&[
+            "native",
+            "--node",
+            &recovered_url,
+            "transaction",
+            "--txid",
+            offline["txid"].as_str().unwrap()
+        ])["status"],
+        "confirmed"
+    );
+    assert_eq!(
+        ok(&[
+            "native",
+            "--node",
+            &recovered_url,
+            "submit",
+            "--file",
+            outbox.to_str().unwrap()
+        ])["status"],
+        "confirmed"
+    );
+    assert_eq!(
+        ok(&[
+            "native",
+            "--node",
+            &recovered_url,
+            "account",
+            "--pk",
+            &receiver
+        ])["balance"],
+        "125000000"
+    );
+    assert_eq!(
+        ok(&[
+            "native",
+            "--node",
+            &recovered_url,
+            "account",
+            "--pk",
+            &owner
+        ])["confirmedNonce"],
+        "1"
+    );
+
+    let next_outbox = fixture.dir.join("after-recovery-transfer.json");
+    let next = ok_stdin(&[
+        "native",
+        "--node",
+        &recovered_url,
+        "transfer",
+        "--passphrase-stdin",
+        "--vault",
+        vault.to_str().unwrap(),
+        "--to",
+        &receiver,
+        "--amount",
+        "0.5",
+        "--outbox",
+        next_outbox.to_str().unwrap(),
+    ]);
+    let next_signed: boole_core::native_chain::NativeTransfer =
+        serde_json::from_slice(&std::fs::read(&next_outbox).unwrap()).unwrap();
+    assert_eq!(next_signed.payload.nonce, "1");
+    assert_eq!(next["status"], "pending");
+    ok_stdin(&[
+        "native",
+        "--node",
+        &recovered_url,
+        "mine",
+        "--passphrase-stdin",
+        "--vault",
+        vault.to_str().unwrap(),
+        "--timestamp-ms",
+        "720000",
+        "--attempts",
+        "2000000",
+    ]);
+    assert_eq!(
+        ok(&[
+            "native",
+            "--node",
+            &recovered_url,
+            "account",
+            "--pk",
+            &receiver
+        ])["balance"],
+        "175000000"
+    );
+    assert_eq!(
+        ok(&[
+            "native",
+            "--node",
+            &recovered_url,
+            "account",
+            "--pk",
+            &owner
+        ])["confirmedNonce"],
+        "2"
+    );
+    assert_eq!(
+        ok(&[
+            "native",
+            "--node",
+            &recovered_url,
+            "transaction",
+            "--txid",
+            next["txid"].as_str().unwrap()
+        ])["status"],
+        "confirmed"
+    );
+    let resumed = ok(&["native", "--node", &recovered_url, "info"]);
+    recovered.child.kill().unwrap();
+    recovered.child.wait().unwrap();
+    let resumed_audit = node_json(&[
+        "native-audit",
+        "--state-dir",
+        restored_state.to_str().unwrap(),
+        "--expected-head",
+        resumed["headHash"].as_str().unwrap(),
+    ]);
+    assert_eq!(resumed_audit["height"], "12");
+    assert_eq!(resumed_audit["confirmedTransfers"]["count"], 2);
+    assert_eq!(
+        resumed_audit["confirmedTransfers"]["amountAtoms"],
+        "175000000"
+    );
+    assert_eq!(resumed_audit["confirmedTransfers"]["feeAtoms"], "2000");
+    assert_eq!(std::fs::read(&outbox).unwrap(), signed);
+    for (file, bytes) in source_files.iter().zip(source_bytes) {
+        assert_eq!(std::fs::read(source.join(file)).unwrap(), bytes);
+    }
 }
