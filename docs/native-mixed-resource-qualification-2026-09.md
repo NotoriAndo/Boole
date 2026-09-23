@@ -1,6 +1,6 @@
 # Native mixed input-pressure qualification — 2026-09-23
 
-Status: **PREREGISTERED — not yet executed.** This combines specific already
+Status: **SMALL COMPANION PASS — large qualification pending.** This combines specific already
 bounded P2P and loopback HTTP inputs. It is not general mixed-traffic, successful
 competing-adoption, continuously changing-candidate or public-network acceptance.
 
@@ -76,3 +76,28 @@ suffix and the same 8/4/8 pressure levels and HTTP body sizes.
 No success here qualifies arbitrary RPC JSON trees, local trusted-host compromise,
 mixed successful fork validation, many independent operators, slower storage,
 network-wide availability or the complete R1 launch gate.
+
+## Small companion — first run PASS
+
+The actual combined service passed at 1,025 balances in 21.671s (harness 21.68s).
+All eight clients held thirty decoded blocks (8,188,312 fixture wire bytes each),
+four incoming connections had authenticated and eight ordinary HTTP requests
+held admission after sending 8,388,607 bytes each. The fifth inbound connection
+and ninth ordinary request were refused; there was no HTTP 100 response for
+the ninth upload. Ten diagnostic responses preserved the non-authoritative
+markers, with maximum 442 microseconds under the overlapping 8/4/8 counts.
+
+After completion/closure, all eight empty-chain requests returned adopted=false,
+ordinary permits and inbound/outbound workers drained to zero, and all eight
+over-budget fork rounds failed at block_download. Network phase was 918ms,
+drained service stop 511 microseconds and independent replay 392ms. Exact
+13-block/1,024-confirmed/552,737-byte canonical state and empty pending remained;
+all journal digests and manifest bytes were unchanged. Maximum template,
+canonical append and candidate append were 170, 199 and 177ms. All ports were
+released. No production behavior changed, and no failed run preceded this pass.
+
+The fixture can report more than 8MiB **sent** after the final excess page is
+released (here 9,007,936 bytes): those include socket-buffered bytes offered to a
+client that rejects its remaining round budget. This is not a claim that the
+client accepted, decoded or retained the full excess body. Before final release,
+all held buffers are below the existing round bound and no candidate is adopted.

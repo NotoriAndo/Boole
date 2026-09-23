@@ -23,6 +23,9 @@ const HISTORY_BUDGET: u64 = 96 * 1024 * 1024;
 #[path = "support/native_competing_forks.rs"]
 mod competing;
 
+#[path = "support/native_mixed_resources.rs"]
+mod mixed;
+
 struct TestDir {
     path: PathBuf,
     identity: (u64, u64),
