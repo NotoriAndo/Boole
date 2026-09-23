@@ -22,11 +22,15 @@ signed transfers; the CLI preserves transactions before broadcast and retries
 the same nonce. See the
 [contract, tests and limits](native-transfer-ledger-contract.md).
 
-**Next: R1 operator recovery, wallet safety and broader abuse readiness.**
+**Next: R1 node recovery, large-state resource limits and broader abuse readiness.**
 The foreground native node remains separate
 from the legacy credit-only node. TLS identity, incremental sync, bounded pending
 pull and local partition/rejoin are implemented; public listeners remain refused.
 The full-replay store, long-fork recovery and manual full-chain RPC limits remain.
+Encrypted owner-wallet backup/restore, bounded vault/KDF/file handling, isolated
+agent environment/lifetime/output and native stdin passphrases now pass direct
+recovery tests, including a restored-wallet on-chain transfer. This is the selected
+local-vault path, not operational custody or an OS-keychain/mnemonic implementation.
 Public/untrusted participation still needs the remaining operational acceptance,
 public RPC scope and R2/R3 release/launch decisions.
 Existing v3 data and verification rules remain unchanged; R1 is not complete.
@@ -57,7 +61,7 @@ proceed alongside it without making all of R1 one oversized change.
 
 | ID | Boundary / completion evidence | Dependency and current state |
 |---|---|---|
-| R1 | Native transfer and launch-critical product/security/operations: signed network-bound transfers, debit/fee/nonce state, block/replay/reorg integration, wallet safety/recovery for the selected testnet UX, secure public P2P/RPC, resource limits and operator recovery/observability. Pin test-only monetary parameters and experiment criteria before running the new network. | **In progress, incomplete.** Native issuance/transfer, owner-vault CLI, mutually pinned TLS, incremental sync and local rejoin pass direct tests. Broader recovery/abuse and wallet-safety acceptance, public RPC scope and large-state storage readiness remain. |
+| R1 | Native transfer and launch-critical product/security/operations: signed network-bound transfers, debit/fee/nonce state, block/replay/reorg integration, wallet safety/recovery for the selected testnet UX, secure public P2P/RPC, resource limits and operator recovery/observability. Pin test-only monetary parameters and experiment criteria before running the new network. | **In progress, incomplete.** Native issuance/transfer, owner-vault recovery, mutually pinned TLS, incremental sync and local rejoin pass direct tests. Broader node recovery/abuse, public RPC scope and large-state storage readiness remain. |
 | R2 | Public-testnet launch readiness: versioned network/genesis and release artifacts, scoped key custody, participant risk notice/onboarding, bootstrap/incident/upgrade/rollback runbook and launch approval. | After the applicable R1 acceptance tests. **Not passed.** Clean-Mac CURL.3 is the last installation-validation step, deferred until a clean machine is available; current-Mac/CI work continues. A supported-Mac public-release claim still needs that evidence, or an explicit narrower platform scope. |
 | R3 | Public base-network testnet: independently operated nodes actually mine test coins, send them between wallets, include/confirm transactions and agree on balances/fees/supply; exercise rejection, restart, partitions/rejoin, reorg and operator recovery. | After R2 and explicit public-network/mining/test-wallet scope. **Not started.** Test coins carry no real-money or future-mainnet entitlement. Mock-only accounting does not pass. Useful-work reward remains OFF unless separately authorized. |
 | U1 | BF.7: new-rule receipt consensus with `no_protocol_reward`, independent replay and DA recovery. | **HOLD.** Adapter-scoped RP0-MD/supply, BF.6a DA and deterministic resource contracts are prerequisites. Closed-local integration precedes any separately approved public extension. Existing v3 is preserved; this branch does not block R1–R3 base transfers. |
@@ -108,6 +112,7 @@ implementation is not a public-network transport certificate.
 | Prepared development MCP workflow | PR #382; problem/status reads and prepared-VM control complete. No extra model run; existing trial VM was only queried while stopped, not upgraded or reset. [Workflow](development-mcp-workflow.md). |
 | R1 native transfer integration | Compiled test-only monetary policy, actual PoW/owner-signed transfer blocks, durable pool/replay/reorg, bounded loopback RPC and owner-vault CLI/outbox. [Contract and automated closed-local evidence](native-transfer-ledger-contract.md). Not public P2P, public mining or R1 completion. |
 | R1 secure peer integration | Mutually pinned TLS, bounded incremental block sync/pending pull, local partition/rejoin, transport-key CLI and resource/status/shutdown guards. [Contract and automated evidence](native-transfer-ledger-contract.md#mutually-authenticated-native-peers). Closed-local only; full-replay/long-fork recovery and wider operations acceptance remain. |
+| R1 encrypted wallet recovery | Authenticated no-overwrite backup/restore, unchanged v1/default KDF, bounded secret/file/agent processing, explicit stdin signing and a restored-owner on-chain transfer. [Contract and limitations](native-transfer-ledger-contract.md#encrypted-owner-vault-backup-and-restore). Disposable local evidence, not operational key custody. |
 | Mac/curl and custody foundations | Closed-local VM, install/update/rollback and non-operational trust-policy/custody rehearsal implemented. **Clean-Mac CURL.3 and operational release custody are not complete.** |
 
 Completed actual-model allowances are exhausted, not recurring permission.

@@ -40,6 +40,30 @@ fn ok(args: &[&str]) -> Value {
     serde_json::from_slice(&output.stdout).unwrap()
 }
 
+fn ok_stdin(args: &[&str]) -> Value {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_boole-cli"))
+        .args(args)
+        .env("BOOLE_WALLET_AGENT_BIN", sibling("boole-wallet-agent"))
+        .env(
+            "BOOLE_WALLET_PASSPHRASE",
+            "stale-environment-must-not-override-explicit-stdin",
+        )
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    writeln!(child.stdin.take().unwrap(), "{PASS}").unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!String::from_utf8_lossy(&output.stdout).contains(PASS));
+    serde_json::from_slice(&output.stdout).unwrap()
+}
+
 fn spawn_node(dir: PathBuf) -> (Fixture, String) {
     std::fs::create_dir(&dir).unwrap();
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -101,11 +125,12 @@ fn encrypted_owner_cli_mines_transfers_and_retries_only_the_saved_signed_transac
     let owner = String::from_utf8(owner.stdout).unwrap().trim().to_string();
     let receiver = boole_core::SigningKeyV2::from_dev_id("native-cli-receiver").pk_hex();
     for height in 1..=10 {
-        ok(&[
+        ok_stdin(&[
             "native",
             "--node",
             &url,
             "mine",
+            "--passphrase-stdin",
             "--vault",
             vault.to_str().unwrap(),
             "--timestamp-ms",
@@ -114,12 +139,41 @@ fn encrypted_owner_cli_mines_transfers_and_retries_only_the_saved_signed_transac
             "2000000",
         ]);
     }
+    let backup = fixture.dir.join("owner.backup.json");
+    let restored = fixture.dir.join("recovered-owner.vault");
+    assert_eq!(
+        ok_stdin(&[
+            "wallet",
+            "backup",
+            "--vault",
+            vault.to_str().unwrap(),
+            "--output",
+            backup.to_str().unwrap(),
+            "--json"
+        ])["result"]["address"],
+        owner
+    );
+    std::fs::rename(&vault, fixture.dir.join("offline-original.vault")).unwrap();
+    assert_eq!(
+        ok_stdin(&[
+            "wallet",
+            "restore",
+            "--backup",
+            backup.to_str().unwrap(),
+            "--vault",
+            restored.to_str().unwrap(),
+            "--json"
+        ])["result"]["address"],
+        owner
+    );
+    let vault = restored;
     let outbox = fixture.dir.join("transfer.json");
-    let transfer = ok(&[
+    let transfer = ok_stdin(&[
         "native",
         "--node",
         &url,
         "transfer",
+        "--passphrase-stdin",
         "--vault",
         vault.to_str().unwrap(),
         "--to",

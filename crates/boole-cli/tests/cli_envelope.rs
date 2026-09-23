@@ -146,6 +146,8 @@ fn inventory_covers_known_command_paths() {
         &["wallet", "address"],
         &["wallet", "sign"],
         &["wallet", "migrate"],
+        &["wallet", "backup"],
+        &["wallet", "restore"],
         &["faucet", "claim"],
         &["product", "install"],
     ];

@@ -22,6 +22,7 @@ mod proof_signer;
 mod state;
 mod submit_client;
 mod target_emitter;
+mod wallet_agent_process;
 
 pub use bounty_client::{BountyClient, BountyProofInputs, BountyProofResult};
 pub use canonicalizer::{
@@ -90,4 +91,7 @@ pub use submit_client::{
 pub use target_emitter::{
     target_seed, FamilyV1LengthBoundTargetEmitter, FixedSeedTargetEmitter, StubTargetEmitter,
     TargetEmitArgs, TargetEmitter,
+};
+pub use wallet_agent_process::{
+    resolve_wallet_agent_binary, run_wallet_agent, WalletAgentInput, WalletAgentResponse,
 };
