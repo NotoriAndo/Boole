@@ -98,6 +98,51 @@ remain separate from ordinary native test-coin development.
 
 ## Integrated consumer verification
 
+### Recommended review and continuation order
+
+The closing source review prioritizes the following consumers; it is not an
+independent external review, a new full-suite result or permission to resume any
+held action.
+
+1. **Storage and accounting first:** review
+   [native node publication/recovery](../crates/boole-node/src/native_node.rs),
+   [shared durability helpers](../crates/boole-node/src/durability.rs),
+   [manifest reading](../crates/boole-node/src/state_dir.rs) and
+   [ledger reservations/undo](../crates/boole-core/src/native_ledger.rs).
+   Follow their direct failure-boundary tests and the replay/publication records.
+   Shared helpers also have legacy consumers, which is one reason required full
+   CI remains necessary. An error after I/O is an unknown durable outcome, not
+   rollback: retain original data and reconcile the same transaction/block ID.
+2. **Admission and actual work lifetime:** review
+   [native HTTP](../crates/boole-node/src/native_http.rs), the
+   [shared bounded listener](../crates/boole-node/src/local_node.rs) and
+   [native peers](../crates/boole-node/src/native_peers.rs). Keep connection,
+   request, diagnostic and peer limits distinct. A caller timeout must not free
+   already-running work, a process diagnostic is not ledger readiness, and
+   closing client sockets does not authorize interrupting durable publication.
+3. **Operator-visible recovery:** review
+   [archive/audit](../crates/boole-node/src/native_archive.rs),
+   [native CLI](../crates/boole-cli/src/native.rs) and the real three-process/
+   owner-wallet tests linked above. Expected heads, original outboxes, independent
+   accounting, key-role separation and preservation of old material are required
+   outcomes, not optional cleanup details.
+4. **Publication only after the outstanding decision:** recheck the actual base
+   and worktree, preserve the user's unrelated edit and original evidence refs,
+   then use the feature-branch/PR/full-CI/review/merge path if authorized. The local
+   main/ref snapshot here is not a fresh remote-status assertion. Do not reset
+   acceptance thresholds, omit failing retry evidence or describe developer-Mac
+   measurements as cross-platform CI qualification.
+5. **Remaining R1 work stays explicitly unqualified:** preregister a selected
+   near-storage-limit envelope and successful mixed RPC/P2P workload before
+   running them. Pin source/hardware, head/accounting invariants, time/RSS/disk
+   budgets and failure/stop criteria; begin with a small direct companion. The
+   current ~67MiB many-account history and ~7.5MiB mostly-empty halving history
+   do not cover the 256MiB/100,000-block ceiling. Public P2P, independent hosts,
+   actual custody/release/participants and R2/R3 remain separately held or absent;
+   no local scenario can manufacture those decisions or external evidence.
+
+### Local verification versus future CI
+
 The final source-to-main range was also passed through the existing local
 `scripts/ci_change_scope.py`; it reports `process_only=false`. No workflow,
 classifier, full-suite selection or dependency-lock change was made in this
@@ -293,4 +338,83 @@ native-operator-result {"audit":{"accounting":{"balanceAtoms":"75000000000000","
 ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 90.86s
+```
+
+### Final actual-process follow-up after connection-slot lifetime correction
+
+After runtime correction `df6a32c`, the same three-process rehearsal passed on
+`92781ce19ac0ba75a48083b0e142455135a86282`; runtime/test/dependency diff from
+`df6a32c` was empty. This run was selected because the final correction also
+affects actual foreground-node connection cleanup, not merely an in-process
+test. The root contained the excluded pre-existing user edit and handoff prose
+being prepared; it is not claimed to have been a fully clean worktree.
+
+Scenario time was 79.207s, harness 86.33s including the 7.10s sibling build,
+and outer build 11.25s. Normal process stops were 16–17ms. The unchanged
+15s convergence/readiness, 3s normal-stop and 180s scenario criteria passed.
+All three independent audits matched the expected issuance, locked/spendable
+amounts, three original transfer IDs and empty pending at height 15. The
+restored-wallet transfer, actual partition/rejoin and orphan reconfirmation,
+fresh-node restore and old-outbox reconciliation all passed with original
+wallet/backup/transport-key/archive/outbox/state bytes preserved. The final
+head for these fresh disposable owners was
+`00005e9815bd89dbefc1fc00aaa482e1610573b3e4f13dada38763b2c20c88ad`.
+No acceptance criteria, product code or signatures were changed for this run.
+This remains one-host functional evidence, not full CI or R2/R3 authority.
+
+```text
+   Compiling rustls v0.23.45
+   Compiling boole-core v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-core)
+   Compiling boole-native-shadow-protocol v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-native-shadow-protocol)
+   Compiling boole-evm-adapter v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-evm-adapter)
+   Compiling tokio-rustls v0.26.4
+   Compiling boole-p2p v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-p2p)
+   Compiling hyper-rustls v0.27.9
+   Compiling boole-node v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-node)
+   Compiling boole-wallet-agent v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-wallet-agent)
+   Compiling boole-testkit v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-testkit)
+   Compiling reqwest v0.12.28
+   Compiling boole-miner v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-miner)
+   Compiling boole-cli v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-cli)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.25s
+     Running tests/native_operator_rehearsal.rs (target/debug/deps/native_operator_rehearsal-d4777efa06a28b99)
+
+running 1 test
+test three_real_nodes_transfer_partition_rejoin_and_restore_without_duplicate_payment ...    Compiling ring v0.17.14
+   Compiling boole-wallet-agent v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-wallet-agent)
+   Compiling rustls v0.23.45
+   Compiling rustls-webpki v0.103.15
+   Compiling boole-p2p v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-p2p)
+   Compiling boole-node v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-node)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.10s
+native-operator-phase process-ready elapsedMs=28
+native-operator-phase process-ready elapsedMs=26
+native-operator-phase process-ready elapsedMs=35
+native-operator-phase head-agreement elapsedMs=496
+native-operator-phase reciprocal-pinned-peers elapsedMs=423
+native-operator-phase transaction-agreement elapsedMs=235
+native-operator-phase head-agreement elapsedMs=512
+native-operator-phase transaction-agreement elapsedMs=1
+native-operator-phase transaction-agreement elapsedMs=108
+native-operator-phase head-agreement elapsedMs=525
+native-operator-phase transaction-agreement elapsedMs=1
+native-operator-stop elapsedMs=17
+native-operator-phase process-ready elapsedMs=36
+native-operator-phase head-agreement elapsedMs=177
+native-operator-phase transaction-agreement elapsedMs=0
+native-operator-stop elapsedMs=16
+native-operator-phase process-ready elapsedMs=50
+native-operator-phase head-agreement elapsedMs=1
+native-operator-phase transaction-agreement elapsedMs=1151
+native-operator-phase head-agreement elapsedMs=110
+native-operator-phase transaction-agreement elapsedMs=1
+native-operator-stop elapsedMs=16
+native-operator-stop elapsedMs=16
+native-operator-stop elapsedMs=16
+native-operator-phase process-ready elapsedMs=35
+native-operator-stop elapsedMs=16
+native-operator-result {"audit":{"accounting":{"balanceAtoms":"75000000000000","issuedAtoms":"75000000000000","lockedAtoms":"50000000000000","pendingRewardEntries":10,"spendableAtoms":"25000000000000","supplyCapAtoms":"100000000000000000"},"confirmedTransfers":{"amountAtoms":"375000000","count":3,"feeAtoms":"3000"},"genesisHash":"933a672120674efa9ec6205f344e1830febdec58b0ffcd2603ccc8a9723610c1","headHash":"00005e9815bd89dbefc1fc00aaa482e1610573b3e4f13dada38763b2c20c88ad","height":"15","networkId":"boole-native-testnet-1","resources":{"balanceEntries":3,"confirmedTransfers":3,"historyBlocks":15,"historyBytes":13265,"historyLimitBlocks":100000,"historyLimitBytes":268435456,"nonceEntries":3,"pendingBytes":0,"pendingLimitBytes":5242880,"pendingLimitTransfers":512,"pendingTransfers":0},"schema":"boole.native.audit.v1","scope":"confirmed_canonical"},"balancesAtoms":["64999825000000","5000050000000","5000125000000"],"elapsedMs":79207,"head":"00005e9815bd89dbefc1fc00aaa482e1610573b3e4f13dada38763b2c20c88ad","lockedAtoms":["40000000000000","5000000000000","5000000000000"],"originalsPreserved":true,"orphanedHead":"00003bc5e281d598234456440e7eda4fce843cca8af976d847336657a74753c7","owners":["b5911a35615a138d1d11d1f4049974d410535ce75e916eb99b6841a9ba10ddb9","864edc1c2a399e2beb12d54cf77b6f19f283d004f402e00fac0ab44c592b33e4","3c9f09dcd5d1620b72a717b1495b31c43d30042a8f1c76d974912548c3f07ada"],"publicActivation":false,"scope":"one-host-three-loopback-processes","spendableAtoms":["24999825000000","50000000","125000000"],"transactionIds":["e74dcbed896fd12cfba7ad73cc51df1258aa10aba3dae984b90a5a2ae10848a5","8817d7cd56e0d1e5fea0c8101bb27245af4d2655b39b7ea9e3260e1cc0f5e817","148aaf9e1c025639538e5d15819b81070ba5a5bcf70684264e2ddafbdc926560"]}
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 86.33s
 ```
