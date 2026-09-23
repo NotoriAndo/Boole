@@ -55,6 +55,21 @@ with large canonical state, not a new validation bypass.
 
 ## Results
 
-Pending. First-candidate cost, changing candidates, eight concurrent successful
-adoptions, arbitrary traffic mixes and other hardware remain outside any pass of
-this bounded scenario.
+### Small harness — PASS before the large run
+
+The two-funded-block scenario passed on its first execution: 1,025 balance
+entries, 1,024 confirmed transfers, 29 canonical blocks and 565,202 history bytes.
+The first round downloaded all 16 alternative blocks in six requests, took
+3,166,316 microseconds and sent 4,364,479 server plaintext bytes. Each of the
+next seven rounds requested no hashes/blocks/pending, sending only 250 server
+bytes and 266 client bytes. Their 517–525ms times include the fixed 500ms poll
+wait, not just computation. Eight rounds took 6.818s; 100 ready/resource queries
+took 4,324 microseconds, stop 127 microseconds and independent restart 414ms.
+Total was 19.636s; unchanged journals, head and accounting passed. This is the
+small fixture, not a large-state or RSS result.
+
+### Large run
+
+Pending. General first-candidate cost, changing candidates, eight concurrent
+successful adoptions, arbitrary traffic mixes and other hardware remain outside
+any pass of this bounded scenario.

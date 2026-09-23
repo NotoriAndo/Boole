@@ -696,3 +696,292 @@ fn small_concurrent_peer_forks_preserve_state_and_recovery() {
 fn native_eight_peer_forks_131072_accounts() {
     run_concurrent_peer_scenario(256);
 }
+
+fn run_repeated_losing_fork_scenario(funded_blocks: u64) {
+    let started = Instant::now();
+    let dir = TestDir::new();
+    let owner = SigningKeyV2::from_dev_id("native-capacity-producer");
+    let mut node = NativeNode::open(&dir.path).unwrap();
+    let mut max_template = Duration::ZERO;
+    let mut max_append = Duration::ZERO;
+    for _ in 0..10 {
+        let block = mine(&node, &owner, Some(&[]), &mut max_template);
+        append(&mut node, block, &mut max_append);
+    }
+    for index in 0..funded_blocks {
+        let transfers: Vec<_> = (index * PER_BLOCK..(index + 1) * PER_BLOCK)
+            .map(|nonce| transfer(&owner, &format!("{nonce:064x}"), nonce))
+            .collect();
+        let block = mine(&node, &owner, Some(&transfers), &mut max_template);
+        append(&mut node, block, &mut max_append);
+        assert!(started.elapsed() < Duration::from_secs(900));
+        if (index + 1).is_multiple_of(32) {
+            eprintln!(
+                "repeat-fork-progress fundedBlocks={} elapsedMs={}",
+                index + 1,
+                started.elapsed().as_millis()
+            );
+        }
+    }
+    let recipients = funded_blocks * PER_BLOCK;
+    check_canonical(&node, &owner.pk_hex(), recipients, 0);
+    let common_height = node.chain().ledger().height();
+    let common_hash = node.chain().head_hash();
+    let mut alternative = node.chain().clone();
+    for index in 0..16 {
+        let transfers: Vec<_> = (recipients + index * PER_BLOCK
+            ..recipients + (index + 1) * PER_BLOCK)
+            .map(|nonce| transfer(&owner, &owner.pk_hex(), nonce))
+            .collect();
+        let height = alternative.ledger().height() + 1;
+        let block = alternative
+            .template(
+                &owner.pk_hex(),
+                &owner.pk_hex(),
+                height * 60_000,
+                &transfers,
+            )
+            .unwrap()
+            .mine(0, 2_000_000)
+            .unwrap()
+            .unwrap();
+        let auth = owner
+            .sign_for_network(
+                &block.authorization_payload().unwrap(),
+                Some(native_testnet().network_id()),
+            )
+            .unwrap();
+        alternative.append(block.authorize(&auth).unwrap()).unwrap();
+        assert!(started.elapsed() < Duration::from_secs(900));
+    }
+    for _ in 0..17 {
+        let block = mine(&node, &owner, Some(&[]), &mut max_template);
+        append(&mut node, block, &mut max_append);
+    }
+    assert!(!alternative.outranks(node.chain()));
+    let advertised =
+        json!({"height": alternative.ledger().height(), "hash": alternative.head_hash().to_hex()});
+    let hashes: Vec<_> = std::iter::once(native_testnet().genesis_hash())
+        .chain(
+            alternative
+                .blocks()
+                .iter()
+                .map(|block| block.hash().unwrap()),
+        )
+        .collect();
+    let suffix = alternative.blocks()[common_height as usize..].to_vec();
+    drop(alternative);
+    let local_head = node.chain().head_hash();
+    check_canonical(&node, &owner.pk_hex(), recipients, 0);
+    let before_digests = journal_digests(&dir);
+    let node = Arc::new(Mutex::new(node));
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let local_address = listener.local_addr().unwrap();
+    let local_key = peer_identity();
+    let remote_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    remote_listener.set_nonblocking(true).unwrap();
+    let remote_address = remote_listener.local_addr().unwrap();
+    let remote_key = peer_identity();
+    let transport = TlsTransport::new(
+        remote_key.clone(),
+        vec![(local_address, local_key.peer_id())],
+    )
+    .unwrap();
+    let remote_head = advertised.clone();
+    let (first_tx, first_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel::<()>();
+    let remote = std::thread::spawn(move || -> anyhow::Result<Vec<Value>> {
+        let mut reports = Vec::new();
+        for round in 0..8 {
+            let round_started = Instant::now();
+            let deadline = round_started + Duration::from_secs(10);
+            let socket = loop {
+                match remote_listener.accept() {
+                    Ok((socket, _)) => break socket,
+                    Err(error)
+                        if error.kind() == std::io::ErrorKind::WouldBlock
+                            && Instant::now() < deadline =>
+                    {
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(error) => return Err(error.into()),
+                }
+            };
+            let mut connection = transport.accept_stream_until(socket, deadline)?;
+            let (hello, incoming): (Value, _) =
+                transport.recv_json_counted_until(&mut connection, 4096, deadline)?;
+            anyhow::ensure!(hello["type"] == "hello", "hello required");
+            let greeting = json!({"type": "hello", "protocolVersion": 1,
+                "networkId": native_testnet().network_id(), "genesisHash": native_testnet().genesis_hash().to_hex(),
+                "head": remote_head});
+            let mut sent_bytes =
+                transport.send_json_counted_until(&mut connection, &greeting, 4096, deadline)?;
+            let mut received_bytes = incoming;
+            let mut sent_blocks = 0;
+            let mut hash_requests = 0;
+            let mut block_requests = 0;
+            loop {
+                let (request, incoming): (Value, _) =
+                    transport.recv_json_counted_until(&mut connection, 4096, deadline)?;
+                received_bytes += incoming;
+                if request["type"] == "done" {
+                    break;
+                }
+                anyhow::ensure!(
+                    round == 0,
+                    "unchanged verified losing fork requested data again: {request}"
+                );
+                anyhow::ensure!(request["snapshot"] == remote_head, "wrong fork snapshot");
+                let response = match request["type"].as_str() {
+                    Some("getHash") => {
+                        hash_requests += 1;
+                        let height = request["height"].as_u64().unwrap();
+                        json!({"type": "hash", "snapshot": remote_head, "height": height,
+                            "hash": hashes[height as usize].to_hex()})
+                    }
+                    Some("getBlocks") => {
+                        block_requests += 1;
+                        let from = request["from"].as_u64().unwrap();
+                        anyhow::ensure!(
+                            from == common_height + 1 + sent_blocks as u64,
+                            "unexpected range"
+                        );
+                        let count = 3usize.min(suffix.len() - sent_blocks);
+                        anyhow::ensure!(
+                            count > 0 && request["limit"].as_u64().unwrap() >= count as u64,
+                            "invalid page limit"
+                        );
+                        let blocks = &suffix[sent_blocks..sent_blocks + count];
+                        sent_blocks += count;
+                        json!({"type": "blocks", "snapshot": remote_head, "from": from, "blocks": blocks})
+                    }
+                    _ => anyhow::bail!("unexpected losing-fork request"),
+                };
+                sent_bytes += transport.send_json_counted_until(
+                    &mut connection,
+                    &response,
+                    1024 * 1024,
+                    deadline,
+                )?;
+            }
+            anyhow::ensure!(
+                sent_bytes + received_bytes < 8 * 1024 * 1024,
+                "round exceeded byte cap"
+            );
+            anyhow::ensure!(
+                sent_blocks == if round == 0 { 16 } else { 0 },
+                "incomplete/unexpected suffix"
+            );
+            let elapsed = round_started.elapsed();
+            anyhow::ensure!(
+                elapsed < Duration::from_secs(10),
+                "round exceeded ten seconds"
+            );
+            let report = json!({"round": round + 1, "elapsedMicros": elapsed.as_micros(),
+                "sentBytes": sent_bytes, "receivedBytes": received_bytes,
+                "hashRequests": hash_requests, "blockRequests": block_requests, "sentBlocks": sent_blocks});
+            eprintln!("repeat-fork-round {report}");
+            if round == 0 {
+                first_tx.send(())?;
+            }
+            reports.push(report);
+        }
+        // Keep the configured endpoint alive until the client has observed its
+        // eighth successful outcome and intentionally stopped, avoiding a ninth
+        // connection-refused event caused only by early fixture teardown.
+        release_rx.recv_timeout(Duration::from_secs(5))?;
+        Ok(reports)
+    });
+    let network_started = Instant::now();
+    let mut service = NativePeerService::start(
+        listener,
+        node.clone(),
+        NativePeerConfig {
+            identity: local_key,
+            peers: vec![(remote_address, remote_key.peer_id())],
+        },
+    )
+    .unwrap();
+    first_rx
+        .recv_timeout(Duration::from_secs(10))
+        .expect("first losing fork must fully validate");
+    let query_started = Instant::now();
+    for _ in 0..100 {
+        let node = node.lock().unwrap();
+        node.ensure_ready().unwrap();
+        assert_eq!(node.chain().head_hash(), local_head);
+        assert_eq!(
+            node.resource_usage().unwrap().confirmed_transfers as u64,
+            recipients
+        );
+    }
+    let lookups = query_started.elapsed();
+    assert!(lookups < Duration::from_secs(5));
+    while service.status()[0].successful_rounds < 8 {
+        assert!(network_started.elapsed() < Duration::from_secs(15));
+        assert_eq!(service.status()[0].failed_rounds, 0);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let completed = service.monitor().snapshot();
+    assert_eq!(completed.peers[0].failed_rounds, 0);
+    assert_eq!(completed.peers[0].state, "local_chain_preferred");
+    assert_eq!(completed.peak_outbound_rounds, 1);
+    let network_elapsed = network_started.elapsed();
+    assert!(network_elapsed < Duration::from_secs(15));
+    let stopping_at = Instant::now();
+    service.stop();
+    let stopping = stopping_at.elapsed();
+    assert!(stopping < Duration::from_secs(1));
+    assert_eq!(service.monitor().snapshot().active_outbound_rounds, 0);
+    release_tx.send(()).unwrap();
+    let rounds = remote.join().unwrap().unwrap();
+    assert_eq!(journal_digests(&dir), before_digests);
+    {
+        let node = node.lock().unwrap();
+        check_canonical(&node, &owner.pk_hex(), recipients, 0);
+        assert_eq!(node.chain().head_hash(), local_head);
+        assert!(node.pending().is_empty());
+    }
+    eprintln!(
+        "repeat-fork-network {}",
+        json!({
+            "fundedBlocks": funded_blocks, "commonHeight": common_height, "commonHash": common_hash.to_hex(),
+            "localHead": local_head.to_hex(), "advertised": advertised, "rounds": rounds,
+            "networkMs": network_elapsed.as_millis(), "lookup100Micros": lookups.as_micros(),
+            "stopMicros": stopping.as_micros(), "peersBeforeStop": completed,
+            "elapsedMs": started.elapsed().as_millis(),
+        })
+    );
+    drop(service);
+    drop(node);
+    let reopened_at = Instant::now();
+    let node = NativeNode::open(&dir.path).unwrap();
+    let restart = reopened_at.elapsed();
+    assert!(restart < Duration::from_secs(120));
+    check_canonical(&node, &owner.pk_hex(), recipients, 0);
+    assert_eq!(node.chain().head_hash(), local_head);
+    assert!(node.pending().is_empty());
+    assert_eq!(journal_digests(&dir), before_digests);
+    eprintln!(
+        "repeat-fork-result {}",
+        json!({
+            "fundedBlocks": funded_blocks, "networkId": native_testnet().network_id(),
+            "genesisHash": native_testnet().genesis_hash().to_hex(), "head": local_head.to_hex(),
+            "resources": node.resource_usage().unwrap(), "issued": node.chain().ledger().issued().to_string(),
+            "restartMs": restart.as_millis(), "elapsedMs": started.elapsed().as_millis(),
+            "maxTemplateMs": max_template.as_millis(), "maxAppendMs": max_append.as_millis(),
+        })
+    );
+    assert!(started.elapsed() < Duration::from_secs(900));
+}
+
+#[test]
+fn small_repeated_losing_fork_polls_preserve_state_and_recovery() {
+    run_repeated_losing_fork_scenario(2);
+}
+
+#[test]
+#[ignore = "explicit preregistered repeated-fork qualification; not routine CI"]
+fn native_repeated_losing_fork_131072_accounts() {
+    run_repeated_losing_fork_scenario(256);
+}
