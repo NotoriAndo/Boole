@@ -837,6 +837,16 @@ connection-refusal stage; the CLI forwards this endpoint's JSON unchanged.
 - Missing/replaced journals, manifest/lock loss or uncertain writes remain
   readiness failures. Encryption is not permission to keep serving poisoned state.
 
+The [actual three-process membership regression](native-peer-key-rotation-2026-09.md)
+now covers old authenticated connection closure on controlled stop, retired-key
+and unapproved-new-key refusal, continued A/C confirmation, explicit replacement
+enrollment, same-state catch-up and exactly-once transfers from the unchanged
+spending key. Final independent audits and canonical journal bytes agree.
+Membership remains per-node startup configuration: every still-running node
+with an old pin retains that trust. A key-file edit/delete is not hot revocation,
+and removing a transport pin does not invalidate consensus-valid historical
+blocks or transfer signatures. Follow the [coordinated recovery procedure](native-operator-recovery-runbook.md#5a-retire-a-transport-identity-and-explicitly-approve-its-replacement).
+
 ## Verification and limits
 
 [`native_ledger` integration tests](../crates/boole-core/tests/native_ledger.rs)

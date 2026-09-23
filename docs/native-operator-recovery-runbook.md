@@ -253,6 +253,57 @@ counter or phase label.
 When `native peers` cannot pass readiness, the same monitor is available under
 `peers` in `native diagnostics`; this does not declare the ledger ready or repair it.
 
+## 5a. Retire a transport identity and explicitly approve its replacement
+
+Use this only under the applicable incident/key-change authority. Membership is
+local configuration, not an on-chain revocation registry. Every node that still
+loads the old pin can still trust that identity; one operator's change is not
+network-wide revocation. Name the change owner and independently approved
+old/new public-key-to-endpoint mapping, and record which operators have actually
+completed their changes. An unexpected phase failure alone does not authorize
+rotation.
+
+1. Preserve the intended network/genesis/head, public peer mappings and relevant
+   bounded diagnostics. Stop the affected identity's node and each trusting node
+   that must change its allowlist, and wait for actual process exit. Existing
+   authenticated connections and loaded private-key material are not revoked by
+   editing a file, deleting it or replacing a path while the process runs.
+2. Keep the original state, outboxes, owner wallet and old transport evidence
+   access-controlled. Do not rotate the spending vault, reset the ledger or
+   delete the old private file to make a connection failure disappear. A
+   compromised transport key remains sensitive even after its pin is removed.
+3. Under key-generation authority, generate a distinct replacement file at a
+   new path in a private directory. `peer-keygen --file NEW_ABSOLUTE_PATH`
+   refuses overwrite and returns only public identity/path information. Do not
+   copy another operator's private key or enroll from an unauthenticated peer
+   advertisement. Verify the new public ID through the separately approved
+   administrative channel; a channel authenticated only by the compromised old
+   identity is not independent verification.
+4. Remove the old pin from every affected node's `--peer KEY@ADDRESS` mapping.
+   Configure the replacement node's new `--peer-key` path and its independently
+   approved counterpart pins. Restart the deliberately selected configurations
+   at their existing state directories. Generating or starting a new key does
+   not enroll it at other nodes, and a successful one-sided configuration change
+   is not reciprocal membership. Record any node not yet updated as incomplete.
+5. Check `native peers` for the exact local public ID and approved remote IDs,
+   successful rounds and the intended head through ordinary ready-state queries.
+   A remaining healthy topology may continue within its authorized scope while
+   the affected identity is excluded; this is not a general availability promise.
+   Reconcile saved transaction IDs and owner nonce before any retry. Changing
+   transport identity neither changes coin ownership nor invalidates otherwise
+   valid historical block/transfer signatures.
+6. After the selected recovery, stop and audit at the independently established
+   intended head when required by the incident plan. Preserve old/new protected
+   material and the completed mapping record. Do not reuse or disclose a
+   compromised operational private key merely to run a negative probe. The
+   automated retired-key probes below use disposable fixture keys only.
+
+The [three-process retirement/re-enrollment regression](native-peer-key-rotation-2026-09.md)
+verifies active old-connection closure, old and unapproved-new key refusal,
+healthy A/C transfer progress, explicit replacement membership, preserved state
+and two exactly-once transfers with equal independent audits. It does not add
+hot reload, a global membership authority or external enrollment approval.
+
 ## 6. Stop conditions and evidence to retain
 
 Stop the affected action and preserve original material if there is a head/

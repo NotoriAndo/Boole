@@ -103,6 +103,13 @@ partition/rejoin with same-ID orphan requeue/reconfirmation, matching independen
 audits, and fresh B node restore/old-outbox reconciliation without duplicate
 payment. All original recovery material was preserved. This is one-host process
 integration, not independent external operators or R2/R3 completion.
+The subsequent [transport-key retirement/re-enrollment rehearsal](native-peer-key-rotation-2026-09.md)
+also passed through three real processes: stop closes an old authenticated
+connection; retired and unapproved replacement identities are refused; healthy
+peers keep confirming; explicit replacement pins permit same-state catch-up and
+two exactly-once transfers under the unchanged spending key. Independent audits
+and canonical bytes agree. Trust remains per-node startup configuration; every
+affected pin requires coordinated removal/restart, not a live key-file edit.
 
 Under the operator's twelve-hour autonomous-development delegation on September
 23, the selected initial external-participant policy is an explicit node-key
