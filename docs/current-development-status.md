@@ -36,7 +36,13 @@ Storage bytes/limits and canonical account/transaction counts are now observable
 through `native info`. A [preregistered developer-Mac scenario](native-capacity-qualification-2026-09.md)
 passes at 131,073 balance entries, ~67MiB history and 327.125MiB maximum RSS,
 including a full queue and two reopens. Each full replay still takes about 53s;
-larger histories, live fork work, concurrency/abuse and other hardware remain.
+recent fork recovery now reuses only locally verified inverse history, validates
+every new suffix and rejects out-of-window live forks. Independent replay parity,
+same-hash tampering, pending nonce dependencies and all six reorg publication
+failure boundaries pass direct checks. The prior large-state live-fork baseline
+took 58.049s and failed its fixed 10s bound; the
+[corrected qualification](native-recent-fork-qualification-2026-09.md) is pending.
+Larger histories, concurrency/abuse and other hardware remain.
 Encrypted owner-wallet backup/restore, bounded vault/KDF/file handling, isolated
 agent environment/lifetime/output and native stdin passphrases now pass direct
 recovery tests, including a restored-wallet on-chain transfer. This is the selected

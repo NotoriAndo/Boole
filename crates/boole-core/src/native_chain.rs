@@ -283,6 +283,12 @@ impl NativeChain {
         &self.ledger
     }
 
+    /// Earliest prefix currently available without a full replay. A fork made
+    /// from this instance may retain less than the maximum 256-block window.
+    pub fn earliest_recent_fork_height(&self) -> u64 {
+        self.ledger.height() - self.recent_undo.len() as u64
+    }
+
     /// Clone a recent prefix using only this instance's validated transitions.
     /// No claimed external state is accepted. Missing inverses require ordinary
     /// full replay; this bound never changes which blocks are valid.

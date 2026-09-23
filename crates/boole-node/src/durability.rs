@@ -16,6 +16,43 @@ pub(crate) struct AppendFault {
 #[cfg(test)]
 thread_local! {
     static APPEND_FAULT: std::cell::Cell<Option<AppendFault>> = const { std::cell::Cell::new(None) };
+    static ATOMIC_REWRITE_FAULT: std::cell::RefCell<Option<AtomicRewriteFault>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+struct AtomicRewriteFault {
+    path: PathBuf,
+    after_rename: bool,
+    skip: usize,
+}
+
+#[cfg(test)]
+pub(crate) fn fail_atomic_rewrite(path: &Path, after_rename: bool, skip: usize) {
+    ATOMIC_REWRITE_FAULT.with(|slot| {
+        assert!(slot
+            .replace(Some(AtomicRewriteFault {
+                path: path.to_owned(),
+                after_rename,
+                skip
+            }))
+            .is_none());
+    });
+}
+
+#[cfg(test)]
+fn take_atomic_rewrite_fault(path: &Path) -> Option<bool> {
+    ATOMIC_REWRITE_FAULT.with(|slot| {
+        let mut fault = slot.borrow_mut();
+        let pending = fault.as_mut()?;
+        if pending.path != path {
+            return None;
+        }
+        if pending.skip != 0 {
+            pending.skip -= 1;
+            return None;
+        }
+        fault.take().map(|fault| fault.after_rename)
+    })
 }
 
 #[cfg(test)]
@@ -374,6 +411,8 @@ fn write_file_atomic(
         Err(err) => return Err(err.into()),
     };
     check_append_fence(Some(&resolved), metadata.as_ref())?;
+    #[cfg(test)]
+    let fault = take_atomic_rewrite_fault(&resolved);
     let parent = path
         .parent()
         .filter(|path| !path.as_os_str().is_empty())
@@ -393,7 +432,15 @@ fn write_file_atomic(
         file.flush()?;
         file.sync_all()?;
     }
+    #[cfg(test)]
+    if fault == Some(false) {
+        anyhow::bail!("injected atomic rewrite failure before rename");
+    }
     fs::rename(&tmp, path)?;
+    #[cfg(test)]
+    if fault == Some(true) {
+        anyhow::bail!("injected atomic rewrite failure after rename");
+    }
     fsync_parent_dir(path)?;
     Ok(())
 }

@@ -115,6 +115,11 @@ not protection against a malicious local administrator racing the filesystem.
 On reorg the node first saves the old pending queue plus bounded orphaned
 transactions, then atomically replaces the block journal, then filters the queue
 against the winning ledger. Boot uses whichever canonical block file survived.
+The recovery union preserves up to 1,024 rows, retaining room for every old
+pending input. Orphans are ordered by their former block/transaction order before
+the old pending queue: their nonce or funding effect may be a prerequisite for a
+queued successor. The filtered pool still holds at most 512 rows, with this
+dependency-first order taking priority when the combined inputs exceed its cap.
 Confirmed, expired, conflicting, underfunded or excess rows are removed from the
 non-authoritative pool; invalid stored signatures are corruption, not silently
 erased. Requeue is bounded/best-effort, so the wallet must retain its signed file.
@@ -176,6 +181,44 @@ are regression evidence, not production SLAs. The node still retains full
 history, a canonical account map and a derived pending copy; block transitions,
 startup and fork replay still have whole-state work and need larger-state
 operational acceptance.
+
+### Recent verified-prefix recovery
+
+`NativeChain` retains internal inverses for at most its latest 256 committed
+blocks. Each inverse records previous values only for changed balances/nonces,
+reward locks/maturity entries, supply/height and cumulative work. Missing and
+zero-valued entries remain distinct. Inverses cannot be externally constructed,
+serialized or imported; replay rebuilds them from fully verified blocks.
+
+`fork_at` produces a separate recent prefix from those verified inverses. Every
+new suffix block still passes normal PoW, linkage, producer and transfer
+signature, timestamp/target, amount/fee/nonce and monetary validation. The source
+chain is unchanged until durable candidate publication. A prefix whose inverse
+was pruned requires ordinary full replay; that is an operational cache bound,
+not a new consensus rule or a trusted-checkpoint mechanism.
+
+Complete-candidate imports compare each claimed prefix block's **entire typed
+content**, including producer signature and transfer body, before reusing local
+state. Header hash equality alone is insufficient. The confirmed-ID index is
+retained only for that equal prefix and updated from the verified suffix; orphan
+recovery examines only the replaced local suffix and stops at its existing cap.
+Live peers supply the suffix directly and never force an older-prefix replay.
+They report `bounded_reorg_requires_recovery` if either their downloaded suffix
+exceeds 256 blocks or the required local inverse is unavailable.
+
+The [recent-fork qualification](native-recent-fork-qualification-2026-09.md)
+preserves the previous full-prefix replay failure at 58.049s against a fixed 10s
+adoption bound. Corrected large-state measurements are still pending. Prefix
+history cloning, canonical-map copying, journal replacement and startup remain
+linear costs; this is not a hard CPU deadline or constant-memory reorganization.
+
+Direct tests compare rollback/reappend with independent replay, including
+dependent and self-transfers, zero entries, fee recipients, reward maturity,
+retarget state and cache pruning. They also cover same-hash signature/body
+tampering and replaying every before/after-rename failure across recovery-union,
+canonical-history and final-pool publication. An uncertain publication fences
+the writer; restart selects the actual canonical file and recovers dependent
+queued transactions without trusting stale cache state.
 
 ### Bounded offline chain recovery
 
@@ -424,12 +467,13 @@ current. A changing snapshot causes a bounded retry, not silent mixing of forks.
 
 Extensions are durably applied block-by-block and continue over multiple rounds;
 a timeout may retain a valid prefix. A competing branch is adopted only after
-its entire bounded suffix and advertised head are present and independent replay
-wins work/tie-break. A fork suffix longer than 256 blocks is reported as
+its entire bounded suffix and advertised head are present, verified from the
+local common prefix, and win work/tie-break. A fork suffix longer than 256 blocks,
+or a common prefix outside the available local undo window, is reported as
 `bounded_reorg_requires_recovery`; it is not truncated into a winning chain.
-Replay of the known prefix still uses the existing bounded full-replay node;
-the suffix bound is not a constant-time or constant-memory reorg guarantee.
-Large-state replay/storage optimization remains an R1 operational acceptance item.
+Recent validated prefixes use the internal inverse described above. The suffix
+bound is not a constant-time or constant-memory reorg guarantee. Full startup,
+long-fork replay and broader storage/abuse acceptance remain R1 work.
 
 When both heads match, each configured node periodically pulls the other's
 bounded pending snapshot. Transfers pass the same signature and admission path

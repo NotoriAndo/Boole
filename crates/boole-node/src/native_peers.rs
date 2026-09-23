@@ -760,10 +760,14 @@ fn synchronize(shared: &Shared, address: SocketAddr) -> anyhow::Result<&'static 
         bytes: 0,
         requests: 0,
     };
-    let (greeting, original) = {
+    let (greeting, original, earliest_recent_fork) = {
         let node = lock_node(&shared.node)?;
         node.ensure_ready()?;
-        (hello(&node), head(node.chain()))
+        (
+            hello(&node),
+            head(node.chain()),
+            node.chain().earliest_recent_fork_height(),
+        )
     };
     let remote = remote_head(round.request(&greeting)?)?;
     if remote == original {
@@ -790,7 +794,10 @@ fn synchronize(shared: &Shared, address: SocketAddr) -> anyhow::Result<&'static 
     }
     let common = low;
     let extension = common == original.height;
-    if !extension && remote.height - common > MAX_NATIVE_PEER_ROUND_BLOCKS as u64 {
+    if !extension
+        && (remote.height - common > MAX_NATIVE_PEER_ROUND_BLOCKS as u64
+            || common < earliest_recent_fork)
+    {
         round.send(&Message::Done)?;
         return Ok("bounded_reorg_requires_recovery");
     }
@@ -839,18 +846,8 @@ fn synchronize(shared: &Shared, address: SocketAddr) -> anyhow::Result<&'static 
         }
     }
     if !extension && !fork.is_empty() {
-        let blocks = {
-            let node = lock_node(&shared.node)?;
-            anyhow::ensure!(
-                head(node.chain()) == original,
-                "native local snapshot changed"
-            );
-            let mut blocks = node.chain().blocks()[..common as usize].to_vec();
-            blocks.extend(fork);
-            blocks
-        };
         anyhow::ensure!(
-            blocks.last().expect("fork nonempty").hash()? == remote.hash,
+            fork.last().expect("fork nonempty").hash()? == remote.hash,
             "native advertised head mismatch"
         );
         let _permit = shared
@@ -862,7 +859,7 @@ fn synchronize(shared: &Shared, address: SocketAddr) -> anyhow::Result<&'static 
             head(node.chain()) == original,
             "native local snapshot changed"
         );
-        node.adopt_chain(&blocks)?;
+        node.adopt_recent_suffix(common, &fork)?;
         current = head(node.chain());
     }
     if extension && target == remote.height {

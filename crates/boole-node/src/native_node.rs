@@ -8,7 +8,9 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use boole_core::native_chain::{NativeBlock, NativeBlockTemplate, NativeChain, NativeTransfer};
+use boole_core::native_chain::{
+    NativeBlock, NativeBlockTemplate, NativeChain, NativeTransfer, NATIVE_RECENT_FORK_BLOCKS,
+};
 use boole_core::native_ledger::NativePendingView;
 use boole_core::native_network::native_testnet;
 use boole_core::Hex32;
@@ -259,12 +261,51 @@ impl NativeNode {
             .template(producer_pk, reward_pk, timestamp_ms, self.pending())
     }
 
-    /// Verify a complete candidate independently, then atomically publish it
-    /// only if cumulative work/tie-break wins. No declared balances are read.
+    /// Verify a complete candidate, reusing only a byte-equivalent prefix of
+    /// our own verified history. Long forks still replay from genesis. No
+    /// externally declared balance or checkpoint is read.
     pub fn adopt_chain(&mut self, blocks: &[NativeBlock]) -> anyhow::Result<bool> {
         self.ensure_writable()?;
         check_candidate_budget(blocks)?;
-        self.publish_candidate(NativeChain::replay(blocks)?)
+        let common = common_prefix_len(self.chain.blocks(), blocks);
+        let candidate = if common as u64 >= self.chain.earliest_recent_fork_height() {
+            let mut candidate = self.chain.fork_at(common as u64)?;
+            for block in &blocks[common..] {
+                candidate.append(block.clone())?;
+            }
+            candidate
+        } else {
+            NativeChain::replay(blocks)?
+        };
+        self.publish_candidate(candidate)
+    }
+
+    /// A bounded live-peer fork supplies only its new suffix. The prefix can
+    /// only come from this node's recent verified history; every suffix block
+    /// still proves linkage, PoW, signatures and accounting independently.
+    pub fn adopt_recent_suffix(
+        &mut self,
+        common_height: u64,
+        suffix: &[NativeBlock],
+    ) -> anyhow::Result<bool> {
+        self.ensure_writable()?;
+        anyhow::ensure!(
+            !suffix.is_empty() && suffix.len() <= NATIVE_RECENT_FORK_BLOCKS,
+            "native recent suffix block limit"
+        );
+        anyhow::ensure!(
+            common_height
+                .checked_add(suffix.len() as u64)
+                .is_some_and(|height| height <= MAX_NATIVE_HISTORY_BLOCKS as u64),
+            "native history block limit"
+        );
+        check_candidate_budget(suffix)?;
+        let mut candidate = self.chain.fork_at(common_height)?;
+        for block in suffix {
+            candidate.append(block.clone())?;
+        }
+        check_candidate_budget(candidate.blocks())?;
+        self.publish_candidate(candidate)
     }
 
     /// NativeChain cannot be deserialized or built without core verification.
@@ -280,20 +321,32 @@ impl NativeNode {
         if !candidate.outranks(&self.chain) {
             return Ok(false);
         }
-        let confirmed = confirmed_index(&candidate);
-        let mut recovery = self.pending.transfers.clone();
-        let mut seen = self.pending.ids.clone();
-        for block in self.chain.blocks() {
+        let common = common_prefix_len(self.chain.blocks(), candidate.blocks());
+        let mut confirmed = self.confirmed.clone();
+        confirmed.retain(|_, height| *height <= common as u64);
+        for block in &candidate.blocks()[common..] {
             for transfer in &block.transfers {
+                confirmed.insert(transfer.id(), block.header.height);
+            }
+        }
+        let mut recovery = Vec::new();
+        let orphan_limit = MAX_NATIVE_RECOVERY_TRANSFERS - self.pending.transfers.len();
+        let mut seen = self.pending.ids.clone();
+        'blocks: for block in &self.chain.blocks()[common..] {
+            for transfer in &block.transfers {
+                if recovery.len() == orphan_limit {
+                    break 'blocks;
+                }
                 let id = transfer.id();
-                if recovery.len() < MAX_NATIVE_RECOVERY_TRANSFERS
-                    && !confirmed.contains_key(&id)
-                    && seen.insert(id)
-                {
+                if !confirmed.contains_key(&id) && seen.insert(id) {
                     recovery.push(transfer.clone());
                 }
             }
         }
+        // Old canonical transfers precede the old pending queue: an orphaned
+        // nonce or funding credit can be a prerequisite for a queued successor.
+        // Keep room for every old pending input in the durable recovery union.
+        recovery.extend(self.pending.transfers.iter().cloned());
         let retained = retain_pending(&candidate, &confirmed, &recovery)?;
         let publish = (|| -> anyhow::Result<()> {
             if recovery != self.pending.transfers {
@@ -531,6 +584,13 @@ fn confirmed_index(chain: &NativeChain) -> BTreeMap<Hex32, u64> {
         .collect()
 }
 
+fn common_prefix_len(left: &[NativeBlock], right: &[NativeBlock]) -> usize {
+    // A block hash omits producer_signature and commits to transfers via the
+    // root only. Comparing hashes would let mutated remote bodies/signatures
+    // impersonate our validated prefix without passing independent checks.
+    left.iter().zip(right).take_while(|(a, b)| a == b).count()
+}
+
 fn retain_pending(
     chain: &NativeChain,
     confirmed: &BTreeMap<Hex32, u64>,
@@ -566,8 +626,97 @@ fn write_pool(path: &Path, pending: &[NativeTransfer]) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::durability::{fail_next_append, AppendFault, PrivateTempDir};
+    use crate::durability::{fail_atomic_rewrite, fail_next_append, AppendFault, PrivateTempDir};
     use boole_core::SigningKeyV2;
+
+    #[test]
+    fn recent_reorg_publication_failures_preserve_pending_dependencies_on_restart() {
+        for stage in 0..3 {
+            for after_rename in [false, true] {
+                let dir = PrivateTempDir::new("boole-native-reorg-fault").unwrap();
+                let key = SigningKeyV2::from_dev_id("native-reorg-fault-owner");
+                let sign = |template: NativeBlockTemplate| {
+                    let block = template.mine(0, 2_000_000).unwrap().unwrap();
+                    let auth = key
+                        .sign_for_network(
+                            &block.authorization_payload().unwrap(),
+                            Some(native_testnet().network_id()),
+                        )
+                        .unwrap();
+                    block.authorize(&auth).unwrap()
+                };
+                let mut node = NativeNode::open(dir.path()).unwrap();
+                for height in 1..=10 {
+                    let block = sign(
+                        node.template(&key.pk_hex(), &key.pk_hex(), height * 60_000)
+                            .unwrap(),
+                    );
+                    node.submit_block(block).unwrap();
+                }
+                let mut candidate = node.chain().clone();
+                let transfers: Vec<_> = (0..2).map(|nonce: u64| NativeTransfer::try_from(
+                    &key.sign_for_network(&serde_json::json!({
+                        "schema": "boole.transfer.v1", "from": key.pk_hex(), "to": key.pk_hex(),
+                        "amount": "1", "fee": "1000", "nonce": nonce.to_string(), "validBefore": "100"
+                    }), Some(native_testnet().network_id())).unwrap()).unwrap()).collect();
+                node.submit_transfer(transfers[0].clone()).unwrap();
+                node.submit_block(sign(
+                    node.template(&key.pk_hex(), &key.pk_hex(), 660_000)
+                        .unwrap(),
+                ))
+                .unwrap();
+                node.submit_transfer(transfers[1].clone()).unwrap();
+                let former = node.chain().clone();
+                for height in 11..=12 {
+                    candidate
+                        .append(sign(
+                            candidate
+                                .template(&key.pk_hex(), &key.pk_hex(), height * 60_000, &[])
+                                .unwrap(),
+                        ))
+                        .unwrap();
+                }
+                let path = if stage == 1 {
+                    &node.block_path
+                } else {
+                    &node.pool_path
+                };
+                fail_atomic_rewrite(path, after_rename, usize::from(stage == 2));
+                let error = node
+                    .adopt_recent_suffix(10, &candidate.blocks()[10..])
+                    .unwrap_err();
+                assert!(format!("{error:#}").contains("injected atomic rewrite failure"));
+                assert!(node.ensure_ready().is_err());
+                assert!(node.pending_view().is_err());
+                assert!(node
+                    .adopt_recent_suffix(10, &candidate.blocks()[10..])
+                    .is_err());
+                drop(node);
+                let recovered = NativeNode::open(dir.path()).unwrap();
+                let new_history = stage == 2 || (stage == 1 && after_rename);
+                assert_eq!(
+                    recovered.chain(),
+                    if new_history { &candidate } else { &former }
+                );
+                assert_eq!(
+                    recovered.pending(),
+                    if new_history {
+                        &transfers[..]
+                    } else {
+                        &transfers[1..]
+                    }
+                );
+                assert_eq!(
+                    recovered.pending_view().unwrap().next_nonce(&key.pk_hex()),
+                    2
+                );
+                assert_eq!(
+                    recovered.confirmed_height(&transfers[0].id()),
+                    if new_history { None } else { Some(11) }
+                );
+            }
+        }
+    }
 
     #[test]
     fn failed_pending_append_never_reserves_a_nonce_or_balance_after_recovery() {

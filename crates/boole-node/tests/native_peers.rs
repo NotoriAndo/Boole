@@ -454,6 +454,68 @@ fn invalid_owner_signature_from_an_approved_peer_never_becomes_a_block() {
 }
 
 #[test]
+fn peers_refuse_forks_before_the_local_undo_window_without_downloading_a_suffix() {
+    let dir = TestDir::new();
+    let node = dir.node();
+    let miner = SigningKeyV2::from_dev_id("native-deep-local-fork");
+    mine(&node, &miner, &miner.pk_hex(), 257);
+    let expected = node.lock().unwrap().chain().clone();
+    let node_key = identity();
+    let peer_key = identity();
+    let mut remote_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let remote_address = remote_listener.local_addr().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let server = TlsTransport::new(
+        peer_key.clone(),
+        vec![(listener.local_addr().unwrap(), node_key.peer_id())],
+    )
+    .unwrap();
+    let remote = std::thread::spawn(move || {
+        let (mut connection, _) = server.accept(&mut remote_listener).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let _: (serde_json::Value, _) = server
+            .recv_json_counted_until(&mut connection, 4096, deadline)
+            .unwrap();
+        let mut hello = wire_hello();
+        hello["head"] = serde_json::json!({"height": 1, "hash": "aa".repeat(32)});
+        server
+            .send_json_counted_until(&mut connection, &hello, 4096, deadline)
+            .unwrap();
+        let (request, _): (serde_json::Value, _) = server
+            .recv_json_counted_until(&mut connection, 4096, deadline)
+            .unwrap();
+        assert_eq!(request["type"], "getHash");
+        server.send_json_counted_until(&mut connection, &serde_json::json!({
+            "type": "hash", "snapshot": hello["head"], "height": 1, "hash": hello["head"]["hash"]
+        }), 4096, deadline).unwrap();
+        let (next, _): (serde_json::Value, _) = server
+            .recv_json_counted_until(&mut connection, 4096, deadline)
+            .unwrap();
+        next
+    });
+    let mut service = NativePeerService::start(
+        listener,
+        node.clone(),
+        NativePeerConfig {
+            identity: node_key,
+            peers: vec![(remote_address, peer_key.peer_id())],
+        },
+    )
+    .unwrap();
+    let next = remote.join().unwrap();
+    await_condition(|| {
+        service.status()[0].successful_rounds + service.status()[0].failed_rounds > 0
+    });
+    service.stop();
+    assert_eq!(
+        next["type"], "done",
+        "cannot request unbounded-prefix replay work"
+    );
+    assert_eq!(service.status()[0].state, "bounded_reorg_requires_recovery");
+    assert_eq!(node.lock().unwrap().chain(), &expected);
+}
+
+#[test]
 fn stop_closes_stalled_tls_handshakes_and_public_peers_are_refused() {
     let dir = TestDir::new();
     let node = dir.node();
