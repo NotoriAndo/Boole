@@ -471,6 +471,9 @@ Ordinary/incoming/outgoing limits stayed at 8/4/8, excess admission was refused,
 diagnostics remained non-authoritative and canonical bytes/accounting did not
 change. Peak process RSS was 621.265625MiB, maximum measured diagnostic response
 457 microseconds, input/rejection phase 3.137s and independent replay 51.652s.
+The [HTTP-shutdown corrected-source follow-up](native-http-shutdown-drain-2026-09.md#unchanged-large-mixed-resource-follow-up--first-corrected-source-run-pass)
+passed the same criteria at 623.875MiB RSS, 456µs diagnostics, 3.118s input/rejection,
+39.786ms drained stop and 51.871s independent replay, preserving the exact state.
 This measures that fixed developer-Mac combination, not arbitrary JSON trees,
 successful competing validation under mixed pressure or public availability.
 

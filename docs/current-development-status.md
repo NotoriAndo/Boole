@@ -204,6 +204,11 @@ maximum measured response 457 microseconds. The input/rejection phase took
 This is one fixed incomplete-input combination, not arbitrary mixed successful
 fork validation, a public availability SLA or R1 completion; runtime rules and
 limits were unchanged.
+After the HTTP shutdown correction, the identical mixed criteria passed again:
+3.118s input/rejection, 39.786ms drained stop, 456µs maximum diagnostic response,
+51.871s replay and 623.875MiB RSS. Exact original state/files remained unchanged;
+the [corrected-source result](native-http-shutdown-drain-2026-09.md#unchanged-large-mixed-resource-follow-up--first-corrected-source-run-pass)
+is separate from the original measurement and its unchanged scope limits.
 Exact already-known transfers still repeat immutable signature checks. A
 [developer retry baseline](native-known-transfer-qualification-2026-09.md)
 preserved state/journals but took 2.749s for 8,192 retries against a fixed 1s

@@ -57,7 +57,7 @@ separate scenarios; do not add their throughput or combine their memory peaks.
 |---|---|---|
 | 131,073 balances, full 512-transfer queue, two reopens | 3.293s admission; 52.214s/52.163s reopens; 350.671875MiB RSS; exact original final head/accounting | One funded sender/recipient pattern, not the complete 256MiB/100,000-block envelope |
 | Eight distinct valid competing 16-block branches at that state | 66.633s stable winner polling; 55.585s replay; 767.703125MiB RSS; 28 failed rounds retained; only winning 8,192 added IDs confirmed | Fixed candidates; not arbitrary changing candidates, concurrent successful RPC/fork traffic or hard read-latency guarantees |
-| Eight incomplete thirty-block buffers + four authenticated inbound waits + eight near-8MiB HTTP uploads | 3.137s input/rejection phase; 457µs maximum of ten timed diagnostic calls; 51.652s replay; 621.265625MiB RSS; source bytes unchanged | Incomplete-input pressure/rejection only; not successful mixed fork validation or a public availability SLA |
+| Eight incomplete thirty-block buffers + four authenticated inbound waits + eight near-8MiB HTTP uploads | After HTTP shutdown correction: 3.118s input/rejection; 39.786ms drained stop; 456µs maximum of ten diagnostic calls; 51.871s replay; 623.875MiB RSS; exact original source-state bytes unchanged | Same fixed incomplete-input criteria; not successful mixed fork validation or a public availability SLA; [original and follow-up sources remain separate](native-http-shutdown-drain-2026-09.md#unchanged-large-mixed-resource-follow-up--first-corrected-source-run-pass) |
 
 The exact-transfer retry optimization is **not implemented**. Its original
 8,192-retry baseline took 2.748584083s against the fixed one-second criterion;

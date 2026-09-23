@@ -4,6 +4,12 @@ Status: **PASS — preregistered small and large scenarios, existing runtime unc
 bounded P2P and loopback HTTP inputs. It is not general mixed-traffic, successful
 competing-adoption, continuously changing-candidate or public-network acceptance.
 
+After the subsequent native HTTP shutdown correction, the unchanged small and
+large scenarios passed again. The [corrected-source result and raw output](native-http-shutdown-drain-2026-09.md#unchanged-large-mixed-resource-follow-up--first-corrected-source-run-pass)
+record 234.772s total, 623.875MiB RSS, 3.118s network phase, 39.786ms drained stop,
+456µs maximum diagnostic response and 51.871s replay with exact original state.
+The original measured source/results below remain unchanged and distinct.
+
 ## Why this combination
 
 Separate qualifications exercised eight incomplete fork buffers, distinct valid

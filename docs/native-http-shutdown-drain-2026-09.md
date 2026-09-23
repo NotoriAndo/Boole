@@ -1,6 +1,6 @@
 # Native HTTP shutdown drain — 2026-09-23
 
-Status: **Correction and direct regressions PASS; large mixed-resource follow-up pending.**
+Status: **Correction, direct regressions and unchanged large mixed-resource follow-up PASS.**
 
 ## Selected boundary
 
@@ -140,10 +140,46 @@ The unchanged small mixed-pressure companion also passed: 1,025 balances and
 8/4/8 outgoing/incoming/HTTP occupancy, rejected excess admission, 440µs maximum
 diagnostic response, 916ms network phase, 498µs drained stop, 399ms independent
 reopen and 21.800s total. Exact original accounting/head/journal/manifest checks
-passed. The full 131,073-balance mixed case will be rerun alone under OS resource
-measurement on a clean committed source with the original criteria unchanged.
+passed. The full 131,073-balance mixed case then passed alone under OS resource
+measurement on the clean committed source, with the original criteria unchanged.
 No successful mixed-fork, public-network, arbitrary slow-disk or whole-R1 claim
 follows from these direct regressions.
+
+## Unchanged large mixed-resource follow-up — first corrected-source run PASS
+
+Executed on 2026-09-23, approximately 14:56–15:00 UTC, with source
+`ecb549cb4cf646648eee269304898a8c2c53f7a5`, tree
+`51c917e9d761a5c3c67d49f3f78963540c9d8aeb` and executable SHA-256
+`60b09f7048081a83eebcb05f1a3cd1091588ae566dec977f73dfd646971a9f50`.
+Clean status, source/tree and executable identity matched before/after. No other
+build or test was intentionally run concurrently. This is a follow-up after a
+runtime correction, not an unchanged-product retry after an acceptance failure.
+The [original mixed criteria](native-mixed-resource-qualification-2026-09.md#fixed-scenario-and-acceptance)
+remain 900s total, 1GiB peak RSS, 15s network phase, 3s drained stop, 120s replay,
+1s per diagnostic response and unchanged 8/4/8 admission limits.
+
+All eight outgoing clients held thirty decoded blocks, 8,213,762 fixture wire
+bytes each; four authenticated inbound requests and eight unfinished HTTP bodies
+overlapped. Each HTTP client sent 8,388,607 bytes. The fifth inbound and ninth
+ordinary request were rejected, the latter without a 100 response. All ten
+diagnostic responses retained non-authoritative markers and 8/4/8 occupancy;
+maximum response was 456 microseconds. Completing the empty-array HTTP bodies
+returned `adopted=false`, and releasing the excess fork pages produced eight
+expected `block_download` failures without any candidate adoption.
+
+Network input/rejection took 3.118s; drained stop took 39.786ms. Independent
+reopen took 51.871s, total scenario 234.772s (harness/OS wall 234.81s), with
+654,180,352 bytes (623.875MiB) maximum RSS. Maximum template/canonical append/
+candidate append were 198/233/196ms. Both test and outer measurement/identity
+command exited 0. All listeners were reusable.
+
+The exact original height-267 head
+`000002700a9b5f795da3ff71cad2588c0180e2f6213ba0f0e983ea42b1b63d1b`
+and every accounting/recipient/nonce check remained unchanged: 131,073 balances,
+131,072 confirmed transfers, 69,958,251 history bytes, 1,335,000,000,000,000 issued
+atoms and empty pending. Journal digests and manifest bytes matched before/after
+independent replay. This qualifies the same fixed incomplete-input combination
+on the corrected source; it is not arbitrary successful mixed traffic or R1 PASS.
 
 ## Raw outcomes and follow-up checks
 
@@ -403,4 +439,51 @@ mixed-result {"elapsedMs":21800,"fundedBlocks":2,"genesisHash":"933a672120674efa
 ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 21.80s
+```
+
+### Large mixed-resource follow-up and exact source/executable identities
+
+Command: `/usr/bin/time -l /Users/seoyong/projects/Boole/target/debug/deps/native_capacity-6f26ba504621f258 --ignored --exact mixed::native_mixed_p2p_http_pressure_131072_accounts --nocapture --test-threads=1`
+
+```text
+ecb549cb4cf646648eee269304898a8c2c53f7a5
+51c917e9d761a5c3c67d49f3f78963540c9d8aeb
+60b09f7048081a83eebcb05f1a3cd1091588ae566dec977f73dfd646971a9f50  /Users/seoyong/projects/Boole/target/debug/deps/native_capacity-6f26ba504621f258
+
+running 1 test
+test mixed::native_mixed_p2p_http_pressure_131072_accounts ... mixed-progress fundedBlocks=32 elapsedMs=19192
+mixed-progress fundedBlocks=64 elapsedMs=38216
+mixed-progress fundedBlocks=96 elapsedMs=57459
+mixed-progress fundedBlocks=128 elapsedMs=77345
+mixed-progress fundedBlocks=160 elapsedMs=97470
+mixed-progress fundedBlocks=192 elapsedMs=116899
+mixed-progress fundedBlocks=224 elapsedMs=136756
+mixed-progress fundedBlocks=256 elapsedMs=156935
+mixed-network {"advertised":{"hash":"000092c6b9368f84167d9bdbe28083aaa3c3a54ec6f0886623daef36cd3ca5cc","height":299},"diagnosticMaxMicros":456,"drained":{"authority":"local_process_only","ledgerReadiness":"not_checked","peers":{"acceptedConnections":4,"activeInboundWorkers":0,"activeOutboundRounds":0,"authenticatedConnections":4,"authenticationFailures":0,"completedInboundRounds":0,"enabled":true,"failedInboundRounds":4,"limits":{"handshakeTimeoutMs":2000,"inboundKeyCooldownMs":500,"maxHandshakesPerSecond":8,"maxInboundWorkers":4,"maxMessageBytes":1048576,"maxOutboundWorkers":8,"maxPeers":8,"maxRoundBlocks":256,"maxRoundBytes":8388608,"maxRoundRequests":64,"roundTimeoutMs":10000},"listenAddress":"127.0.0.1:49290","localPeerId":"b597500b3fc4d3355ea89fe739b8eb37155eba89d3c3dd1074f54f4a35556389","peakInboundWorkers":4,"peakOutboundRounds":8,"peers":[{"address":"127.0.0.1:49292","consecutiveFailures":1,"failedRounds":1,"lastFailureStage":"block_download","peerId":"f86716024d2d7da1f3027c11853751df03b314569f1f37514ae6dc3894b29b5c","retryDelayMs":500,"state":"retrying","successfulRounds":0},{"address":"127.0.0.1:49293","consecutiveFailures":1,"failedRounds":1,"lastFailureStage":"block_download","peerId":"ec3b6349b36903916226ebb4734849149bc14de2059770d5724c6cb5af89569a","retryDelayMs":500,"state":"retrying","successfulRounds":0},{"address":"127.0.0.1:49295","consecutiveFailures":1,"failedRounds":1,"lastFailureStage":"block_download","peerId":"1ac87474f3d34a6d56f1279c5a9abbc5bedc007ecaca9131e177183272e205dc","retryDelayMs":500,"state":"retrying","successfulRounds":0},{"address":"127.0.0.1:49296","consecutiveFailures":1,"failedRounds":1,"lastFailureStage":"block_download","peerId":"7f70d9af1d25b9d9dacdf279aac23be84fafd2fbfff4d9d5bac4651518989989","retryDelayMs":500,"state":"retrying","successfulRounds":0},{"address":"127.0.0.1:49297","consecutiveFailures":1,"failedRounds":1,"lastFailureStage":"block_download","peerId":"221a936ccddf7068d26090d6a990883bf9f4d9bcca0a52f3b03d283d9a42bda5","retryDelayMs":500,"state":"retrying","successfulRounds":0},{"address":"127.0.0.1:49298","consecutiveFailures":1,"failedRounds":1,"lastFailureStage":"block_download","peerId":"0a96a8b3e063f4eecf384d9d7cabf7e00fa1dc8956b6eb5797f6b0bbf52354a3","retryDelayMs":500,"state":"retrying","successfulRounds":0},{"address":"127.0.0.1:49299","consecutiveFailures":1,"failedRounds":1,"lastFailureStage":"block_download","peerId":"c24c0c21a34355dab82ef13ab287929f396d5c5d6a219b223b8c1889104342f1","retryDelayMs":500,"state":"retrying","successfulRounds":0},{"address":"127.0.0.1:49300","consecutiveFailures":1,"failedRounds":1,"lastFailureStage":"block_download","peerId":"1781555fe7597926da1849c29327aabcee5a24139f5f9a47f32311f3eea9abc4","retryDelayMs":500,"state":"retrying","successfulRounds":0}],"rejectedConnections":1,"rejectedPeerRounds":0,"running":true},"rpc":{"activeDiagnostics":1,"activeRequests":0,"diagnosticLimit":2,"requestLimit":8},"schema":"boole.native.diagnostics.v1","stopping":false},"elapsedMs":182078,"finalSentBytesPerPeer":[9034930,9034930,9034930,9034930,9034930,9034930,9034930,9034930],"fundedBlocks":256,"httpBodyBytesSentPerClient":8388607,"localHead":"000002700a9b5f795da3ff71cad2588c0180e2f6213ba0f0e983ea42b1b63d1b","networkMs":3118,"overlap":{"authority":"local_process_only","ledgerReadiness":"not_checked","peers":{"acceptedConnections":4,"activeInboundWorkers":4,"activeOutboundRounds":8,"authenticatedConnections":4,"authenticationFailures":0,"completedInboundRounds":0,"enabled":true,"failedInboundRounds":0,"limits":{"handshakeTimeoutMs":2000,"inboundKeyCooldownMs":500,"maxHandshakesPerSecond":8,"maxInboundWorkers":4,"maxMessageBytes":1048576,"maxOutboundWorkers":8,"maxPeers":8,"maxRoundBlocks":256,"maxRoundBytes":8388608,"maxRoundRequests":64,"roundTimeoutMs":10000},"listenAddress":"127.0.0.1:49290","localPeerId":"b597500b3fc4d3355ea89fe739b8eb37155eba89d3c3dd1074f54f4a35556389","peakInboundWorkers":4,"peakOutboundRounds":8,"peers":[{"address":"127.0.0.1:49292","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"f86716024d2d7da1f3027c11853751df03b314569f1f37514ae6dc3894b29b5c","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:49293","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"ec3b6349b36903916226ebb4734849149bc14de2059770d5724c6cb5af89569a","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:49295","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"1ac87474f3d34a6d56f1279c5a9abbc5bedc007ecaca9131e177183272e205dc","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:49296","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"7f70d9af1d25b9d9dacdf279aac23be84fafd2fbfff4d9d5bac4651518989989","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:49297","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"221a936ccddf7068d26090d6a990883bf9f4d9bcca0a52f3b03d283d9a42bda5","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:49298","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"0a96a8b3e063f4eecf384d9d7cabf7e00fa1dc8956b6eb5797f6b0bbf52354a3","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:49299","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"c24c0c21a34355dab82ef13ab287929f396d5c5d6a219b223b8c1889104342f1","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:49300","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"1781555fe7597926da1849c29327aabcee5a24139f5f9a47f32311f3eea9abc4","retryDelayMs":0,"state":"not_connected","successfulRounds":0}],"rejectedConnections":1,"rejectedPeerRounds":0,"running":true},"rpc":{"activeDiagnostics":1,"activeRequests":8,"diagnosticLimit":2,"requestLimit":8},"schema":"boole.native.diagnostics.v1","stopping":false},"partialBytesPerPeer":[8213762,8213762,8213762,8213762,8213762,8213762,8213762,8213762],"stopMicros":39786}
+mixed-result {"elapsedMs":234772,"fundedBlocks":256,"genesisHash":"933a672120674efa9ec6205f344e1830febdec58b0ffcd2603ccc8a9723610c1","head":"000002700a9b5f795da3ff71cad2588c0180e2f6213ba0f0e983ea42b1b63d1b","issued":"1335000000000000","maxAppendMs":233,"maxCandidateAppendMs":196,"maxTemplateMs":198,"networkId":"boole-native-testnet-1","resources":{"balanceEntries":131073,"confirmedTransfers":131072,"historyBlocks":267,"historyBytes":69958251,"historyLimitBlocks":100000,"historyLimitBytes":268435456,"nonceEntries":1,"pendingBytes":0,"pendingLimitBytes":5242880,"pendingLimitTransfers":512,"pendingTransfers":0},"restartMs":51871}
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 234.81s
+
+      234.81 real       235.95 user         0.65 sys
+           654180352  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+               42601  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                6327  messages sent
+               10810  messages received
+                   0  signals received
+                1768  voluntary context switches
+                3408  involuntary context switches
+       3662673365824  instructions retired
+       1018928527756  cycles elapsed
+           453952472  peak memory footprint
+ecb549cb4cf646648eee269304898a8c2c53f7a5
+51c917e9d761a5c3c67d49f3f78963540c9d8aeb
+60b09f7048081a83eebcb05f1a3cd1091588ae566dec977f73dfd646971a9f50  /Users/seoyong/projects/Boole/target/debug/deps/native_capacity-6f26ba504621f258
 ```
