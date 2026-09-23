@@ -113,6 +113,14 @@ fn offline_archive_restores_verified_balances_nonces_and_confirmation_exactly_on
         &expected.head_hash().to_hex(),
     ));
     assert_eq!(imported["adopted"], true);
+    let head = expected.head_hash().to_hex();
+    let source_audit = boole_node::audit_native_state(&source, Some(&head)).unwrap();
+    let restored_audit = boole_node::audit_native_state(&destination, Some(&head)).unwrap();
+    assert_eq!(
+        serde_json::to_value(source_audit).unwrap(),
+        serde_json::to_value(restored_audit).unwrap(),
+        "independent source and recovered replays disagree on accounting"
+    );
     for _ in 0..2 {
         let node = NativeNode::open(&destination).unwrap();
         assert_eq!(node.chain(), &expected);

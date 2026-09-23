@@ -112,6 +112,18 @@ rolled back or fenced; uncertain writes require restart/recovery. Live file
 loss/replacement or lock loss stops readiness and mutations. Metadata checks are
 not protection against a malicious local administrator racing the filesystem.
 
+New native state publishes and syncs an explicit empty canonical block file
+before its first manifest. Once a manifest exists, an absent block file is
+ambiguous data loss and boot fails closed; it is never treated as empty genesis.
+Existing journals without a manifest are likewise preserved and refused, even
+when the journal is empty after an interrupted first initialization. Preserve
+that directory and recover into a fresh one. Older empty native states that had
+a manifest but no block file must also use a fresh directory: absence cannot
+distinguish old implicit genesis from lost funded history. No file/schema or
+consensus format changes, deletion or automatic repair bypass are introduced.
+This guard does not detect rollback to a complete valid prefix, including an
+existing zero-byte block file; retain an independently checked head for that.
+
 On reorg the node first saves the old pending queue plus bounded orphaned
 transactions, then atomically replaces the block journal, then filters the queue
 against the winning ledger. Boot uses whichever canonical block file survived.
@@ -286,6 +298,54 @@ reductions, not a production-scale capacity claim. Normal native startup also
 bounds the actual descriptor read and checks stability before tail repair.
 The shared node-manifest reader now rejects nonregular/aliased inputs and files
 above 64KiB; existing compatible creation provenance and legacy upgrades remain.
+
+### Offline canonical accounting audit
+
+For a stopped existing node or a separately restored copy:
+
+```sh
+boole-node native-audit --state-dir /private/node-a \
+  --expected-head <independently-retained-64-lowercase-hex-hash>
+```
+
+`--expected-head` is optional for inspection, but necessary when checking that a
+particular previously observed head survived. The command opens no sockets and
+requires exclusive state/ledger ownership. It replays every canonical block from
+genesis under the same signature, PoW, timestamp and accounting rules, then checks
+that summed balances equal issued atoms, issuance does not exceed the compiled
+cap, and per-account reward locks exactly match the unmatured reward queue. Locked
+amounts must not exceed their balances; spendable atoms are balance minus locked
+atoms. This is a full replay plus a derived accounting scan, not a fast readiness
+query or a new trusted checkpoint.
+
+Success prints one `boole.native.audit.v1` JSON object with scope
+`confirmed_canonical`, network/genesis, head and height. Every monetary total and
+height is a decimal string; bounded resource counts remain JSON numbers.
+`accounting` reports `issuedAtoms`, `supplyCapAtoms`, `balanceAtoms`, `lockedAtoms`,
+`spendableAtoms` and `pendingRewardEntries`. `confirmedTransfers` reports count,
+gross `amountAtoms` and `feeAtoms` from canonical blocks only. Transfer/fee totals
+include self-transfers and repeated spending, may exceed issuance, and are not
+new supply, unique economic volume or fiat valuation. Pending transfers do not
+enter these monetary totals. Fees remain producer receipts, not burns.
+
+The `resources` object uses the same local limits as `native info`. Its
+`pendingTransfers` is the valid in-memory retained queue, not the number of raw
+stored journal rows. Stored pending signatures are still checked: a corrupt row
+fails the audit, while valid but stale rows may be excluded from that derived
+queue without altering their bytes. Source journals and manifest are never
+repaired, truncated, upgraded or rewritten by this command. Ownership lock files
+may be opened/created, so this is not a promise of zero filesystem writes. Missing
+state/manifest, unsafe aliases, an incompatible/legacy manifest, torn or invalid
+history, ownership conflicts and expected-head mismatch return failure without
+a success report. Normal byte/block bounds remain in force.
+
+Keep original state and wallet outboxes, compare independently replayed replicas
+at the same intended head, and investigate mismatches before restarting service.
+An internally valid prefix can still be stale or rolled back; without an
+independently retained expected head the auditor cannot know newer history once
+existed. The receipt is local unsigned diagnostics, not an external attestation,
+finality guarantee, authorization to force a fork, public-testnet acceptance or
+evidence of actual operator fund movement.
 
 ## Owner-wallet CLI and closed-local RPC
 
@@ -594,6 +654,14 @@ Added executable evidence:
   source-preserving refusal, no-overwrite/role-collision/unsafe-file/ownership guards,
   no forced rollback and recovery to a fresh directory without erasing corruption.
   Shared manifest and durability regressions also preserve their existing rules.
+- [Offline accounting CLI](../crates/boole-node/tests/native_audit.rs): real
+  replayed issuance/maturity/fee totals excluding pending, stable source bytes,
+  expected-head binding, missing-history/bootstrap ambiguity, unsafe source and
+  corruption refusal. Independent original/restored audit receipts agree in the
+  archive test. The missing command and lost-history-as-genesis behavior were
+  observed RED before implementation/correction. Core audit tests cover reward
+  lock consistency, full-width totals, failed-block invariance and injected
+  internal inconsistency without exposing unchecked state construction.
 - [Two independent RPC nodes](../crates/boole-node/tests/native_http.rs): real
   PoW → reward maturity → A-to-B signed transfer → block import → identical
   balances/head/issuance, with public-bind, cross-origin, oversized-body and

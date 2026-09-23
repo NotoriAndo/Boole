@@ -32,6 +32,14 @@ independent validation. A 1,025-block recovery preserves orphaned transfers.
 Pending admission now retains verified reservations and IDs, stages only affected
 accounts and publishes after durable append. Full 512-transaction queues,
 16,384-account fixtures and failure/reorg/restart paths pass focused checks.
+Stopped-node `native-audit` now independently replays canonical history, checks
+balance/issuance/reward-lock conservation and reports exact decimal totals without
+repairing source journals. An optional independently retained head detects a
+valid-prefix rollback; a self-consistent audit alone cannot prove latest history.
+Boot/audit now refuse a missing canonical file instead of treating existing state
+as empty genesis. Ambiguous old or interrupted initialization is preserved and
+requires a fresh recovery directory. See the
+[accounting audit workflow and limits](native-transfer-ledger-contract.md#offline-canonical-accounting-audit).
 Storage bytes/limits and canonical account/transaction counts are now observable
 through `native info`. A [preregistered developer-Mac scenario](native-capacity-qualification-2026-09.md)
 passes at 131,073 balance entries and ~67MiB history, including a full queue and
@@ -144,6 +152,7 @@ implementation is not a public-network transport certificate.
 | R1 secure peer integration | Mutually pinned TLS, bounded incremental block sync/pending pull, local partition/rejoin, transport-key CLI and resource/status/shutdown guards. [Contract and automated evidence](native-transfer-ledger-contract.md#mutually-authenticated-native-peers). Closed-local only; wider operations acceptance remains. |
 | R1 encrypted wallet recovery | Authenticated no-overwrite backup/restore, unchanged v1/default KDF, bounded secret/file/agent processing, explicit stdin signing and a restored-owner on-chain transfer. [Contract and limitations](native-transfer-ledger-contract.md#encrypted-owner-vault-backup-and-restore). Disposable local evidence, not operational key custody. |
 | R1 offline node recovery | Source-preserving new-file export, expected-head/full-validation import, 1,025-block long-fork recovery and orphan requeue, bounded stable files/manifest and normal fork choice. [Workflow and limits](native-transfer-ledger-contract.md#bounded-offline-chain-recovery). Not unlimited history or production-scale storage. |
+| R1 offline accounting diagnostics | Confirmed canonical supply/balance/lock and gross transfer/fee audit, source-preserving replay, expected-head check and missing-history fail-closed boot. [Workflow and limits](native-transfer-ledger-contract.md#offline-canonical-accounting-audit). Unsigned local diagnostics, not finality or latest-state attestation. |
 | Mac/curl and custody foundations | Closed-local VM, install/update/rollback and non-operational trust-policy/custody rehearsal implemented. **Clean-Mac CURL.3 and operational release custody are not complete.** |
 
 Completed actual-model allowances are exhausted, not recurring permission.

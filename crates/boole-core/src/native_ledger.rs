@@ -48,6 +48,8 @@ pub enum NativeLedgerError {
     UnexpectedNonce { expected: u64, actual: u64 },
     #[error("native ledger: insufficient balance for amount plus fee")]
     InsufficientBalance,
+    #[error("native ledger: inconsistent canonical accounting")]
+    InconsistentAccounting,
 }
 
 /// Signed payload integers are canonical decimal strings, including nonce and
@@ -184,6 +186,20 @@ pub struct NativeLedger {
     reward_maturity: u64,
     locked_balances: BTreeMap<String, u128>,
     pending_rewards: BTreeMap<u64, (String, u128)>,
+}
+
+/// Derived diagnostics, not a serialized balance checkpoint or spending authority.
+/// Node/wallet output layers must encode monetary values as decimal strings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NativeLedgerAudit {
+    pub issued: u128,
+    pub supply_cap: u128,
+    pub total_balance: u128,
+    pub total_locked: u128,
+    pub total_spendable: u128,
+    pub balance_entries: usize,
+    pub nonce_entries: usize,
+    pub pending_reward_entries: usize,
 }
 
 /// In-process inverse of one verified transition. There is no deserialization
@@ -353,6 +369,63 @@ impl NativeLedger {
 
     pub fn issued(&self) -> u128 {
         self.issued
+    }
+
+    /// Scan canonical accounting for conservation and exact reward-lock
+    /// consistency. This is linear-time offline diagnostics, not block
+    /// validation, fork choice, finality, or a constant-time readiness check.
+    pub fn audit(&self) -> Result<NativeLedgerAudit, NativeLedgerError> {
+        let total_balance = self.balances.values().try_fold(0u128, |sum, balance| {
+            sum.checked_add(*balance).ok_or(NativeLedgerError::Overflow)
+        })?;
+        if total_balance != self.issued || self.issued > self.schedule.total_supply {
+            return Err(NativeLedgerError::InconsistentAccounting);
+        }
+        let mut expected_locks: BTreeMap<&str, u128> = BTreeMap::new();
+        for (unlock_height, (pk, amount)) in &self.pending_rewards {
+            if *unlock_height <= self.height
+                || *amount == 0
+                || !unlock_height
+                    .checked_sub(self.reward_maturity)
+                    .is_some_and(|created| created > 0 && created <= self.height)
+            {
+                return Err(NativeLedgerError::InconsistentAccounting);
+            }
+            let expected = expected_locks.entry(pk.as_str()).or_default();
+            *expected = expected
+                .checked_add(*amount)
+                .ok_or(NativeLedgerError::Overflow)?;
+        }
+        if !self
+            .locked_balances
+            .iter()
+            .map(|(pk, amount)| (pk.as_str(), *amount))
+            .eq(expected_locks)
+        {
+            return Err(NativeLedgerError::InconsistentAccounting);
+        }
+        let total_locked = self
+            .locked_balances
+            .iter()
+            .try_fold(0u128, |sum, (pk, locked)| {
+                if *locked == 0 || *locked > self.balance(pk) {
+                    return Err(NativeLedgerError::InconsistentAccounting);
+                }
+                sum.checked_add(*locked).ok_or(NativeLedgerError::Overflow)
+            })?;
+        let total_spendable = total_balance
+            .checked_sub(total_locked)
+            .ok_or(NativeLedgerError::InconsistentAccounting)?;
+        Ok(NativeLedgerAudit {
+            issued: self.issued,
+            supply_cap: self.schedule.total_supply,
+            total_balance,
+            total_locked,
+            total_spendable,
+            balance_entries: self.balances.len(),
+            nonce_entries: self.next_nonces.len(),
+            pending_reward_entries: self.pending_rewards.len(),
+        })
     }
 
     /// Stored map entries, including accounts whose current balance is zero.
@@ -596,5 +669,66 @@ impl NativeLedger {
             self.balances.insert(pk.to_string(), balance);
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod audit_tests {
+    use super::*;
+
+    #[test]
+    fn inconsistent_internal_accounting_is_reported_without_repair() {
+        let owner = "11".repeat(32);
+        let mut valid = NativeLedger::new_with_rules(
+            "audit-invariant-fixture",
+            EmissionSchedule::new(1_000, 100, 100).unwrap(),
+            1,
+            2,
+        )
+        .unwrap();
+        for height in 1..=3 {
+            valid.apply_block(height, &owner, &[]).unwrap();
+        }
+        assert!(valid.audit().is_ok());
+        // Internal fault injection only; no unchecked ledger constructor is
+        // exposed to an archive, peer, RPC or any production caller.
+        let faults: &[fn(&mut NativeLedger)] = &[
+            |ledger| ledger.issued += 1,
+            |ledger| *ledger.balances.values_mut().next().unwrap() += 1,
+            |ledger| ledger.schedule.total_supply = 299,
+            |ledger| *ledger.locked_balances.values_mut().next().unwrap() -= 1,
+            |ledger| {
+                let (_, reward) = ledger.pending_rewards.pop_first().unwrap();
+                ledger.pending_rewards.insert(ledger.height, reward);
+            },
+            |ledger| {
+                let (_, reward) = ledger.pending_rewards.pop_first().unwrap();
+                ledger
+                    .pending_rewards
+                    .insert(ledger.height + ledger.reward_maturity + 1, reward);
+            },
+            |ledger| {
+                let stranger = "22".repeat(32);
+                let locked = *ledger.locked_balances.values().next().unwrap();
+                ledger.locked_balances.clear();
+                ledger.locked_balances.insert(stranger.clone(), locked);
+                for (pk, _) in ledger.pending_rewards.values_mut() {
+                    *pk = stranger.clone();
+                }
+            },
+        ];
+        for fault in faults {
+            let mut ledger = valid.clone();
+            fault(&mut ledger);
+            let before = ledger.clone();
+            assert_eq!(
+                ledger.audit(),
+                Err(NativeLedgerError::InconsistentAccounting)
+            );
+            assert_eq!(ledger, before);
+        }
+        let mut overflowing = valid;
+        overflowing.balances.insert("33".repeat(32), u128::MAX);
+        assert_eq!(overflowing.audit(), Err(NativeLedgerError::Overflow));
     }
 }

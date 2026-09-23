@@ -91,7 +91,8 @@ pub use local_node::{
     MAX_CONCURRENT_REQUESTS, MAX_HTTP_BODY_BYTES, PROOF_ROUTE_BODY_BYTES, PROOF_ROUTE_TIMEOUT,
 };
 pub use native_archive::{
-    export_native_archive, import_native_archive, NativeArchiveReceipt, NativeImportReceipt,
+    audit_native_state, export_native_archive, import_native_archive, NativeArchiveReceipt,
+    NativeAuditAccounting, NativeAuditReceipt, NativeAuditTransfers, NativeImportReceipt,
 };
 pub use native_http::{
     bind_loopback as bind_native_loopback, serve as serve_native_node,

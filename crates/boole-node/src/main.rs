@@ -31,6 +31,14 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Fully replay a stopped native node and report confirmed accounting; no repair.
+    NativeAudit {
+        #[arg(long)]
+        state_dir: PathBuf,
+        /// Optional independently checked head; mismatch fails without changing journals.
+        #[arg(long)]
+        expected_head: Option<String>,
+    },
     /// Export a stopped native node's verified canonical blocks to a new file.
     NativeExport {
         #[arg(long)]
@@ -295,6 +303,19 @@ fn main() -> anyhow::Result<()> {
     boole_core::telemetry::init(boole_core::telemetry::BinaryName::Node);
     let cli = Cli::parse();
     match cli.command {
+        Command::NativeAudit {
+            state_dir,
+            expected_head,
+        } => {
+            println!(
+                "{}",
+                serde_json::to_string(&boole_node::audit_native_state(
+                    &state_dir,
+                    expected_head.as_deref()
+                )?)?
+            );
+            Ok(())
+        }
         Command::NativeExport { state_dir, output } => {
             println!(
                 "{}",

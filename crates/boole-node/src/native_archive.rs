@@ -33,6 +33,125 @@ pub struct NativeImportReceipt {
     pub archive: NativeArchiveReceipt,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeAuditAccounting {
+    pub issued_atoms: String,
+    pub supply_cap_atoms: String,
+    pub balance_atoms: String,
+    pub locked_atoms: String,
+    pub spendable_atoms: String,
+    pub pending_reward_entries: usize,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeAuditTransfers {
+    pub count: usize,
+    /// Gross confirmed movement includes self-transfers and repeated spending.
+    /// It is not issuance, unique economic volume or a fiat valuation.
+    pub amount_atoms: String,
+    pub fee_atoms: String,
+}
+
+/// Head-bound local diagnostics, not a signed attestation, checkpoint or finality claim.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeAuditReceipt {
+    pub schema: &'static str,
+    pub scope: &'static str,
+    pub network_id: String,
+    pub genesis_hash: String,
+    pub head_hash: String,
+    pub height: String,
+    pub accounting: NativeAuditAccounting,
+    pub confirmed_transfers: NativeAuditTransfers,
+    pub resources: crate::NativeResourceUsage,
+}
+
+fn check_expected_head(expected_head: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        expected_head.len() == 64
+            && expected_head
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
+        "expected head must be a canonical lowercase 32-byte hash"
+    );
+    Ok(())
+}
+
+/// Replay a stopped existing node without journal repair or manifest upgrades.
+/// Exclusive state/ledger ownership locks may be created; no sockets are opened.
+pub fn audit_native_state(
+    state_dir: &Path,
+    expected_head: Option<&str>,
+) -> anyhow::Result<NativeAuditReceipt> {
+    if let Some(expected) = expected_head {
+        check_expected_head(expected)?;
+    }
+    let manifest = state_dir.join(crate::state_dir::STATE_MANIFEST_FILE);
+    let source_directory = Parent::open(&manifest)?;
+    anyhow::ensure!(
+        fs::symlink_metadata(&manifest)?.is_file(),
+        "audit requires an existing node manifest"
+    );
+    let node = NativeNode::open_preserving(state_dir)?;
+    let chain = node.chain();
+    let head_hash = chain.head_hash().to_hex();
+    if let Some(expected) = expected_head {
+        anyhow::ensure!(
+            head_hash == expected,
+            "native audit does not match expected head"
+        );
+    }
+    let accounting = chain.ledger().audit()?;
+    let mut amount_atoms = 0u128;
+    let mut fee_atoms = 0u128;
+    let mut count = 0usize;
+    // These immutable blocks were independently replayed above. Reading their
+    // canonical decimal fields does not create a second signature bypass path.
+    for transfer in chain.blocks().iter().flat_map(|block| &block.transfers) {
+        amount_atoms = amount_atoms
+            .checked_add(transfer.payload.amount.parse()?)
+            .ok_or_else(|| anyhow::anyhow!("native audit transfer total overflow"))?;
+        fee_atoms = fee_atoms
+            .checked_add(transfer.payload.fee.parse()?)
+            .ok_or_else(|| anyhow::anyhow!("native audit fee total overflow"))?;
+        count = count
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("native audit transfer count overflow"))?;
+    }
+    let resources = node.resource_usage()?;
+    anyhow::ensure!(
+        count == resources.confirmed_transfers,
+        "native audit confirmed index mismatch"
+    );
+    source_directory.check()?;
+    node.ensure_ready()?;
+    Ok(NativeAuditReceipt {
+        schema: "boole.native.audit.v1",
+        scope: "confirmed_canonical",
+        network_id: native_testnet().network_id().to_owned(),
+        genesis_hash: native_testnet().genesis_hash().to_hex(),
+        head_hash,
+        height: chain.ledger().height().to_string(),
+        accounting: NativeAuditAccounting {
+            issued_atoms: accounting.issued.to_string(),
+            supply_cap_atoms: accounting.supply_cap.to_string(),
+            balance_atoms: accounting.total_balance.to_string(),
+            locked_atoms: accounting.total_locked.to_string(),
+            spendable_atoms: accounting.total_spendable.to_string(),
+            pending_reward_entries: accounting.pending_reward_entries,
+        },
+        confirmed_transfers: NativeAuditTransfers {
+            count,
+            amount_atoms: amount_atoms.to_string(),
+            fee_atoms: fee_atoms.to_string(),
+        },
+        resources,
+    })
+}
+
 struct VerifiedArchive {
     chain: NativeChain,
     receipt: NativeArchiveReceipt,
@@ -40,13 +159,7 @@ struct VerifiedArchive {
 
 impl VerifiedArchive {
     fn read(path: &Path, expected_head: &str) -> anyhow::Result<Self> {
-        anyhow::ensure!(
-            expected_head.len() == 64
-                && expected_head
-                    .bytes()
-                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
-            "expected head must be a canonical lowercase 32-byte hash"
-        );
+        check_expected_head(expected_head)?;
         let parent = Parent::open(path)?;
         let file = OpenOptions::new()
             .read(true)

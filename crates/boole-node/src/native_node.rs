@@ -80,7 +80,7 @@ impl NativeNode {
         Self::open_inner(state_dir, true)
     }
 
-    /// Offline export must not silently repair or canonicalize its source.
+    /// Offline export/audit must not silently repair or canonicalize its source.
     pub(crate) fn open_preserving(state_dir: &Path) -> anyhow::Result<Self> {
         Self::open_inner(state_dir, false)
     }
@@ -102,12 +102,35 @@ impl NativeNode {
         manifest
             .schema_versions
             .insert("native_storage".to_string(), 1);
+        let manifest_path = state_dir.join("state.manifest.json");
+        if file_stamp(&manifest_path)?.is_some() {
+            anyhow::ensure!(
+                file_stamp(&block_path)?.is_some(),
+                "native canonical history is missing; preserve state and recover to a fresh directory"
+            );
+        } else {
+            anyhow::ensure!(repair, "source manifest is missing");
+            anyhow::ensure!(
+                file_stamp(&block_path)?.is_none() && file_stamp(&pool_path)?.is_none(),
+                "native manifest is missing for existing journals; preserve state and recover to a fresh directory"
+            );
+            // Publish an explicit empty canonical history before publishing
+            // the first manifest. An existing manifest plus an absent history
+            // is ambiguous data loss, never permission to reset to genesis.
+            let file = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+                .open(&block_path)?;
+            file.sync_all()?;
+            crate::durability::fsync_parent_dir(&block_path)?;
+        }
         if repair {
             ensure_manifest(&state_dir, &manifest)?;
         } else {
             crate::state_dir::verify_manifest_read_only(&state_dir, &manifest)?;
         }
-        let manifest_path = state_dir.join("state.manifest.json");
         let mut chain = NativeChain::new()?;
         let now = unix_time_ms()?;
         if let Some(raw) = read_native_log(&block_path, MAX_NATIVE_HISTORY_BYTES, repair)? {
@@ -126,6 +149,8 @@ impl NativeNode {
                 check_block_ts_future_drift(block.header.timestamp_ms, now)?;
                 chain.append(block)?;
             }
+        } else {
+            anyhow::bail!("native canonical history disappeared during replay");
         }
         let confirmed = confirmed_index(&chain);
         let mut pending = Vec::new();
@@ -151,6 +176,10 @@ impl NativeNode {
             write_pool(&pool_path, &retained.transfers)?;
         }
         let block_stamp = file_stamp(&block_path)?;
+        anyhow::ensure!(
+            block_stamp.is_some(),
+            "native canonical history disappeared"
+        );
         let pool_stamp = file_stamp(&pool_path)?;
         let manifest_stamp = file_stamp(&manifest_path)?;
         anyhow::ensure!(
@@ -556,7 +585,7 @@ fn read_native_log(path: &Path, maximum: u64, repair: bool) -> anyhow::Result<Op
     if stable < bytes.len() {
         anyhow::ensure!(
             repair,
-            "source-preserving export refuses a torn native log; no bytes repaired"
+            "source-preserving read refuses a torn native log; no bytes repaired"
         );
         file.set_len(stable as u64)?;
         file.sync_all()?;
