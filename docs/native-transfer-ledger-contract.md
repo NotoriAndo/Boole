@@ -387,6 +387,24 @@ closes connections, bounds body streams and worker/connection counts, and reuses
 the header deadline. The client refuses DNS names, public IPs, proxies, redirects,
 credentials and URL paths. Plain HTTP here is **not public transport security**.
 
+Native request admission happens after the Host/browser boundary but **before**
+body reading and JSON decoding. At most eight admitted requests share one pool,
+including slow uploads and actual blocking node work; extra requests receive
+`429 native_worker_limit` without a `100 Continue` invitation to send their body.
+The same owned permit crosses extraction and execution. Body/parser errors,
+disconnects and body deadlines return it; a caller timeout does not return it
+while its queued/running node operation still exists. That operation can commit
+after the caller receives a timeout, so query state before retrying as above.
+The separate TCP/header connection bounds and per-route body byte limits remain.
+Eight slow bodies can occupy all native request slots until their ten-second
+deadline, including reads receiving 429; this is bounded busy admission, not a
+reserved-read QoS guarantee, a bound on total process RSS or public-RPC approval.
+Error response bodies are capped at 4KiB before releasing admission. Larger
+input-reflecting parser diagnostics become the short JSON code
+`native_error_response_limit` while preserving the HTTP error status; ordinary
+bounded diagnostics and successful responses keep their existing formats.
+This bounds retained error output, not all temporary parser allocations.
+
 | Resource | Bound |
 |---|---|
 | Consensus transfer / block | 4,096 / 524,288 bytes; at most 512 transfers per block |
@@ -396,7 +414,7 @@ credentials and URL paths. Plain HTTP here is **not public transport security**.
 | Node state manifest | 64 KiB; stable regular single-link descriptor |
 | Pending journal | 5 MiB; pre-read bound also applies during recovery |
 | RPC full-chain import | 8 MiB and 1,024 blocks; entire candidate validated before adoption |
-| Native workers / request deadline | 8 work permits / 10 seconds; timed-out work retains its permit until done |
+| Native request admission / deadline | 8 permits before body decode / 10 seconds; actual queued/running work retains its permit after caller timeout |
 | Single CLI mining attempt | 1–10,000,000 hashes, then return; no unlimited loop |
 
 Full-map staged accounting and the manual full-chain RPC import remain bounded
@@ -684,6 +702,13 @@ Added executable evidence:
   PoW → reward maturity → A-to-B signed transfer → block import → identical
   balances/head/issuance, with public-bind, cross-origin, oversized-body and
   stale-readiness rejection.
+  Raw `100-continue` connections prove the ninth request is refused before body
+  extraction, completion/parser failure returns admission, and eight stalled
+  bodies expire without leaking slots. A real-router lock-stall test observes
+  eight HTTP timeouts while their block mutations retain permits; later
+  completion and restart show one block/reward, not eight or a lost mutation.
+  A 1MiB unknown JSON field initially produced a 2,097,510-byte HTTP error (RED);
+  the bounded-error response keeps its 422 status and avoids the reflected field.
 - [Encrypted-vault CLI](../crates/boole-cli/tests/native_cli.rs): actual server
   and wallet-agent processes, stdin-based mining, encrypted backup/restore after
   removing the primary from service, a restored-owner transfer, saved-file retry

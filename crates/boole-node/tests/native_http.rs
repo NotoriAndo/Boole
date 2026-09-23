@@ -77,6 +77,168 @@ fn native_http_reports_pinned_network_and_refuses_browser_cross_origin_and_publi
     assert!(boole_node::bind_native_loopback("0.0.0.0:0".parse().unwrap()).is_err());
 }
 
+fn response_headers(stream: &mut TcpStream) -> String {
+    let mut bytes = Vec::new();
+    while !bytes.ends_with(b"\r\n\r\n") {
+        assert!(bytes.len() < 8192, "response headers exceeded test bound");
+        let mut byte = [0];
+        stream.read_exact(&mut byte).unwrap();
+        bytes.push(byte[0]);
+    }
+    String::from_utf8(bytes).unwrap()
+}
+
+fn begin_slow_import(addr: std::net::SocketAddr) -> TcpStream {
+    let mut stream = TcpStream::connect(addr).unwrap();
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+        .unwrap();
+    write!(stream, "POST /native/chain HTTP/1.1\r\nHost: {addr}\r\nContent-Type: application/json\r\nContent-Length: 8192\r\nExpect: 100-continue\r\nConnection: close\r\n\r\n").unwrap();
+    stream
+}
+
+#[test]
+fn native_request_limit_applies_before_reading_another_large_json_body() {
+    let dir = std::env::temp_dir().join(format!(
+        "boole-native-http-admission-{}",
+        boole_testkit::rand_suffix()
+    ));
+    std::fs::create_dir(&dir).unwrap();
+    let _cleanup = TestDir(dir.clone());
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let stop = Arc::new(tokio::sync::Notify::new());
+    let task = runtime.spawn(boole_node::serve_native_node(
+        listener,
+        NativeNode::open(&dir).unwrap(),
+        stop.clone(),
+    ));
+    let mut admitted = Vec::new();
+    for _ in 0..8 {
+        let mut stream = begin_slow_import(addr);
+        assert!(response_headers(&mut stream).starts_with("HTTP/1.1 100"));
+        // 100-continue proves this request has reached body extraction, rather
+        // than relying on sleeps to guess whether its headers were processed.
+        admitted.push(stream);
+    }
+    let mut excess = begin_slow_import(addr);
+    let refused = response_headers(&mut excess);
+    assert!(
+        refused.starts_with("HTTP/1.1 429"),
+        "ninth request was allowed to start body extraction: {refused}"
+    );
+    let mut rest = String::new();
+    excess.read_to_string(&mut rest).unwrap();
+    assert!(rest.contains("native_worker_limit"));
+
+    let complete = |mut stream: TcpStream| {
+        write!(stream, "[]{}", " ".repeat(8190)).unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).unwrap();
+        assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+    };
+    complete(admitted.pop().unwrap());
+    let mut malformed = begin_slow_import(addr);
+    assert!(response_headers(&mut malformed).starts_with("HTTP/1.1 100"));
+    write!(malformed, "[{}", " ".repeat(8191)).unwrap();
+    let mut rejected = String::new();
+    malformed.read_to_string(&mut rejected).unwrap();
+    assert!(rejected.starts_with("HTTP/1.1 400"), "{rejected}");
+    let mut replacement = begin_slow_import(addr);
+    assert!(response_headers(&mut replacement).starts_with("HTTP/1.1 100"));
+    complete(replacement);
+    drop(admitted);
+    assert_eq!(rpc(addr, "GET", "/native/info", Value::Null)["height"], "0");
+    stop.notify_one();
+    runtime.block_on(task).unwrap().unwrap();
+    assert_eq!(NativeNode::open(&dir).unwrap().chain().ledger().height(), 0);
+}
+
+#[test]
+fn stalled_native_request_bodies_expire_and_return_all_admission_slots() {
+    let dir = std::env::temp_dir().join(format!(
+        "boole-native-http-body-deadline-{}",
+        boole_testkit::rand_suffix()
+    ));
+    std::fs::create_dir(&dir).unwrap();
+    let _cleanup = TestDir(dir.clone());
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let stop = Arc::new(tokio::sync::Notify::new());
+    let task = runtime.spawn(boole_node::serve_native_node(
+        listener,
+        NativeNode::open(&dir).unwrap(),
+        stop.clone(),
+    ));
+    let mut stalled = Vec::new();
+    for _ in 0..8 {
+        let mut stream = begin_slow_import(addr);
+        assert!(response_headers(&mut stream).starts_with("HTTP/1.1 100"));
+        stream.write_all(b"[").unwrap();
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_secs(15)))
+            .unwrap();
+        stalled.push(stream);
+    }
+    for mut stream in stalled {
+        let mut response = String::new();
+        stream.read_to_string(&mut response).unwrap();
+        assert!(response.starts_with("HTTP/1.1 408"), "{response}");
+    }
+    let mut replacement = Vec::new();
+    for _ in 0..8 {
+        let mut stream = begin_slow_import(addr);
+        assert!(
+            response_headers(&mut stream).starts_with("HTTP/1.1 100"),
+            "body timeout leaked an admission slot"
+        );
+        replacement.push(stream);
+    }
+    drop(replacement);
+    stop.notify_one();
+    runtime.block_on(task).unwrap().unwrap();
+    assert_eq!(NativeNode::open(&dir).unwrap().chain().ledger().height(), 0);
+}
+
+#[test]
+fn native_json_errors_do_not_reflect_large_unknown_field_names_into_responses() {
+    let dir = std::env::temp_dir().join(format!(
+        "boole-native-http-error-cap-{}",
+        boole_testkit::rand_suffix()
+    ));
+    std::fs::create_dir(&dir).unwrap();
+    let _cleanup = TestDir(dir.clone());
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let stop = Arc::new(tokio::sync::Notify::new());
+    let task = runtime.spawn(boole_node::serve_native_node(
+        listener,
+        NativeNode::open(&dir).unwrap(),
+        stop.clone(),
+    ));
+    let body = format!("[{{\"{}\":0}}]", "x".repeat(1024 * 1024));
+    let mut stream = TcpStream::connect(addr).unwrap();
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+        .unwrap();
+    write!(stream, "POST /native/chain HTTP/1.1\r\nHost: {addr}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+    let mut response = String::new();
+    stream.read_to_string(&mut response).unwrap();
+    assert!(response.starts_with("HTTP/1.1 422"));
+    assert!(
+        response.len() <= 8192,
+        "input-controlled JSON diagnostic expanded to {} response bytes",
+        response.len()
+    );
+    assert!(response.contains("native_error_response_limit"));
+    assert_eq!(rpc(addr, "GET", "/native/info", Value::Null)["height"], "0");
+    stop.notify_one();
+    runtime.block_on(task).unwrap().unwrap();
+}
+
 fn rpc(addr: std::net::SocketAddr, method: &str, path: &str, body: Value) -> Value {
     let body = if method == "GET" {
         String::new()

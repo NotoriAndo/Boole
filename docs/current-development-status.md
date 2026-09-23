@@ -86,6 +86,13 @@ candidate costs remain; this is not a general CPU-abuse guarantee.
 A [preregistered 131,073-balance repeated-fork scenario](native-peer-repeat-qualification-2026-09.md)
 passed: first full candidate 4.999s, seven following polls without data requests,
 8.637s network phase, 480.078125MiB peak RSS and unchanged accounting/journals.
+Local native HTTP also acquires its eight request slots before body decoding,
+retaining the same slot through actual node work even after a caller timeout.
+Raw slow-upload and delayed-mutation tests cover early 429, slot return and
+one durable block/reward after eight timed-out duplicate submissions. This bounds
+admission, not total memory or guaranteed read availability under saturation.
+Input-reflecting HTTP error bodies are also limited to 4KiB, preserving status
+and replacing oversized diagnostics with a short code.
 Tests remain
 closed-local and public operation still requires R2/R3 launch authority.
 
