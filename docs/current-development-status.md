@@ -53,8 +53,11 @@ Runtime publication now also rejects files changed during block/fork/reservation
 validation or atomic-write staging, and binds new file baselines to the actual
 durable output descriptors. A detected failure after I/O requires reconciliation,
 not automatic rollback. Direct mutation, replay, common-storage and integration
-regressions pass; the unchanged capacity/competing-fork follow-ups are preregistered
-in the [runtime publication record](native-publication-input-fence-2026-09.md).
+regressions pass. The unchanged large capacity and distinct-fork follow-ups also
+passed on this corrected runtime: 52.214s/52.163s reopens at 350.671875MiB RSS;
+66.633s eight-candidate convergence and 55.585s independent replay at
+767.703125MiB RSS, with exact original winner/accounting and all 28 transient
+failed rounds retained. See the [runtime publication record](native-publication-input-fence-2026-09.md).
 Storage bytes/limits and canonical account/transaction counts are now observable
 through `native info`. A [preregistered developer-Mac scenario](native-capacity-qualification-2026-09.md)
 passes at 131,073 balance entries and ~67MiB history, including a full queue and

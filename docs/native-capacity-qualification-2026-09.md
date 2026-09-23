@@ -8,6 +8,10 @@ The later [replay-input version correction and requalification](native-replay-in
 uses these unchanged criteria and records its own source/results: 52.074s/52.020s
 reopens and 350.96875MiB peak RSS, with identical final head/accounting/history.
 It does not replace the historical measurements below.
+The subsequent [runtime publication-fence follow-up](native-publication-input-fence-2026-09.md#large-follow-ups--pass-on-the-first-corrected-source-runs)
+also passed these unchanged criteria: 52.214s/52.163s reopens, 350.671875MiB RSS
+and the same exact final head/accounting/history. Its source and raw results
+remain in that separate record.
 
 ## Fixed scope and acceptance criteria
 

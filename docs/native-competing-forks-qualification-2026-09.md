@@ -5,6 +5,11 @@ fork-choice and recovery scenario for eight distinct valid candidate branches,
 not the prior eight copies of one candidate. It does not guarantee eight actual
 adoptions: scheduling can deliver the best candidate first. It does not qualify
 continually changing candidates, arbitrary RPC/inbound mixes or public operation.
+The later [runtime publication-fence follow-up](native-publication-input-fence-2026-09.md#large-follow-ups--pass-on-the-first-corrected-source-runs)
+passed these unchanged criteria at 66.633s stable convergence, 55.585s replay,
+767.703125MiB RSS and the same normal winner/accounting. Its 28 failed rounds,
+source/executable identities and raw results are preserved in that later record;
+this does not replace the original result below.
 
 ## Fixed scope and acceptance
 
