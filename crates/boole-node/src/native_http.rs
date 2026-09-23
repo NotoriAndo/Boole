@@ -18,6 +18,8 @@ use tokio::sync::{Notify, Semaphore};
 
 use crate::local_node::{BoundedHttpListener, HttpRemoteAddr};
 use crate::native_node::NativeNode;
+use crate::p2p_lifecycle::P2pLifecycle;
+use crate::{NativePeerConfig, NativePeerMonitor, NativePeerService};
 
 /// Bounded full-chain import for this first local prototype. Beyond this,
 /// incremental authenticated sync/checkpoint work is required, not truncation.
@@ -29,11 +31,23 @@ struct Api {
     node: Arc<Mutex<NativeNode>>,
     workers: Arc<Semaphore>,
     authority: SocketAddr,
+    lifecycle: Arc<P2pLifecycle>,
+    peers: Option<NativePeerMonitor>,
 }
 
 pub fn bind_loopback(addr: SocketAddr) -> anyhow::Result<TcpListener> {
     anyhow::ensure!(addr.ip().is_loopback(), "native RPC is closed-local only");
     Ok(TcpListener::bind(addr)?)
+}
+
+pub async fn serve_with_peers(
+    listener: TcpListener,
+    node: NativeNode,
+    peer_listener: TcpListener,
+    peer_config: NativePeerConfig,
+    shutdown: Arc<Notify>,
+) -> anyhow::Result<()> {
+    serve_inner(listener, node, Some((peer_listener, peer_config)), shutdown).await
 }
 
 /// Listener must already be numeric loopback; callers must check before bind
@@ -43,6 +57,29 @@ pub async fn serve(
     node: NativeNode,
     shutdown: Arc<Notify>,
 ) -> anyhow::Result<()> {
+    serve_inner(listener, node, None, shutdown).await
+}
+
+struct StopGuard {
+    lifecycle: Arc<P2pLifecycle>,
+    peers: Option<NativePeerService>,
+}
+
+impl Drop for StopGuard {
+    fn drop(&mut self) {
+        self.lifecycle.stop();
+        if let Some(peers) = &mut self.peers {
+            peers.stop();
+        }
+    }
+}
+
+async fn serve_inner(
+    listener: TcpListener,
+    node: NativeNode,
+    peers: Option<(TcpListener, NativePeerConfig)>,
+    shutdown: Arc<Notify>,
+) -> anyhow::Result<()> {
     let authority = listener.local_addr()?;
     anyhow::ensure!(
         authority.ip().is_loopback(),
@@ -50,13 +87,33 @@ pub async fn serve(
     );
     listener.set_nonblocking(true)?;
     let listener = BoundedHttpListener::new(tokio::net::TcpListener::from_std(listener)?);
+    let node = Arc::new(Mutex::new(node));
+    let lifecycle = Arc::new(P2pLifecycle::new());
+    let peers = peers
+        .map(|(listener, config)| {
+            NativePeerService::start_with_lifecycle(
+                listener,
+                node.clone(),
+                config,
+                lifecycle.clone(),
+            )
+        })
+        .transpose()?;
+    let peer_monitor = peers.as_ref().map(NativePeerService::monitor);
+    let guard = StopGuard {
+        lifecycle: lifecycle.clone(),
+        peers,
+    };
     let api = Api {
-        node: Arc::new(Mutex::new(node)),
+        node,
         workers: Arc::new(Semaphore::new(8)),
         authority,
+        lifecycle: lifecycle.clone(),
+        peers: peer_monitor,
     };
     let app = Router::new()
         .route("/native/info", get(info))
+        .route("/native/peers", get(peer_status))
         .route("/ready", get(info))
         .route("/native/accounts/{pk}", get(account))
         .route("/native/transactions/{id}", get(transaction))
@@ -83,8 +140,16 @@ pub async fn serve(
         listener,
         app.into_make_service_with_connect_info::<HttpRemoteAddr>(),
     )
-    .with_graceful_shutdown(async move { shutdown.notified().await });
-    server.await?;
+    .with_graceful_shutdown(async move {
+        shutdown.notified().await;
+        // Close both network mutation boundaries before draining HTTP.
+        lifecycle.request_stop();
+    });
+    let result = server.await;
+    // Timed-out HTTP requests retain their mutation permit until their actual
+    // blocking work finishes. State ownership is not released before this.
+    tokio::task::spawn_blocking(move || drop(guard)).await?;
+    result?;
     Ok(())
 }
 
@@ -127,6 +192,15 @@ fn error(status: StatusCode, code: &str) -> Response {
     (status, Json(json!({"error": code}))).into_response()
 }
 
+async fn peer_status(State(api): State<Api>) -> Response {
+    let monitor = api.peers.clone();
+    operation(api, move |_| match monitor {
+        Some(monitor) => Ok(serde_json::to_value(monitor.snapshot())?),
+        None => Ok(json!({"enabled": false, "running": false, "peers": []})),
+    })
+    .await
+}
+
 async fn operation<F>(api: Api, action: F) -> Response
 where
     F: FnOnce(&mut NativeNode) -> anyhow::Result<Value> + Send + 'static,
@@ -137,6 +211,12 @@ where
     // Permit lives with the actual work, even if the HTTP caller times out.
     match tokio::task::spawn_blocking(move || {
         let _permit = permit;
+        let _mutation = api.lifecycle.begin_mutation().ok_or_else(|| {
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "native node stopping".to_string(),
+            )
+        })?;
         let mut node = api.node.lock().map_err(|_| {
             (
                 StatusCode::SERVICE_UNAVAILABLE,

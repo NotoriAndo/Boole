@@ -31,6 +31,12 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Create a separate, unencrypted 0600 TLS transport key. Never a wallet key.
+    PeerKeygen {
+        /// New key file in an existing private directory; never overwritten.
+        #[arg(long)]
+        file: PathBuf,
+    },
     /// Replay a runtime-smoke fixture or scenario into a fresh block store.
     RuntimeSmoke(RuntimeSmokeArgs),
     /// Run the local HTTP node. Flags override the matching env vars.
@@ -41,6 +47,15 @@ enum Command {
         addr: std::net::SocketAddr,
         #[arg(long)]
         state_dir: PathBuf,
+        /// Optional numeric loopback listener for mutually pinned TLS peers.
+        #[arg(long, requires = "peer_key")]
+        p2p_addr: Option<std::net::SocketAddr>,
+        /// Separate 0600 PKCS#8 transport key; not an owner-wallet key.
+        #[arg(long, requires = "p2p_addr")]
+        peer_key: Option<PathBuf>,
+        /// Approved transport key and numeric loopback endpoint: KEY@IP:PORT.
+        #[arg(long = "peer", requires = "p2p_addr")]
+        peers: Vec<String>,
     },
     /// Submit a Lean proof to the deterministic verifier and (optionally)
     /// commit a block on success.
@@ -263,16 +278,62 @@ fn main() -> anyhow::Result<()> {
     boole_core::telemetry::init(boole_core::telemetry::BinaryName::Node);
     let cli = Cli::parse();
     match cli.command {
+        Command::PeerKeygen { file } => {
+            let id = boole_node::create_native_peer_key(&file)?;
+            println!("{}", json!({"peerId": id.to_hex(), "file": file}));
+            Ok(())
+        }
         Command::RuntimeSmoke(args) => run_runtime_smoke_command(args),
         Command::RunLocal(args) => run_local_command(*args),
-        Command::RunNativeLocal { addr, state_dir } => run_native_local(addr, &state_dir),
+        Command::RunNativeLocal {
+            addr,
+            state_dir,
+            p2p_addr,
+            peer_key,
+            peers,
+        } => run_native_local(addr, &state_dir, p2p_addr, peer_key.as_deref(), &peers),
         Command::SubmitLean(args) => run_submit_lean_command(args),
         Command::AgentProof(args) => run_agent_proof_command(args),
     }
 }
 
-fn run_native_local(addr: std::net::SocketAddr, state_dir: &Path) -> anyhow::Result<()> {
+fn run_native_local(
+    addr: std::net::SocketAddr,
+    state_dir: &Path,
+    p2p_addr: Option<std::net::SocketAddr>,
+    peer_key: Option<&Path>,
+    peers: &[String],
+) -> anyhow::Result<()> {
+    // Validate every endpoint/identity before any bind or mutable state open.
+    anyhow::ensure!(addr.ip().is_loopback(), "native RPC is closed-local only");
+    let peer_config = match (p2p_addr, peer_key) {
+        (Some(address), Some(path)) => {
+            anyhow::ensure!(
+                address.ip().is_loopback(),
+                "native peers are closed-local only"
+            );
+            let config = boole_node::NativePeerConfig {
+                identity: boole_node::load_native_peer_key(path)?,
+                peers: peers
+                    .iter()
+                    .map(|peer| {
+                        let (key, address) = peer.split_once('@').ok_or_else(|| {
+                            anyhow::anyhow!("peer must be PUBLIC_KEY@NUMERIC_LOOPBACK:PORT")
+                        })?;
+                        Ok((address.parse()?, boole_p2p::PeerId::from_hex(key)?))
+                    })
+                    .collect::<anyhow::Result<Vec<_>>>()?,
+            };
+            config.validate()?;
+            Some((address, config))
+        }
+        (None, None) if peers.is_empty() => None,
+        _ => anyhow::bail!("native P2P requires both --p2p-addr and --peer-key"),
+    };
     let listener = boole_node::bind_native_loopback(addr)?;
+    let peers = peer_config
+        .map(|(address, config)| Ok::<_, anyhow::Error>((TcpListener::bind(address)?, config)))
+        .transpose()?;
     let node = boole_node::NativeNode::open(state_dir)?;
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -299,7 +360,12 @@ fn run_native_local(addr: std::net::SocketAddr, state_dir: &Path) -> anyhow::Res
                 }
             })
         };
-        let result = boole_node::serve_native_node(listener, node, stop).await;
+        let result = if let Some((peer_listener, config)) = peers {
+            boole_node::serve_native_node_with_peers(listener, node, peer_listener, config, stop)
+                .await
+        } else {
+            boole_node::serve_native_node(listener, node, stop).await
+        };
         signal_task.abort();
         result
     })

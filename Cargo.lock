@@ -491,6 +491,7 @@ dependencies = [
  "tower",
  "tower-http",
  "tracing",
+ "zeroize",
 ]
 
 [[package]]
@@ -498,9 +499,14 @@ name = "boole-p2p"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "ed25519-dalek",
+ "hex",
+ "ring",
+ "rustls",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
+ "zeroize",
 ]
 
 [[package]]

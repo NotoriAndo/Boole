@@ -206,3 +206,96 @@ fn two_independent_rpc_nodes_mine_transfer_and_rejoin_with_identical_accounting(
         runtime.block_on(task).unwrap().unwrap();
     }
 }
+
+#[test]
+fn native_rpc_and_secure_peers_share_the_same_durable_state_and_shutdown_boundary() {
+    use boole_core::native_chain::NativeBlockTemplate;
+    use boole_core::SigningKeyV2;
+    use boole_node::NativePeerConfig;
+    use boole_p2p::TlsIdentity;
+    use serde_json::json;
+    use std::time::{Duration, Instant};
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let identity = || TlsIdentity::from_pkcs8(&TlsIdentity::generate_pkcs8().unwrap()).unwrap();
+    let keys = [identity(), identity()];
+    let peer_listeners = [
+        TcpListener::bind("127.0.0.1:0").unwrap(),
+        TcpListener::bind("127.0.0.1:0").unwrap(),
+    ];
+    let peer_addresses = peer_listeners
+        .each_ref()
+        .map(|listener| listener.local_addr().unwrap());
+    let mut servers = Vec::new();
+    for (index, peer_listener) in peer_listeners.into_iter().enumerate() {
+        let dir = std::env::temp_dir().join(format!(
+            "boole-native-http-peers-{}",
+            boole_testkit::rand_suffix()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let cleanup = TestDir(dir.clone());
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let stop = Arc::new(tokio::sync::Notify::new());
+        let config = NativePeerConfig {
+            identity: keys[index].clone(),
+            peers: vec![(peer_addresses[1 - index], keys[1 - index].peer_id())],
+        };
+        let task = runtime.spawn(boole_node::serve_native_node_with_peers(
+            listener,
+            NativeNode::open(&dir).unwrap(),
+            peer_listener,
+            config,
+            stop.clone(),
+        ));
+        servers.push((addr, stop, task, cleanup));
+    }
+    let miner = SigningKeyV2::from_dev_id("native-rpc-peer-shared-miner");
+    let template: NativeBlockTemplate = serde_json::from_value(rpc(
+        servers[0].0,
+        "POST",
+        "/native/template",
+        json!({"producerPk": miner.pk_hex(), "rewardPk": miner.pk_hex(), "timestampMs": 60000}),
+    ))
+    .unwrap();
+    let block = template.mine(0, 2_000_000).unwrap().unwrap();
+    let signature = miner
+        .sign_for_network(
+            &block.authorization_payload().unwrap(),
+            Some(native_testnet().network_id()),
+        )
+        .unwrap();
+    let block = block.authorize(&signature).unwrap();
+    assert_eq!(
+        rpc(servers[0].0, "POST", "/native/blocks", json!(block))["accepted"],
+        true
+    );
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let info = rpc(servers[1].0, "GET", "/native/info", Value::Null);
+        if info["height"] == "1" {
+            assert_eq!(info["headHash"], block.hash().unwrap().to_hex());
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "RPC mutation never reached the peer RPC ledger"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let peers = rpc(servers[1].0, "GET", "/native/peers", Value::Null);
+    assert_eq!(peers["enabled"], true);
+    assert_eq!(peers["running"], true);
+    assert_eq!(peers["localPeerId"], keys[1].peer_id().to_hex());
+    assert_eq!(peers["peers"].as_array().unwrap().len(), 1);
+    assert_eq!(peers["peers"][0]["peerId"], keys[0].peer_id().to_hex());
+    assert_eq!(peers["limits"]["maxInboundWorkers"], 4);
+    for (_, stop, task, cleanup) in servers {
+        stop.notify_one();
+        runtime.block_on(task).unwrap().unwrap();
+        let recovered = NativeNode::open(&cleanup.0).unwrap();
+        assert_eq!(recovered.chain().head_hash(), block.hash().unwrap());
+    }
+    for address in peer_addresses {
+        assert!(TcpStream::connect_timeout(&address, Duration::from_millis(100)).is_err());
+    }
+}

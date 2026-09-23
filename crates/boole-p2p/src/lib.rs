@@ -19,6 +19,9 @@ use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+mod tls;
+pub use tls::{PeerId, TlsConn, TlsIdentity, TlsTransport};
+
 /// Wire protocol version carried in `Hello` (ADR-0009 (b)) — additive frame
 /// evolution bumps this instead of silently breaking the wire.
 /// v2: `Hello` gained the required `consensus_rule_version` field
@@ -201,6 +204,8 @@ fn is_lowercase_hex32(value: &str) -> bool {
 /// than collapsed into one opaque IO error.
 #[derive(Debug, thiserror::Error)]
 pub enum FrameError {
+    #[error("TLS peer authentication: {detail}")]
+    Tls { detail: String },
     #[error("frame exceeds MAX_FRAME_BYTES ({MAX_FRAME_BYTES}): saw at least {seen} bytes")]
     FrameTooLarge { seen: usize },
     #[error("frame exceeds the caller's remaining wire budget ({cap}): saw at least {seen} bytes")]

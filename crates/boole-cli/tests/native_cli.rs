@@ -85,6 +85,7 @@ fn encrypted_owner_cli_mines_transfers_and_retries_only_the_saved_signed_transac
     let dir =
         std::env::temp_dir().join(format!("boole-native-cli-{}", boole_testkit::rand_suffix()));
     let (mut fixture, url) = spawn_node(dir);
+    assert_eq!(ok(&["native", "--node", &url, "peers"])["enabled"], false);
     let vault = fixture.dir.join("owner.vault");
     let mut init = Command::new(sibling("boole-wallet-agent"))
         .arg("init")

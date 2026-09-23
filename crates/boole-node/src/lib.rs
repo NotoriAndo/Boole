@@ -27,6 +27,8 @@ mod lean_bounty_verifier;
 mod local_node;
 mod native_http;
 mod native_node;
+mod native_peer_key;
+mod native_peers;
 #[allow(dead_code)]
 mod native_shadow;
 #[cfg(feature = "native-shadow-closed-local-replay")]
@@ -88,10 +90,16 @@ pub use local_node::{
     MAX_CONCURRENT_REQUESTS, MAX_HTTP_BODY_BYTES, PROOF_ROUTE_BODY_BYTES, PROOF_ROUTE_TIMEOUT,
 };
 pub use native_http::{
-    bind_loopback as bind_native_loopback, serve as serve_native_node, MAX_NATIVE_SYNC_BLOCKS,
+    bind_loopback as bind_native_loopback, serve as serve_native_node,
+    serve_with_peers as serve_native_node_with_peers, MAX_NATIVE_SYNC_BLOCKS,
     MAX_NATIVE_SYNC_BYTES,
 };
 pub use native_node::{NativeNode, NATIVE_BLOCKS_FILE, NATIVE_MEMPOOL_FILE};
+pub use native_peer_key::{create_native_peer_key, load_native_peer_key};
+pub use native_peers::{
+    NativePeerConfig, NativePeerLimits, NativePeerMonitor, NativePeerService, NativePeerSnapshot,
+    NativePeerStatus,
+};
 #[cfg(feature = "native-shadow-closed-local-replay")]
 pub use native_shadow_replay_service::serve_installed_closed_local_native_shadow_replay;
 #[cfg(all(target_os = "linux", feature = "development-task-admission"))]
