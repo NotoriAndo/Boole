@@ -110,6 +110,13 @@ retaining the same slot through actual node work even after a caller timeout.
 Raw slow-upload and delayed-mutation tests cover early 429, slot return and
 one durable block/reward after eight timed-out duplicate submissions. This bounds
 admission, not total memory or guaranteed read availability under saturation.
+`native diagnostics` now uses two separate small observation slots and no ledger
+lock/readiness check. It explicitly reports `ledgerReadiness=not_checked`, bounded
+RPC occupancy, shutdown state and the peer monitor without exposing ledger data
+or enabling signing. Actual-router tests keep diagnostics readable while eight
+normal requests wait on the ledger and while canonical storage is missing;
+existing readiness/mutation paths remain fail-closed. Shared connection/host
+exhaustion can still prevent observation, and this is not public health service.
 Input-reflecting HTTP error bodies are also limited to 4KiB, preserving status
 and replacing oversized diagnostics with a short code.
 Exact already-known transfers still repeat immutable signature checks. A

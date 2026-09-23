@@ -50,6 +50,21 @@ is still trustworthy and responsive. A previously retained head or independently
 verified healthy replica is necessary to detect a valid-prefix rollback. The
 audit does not prove that no later history existed, and `confirmed` is not finality.
 
+If ordinary queries time out, return busy, or fail readiness, use the separate
+read-only diagnostic before stopping, if the process is still reachable:
+
+```sh
+boole native --node http://127.0.0.1:8383 diagnostics
+```
+
+Its `ledgerReadiness` is always `not_checked`: success is **not** permission to
+send, mine, trust balances or replace a healthy-state check. Inspect `rpc` request
+counts/limits, `stopping` and `peers.peers[].lastFailureStage` without waiting for
+the ledger lock. Two small diagnostic slots are separate from the eight ordinary
+request slots, but all share the bounded connection pool; a dead process or fully
+occupied host can still be unreachable. Do not restart automatically from a phase
+label or busy counter. Preserve evidence and follow the affected-state procedure.
+
 Examples below use deliberately chosen absolute paths. The source must already
 exist. Archive output must be new, outside that source and in an existing direct
 non-symlink directory that is not group/world writable. The restore directory
@@ -229,6 +244,8 @@ retry and clears to `null` on a successful round. It intentionally includes no
 raw error strings or peer-supplied diagnostics. Shutdown can count as a failure;
 do not rotate keys, erase journals or repeatedly rebroadcast based only on a
 counter or phase label.
+When `native peers` cannot pass readiness, the same monitor is available under
+`peers` in `native diagnostics`; this does not declare the ledger ready or repair it.
 
 ## 6. Stop conditions and evidence to retain
 
@@ -266,6 +283,13 @@ A stopped-node replay audit then reports height 12, two confirmed transfers,
 175,000,000 gross amount atoms and 2,000 fee atoms. Original node journals/
 manifest and the old outbox remain byte-identical. The shell helper above was
 syntax-checked, not exercised with an actual operator passphrase.
+
+A later diagnostic extension passed the same end-to-end sequence in 60.56s after
+an initial fixture failure (8.80s): restoring a renamed file's bytes did not restore
+its recorded ctime, so the live node correctly stayed unavailable. The corrected
+rehearsal queries process-only diagnostics, confirms ordinary info still fails,
+preserves the original bytes and explicitly restarts before continuing. The node's
+file-change/readiness guards were not weakened to pass the test.
 
 This prepares one selected recovery workflow. It does **not** pass R2 or R3.
 Required launch decisions/evidence still include applicable R1 abuse/resource

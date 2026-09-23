@@ -423,7 +423,7 @@ the header deadline. The client refuses DNS names, public IPs, proxies, redirect
 credentials and URL paths. Plain HTTP here is **not public transport security**.
 
 Native request admission happens after the Host/browser boundary but **before**
-body reading and JSON decoding. At most eight admitted requests share one pool,
+body reading and JSON decoding. At most eight admitted state-backed requests share one pool,
 including slow uploads and actual blocking node work; extra requests receive
 `429 native_worker_limit` without a `100 Continue` invitation to send their body.
 The same owned permit crosses extraction and execution. Body/parser errors,
@@ -431,9 +431,11 @@ disconnects and body deadlines return it; a caller timeout does not return it
 while its queued/running node operation still exists. That operation can commit
 after the caller receives a timeout, so query state before retrying as above.
 The separate TCP/header connection bounds and per-route body byte limits remain.
-Eight slow bodies can occupy all native request slots until their ten-second
-deadline, including reads receiving 429; this is bounded busy admission, not a
-reserved-read QoS guarantee, a bound on total process RSS or public-RPC approval.
+Eight slow bodies can occupy all ordinary native request slots until their
+ten-second deadline, including state reads receiving 429. This is bounded busy
+admission, not a reserved-ledger-read QoS guarantee, a bound on total process RSS
+or public-RPC approval. The separate process-only diagnostic budget below does
+not provide balances, chain state or readiness under that saturation.
 Error response bodies are capped at 4KiB before releasing admission. Larger
 input-reflecting parser diagnostics become the short JSON code
 `native_error_response_limit` while preserving the HTTP error status; ordinary
@@ -450,11 +452,65 @@ This bounds retained error output, not all temporary parser allocations.
 | Pending journal | 5 MiB; pre-read bound also applies during recovery |
 | RPC full-chain import | 8 MiB and 1,024 blocks; entire candidate validated before adoption |
 | Native request admission / deadline | 8 permits before body decode / 10 seconds; actual queued/running work retains its permit after caller timeout |
+| Process-only diagnostics | 2 separate request permits, within the unchanged shared 128 TCP connections/header deadline; no ledger lock or state files |
 | Single CLI mining attempt | 1–10,000,000 hashes, then return; no unlimited loop |
 
 Full-map staged accounting and the manual full-chain RPC import remain bounded
 local prototypes. Automatic incremental peer synchronization is described below;
 production-scale storage and broader fault/abuse acceptance are not complete.
+
+### Non-authoritative process diagnostics
+
+`GET /native/diagnostics` / `boole native diagnostics` remains independent of the
+ledger lock and state-file checks so an operator can observe peer phases and
+bounded request occupancy during a long update or storage failure. Existing
+`/ready`, `/native/info`, `/native/peers`, account, transaction and mutation
+endpoints keep their normal readiness checks; all signing/submission CLI paths
+still require the compiled network/genesis and a ready node.
+
+The diagnostic response is explicitly `boole.native.diagnostics.v1`, with
+`authority="local_process_only"`, `ledgerReadiness="not_checked"`, a `stopping`
+observation, `rpc` counts/limits and the existing peer-monitor snapshot under
+`peers`. It contains no canonical head, balance, nonce, readiness assertion,
+state path, private key or raw remote error. Peer `running` means only that its
+lifecycle has not stopped, even if the ledger is unusable. Counts are sampled
+observations, not an atomic account of every subsystem. `activeDiagnostics`
+includes the current request; ordinary `activeRequests` can include slow input
+and node work that outlived its caller.
+
+Only GET on the exact diagnostic path uses its separate two-slot pool. Excess
+diagnostics receive `429 native_diagnostic_limit`; normal requests retain their
+eight-slot pool and `native_worker_limit`. The existing loopback/Host/browser,
+connection, header, error-body and request-deadline boundaries still apply.
+There are therefore at most ten admitted handlers across these two pools, not
+an expanded allowance for ten ledger operations. A full shared connection pool,
+host exhaustion or a stopped/dead process can still prevent observation; this
+is not an always-available health service or a readiness bypass.
+
+The CLI sends only this diagnostic request, without first querying node info,
+opening a vault, signing or broadcasting. It requires the exact non-authoritative
+schema/authority/readiness markers above and otherwise prints no report. A
+successful diagnostic is not authorization to send a transaction or trust the
+peer's chain. It can observe `stopping=true` only while the HTTP listener is still
+serving; normal shutdown closes that listener.
+
+An actual-router test held the real ledger mutex while all eight ordinary
+requests waited: the new diagnostic returned within its fixed one-second test
+bound, whereas the baseline returned 429. A separate file-loss test preserves
+the original bytes and still observes 503 from readiness/peer/template endpoints,
+while diagnosis succeeds without recreating the journal. Dedicated-budget
+exhaustion, Host/Origin/fetch rejection, shutdown indication and actual peer-stage
+forwarding also pass. This is scoped closed-local behavior evidence, not a
+large-state latency or public availability qualification.
+
+The real CLI/process recovery test also exercises diagnosis with a missing
+canonical file. Its first extension failed in 8.80s because the fixture assumed
+renaming the file back would restore live readiness; the existing ctime guard
+correctly refused it. The fixture now verifies continued refusal, preserves the
+same bytes and restarts the node before continuing. With runtime guards unchanged,
+the corrected complete wallet/mining/transfer/archive/outbox recovery test passed
+in 60.56s. The separate CLI wire test observed exactly one diagnostic GET with no
+wallet agent, and rejects reports claiming readiness or another authority/schema.
 
 ### Encrypted owner-vault backup and restore
 
@@ -706,8 +762,8 @@ diagnosis: deadlines, shutdown, local lock/storage faults and ordinary concurren
 head changes can fail a phase. Rejected benign pending conflicts may be skipped
 under the existing rules, so this is not a per-transaction rejection log. Inbound
 failures remain aggregate counters and are not attributed to this outgoing field.
-No admission, cryptographic verification, fork choice, retry timing or protocol
-message changes are part of this observability addition. Direct tests distinguish
+The failure-stage field itself changes no admission, cryptographic verification,
+fork choice, retry timing or protocol message. Direct tests distinguish
 connection refusal, pinned-key mismatch, invalid hello, bad pending signature,
 invalid block and local storage loss; recovery clears the previous failure and
 untrusted hello text is not reflected. The actual loopback RPC also reports the

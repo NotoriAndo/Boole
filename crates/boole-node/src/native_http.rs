@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use axum::body::{to_bytes, Body};
 use axum::extract::{ConnectInfo, DefaultBodyLimit, Path, Request, State};
-use axum::http::{header, StatusCode};
+use axum::http::{header, Method, StatusCode};
 use axum::middleware::{from_fn_with_state, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -27,6 +27,7 @@ use crate::{NativePeerConfig, NativePeerMonitor, NativePeerService};
 pub const MAX_NATIVE_SYNC_BLOCKS: usize = 1024;
 pub const MAX_NATIVE_SYNC_BYTES: usize = 8 * 1024 * 1024;
 const MAX_NATIVE_REQUESTS: usize = 8;
+const MAX_NATIVE_DIAGNOSTICS: usize = 2;
 const MAX_NATIVE_ERROR_BYTES: usize = 4096;
 
 /// One admission slot from before body extraction through actual blocking work.
@@ -40,6 +41,7 @@ struct RequestLease {
 struct Api {
     node: Arc<Mutex<NativeNode>>,
     workers: Arc<Semaphore>,
+    diagnostic_workers: Arc<Semaphore>,
     authority: SocketAddr,
     lifecycle: Arc<P2pLifecycle>,
     peers: Option<NativePeerMonitor>,
@@ -117,6 +119,7 @@ async fn serve_inner(
     let api = Api {
         node,
         workers: Arc::new(Semaphore::new(MAX_NATIVE_REQUESTS)),
+        diagnostic_workers: Arc::new(Semaphore::new(MAX_NATIVE_DIAGNOSTICS)),
         authority,
         lifecycle: lifecycle.clone(),
         peers: peer_monitor,
@@ -143,6 +146,7 @@ fn router(api: Api) -> Router {
     Router::new()
         .route("/native/info", get(info))
         .route("/native/peers", get(peer_status))
+        .route("/native/diagnostics", get(diagnostics))
         .route("/ready", get(info))
         .route("/native/accounts/{pk}", get(account))
         .route("/native/transactions/{id}", get(transaction))
@@ -178,12 +182,21 @@ async fn boundary(State(api): State<Api>, mut request: Request, next: Next) -> R
         .and_then(|value| value.parse::<SocketAddr>().ok())
         == Some(api.authority);
     let mut admission = None;
+    // A tiny, separate observation budget must remain available while normal
+    // RPC work waits on the ledger. It grants no state access or readiness.
+    let diagnostic =
+        request.method() == Method::GET && request.uri().path() == "/native/diagnostics";
+    let workers = if diagnostic {
+        &api.diagnostic_workers
+    } else {
+        &api.workers
+    };
     let mut response = if !allowed_host
         || request.headers().contains_key(header::ORIGIN)
         || request.headers().contains_key("sec-fetch-site")
     {
         error(StatusCode::FORBIDDEN, "closed_local_client_required")
-    } else if let Ok(permit) = api.workers.clone().try_acquire_owned() {
+    } else if let Ok(permit) = workers.clone().try_acquire_owned() {
         // This precedes Json/body extraction, including 100-continue. Keep the
         // same permit with the handler and then its real blocking operation;
         // cancellation must not admit replacement work while a mutation runs.
@@ -200,7 +213,14 @@ async fn boundary(State(api): State<Api>, mut request: Request, next: Next) -> R
             ),
         }
     } else {
-        error(StatusCode::TOO_MANY_REQUESTS, "native_worker_limit")
+        error(
+            StatusCode::TOO_MANY_REQUESTS,
+            if diagnostic {
+                "native_diagnostic_limit"
+            } else {
+                "native_worker_limit"
+            },
+        )
     };
     // Serde diagnostics can reflect attacker-controlled field names more than
     // once. Do not retain large error bodies on slowly draining connections.
@@ -226,6 +246,34 @@ async fn boundary(State(api): State<Api>, mut request: Request, next: Next) -> R
 
 fn error(status: StatusCode, code: &str) -> Response {
     (status, Json(json!({"error": code}))).into_response()
+}
+
+async fn diagnostics(
+    State(api): State<Api>,
+    Extension(_lease): Extension<RequestLease>,
+) -> Response {
+    // Never acquire the ledger lock or read its files here. This is process/
+    // transport observation, explicitly not permission to sign or mutate.
+    let peers = match api.peers {
+        Some(monitor) => match serde_json::to_value(monitor.snapshot()) {
+            Ok(value) => value,
+            Err(_) => return error(StatusCode::SERVICE_UNAVAILABLE, "native_diagnostic_failed"),
+        },
+        None => json!({"enabled": false, "running": false, "peers": []}),
+    };
+    Json(json!({
+        "schema": "boole.native.diagnostics.v1",
+        "authority": "local_process_only",
+        "ledgerReadiness": "not_checked",
+        "stopping": api.lifecycle.is_stopped(),
+        "rpc": {
+            "activeRequests": MAX_NATIVE_REQUESTS - api.workers.available_permits(),
+            "requestLimit": MAX_NATIVE_REQUESTS,
+            "activeDiagnostics": MAX_NATIVE_DIAGNOSTICS - api.diagnostic_workers.available_permits(),
+            "diagnosticLimit": MAX_NATIVE_DIAGNOSTICS
+        },
+        "peers": peers
+    })).into_response()
 }
 
 async fn peer_status(
@@ -421,16 +469,198 @@ mod tests {
     use std::time::Instant;
 
     fn request(address: SocketAddr, path: &str, body: Option<&str>) -> String {
+        request_with_headers(address, path, body, &format!("Host: {address}\r\n"))
+    }
+
+    fn request_with_headers(
+        address: SocketAddr,
+        path: &str,
+        body: Option<&str>,
+        headers: &str,
+    ) -> String {
         let mut socket = TcpStream::connect(address).unwrap();
         socket
             .set_read_timeout(Some(Duration::from_secs(20)))
             .unwrap();
         let method = if body.is_some() { "POST" } else { "GET" };
         let body = body.unwrap_or("");
-        write!(socket, "{method} {path} HTTP/1.1\r\nHost: {address}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+        write!(socket, "{method} {path} HTTP/1.1\r\n{headers}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
         let mut response = String::new();
         socket.read_to_string(&mut response).unwrap();
         response
+    }
+
+    #[test]
+    fn process_diagnostics_remain_available_while_all_state_requests_wait_on_the_ledger() {
+        let dir = crate::durability::PrivateTempDir::new_in(
+            &std::env::temp_dir(),
+            "boole-native-http-independent-diagnostics",
+        )
+        .unwrap();
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let address = listener.local_addr().unwrap();
+        let api = Api {
+            node: Arc::new(Mutex::new(NativeNode::open(dir.path()).unwrap())),
+            workers: Arc::new(Semaphore::new(MAX_NATIVE_REQUESTS)),
+            diagnostic_workers: Arc::new(Semaphore::new(MAX_NATIVE_DIAGNOSTICS)),
+            authority: address,
+            lifecycle: Arc::new(P2pLifecycle::new()),
+            peers: None,
+        };
+        let app = router(api.clone());
+        let stop = Arc::new(Notify::new());
+        let shutdown = stop.clone();
+        let server = runtime.spawn(async move {
+            axum::serve(
+                BoundedHttpListener::new(tokio::net::TcpListener::from_std(listener).unwrap()),
+                app.into_make_service_with_connect_info::<HttpRemoteAddr>(),
+            )
+            .with_graceful_shutdown(async move {
+                shutdown.notified().await;
+            })
+            .await
+            .unwrap();
+        });
+        let held = api.node.lock().unwrap();
+        let callers: Vec<_> = (0..MAX_NATIVE_REQUESTS)
+            .map(|_| std::thread::spawn(move || request(address, "/native/info", None)))
+            .collect();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while api.workers.available_permits() != 0 {
+            assert!(
+                Instant::now() < deadline,
+                "state requests were not admitted"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let before = Instant::now();
+        let diagnostic = request(address, "/native/diagnostics", None);
+        let elapsed = before.elapsed();
+        // Always release real waiting work and stop the server, including RED.
+        drop(held);
+        for caller in callers {
+            assert!(caller.join().unwrap().starts_with("HTTP/1.1 200"));
+        }
+        stop.notify_one();
+        runtime.block_on(server).unwrap();
+        api.lifecycle.stop();
+        assert!(diagnostic.starts_with("HTTP/1.1 200"), "{diagnostic}");
+        assert!(
+            elapsed < Duration::from_secs(1),
+            "diagnostic waited behind ledger: {elapsed:?}"
+        );
+        let value: Value =
+            serde_json::from_str(diagnostic.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+        assert_eq!(value["schema"], "boole.native.diagnostics.v1");
+        assert_eq!(value["ledgerReadiness"], "not_checked");
+        assert_eq!(value["rpc"]["activeRequests"], MAX_NATIVE_REQUESTS);
+        assert_eq!(value["rpc"]["activeDiagnostics"], 1);
+        assert_eq!(value["peers"]["enabled"], false);
+        assert!(value.get("ready").is_none());
+        assert!(value.get("headHash").is_none());
+        assert!(value.get("balance").is_none());
+    }
+
+    #[test]
+    fn diagnostics_do_not_confer_readiness_or_bypass_their_own_limit_and_shutdown_boundary() {
+        let dir = crate::durability::PrivateTempDir::new_in(
+            &std::env::temp_dir(),
+            "boole-native-http-diagnostic-boundaries",
+        )
+        .unwrap();
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let address = listener.local_addr().unwrap();
+        let api = Api {
+            node: Arc::new(Mutex::new(NativeNode::open(dir.path()).unwrap())),
+            workers: Arc::new(Semaphore::new(MAX_NATIVE_REQUESTS)),
+            diagnostic_workers: Arc::new(Semaphore::new(MAX_NATIVE_DIAGNOSTICS)),
+            authority: address,
+            lifecycle: Arc::new(P2pLifecycle::new()),
+            peers: None,
+        };
+        let app = router(api.clone());
+        let stop = Arc::new(Notify::new());
+        let shutdown = stop.clone();
+        let server = runtime.spawn(async move {
+            axum::serve(
+                BoundedHttpListener::new(tokio::net::TcpListener::from_std(listener).unwrap()),
+                app.into_make_service_with_connect_info::<HttpRemoteAddr>(),
+            )
+            .with_graceful_shutdown(async move {
+                shutdown.notified().await;
+            })
+            .await
+            .unwrap();
+        });
+        // Inject occupancy at the real bounded observation budget. A refused
+        // diagnostic must not consume or disable ordinary state admission.
+        let occupied = api
+            .diagnostic_workers
+            .clone()
+            .try_acquire_many_owned(MAX_NATIVE_DIAGNOSTICS as u32)
+            .unwrap();
+        let excess = request(address, "/native/diagnostics", None);
+        assert!(excess.starts_with("HTTP/1.1 429"));
+        assert!(excess.contains("native_diagnostic_limit"));
+        assert!(request(address, "/ready", None).starts_with("HTTP/1.1 200"));
+        drop(occupied);
+        for headers in [
+            "Host: unrelated.invalid\r\n".to_string(),
+            format!("Host: {address}\r\nOrigin: https://untrusted.invalid\r\n"),
+            format!("Host: {address}\r\nSec-Fetch-Site: cross-site\r\n"),
+        ] {
+            let response = request_with_headers(address, "/native/diagnostics", None, &headers);
+            assert!(response.starts_with("HTTP/1.1 403"), "{response}");
+            assert_eq!(
+                api.diagnostic_workers.available_permits(),
+                MAX_NATIVE_DIAGNOSTICS
+            );
+        }
+        let history = dir.path().join(crate::native_node::NATIVE_BLOCKS_FILE);
+        let preserved = dir.path().join("preserved-native-history.ndjson");
+        let original = std::fs::read(&history).unwrap();
+        std::fs::rename(&history, &preserved).unwrap();
+        assert!(request(address, "/ready", None).starts_with("HTTP/1.1 503"));
+        assert!(request(address, "/native/peers", None).starts_with("HTTP/1.1 503"));
+        let template = serde_json::json!({
+            "producerPk": "00".repeat(32), "rewardPk": "00".repeat(32), "timestampMs": 60000
+        })
+        .to_string();
+        assert!(request(address, "/native/template", Some(&template)).starts_with("HTTP/1.1 503"));
+        let diagnostic = request(address, "/native/diagnostics", None);
+        assert!(diagnostic.starts_with("HTTP/1.1 200"), "{diagnostic}");
+        assert!(diagnostic.contains("\"ledgerReadiness\":\"not_checked\""));
+        assert!(!diagnostic.contains("\"ready\""));
+        assert!(!diagnostic.contains(dir.path().to_str().unwrap()));
+        assert!(!history.exists());
+        assert_eq!(std::fs::read(&preserved).unwrap(), original);
+        api.lifecycle.request_stop();
+        let diagnostic = request(address, "/native/diagnostics", None);
+        assert!(diagnostic.starts_with("HTTP/1.1 200"));
+        assert!(diagnostic.contains("\"stopping\":true"));
+        assert!(request(address, "/ready", None).starts_with("HTTP/1.1 503"));
+        stop.notify_one();
+        runtime.block_on(server).unwrap();
+        api.lifecycle.stop();
+        assert_eq!(api.workers.available_permits(), MAX_NATIVE_REQUESTS);
+        assert_eq!(
+            api.diagnostic_workers.available_permits(),
+            MAX_NATIVE_DIAGNOSTICS
+        );
+        drop(api);
+        std::fs::rename(&preserved, &history).unwrap();
+        assert_eq!(
+            NativeNode::open(dir.path())
+                .unwrap()
+                .chain()
+                .ledger()
+                .height(),
+            0
+        );
     }
 
     #[test]
@@ -462,6 +692,7 @@ mod tests {
         let api = Api {
             node: Arc::new(Mutex::new(node)),
             workers: Arc::new(Semaphore::new(MAX_NATIVE_REQUESTS)),
+            diagnostic_workers: Arc::new(Semaphore::new(MAX_NATIVE_DIAGNOSTICS)),
             authority: address,
             lifecycle: Arc::new(P2pLifecycle::new()),
             peers: None,

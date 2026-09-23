@@ -440,6 +440,13 @@ fn native_peer_rpc_exposes_the_bounded_outbound_failure_stage() {
         if status["peers"][0]["failedRounds"].as_u64().unwrap() > 0 {
             assert_eq!(status["peers"][0]["state"], "retrying");
             assert_eq!(status["peers"][0]["lastFailureStage"], "connect");
+            let diagnostic = rpc(address, "GET", "/native/diagnostics", Value::Null);
+            assert_eq!(diagnostic["ledgerReadiness"], "not_checked");
+            assert_eq!(
+                diagnostic["peers"]["peers"][0]["lastFailureStage"],
+                "connect"
+            );
+            assert_eq!(diagnostic["peers"]["localPeerId"], status["localPeerId"]);
             break;
         }
         assert!(

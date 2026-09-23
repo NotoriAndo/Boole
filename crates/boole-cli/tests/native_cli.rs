@@ -118,6 +118,34 @@ fn node_json(args: &[&str]) -> Value {
     serde_json::from_slice(&output.stdout).unwrap()
 }
 
+fn restart_node(fixture: &mut Fixture, url: &str) {
+    fixture.child.kill().unwrap();
+    fixture.child.wait().unwrap();
+    fixture.child = Command::new(sibling("boole-node"))
+        .args([
+            "run-native-local",
+            "--addr",
+            url.strip_prefix("http://").unwrap(),
+            "--state-dir",
+        ])
+        .arg(fixture.dir.join("node"))
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if cli(&["native", "--node", url, "info"]).status.success() {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "native restart readiness deadline"
+        );
+        std::thread::sleep(Duration::from_millis(30));
+    }
+}
+
 #[test]
 fn encrypted_owner_cli_mines_transfers_and_retries_only_the_saved_signed_transaction() {
     assert!(Command::new(env!("CARGO"))
@@ -129,6 +157,26 @@ fn encrypted_owner_cli_mines_transfers_and_retries_only_the_saved_signed_transac
         std::env::temp_dir().join(format!("boole-native-cli-{}", boole_testkit::rand_suffix()));
     let (mut fixture, url) = spawn_node(dir);
     assert_eq!(ok(&["native", "--node", &url, "peers"])["enabled"], false);
+    // Real process/CLI recovery diagnostics remain readable when the canonical
+    // file is unavailable, but normal node info must still refuse readiness.
+    let history = fixture.dir.join("node/native-blocks.ndjson");
+    let preserved_history = fixture.dir.join("preserved-initial-history.ndjson");
+    let history_bytes = std::fs::read(&history).unwrap();
+    std::fs::rename(&history, &preserved_history).unwrap();
+    let diagnostic = ok(&["native", "--node", &url, "diagnostics"]);
+    assert_eq!(diagnostic["ledgerReadiness"], "not_checked");
+    assert_eq!(diagnostic["peers"]["enabled"], false);
+    assert!(diagnostic.get("ready").is_none());
+    let unavailable = cli(&["native", "--node", &url, "info"]);
+    assert!(!unavailable.status.success());
+    assert!(String::from_utf8_lossy(&unavailable.stderr).contains("503"));
+    assert!(!history.exists());
+    assert_eq!(std::fs::read(&preserved_history).unwrap(), history_bytes);
+    std::fs::rename(&preserved_history, &history).unwrap();
+    // Renaming back preserves bytes, not the recorded ctime. The live writer
+    // must remain fenced; a new process revalidates the preserved history.
+    assert!(!cli(&["native", "--node", &url, "info"]).status.success());
+    restart_node(&mut fixture, &url);
     let vault = fixture.dir.join("owner.vault");
     let mut init = Command::new(sibling("boole-wallet-agent"))
         .arg("init")
@@ -304,31 +352,7 @@ fn encrypted_owner_cli_mines_transfers_and_retries_only_the_saved_signed_transac
     );
     // Real process crash/restart; a confirmed transfer must remain exactly
     // once and the saved outbox remains usable without decrypting the vault.
-    fixture.child.kill().unwrap();
-    fixture.child.wait().unwrap();
-    fixture.child = Command::new(sibling("boole-node"))
-        .args([
-            "run-native-local",
-            "--addr",
-            url.strip_prefix("http://").unwrap(),
-            "--state-dir",
-        ])
-        .arg(fixture.dir.join("node"))
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(10);
-    loop {
-        if cli(&["native", "--node", &url, "info"]).status.success() {
-            break;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "native restart readiness deadline"
-        );
-        std::thread::sleep(Duration::from_millis(30));
-    }
+    restart_node(&mut fixture, &url);
     assert_eq!(
         ok(&[
             "native",

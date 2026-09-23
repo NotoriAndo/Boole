@@ -28,6 +28,8 @@ enum NativeCommand {
     Info,
     /// Observe configured secure peers, bounded resource counters and sync states.
     Peers,
+    /// Observe process/peer diagnostics without checking ledger readiness or signing.
+    Diagnostics,
     Account {
         #[arg(long)]
         pk: String,
@@ -274,10 +276,24 @@ pub(super) fn run(args: NativeArgs) -> anyhow::Result<()> {
         return Ok(());
     }
     let client = Client::new(&args.node)?;
+    if matches!(&args.command, NativeCommand::Diagnostics) {
+        // Deliberately independent of readiness for recovery/overload triage.
+        // This branch cannot unlock, sign, submit or expose a ledger snapshot.
+        let report = client.request("/native/diagnostics", None)?;
+        anyhow::ensure!(
+            report["schema"] == "boole.native.diagnostics.v1"
+                && report["authority"] == "local_process_only"
+                && report["ledgerReadiness"] == "not_checked",
+            "invalid non-authoritative native diagnostic report"
+        );
+        println!("{}", serde_json::to_string(&report)?);
+        return Ok(());
+    }
     let info = client.info()?;
     let result = match args.command {
         NativeCommand::Info => info,
         NativeCommand::Peers => client.request("/native/peers", None)?,
+        NativeCommand::Diagnostics => unreachable!("handled before readiness RPC"),
         NativeCommand::Account { pk } => {
             anyhow::ensure!(
                 Hex32::from_hex(&pk)?.to_hex() == pk,
