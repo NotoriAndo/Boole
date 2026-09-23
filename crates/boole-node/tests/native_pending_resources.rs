@@ -115,6 +115,122 @@ fn exact_known_transfer_retries_have_bounded_cpu_cost() {
 }
 
 #[test]
+fn known_transfer_ids_bind_every_signed_field_and_never_mask_storage_loss() {
+    let dir = TestDir::new();
+    let key = SigningKeyV2::from_dev_id("native-retry-binding-owner");
+    let receiver = SigningKeyV2::from_dev_id("native-retry-binding-recipient").pk_hex();
+    let mut node = NativeNode::open(&dir.0).unwrap();
+    for _ in 0..10 {
+        node.submit_block(empty_block(node.chain(), &key)).unwrap();
+    }
+    let original = signed_transfer(&key, &receiver, 0, 1000);
+    assert!(node.submit_transfer(original.clone()).unwrap());
+    type Mutation = (&'static str, fn(&mut NativeTransfer));
+    let mutations: &[Mutation] = &[
+        ("envelope schema", |tx| tx.schema.push('x')),
+        ("network", |tx| tx.network_id.push('x')),
+        ("signer", |tx| tx.pk = "00".repeat(32)),
+        ("signature", |tx| tx.signature = "00".repeat(64)),
+        ("payload schema", |tx| tx.payload.schema.push('x')),
+        ("sender", |tx| tx.payload.from = "00".repeat(32)),
+        ("recipient", |tx| tx.payload.to = "00".repeat(32)),
+        ("amount", |tx| tx.payload.amount = "2".into()),
+        ("fee", |tx| tx.payload.fee = "1001".into()),
+        ("nonce", |tx| tx.payload.nonce = "1".into()),
+        ("expiry", |tx| tx.payload.valid_before = "1001".into()),
+    ];
+    let mut variants = Vec::new();
+    for (name, change) in mutations {
+        let mut variant = original.clone();
+        change(&mut variant);
+        assert_ne!(variant.id(), original.id(), "ID omitted {name}");
+        variants.push((*name, variant));
+    }
+    // Even a cryptographically valid replacement with the same sender/nonce
+    // must not be treated as the known signature.
+    let mut payload = serde_json::to_value(&original.payload).unwrap();
+    payload["fee"] = "1001".into();
+    let replacement = NativeTransfer::try_from(
+        &key.sign_for_network(&payload, Some(native_testnet().network_id()))
+            .unwrap(),
+    )
+    .unwrap();
+    replacement.validated_fields().unwrap();
+    assert_ne!(replacement.id(), original.id());
+    variants.push(("correctly signed conflicting replacement", replacement));
+
+    for stage in ["pending", "confirmed", "replayed"] {
+        assert!(!node.submit_transfer(original.clone()).unwrap(), "{stage}");
+        let canonical = node.chain().clone();
+        let pending = node.pending().to_vec();
+        let files = [
+            boole_node::NATIVE_BLOCKS_FILE,
+            boole_node::NATIVE_MEMPOOL_FILE,
+        ];
+        let before: Vec<_> = files
+            .iter()
+            .map(|file| std::fs::read(dir.0.join(file)).unwrap())
+            .collect();
+        for (name, variant) in &variants {
+            assert!(
+                node.submit_transfer(variant.clone()).is_err(),
+                "accepted {name} while {stage}"
+            );
+        }
+        node.ensure_ready().unwrap();
+        assert_eq!(node.chain(), &canonical);
+        assert_eq!(node.pending(), &pending);
+        for (file, bytes) in files.iter().zip(before) {
+            assert_eq!(std::fs::read(dir.0.join(file)).unwrap(), bytes);
+        }
+        match stage {
+            "pending" => {
+                let mined = node
+                    .template(&key.pk_hex(), &key.pk_hex(), 660_000)
+                    .unwrap()
+                    .mine(0, 2_000_000)
+                    .unwrap()
+                    .unwrap();
+                let auth = key
+                    .sign_for_network(
+                        &mined.authorization_payload().unwrap(),
+                        Some(native_testnet().network_id()),
+                    )
+                    .unwrap();
+                node.submit_block(mined.authorize(&auth).unwrap()).unwrap();
+                assert_eq!(node.confirmed_height(&original.id()), Some(11));
+                assert_eq!(node.chain().ledger().balance(&receiver), 1);
+            }
+            "confirmed" => {
+                drop(node);
+                node = NativeNode::open(&dir.0).unwrap();
+            }
+            _ => {}
+        }
+    }
+    let manifest = dir.0.join("state.manifest.json");
+    let saved = dir.0.join("saved-manifest.json");
+    let original_manifest = std::fs::read(&manifest).unwrap();
+    std::fs::rename(&manifest, &saved).unwrap();
+    assert!(
+        node.submit_transfer(original).is_err(),
+        "known ID masked missing storage authority"
+    );
+    assert!(!manifest.exists());
+    assert_eq!(std::fs::read(&saved).unwrap(), original_manifest);
+    drop(node);
+    std::fs::rename(&saved, &manifest).unwrap();
+    assert_eq!(
+        NativeNode::open(&dir.0)
+            .unwrap()
+            .chain()
+            .ledger()
+            .balance(&receiver),
+        1
+    );
+}
+
+#[test]
 fn pending_reservations_follow_maturity_expiry_rejection_and_restart() {
     let dir = TestDir::new();
     let owner = SigningKeyV2::from_dev_id("pending-boundaries-owner");

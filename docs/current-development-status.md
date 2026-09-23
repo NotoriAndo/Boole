@@ -101,6 +101,12 @@ one durable block/reward after eight timed-out duplicate submissions. This bound
 admission, not total memory or guaranteed read availability under saturation.
 Input-reflecting HTTP error bodies are also limited to 4KiB, preserving status
 and replacing oversized diagnostics with a short code.
+Exact already-known transfers still repeat immutable signature checks. A
+[developer retry baseline](native-known-transfer-qualification-2026-09.md)
+preserved state/journals but took 2.749s for 8,192 retries against a fixed 1s
+criterion. The proposed shortcut is on safety-review hold and was not applied;
+field-binding, conflicting-signature and storage-loss regression checks pass on
+the unchanged validation path.
 Tests remain
 closed-local and public operation still requires R2/R3 launch authority.
 
