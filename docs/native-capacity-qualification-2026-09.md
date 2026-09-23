@@ -1,6 +1,6 @@
 # Native state capacity qualification — 2026-09-23
 
-Status: **PREREGISTERED — not yet executed.** This is a disposable closed-local
+Status: **PASS — bounded scenario on the recorded developer Mac; retry 1.** This is a disposable closed-local
 engineering scenario, not a public benchmark or an operational wallet run.
 The existing [native contract](native-transfer-ledger-contract.md) and monetary,
 signature, replay, file-ownership and publication rules remain unchanged.
@@ -58,6 +58,102 @@ network performance. Those claims cannot be inferred from a pass here.
 
 ## Execution results
 
-No capacity attempt has run yet. Implementation and the small direct-consumer
-tests are prepared first. This status must be replaced with the actual outcome,
-while the fixed criteria above and every attempted result remain preserved.
+### Attempt 1 — functional/time gates pass, memory gate unmeasured
+
+Preregistration commit: `f491a58`. Executed source:
+`8603f9f42415cda47dcb04f968f21629e037a702`, tree
+`74f3de6911ea09d3fdf5ad0663557ba5e5200fd5`. The debug test executable SHA-256 was
+`c276fd48befcc5ccda87c7661346f6803efb9ce4e397db38acb2e127d87cd262`.
+The small workflow and three direct RPC tests passed first; core/node all-target
+clippy, formatting, documentation smoke and whitespace checks also passed.
+An initial test-harness compile attempted an unsafe OS call; the repository
+correctly refused it. No unsafe allowance was added: RSS measurement was moved
+to the existing OS tool before either capacity attempt.
+
+Command, executed from the feature worktree at approximately 06:51 UTC:
+
+```sh
+/usr/bin/time -l /Users/seoyong/projects/Boole/target/debug/deps/native_capacity-6f26ba504621f258 \
+  --ignored --exact native_capacity_131072_accounts_and_full_pending_queue \
+  --nocapture --test-threads=1
+```
+
+The test passed, with the following unmodified result object:
+
+```json
+{"confirmedHead":"0000da6a4a5bd3939b76de746634716bc105be8aa6fb813ab4a4586ecbc17dee","elapsedMs":267497,"fundedBlocks":256,"fundedHead":"00009943584cb04f821a9cc0675de0f42b80de834a700e6d4b7ce92d10624b0a","genesisHash":"933a672120674efa9ec6205f344e1830febdec58b0ffcd2603ccc8a9723610c1","issued":"1335000000000000","lookup100Micros":2318,"maxAppendMs":262,"maxTemplateMs":196,"networkId":"boole-native-testnet-1","pendingAdmissionMs":3281,"resources":{"balanceEntries":131073,"confirmedTransfers":131584,"historyBlocks":267,"historyBytes":70231145,"historyLimitBlocks":100000,"historyLimitBytes":268435456,"nonceEntries":1,"pendingBytes":0,"pendingLimitBytes":5242880,"pendingLimitTransfers":512,"pendingTransfers":0},"restartConfirmedMs":53040,"restartPendingMs":53042,"transfersPerBlock":512}
+```
+
+The OS wrapper then reported:
+
+```text
+267.53 real       263.33 user         0.85 sys
+time: sysctl kern.clockrate: Operation not permitted
+```
+
+The command exited 1 because the sandbox blocked the measurement utility's
+clock-rate query before it emitted maximum resident memory. This is **not an
+overall qualification pass**, and no RSS value is inferred from journal size or
+functional success. The state was disposable and the test cleaned it normally.
+Under the bounded infrastructure-retry policy, retry 1 keeps the same executable,
+scenario and thresholds, changing only the OS-measurement permission context.
+
+### Attempt 2 / infrastructure retry 1 — PASS
+
+The same executable hash was checked again and the exact command was rerun with
+the OS-measurement permission available. No product code, scenario, thresholds
+or compiler changed. All functional assertions passed. Both runs reached the
+same funded/final heads, issuance and journal byte count.
+
+| Criterion | Fixed bound | Observed |
+|---|---:|---:|
+| Final canonical state | 267 blocks / 131,073 balance entries | Exact match |
+| Entire scenario | 900 seconds | 267.682 seconds |
+| Maximum template / durable append | 10 seconds each | 208ms / 260ms |
+| 512 durable pending admissions | 20 seconds | 3.330 seconds |
+| 100 direct lookups, including resource counts | 5 seconds | 3.479ms |
+| Restart with queue / after confirmation | 120 seconds each | 53.103s / 53.097s |
+| Canonical history file | 96MiB | 70,231,145 bytes (~67MiB) |
+| Process maximum resident set | 1GiB | 343,015,424 bytes (327.125MiB) |
+
+Unmodified result object:
+
+```json
+{"confirmedHead":"0000da6a4a5bd3939b76de746634716bc105be8aa6fb813ab4a4586ecbc17dee","elapsedMs":267682,"fundedBlocks":256,"fundedHead":"00009943584cb04f821a9cc0675de0f42b80de834a700e6d4b7ce92d10624b0a","genesisHash":"933a672120674efa9ec6205f344e1830febdec58b0ffcd2603ccc8a9723610c1","issued":"1335000000000000","lookup100Micros":3479,"maxAppendMs":260,"maxTemplateMs":208,"networkId":"boole-native-testnet-1","pendingAdmissionMs":3330,"resources":{"balanceEntries":131073,"confirmedTransfers":131584,"historyBlocks":267,"historyBytes":70231145,"historyLimitBlocks":100000,"historyLimitBytes":268435456,"nonceEntries":1,"pendingBytes":0,"pendingLimitBytes":5242880,"pendingLimitTransfers":512,"pendingTransfers":0},"restartConfirmedMs":53097,"restartPendingMs":53103,"transfersPerBlock":512}
+```
+
+OS measurement and command exit:
+
+```text
+267.71 real       263.54 user         0.89 sys
+343015424 maximum resident set size
+0 average shared memory size
+0 average unshared data size
+0 average unshared stack size
+26047 page reclaims
+0 page faults
+0 swaps
+0 block input operations
+0 block output operations
+0 messages sent
+0 messages received
+0 signals received
+3279 voluntary context switches
+2288 involuntary context switches
+4141126996455 instructions retired
+1137030278754 cycles elapsed
+172802744 peak memory footprint
+exit: 0
+```
+
+The RSS criterion uses **maximum resident set size**, not the smaller, differently
+defined peak-memory-footprint value. macOS's installed `getrusage` manual defines
+`ru_maxrss` in bytes. Zero OS block-I/O counters are not evidence of skipped
+journal writes: the scenario uses the ordinary durable node and validates its
+actual files through two reopens.
+
+This is one sender and monotonically assigned recipient addresses, not 131,073
+independently operated wallets or a representative random-workload benchmark.
+The 53-second full replay remains a real operational cost; no maximum-history,
+large-fork, concurrency/attack, other-hardware or public-network qualification is
+claimed. No history or memory limit was raised to obtain this result.

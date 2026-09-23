@@ -135,6 +135,12 @@ history eviction, trusted checkpoint or pruning escape hatch. A capacity/write
 failure is not permission to delete journals, bypass validation or force a weaker
 fork; stop the node and preserve its state for the documented recovery path.
 This endpoint reports storage usage, not process RSS or a latency guarantee.
+The [preregistered developer-Mac capacity scenario](native-capacity-qualification-2026-09.md)
+passes its 131,073-balance-entry / ~67MiB journal envelope, including a full queue
+and two reopens. Maximum RSS was 327.125MiB; full replay took about 53 seconds.
+The record preserves the initially blocked OS measurement and the identical-code
+infrastructure retry. This is not qualification of the full history cap, large
+forks, untrusted concurrent traffic or other hardware.
 
 ### Pending-state resource and publication boundary
 

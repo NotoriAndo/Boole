@@ -32,7 +32,11 @@ independent validation. A 1,025-block recovery preserves orphaned transfers.
 Pending admission now retains verified reservations and IDs, stages only affected
 accounts and publishes after durable append. Full 512-transaction queues,
 16,384-account fixtures and failure/reorg/restart paths pass focused checks.
-The full-replay store and its larger-state CPU/memory cost remain.
+Storage bytes/limits and canonical account/transaction counts are now observable
+through `native info`. A [preregistered developer-Mac scenario](native-capacity-qualification-2026-09.md)
+passes at 131,073 balance entries, ~67MiB history and 327.125MiB maximum RSS,
+including a full queue and two reopens. Each full replay still takes about 53s;
+larger histories, live fork work, concurrency/abuse and other hardware remain.
 Encrypted owner-wallet backup/restore, bounded vault/KDF/file handling, isolated
 agent environment/lifetime/output and native stdin passphrases now pass direct
 recovery tests, including a restored-wallet on-chain transfer. This is the selected
