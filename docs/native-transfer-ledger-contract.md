@@ -512,6 +512,8 @@ server releases its final state owner before success; a retained reference after
 the one-second cleanup window produces an explicit error, without deleting locks
 or forcing another owner out. One shutdown descriptor per connection is tracked
 within the existing 128-connection cap, so OS descriptor headroom still matters.
+The connection slot remains occupied until both the I/O and its retained
+shutdown descriptor finish cleanup, including socket-registry lock contention.
 Already admitted validation/durable work is not cancelled by a disconnected
 caller and can keep shutdown waiting longer than the HTTP drain limit. A truncated
 or absent response remains an unknown result requiring exact-ID reconciliation,

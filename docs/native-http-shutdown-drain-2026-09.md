@@ -20,6 +20,15 @@ body, connection, peer, validation or storage limit may be raised or bypassed.
 
 ## Reproduction and verification plan
 
+Final resource-lifetime review (15:29 UTC) identified a possible ordering gap:
+the HTTP connection permit may return before the registry drops its duplicate
+shutdown descriptor. A targeted real-listener regression will hold the actual
+registry mutex while dropping accepted I/O, require the slot to stay occupied,
+then release cleanup and verify real EOF and normal next acceptance. This checks
+the resource lifetime, not source field order. The test must join cleanup before
+asserting failure. Only a reproduced failure will receive a runtime correction;
+the 128-connection limit, shutdown deadlines and mutation rules remain unchanged.
+
 1. Through the real public native server, admit eight partial `/native/chain`
    bodies and receive their actual HTTP 100 responses. Keep all clients open,
    request normal shutdown and require server completion within seven seconds
@@ -274,6 +283,144 @@ exited 0. All preregistered criteria passed on the first run; no production
 behavior or limit was changed. This is a fixed input-only shutdown qualification,
 not successful competing mutation under load, arbitrary slow storage, public
 availability, hard real-time whole-process shutdown or R1 completion.
+
+## Connection-slot lifetime correction — RED then GREEN
+
+The final review's real-listener test reproduced the cleanup-order gap on the
+unchanged production source from `2a01c61`. With a one-slot listener and one real
+accepted connection, holding the actual socket-registry lock made I/O destruction
+wait while its shutdown descriptor remained retained. The connection permit was
+already available: the test failed with `HTTP connection slot returned while its
+shutdown socket was still retained` (0.01s test, 8.15s build). The fixture then
+released the registry, joined cleanup, verified actual client EOF and accepted a
+replacement normally before reporting RED. This demonstrates premature resource
+admission, not a measured 128-connection memory/descriptor exhaustion incident.
+
+The minimal correction drops the socket lease before the connection permit.
+The real stream still drops first, and no connection limit, timer, protocol,
+signature, state-mutation rule or public API changes. The test-only registry
+coordination holds the real mutex; it does not substitute a mock socket/destructor.
+Both connection-cap tests passed (0.26s), as did all five lifecycle tests (0.09s).
+The first downstream command then named a nonexistent `native_rpc` integration
+target and exited 101 without running that target. Correcting only the command
+to the actual `native_http` target ran nine tests successfully (18.36s); the five
+native HTTP unit/router tests also passed (17.33s), including six-second delayed
+durable mutation and the explicit one-second retained-owner failure.
+
+The same small held-input consumer passed in 26.320s: held stop 5.005700s,
+network/stop 5.577s, maximum diagnostic response 472µs and independent replay
+409ms. All twenty connections actually closed, missing inputs stayed unsent,
+and exact original head/accounting/files matched. Targeted node lib/native HTTP/
+capacity clippy with warnings denied passed in 2.49s; fmt/docs-smoke/diff passed.
+The unchanged large held-input qualification is the remaining verification for
+this correction. It will use the existing 900s total, 1GiB RSS, 15s network-and-stop,
+7s held-stop, 120s replay and exact state/file criteria above, alone with its
+committed source/tree/executable identities recorded before and after. Prior
+large results remain tied to their original source; they are not overwritten.
+
+### Connection-cap RED
+
+```text
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.15s
+     Running unittests src/lib.rs (target/debug/deps/boole_node-9cd49e707f28be6c)
+
+running 1 test
+test local_node::tests::active_connection_cap_includes_socket_cleanup_waiters ...
+thread 'local_node::tests::active_connection_cap_includes_socket_cleanup_waiters' (8651739) panicked at crates/boole-node/src/local_node.rs:7602:9:
+HTTP connection slot returned while its shutdown socket was still retained
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    local_node::tests::active_connection_cap_includes_socket_cleanup_waiters
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 315 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p boole-node --lib`
+```
+
+### Connection-cap/lifecycle GREEN and incorrect target command
+
+```text
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.24s
+     Running unittests src/lib.rs (target/debug/deps/boole_node-9cd49e707f28be6c)
+
+running 2 tests
+test local_node::tests::active_connection_cap_includes_socket_cleanup_waiters ... ok
+test local_node::tests::active_connection_cap_releases_only_when_connection_io_drops ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 314 filtered out; finished in 0.26s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running unittests src/lib.rs (target/debug/deps/boole_node-9cd49e707f28be6c)
+
+running 5 tests
+test p2p_lifecycle::tests::dropping_a_lease_removes_only_its_socket ... ok
+test p2p_lifecycle::tests::request_stop_wakes_sockets_before_an_earlier_mutation_finishes ... ok
+test p2p_lifecycle::tests::stop_closes_every_registered_socket_and_rejects_late_registration ... ok
+test p2p_lifecycle::tests::stop_waits_for_an_earlier_mutation_and_rejects_every_later_one ... ok
+test p2p_lifecycle::tests::stop_wakes_a_lifecycle_wait_without_polling_the_full_duration ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 311 filtered out; finished in 0.09s
+
+error: no test target named `native_rpc` in `boole-node` package
+```
+
+### Correct target, held-input small consumer and static checks
+
+```text
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.80s
+     Running tests/native_http.rs (target/debug/deps/native_http-1b121ee1a1d92267)
+
+running 9 tests
+test native_http_reports_pinned_network_and_refuses_browser_cross_origin_and_public_bind ... ok
+test native_json_errors_do_not_reflect_large_unknown_field_names_into_responses ... ok
+test native_peer_rpc_exposes_the_bounded_outbound_failure_stage ... ok
+test native_request_limit_applies_before_reading_another_large_json_body ... ok
+test native_rpc_and_secure_peers_share_the_same_durable_state_and_shutdown_boundary ... ok
+test native_shutdown_closes_an_unread_large_response_and_releases_state_ownership ... native-http-shutdown-response elapsedMs=0 timely=true responseBytes=272026 trailingBytes=130500
+ok
+test native_shutdown_closes_unfinished_http_bodies_before_the_request_deadline ... boole-node: native HTTP drain expired; closing remaining client sockets
+native-http-shutdown-body elapsedMs=5003 timely=true
+ok
+test stalled_native_request_bodies_expire_and_return_all_admission_slots ... ok
+test two_independent_rpc_nodes_mine_transfer_and_rejoin_with_identical_accounting ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.36s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/boole_node-9cd49e707f28be6c)
+
+running 5 tests
+test native_http::tests::diagnostics_do_not_confer_readiness_or_bypass_their_own_limit_and_shutdown_boundary ... ok
+test native_http::tests::process_diagnostics_remain_available_while_all_state_requests_wait_on_the_ledger ... ok
+test native_http::tests::shutdown_disconnects_clients_but_waits_for_an_already_admitted_block ... boole-node: native HTTP drain expired; closing remaining client sockets
+native-http-shutdown-mutation elapsedMs=6020 closedClients=8 admittedBlockPreserved=true
+ok
+test native_http::tests::shutdown_state_owner_cleanup_is_bounded_and_never_forces_a_retained_owner ... native-http-state-owner-timeout elapsedMs=1000 retainedLockPreserved=true
+ok
+test native_http::tests::timed_out_http_callers_do_not_release_admission_while_their_actual_mutations_wait ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 311 filtered out; finished in 17.33s
+
+   Compiling boole-node v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-node)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.21s
+     Running tests/native_capacity.rs (target/debug/deps/native_capacity-6f26ba504621f258)
+
+running 1 test
+test mixed::small_mixed_shutdown_closes_held_inputs_and_replays_unchanged ... boole-node: native HTTP drain expired; closing remaining client sockets
+mixed-network {"advertised":{"hash":"0000238874213f313ec8275b19912f2e9e9630a5481480e8dc3288e937507042","height":45},"diagnosticMaxMicros":472,"drained":{"closedHttp":8,"closedInbound":4,"closedOutbound":8,"completedMissingInputs":false},"elapsedMs":25899,"finalSentBytesPerPeer":[8188312,8188312,8188312,8188312,8188312,8188312,8188312,8188312],"fundedBlocks":2,"httpBodyBytesSentPerClient":8388607,"localHead":"00009efa3c0a5376c32ed2818d39c89193e09180d72fbfe155a586df1f5f1887","networkMs":5577,"overlap":{"authority":"local_process_only","ledgerReadiness":"not_checked","peers":{"acceptedConnections":4,"activeInboundWorkers":4,"activeOutboundRounds":8,"authenticatedConnections":4,"authenticationFailures":0,"completedInboundRounds":0,"enabled":true,"failedInboundRounds":0,"limits":{"handshakeTimeoutMs":2000,"inboundKeyCooldownMs":500,"maxHandshakesPerSecond":8,"maxInboundWorkers":4,"maxMessageBytes":1048576,"maxOutboundWorkers":8,"maxPeers":8,"maxRoundBlocks":256,"maxRoundBytes":8388608,"maxRoundRequests":64,"roundTimeoutMs":10000},"listenAddress":"127.0.0.1:55202","localPeerId":"cb0eb27075e4eb10dba200341fe8f870e692d57b4fb4d4e5e60fe94ed6934014","peakInboundWorkers":4,"peakOutboundRounds":8,"peers":[{"address":"127.0.0.1:55204","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"670c5cd0edce534783576fd2cff3c7659e068bbfb2e83c90c9a603cf19a34d95","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:55205","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"7c9ff9759530df5fec1830be5f63f3370a7f85537e2bdae6dffb05d241969d7e","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:55206","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"d46ea191ecb42cc58c1975d6318bf1451c794a1b38fac989506696436a182d0e","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:55207","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"b4dfc248eb019ca676a73de860aa5309fa0f8ae227f83104057d3b55252e74c1","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:55208","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"8ad14995c02e8020843969b0046e22343ccd949eb6ce46b1d9c416c3dd5f4cd9","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:55209","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"f47ac7b315d35647816e300599c7350cbfb0fdb291a70feeee3b751b223f0e52","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:55210","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"509ef0ccc5a1cc13538ca1ab81bedd3ec2399d16e80beb3c8ff59c10f216b856","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:55211","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"cbbbc92df2ae2c6aab92bc078c4115a4c68011d4918f74c75dc2bd9b88af65c3","retryDelayMs":0,"state":"not_connected","successfulRounds":0}],"rejectedConnections":1,"rejectedPeerRounds":0,"running":true},"rpc":{"activeDiagnostics":1,"activeRequests":8,"diagnosticLimit":2,"requestLimit":8},"schema":"boole.native.diagnostics.v1","stopping":false},"partialBytesPerPeer":[8188312,8188312,8188312,8188312,8188312,8188312,8188312,8188312],"stopMicros":5005700,"stopWithHeldInputs":true}
+mixed-result {"elapsedMs":26320,"fundedBlocks":2,"genesisHash":"933a672120674efa9ec6205f344e1830febdec58b0ffcd2603ccc8a9723610c1","head":"00009efa3c0a5376c32ed2818d39c89193e09180d72fbfe155a586df1f5f1887","issued":"65000000000000","maxAppendMs":202,"maxCandidateAppendMs":177,"maxTemplateMs":171,"networkId":"boole-native-testnet-1","resources":{"balanceEntries":1025,"confirmedTransfers":1024,"historyBlocks":13,"historyBytes":552737,"historyLimitBlocks":100000,"historyLimitBytes":268435456,"nonceEntries":1,"pendingBytes":0,"pendingLimitBytes":5242880,"pendingLimitTransfers":512,"pendingTransfers":0},"restartMs":409,"stopWithHeldInputs":true}
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 15 filtered out; finished in 26.32s
+
+    Checking boole-node v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-node)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.49s
+docs-smoke: PASS
+```
 
 ## Raw outcomes and follow-up checks
 

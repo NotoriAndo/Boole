@@ -1546,8 +1546,8 @@ impl Listener for BoundedHttpListener {
                     return (
                         HeaderTimedIo {
                             inner: stream,
-                            _permit: permit,
                             _socket_lease: socket_lease,
+                            _permit: permit,
                             header_received: header_received.clone(),
                             deadline: Box::pin(tokio::time::sleep(HTTP_HEADER_TIMEOUT)),
                         },
@@ -1576,8 +1576,10 @@ impl Listener for BoundedHttpListener {
 
 pub(crate) struct HeaderTimedIo {
     inner: tokio::net::TcpStream,
-    _permit: OwnedSemaphorePermit,
+    // Fields drop in declaration order: count the shutdown descriptor against
+    // the connection limit until registry cleanup has actually completed.
     _socket_lease: Option<SocketLease>,
+    _permit: OwnedSemaphorePermit,
     header_received: Arc<AtomicBool>,
     deadline: Pin<Box<tokio::time::Sleep>>,
 }
@@ -7539,6 +7541,70 @@ mod tests {
             .await
             .expect("permit release wakes accept");
         drop((first_client, second_client));
+    }
+
+    #[test]
+    fn active_connection_cap_includes_socket_cleanup_waiters() {
+        let runtime = tokio::runtime::Runtime::new().expect("runtime");
+        let lifecycle = Arc::new(P2pLifecycle::new());
+        let (mut listener, first_io, first_client) = runtime.block_on(async {
+            let inner = tokio::net::TcpListener::bind("127.0.0.1:0")
+                .await
+                .expect("bind");
+            let address = inner.local_addr().expect("address");
+            let mut listener =
+                BoundedHttpListener::with_limit(inner, 1).with_socket_lifecycle(lifecycle.clone());
+            let (client, accepted) =
+                tokio::join!(tokio::net::TcpStream::connect(address), listener.accept());
+            (listener, accepted.0, client.expect("first connect"))
+        });
+        let permits = listener.permits.clone();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (dropper, premature_permit) = lifecycle.with_socket_registry_locked(|count| {
+            assert_eq!(count, 1);
+            let dropper = std::thread::spawn(move || {
+                started_tx.send(()).expect("report cleanup start");
+                drop(first_io);
+            });
+            started_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("cleanup thread starts");
+            let premature_permit = runtime.block_on(async {
+                tokio::time::timeout(Duration::from_millis(200), permits.acquire_owned()).await
+            });
+            (dropper, premature_permit)
+        });
+        // Release the registry and join the real IO destructor before asserting,
+        // including on RED: never strand a cleanup worker after a test failure.
+        dropper.join().expect("socket cleanup joins");
+        lifecycle.with_socket_registry_locked(|count| assert_eq!(count, 0));
+        let slot_returned_early = premature_permit.is_ok();
+        drop(premature_permit);
+        assert_eq!(listener.permits.available_permits(), 1);
+        runtime.block_on(async {
+            use tokio::io::AsyncReadExt;
+            let mut first_client = first_client;
+            let mut byte = [0_u8; 1];
+            assert_eq!(
+                tokio::time::timeout(Duration::from_secs(1), first_client.read(&mut byte))
+                    .await
+                    .expect("closed client wakes")
+                    .expect("read closed client"),
+                0
+            );
+            let address = listener.inner.local_addr().expect("listener address");
+            let second_client = tokio::net::TcpStream::connect(address)
+                .await
+                .expect("second connect");
+            let (second_io, _) = tokio::time::timeout(Duration::from_secs(1), listener.accept())
+                .await
+                .expect("slot reusable after complete cleanup");
+            drop((second_io, second_client));
+        });
+        assert!(
+            !slot_returned_early,
+            "HTTP connection slot returned while its shutdown socket was still retained"
+        );
     }
 
     const PK_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
