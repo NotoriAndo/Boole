@@ -26,6 +26,8 @@ pub(super) struct NativeArgs {
 #[derive(Debug, Subcommand)]
 enum NativeCommand {
     Info,
+    /// Observe configured secure peers, bounded resource counters and sync states.
+    Peers,
     Account {
         #[arg(long)]
         pk: String,
@@ -233,6 +235,7 @@ pub(super) fn run(args: NativeArgs) -> anyhow::Result<()> {
     let info = client.info()?;
     let result = match args.command {
         NativeCommand::Info => info,
+        NativeCommand::Peers => client.request("/native/peers", None)?,
         NativeCommand::Account { pk } => {
             anyhow::ensure!(
                 Hex32::from_hex(&pk)?.to_hex() == pk,

@@ -68,6 +68,7 @@ tokio.workspace = true
 tower.workspace = true
 tower-http.workspace = true
 tracing.workspace = true
+zeroize.workspace = true
 
 # P0.1a — shared test helpers (rand_suffix / repo_root /
 # lake_and_lean_available). dev-dependencies so the release build does not

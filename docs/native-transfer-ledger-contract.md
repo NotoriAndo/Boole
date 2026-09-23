@@ -1,9 +1,11 @@
 # Native test-coin transfer contract — R1 closed-local integration
 
-Status: versioned native blocks, durable node, bounded loopback RPC and encrypted
-owner-wallet CLI implemented and tested, 2026-09-15. **R1 is not complete and no
-public network has launched.** [Current development status](current-development-status.md)
-owns the remaining security/transport/operations work and operating boundaries.
+Status: native blocks, durable node, loopback RPC, encrypted owner-wallet CLI and
+mutually authenticated/encrypted incremental peer sync implemented and locally
+tested, 2026-09-23.
+**R1 is not complete and no public network has launched.**
+[Current development status](current-development-status.md) owns the remaining
+security/recovery/operations work and operating boundaries.
 
 ## Approved scope
 
@@ -127,6 +129,7 @@ native network ID. No verifier bypass or legacy credit migration is involved.
 The umbrella CLI uses `boole native --node http://127.0.0.1:8383` followed by:
 
 - `info`, `account --pk <key>` or `transaction --txid <id>`.
+- `peers` for configured transport identities, synchronization state and limits.
 - `mine --vault <owner-vault> [--reward-to <key>] [--attempts <bounded-count>]`.
 - `transfer --vault <owner-vault> --to <key> --amount <decimal-tBOOLE>
   --outbox <new-file>`; optional `--fee` and inclusive `--valid-before` height.
@@ -161,9 +164,122 @@ credentials and URL paths. Plain HTTP here is **not public transport security**.
 | Native workers / request deadline | 8 work permits / 10 seconds; timed-out work retains its permit until done |
 | Single CLI mining attempt | 1–10,000,000 hashes, then return; no unlimited loop |
 
-Full-map staged accounting and full-chain sync are a deliberately bounded local
-prototype. Automatic authenticated peer propagation, incremental catch-up and
-production-scale state storage are not implemented by this milestone.
+Full-map staged accounting and the manual full-chain RPC import remain bounded
+local prototypes. Automatic incremental peer synchronization is described below;
+production-scale storage and comprehensive operator recovery are not complete.
+
+## Mutually authenticated native peers
+
+The initial participant policy selected under the operator's September 23
+autonomous-development delegation is an **explicit node-public-key allowlist**.
+It is not permissionless enrollment or public-launch authority. The native
+service refuses non-loopback listeners and peer endpoints; its executable
+validates these options before opening mutable state. DNS, automatic discovery, proxying, plaintext
+fallback and automatic trust-on-first-use are absent.
+
+[`TlsTransport`](../crates/boole-p2p/src/tls.rs) uses TLS 1.3, ALPN
+`boole-transport/1` and Ed25519 RFC 7250 raw public keys through rustls/ring.
+Both parties must prove possession of an approved private key with the real
+TLS handshake signature. Outbound trust pins the exact configured key for the
+numeric endpoint; inbound trust checks the configured public-key set, not the
+source port. System CAs, TLS 1.2, anonymous clients, 0-RTT, session resumption,
+wallet/session delegation and peer-claimed chain work grant no authority.
+Transport encryption does not hide endpoint/traffic metadata or turn local RPC
+into a public API. The legacy `Frame` protocol remains version 4; the native
+typed message schema is separately version 1.
+
+The optional foreground arguments are:
+
+```sh
+boole-node peer-keygen --file <private-existing-directory>/node-a.pk8
+boole-node run-native-local --state-dir <node-a-state> \
+  --addr 127.0.0.1:8383 --p2p-addr 127.0.0.1:9393 \
+  --peer-key <private-existing-directory>/node-a.pk8 \
+  --peer <NODE_B_PUBLIC_KEY>@127.0.0.1:9394
+```
+
+Configure node B reciprocally with its own key, RPC/state directory and listener.
+These are instructions for a separately chosen local rehearsal, not evidence of
+an operator deployment. `peer-keygen` returns only the public key and file path.
+The hot transport key is **unencrypted PKCS#8**, separate from the encrypted owner
+vault and without a wallet spending/reward role. The file must remain a regular,
+single-link, mode-0600 file of at most 4,096 bytes. Creation never overwrites an
+existing path; loading uses one bounded no-follow/nonblocking descriptor and
+checks identity/metadata again. Symlink, hard-link, FIFO, overpermissive key and
+group/world-writable immediate parent paths are rejected. A failed creation may
+leave a partial new file; it is not silently deleted. These checks do not defend
+against a malicious local administrator or a compromised process account.
+
+[`NativePeerService`](../crates/boole-node/src/native_peers.rs) shares the same
+durable `NativeNode` and shutdown boundary as RPC. Each authenticated exchange
+binds its version/network/genesis and advertised head. The head is only a
+snapshot hint. Hash queries locate a common ancestor; each downloaded block
+still passes the core's PoW, producer signature, linkage, target/time and ledger
+validation. Server replies require the advertised local snapshot to remain
+current. A changing snapshot causes a bounded retry, not silent mixing of forks.
+
+Extensions are durably applied block-by-block and continue over multiple rounds;
+a timeout may retain a valid prefix. A competing branch is adopted only after
+its entire bounded suffix and advertised head are present and independent replay
+wins work/tie-break. A fork suffix longer than 256 blocks is reported as
+`bounded_reorg_requires_recovery`; it is not truncated into a winning chain.
+Replay of the known prefix still uses the existing bounded full-replay node;
+the suffix bound is not a constant-time or constant-memory reorg guarantee.
+Large-state replay/storage optimization remains an R1 operational acceptance item.
+
+When both heads match, each configured node periodically pulls the other's
+bounded pending snapshot. Transfers pass the same signature and admission path
+as RPC, with confirmed/pending duplicates idempotent. Valid but stale nonce,
+funding or queue conflicts are benign rejections; invalid signatures abort the
+round, and durability/ownership loss remains fatal to readiness. Gossip is
+periodic pull, not instantaneous broadcast or a finality guarantee.
+
+| Peer resource | Bound |
+|---|---|
+| Configured peers / outbound workers | 8 / 1 sequential worker |
+| Inbound workers / handshake starts | 4 / 8 per second globally |
+| Active incoming rounds per authenticated key | 1, with 500ms minimum start interval |
+| TLS handshake | 2-second absolute I/O deadline and 64KiB encrypted-I/O budget |
+| Native message / round plaintext bytes | 1MiB / 8MiB, counting both directions |
+| Round / range | 64 requests, 256 downloaded blocks; page at most 16 blocks |
+| Pending snapshot | 512 transfers; page at most 128 |
+| Round I/O deadline | 10 seconds from completed authentication; not a hard real-time disk/CPU preemption guarantee |
+| Outbound retry | 500ms on success; exponential 500ms–30s after consecutive failures |
+
+TLS also caps encrypted overhead for every message. All limits are local
+operational policy, not new consensus constants. Admission occurs before TLS
+work; sockets are registered before handshake so shutdown interrupts stalled
+I/O. Shutdown closes admission, waits for actual in-flight mutation completion
+and joins workers before releasing state ownership. A timed-out RPC or network
+caller cannot release a still-running mutation's permit.
+
+`GET /native/peers` and `boole native peers` report the fixed configured identities,
+last outbound state, retry counts/delay, active/peak inbound workers and aggregate
+accept/reject/authentication/round counters. Labels cannot grow from arbitrary
+remote input. Failure counters can include shutdown/interruption, not just
+attacks. `snapshot_match` means one completed exchange matched; `catching_up`,
+`retrying`, `local_chain_preferred` and `bounded_reorg_requires_recovery` must not
+be presented as synchronized/finalized. The retry delay is the last selected
+interval, not a live countdown. With P2P disabled the endpoint reports disabled.
+
+### Local peer key change and recovery limits
+
+- Allowlist edits and key rotation require a controlled restart; there is no
+  hot trust update. Stop affected nodes, generate a distinct new transport file,
+  exchange its public key through an authenticated administrative channel, update
+  both endpoint pins and restart. Remove the old pin to revoke it. Do not rotate
+  an owner vault to repair a transport connection, or print/send the private file.
+- After connection loss or a small partition, keep both state directories and
+  restart with the same approved pins. The automated path revalidates and rejoins;
+  orphaned transactions are bounded/best-effort requeued. Retain the wallet's
+  signed outbox and query transaction status before retrying it.
+- A long divergent suffix needs deliberate recovery. The existing manual
+  `native sync --from` can independently validate a complete candidate only up to
+  its 1,024-block/8MiB cap. It does not bypass fork choice. Beyond those limits,
+  preserve the state and signed outboxes and obtain an expanded validated recovery
+  workflow; do not delete journals, trust declared balances, or weaken the guard.
+- Missing/replaced journals, manifest/lock loss or uncertain writes remain
+  readiness failures. Encryption is not permission to keep serving poisoned state.
 
 ## Verification and limits
 
@@ -192,6 +308,19 @@ Added executable evidence:
 - [Encrypted-vault CLI](../crates/boole-cli/tests/native_cli.rs): actual server
   and wallet-agent processes, signing/mining/transfer, saved-file retry before
   and after inclusion, exclusive outbox publication and second-node sync.
+- [TLS transport](../crates/boole-p2p/tests/tls_transport.rs): mutual pins, real
+  possession checks against a forged public-key presentation, anonymous/wrong
+  ALPN/plaintext rejection, trickled/silent deadlines, strict duplicate-field
+  decoding, byte caps and TCP interception without application plaintext.
+- [Native peers](../crates/boole-node/tests/native_peers.rs): 280-block incremental
+  catch-up/restart, signed-transfer propagation and single confirmation,
+  partition/rejoin with orphan requeue, wrong network/version/genesis/range and
+  invalid block rejection, 512-transfer block traffic exceeding the round budget,
+  worker/request/byte caps, per-key throttle, retry backoff and shutdown leases.
+- [Native process/key CLI](../crates/boole-node/tests/native_peer_cli.rs): actual
+  two-process encrypted sync and clean signal shutdown, restart, no secret output,
+  no overwrite, unsafe file rejection and public/dangling peer-configuration refusal
+  before state creation. RPC and peers also share the same live mutation boundary.
 
 Meaningful RED observations included immature/underfee spending, missing target
 adjustment/MTP checks, stale-state appends, oversized-file recovery, legacy
@@ -202,5 +331,6 @@ v3 hashes/genesis/replay and session restrictions; no legacy fixture was rewritt
 These runs use disposable local directories and test keys. They are not an
 operator wallet movement, public mining result or mainnet entitlement. No new
 VM/model execution, useful-work reward or public activation occurred. R1 still
-requires authenticated/encrypted transport, broader recovery/abuse/operations
-acceptance and the selected public-facing product scope before R2/R3 launch review.
+requires broader recovery/abuse/operations and wallet-safety acceptance, a scoped
+public RPC strategy and the selected public-facing product scope before R2/R3
+launch review. Closed-local TLS tests are not public-testnet operation evidence.

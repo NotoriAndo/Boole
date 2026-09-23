@@ -1,0 +1,627 @@
+use std::net::{TcpListener, TcpStream};
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+use boole_core::native_chain::NativeTransfer;
+use boole_core::native_network::native_testnet;
+use boole_core::signed_envelope::SigningKeyV2;
+use boole_node::{NativeNode, NativePeerConfig, NativePeerService};
+use boole_p2p::{TlsIdentity, TlsTransport, Transport};
+
+struct TestDir(PathBuf);
+impl TestDir {
+    fn new() -> Self {
+        let path = std::env::temp_dir().join(format!(
+            "boole-native-peers-test-{}",
+            boole_testkit::rand_suffix()
+        ));
+        std::fs::create_dir(&path).unwrap();
+        Self(path)
+    }
+    fn node(&self) -> Arc<Mutex<NativeNode>> {
+        Arc::new(Mutex::new(NativeNode::open(&self.0).unwrap()))
+    }
+}
+impl Drop for TestDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+fn identity() -> TlsIdentity {
+    TlsIdentity::from_pkcs8(&TlsIdentity::generate_pkcs8().unwrap()).unwrap()
+}
+
+fn mine(node: &Arc<Mutex<NativeNode>>, key: &SigningKeyV2, reward: &str, count: u64) {
+    let mut node = node.lock().unwrap();
+    for _ in 0..count {
+        let height = node.chain().ledger().height() + 1;
+        let block = node
+            .template(&key.pk_hex(), reward, height * 60_000)
+            .unwrap()
+            .mine(0, 2_000_000)
+            .unwrap()
+            .expect("bounded disposable PoW");
+        let signature = key
+            .sign_for_network(
+                &block.authorization_payload().unwrap(),
+                Some(native_testnet().network_id()),
+            )
+            .unwrap();
+        node.submit_block(block.authorize(&signature).unwrap())
+            .unwrap();
+    }
+}
+
+fn await_condition(mut condition: impl FnMut() -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !condition() {
+        assert!(Instant::now() < deadline, "native peers did not converge");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+fn start_pair(
+    node_a: &Arc<Mutex<NativeNode>>,
+    node_b: &Arc<Mutex<NativeNode>>,
+) -> (NativePeerService, NativePeerService) {
+    let listener_a = TcpListener::bind("127.0.0.1:0").unwrap();
+    let listener_b = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address_a = listener_a.local_addr().unwrap();
+    let address_b = listener_b.local_addr().unwrap();
+    let key_a = identity();
+    let key_b = identity();
+    let config_a = NativePeerConfig {
+        identity: key_a.clone(),
+        peers: vec![(address_b, key_b.peer_id())],
+    };
+    let config_b = NativePeerConfig {
+        identity: key_b,
+        peers: vec![(address_a, key_a.peer_id())],
+    };
+    let service_a = NativePeerService::start(listener_a, node_a.clone(), config_a).unwrap();
+    let service_b = NativePeerService::start(listener_b, node_b.clone(), config_b).unwrap();
+    (service_a, service_b)
+}
+
+#[test]
+fn approved_encrypted_peers_incrementally_catch_up_and_replay_identically() {
+    let dir_a = TestDir::new();
+    let dir_b = TestDir::new();
+    let node_a = dir_a.node();
+    let node_b = dir_b.node();
+    let miner = SigningKeyV2::from_dev_id("native-secure-peer-miner");
+    // More than one bounded 256-block synchronization round.
+    mine(&node_a, &miner, &miner.pk_hex(), 280);
+    let expected = node_a.lock().unwrap().chain().clone();
+    let (mut service_a, mut service_b) = start_pair(&node_a, &node_b);
+    await_condition(|| node_b.lock().unwrap().chain() == &expected);
+    service_b.stop();
+    service_a.stop();
+    drop(service_b);
+    drop(node_b);
+    let recovered = NativeNode::open(&dir_b.0).unwrap();
+    assert_eq!(recovered.chain(), &expected);
+}
+
+#[test]
+fn signed_transfer_gossip_reaches_miner_and_confirms_once_on_both_ledgers() {
+    let dir_a = TestDir::new();
+    let dir_b = TestDir::new();
+    let node_a = dir_a.node();
+    let node_b = dir_b.node();
+    let miner = SigningKeyV2::from_dev_id("native-peer-gossip-miner");
+    let alice = SigningKeyV2::from_dev_id("native-peer-gossip-alice");
+    let bob = SigningKeyV2::from_dev_id("native-peer-gossip-bob").pk_hex();
+    mine(&node_a, &miner, &alice.pk_hex(), 10);
+    let initial = node_a.lock().unwrap().chain().clone();
+    let (mut service_a, mut service_b) = start_pair(&node_a, &node_b);
+    await_condition(|| node_b.lock().unwrap().chain() == &initial);
+    let transfer = NativeTransfer::try_from(
+        &alice
+            .sign_for_network(
+                &serde_json::json!({
+                    "schema": "boole.transfer.v1", "from": alice.pk_hex(), "to": bob,
+                    "amount": "100000000", "fee": "1000", "nonce": "0", "validBefore": "100"
+                }),
+                Some(native_testnet().network_id()),
+            )
+            .unwrap(),
+    )
+    .unwrap();
+    node_b
+        .lock()
+        .unwrap()
+        .submit_transfer(transfer.clone())
+        .unwrap();
+    await_condition(|| node_a.lock().unwrap().pending() == std::slice::from_ref(&transfer));
+    mine(&node_a, &miner, &miner.pk_hex(), 1);
+    await_condition(|| node_b.lock().unwrap().confirmed_height(&transfer.id()) == Some(11));
+    service_a.stop();
+    service_b.stop();
+    for node in [&node_a, &node_b] {
+        let mut node = node.lock().unwrap();
+        assert_eq!(node.chain().ledger().balance(&bob), 100_000_000);
+        assert_eq!(node.chain().ledger().next_nonce(&alice.pk_hex()), 1);
+        assert!(node.pending().is_empty());
+        assert!(!node.submit_transfer(transfer.clone()).unwrap());
+    }
+    assert_eq!(
+        node_a.lock().unwrap().chain(),
+        node_b.lock().unwrap().chain()
+    );
+}
+
+#[test]
+fn partitioned_peers_rejoin_the_verified_heavier_fork_and_recover_orphaned_transfer() {
+    let dir_a = TestDir::new();
+    let dir_b = TestDir::new();
+    let node_a = dir_a.node();
+    let node_b = dir_b.node();
+    let miner = SigningKeyV2::from_dev_id("native-partition-miner");
+    let alice = SigningKeyV2::from_dev_id("native-partition-alice");
+    let bob = SigningKeyV2::from_dev_id("native-partition-bob").pk_hex();
+    mine(&node_a, &miner, &alice.pk_hex(), 10);
+    let initial = node_a.lock().unwrap().chain().clone();
+    let (mut service_a, mut service_b) = start_pair(&node_a, &node_b);
+    await_condition(|| node_b.lock().unwrap().chain() == &initial);
+    service_a.stop();
+    service_b.stop();
+    let transfer = NativeTransfer::try_from(
+        &alice
+            .sign_for_network(
+                &serde_json::json!({
+                    "schema": "boole.transfer.v1", "from": alice.pk_hex(), "to": bob,
+                    "amount": "100000000", "fee": "1000", "nonce": "0", "validBefore": "100"
+                }),
+                Some(native_testnet().network_id()),
+            )
+            .unwrap(),
+    )
+    .unwrap();
+    node_a
+        .lock()
+        .unwrap()
+        .submit_transfer(transfer.clone())
+        .unwrap();
+    mine(&node_a, &miner, &miner.pk_hex(), 1);
+    mine(&node_b, &miner, &alice.pk_hex(), 2);
+    let winner = node_b.lock().unwrap().chain().clone();
+    assert!(winner.outranks(node_a.lock().unwrap().chain()));
+    let (mut rejoined_a, mut rejoined_b) = start_pair(&node_a, &node_b);
+    await_condition(|| node_a.lock().unwrap().chain() == &winner);
+    await_condition(|| node_b.lock().unwrap().pending() == std::slice::from_ref(&transfer));
+    assert_eq!(node_a.lock().unwrap().chain().ledger().balance(&bob), 0);
+    assert_eq!(
+        node_a.lock().unwrap().confirmed_height(&transfer.id()),
+        None
+    );
+    mine(&node_b, &miner, &miner.pk_hex(), 1);
+    await_condition(|| node_a.lock().unwrap().confirmed_height(&transfer.id()) == Some(13));
+    rejoined_a.stop();
+    rejoined_b.stop();
+    assert_eq!(
+        node_a.lock().unwrap().chain(),
+        node_b.lock().unwrap().chain()
+    );
+    assert_eq!(
+        node_a.lock().unwrap().chain().ledger().balance(&bob),
+        100_000_000
+    );
+}
+
+fn wire_hello() -> serde_json::Value {
+    serde_json::json!({ "type": "hello", "protocolVersion": 1,
+        "networkId": native_testnet().network_id(), "genesisHash": native_testnet().genesis_hash().to_hex(),
+        "head": {"height": 0, "hash": native_testnet().genesis_hash().to_hex()} })
+}
+
+#[test]
+fn authenticated_wrong_network_schema_and_excessive_range_are_rejected_before_mutation() {
+    let dir = TestDir::new();
+    let node = dir.node();
+    let miner = SigningKeyV2::from_dev_id("native-rejection-range-miner");
+    mine(&node, &miner, &miner.pk_hex(), 1);
+    let node_key = identity();
+    let client_key = identity();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let client =
+        TlsTransport::new(client_key.clone(), vec![(address, node_key.peer_id())]).unwrap();
+    let mut service = NativePeerService::start(
+        listener,
+        node.clone(),
+        NativePeerConfig {
+            identity: node_key,
+            peers: vec![("127.0.0.1:1".parse().unwrap(), client_key.peer_id())],
+        },
+    )
+    .unwrap();
+    for (field, value) in [
+        ("networkId", serde_json::json!("foreign-native-network")),
+        ("protocolVersion", serde_json::json!(0)),
+        ("genesisHash", serde_json::json!("00".repeat(32))),
+        ("unknownField", serde_json::json!(true)),
+        (
+            "head",
+            serde_json::json!({"height": 100_001, "hash": "01".repeat(32)}),
+        ),
+    ] {
+        let mut connection = client.connect(&address).unwrap();
+        let mut message = wire_hello();
+        message[field] = value;
+        client
+            .send_json_counted_until(
+                &mut connection,
+                &message,
+                4096,
+                Instant::now() + Duration::from_secs(2),
+            )
+            .unwrap();
+        assert!(client
+            .recv_json_counted_until::<serde_json::Value>(
+                &mut connection,
+                4096,
+                Instant::now() + Duration::from_secs(2)
+            )
+            .is_err());
+        // Each rejection below must reach its own protocol guard, not merely
+        // the key's half-second reconnect throttle.
+        std::thread::sleep(Duration::from_millis(510));
+    }
+    let mut connection = client.connect(&address).unwrap();
+    client
+        .send_json_counted_until(
+            &mut connection,
+            &wire_hello(),
+            4096,
+            Instant::now() + Duration::from_secs(2),
+        )
+        .unwrap();
+    let (hello, _): (serde_json::Value, _) = client
+        .recv_json_counted_until(
+            &mut connection,
+            4096,
+            Instant::now() + Duration::from_secs(2),
+        )
+        .unwrap();
+    client.send_json_counted_until(&mut connection, &serde_json::json!({"type": "getBlocks", "snapshot": hello["head"], "from": 1, "limit": 17}), 4096, Instant::now() + Duration::from_secs(2)).unwrap();
+    assert!(client
+        .recv_json_counted_until::<serde_json::Value>(
+            &mut connection,
+            4096,
+            Instant::now() + Duration::from_secs(2)
+        )
+        .is_err());
+    service.stop();
+    assert_eq!(node.lock().unwrap().chain().ledger().height(), 1);
+}
+
+#[test]
+fn authenticated_read_requests_cannot_renew_round_request_or_byte_budgets() {
+    let dir = TestDir::new();
+    let node = dir.node();
+    let miner = SigningKeyV2::from_dev_id("native-peer-round-budget-miner");
+    mine(&node, &miner, &miner.pk_hex(), 10);
+    let recipient = SigningKeyV2::from_dev_id("native-peer-round-budget-recipient").pk_hex();
+    let transfers: Vec<_> = (0..512)
+        .map(|nonce| {
+            NativeTransfer::try_from(&miner.sign_for_network(
+        &serde_json::json!({"schema": "boole.transfer.v1", "from": miner.pk_hex(), "to": recipient,
+            "amount": "1", "fee": "1000", "nonce": nonce.to_string(), "validBefore": "100"}),
+        Some(native_testnet().network_id())).unwrap()).unwrap()
+        })
+        .collect();
+    {
+        let mut node = node.lock().unwrap();
+        let block = node
+            .chain()
+            .template(&miner.pk_hex(), &miner.pk_hex(), 660_000, &transfers)
+            .unwrap()
+            .mine(0, 2_000_000)
+            .unwrap()
+            .unwrap();
+        let signature = miner
+            .sign_for_network(
+                &block.authorization_payload().unwrap(),
+                Some(native_testnet().network_id()),
+            )
+            .unwrap();
+        node.submit_block(block.authorize(&signature).unwrap())
+            .unwrap();
+    }
+    let expected = node.lock().unwrap().chain().head_hash();
+    let node_key = identity();
+    let client_key = identity();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let client =
+        TlsTransport::new(client_key.clone(), vec![(address, node_key.peer_id())]).unwrap();
+    let mut service = NativePeerService::start(
+        listener,
+        node.clone(),
+        NativePeerConfig {
+            identity: node_key,
+            peers: vec![("127.0.0.1:1".parse().unwrap(), client_key.peer_id())],
+        },
+    )
+    .unwrap();
+    for large in [false, true] {
+        let mut connection = client.connect(&address).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut bytes = client
+            .send_json_counted_until(&mut connection, &wire_hello(), 4096, deadline)
+            .unwrap();
+        let (hello, count): (serde_json::Value, _) = client
+            .recv_json_counted_until(&mut connection, 4096, deadline)
+            .unwrap();
+        bytes += count;
+        let request = if large {
+            serde_json::json!({"type": "getBlocks", "snapshot": hello["head"], "from": 11, "limit": 1})
+        } else {
+            serde_json::json!({"type": "getHash", "snapshot": hello["head"], "height": 1})
+        };
+        let mut responses = 0;
+        for _ in 0..65 {
+            if client
+                .send_json_counted_until(&mut connection, &request, 4096, deadline)
+                .is_err()
+            {
+                break;
+            }
+            match client.recv_json_counted_until::<serde_json::Value>(
+                &mut connection,
+                1024 * 1024,
+                deadline,
+            ) {
+                Ok((_, count)) => {
+                    bytes += request.to_string().len() + 1 + count;
+                    responses += 1;
+                }
+                Err(_) => break,
+            }
+        }
+        if large {
+            assert!(
+                responses > 1 && responses < 64,
+                "byte bound must win before request count: {responses}"
+            );
+            assert!(bytes <= 8 * 1024 * 1024);
+            assert!(
+                bytes > 7 * 1024 * 1024,
+                "test must actually consume the round byte budget"
+            );
+        } else {
+            assert_eq!(responses, 64);
+        }
+        std::thread::sleep(Duration::from_millis(510));
+    }
+    service.stop();
+    assert_eq!(node.lock().unwrap().chain().head_hash(), expected);
+}
+
+#[test]
+fn invalid_owner_signature_from_an_approved_peer_never_becomes_a_block() {
+    let fixture_dir = TestDir::new();
+    let fixture_node = fixture_dir.node();
+    let miner = SigningKeyV2::from_dev_id("native-bad-peer-miner");
+    mine(&fixture_node, &miner, &miner.pk_hex(), 1);
+    let mut block = fixture_node.lock().unwrap().chain().blocks()[0].clone();
+    block.producer_signature = "00".repeat(64);
+    let dir = TestDir::new();
+    let node = dir.node();
+    let node_key = identity();
+    let peer_key = identity();
+    let mut malicious_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let malicious_addr = malicious_listener.local_addr().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let server = TlsTransport::new(
+        peer_key.clone(),
+        vec![(listener.local_addr().unwrap(), node_key.peer_id())],
+    )
+    .unwrap();
+    let malicious = std::thread::spawn(move || {
+        let (mut connection, _) = server.accept(&mut malicious_listener).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let _: (serde_json::Value, _) = server
+            .recv_json_counted_until(&mut connection, 4096, deadline)
+            .unwrap();
+        let mut hello = wire_hello();
+        hello["head"] = serde_json::json!({"height": 1, "hash": block.hash().unwrap().to_hex()});
+        server
+            .send_json_counted_until(&mut connection, &hello, 4096, deadline)
+            .unwrap();
+        let (request, _): (serde_json::Value, _) = server
+            .recv_json_counted_until(&mut connection, 4096, deadline)
+            .unwrap();
+        assert_eq!(request["type"], "getBlocks");
+        server.send_json_counted_until(&mut connection, &serde_json::json!({"type": "blocks", "snapshot": hello["head"], "from": 1, "blocks": [block]}), 16384, deadline).unwrap();
+    });
+    let mut service = NativePeerService::start(
+        listener,
+        node.clone(),
+        NativePeerConfig {
+            identity: node_key,
+            peers: vec![(malicious_addr, peer_key.peer_id())],
+        },
+    )
+    .unwrap();
+    malicious.join().unwrap();
+    await_condition(|| service.status()[0].failed_rounds > 0);
+    service.stop();
+    assert_eq!(node.lock().unwrap().chain().ledger().height(), 0);
+}
+
+#[test]
+fn stop_closes_stalled_tls_handshakes_and_public_peers_are_refused() {
+    let dir = TestDir::new();
+    let node = dir.node();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let mut service = NativePeerService::start(
+        listener,
+        node.clone(),
+        NativePeerConfig {
+            identity: identity(),
+            peers: vec![],
+        },
+    )
+    .unwrap();
+    let mut stalled = Vec::new();
+    for _ in 0..4 {
+        stalled.push(TcpStream::connect(address).unwrap());
+    }
+    std::thread::sleep(Duration::from_millis(50));
+    let started = Instant::now();
+    service.stop();
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "stop waited for the 2-second TLS handshake timeout"
+    );
+    drop(stalled);
+    assert!(NativePeerService::start(
+        TcpListener::bind("127.0.0.1:0").unwrap(),
+        node,
+        NativePeerConfig {
+            identity: identity(),
+            peers: vec![("192.0.2.1:9999".parse().unwrap(), identity().peer_id())]
+        }
+    )
+    .is_err());
+}
+
+#[test]
+fn inbound_worker_limit_is_observable_and_shutdown_releases_all_leases() {
+    let dir = TestDir::new();
+    let node = dir.node();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let mut service = NativePeerService::start(
+        listener,
+        node.clone(),
+        NativePeerConfig {
+            identity: identity(),
+            peers: vec![],
+        },
+    )
+    .unwrap();
+    let monitor = service.monitor();
+    let stalled: Vec<_> = (0..4)
+        .map(|_| TcpStream::connect(address).unwrap())
+        .collect();
+    let deadline = Instant::now() + Duration::from_secs(1);
+    loop {
+        let snapshot = serde_json::to_value(monitor.snapshot()).unwrap();
+        if snapshot["activeInboundWorkers"] == 4 {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "active inbound worker count unavailable"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let _refused = TcpStream::connect(address).unwrap();
+    await_condition(|| {
+        serde_json::to_value(monitor.snapshot()).unwrap()["rejectedConnections"]
+            .as_u64()
+            .is_some_and(|count| count > 0)
+    });
+    service.stop();
+    let snapshot = serde_json::to_value(monitor.snapshot()).unwrap();
+    assert_eq!(snapshot["running"], false);
+    assert_eq!(snapshot["activeInboundWorkers"], 0);
+    assert_eq!(snapshot["peakInboundWorkers"], 4);
+    assert_eq!(snapshot["acceptedConnections"], 4);
+    assert!(snapshot["authenticationFailures"].as_u64().unwrap() <= 4);
+    assert_eq!(snapshot["failedInboundRounds"], 4);
+    drop(stalled);
+    drop(service);
+    drop(node);
+    // Keeping only the monitor must not retain the durable state lock.
+    assert!(NativeNode::open(&dir.0).is_ok());
+}
+
+#[test]
+fn consecutive_outbound_failures_back_off_without_growing_peer_state() {
+    let dir = TestDir::new();
+    let unavailable = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = unavailable.local_addr().unwrap();
+    drop(unavailable);
+    let mut service = NativePeerService::start(
+        TcpListener::bind("127.0.0.1:0").unwrap(),
+        dir.node(),
+        NativePeerConfig {
+            identity: identity(),
+            peers: vec![(address, identity().peer_id())],
+        },
+    )
+    .unwrap();
+    await_condition(|| service.status()[0].failed_rounds == 2);
+    std::thread::sleep(Duration::from_millis(700));
+    assert_eq!(
+        service.status()[0].failed_rounds,
+        2,
+        "second failure must back off for at least one second"
+    );
+    assert_eq!(service.status().len(), 1);
+    assert_eq!(service.status()[0].state, "retrying");
+    service.stop();
+}
+
+#[test]
+fn an_authenticated_key_cannot_start_unlimited_rounds_and_recovers_after_cooldown() {
+    let dir = TestDir::new();
+    let node_key = identity();
+    let client_key = identity();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let client =
+        TlsTransport::new(client_key.clone(), vec![(address, node_key.peer_id())]).unwrap();
+    let mut service = NativePeerService::start(
+        listener,
+        dir.node(),
+        NativePeerConfig {
+            identity: node_key,
+            peers: vec![("127.0.0.1:1".parse().unwrap(), client_key.peer_id())],
+        },
+    )
+    .unwrap();
+    let try_round = || {
+        let mut connection = client.connect(&address).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        if client
+            .send_json_counted_until(&mut connection, &wire_hello(), 4096, deadline)
+            .is_err()
+        {
+            return false;
+        }
+        if client
+            .recv_json_counted_until::<serde_json::Value>(&mut connection, 4096, deadline)
+            .is_err()
+        {
+            return false;
+        }
+        client
+            .send_json_counted_until(
+                &mut connection,
+                &serde_json::json!({"type": "done"}),
+                4096,
+                deadline,
+            )
+            .unwrap();
+        true
+    };
+    assert!(try_round());
+    await_condition(|| service.monitor().snapshot().completed_inbound_rounds == 1);
+    assert!(
+        !try_round(),
+        "same authenticated key bypassed its per-key cooldown"
+    );
+    std::thread::sleep(Duration::from_millis(550));
+    assert!(try_round());
+    await_condition(|| service.monitor().snapshot().completed_inbound_rounds == 2);
+    service.stop();
+    assert_eq!(service.status().len(), 1);
+}
