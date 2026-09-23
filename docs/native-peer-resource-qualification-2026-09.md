@@ -146,3 +146,10 @@ Temporary state was cleaned normally. The result is a bounded incomplete-fork
 buffer/rejection scenario with one canonical state owner. It does not qualify
 eight simultaneous successful large-state adoptions, inbound/outbound mixed
 traffic, malicious local filesystems, slower hardware or public operation.
+
+A subsequent [combined input-pressure scenario](native-mixed-resource-qualification-2026-09.md)
+separately exercised this incomplete-fork pattern together with four authenticated
+incoming waits and eight near-limit HTTP uploads. It passed at 621.265625MiB RSS,
+3.137s network phase and 51.652s replay with unchanged canonical state. That
+specific later mixture does not broaden this original measurement or qualify
+arbitrary mixed successful validation/public operation.

@@ -178,6 +178,16 @@ existing readiness/mutation paths remain fail-closed. Shared connection/host
 exhaustion can still prevent observation, and this is not public health service.
 Input-reflecting HTTP error bodies are also limited to 4KiB, preserving status
 and replacing oversized diagnostics with a short code.
+A [combined large-state input-pressure qualification](native-mixed-resource-qualification-2026-09.md)
+passed at 131,073 balances with eight thirty-block fork buffers, four authenticated
+incoming waits and eight unfinished near-8MiB HTTP bodies simultaneously. Excess
+admission was refused; diagnostics remained explicitly non-authoritative with
+maximum measured response 457 microseconds. The input/rejection phase took
+3.137s, drained stop 39.025ms, independent replay 51.652s and peak RSS
+621.265625MiB. Exact original accounting/journals/manifest remained unchanged.
+This is one fixed incomplete-input combination, not arbitrary mixed successful
+fork validation, a public availability SLA or R1 completion; runtime rules and
+limits were unchanged.
 Exact already-known transfers still repeat immutable signature checks. A
 [developer retry baseline](native-known-transfer-qualification-2026-09.md)
 preserved state/journals but took 2.749s for 8,192 retries against a fixed 1s

@@ -464,6 +464,16 @@ input-reflecting parser diagnostics become the short JSON code
 bounded diagnostics and successful responses keep their existing formats.
 This bounds retained error output, not all temporary parser allocations.
 
+A [preregistered simultaneous input-pressure measurement](native-mixed-resource-qualification-2026-09.md)
+passed at 131,073 balances with eight incomplete thirty-block fork buffers,
+four authenticated inbound waits and eight unfinished near-8MiB HTTP bodies.
+Ordinary/incoming/outgoing limits stayed at 8/4/8, excess admission was refused,
+diagnostics remained non-authoritative and canonical bytes/accounting did not
+change. Peak process RSS was 621.265625MiB, maximum measured diagnostic response
+457 microseconds, input/rejection phase 3.137s and independent replay 51.652s.
+This measures that fixed developer-Mac combination, not arbitrary JSON trees,
+successful competing validation under mixed pressure or public availability.
+
 | Resource | Bound |
 |---|---|
 | Consensus transfer / block | 4,096 / 524,288 bytes; at most 512 transfers per block |
