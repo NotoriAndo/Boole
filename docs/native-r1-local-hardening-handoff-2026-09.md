@@ -209,3 +209,75 @@ ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 60.83s
 ```
+
+### Integrated actual-process follow-up after HTTP shutdown correction
+
+Local merge `27081dee998dc50261783ead5fb723d0ec05fbf2` (tree
+`6cfbd821b3f69a7e2a9bf0f0cea76a9b3c004bfa`) retains the HTTP preregistration,
+runtime correction and measured-result commits without rewriting them. Only
+the handoff result table conflicted; both the first-halving result and latest
+mixed-resource follow-up were preserved. `git diff ecb549c..27081de -- crates
+Cargo.toml Cargo.lock` is empty: executed runtime/tests are identical to the
+HTTP-qualified source, while both lines of documentation are integrated.
+
+The actual three-process operator rehearsal passed on this integration in
+79.951s (90.86s harness, including a 10.88s sibling build; outer build 20.35s).
+Normal process stops were 12–17ms. All three processes agreed at height 15,
+restored-wallet/partition/rejoin/original-outbox recovery passed, and independent
+audits matched the same expected accounting: 750,000 tBOOLE issued, three
+transfers totaling 3.75 tBOOLE, 3,000 fee atoms and empty pending. All original
+material remained intact. Random fixture identities/head differ from the older
+run as expected; no rule or acceptance criterion changed. This is a direct
+consumer follow-up, not required CI, an external-operator run or launch approval.
+
+```text
+   Compiling rustls v0.23.45
+   Compiling tokio-rustls v0.26.4
+   Compiling boole-p2p v0.1.0 (/private/tmp/boole-r1-integration-worktree.LGTdSb/crates/boole-p2p)
+   Compiling boole-node v0.1.0 (/private/tmp/boole-r1-integration-worktree.LGTdSb/crates/boole-node)
+   Compiling hyper-rustls v0.27.9
+   Compiling reqwest v0.12.28
+   Compiling boole-miner v0.1.0 (/private/tmp/boole-r1-integration-worktree.LGTdSb/crates/boole-miner)
+   Compiling boole-cli v0.1.0 (/private/tmp/boole-r1-integration-worktree.LGTdSb/crates/boole-cli)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 20.35s
+     Running tests/native_operator_rehearsal.rs (/Users/seoyong/projects/Boole/target/debug/deps/native_operator_rehearsal-d4777efa06a28b99)
+
+running 1 test
+test three_real_nodes_transfer_partition_rejoin_and_restore_without_duplicate_payment ...    Compiling ring v0.17.14
+   Compiling boole-wallet-agent v0.1.0 (/private/tmp/boole-r1-integration-worktree.LGTdSb/crates/boole-wallet-agent)
+   Compiling rustls v0.23.45
+   Compiling rustls-webpki v0.103.15
+   Compiling boole-p2p v0.1.0 (/private/tmp/boole-r1-integration-worktree.LGTdSb/crates/boole-p2p)
+   Compiling boole-node v0.1.0 (/private/tmp/boole-r1-integration-worktree.LGTdSb/crates/boole-node)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 10.88s
+native-operator-phase process-ready elapsedMs=33
+native-operator-phase process-ready elapsedMs=31
+native-operator-phase process-ready elapsedMs=29
+native-operator-phase head-agreement elapsedMs=204
+native-operator-phase reciprocal-pinned-peers elapsedMs=469
+native-operator-phase transaction-agreement elapsedMs=162
+native-operator-phase head-agreement elapsedMs=74
+native-operator-phase transaction-agreement elapsedMs=1
+native-operator-phase transaction-agreement elapsedMs=128
+native-operator-phase head-agreement elapsedMs=292
+native-operator-phase transaction-agreement elapsedMs=1
+native-operator-stop elapsedMs=17
+native-operator-phase process-ready elapsedMs=29
+native-operator-phase head-agreement elapsedMs=37
+native-operator-phase transaction-agreement elapsedMs=0
+native-operator-stop elapsedMs=16
+native-operator-phase process-ready elapsedMs=45
+native-operator-phase head-agreement elapsedMs=1
+native-operator-phase transaction-agreement elapsedMs=1450
+native-operator-phase head-agreement elapsedMs=505
+native-operator-phase transaction-agreement elapsedMs=1
+native-operator-stop elapsedMs=12
+native-operator-stop elapsedMs=14
+native-operator-stop elapsedMs=16
+native-operator-phase process-ready elapsedMs=35
+native-operator-stop elapsedMs=16
+native-operator-result {"audit":{"accounting":{"balanceAtoms":"75000000000000","issuedAtoms":"75000000000000","lockedAtoms":"50000000000000","pendingRewardEntries":10,"spendableAtoms":"25000000000000","supplyCapAtoms":"100000000000000000"},"confirmedTransfers":{"amountAtoms":"375000000","count":3,"feeAtoms":"3000"},"genesisHash":"933a672120674efa9ec6205f344e1830febdec58b0ffcd2603ccc8a9723610c1","headHash":"0000fe84819bb00d4c17a49d0d0baf2b0cd3518d8aca464c64bd0597f9d46fcc","height":"15","networkId":"boole-native-testnet-1","resources":{"balanceEntries":3,"confirmedTransfers":3,"historyBlocks":15,"historyBytes":13266,"historyLimitBlocks":100000,"historyLimitBytes":268435456,"nonceEntries":3,"pendingBytes":0,"pendingLimitBytes":5242880,"pendingLimitTransfers":512,"pendingTransfers":0},"schema":"boole.native.audit.v1","scope":"confirmed_canonical"},"balancesAtoms":["64999825000000","5000050000000","5000125000000"],"elapsedMs":79951,"head":"0000fe84819bb00d4c17a49d0d0baf2b0cd3518d8aca464c64bd0597f9d46fcc","lockedAtoms":["40000000000000","5000000000000","5000000000000"],"originalsPreserved":true,"orphanedHead":"0000c90680b33236b808511cbf3fb89659ba169aa68ef26ce5bc3b936a7a8d1d","owners":["36edc2f4fff419cafd0100f3d9732ea44d0f73f09e7cefe01f52801f0dd3ab1b","50a23f70f75ef4f6dfff75ee1b0d6694b2e2bb90a2fa6699fc6282027d06ef61","f7f9707d949950d521917a42b8e8c2900e1d6864ad633607611c965dc86cb768"],"publicActivation":false,"scope":"one-host-three-loopback-processes","spendableAtoms":["24999825000000","50000000","125000000"],"transactionIds":["928113da37391b84f1ad132d38dd125632565730f35e527d38f7d48c8b899bdd","1ac6ca00cfdc82341e9a37329f07f67211791469d2a825614ff145a0ff4ec7b4","0e7fcd4b14eeab372c9697c5053704341c512878f9b10d6af6341c93d67b791b"]}
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 90.86s
+```
