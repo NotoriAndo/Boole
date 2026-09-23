@@ -183,6 +183,44 @@ on the corrected source; it is not arbitrary successful mixed traffic or R1 PASS
 
 ## Raw outcomes and follow-up checks
 
+## Held mixed-input shutdown — preregistered follow-up
+
+The earlier mixed scenario completes HTTP bodies and rejects final excess peer
+pages before stopping. It therefore does not prove shutdown while all input
+resources remain held. This next test-only variation uses the same actual
+combined server, deterministic canonical chain and fixed 8/4/8 overlap. It does
+not change the original qualification's criteria or replace its result.
+
+- Use the same small 1,025-balance and large 131,073-balance setup, eight paused
+  thirty-block candidates, four authenticated incoming waits and eight HTTP
+  clients each withholding the last byte of an 8MiB body. Observe exact 8/4/8
+  counters, unchanged limits, excess refusal and ten non-authoritative diagnostic
+  replies each within one second, as in the original scenario.
+- While all inputs remain incomplete, request normal shutdown. The combined
+  server must return success within seven seconds (five-second client-I/O drain
+  plus two-second scheduling margin), without fixture clients being dropped or
+  their remaining body/page being sent first. No already admitted ledger mutation
+  exists in this particular scenario; the separate delayed-block regression
+  above owns that distinct durable-work boundary.
+- Require actual HTTP closure and TLS EOF/connection-closure errors, not timeout,
+  on all eight outgoing and four inbound peer connections. Release fixture
+  workers only to observe their already-closed connections, not to send the
+  missing candidate pages. Join all workers and rebind all listeners. Keep
+  client handles alive through immediate fresh state ownership.
+- Independently reopen within 120 seconds and preserve exact original head,
+  every recipient/owner balance and nonce, issuance/locks, empty pending, journal
+  digests and manifest bytes. Total scenario remains 900 seconds, each measured
+  template/append phase ten seconds, history 96MiB and OS peak RSS 1GiB. The whole
+  network-and-shutdown phase stays within 15 seconds. Build outside measurement,
+  run the large case alone, and record source/tree/executable identity before/after.
+- First run the small existing-behavior regression; a first PASS is legitimate.
+  Keep failed outcomes and fix proven harness/product defects without relaxing
+  criteria. On a shutdown deadline failure, close fixture clients and join the
+  actual server before asserting failure. This is not new public exposure,
+  signature relaxation, paid work or an overall R1 acceptance claim.
+
+Status: **criteria fixed; not yet executed.**
+
 ### Initial unfinished-body RED
 
 ```text

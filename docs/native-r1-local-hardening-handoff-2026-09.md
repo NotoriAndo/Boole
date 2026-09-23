@@ -21,10 +21,15 @@ window; it does not turn local results into release or execution authority.
   tip's tree are both `ae6e2e20872ab0f2cfe75e6faee62e9acad968e0`;
   `git diff --exit-code fccef21 21df693` passed. This avoids including already
   merged secure-peer/wallet patches again in the future PR.
-- The preparation worktree is `/private/tmp/boole-r1-integration-worktree.LGTdSb`.
-  The root working copy remains on main with its pre-existing `tasks/lessons.md`
-  user edit preserved and excluded. Subsequent handoff-document changes are not
-  a claim that the earlier measured executables contained those later prose bytes.
+- Preparation used `/private/tmp/boole-r1-integration-worktree.LGTdSb`; after
+  integrated verification, the same feature branch was checked out at the durable
+  project root `/Users/seoyong/projects/Boole`. Main remains at `9be7cb0`.
+  All 23 worktrees created for this follow-up were checked clean, including
+  ignored/untracked files, and removed without force. Every original branch and
+  measurement commit was retained. Other sessions' worktrees were not pruned.
+  The pre-existing `tasks/lessons.md` user edit stayed byte-identical and excluded.
+  Earlier temporary paths in raw output identify historical runs; subsequent
+  prose changes are not a claim that those executables contained later docs.
 
 All new local follow-up changes still need authorized publication, the required
 full CI and ordinary review/merge. A compile, local pass, exact-tree rebase or
