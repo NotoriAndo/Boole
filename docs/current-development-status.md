@@ -45,8 +45,10 @@ read, rejecting later history/pending/manifest changes before readiness or stale
 pending cleanup. This closes a reproduced ready-with-stale-memory mismatch and
 preserves externally changed evidence. Intentional tail repair/pending cleanup
 has exact bounded read-back; source-preserving consumers do not repair. Direct
-failure and recovery regressions pass; the
-[large-state follow-up](native-replay-input-fence-2026-09.md) remains pending.
+failure and recovery regressions pass. The unchanged
+[large-state follow-up](native-replay-input-fence-2026-09.md) also passed:
+131,073 balances, 512 pending transfers, 52.074s/52.020s independent reopens and
+350.96875MiB peak RSS, with the exact original final head/accounting/history.
 Storage bytes/limits and canonical account/transaction counts are now observable
 through `native info`. A [preregistered developer-Mac scenario](native-capacity-qualification-2026-09.md)
 passes at 131,073 balance entries and ~67MiB history, including a full queue and

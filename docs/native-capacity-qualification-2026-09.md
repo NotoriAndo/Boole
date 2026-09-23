@@ -4,6 +4,10 @@ Status: **PASS — initial retry 1 and the recorded new-product follow-up.** Thi
 engineering scenario, not a public benchmark or an operational wallet run.
 The existing [native contract](native-transfer-ledger-contract.md) and monetary,
 signature, replay, file-ownership and publication rules remain unchanged.
+The later [replay-input version correction and requalification](native-replay-input-fence-2026-09.md)
+uses these unchanged criteria and records its own source/results: 52.074s/52.020s
+reopens and 350.96875MiB peak RSS, with identical final head/accounting/history.
+It does not replace the historical measurements below.
 
 ## Fixed scope and acceptance criteria
 
