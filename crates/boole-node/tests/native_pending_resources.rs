@@ -60,6 +60,61 @@ fn empty_block(chain: &NativeChain, key: &SigningKeyV2) -> NativeBlock {
 }
 
 #[test]
+#[ignore = "explicit preregistered developer-Mac exact-retry measurement; not routine CI"]
+fn exact_known_transfer_retries_have_bounded_cpu_cost() {
+    let dir = TestDir::new();
+    let key = SigningKeyV2::from_dev_id("native-exact-retry-owner");
+    let receiver = SigningKeyV2::from_dev_id("native-exact-retry-recipient").pk_hex();
+    let mut node = NativeNode::open(&dir.0).unwrap();
+    for _ in 0..10 {
+        node.submit_block(empty_block(node.chain(), &key)).unwrap();
+    }
+    let transfers: Vec<_> = (0..512)
+        .map(|nonce| signed_transfer(&key, &receiver, nonce, 1000))
+        .collect();
+    for transfer in &transfers {
+        assert!(node.submit_transfer(transfer.clone()).unwrap());
+    }
+    let canonical = node.chain().clone();
+    let files = [
+        boole_node::NATIVE_BLOCKS_FILE,
+        boole_node::NATIVE_MEMPOOL_FILE,
+    ];
+    let original: Vec<_> = files
+        .iter()
+        .map(|file| std::fs::read(dir.0.join(file)).unwrap())
+        .collect();
+    let available = node
+        .pending_view()
+        .unwrap()
+        .available_balance(&key.pk_hex());
+    let started = Instant::now();
+    for _ in 0..16 {
+        for transfer in &transfers {
+            assert!(!node.submit_transfer(transfer.clone()).unwrap());
+        }
+    }
+    let elapsed = started.elapsed();
+    assert_eq!(node.chain(), &canonical);
+    assert_eq!(node.pending(), &transfers);
+    assert_eq!(node.pending_view().unwrap().next_nonce(&key.pk_hex()), 512);
+    assert_eq!(
+        node.pending_view()
+            .unwrap()
+            .available_balance(&key.pk_hex()),
+        available
+    );
+    for (file, bytes) in files.iter().zip(original) {
+        assert_eq!(std::fs::read(dir.0.join(file)).unwrap(), bytes);
+    }
+    eprintln!("exact-transfer-retries {{\"retries\":8192,\"pending\":512,\"elapsedMicros\":{},\"journalsUnchanged\":true}}", elapsed.as_micros());
+    assert!(
+        elapsed < Duration::from_secs(1),
+        "exact known retries repeated too much immutable signature work: {elapsed:?}"
+    );
+}
+
+#[test]
 fn pending_reservations_follow_maturity_expiry_rejection_and_restart() {
     let dir = TestDir::new();
     let owner = SigningKeyV2::from_dev_id("pending-boundaries-owner");
