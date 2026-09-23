@@ -45,6 +45,16 @@ Stop the exact foreground node normally and wait for process exit. Do not use
 broad process-name kill commands. Audit/export requires exclusive state
 ownership. A busy-lock error is a reason to locate the owner, not remove locks.
 
+Normal native shutdown closes new mutation/peer admission immediately and gives
+existing HTTP client I/O up to five seconds to drain before closing its sockets.
+Already admitted validation or durable work still finishes under its existing
+barrier; this is not a five-second bound on CPU/disk work or process exit. A
+one-second final state-reference cleanup reports an error if another reference
+remains. Do not force-restart, remove locks or interpret a truncated response as
+a receipt. Wait for the actual old owner to finish and reconcile the original
+transaction ID. [Executed shutdown regressions and limits](native-http-shutdown-drain-2026-09.md)
+cover delayed input, an unread response, retained ownership and an admitted block.
+
 Record `native info` and relevant transaction IDs before stopping if the node
 is still trustworthy and responsive. A previously retained head or independently
 verified healthy replica is necessary to detect a valid-prefix rollback. The

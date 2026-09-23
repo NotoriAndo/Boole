@@ -203,6 +203,243 @@ fn stalled_native_request_bodies_expire_and_return_all_admission_slots() {
 }
 
 #[test]
+fn native_shutdown_closes_unfinished_http_bodies_before_the_request_deadline() {
+    use std::time::{Duration, Instant};
+
+    let dir = std::env::temp_dir().join(format!(
+        "boole-native-http-shutdown-body-{}",
+        boole_testkit::rand_suffix()
+    ));
+    std::fs::create_dir(&dir).unwrap();
+    let _cleanup = TestDir(dir.clone());
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let node = NativeNode::open(&dir).unwrap();
+    let history_before = std::fs::read(dir.join(boole_node::NATIVE_BLOCKS_FILE)).unwrap();
+    let manifest_before = std::fs::read(dir.join("state.manifest.json")).unwrap();
+    let stop = Arc::new(tokio::sync::Notify::new());
+    let mut task = runtime.spawn(boole_node::serve_native_node(listener, node, stop.clone()));
+    let mut clients = Vec::new();
+    for _ in 0..8 {
+        let mut stream = begin_slow_import(addr);
+        assert!(response_headers(&mut stream).starts_with("HTTP/1.1 100"));
+        stream.write_all(b"[").unwrap();
+        clients.push(stream);
+    }
+    let started = Instant::now();
+    stop.notify_one();
+    let completion =
+        runtime.block_on(async { tokio::time::timeout(Duration::from_secs(7), &mut task).await });
+    let timely = completion.is_ok();
+    let elapsed = started.elapsed();
+    if let Ok(result) = completion {
+        result.unwrap().unwrap();
+        // Clients are still held: outer-future completion alone is not enough.
+        let reopened = NativeNode::open(&dir).expect("HTTP tasks released state ownership");
+        assert_eq!(reopened.chain().ledger().height(), 0);
+        assert_eq!(reopened.chain().ledger().issued(), 0);
+        assert!(reopened.pending().is_empty());
+        drop(reopened);
+        for client in &mut clients {
+            client
+                .set_read_timeout(Some(Duration::from_secs(1)))
+                .unwrap();
+            let mut trailing = Vec::new();
+            if let Err(error) = client.read_to_end(&mut trailing) {
+                assert!(
+                    matches!(
+                        error.kind(),
+                        std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::BrokenPipe
+                    ),
+                    "client I/O remained open after shutdown: {error}"
+                );
+            }
+        }
+    } else {
+        // RED must not leave a test server or its real state lock behind.
+        clients.clear();
+        runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(5), &mut task)
+                .await
+                .expect("cleanup after client closure")
+                .unwrap()
+                .unwrap();
+        });
+    }
+    drop(clients);
+    drop(TcpListener::bind(addr).expect("native listener released"));
+    assert_eq!(
+        std::fs::read(dir.join(boole_node::NATIVE_BLOCKS_FILE)).unwrap(),
+        history_before
+    );
+    assert_eq!(
+        std::fs::read(dir.join("state.manifest.json")).unwrap(),
+        manifest_before
+    );
+    assert_eq!(NativeNode::open(&dir).unwrap().chain().ledger().height(), 0);
+    eprintln!(
+        "native-http-shutdown-body elapsedMs={} timely={timely}",
+        elapsed.as_millis()
+    );
+    assert!(
+        timely,
+        "shutdown waited beyond its 5s client-I/O drain window plus scheduling margin"
+    );
+}
+
+#[test]
+fn native_shutdown_closes_an_unread_large_response_and_releases_state_ownership() {
+    use boole_core::native_chain::NativeTransfer;
+    use boole_core::SigningKeyV2;
+    use serde_json::json;
+    use std::time::{Duration, Instant};
+
+    let dir = std::env::temp_dir().join(format!(
+        "boole-native-http-shutdown-response-{}",
+        boole_testkit::rand_suffix()
+    ));
+    std::fs::create_dir(&dir).unwrap();
+    let _cleanup = TestDir(dir.clone());
+    let owner = SigningKeyV2::from_dev_id("native-http-unread-response-owner");
+    let mut node = NativeNode::open(&dir).unwrap();
+    let transfers: Vec<_> = (0..512u64)
+        .map(|nonce| {
+            NativeTransfer::try_from(
+                &owner
+                    .sign_for_network(
+                        &json!({
+                            "schema": "boole.transfer.v1", "from": owner.pk_hex(),
+                            "to": format!("{nonce:064x}"), "amount": "1", "fee": "1000",
+                            "nonce": nonce.to_string(), "validBefore": "1000"
+                        }),
+                        Some(native_testnet().network_id()),
+                    )
+                    .unwrap(),
+            )
+            .unwrap()
+        })
+        .collect();
+    for height in 1..=11 {
+        let batch = if height == 11 {
+            transfers.as_slice()
+        } else {
+            &[]
+        };
+        let block = node
+            .chain()
+            .template(&owner.pk_hex(), &owner.pk_hex(), height * 60_000, batch)
+            .unwrap()
+            .mine(0, 2_000_000)
+            .unwrap()
+            .unwrap();
+        let auth = owner
+            .sign_for_network(
+                &block.authorization_payload().unwrap(),
+                Some(native_testnet().network_id()),
+            )
+            .unwrap();
+        assert!(node.submit_block(block.authorize(&auth).unwrap()).unwrap());
+    }
+    let head_before = node.chain().head_hash();
+    let ledger_before = node.chain().ledger().clone();
+    let history_before = std::fs::read(dir.join(boole_node::NATIVE_BLOCKS_FILE)).unwrap();
+    let manifest_before = std::fs::read(dir.join("state.manifest.json")).unwrap();
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let listener = runtime.block_on(async {
+        let socket = tokio::net::TcpSocket::new_v4().unwrap();
+        socket.set_send_buffer_size(1024).unwrap();
+        socket.bind("127.0.0.1:0".parse().unwrap()).unwrap();
+        socket.listen(128).unwrap().into_std().unwrap()
+    });
+    let addr = listener.local_addr().unwrap();
+    let stop = Arc::new(tokio::sync::Notify::new());
+    let mut task = runtime.spawn(boole_node::serve_native_node(listener, node, stop.clone()));
+    let mut client = runtime.block_on(async {
+        let socket = tokio::net::TcpSocket::new_v4().unwrap();
+        socket.set_recv_buffer_size(1024).unwrap();
+        socket.connect(addr).await.unwrap().into_std().unwrap()
+    });
+    client.set_nonblocking(false).unwrap();
+    client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    write!(
+        client,
+        "GET /native/blocks/11 HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n\r\n"
+    )
+    .unwrap();
+    let headers = response_headers(&mut client);
+    assert!(headers.starts_with("HTTP/1.1 200"), "{headers}");
+    let body_bytes: usize = headers
+        .lines()
+        .find_map(|line| {
+            line.to_ascii_lowercase()
+                .strip_prefix("content-length:")
+                .map(|value| value.trim().parse().unwrap())
+        })
+        .expect("known-size JSON response");
+    assert!(
+        body_bytes > 256 * 1024,
+        "fixture needs actual response backpressure"
+    );
+    let started = Instant::now();
+    stop.notify_one();
+    let completion =
+        runtime.block_on(async { tokio::time::timeout(Duration::from_secs(7), &mut task).await });
+    let timely = completion.is_ok();
+    let elapsed = started.elapsed();
+    let mut received_after_stop = Vec::new();
+    if let Ok(result) = completion {
+        result.unwrap().unwrap();
+        let reopened =
+            NativeNode::open(&dir).expect("unread response must not retain state ownership");
+        assert_eq!(reopened.chain().head_hash(), head_before);
+        assert_eq!(reopened.chain().ledger(), &ledger_before);
+        assert_eq!(reopened.resource_usage().unwrap().confirmed_transfers, 512);
+        assert!(reopened.pending().is_empty());
+        drop(reopened);
+        if let Err(error) = client.read_to_end(&mut received_after_stop) {
+            assert!(
+                matches!(
+                    error.kind(),
+                    std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::BrokenPipe
+                ),
+                "old client remained open: {error}"
+            );
+        }
+    } else {
+        client.shutdown(std::net::Shutdown::Both).unwrap();
+        runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(5), &mut task)
+                .await
+                .expect("cleanup after client closure")
+                .unwrap()
+                .unwrap();
+        });
+    }
+    drop(client);
+    drop(TcpListener::bind(addr).expect("native listener released"));
+    assert_eq!(
+        std::fs::read(dir.join(boole_node::NATIVE_BLOCKS_FILE)).unwrap(),
+        history_before
+    );
+    assert_eq!(
+        std::fs::read(dir.join("state.manifest.json")).unwrap(),
+        manifest_before
+    );
+    eprintln!("native-http-shutdown-response elapsedMs={} timely={timely} responseBytes={body_bytes} trailingBytes={}", elapsed.as_millis(), received_after_stop.len());
+    assert!(
+        timely,
+        "unread response held shutdown beyond its client-I/O drain window"
+    );
+    assert!(
+        received_after_stop.len() < body_bytes,
+        "fixture unexpectedly consumed the complete response"
+    );
+}
+
+#[test]
 fn native_json_errors_do_not_reflect_large_unknown_field_names_into_responses() {
     let dir = std::env::temp_dir().join(format!(
         "boole-native-http-error-cap-{}",
