@@ -5,6 +5,7 @@ use std::io::Read;
 use std::net::TcpListener;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -984,4 +985,344 @@ fn small_repeated_losing_fork_polls_preserve_state_and_recovery() {
 #[ignore = "explicit preregistered repeated-fork qualification; not routine CI"]
 fn native_repeated_losing_fork_131072_accounts() {
     run_repeated_losing_fork_scenario(256);
+}
+
+fn run_concurrent_candidate_scenario(funded_blocks: u64) {
+    let started = Instant::now();
+    let dir = TestDir::new();
+    let owner = SigningKeyV2::from_dev_id("native-capacity-producer");
+    let mut node = NativeNode::open(&dir.path).unwrap();
+    let mut max_template = Duration::ZERO;
+    let mut max_append = Duration::ZERO;
+    for _ in 0..10 {
+        let block = mine(&node, &owner, Some(&[]), &mut max_template);
+        append(&mut node, block, &mut max_append);
+    }
+    for index in 0..funded_blocks {
+        let transfers: Vec<_> = (index * PER_BLOCK..(index + 1) * PER_BLOCK)
+            .map(|nonce| transfer(&owner, &format!("{nonce:064x}"), nonce))
+            .collect();
+        let block = mine(&node, &owner, Some(&transfers), &mut max_template);
+        append(&mut node, block, &mut max_append);
+        assert!(started.elapsed() < Duration::from_secs(900));
+        if (index + 1).is_multiple_of(32) {
+            eprintln!(
+                "candidate-progress fundedBlocks={} elapsedMs={}",
+                index + 1,
+                started.elapsed().as_millis()
+            );
+        }
+    }
+    let recipients = funded_blocks * PER_BLOCK;
+    check_canonical(&node, &owner.pk_hex(), recipients, 0);
+    let common_height = node.chain().ledger().height();
+    let common_hash = node.chain().head_hash();
+    let mut alternative = node.chain().clone();
+    for index in 0..16 {
+        let transfers: Vec<_> = (recipients + index * PER_BLOCK
+            ..recipients + (index + 1) * PER_BLOCK)
+            .map(|nonce| transfer(&owner, &owner.pk_hex(), nonce))
+            .collect();
+        let height = alternative.ledger().height() + 1;
+        let block = alternative
+            .template(
+                &owner.pk_hex(),
+                &owner.pk_hex(),
+                height * 60_000,
+                &transfers,
+            )
+            .unwrap()
+            .mine(0, 2_000_000)
+            .unwrap()
+            .unwrap();
+        let auth = owner
+            .sign_for_network(
+                &block.authorization_payload().unwrap(),
+                Some(native_testnet().network_id()),
+            )
+            .unwrap();
+        alternative.append(block.authorize(&auth).unwrap()).unwrap();
+        assert!(started.elapsed() < Duration::from_secs(900));
+    }
+    let block = mine(&node, &owner, Some(&[]), &mut max_template);
+    append(&mut node, block, &mut max_append);
+    assert!(alternative.outranks(node.chain()));
+    let candidate_head = alternative.head_hash();
+    let candidate_height = alternative.ledger().height();
+    let advertised = json!({"height": candidate_height, "hash": candidate_head.to_hex()});
+    let hashes = Arc::new(
+        std::iter::once(native_testnet().genesis_hash())
+            .chain(
+                alternative
+                    .blocks()
+                    .iter()
+                    .map(|block| block.hash().unwrap()),
+            )
+            .collect::<Vec<_>>(),
+    );
+    let suffix = Arc::new(alternative.blocks()[common_height as usize..].to_vec());
+    drop(alternative);
+    let initial_head = node.chain().head_hash();
+    let before_digests = journal_digests(&dir);
+    let node = Arc::new(Mutex::new(node));
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let local_address = listener.local_addr().unwrap();
+    let local_key = peer_identity();
+    let stop_fixture = Arc::new(AtomicBool::new(false));
+    let (paused_tx, paused_rx) = mpsc::channel();
+    let mut peers = Vec::new();
+    let mut remotes = Vec::new();
+    let mut releases = Vec::new();
+    for index in 0..8 {
+        let remote_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        remote_listener.set_nonblocking(true).unwrap();
+        let identity = peer_identity();
+        peers.push((remote_listener.local_addr().unwrap(), identity.peer_id()));
+        let transport =
+            TlsTransport::new(identity, vec![(local_address, local_key.peer_id())]).unwrap();
+        let suffix = suffix.clone();
+        let hashes = hashes.clone();
+        let advertised = advertised.clone();
+        let stopped = stop_fixture.clone();
+        let paused = paused_tx.clone();
+        let (release_tx, release_rx) = mpsc::channel::<()>();
+        releases.push(release_tx);
+        remotes.push(std::thread::spawn(move || -> anyhow::Result<Vec<Value>> {
+            let mut reports = Vec::new();
+            for round in 0..32 {
+                let round_started = Instant::now();
+                let accept_deadline = round_started + Duration::from_secs(15);
+                let socket = loop {
+                    if stopped.load(Ordering::Acquire) {
+                        return Ok(reports);
+                    }
+                    match remote_listener.accept() {
+                        Ok((socket, _)) => break socket,
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock && Instant::now() < accept_deadline => {
+                            std::thread::sleep(Duration::from_millis(5));
+                        }
+                        Err(error) => return Err(error.into()),
+                    }
+                };
+                let deadline = Instant::now() + Duration::from_secs(12);
+                let mut connection = match transport.accept_stream_until(socket, deadline) {
+                    Ok(connection) => connection,
+                    Err(_) if stopped.load(Ordering::Acquire) => return Ok(reports),
+                    Err(error) => return Err(error.into()),
+                };
+                let (hello, mut received_bytes): (Value, _) =
+                    transport.recv_json_counted_until(&mut connection, 4096, deadline)?;
+                anyhow::ensure!(hello["type"] == "hello", "hello required");
+                anyhow::ensure!(hello["head"]["hash"] == if round == 0 { initial_head.to_hex() } else { candidate_head.to_hex() },
+                    "unexpected initial/retry client head");
+                let greeting = json!({"type": "hello", "protocolVersion": 1,
+                    "networkId": native_testnet().network_id(), "genesisHash": native_testnet().genesis_hash().to_hex(),
+                    "head": advertised});
+                let mut sent_bytes = transport.send_json_counted_until(&mut connection, &greeting, 4096, deadline)?;
+                let mut sent_blocks = 0usize;
+                let mut block_requests = 0;
+                let mut hash_requests = 0;
+                let mut pending_requests = 0;
+                let completed = loop {
+                    let (request, bytes): (Value, _) = match transport.recv_json_counted_until(&mut connection, 4096, deadline) {
+                        Ok(request) => request,
+                        Err(_) if stopped.load(Ordering::Acquire) => return Ok(reports),
+                        // The seven stale snapshots must be closed without any
+                        // mutation; their next round must advertise the new head.
+                        Err(_) if round == 0 && sent_blocks == 16 => break false,
+                        Err(error) => return Err(error.into()),
+                    };
+                    received_bytes += bytes;
+                    if request["type"] == "done" {
+                        break true;
+                    }
+                    anyhow::ensure!(request["snapshot"] == advertised, "wrong candidate snapshot");
+                    let response = match request["type"].as_str() {
+                        Some("getHash") => {
+                            anyhow::ensure!(round == 0, "candidate hashes fetched after convergence");
+                            hash_requests += 1;
+                            let height = request["height"].as_u64().unwrap();
+                            json!({"type": "hash", "snapshot": advertised, "height": height,
+                                "hash": hashes[height as usize].to_hex()})
+                        }
+                        Some("getBlocks") => {
+                            anyhow::ensure!(round == 0, "candidate blocks fetched after convergence");
+                            block_requests += 1;
+                            let from = request["from"].as_u64().unwrap();
+                            anyhow::ensure!(from == common_height + 1 + sent_blocks as u64, "unexpected range");
+                            let count = 3usize.min(suffix.len() - sent_blocks);
+                            anyhow::ensure!(count > 0 && request["limit"].as_u64().unwrap() >= count as u64, "invalid page size");
+                            if sent_blocks == 15 {
+                                paused.send((index, sent_bytes))?;
+                                release_rx.recv_timeout(Duration::from_secs(10))?;
+                            }
+                            let blocks = &suffix[sent_blocks..sent_blocks + count];
+                            sent_blocks += count;
+                            json!({"type": "blocks", "snapshot": advertised, "from": from, "blocks": blocks})
+                        }
+                        Some("getPending") => {
+                            pending_requests += 1;
+                            anyhow::ensure!(request["offset"] == 0, "unexpected pending offset");
+                            json!({"type": "pending", "snapshot": advertised, "offset": 0, "total": 0, "transfers": []})
+                        }
+                        _ => anyhow::bail!("unexpected candidate request"),
+                    };
+                    sent_bytes += transport.send_json_counted_until(&mut connection, &response, 1024 * 1024, deadline)?;
+                };
+                anyhow::ensure!(sent_bytes + received_bytes < 8 * 1024 * 1024, "candidate round byte cap");
+                anyhow::ensure!(sent_blocks == if round == 0 { 16 } else { 0 }, "unexpected candidate block count");
+                reports.push(json!({"peer": index, "round": round + 1,
+                    "completed": completed, "elapsedMicros": round_started.elapsed().as_micros(),
+                    "sentBlocks": sent_blocks, "sentBytes": sent_bytes, "receivedBytes": received_bytes,
+                    "hashRequests": hash_requests, "blockRequests": block_requests, "pendingRequests": pending_requests}));
+            }
+            anyhow::bail!("candidate fixture round count exceeded")
+        }));
+    }
+    let network_started = Instant::now();
+    let mut service = NativePeerService::start(
+        listener,
+        node.clone(),
+        NativePeerConfig {
+            identity: local_key,
+            peers,
+        },
+    )
+    .unwrap();
+    let mut held_bytes = [0; 8];
+    for _ in 0..8 {
+        let (index, bytes) = paused_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("all eight complete-candidate clients must pause");
+        assert_eq!(held_bytes[index], 0);
+        held_bytes[index] = bytes;
+    }
+    let paused = service.monitor().snapshot();
+    assert_eq!(paused.active_outbound_rounds, 8);
+    assert_eq!(paused.peak_outbound_rounds, 8);
+    assert_eq!(journal_digests(&dir), before_digests);
+    {
+        let node = node.lock().unwrap();
+        check_canonical(&node, &owner.pk_hex(), recipients, 0);
+        assert_eq!(node.chain().head_hash(), initial_head);
+    }
+    for release in releases {
+        release.send(()).unwrap();
+    }
+    let query_started = Instant::now();
+    for _ in 0..100 {
+        let node = node.lock().unwrap();
+        node.ensure_ready().unwrap();
+        let head = node.chain().head_hash();
+        assert!(head == initial_head || head == candidate_head);
+        assert_eq!(
+            node.resource_usage().unwrap().confirmed_transfers as u64,
+            recipients
+                + if head == initial_head {
+                    0
+                } else {
+                    16 * PER_BLOCK
+                }
+        );
+    }
+    let lookups = query_started.elapsed();
+    assert!(lookups < Duration::from_secs(10));
+    loop {
+        let statuses = service.status();
+        if statuses
+            .iter()
+            .all(|status| status.successful_rounds > 0 && status.state == "snapshot_match")
+        {
+            break;
+        }
+        assert!(
+            network_started.elapsed() < Duration::from_secs(15),
+            "all candidate peers must converge: {statuses:?}"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let completed = service.monitor().snapshot();
+    assert_eq!(
+        completed
+            .peers
+            .iter()
+            .map(|peer| peer.failed_rounds)
+            .sum::<u64>(),
+        7
+    );
+    assert_eq!(completed.peak_outbound_rounds, 8);
+    let network_elapsed = network_started.elapsed();
+    assert!(network_elapsed < Duration::from_secs(15));
+    stop_fixture.store(true, Ordering::Release);
+    let stopping_at = Instant::now();
+    service.stop();
+    let stopping = stopping_at.elapsed();
+    assert!(stopping < Duration::from_secs(1));
+    assert_eq!(service.monitor().snapshot().active_outbound_rounds, 0);
+    let rounds: Vec<_> = remotes
+        .into_iter()
+        .map(|remote| remote.join().unwrap().unwrap())
+        .collect();
+    assert_eq!(
+        rounds
+            .iter()
+            .filter(|reports| reports[0]["completed"] == true)
+            .count(),
+        1
+    );
+    assert!(rounds
+        .iter()
+        .all(|reports| reports.iter().any(|report| report["completed"] == true)));
+    {
+        let node = node.lock().unwrap();
+        check_canonical(&node, &owner.pk_hex(), recipients, 16 * PER_BLOCK);
+        assert_eq!(node.chain().head_hash(), candidate_head);
+        assert_eq!(node.chain().ledger().height(), candidate_height);
+        assert!(node.pending().is_empty());
+    }
+    let after_digests = journal_digests(&dir);
+    assert_ne!(after_digests[0], before_digests[0]);
+    eprintln!(
+        "candidate-network {}",
+        json!({
+            "fundedBlocks": funded_blocks, "commonHeight": common_height, "commonHash": common_hash.to_hex(),
+            "initialHead": initial_head.to_hex(), "advertised": advertised, "heldBytesPerPeer": held_bytes,
+            "rounds": rounds, "networkMs": network_elapsed.as_millis(), "lookup100Micros": lookups.as_micros(),
+            "stopMicros": stopping.as_micros(), "peersBeforeStop": completed, "elapsedMs": started.elapsed().as_millis()
+        })
+    );
+    drop(service);
+    drop(node);
+    drop(suffix);
+    drop(hashes);
+    let reopened_at = Instant::now();
+    let node = NativeNode::open(&dir.path).unwrap();
+    let restart = reopened_at.elapsed();
+    assert!(restart < Duration::from_secs(120));
+    check_canonical(&node, &owner.pk_hex(), recipients, 16 * PER_BLOCK);
+    assert_eq!(node.chain().head_hash(), candidate_head);
+    assert!(node.pending().is_empty());
+    assert_eq!(journal_digests(&dir), after_digests);
+    eprintln!(
+        "candidate-result {}",
+        json!({
+            "fundedBlocks": funded_blocks, "networkId": native_testnet().network_id(),
+            "genesisHash": native_testnet().genesis_hash().to_hex(), "head": candidate_head.to_hex(),
+            "resources": node.resource_usage().unwrap(), "issued": node.chain().ledger().issued().to_string(),
+            "restartMs": restart.as_millis(), "elapsedMs": started.elapsed().as_millis(),
+            "maxTemplateMs": max_template.as_millis(), "maxAppendMs": max_append.as_millis()
+        })
+    );
+    assert!(started.elapsed() < Duration::from_secs(900));
+}
+
+#[test]
+fn small_concurrent_winning_candidates_converge_once_and_recover() {
+    run_concurrent_candidate_scenario(2);
+}
+
+#[test]
+#[ignore = "explicit preregistered concurrent-candidate qualification; not routine CI"]
+fn native_eight_winning_candidates_131072_accounts() {
+    run_concurrent_candidate_scenario(256);
 }

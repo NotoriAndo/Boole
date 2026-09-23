@@ -43,6 +43,8 @@ release, GitHub publication or activation.
   within ten seconds and observe only the original or the complete candidate
   head. This bound allows the shared validation/publication lock; it is not a
   reserved read-availability guarantee or an HTTP request latency measurement.
+  Queries start immediately on release and need not overlap the long validation
+  section; a fast observed result cannot establish worst-case lock-wait latency.
 - After convergence, stop drains workers within one second. Recheck every
   recipient balance, nonce, supply, locks and confirmed count; pending is empty.
   Save both journal digests/existence. Drop service, node and fixtures, reopen
@@ -59,4 +61,23 @@ recorded RED/fix; no acceptance criterion may be relaxed after measurement.
 
 ## Results
 
-Pending small-harness verification, source review and one explicit large attempt.
+### Small harness — PASS before the large run
+
+The first small execution passed in 18.60s. All eight peers held fifteen blocks
+(4,091,490 server plaintext bytes per peer) before final-page release. Each sent
+six block pages/sixteen blocks, about 4.36MiB total. Exactly one initial round
+completed; seven closed after the competing publication and each next round
+completed with one empty pending request and no hash/block requests. All eight
+statuses became `snapshot_match` within 4.132s. Stop took 120 microseconds and
+workers drained to zero. The 100 immediate post-release queries took 4,737
+microseconds; they were not forced to wait behind the subsequent long validation
+section, so this is not a worst-case read-latency result.
+
+The adopted state has 28 blocks, 1,025 balance entries and 9,216 confirmed
+transfers: the original 1,024 plus 8,192 self-transfers, not eight copies. Sender
+nonce, issued/locked amounts, every recipient and empty pending queue matched.
+The 4,914,356-byte canonical journal and accounting matched after independent
+3.454s replay. No runtime change was needed; this is regression/qualification
+coverage of existing behavior, not an invented RED.
+
+The explicit large attempt remains pending source review and executable pinning.
