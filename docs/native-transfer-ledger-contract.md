@@ -1,6 +1,6 @@
 # Native test-coin transfer contract — R1 closed-local integration
 
-Status: native blocks, durable node, loopback RPC, encrypted owner-wallet CLI and
+Status: native blocks, durable node, loopback RPC, encrypted owner-wallet recovery and
 mutually authenticated/encrypted incremental peer sync implemented and locally
 tested, 2026-09-23.
 **R1 is not complete and no public network has launched.**
@@ -130,15 +130,21 @@ The umbrella CLI uses `boole native --node http://127.0.0.1:8383` followed by:
 
 - `info`, `account --pk <key>` or `transaction --txid <id>`.
 - `peers` for configured transport identities, synchronization state and limits.
-- `mine --vault <owner-vault> [--reward-to <key>] [--attempts <bounded-count>]`.
+- `mine --vault <owner-vault> --passphrase-stdin [--reward-to <key>]
+  [--attempts <bounded-count>]`.
 - `transfer --vault <owner-vault> --to <key> --amount <decimal-tBOOLE>
-  --outbox <new-file>`; optional `--fee` and inclusive `--valid-before` height.
+  --outbox <new-file> --passphrase-stdin`; optional `--fee` and inclusive
+  `--valid-before` height.
 - `submit --file <saved-transfer>` to retry **the exact signature and nonce**.
 - `sync --from http://127.0.0.1:<other-port>` for bounded full-chain import.
 
-Existing `boole wallet init/address` manages the AEAD vault. Native signing uses
-the wallet-agent process, with `BOOLE_WALLET_PASSPHRASE` passed on stdin to that
-process, never argv; no raw seed/session-key flag is added. Native monetary
+`boole wallet init/address` manages the AEAD vault, and `backup/restore` supports
+authenticated encrypted recovery as described below. Native signing uses the
+wallet-agent process. Prefer `--passphrase-stdin`: it reads one bounded line and
+ignores any ambient `BOOLE_WALLET_PASSPHRASE`. The environment variable remains a
+compatibility input only when that flag is absent; it is never forwarded to the
+child environment. Neither path puts the passphrase on argv, and no raw
+seed/session-key flag is added. Native monetary
 amounts are parsed without floating point, and the CLI verifies the complete
 compiled network policy before signing or submitting. The exact signed transfer
 is atomically created as a new mode-0600 outbox file and fsynced with its directory
@@ -167,6 +173,83 @@ credentials and URL paths. Plain HTTP here is **not public transport security**.
 Full-map staged accounting and the manual full-chain RPC import remain bounded
 local prototypes. Automatic incremental peer synchronization is described below;
 production-scale storage and comprehensive operator recovery are not complete.
+
+### Encrypted owner-vault backup and restore
+
+The selected R1 custody surface is a local encrypted owner vault, not a mnemonic,
+OS keychain or long-lived unlocked daemon. The v1 JSON format, wallet AAD,
+ChaCha20-Poly1305 and default Argon2id parameters (64MiB, time cost 3, one lane)
+are unchanged. Backup does not rotate the key or lower/rewrite its KDF settings.
+
+```sh
+boole wallet backup --vault <owner.vault> --output <new-backup.vault> --json
+boole wallet restore --backup <backup.vault> --vault <new-owner.vault> --json
+boole wallet address --vault <new-owner.vault> --json
+```
+
+Each command reads the passphrase from the first stdin line. Supply it through a
+private interactive `read -s`/pipe or a trusted secret-input mechanism, never a
+literal in shell history, argv, logs or a committed script. No command prints a
+seed or passphrase. Backup/restore first authenticates the ciphertext and its
+32-byte wallet seed, copies the **same encrypted bytes** to a new mode-0600 file,
+fsyncs the file and directory, reads the destination back, and returns only the
+public address. `--json` uses the normal CLI envelope. Wrong passwords, modified
+ciphertext and existing destinations fail without overwriting any vault.
+
+Keep the source and a separate encrypted backup until the restored address
+matches the expected owner and an appropriate local signing/recovery rehearsal
+passes. Keep the passphrase separately. A backup is another copy of the **same
+spending authority**, not a revoked old key or a recovery password. Losing every
+copy or losing the passphrase is unrecoverable here. This local copy operation
+does not certify removable-media durability, unattended remote backup, or
+protection against a compromised user account.
+
+The file must be a stable, regular, single-link 0600 file with an immediate
+non-symlink parent that is not group/world writable. Reads use a no-follow,
+nonblocking descriptor with before/after inode, size and timestamp checks.
+FIFO, directory, direct symlink/hardlink, oversized and overpermissive files fail
+closed. Newly created parent directories use 0700. Existing files are never
+repaired in place or deleted. Atomic create uses a staged file and a no-overwrite
+hard-link commit. A crash during publication can leave staging data or an extra
+link, which is deliberately not auto-cleaned or unlocked; retain all evidence
+and restore a known-good independent backup to a **new** path. An error after
+publication can also leave a complete destination: do not retry by overwriting it
+or discard the source based on an uncertain result.
+
+| Wallet input/resource | Supported bound |
+|---|---|
+| Vault JSON / generic decrypted payload | 64KiB / 16KiB; the wallet itself requires exactly a 32-byte seed |
+| Passphrase | 1–4,096 UTF-8 bytes, one line, no embedded CR/LF/NUL |
+| Argon2id recovery profile | At most 256MiB, time cost 10, 8 lanes, and `memoryKiB × timeCost <= 786432` |
+| Agent stdout / stderr | 4,096 bytes each, enforced while running |
+| One spawned wallet-agent invocation | 60-second deadline, then process-group TERM/KILL cleanup and pipe closure |
+
+Parsing rejects unknown/duplicate fields and validates version, algorithms,
+hex/lengths and KDF cost before password derivation. Actual `open` and `seal`
+also enforce the limits, so direct deserialization cannot bypass the KDF guard.
+The original defaults remain supported; a custom older file above these limits
+needs deliberate offline recovery review, not an automatic downgrade, ignored
+header or oversized allocation. No such operator file was opened or changed.
+
+The parent resolves the installed sibling `boole-wallet-agent` or an explicit
+**absolute** `BOOLE_WALLET_AGENT_BIN`; it never searches ambient PATH. The
+resolved executable and immediate parent cannot be group/world writable.
+The child's environment is only fixed `PATH=/usr/bin:/bin` and `LANG=C.UTF-8`:
+wallet/API variables, loader overrides and SSH agent sockets are not inherited.
+Only canonical public-key/signature responses are accepted, and weak/invalid
+public keys fail. The native/proof signer additionally verifies the returned
+signature for the requested payload/network before returning its envelope.
+The raw `wallet sign` façade checks encoding; callers verify its signature
+against the expected public key and raw message.
+Child diagnostics are withheld because they can contain the supplied secret.
+The CLI may therefore report a generic agent failure instead of raw detail.
+
+These are bounded I/O/lifecycle and accidental-disclosure protections, **not a
+sandbox or authenticity proof for an operator-selected executable**. Such a
+binary is trusted with the passphrase and can access the vault. Same-user/root
+races and session-escaping malicious descendants remain outside this boundary;
+release artifact/key custody remains R2 work. The 60 seconds starts at subprocess
+execution, not at earlier native stdin collection, network requests or mining.
 
 ## Mutually authenticated native peers
 
@@ -306,8 +389,17 @@ Added executable evidence:
   balances/head/issuance, with public-bind, cross-origin, oversized-body and
   stale-readiness rejection.
 - [Encrypted-vault CLI](../crates/boole-cli/tests/native_cli.rs): actual server
-  and wallet-agent processes, signing/mining/transfer, saved-file retry before
-  and after inclusion, exclusive outbox publication and second-node sync.
+  and wallet-agent processes, stdin-based mining, encrypted backup/restore after
+  removing the primary from service, a restored-owner transfer, saved-file retry
+  before/after inclusion and restart, exclusive outbox publication and second-node sync.
+- [Vault primitive](../crates/boole-core/src/vault.rs),
+  [wallet-agent](../crates/boole-wallet-agent/tests/wallet_agent.rs),
+  [signer](../crates/boole-miner/tests/agent_signer.rs) and
+  [wallet façade](../crates/boole-cli/tests/wallet_cli.rs): bounded KDF/JSON/input,
+  authenticated encrypted recovery, unsafe file/agent-path rejection, no-overwrite,
+  secret-bearing error suppression, live output cap and canonical verified responses.
+  The shared process runner also retains its existing 13 timeout/pipe/group-cleanup
+  regressions; wallet-specific tests cover the empty environment and silent deadline.
 - [TLS transport](../crates/boole-p2p/tests/tls_transport.rs): mutual pins, real
   possession checks against a forged public-key presentation, anonymous/wrong
   ALPN/plaintext rejection, trickled/silent deadlines, strict duplicate-field
@@ -331,6 +423,6 @@ v3 hashes/genesis/replay and session restrictions; no legacy fixture was rewritt
 These runs use disposable local directories and test keys. They are not an
 operator wallet movement, public mining result or mainnet entitlement. No new
 VM/model execution, useful-work reward or public activation occurred. R1 still
-requires broader recovery/abuse/operations and wallet-safety acceptance, a scoped
+requires broader node recovery/abuse/operations acceptance, a scoped
 public RPC strategy and the selected public-facing product scope before R2/R3
 launch review. Closed-local TLS tests are not public-testnet operation evidence.

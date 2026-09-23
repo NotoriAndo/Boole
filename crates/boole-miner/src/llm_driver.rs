@@ -42,6 +42,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use thiserror::Error;
+use zeroize::Zeroizing;
 
 use crate::http_runner::{HttpRunner, HttpRunnerError, ReqwestHttpRunner};
 
@@ -265,18 +266,19 @@ enum PipeReadError {
 fn read_available<R: Read>(
     reader: &mut Option<R>,
     output: &mut Vec<u8>,
+    max_bytes: usize,
 ) -> Result<bool, PipeReadError> {
     let Some(pipe) = reader.as_mut() else {
         return Ok(false);
     };
-    let mut buffer = [0_u8; 32 * 1024];
-    match pipe.read(&mut buffer) {
+    let mut buffer = Zeroizing::new([0_u8; 32 * 1024]);
+    match pipe.read(&mut buffer[..]) {
         Ok(0) => {
             *reader = None;
             Ok(true)
         }
         Ok(read) => {
-            if output.len().saturating_add(read) > PROCESS_STDIO_MAX_BYTES {
+            if output.len().saturating_add(read) > max_bytes {
                 return Err(PipeReadError::Limit);
             }
             output.extend_from_slice(&buffer[..read]);
@@ -453,13 +455,6 @@ impl ProcessRunner for StdProcessRunner {
         stdin_input: Option<&[u8]>,
         timeout: Duration,
     ) -> Result<Vec<u8>, ProcessError> {
-        let deadline = Instant::now() + timeout;
-        if stdin_input.is_some_and(|input| input.len() > PROCESS_STDIN_MAX_BYTES) {
-            return Err(ProcessError::InputLimit {
-                command: binary.to_string(),
-                max_bytes: PROCESS_STDIN_MAX_BYTES,
-            });
-        }
         let mut cmd = Command::new(binary);
         cmd.args(args);
         configure_child_environment(&mut cmd);
@@ -468,162 +463,180 @@ impl ProcessRunner for StdProcessRunner {
         } else {
             Stdio::null()
         });
-        cmd.stdout(Stdio::piped());
-        cmd.stderr(Stdio::piped());
-        cmd.process_group(0);
-        let mut child = cmd.spawn().map_err(|e| match e.kind() {
-            std::io::ErrorKind::NotFound => ProcessError::NotFound(binary.to_string()),
-            _ => ProcessError::Io(e.to_string()),
-        })?;
+        run_bounded_process(&mut cmd, stdin_input, timeout, PROCESS_STDIO_MAX_BYTES)
+    }
+}
 
-        let mut stdout_pipe = child.stdout.take();
-        let mut stderr_pipe = child.stderr.take();
-        let mut stdin_pipe = child.stdin.take();
-        for fd in [
-            stdout_pipe.as_ref().map(AsRawFd::as_raw_fd),
-            stderr_pipe.as_ref().map(AsRawFd::as_raw_fd),
-            stdin_pipe.as_ref().map(AsRawFd::as_raw_fd),
-        ]
-        .into_iter()
-        .flatten()
-        {
-            if let Err(error) = set_nonblocking(fd) {
-                let _ = terminate_process_group_bounded(&mut child);
-                return Err(ProcessError::Io(error.to_string()));
+/// Common Unix process/pipe lifecycle. Callers select the command environment
+/// and stdin mode; both LLM and wallet clients share the tested cleanup path.
+pub(crate) fn run_bounded_process(
+    cmd: &mut Command,
+    stdin_input: Option<&[u8]>,
+    timeout: Duration,
+    output_limit: usize,
+) -> Result<Vec<u8>, ProcessError> {
+    let binary = cmd.get_program().to_string_lossy().into_owned();
+    let deadline = Instant::now() + timeout;
+    if stdin_input.is_some_and(|input| input.len() > PROCESS_STDIN_MAX_BYTES) {
+        return Err(ProcessError::InputLimit {
+            command: binary.to_string(),
+            max_bytes: PROCESS_STDIN_MAX_BYTES,
+        });
+    }
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+    cmd.process_group(0);
+    let mut child = cmd.spawn().map_err(|e| match e.kind() {
+        std::io::ErrorKind::NotFound => ProcessError::NotFound(binary.to_string()),
+        _ => ProcessError::Io(e.to_string()),
+    })?;
+
+    let mut stdout_pipe = child.stdout.take();
+    let mut stderr_pipe = child.stderr.take();
+    let mut stdin_pipe = child.stdin.take();
+    for fd in [
+        stdout_pipe.as_ref().map(AsRawFd::as_raw_fd),
+        stderr_pipe.as_ref().map(AsRawFd::as_raw_fd),
+        stdin_pipe.as_ref().map(AsRawFd::as_raw_fd),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if let Err(error) = set_nonblocking(fd) {
+            let _ = terminate_process_group_bounded(&mut child);
+            return Err(ProcessError::Io(error.to_string()));
+        }
+    }
+    let mut stdout = Zeroizing::new(Vec::new());
+    let mut stderr = Zeroizing::new(Vec::new());
+    let input = stdin_input.unwrap_or_default();
+    let mut input_position = 0;
+    let mut status = None;
+    let mut failure = None;
+    let mut timed_out = false;
+    let mut group_cleanup_done = false;
+
+    loop {
+        if Instant::now() >= deadline {
+            timed_out = true;
+            break;
+        }
+        let mut io_progress = false;
+        match read_available(&mut stdout_pipe, &mut stdout, output_limit) {
+            Ok(progress) => io_progress |= progress,
+            Err(error) => {
+                failure = Some(match error {
+                    PipeReadError::Limit => ProcessError::OutputLimit {
+                        command: binary.to_string(),
+                        stream: "stdout",
+                        max_bytes: output_limit,
+                    },
+                    PipeReadError::Io(error) => ProcessError::Io(error.to_string()),
+                });
             }
         }
-        let mut stdout = Vec::new();
-        let mut stderr = Vec::new();
-        let input = stdin_input.unwrap_or_default();
-        let mut input_position = 0;
-        let mut status = None;
-        let mut failure = None;
-        let mut timed_out = false;
-        let mut group_cleanup_done = false;
-
-        loop {
-            if Instant::now() >= deadline {
-                timed_out = true;
-                break;
-            }
-            let mut io_progress = false;
-            match read_available(&mut stdout_pipe, &mut stdout) {
+        if failure.is_none() {
+            match read_available(&mut stderr_pipe, &mut stderr, output_limit) {
                 Ok(progress) => io_progress |= progress,
                 Err(error) => {
                     failure = Some(match error {
                         PipeReadError::Limit => ProcessError::OutputLimit {
                             command: binary.to_string(),
-                            stream: "stdout",
-                            max_bytes: PROCESS_STDIO_MAX_BYTES,
+                            stream: "stderr",
+                            max_bytes: output_limit,
                         },
                         PipeReadError::Io(error) => ProcessError::Io(error.to_string()),
                     });
                 }
             }
-            if failure.is_none() {
-                match read_available(&mut stderr_pipe, &mut stderr) {
-                    Ok(progress) => io_progress |= progress,
-                    Err(error) => {
-                        failure = Some(match error {
-                            PipeReadError::Limit => ProcessError::OutputLimit {
-                                command: binary.to_string(),
-                                stream: "stderr",
-                                max_bytes: PROCESS_STDIO_MAX_BYTES,
-                            },
-                            PipeReadError::Io(error) => ProcessError::Io(error.to_string()),
-                        });
-                    }
+        }
+        if failure.is_none() {
+            match write_available(&mut stdin_pipe, input, &mut input_position) {
+                Ok(progress) => io_progress |= progress,
+                Err(error) => failure = Some(ProcessError::Io(error.to_string())),
+            }
+        }
+        if failure.is_some() {
+            break;
+        }
+        if status.is_none() {
+            match child.try_wait() {
+                Ok(Some(exit_status)) => status = Some(exit_status),
+                Ok(None) => {}
+                Err(error) => {
+                    failure = Some(ProcessError::Io(error.to_string()));
+                    break;
                 }
             }
-            if failure.is_none() {
-                match write_available(&mut stdin_pipe, input, &mut input_position) {
-                    Ok(progress) => io_progress |= progress,
-                    Err(error) => failure = Some(ProcessError::Io(error.to_string())),
-                }
-            }
-            if failure.is_some() {
-                break;
-            }
-            if status.is_none() {
-                match child.try_wait() {
-                    Ok(Some(exit_status)) => status = Some(exit_status),
-                    Ok(None) => {}
-                    Err(error) => {
-                        failure = Some(ProcessError::Io(error.to_string()));
-                        break;
-                    }
-                }
-            }
-            if status.is_some()
-                && stdout_pipe.is_none()
-                && stderr_pipe.is_none()
-                && stdin_pipe.is_none()
-            {
-                break;
-            }
-            if status.is_some() && !group_cleanup_done && !io_progress {
-                let _ = terminate_process_group_bounded(&mut child);
-                group_cleanup_done = true;
-                continue;
-            }
-            let now = Instant::now();
-            if now >= deadline {
-                timed_out = true;
-                break;
-            }
-            let poll_for = deadline
-                .saturating_duration_since(now)
-                .min(Duration::from_millis(10));
-            if let Err(error) = poll_pipes(
-                stdin_pipe.as_ref(),
-                stdout_pipe.as_ref().map(AsRawFd::as_raw_fd),
-                stderr_pipe.as_ref().map(AsRawFd::as_raw_fd),
-                poll_for,
-            ) {
-                failure = Some(ProcessError::Io(error.to_string()));
-                break;
-            }
         }
-
-        if (failure.is_some() || timed_out) && !group_cleanup_done {
-            let terminated_status = terminate_process_group_bounded(&mut child);
-            if status.is_none() {
-                status = terminated_status;
-            }
+        if status.is_some()
+            && stdout_pipe.is_none()
+            && stderr_pipe.is_none()
+            && stdin_pipe.is_none()
+        {
+            break;
         }
-        // Close every pipe before returning a terminal error. In particular,
-        // this gives an escaped descendant EOF/BrokenPipe instead of leaving
-        // hidden helper threads and their descriptors alive across retries.
-        drop(stdin_pipe);
-        drop(stdout_pipe);
-        drop(stderr_pipe);
-
-        if let Some(error) = failure {
-            return Err(error);
+        if status.is_some() && !group_cleanup_done && !io_progress {
+            let _ = terminate_process_group_bounded(&mut child);
+            group_cleanup_done = true;
+            continue;
         }
-        if timed_out {
-            return Err(ProcessError::Timeout {
-                command: binary.to_string(),
-                ms: timeout.as_millis(),
-            });
+        let now = Instant::now();
+        if now >= deadline {
+            timed_out = true;
+            break;
         }
-        let status = status.ok_or_else(|| {
-            ProcessError::Io("child exited without a collectable status".to_string())
-        })?;
-        if !status.success() {
-            let stderr = String::from_utf8_lossy(&stderr).chars().take(500).collect();
-            let code = match status.code() {
-                Some(code) => code.to_string(),
-                None => "signal".to_string(),
-            };
-            return Err(ProcessError::Exit {
-                command: binary.to_string(),
-                code,
-                stderr,
-            });
+        let poll_for = deadline
+            .saturating_duration_since(now)
+            .min(Duration::from_millis(10));
+        if let Err(error) = poll_pipes(
+            stdin_pipe.as_ref(),
+            stdout_pipe.as_ref().map(AsRawFd::as_raw_fd),
+            stderr_pipe.as_ref().map(AsRawFd::as_raw_fd),
+            poll_for,
+        ) {
+            failure = Some(ProcessError::Io(error.to_string()));
+            break;
         }
-        Ok(stdout)
     }
+
+    if (failure.is_some() || timed_out) && !group_cleanup_done {
+        let terminated_status = terminate_process_group_bounded(&mut child);
+        if status.is_none() {
+            status = terminated_status;
+        }
+    }
+    // Close every pipe before returning a terminal error. In particular,
+    // this gives an escaped descendant EOF/BrokenPipe instead of leaving
+    // hidden helper threads and their descriptors alive across retries.
+    drop(stdin_pipe);
+    drop(stdout_pipe);
+    drop(stderr_pipe);
+
+    if let Some(error) = failure {
+        return Err(error);
+    }
+    if timed_out {
+        return Err(ProcessError::Timeout {
+            command: binary.to_string(),
+            ms: timeout.as_millis(),
+        });
+    }
+    let status = status
+        .ok_or_else(|| ProcessError::Io("child exited without a collectable status".to_string()))?;
+    if !status.success() {
+        let stderr = String::from_utf8_lossy(&stderr).chars().take(500).collect();
+        let code = match status.code() {
+            Some(code) => code.to_string(),
+            None => "signal".to_string(),
+        };
+        return Err(ProcessError::Exit {
+            command: binary.to_string(),
+            code,
+            stderr,
+        });
+    }
+    Ok(std::mem::take(&mut *stdout))
 }
 
 // --- Claude CLI driver ----------------------------------------------------

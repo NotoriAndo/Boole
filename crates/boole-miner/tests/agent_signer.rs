@@ -15,18 +15,114 @@ use boole_miner::{AgentSigner, KeySigner, ProofSigner};
 use boole_testkit::rand_suffix;
 use serde_json::json;
 
+#[test]
+fn wallet_agent_errors_do_not_echo_passphrases_from_child_stderr() {
+    use std::os::unix::fs::PermissionsExt;
+    let vault = tmp_vault();
+    let script = vault.parent().unwrap().join("echo-secret.sh");
+    std::fs::write(
+        &script,
+        "#!/bin/sh\nIFS= read -r secret\nprintf '%s' \"$secret\" >&2\nexit 1\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let secret = "disposable-passphrase-must-not-be-in-errors";
+    let signer = AgentSigner::new(script.to_str().unwrap(), vault.clone(), secret.to_string());
+    let error = signer.pk_hex().expect_err("agent failure");
+    assert!(
+        !error.contains(secret),
+        "child diagnostics must not echo supplied secrets"
+    );
+    assert!(error.contains("wallet-agent"));
+    std::fs::remove_dir_all(vault.parent().unwrap()).unwrap();
+}
+
+#[test]
+fn wallet_agent_protocol_rejects_noncanonical_and_oversized_stdout() {
+    use std::os::unix::fs::PermissionsExt;
+    let vault = tmp_vault();
+    let script = vault.parent().unwrap().join("bad-output.sh");
+    for output in [
+        "not-a-public-key".to_string(),
+        "a".repeat(8192),
+        "A".repeat(64),
+        "0".repeat(64),
+    ] {
+        std::fs::write(
+            &script,
+            format!("#!/bin/sh\nIFS= read -r secret\nprintf '%s\\n' '{output}'\n"),
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let signer = AgentSigner::new(
+            script.to_str().unwrap(),
+            vault.clone(),
+            "test-only".to_string(),
+        );
+        assert!(
+            signer.pk_hex().is_err(),
+            "an invalid agent response must not become a wallet identity"
+        );
+    }
+    std::fs::remove_dir_all(vault.parent().unwrap()).unwrap();
+}
+
+#[test]
+fn wallet_agent_excess_output_is_stopped_before_waiting_for_process_exit() {
+    use std::os::unix::fs::PermissionsExt;
+    use std::time::{Duration, Instant};
+    let vault = tmp_vault();
+    let script = vault.parent().unwrap().join("flood.sh");
+    std::fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\nIFS= read -r secret\nprintf '%s' '{}'\n/bin/sleep 3\n",
+            "a".repeat(8192)
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let signer = AgentSigner::new(
+        script.to_str().unwrap(),
+        vault.clone(),
+        "test-only".to_string(),
+    );
+    let start = Instant::now();
+    assert!(signer.pk_hex().is_err());
+    assert!(
+        start.elapsed() < Duration::from_secs(2),
+        "output cap must apply while the child is running"
+    );
+    std::fs::remove_dir_all(vault.parent().unwrap()).unwrap();
+}
+
+#[test]
+fn wallet_agent_signature_must_verify_for_the_requested_payload_and_network() {
+    use std::os::unix::fs::PermissionsExt;
+    let vault = tmp_vault();
+    let script = vault.parent().unwrap().join("wrong-signature.sh");
+    let key = SigningKeyV2::from_dev_id("agent-protocol-signature-test");
+    std::fs::write(&script, format!("#!/bin/sh\nIFS= read -r secret\nif [ \"$1\" = pubkey ]; then printf '%s\\n' '{}'; else printf '%s\\n' '{}'; fi\n", key.pk_hex(), "0".repeat(128))).unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let signer = AgentSigner::new(
+        script.to_str().unwrap(),
+        vault.clone(),
+        "test-only".to_string(),
+    );
+    assert!(
+        signer
+            .sign_payload(&json!({"test": true}), "boole-native-testnet-1")
+            .is_err(),
+        "an unverified agent signature must not be returned as a signed envelope"
+    );
+    std::fs::remove_dir_all(vault.parent().unwrap()).unwrap();
+}
+
 fn agent_bin() -> PathBuf {
-    let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    p.pop();
-    p.pop();
-    p.push("target");
-    p.push(if cfg!(debug_assertions) {
-        "debug"
-    } else {
-        "release"
-    });
-    p.push("boole-wallet-agent");
-    p
+    Path::new(env!("CARGO_BIN_EXE_boole-miner"))
+        .parent()
+        .expect("compiled miner has a parent")
+        .join("boole-wallet-agent")
 }
 
 /// Seal `seed_hex` into a fresh vault via `migrate-from-hex` (stdin:

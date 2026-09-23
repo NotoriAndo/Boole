@@ -40,6 +40,207 @@ use serde_json::Value;
 
 const PASSPHRASE: &str = "correct-horse-battery-staple";
 
+#[test]
+fn wallet_backup_restore_facade_preserves_identity_and_never_exports_plaintext() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tmp_dir("recover");
+    let original = dir.join("original.json");
+    let backup = dir.join("backup.json");
+    let restored = dir.join("restored.json");
+    let key = ed25519_dalek::SigningKey::from_bytes(&[35; 32]);
+    let bytes = boole_core::EncryptedVault::seal(
+        PASSPHRASE.as_bytes(),
+        &key.to_bytes(),
+        boole_wallet_agent::VAULT_AAD,
+        boole_core::VaultParams {
+            memory_kib: 8,
+            time_cost: 1,
+            parallelism: 1,
+        },
+    )
+    .unwrap()
+    .to_json_bytes()
+    .unwrap();
+    std::fs::write(&original, &bytes).unwrap();
+    std::fs::set_permissions(&original, std::fs::Permissions::from_mode(0o600)).unwrap();
+    for (verb, args) in [
+        (
+            "wallet.backup",
+            vec![
+                "wallet",
+                "backup",
+                "--vault",
+                original.to_str().unwrap(),
+                "--output",
+                backup.to_str().unwrap(),
+                "--json",
+            ],
+        ),
+        (
+            "wallet.restore",
+            vec![
+                "wallet",
+                "restore",
+                "--backup",
+                backup.to_str().unwrap(),
+                "--vault",
+                restored.to_str().unwrap(),
+                "--json",
+            ],
+        ),
+    ] {
+        let (code, stdout, stderr) = run_cli(&args, &format!("{PASSPHRASE}\n"));
+        assert_eq!(code, 0, "{verb}: {stderr}");
+        let result = assert_ok_envelope(&parse_envelope(&stdout), verb);
+        assert_eq!(
+            result["address"],
+            hex::encode(key.verifying_key().to_bytes())
+        );
+        assert!(!stdout.contains(PASSPHRASE) && !stdout.contains(&hex::encode(key.to_bytes())));
+    }
+    assert_eq!(std::fs::read(&restored).unwrap(), bytes);
+    assert_metadata_0600(&backup);
+    assert_metadata_0600(&restored);
+    let (code, stdout, stderr) = run_cli(
+        &[
+            "wallet",
+            "sign",
+            "--vault",
+            restored.to_str().unwrap(),
+            "--message",
+            "abcd",
+            "--json",
+        ],
+        &format!("{PASSPHRASE}\n"),
+    );
+    assert_eq!(code, 0, "restored signing: {stderr}");
+    let result = assert_ok_envelope(&parse_envelope(&stdout), "wallet.sign");
+    let sig: [u8; 64] = hex::decode(result["signature"].as_str().unwrap())
+        .unwrap()
+        .try_into()
+        .unwrap();
+    key.verifying_key()
+        .verify(&[0xab, 0xcd], &Signature::from_bytes(&sig))
+        .unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn wallet_facade_withholds_child_diagnostics_that_echo_secret_input() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tmp_dir("child-error");
+    let script = dir.join("bad-agent.sh");
+    std::fs::write(
+        &script,
+        "#!/bin/sh\nIFS= read -r secret\nprintf '%s' \"$secret\" >&2\nexit 2\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let mut child = Command::new(cli_bin())
+        .args(["wallet", "address", "--vault", "unused.json"])
+        .env("BOOLE_WALLET_AGENT_BIN", &script)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(format!("{PASSPHRASE}\n").as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(
+        !String::from_utf8_lossy(&output.stderr).contains(PASSPHRASE),
+        "façade must not relay secret-bearing child diagnostics"
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn wallet_facade_requires_an_explicit_safe_absolute_agent_path() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tmp_dir("agent-path");
+    let script = dir.join("agent.sh");
+    let key = ed25519_dalek::SigningKey::from_bytes(&[53; 32]);
+    std::fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\nIFS= read -r secret\nprintf '%s\\n' '{}'\n",
+            hex::encode(key.verifying_key().to_bytes())
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
+    for (override_path, unsafe_mode) in
+        [(PathBuf::from("./agent.sh"), false), (script.clone(), true)]
+    {
+        if unsafe_mode {
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o777)).unwrap();
+        }
+        let mut child = Command::new(cli_bin())
+            .current_dir(&dir)
+            .args(["wallet", "address", "--vault", "unused.json"])
+            .env("BOOLE_WALLET_AGENT_BIN", override_path)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(format!("{PASSPHRASE}\n").as_bytes())
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            !output.status.success(),
+            "relative or group/world-writable agent must be rejected"
+        );
+        assert!(output.stdout.is_empty());
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn wallet_facade_does_not_publish_arbitrary_success_output_as_an_address() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tmp_dir("bad-success");
+    let script = dir.join("bad-agent.sh");
+    std::fs::write(
+        &script,
+        "#!/bin/sh\nIFS= read -r secret\nprintf '%s\\n' \"$secret\"\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let mut child = Command::new(cli_bin())
+        .args(["wallet", "address", "--vault", "unused.json", "--json"])
+        .env("BOOLE_WALLET_AGENT_BIN", &script)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(format!("{PASSPHRASE}\n").as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        !output.status.success(),
+        "successful process exit alone is not a valid wallet response"
+    );
+    assert!(output.stdout.is_empty());
+    assert!(!String::from_utf8_lossy(&output.stderr).contains(PASSPHRASE));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 fn cli_bin() -> &'static str {
     env!("CARGO_BIN_EXE_boole-cli")
 }

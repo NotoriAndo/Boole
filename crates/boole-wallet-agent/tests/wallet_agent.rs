@@ -14,6 +14,330 @@ use serde_json::Value;
 
 const PASSPHRASE: &str = "correct-horse-battery-staple";
 
+#[test]
+fn unlock_refuses_indirect_or_overexposed_vault_files() {
+    use std::os::unix::fs::{symlink, PermissionsExt};
+    let dir = tmp_dir("unsafe-source");
+    let vault = dir.join("wallet.json");
+    let envelope = boole_core::EncryptedVault::seal(
+        PASSPHRASE.as_bytes(),
+        &[42; 32],
+        boole_wallet_agent::VAULT_AAD,
+        boole_core::VaultParams {
+            memory_kib: 8,
+            time_cost: 1,
+            parallelism: 1,
+        },
+    )
+    .unwrap()
+    .to_json_bytes()
+    .unwrap();
+    fs::write(&vault, &envelope).unwrap();
+    fs::set_permissions(&vault, fs::Permissions::from_mode(0o600)).unwrap();
+    let link = dir.join("alias.json");
+    symlink(&vault, &link).unwrap();
+    let (code, stdout, _) = run_agent(
+        &["pubkey", "--vault", link.to_str().unwrap()],
+        &format!("{PASSPHRASE}\n"),
+    );
+    assert_ne!(code, 0, "symlink must not unlock");
+    assert!(stdout.is_empty());
+    fs::remove_file(&link).unwrap();
+    fs::hard_link(&vault, &link).unwrap();
+    let (code, _, _) = run_agent(
+        &["pubkey", "--vault", vault.to_str().unwrap()],
+        &format!("{PASSPHRASE}\n"),
+    );
+    assert_ne!(code, 0, "multiple links must not unlock");
+    fs::remove_file(&link).unwrap();
+    fs::set_permissions(&vault, fs::Permissions::from_mode(0o644)).unwrap();
+    let (code, _, _) = run_agent(
+        &["pubkey", "--vault", vault.to_str().unwrap()],
+        &format!("{PASSPHRASE}\n"),
+    );
+    assert_ne!(code, 0, "group/other readable vault must not unlock");
+    fs::set_permissions(&vault, fs::Permissions::from_mode(0o600)).unwrap();
+    let (code, _, stderr) = run_agent(
+        &["pubkey", "--vault", vault.to_str().unwrap()],
+        &format!("{PASSPHRASE}\n"),
+    );
+    assert_eq!(
+        code, 0,
+        "regular private vault remains compatible: {stderr}"
+    );
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn authenticated_encrypted_backup_restores_the_same_signing_identity() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tmp_dir("backup-restore");
+    let source = dir.join("original.json");
+    let backup = dir.join("backup.json");
+    let restored = dir.join("restored.json");
+    let key = SigningKey::from_bytes(&[73; 32]);
+    let bytes = boole_core::EncryptedVault::seal(
+        PASSPHRASE.as_bytes(),
+        &key.to_bytes(),
+        boole_wallet_agent::VAULT_AAD,
+        boole_core::VaultParams {
+            memory_kib: 8,
+            time_cost: 1,
+            parallelism: 1,
+        },
+    )
+    .unwrap()
+    .to_json_bytes()
+    .unwrap();
+    fs::write(&source, &bytes).unwrap();
+    fs::set_permissions(&source, fs::Permissions::from_mode(0o600)).unwrap();
+    let backup_args = [
+        "backup",
+        "--vault",
+        source.to_str().unwrap(),
+        "--output",
+        backup.to_str().unwrap(),
+    ];
+    let (code, stdout, stderr) = run_agent(&backup_args, &format!("{PASSPHRASE}\n"));
+    assert_eq!(code, 0, "authenticated backup is available: {stderr}");
+    assert_eq!(stdout.trim(), hex::encode(key.verifying_key().to_bytes()));
+    assert_eq!(
+        fs::read(&backup).unwrap(),
+        bytes,
+        "backup preserves encrypted bytes, not plaintext export"
+    );
+    assert_eq!(
+        fs::metadata(&backup).unwrap().permissions().mode() & 0o7777,
+        0o600
+    );
+    let (code, _, _) = run_agent(&backup_args, &format!("{PASSPHRASE}\n"));
+    assert_ne!(
+        code, 0,
+        "backup must never overwrite an existing destination"
+    );
+    // Simulate loss of the primary without discarding the only recovery copy.
+    fs::rename(&source, dir.join("offline-original.json")).unwrap();
+    let restore_args = [
+        "restore",
+        "--backup",
+        backup.to_str().unwrap(),
+        "--vault",
+        restored.to_str().unwrap(),
+    ];
+    let (code, stdout, stderr) = run_agent(&restore_args, &format!("{PASSPHRASE}\n"));
+    assert_eq!(code, 0, "restore: {stderr}");
+    assert_eq!(stdout.trim(), hex::encode(key.verifying_key().to_bytes()));
+    assert_eq!(fs::read(&restored).unwrap(), bytes);
+    let (code, signature, stderr) = run_agent(
+        &[
+            "sign",
+            "--vault",
+            restored.to_str().unwrap(),
+            "--message",
+            "cafe",
+        ],
+        &format!("{PASSPHRASE}\n"),
+    );
+    assert_eq!(code, 0, "restored signature: {stderr}");
+    let raw: [u8; 64] = hex::decode(signature.trim()).unwrap().try_into().unwrap();
+    key.verifying_key()
+        .verify(&[0xca, 0xfe], &Signature::from_bytes(&raw))
+        .unwrap();
+    let rejected = dir.join("wrong-password.json");
+    let (code, stdout, _) = run_agent(
+        &[
+            "restore",
+            "--backup",
+            backup.to_str().unwrap(),
+            "--vault",
+            rejected.to_str().unwrap(),
+        ],
+        "wrong-password\n",
+    );
+    assert_ne!(code, 0);
+    assert!(stdout.is_empty() && !rejected.exists());
+    let mut tampered: Value = serde_json::from_slice(&bytes).unwrap();
+    tampered["ciphertext"] = "00".repeat(48).into();
+    fs::write(&backup, serde_json::to_vec(&tampered).unwrap()).unwrap();
+    let (code, stdout, _) = run_agent(
+        &[
+            "restore",
+            "--backup",
+            backup.to_str().unwrap(),
+            "--vault",
+            rejected.to_str().unwrap(),
+        ],
+        &format!("{PASSPHRASE}\n"),
+    );
+    assert_ne!(code, 0);
+    assert!(stdout.is_empty() && !rejected.exists());
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn backup_rejects_untrusted_parent_directories_without_publishing_a_file() {
+    use std::os::unix::fs::{symlink, PermissionsExt};
+    let dir = tmp_dir("unsafe-parent");
+    let source = dir.join("source.json");
+    let bytes = boole_core::EncryptedVault::seal(
+        PASSPHRASE.as_bytes(),
+        &[63; 32],
+        boole_wallet_agent::VAULT_AAD,
+        boole_core::VaultParams {
+            memory_kib: 8,
+            time_cost: 1,
+            parallelism: 1,
+        },
+    )
+    .unwrap()
+    .to_json_bytes()
+    .unwrap();
+    fs::write(&source, bytes).unwrap();
+    fs::set_permissions(&source, fs::Permissions::from_mode(0o600)).unwrap();
+    let actual = dir.join("actual");
+    fs::create_dir(&actual).unwrap();
+    let alias = dir.join("alias");
+    symlink(&actual, &alias).unwrap();
+    let output = alias.join("copy.json");
+    let (code, stdout, _) = run_agent(
+        &[
+            "backup",
+            "--vault",
+            source.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+        ],
+        &format!("{PASSPHRASE}\n"),
+    );
+    assert_ne!(code, 0, "symlink parent must fail");
+    assert!(stdout.is_empty() && !actual.join("copy.json").exists());
+    fs::set_permissions(&actual, fs::Permissions::from_mode(0o777)).unwrap();
+    let output = actual.join("copy.json");
+    let (code, stdout, _) = run_agent(
+        &[
+            "backup",
+            "--vault",
+            source.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+        ],
+        &format!("{PASSPHRASE}\n"),
+    );
+    assert_ne!(code, 0, "writable parent must fail");
+    assert!(stdout.is_empty() && !output.exists());
+    fs::set_permissions(&actual, fs::Permissions::from_mode(0o700)).unwrap();
+    let output = actual.join("new/private/copy.json");
+    let (code, _, stderr) = run_agent(
+        &[
+            "backup",
+            "--vault",
+            source.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+        ],
+        &format!("{PASSPHRASE}\n"),
+    );
+    assert_eq!(
+        code, 0,
+        "private parent creation remains supported: {stderr}"
+    );
+    assert_eq!(
+        fs::metadata(actual.join("new/private"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o7777,
+        0o700
+    );
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn oversized_unterminated_secret_input_is_rejected_without_waiting_for_eof() {
+    use std::time::{Duration, Instant};
+    let dir = tmp_dir("bounded-stdin");
+    let vault = dir.join("never-written.json");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_boole-wallet-agent"))
+        .args(["init", "--vault", vault.to_str().unwrap()])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(&vec![b'x'; 8192])
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let mut bounded = false;
+    while Instant::now() < deadline {
+        if child.try_wait().unwrap().is_some() {
+            bounded = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    if !bounded {
+        child.kill().unwrap();
+    }
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        bounded,
+        "secret input must be byte-bounded without EOF or newline"
+    );
+    assert!(!output.status.success() && output.stdout.is_empty() && !vault.exists());
+    assert!(
+        !String::from_utf8_lossy(&output.stderr).contains(&"x".repeat(100)),
+        "secret input must not appear in diagnostics"
+    );
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn vault_reader_refuses_fifo_directory_and_oversized_file_without_blocking() {
+    use std::os::unix::fs::PermissionsExt;
+    use std::time::{Duration, Instant};
+    let dir = tmp_dir("bounded-files");
+    let fifo = dir.join("fifo");
+    assert!(Command::new("/usr/bin/mkfifo")
+        .arg(&fifo)
+        .status()
+        .unwrap()
+        .success());
+    let huge = dir.join("oversized.json");
+    fs::write(&huge, vec![b' '; 65_537]).unwrap();
+    fs::set_permissions(&huge, fs::Permissions::from_mode(0o600)).unwrap();
+    for source in [&fifo, &dir, &huge] {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_boole-wallet-agent"))
+            .args(["pubkey", "--vault", source.to_str().unwrap()])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        writeln!(child.stdin.take().unwrap(), "{PASSPHRASE}").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut completed = false;
+        while Instant::now() < deadline {
+            if child.try_wait().unwrap().is_some() {
+                completed = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        if !completed {
+            child.kill().unwrap();
+        }
+        let output = child.wait_with_output().unwrap();
+        assert!(completed, "nonregular input must not block");
+        assert!(!output.status.success() && output.stdout.is_empty());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("read vault file"));
+    }
+    fs::remove_dir_all(dir).unwrap();
+}
+
 fn tmp_dir(label: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
         "boole-wallet-agent-{}-{}-{}",

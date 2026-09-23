@@ -710,8 +710,15 @@ pub fn run_bounty(args: BountyArgs) -> anyhow::Result<()> {
                 }),
             ),
         };
-        let agent_bin = std::env::var("BOOLE_WALLET_AGENT_BIN")
-            .unwrap_or_else(|_| "boole-wallet-agent".to_string());
+        let agent_bin = crate::resolve_wallet_agent_binary()
+            .unwrap_or_else(|detail| {
+                bounty_emit_err(
+                    "wallet-agent-unavailable",
+                    serde_json::json!({ "detail": detail }),
+                )
+            })
+            .to_string_lossy()
+            .into_owned();
         Box::new(AgentSigner::new(agent_bin, vault, passphrase))
     } else {
         let prover_sk_hex = match resolve_prover_sk_hex(

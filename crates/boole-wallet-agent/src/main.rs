@@ -25,20 +25,22 @@
 //! consumer) must bind a different AAD; mixing vault files across
 //! consumers will fail at open() with `DecryptionFailed`.
 
-use std::fs::{self, File, OpenOptions};
-use std::io::{self, BufRead, Write};
+use std::fs::{self, OpenOptions};
+use std::io::{self, BufRead, Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::{anyhow, bail, Context, Result};
-use boole_core::vault::{EncryptedVault, VaultParams};
+use boole_core::vault::{EncryptedVault, VaultParams, MAX_VAULT_PASSPHRASE_BYTES};
 use boole_wallet_agent::VAULT_AAD;
 use clap::{Parser, Subcommand};
 use ed25519_dalek::{Signer, SigningKey, SECRET_KEY_LENGTH};
 use rand_core::{OsRng, RngCore};
 use zeroize::Zeroizing;
+
+mod vault_file;
 
 #[derive(Parser)]
 #[command(name = "boole-wallet-agent", about = "Boole wallet signing agent")]
@@ -67,6 +69,20 @@ enum Command {
         #[arg(long)]
         vault: PathBuf,
     },
+    /// Authenticate the vault, then copy only its encrypted bytes to a new file.
+    Backup {
+        #[arg(long)]
+        vault: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Authenticate an encrypted backup and recover it to a new vault file.
+    Restore {
+        #[arg(long)]
+        backup: PathBuf,
+        #[arg(long)]
+        vault: PathBuf,
+    },
 }
 
 fn main() -> ExitCode {
@@ -76,6 +92,8 @@ fn main() -> ExitCode {
         Command::Pubkey { vault } => cmd_pubkey(&vault),
         Command::Sign { vault, message } => cmd_sign(&vault, &message),
         Command::MigrateFromHex { vault } => cmd_migrate_from_hex(&vault),
+        Command::Backup { vault, output } => cmd_copy_authenticated(&vault, &output),
+        Command::Restore { backup, vault } => cmd_copy_authenticated(&backup, &vault),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -84,6 +102,22 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+fn cmd_copy_authenticated(source: &Path, destination: &Path) -> Result<()> {
+    if fs::symlink_metadata(destination).is_ok() {
+        bail!("destination already exists; refusing to overwrite");
+    }
+    let bytes = vault_file::read(source).context("read encrypted source vault")?;
+    let passphrase = read_passphrase()?;
+    let key = unlock_bytes(&bytes, &passphrase)?;
+    write_new_file_atomic_0600(destination, &bytes)?;
+    let readback = vault_file::read(destination).context("read back encrypted destination")?;
+    if readback.as_slice() != bytes.as_slice() {
+        bail!("encrypted destination changed after publication; do not discard the source");
+    }
+    println!("{}", hex::encode(key.verifying_key().to_bytes()));
+    Ok(())
 }
 
 fn read_passphrase() -> Result<Zeroizing<Vec<u8>>> {
@@ -124,6 +158,9 @@ fn cmd_pubkey(vault_path: &Path) -> Result<()> {
 }
 
 fn cmd_sign(vault_path: &Path, message_hex: &str) -> Result<()> {
+    if message_hex.len() > 131_072 {
+        bail!("message exceeds 65536-byte signing limit");
+    }
     let message = hex::decode(message_hex).context("--message must be hex-encoded bytes")?;
     let signing_key = open_signing_key(vault_path)?;
     let signature = signing_key.sign(&message); // P2.10-exempt: raw ed25519, not a SignedEnvelope constructor (ADR-0003 §42-46)
@@ -174,19 +211,39 @@ fn cmd_migrate_from_hex(vault_path: &Path) -> Result<()> {
 }
 
 fn read_stdin_line() -> Result<Zeroizing<String>> {
-    let mut line = Zeroizing::new(String::new());
-    io::stdin().lock().read_line(&mut line)?;
-    Ok(line)
+    let mut bytes = Zeroizing::new(Vec::new());
+    io::stdin()
+        .lock()
+        .take(MAX_VAULT_PASSPHRASE_BYTES as u64 + 3)
+        .read_until(b'\n', &mut bytes)?;
+    if bytes.last() == Some(&b'\n') {
+        bytes.pop();
+    }
+    if bytes.last() == Some(&b'\r') {
+        bytes.pop();
+    }
+    if bytes.len() > MAX_VAULT_PASSPHRASE_BYTES {
+        bail!("stdin secret exceeds 4096-byte limit");
+    }
+    if bytes.contains(&b'\r') || bytes.contains(&b'\n') || bytes.contains(&0) {
+        bail!("stdin secret must be a single line without NUL");
+    }
+    let text = std::str::from_utf8(&bytes).context("stdin secret must be UTF-8")?;
+    Ok(Zeroizing::new(text.to_string()))
 }
 
 fn open_signing_key(vault_path: &Path) -> Result<SigningKey> {
     let passphrase = read_passphrase()?;
-    let bytes = fs::read(vault_path)
+    let bytes = vault_file::read(vault_path)
         .with_context(|| format!("read vault file {}", vault_path.display()))?;
-    let vault = EncryptedVault::from_json_bytes(&bytes)
-        .map_err(|e| anyhow!("parse vault envelope: {e}"))?;
+    unlock_bytes(&bytes, &passphrase)
+}
+
+fn unlock_bytes(bytes: &[u8], passphrase: &[u8]) -> Result<SigningKey> {
+    let vault =
+        EncryptedVault::from_json_bytes(bytes).map_err(|e| anyhow!("parse vault envelope: {e}"))?;
     let seed = vault
-        .open(&passphrase, VAULT_AAD)
+        .open(passphrase, VAULT_AAD)
         .map_err(|e| anyhow!("open vault: {e}"))?;
     let seed_array = Zeroizing::new(
         <[u8; SECRET_KEY_LENGTH]>::try_from(seed.as_slice()).map_err(|_| {
@@ -198,17 +255,15 @@ fn open_signing_key(vault_path: &Path) -> Result<SigningKey> {
 
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
-fn sync_directory(path: &Path) -> io::Result<()> {
-    File::open(path)?.sync_all()
-}
-
 /// Create a new vault without ever replacing an existing final path. The hard
 /// link is the create-if-absent commit: two writers may stage safely, but only
 /// one can link its staged inode to `path`.
 fn write_new_file_atomic_0600(path: &Path, bytes: &[u8]) -> Result<()> {
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    fs::create_dir_all(parent)
-        .with_context(|| format!("create parent dir {}", parent.display()))?;
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let directory = vault_file::Parent::open(path, true)?;
     let filename = path
         .file_name()
         .and_then(|name| name.to_str())
@@ -225,6 +280,7 @@ fn write_new_file_atomic_0600(path: &Path, bytes: &[u8]) -> Result<()> {
             .write(true)
             .create_new(true)
             .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
             .open(&tmp)
         {
             Ok(file) => {
@@ -245,16 +301,19 @@ fn write_new_file_atomic_0600(path: &Path, bytes: &[u8]) -> Result<()> {
         let _ = fs::remove_file(&tmp);
         return Err(error).with_context(|| format!("write staged vault {}", tmp.display()));
     }
+    directory.check()?;
     if let Err(error) = fs::hard_link(&tmp, path) {
         let _ = fs::remove_file(&tmp);
         return Err(error).with_context(|| format!("create vault {}", path.display()));
     }
-    if let Err(error) = sync_directory(parent) {
+    if let Err(error) = directory.sync() {
         let _ = fs::remove_file(&tmp);
         return Err(error).with_context(|| format!("sync vault directory {}", parent.display()));
     }
     fs::remove_file(&tmp).with_context(|| format!("remove staged vault {}", tmp.display()))?;
-    sync_directory(parent).with_context(|| format!("sync vault directory {}", parent.display()))?;
+    directory
+        .sync()
+        .with_context(|| format!("sync vault directory {}", parent.display()))?;
     Ok(())
 }
 

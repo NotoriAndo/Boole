@@ -40,6 +40,9 @@ enum NativeCommand {
     Transfer {
         #[arg(long)]
         vault: PathBuf,
+        /// Read one passphrase line from stdin, ignoring any ambient password variable.
+        #[arg(long)]
+        passphrase_stdin: bool,
         #[arg(long)]
         to: String,
         /// tBOOLE decimal amount (at most 8 decimal places; no floating point).
@@ -63,6 +66,9 @@ enum NativeCommand {
     Mine {
         #[arg(long)]
         vault: PathBuf,
+        /// Read one passphrase line from stdin, ignoring any ambient password variable.
+        #[arg(long)]
+        passphrase_stdin: bool,
         #[arg(long)]
         reward_to: Option<String>,
         #[arg(long, default_value_t = 1_000_000)]
@@ -178,15 +184,24 @@ fn number(value: &Value, field: &str) -> anyhow::Result<u64> {
     Ok(number)
 }
 
-fn owner_signer(vault: &Path) -> anyhow::Result<boole_miner::AgentSigner> {
+fn owner_signer(vault: &Path, passphrase_stdin: bool) -> anyhow::Result<boole_miner::AgentSigner> {
+    let agent = super::resolve_wallet_agent_binary()?
+        .to_string_lossy()
+        .into_owned();
+    if passphrase_stdin {
+        return boole_miner::AgentSigner::from_stdin(agent, vault.to_path_buf())
+            .map_err(anyhow::Error::msg);
+    }
     let passphrase = std::env::var("BOOLE_WALLET_PASSPHRASE")
         .ok()
         .filter(|value| !value.is_empty())
         .ok_or_else(|| {
-            anyhow::anyhow!("owner vault requires BOOLE_WALLET_PASSPHRASE (never argv)")
+            anyhow::anyhow!(
+                "owner vault requires --passphrase-stdin or BOOLE_WALLET_PASSPHRASE (never argv)"
+            )
         })?;
     Ok(boole_miner::AgentSigner::new(
-        super::resolve_wallet_agent_binary()?.to_string_lossy(),
+        agent,
         vault.to_path_buf(),
         passphrase,
     ))
@@ -252,6 +267,7 @@ pub(super) fn run(args: NativeArgs) -> anyhow::Result<()> {
         }
         NativeCommand::Transfer {
             vault,
+            passphrase_stdin,
             to,
             amount,
             fee,
@@ -269,7 +285,7 @@ pub(super) fn run(args: NativeArgs) -> anyhow::Result<()> {
                 amount > 0 && fee >= native_testnet().minimum_fee(),
                 "zero amount or fee below testnet minimum"
             );
-            let signer = owner_signer(&vault)?;
+            let signer = owner_signer(&vault, passphrase_stdin)?;
             let from = signer.pk_hex().map_err(anyhow::Error::msg)?;
             let account = client.request(&format!("/native/accounts/{from}"), None)?;
             let nonce = number(&account, "pendingNonce")?;
@@ -309,6 +325,7 @@ pub(super) fn run(args: NativeArgs) -> anyhow::Result<()> {
         }
         NativeCommand::Mine {
             vault,
+            passphrase_stdin,
             reward_to,
             attempts,
             start_nonce,
@@ -318,7 +335,7 @@ pub(super) fn run(args: NativeArgs) -> anyhow::Result<()> {
                 (1..=10_000_000).contains(&attempts),
                 "attempts must be 1..=10000000"
             );
-            let signer = owner_signer(&vault)?;
+            let signer = owner_signer(&vault, passphrase_stdin)?;
             let producer = signer.pk_hex().map_err(anyhow::Error::msg)?;
             let reward = reward_to.unwrap_or_else(|| producer.clone());
             anyhow::ensure!(
