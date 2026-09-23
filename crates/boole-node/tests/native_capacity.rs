@@ -264,3 +264,131 @@ fn native_capacity_131072_accounts_and_full_pending_queue() {
     assert_eq!(report["resources"]["balanceEntries"], 131_073);
     assert_eq!(report["resources"]["historyBlocks"], 267);
 }
+
+fn run_recent_fork_scenario(funded_blocks: u64) {
+    let started = Instant::now();
+    let dir = TestDir::new();
+    let owner = SigningKeyV2::from_dev_id("native-capacity-producer");
+    let replacement = SigningKeyV2::from_dev_id("native-capacity-replacement");
+    let mut node = NativeNode::open(&dir.path).unwrap();
+    let mut max_template = Duration::ZERO;
+    let mut max_append = Duration::ZERO;
+    for _ in 0..10 {
+        let block = mine(&node, &owner, Some(&[]), &mut max_template);
+        append(&mut node, block, &mut max_append);
+    }
+    for index in 0..funded_blocks {
+        let transfers: Vec<_> = (index * PER_BLOCK..(index + 1) * PER_BLOCK)
+            .map(|nonce| transfer(&owner, &format!("{nonce:064x}"), nonce))
+            .collect();
+        let block = mine(&node, &owner, Some(&transfers), &mut max_template);
+        append(&mut node, block, &mut max_append);
+        assert!(started.elapsed() < Duration::from_secs(900));
+        if (index + 1).is_multiple_of(32) {
+            eprintln!(
+                "fork-progress fundedBlocks={} elapsedMs={}",
+                index + 1,
+                started.elapsed().as_millis()
+            );
+        }
+    }
+    let common_height = node.chain().ledger().height();
+    let common_hash = node.chain().head_hash();
+    let recipients = funded_blocks * PER_BLOCK;
+    check_canonical(&node, &owner.pk_hex(), recipients, 0);
+    let mut candidate = node.chain().clone();
+    let orphan = transfer(&owner, &owner.pk_hex(), recipients);
+    assert!(node.submit_transfer(orphan.clone()).unwrap());
+    let block = mine(&node, &owner, None, &mut max_template);
+    append(&mut node, block, &mut max_append);
+    assert_eq!(node.confirmed_height(&orphan.id()), Some(common_height + 1));
+    for height in common_height + 1..=common_height + 2 {
+        let block = candidate
+            .template(
+                &replacement.pk_hex(),
+                &replacement.pk_hex(),
+                height * 60_000,
+                &[],
+            )
+            .unwrap()
+            .mine(0, 2_000_000)
+            .unwrap()
+            .unwrap();
+        let auth = replacement
+            .sign_for_network(
+                &block.authorization_payload().unwrap(),
+                Some(native_testnet().network_id()),
+            )
+            .unwrap();
+        candidate.append(block.authorize(&auth).unwrap()).unwrap();
+    }
+    let begin = Instant::now();
+    assert!(node.adopt_chain(candidate.blocks()).unwrap());
+    let adoption = begin.elapsed();
+    assert_eq!(node.chain(), &candidate);
+    assert_eq!(node.pending(), std::slice::from_ref(&orphan));
+    assert_eq!(node.confirmed_height(&orphan.id()), None);
+    assert_eq!(
+        node.chain().ledger().next_nonce(&owner.pk_hex()),
+        recipients
+    );
+    assert_eq!(
+        node.pending_view().unwrap().next_nonce(&owner.pk_hex()),
+        recipients + 1
+    );
+    assert_eq!(
+        node.resource_usage().unwrap().confirmed_transfers as u64,
+        recipients
+    );
+    for index in 0..recipients {
+        assert_eq!(node.chain().ledger().balance(&format!("{index:064x}")), 1);
+    }
+    eprintln!(
+        "fork-adoption {}",
+        json!({
+            "fundedBlocks": funded_blocks, "commonHeight": common_height, "commonHash": common_hash.to_hex(),
+            "head": node.chain().head_hash().to_hex(), "adoptionMs": adoption.as_millis(),
+            "elapsedMs": started.elapsed().as_millis(), "resources": node.resource_usage().unwrap(),
+        })
+    );
+    assert!(
+        adoption < Duration::from_secs(10),
+        "recent fork adoption exceeded 10s: {adoption:?}"
+    );
+    drop(candidate);
+    let expected_head = node.chain().head_hash();
+    drop(node);
+    let begin = Instant::now();
+    let node = NativeNode::open(&dir.path).unwrap();
+    let restart = begin.elapsed();
+    assert_eq!(node.chain().head_hash(), expected_head);
+    assert_eq!(node.pending(), std::slice::from_ref(&orphan));
+    assert_eq!(
+        node.chain().ledger().next_nonce(&owner.pk_hex()),
+        recipients
+    );
+    assert_eq!(
+        node.resource_usage().unwrap().confirmed_transfers as u64,
+        recipients
+    );
+    assert!(restart < Duration::from_secs(120));
+    eprintln!(
+        "fork-result {}",
+        json!({
+            "adoptionMs": adoption.as_millis(), "restartMs": restart.as_millis(),
+            "elapsedMs": started.elapsed().as_millis(), "resources": node.resource_usage().unwrap(),
+        })
+    );
+    assert!(started.elapsed() < Duration::from_secs(900));
+}
+
+#[test]
+fn small_recent_fork_preserves_balances_and_recovers_orphans() {
+    run_recent_fork_scenario(2);
+}
+
+#[test]
+#[ignore = "explicit closed-local recent-fork qualification; not routine CI"]
+fn native_recent_fork_131072_accounts() {
+    run_recent_fork_scenario(256);
+}

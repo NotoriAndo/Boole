@@ -186,6 +186,56 @@ pub struct NativeLedger {
     pending_rewards: BTreeMap<u64, (String, u128)>,
 }
 
+/// In-process inverse of one verified transition. There is no deserialization
+/// or external construction path; only NativeChain retains these values.
+#[derive(Debug, Clone)]
+pub(crate) struct NativeLedgerUndo {
+    height: u64,
+    issued: u128,
+    balances: BTreeMap<String, Option<u128>>,
+    next_nonces: BTreeMap<String, Option<u64>>,
+    locked_balances: BTreeMap<String, Option<u128>>,
+    pending_rewards: BTreeMap<u64, Option<(String, u128)>>,
+}
+
+impl NativeLedgerUndo {
+    fn new(ledger: &NativeLedger) -> Self {
+        Self {
+            height: ledger.height,
+            issued: ledger.issued,
+            balances: BTreeMap::new(),
+            next_nonces: BTreeMap::new(),
+            locked_balances: BTreeMap::new(),
+            pending_rewards: BTreeMap::new(),
+        }
+    }
+
+    fn balance(&mut self, ledger: &NativeLedger, pk: &str) {
+        self.balances
+            .entry(pk.to_string())
+            .or_insert_with(|| ledger.balances.get(pk).copied());
+    }
+
+    fn locked_balance(&mut self, ledger: &NativeLedger, pk: &str) {
+        self.locked_balances
+            .entry(pk.to_string())
+            .or_insert_with(|| ledger.locked_balances.get(pk).copied());
+    }
+}
+
+fn restore_entries<K: Ord, V>(map: &mut BTreeMap<K, V>, old: BTreeMap<K, Option<V>>) {
+    for (key, value) in old {
+        match value {
+            Some(value) => {
+                map.insert(key, value);
+            }
+            None => {
+                map.remove(&key);
+            }
+        }
+    }
+}
+
 /// Non-authoritative reservations for the next block. It cannot be converted
 /// into a canonical ledger; fees are reserved, not credited to an unknown
 /// future producer, and no new block reward is created.
@@ -341,9 +391,40 @@ impl NativeLedger {
         authenticated_reward_pk: &str,
         transfers: &[SignedEnvelope],
     ) -> Result<(), NativeLedgerError> {
-        let mut staged = self.clone();
-        staged.apply_block_inner(height, authenticated_reward_pk, transfers)?;
+        let (staged, _) = self.prepare_block(height, authenticated_reward_pk, transfers)?;
         *self = staged;
+        Ok(())
+    }
+
+    pub(crate) fn prepare_block(
+        &self,
+        height: u64,
+        authenticated_reward_pk: &str,
+        transfers: &[SignedEnvelope],
+    ) -> Result<(Self, NativeLedgerUndo), NativeLedgerError> {
+        let mut staged = self.clone();
+        let mut undo = NativeLedgerUndo::new(self);
+        staged.apply_block_inner(height, authenticated_reward_pk, transfers, &mut undo)?;
+        Ok((staged, undo))
+    }
+
+    pub(crate) fn undo_block(&mut self, undo: NativeLedgerUndo) -> Result<(), NativeLedgerError> {
+        let expected = undo
+            .height
+            .checked_add(1)
+            .ok_or(NativeLedgerError::Overflow)?;
+        if self.height != expected {
+            return Err(NativeLedgerError::UnexpectedHeight {
+                expected,
+                actual: self.height,
+            });
+        }
+        restore_entries(&mut self.balances, undo.balances);
+        restore_entries(&mut self.next_nonces, undo.next_nonces);
+        restore_entries(&mut self.locked_balances, undo.locked_balances);
+        restore_entries(&mut self.pending_rewards, undo.pending_rewards);
+        self.height = undo.height;
+        self.issued = undo.issued;
         Ok(())
     }
 
@@ -352,6 +433,7 @@ impl NativeLedger {
         height: u64,
         authenticated_reward_pk: &str,
         transfers: &[SignedEnvelope],
+        undo: &mut NativeLedgerUndo,
     ) -> Result<(), NativeLedgerError> {
         let expected = self
             .height
@@ -365,11 +447,27 @@ impl NativeLedger {
         }
         Hex32::from_hex(authenticated_reward_pk)
             .map_err(|_| NativeLedgerError::InvalidPublicKey)?;
+        for (unlock_height, (pk, amount)) in self.pending_rewards.range(..=height) {
+            undo.locked_balance(self, pk);
+            undo.pending_rewards
+                .insert(*unlock_height, Some((pk.clone(), *amount)));
+        }
         self.unlock_rewards(height)?;
         for transfer in transfers {
-            self.apply_transfer(height, Some(authenticated_reward_pk), transfer)?;
+            let prepared =
+                self.prepare_transfer(height, Some(authenticated_reward_pk), transfer)?;
+            for pk in prepared.balances.keys() {
+                undo.balance(self, pk);
+            }
+            undo.next_nonces
+                .entry(prepared.sender.clone())
+                .or_insert_with(|| self.next_nonces.get(&prepared.sender).copied());
+            self.commit_transfer(prepared);
         }
         let emission = self.schedule.emission(height, self.issued)?;
+        if emission != 0 {
+            undo.balance(self, authenticated_reward_pk);
+        }
         self.credit(authenticated_reward_pk, emission)?;
         if emission != 0 && self.reward_maturity != 0 {
             let unlock_height = height
@@ -379,6 +477,10 @@ impl NativeLedger {
                 .locked_balance(authenticated_reward_pk)
                 .checked_add(emission)
                 .ok_or(NativeLedgerError::Overflow)?;
+            undo.locked_balance(self, authenticated_reward_pk);
+            undo.pending_rewards
+                .entry(unlock_height)
+                .or_insert_with(|| self.pending_rewards.get(&unlock_height).cloned());
             self.locked_balances
                 .insert(authenticated_reward_pk.to_string(), locked);
             self.pending_rewards.insert(
@@ -411,17 +513,6 @@ impl NativeLedger {
                 self.locked_balances.insert(pk, remaining);
             }
         }
-        Ok(())
-    }
-
-    fn apply_transfer(
-        &mut self,
-        height: u64,
-        reward_pk: Option<&str>,
-        envelope: &SignedEnvelope,
-    ) -> Result<(), NativeLedgerError> {
-        let prepared = self.prepare_transfer(height, reward_pk, envelope)?;
-        self.commit_transfer(prepared);
         Ok(())
     }
 
