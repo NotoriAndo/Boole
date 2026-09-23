@@ -84,6 +84,10 @@ journal/manifest bytes, but may create/open ordinary ownership lock files. They
 do not repair a torn tail, recreate a lost canonical journal or certify a stale
 yet internally valid history. If they fail, preserve the source and seek another
 verified archive/replica; never lower a bound or delete a destination to retry.
+They also reject source history, pending or manifest versions changed after
+being read during replay. A file-change error is not permission to restore the
+earlier in-memory bytes or erase the modified file. Preserve the source, stop
+other writers and investigate before opening a separate verified recovery copy.
 
 ## 3. Restore canonical history into a fresh directory
 

@@ -298,6 +298,17 @@ reductions, not a production-scale capacity claim. Normal native startup also
 bounds the actual descriptor read and checks stability before tail repair.
 The shared node-manifest reader now rejects nonregular/aliased inputs and files
 above 64KiB; existing compatible creation provenance and legacy upgrades remain.
+Startup, audit and export now retain the descriptor-observed history/pending
+versions and a version-bound validated manifest through full replay. A source
+change after read cannot become a late readiness baseline. All source versions
+and ownership guards are checked before startup's stale-pending cleanup; an
+intentional cleanup or torn-tail repair is bound to exact bounded read-back.
+Source-preserving audit/export never perform those repairs. A detected external
+change fails closed and requires preservation/investigation, not automatic
+restoration of old bytes. See the
+[reproduction, correction and limits](native-replay-input-fence-2026-09.md).
+These checks are not an atomic multi-file transaction or protection against a
+privileged malicious host; existing filesystem/ownership assumptions remain.
 
 ### Offline canonical accounting audit
 

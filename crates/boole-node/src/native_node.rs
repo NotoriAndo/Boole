@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, OpenOptions};
-use std::io::Read;
+use std::io::{Read, Seek};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -128,12 +128,27 @@ impl NativeNode {
         }
         if repair {
             ensure_manifest(&state_dir, &manifest)?;
-        } else {
-            crate::state_dir::verify_manifest_read_only(&state_dir, &manifest)?;
         }
+        // Creation/allowed compatibility updates above are intentional. Bind
+        // the resulting manifest to a bounded read-only validation before any
+        // potentially long block replay, including on ordinary startup.
+        let manifest_stamp = file_stamp(&manifest_path)?;
+        anyhow::ensure!(
+            manifest_stamp.is_some(),
+            "native state manifest disappeared"
+        );
+        crate::state_dir::verify_manifest_read_only(&state_dir, &manifest)?;
+        anyhow::ensure!(
+            file_stamp(&manifest_path)? == manifest_stamp,
+            "native state manifest changed during validation"
+        );
         let mut chain = NativeChain::new()?;
         let now = unix_time_ms()?;
-        if let Some(raw) = read_native_log(&block_path, MAX_NATIVE_HISTORY_BYTES, repair)? {
+        let block_stamp = if let Some((raw, observed)) =
+            read_native_log(&block_path, MAX_NATIVE_HISTORY_BYTES, repair)?
+        {
+            #[cfg(test)]
+            tests::mutate_after_replay_read(&block_path);
             for (index, line) in raw.lines().enumerate() {
                 anyhow::ensure!(
                     index < MAX_NATIVE_HISTORY_BLOCKS,
@@ -149,12 +164,17 @@ impl NativeNode {
                 check_block_ts_future_drift(block.header.timestamp_ms, now)?;
                 chain.append(block)?;
             }
+            Some(observed)
         } else {
             anyhow::bail!("native canonical history disappeared during replay");
-        }
+        };
         let confirmed = confirmed_index(&chain);
         let mut pending = Vec::new();
-        if let Some(raw) = read_native_log(&pool_path, MAX_NATIVE_POOL_BYTES, repair)? {
+        let pool_stamp = if let Some((raw, observed)) =
+            read_native_log(&pool_path, MAX_NATIVE_POOL_BYTES, repair)?
+        {
+            #[cfg(test)]
+            tests::mutate_after_replay_read(&pool_path);
             for line in raw.lines() {
                 anyhow::ensure!(
                     line.len() <= network.max_transfer_bytes(),
@@ -170,23 +190,12 @@ impl NativeNode {
                 transfer.validated_fields()?;
                 pending.push(transfer);
             }
-        }
+            Some(observed)
+        } else {
+            None
+        };
         let retained = retain_pending(&chain, &confirmed, &pending)?;
-        if pending != retained.transfers && repair {
-            write_pool(&pool_path, &retained.transfers)?;
-        }
-        let block_stamp = file_stamp(&block_path)?;
-        anyhow::ensure!(
-            block_stamp.is_some(),
-            "native canonical history disappeared"
-        );
-        let pool_stamp = file_stamp(&pool_path)?;
-        let manifest_stamp = file_stamp(&manifest_path)?;
-        anyhow::ensure!(
-            manifest_stamp.is_some(),
-            "native state manifest disappeared"
-        );
-        let node = Self {
+        let mut node = Self {
             chain,
             block_path,
             pool_path,
@@ -200,7 +209,25 @@ impl NativeNode {
             ledger_locks,
             poisoned: false,
         };
+        // Check every replay input and ownership guard before any cleanup can
+        // replace source evidence. Never establish readiness from a late stamp.
         node.ensure_ready()?;
+        if pending != node.pending.transfers && repair {
+            write_pool(&node.pool_path, &node.pending.transfers)?;
+            #[cfg(test)]
+            tests::mutate_after_pending_cleanup(&node.pool_path);
+            let (raw, observed) =
+                read_native_log(&node.pool_path, MAX_NATIVE_POOL_BYTES, false)?
+                    .ok_or_else(|| anyhow::anyhow!("native pending cleanup output disappeared"))?;
+            let mut expected = String::new();
+            for transfer in &node.pending.transfers {
+                expected.push_str(&serde_json::to_string(transfer)?);
+                expected.push('\n');
+            }
+            anyhow::ensure!(raw == expected, "native pending cleanup output changed");
+            node.pool_stamp = Some(observed);
+            node.ensure_ready()?;
+        }
         Ok(node)
     }
 
@@ -556,8 +583,14 @@ fn stamp(metadata: &fs::Metadata) -> anyhow::Result<FileStamp> {
     })
 }
 
-fn read_native_log(path: &Path, maximum: u64, repair: bool) -> anyhow::Result<Option<String>> {
-    let file = match OpenOptions::new()
+// Carry the observed version with its bytes. Capturing a new stamp after core
+// replay could otherwise authorize a different, never-validated file version.
+fn read_native_log(
+    path: &Path,
+    maximum: u64,
+    repair: bool,
+) -> anyhow::Result<Option<(String, FileStamp)>> {
+    let mut file = match OpenOptions::new()
         .read(true)
         .write(repair)
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
@@ -574,7 +607,7 @@ fn read_native_log(path: &Path, maximum: u64, repair: bool) -> anyhow::Result<Op
     );
     let mut bytes = Vec::new();
     (&file).take(maximum + 1).read_to_end(&mut bytes)?;
-    let after = stamp(&file.metadata()?)?;
+    let mut after = stamp(&file.metadata()?)?;
     anyhow::ensure!(
         bytes.len() as u64 == before.len
             && before == after
@@ -590,8 +623,21 @@ fn read_native_log(path: &Path, maximum: u64, repair: bool) -> anyhow::Result<Op
         file.set_len(stable as u64)?;
         file.sync_all()?;
         bytes.truncate(stable);
+        // Our own permitted tail repair changes metadata. Bind its new stamp
+        // to a read-back of the exact retained prefix, not to metadata alone.
+        after = stamp(&file.metadata()?)?;
+        file.rewind()?;
+        let mut retained = Vec::new();
+        (&file).take(maximum + 1).read_to_end(&mut retained)?;
+        anyhow::ensure!(
+            after.len == stable as u64
+                && retained == bytes
+                && stamp(&file.metadata()?)? == after
+                && file_stamp(path)?.as_ref() == Some(&after),
+            "native log changed during tail repair"
+        );
     }
-    Ok(Some(String::from_utf8(bytes)?))
+    Ok(Some((String::from_utf8(bytes)?, after)))
 }
 
 pub(crate) fn unix_time_ms() -> anyhow::Result<u64> {
@@ -657,6 +703,376 @@ mod tests {
     use super::*;
     use crate::durability::{fail_atomic_rewrite, fail_next_append, AppendFault, PrivateTempDir};
     use boole_core::SigningKeyV2;
+
+    // A deterministic external-file timing fault, scoped to this test thread
+    // and exact disposable paths. Production builds contain no mutation hook.
+    struct ReplayReadMutation {
+        trigger: PathBuf,
+        target: PathBuf,
+        bytes: Vec<u8>,
+        after_cleanup: bool,
+        replace_inode: bool,
+    }
+
+    thread_local! {
+        static REPLAY_READ_MUTATION: std::cell::RefCell<Option<ReplayReadMutation>> = const { std::cell::RefCell::new(None) };
+    }
+
+    fn change_after_read(trigger: &Path, target: &Path, bytes: Vec<u8>) {
+        REPLAY_READ_MUTATION.with(|slot| {
+            assert!(slot
+                .replace(Some(ReplayReadMutation {
+                    trigger: trigger.canonicalize().unwrap(),
+                    target: target.to_owned(),
+                    bytes,
+                    after_cleanup: false,
+                    replace_inode: false,
+                }))
+                .is_none());
+        });
+    }
+
+    pub(super) fn mutate_after_replay_read(path: &Path) {
+        mutate_replay_file(path, false);
+    }
+
+    pub(super) fn mutate_after_pending_cleanup(path: &Path) {
+        mutate_replay_file(path, true);
+    }
+
+    fn mutate_replay_file(path: &Path, after_cleanup: bool) {
+        let mutation = REPLAY_READ_MUTATION.with(|slot| {
+            let mut pending = slot.borrow_mut();
+            if pending
+                .as_ref()
+                .is_some_and(|fault| fault.trigger == path && fault.after_cleanup == after_cleanup)
+            {
+                pending.take()
+            } else {
+                None
+            }
+        });
+        if let Some(mutation) = mutation {
+            if mutation.replace_inode {
+                let replacement = mutation.target.with_extension("replacement-fixture");
+                let mut file = OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .mode(0o600)
+                    .open(&replacement)
+                    .unwrap();
+                std::io::Write::write_all(&mut file, &mutation.bytes).unwrap();
+                std::fs::rename(replacement, mutation.target).unwrap();
+            } else {
+                std::fs::write(mutation.target, mutation.bytes).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn replayed_blocks_cannot_become_ready_against_a_changed_source_file() {
+        for preserving in [false, true] {
+            for mutation_kind in 0..3 {
+                let dir = PrivateTempDir::new("boole-native-replay-input").unwrap();
+                let key = SigningKeyV2::from_dev_id("native-replay-input-producer");
+                let mut node = NativeNode::open(dir.path()).unwrap();
+                let block = node
+                    .template(&key.pk_hex(), &key.pk_hex(), 60_000)
+                    .unwrap()
+                    .mine(0, 2_000_000)
+                    .unwrap()
+                    .unwrap();
+                let auth = key
+                    .sign_for_network(
+                        &block.authorization_payload().unwrap(),
+                        Some(native_testnet().network_id()),
+                    )
+                    .unwrap();
+                node.submit_block(block.authorize(&auth).unwrap()).unwrap();
+                drop(node);
+                let history = dir.path().join(NATIVE_BLOCKS_FILE);
+                let original = std::fs::read(&history).unwrap();
+                assert!(!original.is_empty());
+                let changed = match mutation_kind {
+                    0 => Vec::new(),
+                    1 => {
+                        let mut bytes = original.clone();
+                        bytes[0] = b'[';
+                        bytes
+                    }
+                    2 => original,
+                    _ => unreachable!(),
+                };
+                change_after_read(&history, &history, changed.clone());
+                REPLAY_READ_MUTATION.with(|slot| {
+                    slot.borrow_mut().as_mut().unwrap().replace_inode = mutation_kind == 2;
+                });
+                let opened = if preserving {
+                    NativeNode::open_preserving(dir.path())
+                } else {
+                    NativeNode::open(dir.path())
+                };
+                REPLAY_READ_MUTATION.with(|slot| {
+                    assert!(slot.borrow().is_none(), "read timing fault did not execute")
+                });
+                let observed = opened.as_ref().ok().map(|node| {
+                    (
+                        node.ensure_ready().is_ok(),
+                        node.chain().ledger().height(),
+                        node.resource_usage().unwrap().history_bytes,
+                    )
+                });
+                let refused = opened.is_err();
+                drop(opened);
+                assert_eq!(
+                    std::fs::read(&history).unwrap(),
+                    changed,
+                    "must not restore or rewrite the externally changed source"
+                );
+                assert!(
+                    refused,
+                    "replay accepted a different file version: ready/height/bytes={observed:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn replayed_pending_cannot_become_ready_against_a_changed_source_file() {
+        for preserving in [false, true] {
+            let dir = PrivateTempDir::new("boole-native-pool-replay-input").unwrap();
+            drop(NativeNode::open(dir.path()).unwrap());
+            let pool = dir.path().join(NATIVE_MEMPOOL_FILE);
+            std::fs::write(&pool, []).unwrap();
+            let changed = b"external replacement not yet validated\n";
+            change_after_read(&pool, &pool, changed.to_vec());
+            let opened = if preserving {
+                NativeNode::open_preserving(dir.path())
+            } else {
+                NativeNode::open(dir.path())
+            };
+            REPLAY_READ_MUTATION.with(|slot| assert!(slot.borrow().is_none()));
+            let refused = opened.is_err();
+            drop(opened);
+            assert_eq!(std::fs::read(&pool).unwrap(), changed);
+            assert!(
+                refused,
+                "replay accepted an unvalidated pending file version"
+            );
+        }
+    }
+
+    #[test]
+    fn replay_cannot_accept_a_manifest_changed_after_its_validation() {
+        for preserving in [false, true] {
+            let dir = PrivateTempDir::new("boole-native-manifest-replay-input").unwrap();
+            drop(NativeNode::open(dir.path()).unwrap());
+            let history = dir.path().join(NATIVE_BLOCKS_FILE);
+            let path = dir.path().join("state.manifest.json");
+            let mut changed: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+            changed["network_id"] = serde_json::json!("foreign-network");
+            let changed = serde_json::to_vec(&changed).unwrap();
+            change_after_read(&history, &path, changed.clone());
+            let opened = if preserving {
+                NativeNode::open_preserving(dir.path())
+            } else {
+                NativeNode::open(dir.path())
+            };
+            REPLAY_READ_MUTATION.with(|slot| assert!(slot.borrow().is_none()));
+            let refused = opened.is_err();
+            drop(opened);
+            assert_eq!(std::fs::read(&path).unwrap(), changed);
+            assert!(refused, "replay accepted a foreign manifest version");
+        }
+    }
+
+    #[test]
+    fn replay_refuses_changed_inputs_before_cleaning_stale_pending_rows() {
+        for (changed_name, after_cleanup) in [
+            (NATIVE_MEMPOOL_FILE, false),
+            (NATIVE_BLOCKS_FILE, false),
+            ("state.manifest.json", false),
+            (NATIVE_MEMPOOL_FILE, true),
+        ] {
+            let dir = PrivateTempDir::new("boole-native-replay-cleanup-fence").unwrap();
+            drop(NativeNode::open(dir.path()).unwrap());
+            let key = SigningKeyV2::from_dev_id("native-replay-stale-owner");
+            // Authentic but unfunded at genesis: a normal writable restart
+            // removes this row, whereas source-preserving open retains bytes.
+            let stale = NativeTransfer::try_from(
+                &key.sign_for_network(
+                    &serde_json::json!({
+                        "schema": "boole.transfer.v1", "from": key.pk_hex(), "to": key.pk_hex(),
+                        "amount": "1", "fee": "1000", "nonce": "0", "validBefore": "100"
+                    }),
+                    Some(native_testnet().network_id()),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+            let pool = dir.path().join(NATIVE_MEMPOOL_FILE);
+            std::fs::write(
+                &pool,
+                format!("{}\n", serde_json::to_string(&stale).unwrap()),
+            )
+            .unwrap();
+            let changed_path = dir.path().join(changed_name);
+            let changed = b"external changed evidence\n".to_vec();
+            let expected: Vec<_> = [
+                NATIVE_BLOCKS_FILE,
+                NATIVE_MEMPOOL_FILE,
+                "state.manifest.json",
+            ]
+            .into_iter()
+            .map(|name| {
+                let path = dir.path().join(name);
+                let bytes = if name == changed_name {
+                    changed.clone()
+                } else {
+                    std::fs::read(&path).unwrap()
+                };
+                (path, bytes)
+            })
+            .collect();
+            change_after_read(&pool, &changed_path, changed);
+            REPLAY_READ_MUTATION.with(|slot| {
+                slot.borrow_mut().as_mut().unwrap().after_cleanup = after_cleanup;
+            });
+            let opened = NativeNode::open(dir.path());
+            REPLAY_READ_MUTATION.with(|slot| assert!(slot.borrow().is_none()));
+            let refused = opened.is_err();
+            drop(opened);
+            for (path, bytes) in expected {
+                assert_eq!(
+                    std::fs::read(&path).unwrap(),
+                    bytes,
+                    "replay cleanup rewrote evidence after {changed_name} changed"
+                );
+            }
+            assert!(refused, "replay ignored changed {changed_name}");
+        }
+    }
+
+    #[test]
+    fn audit_and_export_refuse_changed_replay_inputs_without_publishing_or_repair() {
+        for export in [false, true] {
+            for changed_name in [
+                NATIVE_BLOCKS_FILE,
+                NATIVE_MEMPOOL_FILE,
+                "state.manifest.json",
+            ] {
+                let dir = PrivateTempDir::new("boole-native-offline-replay-fence").unwrap();
+                let state = dir.path().join("source");
+                drop(NativeNode::open(&state).unwrap());
+                let pool = state.join(NATIVE_MEMPOOL_FILE);
+                std::fs::write(&pool, []).unwrap();
+                let changed_path = state.join(changed_name);
+                let changed = b"external changed offline evidence\n".to_vec();
+                let expected: Vec<_> = [
+                    NATIVE_BLOCKS_FILE,
+                    NATIVE_MEMPOOL_FILE,
+                    "state.manifest.json",
+                ]
+                .into_iter()
+                .map(|name| {
+                    let path = state.join(name);
+                    let bytes = if name == changed_name {
+                        changed.clone()
+                    } else {
+                        std::fs::read(&path).unwrap()
+                    };
+                    (path, bytes)
+                })
+                .collect();
+                change_after_read(&pool, &changed_path, changed);
+                let output = dir.path().join("must-not-publish.ndjson");
+                let refused = if export {
+                    crate::native_archive::export_native_archive(&state, &output).is_err()
+                } else {
+                    crate::native_archive::audit_native_state(&state, None).is_err()
+                };
+                REPLAY_READ_MUTATION.with(|slot| assert!(slot.borrow().is_none()));
+                assert!(refused, "offline consumer accepted changed {changed_name}");
+                assert!(!output.exists(), "failed export published an archive");
+                for (path, bytes) in expected {
+                    assert_eq!(std::fs::read(path).unwrap(), bytes);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn restart_binds_repaired_tails_and_retains_authentic_pending_transfers() {
+        let dir = PrivateTempDir::new("boole-native-repaired-input-versions").unwrap();
+        let key = SigningKeyV2::from_dev_id("native-repaired-input-owner");
+        let mut node = NativeNode::open(dir.path()).unwrap();
+        for height in 1..=10 {
+            let block = node
+                .template(&key.pk_hex(), &key.pk_hex(), height * 60_000)
+                .unwrap()
+                .mine(0, 2_000_000)
+                .unwrap()
+                .unwrap();
+            let auth = key
+                .sign_for_network(
+                    &block.authorization_payload().unwrap(),
+                    Some(native_testnet().network_id()),
+                )
+                .unwrap();
+            node.submit_block(block.authorize(&auth).unwrap()).unwrap();
+        }
+        let transfer = NativeTransfer::try_from(
+            &key.sign_for_network(
+                &serde_json::json!({
+                    "schema": "boole.transfer.v1", "from": key.pk_hex(), "to": key.pk_hex(),
+                    "amount": "1", "fee": "1000", "nonce": "0", "validBefore": "100"
+                }),
+                Some(native_testnet().network_id()),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        node.submit_transfer(transfer.clone()).unwrap();
+        let expected = node.chain().clone();
+        drop(node);
+        let originals: Vec<_> = [NATIVE_BLOCKS_FILE, NATIVE_MEMPOOL_FILE]
+            .into_iter()
+            .map(|name| {
+                let path = dir.path().join(name);
+                let bytes = std::fs::read(&path).unwrap();
+                let mut file = OpenOptions::new().append(true).open(&path).unwrap();
+                std::io::Write::write_all(&mut file, b"{torn-tail").unwrap();
+                (path, bytes)
+            })
+            .collect();
+        assert!(NativeNode::open_preserving(dir.path()).is_err());
+        for (path, bytes) in &originals {
+            assert_eq!(
+                std::fs::read(path).unwrap(),
+                [bytes.as_slice(), b"{torn-tail"].concat()
+            );
+        }
+        let recovered = NativeNode::open(dir.path()).unwrap();
+        recovered.ensure_ready().unwrap();
+        assert_eq!(recovered.chain(), &expected);
+        assert_eq!(recovered.pending(), std::slice::from_ref(&transfer));
+        assert_eq!(
+            recovered.pending_view().unwrap().next_nonce(&key.pk_hex()),
+            1
+        );
+        drop(recovered);
+        let audit = crate::native_archive::audit_native_state(
+            dir.path(),
+            Some(&expected.head_hash().to_hex()),
+        )
+        .unwrap();
+        assert_eq!(audit.height, "10");
+        assert_eq!(audit.resources.pending_transfers, 1);
+        for (path, bytes) in originals {
+            assert_eq!(std::fs::read(path).unwrap(), bytes);
+        }
+    }
 
     #[test]
     fn recent_reorg_publication_failures_preserve_pending_dependencies_on_restart() {
