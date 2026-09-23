@@ -200,6 +200,13 @@ stop closed eight HTTP and twelve TLS connections in 5.071s at 610.375MiB RSS.
 Old client handles/runtime remained alive during 51.803s independent replay,
 with exact original accounting and files. No missing body/page was sent first.
 This input-only combination does not qualify concurrent successful mutations.
+Final connection-lifetime review also reproduced and fixed a premature HTTP
+slot return while shutdown-descriptor cleanup waited on its registry. The slot
+now remains held through actual cleanup. Direct regressions and the same large
+held-input criteria passed on the corrected source: 5.071s stop, 51.647s replay
+and 621.75MiB RSS, with exact original state/files. The
+[separate corrective result](native-http-shutdown-drain-2026-09.md#large-held-input-follow-up-after-slot-lifetime-correction--pass)
+retains the earlier outcomes and does not raise any connection or time limit.
 `native diagnostics` now uses two separate small observation slots and no ledger
 lock/readiness check. It explicitly reports `ledgerReadiness=not_checked`, bounded
 RPC occupancy, shutdown state and the peer monitor without exposing ledger data

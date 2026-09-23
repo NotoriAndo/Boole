@@ -312,11 +312,90 @@ network/stop 5.577s, maximum diagnostic response 472µs and independent replay
 409ms. All twenty connections actually closed, missing inputs stayed unsent,
 and exact original head/accounting/files matched. Targeted node lib/native HTTP/
 capacity clippy with warnings denied passed in 2.49s; fmt/docs-smoke/diff passed.
-The unchanged large held-input qualification is the remaining verification for
-this correction. It will use the existing 900s total, 1GiB RSS, 15s network-and-stop,
-7s held-stop, 120s replay and exact state/file criteria above, alone with its
-committed source/tree/executable identities recorded before and after. Prior
-large results remain tied to their original source; they are not overwritten.
+The unchanged large held-input qualification below also passed. It used the
+existing 900s total, 1GiB RSS, 15s network-and-stop, 7s held-stop, 120s replay and
+exact state/file criteria above, alone with committed source/tree/executable
+identities recorded before and after. Prior large results remain tied to their
+original source; they are not overwritten.
+
+### Large held-input follow-up after slot-lifetime correction — PASS
+
+The first corrected-source run, approximately 15:35–15:39 UTC, used source
+`df6a32c1ebc380c0a2e203481fe9a93238a96c28`, tree
+`6bd1c7a1279ff2880cf2b3cd86f0e2f7d5378ed7` and executable SHA-256
+`91ef1bcf2e4b2b72e77ec8c2ecea464d328d6e78a6eabcf86c6628f97cca168c`.
+All matched before/after; runtime/test/dependency diffs were empty. The only
+worktree change was the excluded pre-existing `tasks/lessons.md` edit, whose
+bytes also matched. No other build/test was intentionally run concurrently.
+
+The original exact 8/4/8 overlap, excess refusal and non-authoritative diagnostics
+passed; maximum diagnostic response was 449µs. Normal stop while inputs remained
+held took 5.071302s, with the entire network/stop phase 7.093s. Eight HTTP and
+twelve TLS connections actually closed without sending any missing body/page;
+each outgoing fixture's final bytes equaled its paused 8,213,762 bytes. All
+workers joined and listeners were reusable. Old HTTP/inbound clients and their
+runtime remained alive during independent fresh ownership/replay (51.647s).
+
+All original head/accounting/journal/manifest checks passed: height 267, head
+`000002700a9b5f795da3ff71cad2588c0180e2f6213ba0f0e983ea42b1b63d1b`,
+131,073 balances, 131,072 confirmed transfers, 69,958,251 history bytes and
+1,335,000,000,000,000 issued atoms. Total scenario was 238.814s (harness/OS wall
+238.86s), with 651,952,128 bytes (621.75MiB) peak RSS. Maximum template/append/
+candidate append were 201/232/192ms. Both test and enclosing identity/measurement
+command exited 0. This requalifies only the same fixed input-only combination,
+not successful mixed mutations, arbitrary CPU/disk shutdown time, public
+availability or complete R1. Its RSS differs from the prior run; no generalized
+memory or speed improvement is claimed.
+
+Raw corrected-source large outcome:
+
+```text
+df6a32c1ebc380c0a2e203481fe9a93238a96c28
+6bd1c7a1279ff2880cf2b3cd86f0e2f7d5378ed7
+ M tasks/lessons.md
+91ef1bcf2e4b2b72e77ec8c2ecea464d328d6e78a6eabcf86c6628f97cca168c  target/debug/deps/native_capacity-6f26ba504621f258
+0e071475840f2ec9b36549507c18004847923eeb121b9baf86b6338ab76ff793  tasks/lessons.md
+
+running 1 test
+test mixed::native_mixed_shutdown_131072_accounts ... mixed-progress fundedBlocks=32 elapsedMs=19208
+mixed-progress fundedBlocks=64 elapsedMs=38293
+mixed-progress fundedBlocks=96 elapsedMs=57550
+mixed-progress fundedBlocks=128 elapsedMs=77465
+mixed-progress fundedBlocks=160 elapsedMs=97660
+mixed-progress fundedBlocks=192 elapsedMs=117138
+mixed-progress fundedBlocks=224 elapsedMs=137026
+mixed-progress fundedBlocks=256 elapsedMs=157261
+boole-node: native HTTP drain expired; closing remaining client sockets
+mixed-network {"advertised":{"hash":"000092c6b9368f84167d9bdbe28083aaa3c3a54ec6f0886623daef36cd3ca5cc","height":299},"diagnosticMaxMicros":449,"drained":{"closedHttp":8,"closedInbound":4,"closedOutbound":8,"completedMissingInputs":false},"elapsedMs":186343,"finalSentBytesPerPeer":[8213762,8213762,8213762,8213762,8213762,8213762,8213762,8213762],"fundedBlocks":256,"httpBodyBytesSentPerClient":8388607,"localHead":"000002700a9b5f795da3ff71cad2588c0180e2f6213ba0f0e983ea42b1b63d1b","networkMs":7093,"overlap":{"authority":"local_process_only","ledgerReadiness":"not_checked","peers":{"acceptedConnections":4,"activeInboundWorkers":4,"activeOutboundRounds":8,"authenticatedConnections":4,"authenticationFailures":0,"completedInboundRounds":0,"enabled":true,"failedInboundRounds":0,"limits":{"handshakeTimeoutMs":2000,"inboundKeyCooldownMs":500,"maxHandshakesPerSecond":8,"maxInboundWorkers":4,"maxMessageBytes":1048576,"maxOutboundWorkers":8,"maxPeers":8,"maxRoundBlocks":256,"maxRoundBytes":8388608,"maxRoundRequests":64,"roundTimeoutMs":10000},"listenAddress":"127.0.0.1:55883","localPeerId":"5827ab087acf684a8167e7a4848db47971a71a2f1ae13cf3bd09921a8d1b8b25","peakInboundWorkers":4,"peakOutboundRounds":8,"peers":[{"address":"127.0.0.1:55885","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"632b1291c27c9bfa98a9272088c6a556aebc2ceefe48893d8b7a066eaea30593","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:55886","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"629eccdef084b6cd40fca2d68775c3c1edced625dd736285f2abf6d15fc648b1","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:55887","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"1b40d5e2f4f4bfab4acf9ad0a15ebadf00b5832966c5f91d789ffb14bb92d4b7","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:55888","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"69ca916b9325ff68e1aa800dba542bf7d7b94c36e0bd869818bde2281b3aa824","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:55889","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"1c65bce086c41ae269903ac567dd75cd99a8283e43f89a4cb5d98d0bb92e8a73","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:55890","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"1e6560d4bf5033d1820a56cbcea1ac512c5c93f4db1b7ac09166f545fe94a283","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:55891","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"a800e6fbe416277b22a55e804d52a10c84bc75c87801b9ee6ec8f716ba4fdb6b","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:55892","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"e014b988d5ee4b291f54707a27d1520c2630c48701bb8e40c8303dfbde24d3ce","retryDelayMs":0,"state":"not_connected","successfulRounds":0}],"rejectedConnections":1,"rejectedPeerRounds":0,"running":true},"rpc":{"activeDiagnostics":1,"activeRequests":8,"diagnosticLimit":2,"requestLimit":8},"schema":"boole.native.diagnostics.v1","stopping":false},"partialBytesPerPeer":[8213762,8213762,8213762,8213762,8213762,8213762,8213762,8213762],"stopMicros":5071302,"stopWithHeldInputs":true}
+mixed-result {"elapsedMs":238814,"fundedBlocks":256,"genesisHash":"933a672120674efa9ec6205f344e1830febdec58b0ffcd2603ccc8a9723610c1","head":"000002700a9b5f795da3ff71cad2588c0180e2f6213ba0f0e983ea42b1b63d1b","issued":"1335000000000000","maxAppendMs":232,"maxCandidateAppendMs":192,"maxTemplateMs":201,"networkId":"boole-native-testnet-1","resources":{"balanceEntries":131073,"confirmedTransfers":131072,"historyBlocks":267,"historyBytes":69958251,"historyLimitBlocks":100000,"historyLimitBytes":268435456,"nonceEntries":1,"pendingBytes":0,"pendingLimitBytes":5242880,"pendingLimitTransfers":512,"pendingTransfers":0},"restartMs":51647,"stopWithHeldInputs":true}
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 15 filtered out; finished in 238.86s
+
+      238.86 real       234.82 user         0.63 sys
+           651952128  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+               41850  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                5771  messages sent
+                7790  messages received
+                   0  signals received
+                1791  voluntary context switches
+                3004  involuntary context switches
+       3647249080318  instructions retired
+       1015225931950  cycles elapsed
+           438895528  peak memory footprint
+df6a32c1ebc380c0a2e203481fe9a93238a96c28
+6bd1c7a1279ff2880cf2b3cd86f0e2f7d5378ed7
+ M tasks/lessons.md
+91ef1bcf2e4b2b72e77ec8c2ecea464d328d6e78a6eabcf86c6628f97cca168c  target/debug/deps/native_capacity-6f26ba504621f258
+0e071475840f2ec9b36549507c18004847923eeb121b9baf86b6338ab76ff793  tasks/lessons.md
+```
 
 ### Connection-cap RED
 

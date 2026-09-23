@@ -525,6 +525,9 @@ requests and eight near-8MiB HTTP bodies alive at normal shutdown. All twenty
 connections closed in a 5.071s server stop; replay with old clients/runtime still
 held took 51.803s and preserved exact state. Peak RSS was 610.375MiB. This distinct
 input-only result is not a successful-mutation concurrency or public-host SLA.
+After the connection-slot cleanup-order correction, the
+[same held-input criteria passed again](native-http-shutdown-drain-2026-09.md#large-held-input-follow-up-after-slot-lifetime-correction--pass):
+5.071s stop, 51.647s replay and 621.75MiB RSS, with the exact original state/files.
 
 ### Non-authoritative process diagnostics
 
