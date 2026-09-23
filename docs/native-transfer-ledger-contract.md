@@ -1,7 +1,7 @@
 # Native test-coin transfer contract — R1 closed-local integration
 
-Status: native blocks, durable node, loopback RPC, encrypted owner-wallet recovery and
-mutually authenticated/encrypted incremental peer sync implemented and locally
+Status: native blocks, durable node, loopback RPC, encrypted owner-wallet recovery,
+bounded offline chain recovery and mutually authenticated/encrypted incremental peer sync implemented and locally
 tested, 2026-09-23.
 **R1 is not complete and no public network has launched.**
 [Current development status](current-development-status.md) owns the remaining
@@ -120,6 +120,68 @@ non-authoritative pool; invalid stored signatures are corruption, not silently
 erased. Requeue is bounded/best-effort, so the wallet must retain its signed file.
 Confirmation depth is reported but never labeled irreversible finality.
 
+### Bounded offline chain recovery
+
+[`native_archive`](../crates/boole-node/src/native_archive.rs) supplies the
+operator path for a fork beyond the online suffix/full-chain RPC limits:
+
+```sh
+boole-node native-export --state-dir /private/node-a --output /private/backups/chain.ndjson
+boole-node native-import --state-dir /private/recovered-node \
+  --blocks /private/backups/chain.ndjson --expected-head <64-lowercase-hex-hash>
+```
+
+Stop the affected nodes first. Export requires an existing native manifest and
+exclusive state ownership, writes a new 0600 file **outside the source state
+directory**, fsyncs it, independently reads/verifies it back, then publishes it
+without replacement. Source journals and manifest are not repaired, upgraded or
+rewritten; a torn source tail is an error. Normal ownership lock files can be
+opened/created. The output parent must already exist, be a direct non-symlink
+directory and not be group/world writable. A crash can leave private staging
+files or a complete published file; do not assume success without the receipt.
+Never delete an existing destination to make a failed export succeed.
+
+The archive is the canonical NDJSON sequence of `NativeBlock` objects, not a new
+trusted checkpoint format. Obtain the expected head through the intended
+administrative verification channel; the hash selects the intended history but
+does not waive any consensus validation. Import reads one bounded line at a
+time from one no-follow, nonblocking regular single-link descriptor, rejects
+group/world-writable inputs and checks file/parent identity and stability. It
+requires every line, including the last, to end in a newline; it never truncates
+or edits its source. Duplicate/unknown fields, foreign network/genesis,
+signatures, PoW, retarget, timestamps, transfers and monetary state are checked
+from genesis before the destination is opened. Operational bounds remain
+524,288 bytes per block line, 256MiB per archive and 100,000 blocks.
+
+Import into a healthy existing state follows normal cumulative-work/tie-break
+choice, preserves bounded pending/orphan recovery and reports `adopted: false`
+only when the intended head is already present. It refuses a weaker/different
+history instead of forcing rollback. Import opens the destination through normal
+restart recovery: a previously torn destination tail or stale pending journal
+may be repaired as on boot. For a damaged node, **preserve its entire directory
+and use a fresh destination**. A malformed complete journal is not overwritten.
+An invalid archive/expected head does not create the destination at all. A disk
+failure during later publication can leave a fresh destination at genesis or
+with a fully committed prefix/state; stop and inspect/restart, never claim a
+success receipt that was not returned.
+
+Receipts identify network, genesis, height, head hash and archive bytes. A new
+destination reconstructs balances, locked rewards, nonces and confirmations,
+but the archive does **not** contain owner vaults/passphrases, transport private
+keys, allowlists, pending-only transfers or signed wallet outboxes. Back those
+up separately and query each saved transaction before retrying the exact file.
+After restore, compare the reported head/account/transaction state, then start
+the closed-local node with the deliberately selected peer configuration.
+
+Recovery does not remove the full-history in-memory store or bound CPU/disk time
+by a hard deadline. Verified archive ownership is transferred into adoption
+without a second signature replay/history clone, and journal publication streams
+rows instead of allocating duplicate full-log strings. These are allocation
+reductions, not a production-scale capacity claim. Normal native startup also
+bounds the actual descriptor read and checks stability before tail repair.
+The shared node-manifest reader now rejects nonregular/aliased inputs and files
+above 64KiB; existing compatible creation provenance and legacy upgrades remain.
+
 ## Owner-wallet CLI and closed-local RPC
 
 The foreground server is `boole-node run-native-local --state-dir <new-directory>
@@ -165,6 +227,8 @@ credentials and URL paths. Plain HTTP here is **not public transport security**.
 | Consensus transfer / block | 4,096 / 524,288 bytes; at most 512 transfers per block |
 | Pending queue / reorg recovery union | 512 / 1,024 transfers |
 | Local block journal | 256 MiB and 100,000 blocks; fail closed, no automatic prune |
+| Offline block archive | Same history bounds; strict complete lines, expected head, full verification |
+| Node state manifest | 64 KiB; stable regular single-link descriptor |
 | Pending journal | 5 MiB; pre-read bound also applies during recovery |
 | RPC full-chain import | 8 MiB and 1,024 blocks; entire candidate validated before adoption |
 | Native workers / request deadline | 8 work permits / 10 seconds; timed-out work retains its permit until done |
@@ -172,7 +236,7 @@ credentials and URL paths. Plain HTTP here is **not public transport security**.
 
 Full-map staged accounting and the manual full-chain RPC import remain bounded
 local prototypes. Automatic incremental peer synchronization is described below;
-production-scale storage and comprehensive operator recovery are not complete.
+production-scale storage and broader fault/abuse acceptance are not complete.
 
 ### Encrypted owner-vault backup and restore
 
@@ -357,10 +421,10 @@ interval, not a live countdown. With P2P disabled the endpoint reports disabled.
   orphaned transactions are bounded/best-effort requeued. Retain the wallet's
   signed outbox and query transaction status before retrying it.
 - A long divergent suffix needs deliberate recovery. The existing manual
-  `native sync --from` can independently validate a complete candidate only up to
-  its 1,024-block/8MiB cap. It does not bypass fork choice. Beyond those limits,
-  preserve the state and signed outboxes and obtain an expanded validated recovery
-  workflow; do not delete journals, trust declared balances, or weaken the guard.
+  `native sync --from` is limited to 1,024 blocks/8MiB. Beyond that, use the
+  [offline archive workflow](#bounded-offline-chain-recovery), preserving the
+  original state and outboxes. Neither path bypasses fork choice or the total
+  history cap; do not delete journals or trust declared balances to pass a guard.
 - Missing/replaced journals, manifest/lock loss or uncertain writes remain
   readiness failures. Encryption is not permission to keep serving poisoned state.
 
@@ -384,6 +448,12 @@ Added executable evidence:
 - [Durable node](../crates/boole-node/tests/native_node.rs) and its append-fault
   unit test: restart, duplicate submission, reorg/orphan requeue, future guard,
   file replacement/loss, pre-read byte bounds and failed-publication fencing.
+- [Offline archive CLI](../crates/boole-node/tests/native_archive.rs): recovered
+  balances/nonces/confirmations, unchanged source and repeated import, 1,025-block
+  long-fork recovery with orphan requeue, invalid input before destination creation,
+  source-preserving refusal, no-overwrite/role-collision/unsafe-file/ownership guards,
+  no forced rollback and recovery to a fresh directory without erasing corruption.
+  Shared manifest and durability regressions also preserve their existing rules.
 - [Two independent RPC nodes](../crates/boole-node/tests/native_http.rs): real
   PoW → reward maturity → A-to-B signed transfer → block import → identical
   balances/head/issuance, with public-bind, cross-origin, oversized-body and

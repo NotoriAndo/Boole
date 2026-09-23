@@ -59,6 +59,50 @@ fn native_node_persists_a_verified_reward_and_recovers_it_exactly_once() {
 }
 
 #[test]
+fn native_recovery_refuses_oversized_manifest_without_rewriting_it() {
+    let dir = TestDir::new();
+    drop(NativeNode::open(&dir.0).unwrap());
+    let path = dir.0.join("state.manifest.json");
+    let mut bytes = std::fs::read(&path).unwrap();
+    bytes.extend(std::iter::repeat_n(b' ', 65_536));
+    std::fs::write(&path, &bytes).unwrap();
+    assert!(
+        NativeNode::open(&dir.0).is_err(),
+        "unbounded manifest was accepted"
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), bytes);
+}
+
+#[test]
+fn native_manifest_symlinks_hardlinks_and_fifos_fail_without_following_or_blocking() {
+    use std::os::unix::fs::symlink;
+    let dir = TestDir::new();
+    drop(NativeNode::open(&dir.0).unwrap());
+    let path = dir.0.join("state.manifest.json");
+    let saved = dir.0.join("saved-manifest.json");
+    std::fs::rename(&path, &saved).unwrap();
+    let bytes = std::fs::read(&saved).unwrap();
+    symlink(&saved, &path).unwrap();
+    assert!(NativeNode::open(&dir.0).is_err());
+    std::fs::remove_file(&path).unwrap();
+    std::fs::hard_link(&saved, &path).unwrap();
+    assert!(NativeNode::open(&dir.0).is_err());
+    std::fs::remove_file(&path).unwrap();
+    assert!(std::process::Command::new("mkfifo")
+        .arg(&path)
+        .status()
+        .unwrap()
+        .success());
+    let start = std::time::Instant::now();
+    assert!(NativeNode::open(&dir.0).is_err());
+    assert!(start.elapsed() < std::time::Duration::from_secs(1));
+    assert_eq!(std::fs::read(&saved).unwrap(), bytes);
+    std::fs::remove_file(&path).unwrap();
+    std::fs::rename(&saved, &path).unwrap();
+    assert!(NativeNode::open(&dir.0).is_ok());
+}
+
+#[test]
 fn pending_owner_transfer_survives_restart_and_is_removed_only_after_durable_inclusion() {
     let dir = TestDir::new();
     let alice = SigningKeyV2::from_dev_id("native-pending-alice");

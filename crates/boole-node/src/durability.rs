@@ -1,5 +1,5 @@
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
@@ -151,7 +151,7 @@ impl PrivateTempDir {
         Self::new_in(&std::env::temp_dir(), prefix)
     }
 
-    fn new_in(parent: &Path, prefix: &str) -> std::io::Result<Self> {
+    pub(crate) fn new_in(parent: &Path, prefix: &str) -> std::io::Result<Self> {
         for _ in 0..32 {
             let mut random = [0u8; 16];
             OsRng
@@ -333,6 +333,37 @@ fn append_ndjson_transaction(
 /// mix. The reorg handler uses this to swap the block store / reward ledger to
 /// a heavier chain without a window where the on-disk chain is truncated.
 pub(crate) fn write_ndjson_lines_atomic(path: &Path, lines: &[String]) -> anyhow::Result<()> {
+    write_file_atomic(path, |file| {
+        let mut writer = BufWriter::new(file);
+        for line in lines {
+            writer.write_all(line.as_bytes())?;
+            writer.write_all(b"\n")?;
+        }
+        writer.flush()?;
+        Ok(())
+    })
+}
+
+/// Stream one canonical row at a time instead of allocating another full log.
+pub(crate) fn write_ndjson_rows_atomic<T: serde::Serialize>(
+    path: &Path,
+    rows: &[T],
+) -> anyhow::Result<()> {
+    write_file_atomic(path, |file| {
+        let mut writer = BufWriter::new(file);
+        for row in rows {
+            serde_json::to_writer(&mut writer, row)?;
+            writer.write_all(b"\n")?;
+        }
+        writer.flush()?;
+        Ok(())
+    })
+}
+
+fn write_file_atomic(
+    path: &Path,
+    write: impl FnOnce(&mut File) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -358,12 +389,7 @@ pub(crate) fn write_ndjson_lines_atomic(path: &Path, lines: &[String]) -> anyhow
             options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
         }
         let mut file = options.open(&tmp)?;
-        let mut buf = String::new();
-        for line in lines {
-            buf.push_str(line);
-            buf.push('\n');
-        }
-        file.write_all(buf.as_bytes())?;
+        write(&mut file)?;
         file.flush()?;
         file.sync_all()?;
     }

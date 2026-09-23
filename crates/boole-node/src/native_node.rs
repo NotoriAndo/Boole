@@ -2,6 +2,9 @@
 //! authoritative; balances, locked rewards and nonces are re-derived at boot.
 
 use std::collections::BTreeMap;
+use std::fs::{self, OpenOptions};
+use std::io::Read;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -10,9 +13,7 @@ use boole_core::native_ledger::NativePendingView;
 use boole_core::native_network::native_testnet;
 use boole_core::Hex32;
 
-use crate::durability::{
-    append_ndjson_line_durable, read_stable_prefix, write_ndjson_lines_atomic,
-};
+use crate::durability::{append_ndjson_line_durable, write_ndjson_rows_atomic};
 use crate::runtime::check_block_ts_future_drift;
 use crate::state_dir::{acquire, ensure_manifest, LedgerLockSet, StateDirGuard, StateManifest};
 
@@ -46,6 +47,15 @@ pub struct NativeNode {
 
 impl NativeNode {
     pub fn open(state_dir: &Path) -> anyhow::Result<Self> {
+        Self::open_inner(state_dir, true)
+    }
+
+    /// Offline export must not silently repair or canonicalize its source.
+    pub(crate) fn open_preserving(state_dir: &Path) -> anyhow::Result<Self> {
+        Self::open_inner(state_dir, false)
+    }
+
+    fn open_inner(state_dir: &Path, repair: bool) -> anyhow::Result<Self> {
         let state_guard = acquire(state_dir)?;
         let state_dir = state_guard.dir().canonicalize()?;
         let block_path = LedgerLockSet::canonical_path(&state_dir.join(NATIVE_BLOCKS_FILE))?;
@@ -62,11 +72,15 @@ impl NativeNode {
         manifest
             .schema_versions
             .insert("native_storage".to_string(), 1);
-        ensure_manifest(&state_dir, &manifest)?;
+        if repair {
+            ensure_manifest(&state_dir, &manifest)?;
+        } else {
+            crate::state_dir::verify_manifest_read_only(&state_dir, &manifest)?;
+        }
         let manifest_path = state_dir.join("state.manifest.json");
         let mut chain = NativeChain::new()?;
         let now = unix_time_ms()?;
-        if let Some(raw) = read_stable_prefix(&block_path)? {
+        if let Some(raw) = read_native_log(&block_path, MAX_NATIVE_HISTORY_BYTES, repair)? {
             for (index, line) in raw.lines().enumerate() {
                 anyhow::ensure!(
                     index < MAX_NATIVE_HISTORY_BLOCKS,
@@ -85,7 +99,7 @@ impl NativeNode {
         }
         let confirmed = confirmed_index(&chain);
         let mut pending = Vec::new();
-        if let Some(raw) = read_stable_prefix(&pool_path)? {
+        if let Some(raw) = read_native_log(&pool_path, MAX_NATIVE_POOL_BYTES, repair)? {
             for line in raw.lines() {
                 anyhow::ensure!(
                     line.len() <= network.max_transfer_bytes(),
@@ -103,7 +117,7 @@ impl NativeNode {
             }
         }
         let retained = retain_pending(&chain, &confirmed, &pending)?;
-        if pending != retained {
+        if pending != retained && repair {
             write_pool(&pool_path, &retained)?;
         }
         let block_stamp = file_stamp(&block_path)?;
@@ -113,7 +127,7 @@ impl NativeNode {
             manifest_stamp.is_some(),
             "native state manifest disappeared"
         );
-        Ok(Self {
+        let node = Self {
             chain,
             block_path,
             pool_path,
@@ -126,7 +140,9 @@ impl NativeNode {
             state_guard,
             ledger_locks,
             poisoned: false,
-        })
+        };
+        node.ensure_ready()?;
+        Ok(node)
     }
 
     pub fn chain(&self) -> &NativeChain {
@@ -196,25 +212,20 @@ impl NativeNode {
     /// only if cumulative work/tie-break wins. No declared balances are read.
     pub fn adopt_chain(&mut self, blocks: &[NativeBlock]) -> anyhow::Result<bool> {
         self.ensure_writable()?;
-        anyhow::ensure!(
-            blocks.len() <= MAX_NATIVE_HISTORY_BLOCKS,
-            "native history block limit"
-        );
-        let mut bytes = 0u64;
-        for block in blocks {
-            bytes = bytes
-                .checked_add(serde_json::to_vec(block)?.len() as u64 + 1)
-                .ok_or_else(|| anyhow::anyhow!("native history size overflow"))?;
-            anyhow::ensure!(
-                bytes <= MAX_NATIVE_HISTORY_BYTES,
-                "native history byte limit"
-            );
-        }
-        let now = unix_time_ms()?;
-        for block in blocks {
-            check_block_ts_future_drift(block.header.timestamp_ms, now)?;
-        }
-        let candidate = NativeChain::replay(blocks)?;
+        check_candidate_budget(blocks)?;
+        self.publish_candidate(NativeChain::replay(blocks)?)
+    }
+
+    /// NativeChain cannot be deserialized or built without core verification.
+    /// A streamed archive can transfer its verified candidate without replaying
+    /// signatures a second time or cloning the complete history again.
+    pub(crate) fn adopt_replayed_chain(&mut self, candidate: NativeChain) -> anyhow::Result<bool> {
+        self.ensure_writable()?;
+        check_candidate_budget(candidate.blocks())?;
+        self.publish_candidate(candidate)
+    }
+
+    fn publish_candidate(&mut self, candidate: NativeChain) -> anyhow::Result<bool> {
         if !candidate.outranks(&self.chain) {
             return Ok(false);
         }
@@ -234,17 +245,12 @@ impl NativeNode {
             }
         }
         let retained = retain_pending(&candidate, &confirmed, &recovery)?;
-        let lines: Vec<String> = candidate
-            .blocks()
-            .iter()
-            .map(serde_json::to_string)
-            .collect::<Result<_, _>>()?;
         let publish = (|| -> anyhow::Result<()> {
             if recovery != self.pending {
                 write_pool(&self.pool_path, &recovery)?;
                 self.pool_stamp = file_stamp(&self.pool_path)?;
             }
-            write_ndjson_lines_atomic(&self.block_path, &lines)?;
+            write_ndjson_rows_atomic(&self.block_path, candidate.blocks())?;
             self.block_stamp = file_stamp(&self.block_path)?;
             self.chain = candidate;
             self.confirmed = confirmed;
@@ -351,6 +357,26 @@ fn check_file_budget(path: &Path, limit: u64) -> anyhow::Result<u64> {
     Ok(len)
 }
 
+fn check_candidate_budget(blocks: &[NativeBlock]) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        blocks.len() <= MAX_NATIVE_HISTORY_BLOCKS,
+        "native history block limit"
+    );
+    let mut bytes = 0u64;
+    let now = unix_time_ms()?;
+    for block in blocks {
+        bytes = bytes
+            .checked_add(serde_json::to_vec(block)?.len() as u64 + 1)
+            .ok_or_else(|| anyhow::anyhow!("native history size overflow"))?;
+        anyhow::ensure!(
+            bytes <= MAX_NATIVE_HISTORY_BYTES,
+            "native history byte limit"
+        );
+        check_block_ts_future_drift(block.header.timestamp_ms, now)?;
+    }
+    Ok(())
+}
+
 fn append_bounded(path: &Path, line: &str, limit: u64) -> anyhow::Result<()> {
     let len = check_file_budget(path, limit)?;
     anyhow::ensure!(
@@ -376,6 +402,10 @@ fn file_stamp(path: &Path) -> anyhow::Result<Option<FileStamp>> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error.into()),
     };
+    stamp(&metadata).map(Some)
+}
+
+fn stamp(metadata: &fs::Metadata) -> anyhow::Result<FileStamp> {
     anyhow::ensure!(
         metadata.is_file() && !metadata.file_type().is_symlink(),
         "native state path is not a regular file"
@@ -384,14 +414,52 @@ fn file_stamp(path: &Path) -> anyhow::Result<Option<FileStamp>> {
     use std::os::unix::fs::MetadataExt;
     #[cfg(unix)]
     anyhow::ensure!(metadata.nlink() == 1, "native state has a hard-link alias");
-    Ok(Some(FileStamp {
+    Ok(FileStamp {
         len: metadata.len(),
         modified: metadata.modified()?,
         #[cfg(unix)]
         identity: (metadata.dev(), metadata.ino()),
         #[cfg(unix)]
         change_time: (metadata.ctime(), metadata.ctime_nsec()),
-    }))
+    })
+}
+
+fn read_native_log(path: &Path, maximum: u64, repair: bool) -> anyhow::Result<Option<String>> {
+    let file = match OpenOptions::new()
+        .read(true)
+        .write(repair)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+    {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    let before = stamp(&file.metadata()?)?;
+    anyhow::ensure!(
+        before.len <= maximum && file_stamp(path)?.as_ref() == Some(&before),
+        "native log is oversized or changed before read"
+    );
+    let mut bytes = Vec::new();
+    (&file).take(maximum + 1).read_to_end(&mut bytes)?;
+    let after = stamp(&file.metadata()?)?;
+    anyhow::ensure!(
+        bytes.len() as u64 == before.len
+            && before == after
+            && file_stamp(path)?.as_ref() == Some(&after),
+        "native log changed while reading"
+    );
+    let stable = crate::durability::stable_jsonl_prefix_len(&bytes);
+    if stable < bytes.len() {
+        anyhow::ensure!(
+            repair,
+            "source-preserving export refuses a torn native log; no bytes repaired"
+        );
+        file.set_len(stable as u64)?;
+        file.sync_all()?;
+        bytes.truncate(stable);
+    }
+    Ok(Some(String::from_utf8(bytes)?))
 }
 
 pub(crate) fn unix_time_ms() -> anyhow::Result<u64> {
@@ -433,11 +501,7 @@ fn retain_pending(
 }
 
 fn write_pool(path: &Path, pending: &[NativeTransfer]) -> anyhow::Result<()> {
-    let lines: Vec<String> = pending
-        .iter()
-        .map(serde_json::to_string)
-        .collect::<Result<_, _>>()?;
-    write_ndjson_lines_atomic(path, &lines)
+    write_ndjson_rows_atomic(path, pending)
 }
 
 #[cfg(test)]
