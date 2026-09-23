@@ -62,6 +62,11 @@ enum NativeCommand {
         #[arg(long)]
         file: PathBuf,
     },
+    /// Offline signature/format check and transaction ID. No balance or chain check.
+    InspectTransfer {
+        #[arg(long)]
+        file: PathBuf,
+    },
     /// One bounded hash attempt. Rewards are test-only and initially locked.
     Mine {
         #[arg(long)]
@@ -245,7 +250,29 @@ fn read_transfer(path: &Path) -> anyhow::Result<NativeTransfer> {
     Ok(transfer)
 }
 
+fn inspect_transfer(file: &Path) -> anyhow::Result<Value> {
+    let transfer = read_transfer(file)?;
+    let network = native_testnet();
+    Ok(json!({
+        "schema": "boole.native.transfer.inspection.v1",
+        "verification": "signature_and_format_only",
+        "chainStatus": "not_checked",
+        "networkId": transfer.network_id,
+        // This identifies our compiled policy, not an independently signed
+        // genesis field in the transfer envelope or a contacted node's head.
+        "compiledGenesisHash": network.genesis_hash().to_hex(),
+        "txid": transfer.id().to_hex(),
+        "from": transfer.payload.from, "to": transfer.payload.to,
+        "amountAtoms": transfer.payload.amount, "feeAtoms": transfer.payload.fee,
+        "nonce": transfer.payload.nonce, "validBefore": transfer.payload.valid_before
+    }))
+}
+
 pub(super) fn run(args: NativeArgs) -> anyhow::Result<()> {
+    if let NativeCommand::InspectTransfer { file } = &args.command {
+        println!("{}", serde_json::to_string(&inspect_transfer(file)?)?);
+        return Ok(());
+    }
     let client = Client::new(&args.node)?;
     let info = client.info()?;
     let result = match args.command {
@@ -323,6 +350,7 @@ pub(super) fn run(args: NativeArgs) -> anyhow::Result<()> {
             let transfer = read_transfer(&file)?;
             client.request("/native/transfers", Some(&serde_json::to_value(transfer)?))?
         }
+        NativeCommand::InspectTransfer { .. } => unreachable!("handled before RPC creation"),
         NativeCommand::Mine {
             vault,
             passphrase_stdin,

@@ -59,6 +59,9 @@ Encrypted owner-wallet backup/restore, bounded vault/KDF/file handling, isolated
 agent environment/lifetime/output and native stdin passphrases now pass direct
 recovery tests, including a restored-wallet on-chain transfer. This is the selected
 local-vault path, not operational custody or an OS-keychain/mnemonic implementation.
+Saved signed transfers can also be inspected offline for their exact ID and
+public fields without a node, wallet, password or broadcast. The report explicitly
+checks only signature/format, not balance, current nonce/expiry or chain status.
 Public/untrusted participation still needs the remaining operational acceptance,
 public RPC scope and R2/R3 release/launch decisions.
 Existing v3 data and verification rules remain unchanged; R1 is not complete.

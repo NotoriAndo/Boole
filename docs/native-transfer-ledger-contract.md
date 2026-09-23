@@ -363,6 +363,8 @@ The umbrella CLI uses `boole native --node http://127.0.0.1:8383` followed by:
   --outbox <new-file> --passphrase-stdin`; optional `--fee` and inclusive
   `--valid-before` height.
 - `submit --file <saved-transfer>` to retry **the exact signature and nonce**.
+- `inspect-transfer --file <saved-transfer>` for offline signature/format checks
+  and the transaction ID. This command does not use `--node` or open a wallet.
 - `sync --from http://127.0.0.1:<other-port>` for bounded full-chain import.
 
 `boole wallet init/address` manages the AEAD vault, and `backup/restore` supports
@@ -380,6 +382,35 @@ response, query the saved transaction ID and retry that file; do not create a ne
 nonce as an automatic retry. Keep the encrypted vault, passphrase and outbox
 backup separately; losing the vault/passphrase means this implementation cannot
 recover the spending key. These are owner commands, not delegated agent rights.
+
+### Offline signed-transfer inspection
+
+If the original node is unavailable or the submission response was lost, run
+`boole native inspect-transfer --file <saved-transfer>` before querying its
+`txid` on the selected node. It reads the existing bounded signed file without
+rewriting it, verifies the compiled network binding, owner signature, schema,
+canonical integer fields and immutable minimum-fee rules, then emits
+`boole.native.transfer.inspection.v1`. Amount/fee atoms, nonce and inclusive
+expiry height remain exact decimal strings. The receipt's `compiledGenesisHash`
+identifies the local compiled policy, not a separate genesis field signed by
+the transfer or a contacted node's head.
+
+`verification=signature_and_format_only` and `chainStatus=not_checked` are
+mandatory: the command neither fetches balances/nonces nor checks present
+expiry, pending admission, inclusion, confirmation or finality. A valid signature
+can therefore be reported for an unfunded account, a stale nonce or an expired
+transfer. It creates no signature, broadcast, agent process, password prompt,
+vault or node state. Even a supplied node URL is unused. The derived ID can be
+used with `transaction --txid`; retry only the original file after checking the
+actual chain. Inspection does not authorize creating a new nonce automatically.
+
+Malformed, cross-network, altered, duplicate/unknown-field or oversized inputs
+produce no JSON receipt. Missing/nonregular/direct-symlink files are refused.
+Input is capped at 4KiB including whitespace, but inspection is not an exclusive
+filesystem snapshot or protection against an attacker concurrently replacing a
+user-selected path. Keep trusted copies of the original outbox separately.
+
+### Native loopback RPC bounds
 
 [`native_http`](../crates/boole-node/src/native_http.rs) is numeric loopback only.
 It rejects foreign Host, Origin/browser fetch headers, has no CORS policy,
@@ -713,6 +744,9 @@ Added executable evidence:
   and wallet-agent processes, stdin-based mining, encrypted backup/restore after
   removing the primary from service, a restored-owner transfer, saved-file retry
   before/after inclusion and restart, exclusive outbox publication and second-node sync.
+- [Offline outbox CLI](../crates/boole-cli/tests/native_inspect.rs): exact ID/decimal
+  fields without wallet/RPC access, explicit no-chain-check scope and malformed,
+  cross-network, signature, size and file-type rejection without rewriting input.
 - [Vault primitive](../crates/boole-core/src/vault.rs),
   [wallet-agent](../crates/boole-wallet-agent/tests/wallet_agent.rs),
   [signer](../crates/boole-miner/tests/agent_signer.rs) and

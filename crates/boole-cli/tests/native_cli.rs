@@ -194,6 +194,18 @@ fn encrypted_owner_cli_mines_transfers_and_retries_only_the_saved_signed_transac
     assert_eq!(tx.payload.amount, "125000000");
     assert_eq!(tx.payload.from, owner);
     tx.validated_fields().unwrap();
+    let inspection = ok(&[
+        "native",
+        "--node",
+        "offline-no-rpc",
+        "inspect-transfer",
+        "--file",
+        outbox.to_str().unwrap(),
+    ]);
+    assert_eq!(inspection["txid"], transfer["txid"]);
+    assert_eq!(inspection["amountAtoms"], "125000000");
+    assert_eq!(inspection["from"], owner);
+    assert_eq!(inspection["chainStatus"], "not_checked");
     assert_eq!(
         ok(&[
             "native",
