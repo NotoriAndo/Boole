@@ -79,6 +79,7 @@ pub struct NativePeerStatus {
 #[serde(rename_all = "camelCase")]
 pub struct NativePeerLimits {
     pub max_peers: usize,
+    pub max_outbound_workers: usize,
     pub max_inbound_workers: usize,
     pub max_message_bytes: usize,
     pub max_round_bytes: usize,
@@ -108,6 +109,9 @@ pub struct NativePeerSnapshot {
     pub failed_inbound_rounds: u64,
     pub active_inbound_workers: usize,
     pub peak_inbound_workers: usize,
+    /// Executing a connect/handshake/round, excluding independent backoff.
+    pub active_outbound_rounds: usize,
+    pub peak_outbound_rounds: usize,
 }
 
 /// A read-only observation handle. It does not keep the durable node open.
@@ -178,6 +182,7 @@ impl NativePeerService {
                 listen_address: listener.local_addr()?.to_string(),
                 limits: NativePeerLimits {
                     max_peers: MAX_NATIVE_PEERS,
+                    max_outbound_workers: MAX_NATIVE_PEERS,
                     max_inbound_workers: MAX_NATIVE_PEER_WORKERS,
                     max_message_bytes: MAX_NATIVE_PEER_MESSAGE_BYTES,
                     max_round_bytes: MAX_NATIVE_PEER_ROUND_BYTES,
@@ -210,6 +215,8 @@ impl NativePeerService {
                 failed_inbound_rounds: 0,
                 active_inbound_workers: 0,
                 peak_inbound_workers: 0,
+                active_outbound_rounds: 0,
+                peak_outbound_rounds: 0,
             })),
         };
         let shared = Arc::new(Shared {
@@ -231,61 +238,26 @@ impl NativePeerService {
         let acceptor = thread::Builder::new()
             .name("native-peer-accept".into())
             .spawn(move || accept_loop(listener, incoming))?;
-        let outgoing = shared.clone();
-        let sync = match thread::Builder::new()
-            .name("native-peer-sync".into())
-            .spawn(move || {
-                let mut next_attempt = vec![Instant::now(); config.peers.len()];
-                while !outgoing.lifecycle.is_stopped() {
-                    for (index, (address, _)) in config.peers.iter().enumerate() {
-                        if outgoing.lifecycle.is_stopped() {
-                            break;
-                        }
-                        if Instant::now() < next_attempt[index] {
-                            continue;
-                        }
-                        let outcome = synchronize(&outgoing, *address);
-                        let mut snapshot = outgoing
-                            .monitor
-                            .snapshot
-                            .lock()
-                            .expect("native peer status lock");
-                        let status = &mut snapshot.peers[index];
-                        match outcome {
-                            Ok(state) => {
-                                status.successful_rounds =
-                                    status.successful_rounds.saturating_add(1);
-                                status.state = state;
-                                status.consecutive_failures = 0;
-                                status.retry_delay_ms = POLL_TIME.as_millis() as u64;
-                            }
-                            Err(_) => {
-                                status.failed_rounds = status.failed_rounds.saturating_add(1);
-                                status.state = "retrying";
-                                status.consecutive_failures =
-                                    status.consecutive_failures.saturating_add(1);
-                                status.retry_delay_ms = (500
-                                    * (1u64 << (status.consecutive_failures - 1).min(6)))
-                                .min(30_000);
-                            }
-                        }
-                        next_attempt[index] =
-                            Instant::now() + Duration::from_millis(status.retry_delay_ms);
+        let mut threads = vec![acceptor];
+        // Only the bounded, statically configured peer set creates workers.
+        // A slow peer cannot serialize every other peer's network I/O.
+        for (index, (address, _)) in config.peers.into_iter().enumerate() {
+            let outgoing = shared.clone();
+            match thread::Builder::new()
+                .name(format!("native-peer-sync-{index}"))
+                .spawn(move || outbound_loop(outgoing, index, address))
+            {
+                Ok(worker) => threads.push(worker),
+                Err(error) => {
+                    shared.lifecycle.stop();
+                    for worker in threads {
+                        let _ = worker.join();
                     }
-                    outgoing.lifecycle.wait_or_stop(POLL_TIME);
+                    return Err(error.into());
                 }
-            }) {
-            Ok(worker) => worker,
-            Err(error) => {
-                shared.lifecycle.stop();
-                let _ = acceptor.join();
-                return Err(error.into());
             }
-        };
-        Ok(Self {
-            shared,
-            threads: vec![acceptor, sync],
-        })
+        }
+        Ok(Self { shared, threads })
     }
 
     pub fn status(&self) -> Vec<NativePeerStatus> {
@@ -317,6 +289,57 @@ impl Drop for NativePeerService {
 fn lock_node(node: &Mutex<NativeNode>) -> anyhow::Result<MutexGuard<'_, NativeNode>> {
     node.lock()
         .map_err(|_| anyhow::anyhow!("native state lock poisoned"))
+}
+
+fn outbound_loop(shared: Arc<Shared>, index: usize, address: SocketAddr) {
+    while !shared.lifecycle.is_stopped() {
+        let delay = {
+            let _round = OutboundRound::new(shared.monitor.clone());
+            let outcome = synchronize(&shared, address);
+            let mut snapshot = shared
+                .monitor
+                .snapshot
+                .lock()
+                .expect("native peer status lock");
+            let status = &mut snapshot.peers[index];
+            match outcome {
+                Ok(state) => {
+                    status.successful_rounds = status.successful_rounds.saturating_add(1);
+                    status.state = state;
+                    status.consecutive_failures = 0;
+                    status.retry_delay_ms = POLL_TIME.as_millis() as u64;
+                }
+                Err(_) => {
+                    status.failed_rounds = status.failed_rounds.saturating_add(1);
+                    status.state = "retrying";
+                    status.consecutive_failures = status.consecutive_failures.saturating_add(1);
+                    status.retry_delay_ms =
+                        (500 * (1u64 << (status.consecutive_failures - 1).min(6))).min(30_000);
+                }
+            }
+            Duration::from_millis(status.retry_delay_ms)
+        };
+        shared.lifecycle.wait_or_stop(delay);
+    }
+}
+
+struct OutboundRound(NativePeerMonitor);
+impl OutboundRound {
+    fn new(monitor: NativePeerMonitor) -> Self {
+        monitor.update(|snapshot| {
+            snapshot.active_outbound_rounds += 1;
+            snapshot.peak_outbound_rounds = snapshot
+                .peak_outbound_rounds
+                .max(snapshot.active_outbound_rounds);
+        });
+        Self(monitor)
+    }
+}
+impl Drop for OutboundRound {
+    fn drop(&mut self) {
+        self.0
+            .update(|snapshot| snapshot.active_outbound_rounds -= 1);
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

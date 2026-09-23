@@ -324,6 +324,9 @@ fn native_rpc_and_secure_peers_share_the_same_durable_state_and_shutdown_boundar
     assert_eq!(peers["peers"].as_array().unwrap().len(), 1);
     assert_eq!(peers["peers"][0]["peerId"], keys[0].peer_id().to_hex());
     assert_eq!(peers["limits"]["maxInboundWorkers"], 4);
+    assert_eq!(peers["limits"]["maxOutboundWorkers"], 8);
+    assert!(peers["activeOutboundRounds"].as_u64().unwrap() <= 1);
+    assert_eq!(peers["peakOutboundRounds"], 1);
     for (_, stop, task, cleanup) in servers {
         stop.notify_one();
         runtime.block_on(task).unwrap().unwrap();

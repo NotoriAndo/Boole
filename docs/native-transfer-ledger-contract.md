@@ -489,7 +489,7 @@ periodic pull, not instantaneous broadcast or a finality guarantee.
 
 | Peer resource | Bound |
 |---|---|
-| Configured peers / outbound workers | 8 / 1 sequential worker |
+| Configured peers / outbound workers | 8 / one independent worker per configured peer, at most 8 |
 | Inbound workers / handshake starts | 4 / 8 per second globally |
 | Active incoming rounds per authenticated key | 1, with 500ms minimum start interval |
 | TLS handshake | 2-second absolute I/O deadline and 64KiB encrypted-I/O budget |
@@ -498,6 +498,24 @@ periodic pull, not instantaneous broadcast or a finality guarantee.
 | Pending snapshot | 512 transfers; page at most 128 |
 | Round I/O deadline | 10 seconds from completed authentication; not a hard real-time disk/CPU preemption guarantee |
 | Outbound retry | 500ms on success; exponential 500ms–30s after consecutive failures |
+
+Outbound scheduling is independent per fixed peer. An authenticated peer that
+stops replying cannot hold the other peers behind its network timeout. Each
+worker still has at most one active connection/round and its own bounded backoff;
+remote messages cannot add workers or status labels. Concurrent imports serialize
+through the existing state owner and retain the unchanged snapshot, signature,
+fork-choice and durable-publication checks. Partial worker-start failure stops
+and joins already-started workers before returning an error.
+
+This increases the maximum concurrent outbound rounds from one to eight, trading
+bounded additional sockets, threads and per-round buffers for independent progress.
+It is not a global memory/CPU guarantee or protection against shared disk/state-lock
+contention, all approved peers misbehaving, or an untrusted-host denial of service.
+The earlier capacity qualifications did not include eight simultaneous peer
+downloads. The focused loopback isolation test failed at its fixed two-second
+healthy-peer progress limit with the serial worker; the changed implementation
+passed (0.14s total test time on the developer Mac). Eight authenticated stalled
+rounds, ninth-peer refusal and shutdown interruption also pass a direct test.
 
 TLS also caps encrypted overhead for every message. All limits are local
 operational policy, not new consensus constants. Admission occurs before TLS
@@ -514,6 +532,10 @@ attacks. `snapshot_match` means one completed exchange matched; `catching_up`,
 `retrying`, `local_chain_preferred` and `bounded_reorg_requires_recovery` must not
 be presented as synchronized/finalized. The retry delay is the last selected
 interval, not a live countdown. With P2P disabled the endpoint reports disabled.
+`limits.maxOutboundWorkers` reports eight. `activeOutboundRounds` counts connect,
+TLS handshake and round work but not backoff; `peakOutboundRounds` is the lifetime
+maximum, bounded by the configured peer count. Shutdown drains these counts to
+zero. A retained read-only monitor does not retain the node's state ownership.
 
 ### Local peer key change and recovery limits
 
@@ -590,7 +612,10 @@ Added executable evidence:
   catch-up/restart, signed-transfer propagation and single confirmation,
   partition/rejoin with orphan requeue, wrong network/version/genesis/range and
   invalid block rejection, 512-transfer block traffic exceeding the round budget,
-  worker/request/byte caps, per-key throttle, retry backoff and shutdown leases.
+  worker/request/byte caps, per-key throttle, independent retry backoff, one
+  stalled peer alongside healthy progress, eight simultaneous stalled rounds and
+  shutdown leases. Three concurrent pulls of one signed transfer retain one
+  pending transaction and confirm one recipient credit/nonce after restart.
 - [Native process/key CLI](../crates/boole-node/tests/native_peer_cli.rs): actual
   two-process encrypted sync and clean signal shutdown, restart, no secret output,
   no overwrite, unsafe file rejection and public/dangling peer-configuration refusal
