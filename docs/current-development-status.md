@@ -11,7 +11,7 @@ is integrated on `codex/native-r1-hardening-integration`, based on main `9be7cb0
 through secure peers and encrypted wallet recovery. On September 25 the user
 authorized GitHub publication, required full CI and ordinary PR merge; the
 earlier publication-approval hold is resolved. The owning
-[feature PR](https://github.com/NotoriAndo/Boole/pulls?q=is%3Apr+head%3Acodex%2Fnative-r1-hardening-integration)
+[feature PR #388](https://github.com/NotoriAndo/Boole/pull/388)
 records the actual CI and merge outcome, not the local measurements alone.
 Original measurement commits are preserved; the initial main-based rebase was
 verified byte-identical. See the

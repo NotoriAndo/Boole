@@ -258,7 +258,7 @@ class CrashRestartGateWiringTests(unittest.TestCase):
 
     def test_portable_gate_budget_covers_crash_scenarios(self) -> None:
         portable = PORTABLE_GATE_PATH.read_text(encoding="utf-8")
-        self.assertIn("1200s", portable)
+        self.assertIn('"${amd64_manager_deadline_seconds}s"', portable)
         self.assertNotIn(" 600s", portable)
 
 

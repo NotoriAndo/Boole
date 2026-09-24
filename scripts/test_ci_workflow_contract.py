@@ -222,13 +222,60 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
     def test_clean_linux_rootfs_replay_is_a_named_non_skippable_gate(self):
         job = self._job("native-shadow-rootfs-replay-linux")
         self.assertIn("runs-on: ubuntu-24.04", job)
-        self.assertIn("timeout-minutes: 30", job)
         self.assertIn("./scripts/native-shadow-portable-rootfs-replay-linux.sh", job)
         self.assertIn("native_shadow_official_mirror_python_v1", job)
         self.assertIn("BOOLE_UBUNTU_MIRROR_ARCH=amd64", job)
         self.assertNotIn("continue-on-error:", job)
         self.assertNotRegex(job, re.compile(r"\bskip\b", re.IGNORECASE))
         self.assertTrue(PORTABLE_ROOTFS_REPLAY_GATE.is_file())
+
+    def test_amd64_manager_invocation_reserves_the_development_task_phase(self):
+        # Observe the actual shell invocation at the external timeout boundary.
+        # The stub prints its arguments without invoking sudo, Linux services,
+        # the checker or a real delay, so this also runs on the developer Mac.
+        gate = PORTABLE_ROOTFS_REPLAY_GATE.read_text(encoding="utf-8")
+        start = gate.index('(\n  cd "$ROOT"\n  timeout --foreground')
+        end = gate.index("\n)\n", start) + len("\n)\n")
+        definition = re.search(
+            r"(?m)^amd64_manager_deadline_seconds=([0-9]+)$", gate
+        )
+        command = (
+            "set -eu\n"
+            "timeout() { printf '%s\\n' \"$@\"; }\n"
+            + (definition.group(0) + "\n" if definition else "")
+            + gate[start:end]
+        )
+        completed = subprocess.run(
+            ["bash", "-c", command],
+            env={
+                "PATH": "/usr/bin:/bin",
+                "ROOT": str(REPO_ROOT),
+                "run_user": "synthetic-ci",
+                "run_home": "/nonexistent",
+                "scratch": "/nonexistent/boole-ci-fixture",
+            },
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        arguments = completed.stdout.splitlines()
+        self.assertEqual(
+            arguments[:3],
+            ["--foreground", "--signal=TERM", "--kill-after=15s"],
+        )
+        self.assertEqual(arguments[4], "sudo")
+        self.assertIn("--closed-local-replay-rootfs", arguments)
+        manager_seconds = int(arguments[3].removesuffix("s"))
+        # Keep the previous full matrix allowance and add the existing bounded
+        # development-task phase, without changing any inner checker deadline.
+        self.assertEqual(manager_seconds, 1200 + 900)
+        workflow = self._job("native-shadow-rootfs-replay-linux")
+        workflow_limit = re.search(r"timeout-minutes: ([0-9]+)", workflow)
+        self.assertIsNotNone(workflow_limit)
+        workflow_seconds = int(workflow_limit.group(1)) * 60
+        self.assertEqual(workflow_seconds, 45 * 60)
+        self.assertGreaterEqual(workflow_seconds - manager_seconds, 600)
 
     def test_clean_linux_rootfs_replay_binds_networked_acquisition_to_offline_probe(self):
         body = PORTABLE_ROOTFS_REPLAY_GATE.read_text(encoding="utf-8")

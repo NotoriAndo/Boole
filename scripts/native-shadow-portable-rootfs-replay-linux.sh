@@ -256,9 +256,18 @@ run_home=$(getent passwd "$run_user" | awk -F: 'NF == 7 { print $6 }')
 [[ -n "$run_home" && -x "$run_home/.cargo/bin/cargo" ]] \
   || die "the original CI user lacks the pinned Rust toolchain"
 chmod 0711 "$scratch"
+# PR #388 run 36066002628 reached the final development-task phase after the
+# real MCP, crash/restart and historical canary gates passed, then the old
+# 1,200-second global cap terminated the manager with exit 124. Retain that
+# allowance and include the already-bounded 900-second development-task gate,
+# as the arm64 wrapper does. This is only a global CI orchestration cap: the
+# checker, service, cleanup, HTTP and per-phase deadlines are unchanged.
+# The 45-minute workflow leaves 600 seconds for acquisition/build/probes.
+amd64_manager_deadline_seconds=2100
 (
   cd "$ROOT"
-  timeout --foreground --signal=TERM --kill-after=15s 1200s \
+  timeout --foreground --signal=TERM --kill-after=15s \
+    "${amd64_manager_deadline_seconds}s" \
     sudo -u "$run_user" env \
       "HOME=$run_home" \
       "CARGO_HOME=$run_home/.cargo" \

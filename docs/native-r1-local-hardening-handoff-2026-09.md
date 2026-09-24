@@ -11,7 +11,7 @@ merging, the user instructed “진행해”. This resolves only the publication
 hold. The exact source/test/documentation feature branch is in scope; the
 pre-existing `tasks/lessons.md` edit, ignored local plans and operator secrets or
 state are excluded. Required full CI and ordinary protected-branch merge remain
-mandatory. The [owning PR](https://github.com/NotoriAndo/Boole/pulls?q=is%3Apr+head%3Acodex%2Fnative-r1-hardening-integration)
+mandatory. The [owning PR #388](https://github.com/NotoriAndo/Boole/pull/388)
 records their actual result. Public P2P and the signature shortcut remain held;
 the expired twelve-hour automation is not resumed.
 
@@ -163,14 +163,65 @@ held action.
    actual custody/release/participants and R2/R3 remain separately held or absent;
    no local scenario can manufacture those decisions or external evidence.
 
-### Local verification versus future CI
+### Local verification and required CI
 
-The final source-to-main range was also passed through the existing local
-`scripts/ci_change_scope.py`; it reports `process_only=false`. No workflow,
-classifier, full-suite selection or dependency-lock change was made in this
-follow-up stack. Its future PR requires the full validation lane. The explicitly
+The source-to-main range was passed through the existing local
+`scripts/ci_change_scope.py`; it reports `process_only=false`. The original
+publication head `8432ad7` changed no workflow, classifier, full-suite selection
+or dependency lock. Its first full CI exposed the orchestration-budget issue
+recorded below; only the amd64 global/job time allowances and their direct tests
+were corrected. The classifier, required checks, frozen inner deadlines and
+dependency lock remain unchanged. The explicitly
 ignored developer-Mac large capacity/halving scenarios remain separate measured
-evidence; a future routine CI pass must not be described as re-running them.
+evidence; a routine CI pass must not be described as re-running them.
+
+### September 25 publication: initial CI timeout and orchestration correction
+
+`8432ad7000546c296556b3543dea1e15f56286bb` was published in
+[PR #388](https://github.com/NotoriAndo/Boole/pull/388), based on freshly checked
+remote main `9be7cb0`. The range secret scan, docs-smoke and diff check passed;
+the user's unrelated `tasks/lessons.md` edit was excluded and stayed identical.
+The [first full CI](https://github.com/NotoriAndo/Boole/actions/runs/36066002628)
+is retained as a failed attempt, not replaced by a later success. Its
+[amd64 rootfs replay job](https://github.com/NotoriAndo/Boole/actions/runs/36066002628/job/107855834792)
+exited 124 after 21m23s overall: exact rootfs construction, categorical Cargo
+diagnostics, actual MCP positive/negative/redelivery checks, crash/restart and
+the historical canary reported PASS before the enclosing manager hit its
+1,200-second wall-clock cap. There was no final development-task PASS, so that
+attempt does not qualify the complete matrix. The separate
+[two-OS, four-configuration verdict workflow](https://github.com/NotoriAndo/Boole/actions/runs/36066002713)
+passed all six jobs.
+
+The wrapper still used the pre-development-task global allowance, despite
+running the separately bounded 900-second task phase. The correction follows
+the existing arm64 orchestration pattern: retain 1,200 seconds plus that
+900-second phase (2,100 seconds total), with a 45-minute workflow allowing
+600 seconds outside the manager. This is CI orchestration, not a change to
+checker policy, sandboxing, service/cleanup/HTTP deadlines, reward rules or any
+preregistered native resource threshold. No failed test is skipped or relabeled.
+The runtime, product tests and dependencies remain identical to `df6a32c`.
+
+A regression executes the actual shell timeout invocation with only the
+external timeout command stubbed; it does not invoke sudo, a checker or Linux
+services. It observed the old 1,200-second argument (RED) and the corrected
+2,100-second argument with workflow reserve (GREEN). Ninety-six direct workflow,
+crash/restart, canary, bounded-retry and classifier tests then passed. The initial
+test-name typo and missing scratch fixture variable were test setup errors, not
+the RED result. The first broad local invocation also had two sandbox-denied
+temporary Unix socket binds; the same tests passed with that local permission.
+Actual full Linux CI at the corrective head is mandatory before merge; the Mac
+contract test alone does not establish that the full matrix finishes.
+
+Retained failure excerpt:
+
+```text
+native-shadow production real MCP trace gate: PASS
+native-shadow production crash/restart replay gate: PASS
+fresh-answer-canary:real-mcp-contained-checker:PASS
+Process completed with exit code 124.
+```
+
+### Earlier integrated consumer verification
 
 The exact-tree integration passed the actual CLI three-node operator rehearsal
 and combined owner-wallet/node recovery consumers after the publication-fence
