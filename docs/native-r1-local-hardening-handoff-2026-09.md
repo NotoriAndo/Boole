@@ -1,9 +1,19 @@
 # Native R1 local hardening integration — 2026-09-23
 
-Status: **LOCAL INTEGRATION PREPARED; external publication/CI/merge remain on hold.**
+Status: **LOCAL INTEGRATION VERIFIED; ordinary GitHub publication/CI/merge authorized September 25.**
 R1 is incomplete, R2 has not passed and R3 has not started. This record locates
 the work completed during the operator's twelve-hour autonomous-development
 window; it does not turn local results into release or execution authority.
+
+**Publication resumption, September 25:** after the proposed next step was
+explained as uploading the prepared code, passing official automated checks and
+merging, the user instructed “진행해”. This resolves only the publication-approval
+hold. The exact source/test/documentation feature branch is in scope; the
+pre-existing `tasks/lessons.md` edit, ignored local plans and operator secrets or
+state are excluded. Required full CI and ordinary protected-branch merge remain
+mandatory. The [owning PR](https://github.com/NotoriAndo/Boole/pulls?q=is%3Apr+head%3Acodex%2Fnative-r1-hardening-integration)
+records their actual result. Public P2P and the signature shortcut remain held;
+the expired twelve-hour automation is not resumed.
 
 **Window closed:** the delegated interval was 2026-09-23 04:02:30–16:02:30 UTC
 (ending September 24 at 01:02:30 KST). Its follow-up automation was verified
@@ -11,8 +21,8 @@ PAUSED at closeout, with the original prompt, schedule and target preserved.
 No new feature or experiment was started after the deadline. Final runtime,
 test and dependency sources remain identical to `df6a32c`; subsequent commits
 record verification and reconcile the already-selected operator-local RPC scope.
-The project-root integration branch is the handoff checkout, while main and all
-three safety holds below remain unchanged. Only the pre-existing user edit in
+At window close the project-root integration branch was the handoff checkout,
+while main and all three safety holds below remained unchanged. Only the pre-existing user edit in
 `tasks/lessons.md` remains uncommitted; no clean-worktree claim is made.
 
 ## Main versus the prepared integration
@@ -41,8 +51,8 @@ three safety holds below remain unchanged. Only the pre-existing user edit in
   Earlier temporary paths in raw output identify historical runs; subsequent
   prose changes are not a claim that those executables contained later docs.
 
-All new local follow-up changes still need authorized publication, the required
-full CI and ordinary review/merge. A compile, local pass, exact-tree rebase or
+All new local follow-up changes use the now-authorized publication path, the
+required full CI and ordinary review/merge. A compile, local pass, exact-tree rebase or
 valid document is not a substitute. No main push, protection bypass or public
 release was performed.
 
@@ -86,9 +96,11 @@ a signature-validation change.
 
 ## Holds and genuine remaining decisions
 
-1. **External GitHub publication:** the safety review rejected push/PR payload
-   transmission twice. A user approval request is pending. The prepared branch
-   has not been pushed, has no new PR/required-CI pass and is not merged.
+1. **External GitHub publication — approval resolved September 25:** the safety
+   review had rejected push/PR payload transmission twice during the earlier
+   window. The user's subsequent instruction authorizes source/test/docs
+   publication and the required-CI/ordinary-merge path. Earlier rejection evidence
+   remains valid; this is new authority, not a bypass or a claim of CI success.
 2. **Non-loopback P2P:** a proposed explicit exposure option was rejected before
    application. It remains unimplemented; all current bind/peer/client loopback
    guards remain. No tunnel/proxy/firewall workaround is approved.
@@ -136,9 +148,9 @@ held action.
    owner-wallet tests linked above. Expected heads, original outboxes, independent
    accounting, key-role separation and preservation of old material are required
    outcomes, not optional cleanup details.
-4. **Publication only after the outstanding decision:** recheck the actual base
+4. **Publication under the September 25 authorization:** recheck the actual base
    and worktree, preserve the user's unrelated edit and original evidence refs,
-   then use the feature-branch/PR/full-CI/review/merge path if authorized. The local
+   then use the feature-branch/PR/full-CI/review/merge path. The local
    main/ref snapshot here is not a fresh remote-status assertion. Do not reset
    acceptance thresholds, omit failing retry evidence or describe developer-Mac
    measurements as cross-platform CI qualification.

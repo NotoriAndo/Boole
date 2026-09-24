@@ -1,17 +1,21 @@
 # Boole — current development status
 
-Updated: 2026-09-23. This is the tracked entrypoint for current progress and the
+Updated: 2026-09-25. This is the tracked entrypoint for current progress and the
 ordered development roadmap. Edit it in place; execution evidence stays in its
 own result record. Local Master/Execution documents link here instead of owning
 a second current cursor. Work methods follow the
 [development policy](development-throughput-and-evidence-policy-v1.md).
 
-**Publication state:** main is recorded at `9be7cb0` through secure peers and
-encrypted wallet recovery. The additional recovery/resource/diagnostic/storage
-hardening below is prepared on local branch `codex/native-r1-hardening-integration`,
-not pushed, CI-qualified, merged or released. Original measurement commits are
-preserved; the initial main-based rebase was verified byte-identical. See the
-[local integration handoff and three safety holds](native-r1-local-hardening-handoff-2026-09.md).
+**Publication scope:** the recovery/resource/diagnostic/storage hardening below
+is integrated on `codex/native-r1-hardening-integration`, based on main `9be7cb0`
+through secure peers and encrypted wallet recovery. On September 25 the user
+authorized GitHub publication, required full CI and ordinary PR merge; the
+earlier publication-approval hold is resolved. The owning
+[feature PR](https://github.com/NotoriAndo/Boole/pulls?q=is%3Apr+head%3Acodex%2Fnative-r1-hardening-integration)
+records the actual CI and merge outcome, not the local measurements alone.
+Original measurement commits are preserved; the initial main-based rebase was
+verified byte-identical. See the
+[integration handoff and remaining safety holds](native-r1-local-hardening-handoff-2026-09.md).
 R1 remains incomplete, R2 not passed and R3 not started.
 
 ## Current boundary
