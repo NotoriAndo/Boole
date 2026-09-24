@@ -3,10 +3,10 @@
 durable-append helper and the tail-truncation recover path.
 
 L7 contract: a line acknowledged to the caller survives every crash short
-of disk hardware loss. The single helper `append_ndjson_line_durable`
-performs `write_all + flush + sync_all` (and `fsync_parent_dir` on file
-creation). The single recover entry point `read_stable_prefix` truncates
-any torn trailing line on boot via `stable_jsonl_prefix_len`.
+of disk hardware loss. The shared durable/versioned append entry points
+use the same write/flush/sync/rollback implementation. Legacy recovery uses
+`read_stable_prefix`; native recovery binds the read version and any synced
+tail repair through `read_native_log`, using `stable_jsonl_prefix_len`.
 
 This test pins the static surface so a new on-disk write site (or a
 regression on an existing one) is caught before the first integration
@@ -36,7 +36,11 @@ reuse-from-day-one pattern as `useful_work_store.rs` above. Exhaustion is
 derived from that journal rather than written to a second authority file.
 
 R1: `native_node.rs` adds the native block and pending-transfer journals to
-the same durable-append and stable-prefix recovery contract.
+the same durable-append and stable-prefix recovery contract. Its versioned
+append and source-preserving read paths are not exemptions from durability.
+Actual write/sync failure, torn-tail repair and independent restart behavior
+are exercised by the durability/native-node Rust tests; these static checks
+only guard the call-site inventory, not the runtime durability claim.
 """
 from __future__ import annotations
 
@@ -46,6 +50,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "crates" / "boole-node" / "src"
+APPEND_HELPER_CALL = re.compile(
+    r"(?<!fn )\bappend_ndjson_line_(?:durable(?:_on_file)?|versioned)\s*\("
+)
 
 DURABLE_STORES = {
     "block_store.rs",
@@ -81,7 +88,7 @@ class StorageDurabilityContractTests(unittest.TestCase):
         for path in SRC.glob("*.rs"):
             if path.name in {"durability.rs", "local_node.rs"}:
                 continue
-            if "append_ndjson_line_durable" in _read(path):
+            if APPEND_HELPER_CALL.search(_read(path)):
                 live.add(path.name)
         self.assertEqual(
             DURABLE_STORES,
@@ -92,15 +99,14 @@ class StorageDurabilityContractTests(unittest.TestCase):
             f"{sorted(DURABLE_STORES - live)}.",
         )
 
-    def test_every_ndjson_store_imports_durable_append_helper(self) -> None:
+    def test_every_ndjson_store_calls_shared_durable_append_helper(self) -> None:
         for filename in sorted(DURABLE_STORES):
             with self.subTest(store=filename):
                 body = _read(SRC / filename)
-                self.assertIn(
-                    "append_ndjson_line_durable",
-                    body,
+                self.assertIsNotNone(
+                    APPEND_HELPER_CALL.search(body),
                     f"L7: {filename} must call the shared "
-                    "`append_ndjson_line_durable` helper so write_all + "
+                    "durable/versioned append helper so write_all + "
                     "flush + sync_all + parent-dir fsync run on every "
                     "append. A bypass means a torn line on crash.",
                 )
@@ -109,14 +115,30 @@ class StorageDurabilityContractTests(unittest.TestCase):
         for filename in sorted(DURABLE_STORES):
             with self.subTest(store=filename):
                 body = _read(SRC / filename)
-                self.assertIn(
-                    "read_stable_prefix",
-                    body,
-                    f"L7: {filename} must call `read_stable_prefix` so a "
-                    "torn trailing line from a previous crash is "
-                    "truncated to the last newline on boot instead of "
-                    "bricking the node.",
+                reader = (
+                    "read_native_log"
+                    if filename == "native_node.rs"
+                    else "read_stable_prefix"
                 )
+                self.assertRegex(
+                    body, rf"(?<!fn )\b{reader}\s*\(",
+                    f"L7: {filename} must call its validated journal reader; "
+                    "native source-preserving consumers must refuse, not repair, torn input.",
+                )
+                if filename == "native_node.rs":
+                    self.assertRegex(body, r"\bstable_jsonl_prefix_len\s*\(")
+
+    def test_append_inventory_recognizes_calls_not_only_imports(self) -> None:
+        for helper in (
+            "append_ndjson_line_durable",
+            "append_ndjson_line_durable_on_file",
+            "append_ndjson_line_versioned",
+        ):
+            with self.subTest(helper=helper):
+                self.assertIsNotNone(APPEND_HELPER_CALL.search(f"{helper}(path, row)?;"))
+                self.assertIsNone(APPEND_HELPER_CALL.search(f"use crate::durability::{helper};"))
+                self.assertIsNone(APPEND_HELPER_CALL.search(f"fn {helper}(path: &Path) {{}}"))
+        self.assertIsNone(APPEND_HELPER_CALL.search("append_ndjson_line_unsafe(path, row);"))
 
     def test_submit_receipt_writer_is_durable(self) -> None:
         body = _read(SRC / "local_node.rs")

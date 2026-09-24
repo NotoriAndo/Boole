@@ -18,9 +18,10 @@ the expired twelve-hour automation is not resumed.
 **Window closed:** the delegated interval was 2026-09-23 04:02:30–16:02:30 UTC
 (ending September 24 at 01:02:30 KST). Its follow-up automation was verified
 PAUSED at closeout, with the original prompt, schedule and target preserved.
-No new feature or experiment was started after the deadline. Final runtime,
-test and dependency sources remain identical to `df6a32c`; subsequent commits
-record verification and reconcile the already-selected operator-local RPC scope.
+No new feature or experiment was started after the deadline. At window close,
+runtime, test and dependency sources were identical to `df6a32c`; subsequent
+publication corrections below change CI orchestration/static tests, not Rust
+runtime, product tests or dependencies.
 At window close the project-root integration branch was the handoff checkout,
 while main and all three safety holds below remained unchanged. Only the pre-existing user edit in
 `tasks/lessons.md` remains uncommitted; no clean-worktree claim is made.
@@ -169,8 +170,9 @@ The source-to-main range was passed through the existing local
 `scripts/ci_change_scope.py`; it reports `process_only=false`. The original
 publication head `8432ad7` changed no workflow, classifier, full-suite selection
 or dependency lock. Its first full CI exposed the orchestration-budget issue
-recorded below; only the amd64 global/job time allowances and their direct tests
-were corrected. The classifier, required checks, frozen inner deadlines and
+recorded below; the next exposed a stale storage call-site inventory. The amd64
+global/job time allowances, direct tests and storage inventory were corrected.
+The classifier, required checks, frozen inner deadlines and
 dependency lock remain unchanged. The explicitly
 ignored developer-Mac large capacity/halving scenarios remain separate measured
 evidence; a routine CI pass must not be described as re-running them.
@@ -220,6 +222,39 @@ native-shadow production crash/restart replay gate: PASS
 fresh-answer-canary:real-mcp-contained-checker:PASS
 Process completed with exit code 124.
 ```
+
+### September 25 publication: Linux completion and storage inventory correction
+
+At corrective head `753b53db210d6a2d171e51852e07de1ce6fb9300`,
+[full CI 36068980255](https://github.com/NotoriAndo/Boole/actions/runs/36068980255)
+completed both actual rootfs matrices: amd64 in 20m06s and arm64 in 42m58s,
+including the final development-task gate. The separate
+[verdict workflow](https://github.com/NotoriAndo/Boole/actions/runs/36068980234)
+passed all six jobs. These passes establish that the corrected orchestration
+can complete, not a runtime performance improvement across different runners.
+The full CI still failed: its self-test stopped after 3,061 Python tests
+(59.967s, three failures and eight skips), before the remaining suite ran.
+
+All three failures were in `test_storage_durability_contract.py`: the static
+inventory recognized only the older append/reader names and therefore reported
+`native_node.rs` as stale. Native publication now calls
+`append_ndjson_line_versioned`, which shares the durable write/flush/sync/rollback
+implementation. Its `read_native_log` binds file versions and uses
+`stable_jsonl_prefix_len`; authorized repair syncs and checks exact read-back,
+while source-preserving consumers refuse torn input. These paths were already
+implemented and tested; the stale inventory had not followed them.
+
+The same three failures reproduced locally before the correction (RED).
+The inventory now recognizes actual calls to the shared durable/versioned
+append family and the native validated reader, keeps every existing store in
+scope, and has a regression rejecting imports, function definitions and an
+unapproved append name. This static inventory is not proof of runtime durability.
+Twenty direct storage/ordering/state-directory Python checks passed (0.024s).
+Actual Rust durability tests passed 19/19 (0.12s), and native-node storage,
+publication-failure, fork-boundary and replay/repair tests passed 13/13 (14.93s).
+Rust runtime, product tests, dependencies and acceptance criteria are unchanged.
+The failed CI remains retained; fresh full CI at the corrected head is required
+before ordinary merge, without skipped failing tests or a classifier exception.
 
 ### Earlier integrated consumer verification
 
