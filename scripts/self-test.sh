@@ -18,13 +18,24 @@ run_logged() {
   local name="$1"
   shift
   local log="$TMP_DIR/${name}.log"
+  local status=0
   printf 'self-test check %s: RUN\n' "$name" >&2
-  if "$@" >"$log" 2>&1; then
+  if [[ "$name" == "cargo-test" ]]; then
+    # Keep libtest's normal capture: only harness progress is streamed on
+    # success, not test bodies (--nocapture is intentionally not enabled).
+    # An outer CI cancellation must retain the active binary/test name.
+    # pipefail also keeps a child failure red when tee itself succeeds.
+    "$@" 2>&1 | tee "$log" >&2 || status=$?
+  else
+    "$@" >"$log" 2>&1 || status=$?
+  fi
+  if [[ "$status" == 0 ]]; then
     printf 'self-test check %s: PASS\n' "$name" >&2
   else
-    local status=$?
     printf 'self-test check %s: FAIL\n' "$name" >&2
-    cat "$log" >&2
+    if [[ "$name" != "cargo-test" ]]; then
+      cat "$log" >&2
+    fi
     return "$status"
   fi
 }

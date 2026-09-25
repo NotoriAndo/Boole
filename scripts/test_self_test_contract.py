@@ -3,10 +3,13 @@
 and --locked on every cargo invocation that resolves dependencies."""
 from __future__ import annotations
 
+import os
 import re
+import select
 import shlex
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -21,6 +24,70 @@ def _read(path: Path) -> str:
 
 
 class SelfTestContractTests(unittest.TestCase):
+    def test_ci_job_budget_contains_both_validation_and_release_step_budgets(self) -> None:
+        # The job-wide clock must not cancel a healthy self-test merely to
+        # reserve time for a release build which has not started yet. Keep
+        # bounded steps and enough outer time for both plus toolchain setup.
+        job = _read(CI_WORKFLOW).split("\n  self-test:\n", 1)[1].split(
+            "\n  supply-chain:\n", 1
+        )[0]
+        job_limit = re.search(r"(?m)^    timeout-minutes: (\d+)\s*$", job)
+        self.assertIsNotNone(job_limit)
+        step_limits = []
+        for name in ("Run Boole self-test", "Build release binaries"):
+            step = job.split(f"- name: {name}\n", 1)[1].split("\n      - name:", 1)[0]
+            limit = re.search(r"(?m)^        timeout-minutes: (\d+)\s*$", step)
+            self.assertIsNotNone(limit, f"{name} must have its own finite budget")
+            step_limits.append(int(limit.group(1)))
+            self.assertNotIn("continue-on-error: true", step)
+        self.assertTrue(all(value > 0 for value in step_limits))
+        self.assertGreaterEqual(int(job_limit.group(1)), sum(step_limits) + 5)
+
+    def test_workspace_test_progress_is_visible_before_completion_and_failure_stays_red(self) -> None:
+        # An outer CI cancellation must not erase which Rust test was active.
+        # Exercise the real shell wrapper with a child blocked on stdin, not
+        # an elapsed sleep or a replacement implementation of the logger.
+        wrapper = _read(SELF_TEST).split("run_logged() {", 1)[1].split(
+            "\nrun_capture_json() {", 1
+        )[0]
+        script = (
+            'set -euo pipefail\nTMP_DIR="$1"\nrun_logged() {' + wrapper
+            + "\nrun_logged cargo-test bash -c "
+            + shlex.quote("printf 'test fixture::waiting ... '; read -r release; exit 37")
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            with subprocess.Popen(
+                ["bash", "-c", script, "self-test-contract", temporary],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            ) as child:
+                output = b""
+                deadline = time.monotonic() + 3
+                try:
+                    while b"test fixture::waiting ... " not in output:
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0 or not select.select(
+                            [child.stderr], [], [], remaining
+                        )[0]:
+                            break
+                        chunk = os.read(child.stderr.fileno(), 4096)
+                        if not chunk:
+                            break
+                        output += chunk
+                    self.assertIsNone(child.poll(), "fixture must still be running")
+                    self.assertIn(b"test fixture::waiting ... ", output)
+                finally:
+                    _, remainder = child.communicate(input=b"finish\n", timeout=5)
+                    output += remainder
+            self.assertEqual(child.returncode, 37)
+            self.assertIn(b"self-test check cargo-test: FAIL", output)
+            self.assertNotIn(b"self-test check cargo-test: PASS", output)
+            self.assertEqual(
+                (Path(temporary) / "cargo-test.log").read_text(),
+                "test fixture::waiting ... ",
+            )
+
     def test_required_gitleaks_missing_fails_without_running_product_gates(self) -> None:
         body = _read(SELF_TEST)
         stage = body.split('GITLEAKS_STATUS="skipped"', 1)[1].split("\npython3 -", 1)[0]

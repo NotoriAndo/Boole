@@ -13,6 +13,9 @@ authorized GitHub publication, required full CI and ordinary PR merge; the
 earlier publication-approval hold is resolved. The owning
 [feature PR #388](https://github.com/NotoriAndo/Boole/pull/388)
 records the actual CI and merge outcome, not the local measurements alone.
+An intermediate attempt passed 14 checks but was cancelled at the shared
+30-minute self-test job cap. CI now has separate bounded validation/build
+allowances and live Rust progress; the owning PR records the final full result.
 Original measurement commits are preserved; the initial main-based rebase was
 verified byte-identical. See the
 [integration handoff and remaining safety holds](native-r1-local-hardening-handoff-2026-09.md).

@@ -309,6 +309,50 @@ races the start of the backoff wait. Both direct recovery/no-refill tests passed
 again on that final code (45.30s combined); the earlier individual timings and
 three-process result above precede this minimum-wait guard and remain separate.
 
+### September 25 publication: complete-suite envelope and live progress
+
+At `e6289fe4391edb8f854d07f4851243f28de12f9d`,
+[full CI 36079808358](https://github.com/NotoriAndo/Boole/actions/runs/36079808358)
+passed both actual Linux rootfs matrices (amd64 19m42s, arm64 42m42s) and every
+other preliminary gate. The separate
+[verdict workflow](https://github.com/NotoriAndo/Boole/actions/runs/36079808341)
+passed all six jobs. Self-test was **cancelled**, not passed: its job-wide
+30-minute deadline expired while the workspace Rust tests were still running.
+Release compilation had not started and was skipped by cancellation. Thus 14
+of the 15 checks passed, but this attempt does not qualify merge.
+
+The job log records Python, both clippy configurations, test build and Lean
+acceptance passing. Workspace tests started at 01:49:24 UTC and were interrupted
+at 02:09:43; cleanup named the active `native_capacity` test binary. Its output
+was only in a temporary log, printed on completion/failure, so this cancellation
+lost the individual test's progress. No per-test assertion failure is available
+from this attempt; it is not evidence that the entire Rust suite, or the operator
+rehearsal in particular, passed. On the developer Mac, the default eight small
+capacity consumers then passed in 132.65s, with all eight explicit large
+qualifications still ignored. This excludes an unconditional local hang, not a
+Linux timing regression. No product/runtime change follows from that probe.
+
+The prior successful main
+[run 35824732648](https://github.com/NotoriAndo/Boole/actions/runs/35824732648)
+spent 21m50s in self-test, 2m26s in release compilation and 24m43s overall,
+before the additional hardening consumers. CI orchestration now assigns a
+finite 60-minute self-test step, a separate 10-minute release-build step and
+five minutes for setup/cleanup (75 minutes overall). These are scheduling
+allowances, not relaxed test acceptance: serial execution, all named gates,
+the classifier, product/checker time limits and the operator 15s/3s/180s criteria
+are unchanged. Fresh complete CI must still prove that this envelope suffices.
+
+The actual workspace-test shell wrapper now streams ordinary Cargo/libtest
+progress while retaining its log. Test output capture remains enabled; no
+`--nocapture` or skipped tests were added to CI. A blocked-child regression
+first reproduced the missing live marker (RED, 3.017s), then observed it before
+completion and preserved the child's failure status 37 through `tee` (GREEN).
+A separate regression reproduced the absent per-step budgets and now enforces
+that the outer budget includes both steps plus setup reserve. All 114 direct
+self-test/workflow/prewarm/classifier/policy checks passed, as did shell syntax
+and whitespace validation. This is a harness correction; Rust runtime and
+product tests remain byte-identical to `e6289fe`.
+
 ### Earlier integrated consumer verification
 
 The exact-tree integration passed the actual CLI three-node operator rehearsal
