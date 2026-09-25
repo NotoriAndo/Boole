@@ -348,11 +348,19 @@ fn native_shutdown_closes_an_unread_large_response_and_releases_state_ownership(
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let listener = runtime.block_on(async {
         let socket = tokio::net::TcpSocket::new_v4().unwrap();
+        // Match the production std::net listener: Linux needs reuse on the old
+        // socket too to rebind while a closed connection remains in TIME_WAIT.
+        #[cfg(not(windows))]
+        socket.set_reuseaddr(true).unwrap();
         socket.set_send_buffer_size(1024).unwrap();
         socket.bind("127.0.0.1:0".parse().unwrap()).unwrap();
         socket.listen(128).unwrap().into_std().unwrap()
     });
     let addr = listener.local_addr().unwrap();
+    assert!(
+        TcpListener::bind(addr).is_err(),
+        "the live listener must still own its port exclusively"
+    );
     let stop = Arc::new(tokio::sync::Notify::new());
     let mut task = runtime.spawn(boole_node::serve_native_node(listener, node, stop.clone()));
     let mut client = runtime.block_on(async {

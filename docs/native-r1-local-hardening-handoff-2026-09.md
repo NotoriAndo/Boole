@@ -405,6 +405,46 @@ native-ledger and chain tests also passed (the chain binary took 24.71s), includ
 weak/wrong-key, modified payload/network, conservation and replay controls.
 Shell syntax, docs-smoke and whitespace checks passed.
 
+### September 25 publication: production-equivalent shutdown test listener
+
+At `b5f59c20185a96ae537f50012fece5e6ff89ccb8`,
+[full CI 36094048970](https://github.com/NotoriAndo/Boole/actions/runs/36094048970)
+passed the actual Linux matrices (amd64 19m54s, arm64 42m50s), and
+[verdict 36094048971](https://github.com/NotoriAndo/Boole/actions/runs/36094048971)
+passed all six jobs. The unchanged eight small capacity consumers now passed
+on Linux in 94.24s; the two mixed cases took approximately 15.71s and 19.62s,
+versus 615s and 619s in the earlier unoptimized run. All eight explicit large
+qualifications remained ignored. This confirms the narrow Linux test-build
+correction, not a production-performance or new large-state qualification.
+
+Self-test failed an assertion after 22m11s, not its time allowance. Of the nine
+native HTTP tests, eight passed. The unread-response shutdown test reached its
+immediate listener-rebind assertion after successful server completion, state
+reopen/accounting checks and old-client EOF/reset checks, then received Linux
+`AddrInUse` (98). The attempt remains FAIL; subsequent tests and release build
+were not completed.
+
+The custom small-send-buffer fixture constructed a raw Tokio `TcpSocket` without
+`SO_REUSEADDR`. The actual `bind_native_loopback` uses `std::net::TcpListener`,
+whose [pinned Rust implementation](https://github.com/rust-lang/rust/blob/1.95.0/library/std/src/sys/net/connection/socket/mod.rs)
+enables address reuse outside Windows. The
+[Linux socket contract](https://man7.org/linux/man-pages/man7/socket.7.html)
+requires this on the previous socket too when reusing an address; a closed TCP
+connection can retain `TIME_WAIT` independently of a live listener. A temporary
+actual-socket probe confirmed `production_reuse=true fixture_reuse=false` on the
+developer Mac, then was removed. This distinguishes the fixture configuration
+from production; the exact Linux failure/green pair still belongs to CI, not
+the Mac probe.
+
+The fixture now applies the same non-Windows reuse setting. No runtime source,
+socket-buffer size, connection lifecycle, deadline or existing acceptance
+assertion changed. An added control requires that rebinding while the listener
+is alive still fails; the original immediate rebind after shutdown remains
+mandatory. All nine local native HTTP consumers passed in 17.86s, including
+the unread 272,026-byte response with only 130,500 trailing bytes and unchanged
+canonical state. The final exclusivity control and original shutdown case also
+pass together. A fresh complete full-CI result remains necessary for merge.
+
 ### Earlier integrated consumer verification
 
 The exact-tree integration passed the actual CLI three-node operator rehearsal

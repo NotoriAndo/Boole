@@ -21,6 +21,10 @@ still exhausted its time budget while small capacity tests ran slowly.
 Only the test-profile curve-arithmetic dependency is now optimized, with actual
 compiler-profile checks retaining application debug/overflow guards. Earlier
 large measurements remain tied to their original build settings.
+Linux then passed all eight small capacity cases in 94.24s but exposed a
+shutdown-test listener missing the production address-reuse setting. The fixture
+now matches the production listener while retaining immediate rebind, exclusive
+live ownership, closed-client and unchanged-state checks; full CI remains required.
 Original measurement commits are preserved; the initial main-based rebase was
 verified byte-identical. See the
 [integration handoff and remaining safety holds](native-r1-local-hardening-handoff-2026-09.md).
