@@ -754,7 +754,7 @@ periodic pull, not instantaneous broadcast or a finality guarantee.
 | Round / range | 64 requests, 256 downloaded blocks; page at most 16 blocks |
 | Pending snapshot | 512 transfers; page at most 128 |
 | Round I/O and state-lock wait deadline | 10 seconds from completed authentication; not a hard real-time disk/CPU preemption guarantee |
-| Outbound retry | 500ms on success; exponential 500ms–30s after consecutive failures |
+| Outbound retry | 500ms on success; exponential 500ms–30s after consecutive failures, with the single connection-recovery probe described below |
 
 Outbound scheduling is independent per fixed peer. An authenticated peer that
 stops replying cannot hold the other peers behind its network timeout. Each
@@ -763,6 +763,21 @@ remote messages cannot add workers or status labels. Concurrent imports serializ
 through the existing state owner and retain the unchanged snapshot, signature,
 fork-choice and durable-publication checks. Partial worker-start failure stops
 and joins already-started workers before returning an error.
+
+A returning configured peer can otherwise finish pulling the current chain while
+its counterpart is still sleeping after connection refusals, leaving an orphaned
+transfer queued only on the returning node. After a fully authenticated,
+rate-limited, valid inbound round completes, an outbound worker currently waiting
+after a **connect** failure may perform one early connection probe, after at least
+the normal 500ms minimum wait. Only a complete
+successful outbound round replenishes that single allowance. Failed probes retain
+the consecutive-failure count and exponential delay; repeated inbound hints,
+authentication alone, invalid protocol/network input and TLS/data/local-state
+failure backoff do not replenish or bypass it. The fixed peer set, worker/byte/
+request limits, signature/admission rules and shutdown boundary are unchanged.
+This is a bounded recovery opportunity, not instantaneous gossip or an availability
+guarantee under adversarial traffic. The [publication CI correction](native-r1-local-hardening-handoff-2026-09.md#september-25-publication-asymmetric-rejoin-and-a-single-connection-recovery-probe)
+retains the Linux failure, minimized reproduction and direct results.
 
 This increases the maximum concurrent outbound rounds from one to eight, trading
 bounded additional sockets, threads and per-round buffers for independent progress.

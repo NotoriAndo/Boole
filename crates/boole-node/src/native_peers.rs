@@ -146,7 +146,15 @@ struct Shared {
     lifecycle: Arc<P2pLifecycle>,
     active: Mutex<BTreeSet<PeerId>>,
     next_inbound: Mutex<BTreeMap<PeerId, Instant>>,
+    connect_recovery: Vec<(PeerId, Mutex<ConnectRecovery>)>,
     monitor: NativePeerMonitor,
+}
+
+#[derive(Default)]
+struct ConnectRecovery {
+    waiting: bool,
+    requested: bool,
+    used: bool,
 }
 
 pub struct NativePeerService {
@@ -236,6 +244,11 @@ impl NativePeerService {
                     .map(|(_, key)| (*key, Instant::now()))
                     .collect(),
             ),
+            connect_recovery: config
+                .peers
+                .iter()
+                .map(|(_, key)| (*key, Mutex::new(ConnectRecovery::default())))
+                .collect(),
             monitor,
         });
         let incoming = shared.clone();
@@ -303,6 +316,21 @@ fn outbound_loop(shared: Arc<Shared>, index: usize, address: SocketAddr) {
             let _round = OutboundRound::new(shared.monitor.clone());
             let mut stage = "connect";
             let outcome = synchronize(&shared, address, &mut declined, &mut stage);
+            {
+                let mut recovery = shared.connect_recovery[index]
+                    .1
+                    .lock()
+                    .expect("native connect recovery lock");
+                recovery.waiting = outcome.is_err() && stage == "connect";
+                if outcome.is_ok() {
+                    // Only a complete successful outgoing round replenishes
+                    // the single recovery probe, never another inbound hint.
+                    recovery.used = false;
+                }
+                if !recovery.waiting {
+                    recovery.requested = false;
+                }
+            }
             let mut snapshot = shared
                 .monitor
                 .snapshot
@@ -328,7 +356,32 @@ fn outbound_loop(shared: Arc<Shared>, index: usize, address: SocketAddr) {
             }
             Duration::from_millis(status.retry_delay_ms)
         };
-        shared.lifecycle.wait_or_stop(delay);
+        let wait_started = Instant::now();
+        let deadline = wait_started + delay;
+        let probe_not_before = wait_started + POLL_TIME.min(delay);
+        loop {
+            {
+                let mut recovery = shared.connect_recovery[index]
+                    .1
+                    .lock()
+                    .expect("native connect recovery lock");
+                let now = Instant::now();
+                if now >= deadline || (recovery.requested && now >= probe_not_before) {
+                    recovery.requested = false;
+                    recovery.waiting = false;
+                    break;
+                }
+            }
+            // The existing shutdown wait remains promptly cancellable. Poll
+            // only this fixed peer's one-bit hint, without a new I/O worker.
+            if shared.lifecycle.wait_or_stop(
+                deadline
+                    .saturating_duration_since(Instant::now())
+                    .min(POLL_TIME),
+            ) {
+                return;
+            }
+        }
     }
 }
 
@@ -714,6 +767,21 @@ fn serve_round(shared: &Shared, socket: TcpStream) -> anyhow::Result<()> {
     for _ in 0..MAX_REQUESTS {
         let request = round.recv()?;
         if matches!(request, Message::Done) {
+            // A completed, rate-limited and authenticated inbound round proves
+            // that a configured peer is talking again. Permit at most one
+            // extra connect probe per outage; TLS/data/local-state failures
+            // retain their backoff, and repeated hints cannot refill it.
+            if let Some((_, recovery)) = shared
+                .connect_recovery
+                .iter()
+                .find(|(peer, _)| *peer == key)
+            {
+                let mut recovery = recovery.lock().expect("native connect recovery lock");
+                if recovery.waiting && !recovery.used {
+                    recovery.used = true;
+                    recovery.requested = true;
+                }
+            }
             return Ok(());
         }
         let response = {

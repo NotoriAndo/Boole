@@ -219,6 +219,16 @@ or enabling signing. Actual-router tests keep diagnostics readable while eight
 normal requests wait on the ledger and while canonical storage is missing;
 existing readiness/mutation paths remain fail-closed. Shared connection/host
 exhaustion can still prevent observation, and this is not public health service.
+Publication CI also exposed slow orphaned-transfer propagation after asymmetric
+peer rejoin: the returning node had recovered its pending transfer, but the other
+side remained in a 30-second connection-failure backoff. A completed authenticated
+inbound round now permits one early connect probe, replenished only by a complete
+successful outbound round. Failure counts, TLS/data-error backoff and all input/
+worker/validation limits remain. Direct real-peer reproduction, no-amplification
+controls and the original three-process workflow pass; the latest owning PR must
+still complete full CI. See the [correction and retained failure](native-r1-local-hardening-handoff-2026-09.md#september-25-publication-asymmetric-rejoin-and-a-single-connection-recovery-probe).
+Earlier large-state measurements remain attached to their original source; they
+have not been rerun on this small peer-scheduling correction.
 Input-reflecting HTTP error bodies are also limited to 4KiB, preserving status
 and replacing oversized diagnostics with a short code.
 A [combined large-state input-pressure qualification](native-mixed-resource-qualification-2026-09.md)

@@ -692,10 +692,283 @@ fn partitioned_peers_rejoin_the_verified_heavier_fork_and_recover_orphaned_trans
     );
 }
 
+#[test]
+fn returning_peer_recovers_orphaned_transfer_while_the_other_side_is_in_connect_backoff() {
+    let dir_a = TestDir::new();
+    let dir_b = TestDir::new();
+    let node_a = dir_a.node();
+    let node_b = dir_b.node();
+    let miner = SigningKeyV2::from_dev_id("native-backoff-miner");
+    let alice = SigningKeyV2::from_dev_id("native-backoff-alice");
+    let recipient = SigningKeyV2::from_dev_id("native-backoff-recipient").pk_hex();
+    mine(&node_a, &miner, &alice.pk_hex(), 10);
+    for block in node_a.lock().unwrap().chain().blocks() {
+        node_b.lock().unwrap().submit_block(block.clone()).unwrap();
+    }
+    let transfer = NativeTransfer::try_from(
+        &alice
+            .sign_for_network(
+                &serde_json::json!({
+                    "schema": "boole.transfer.v1", "from": alice.pk_hex(), "to": recipient,
+                    "amount": "100000000", "fee": "1000", "nonce": "0", "validBefore": "100"
+                }),
+                Some(native_testnet().network_id()),
+            )
+            .unwrap(),
+    )
+    .unwrap();
+    node_b
+        .lock()
+        .unwrap()
+        .submit_transfer(transfer.clone())
+        .unwrap();
+    mine(&node_b, &miner, &miner.pk_hex(), 1);
+    mine(&node_a, &miner, &alice.pk_hex(), 2);
+    let winner = node_a.lock().unwrap().chain().clone();
+    let listener_a = TcpListener::bind("127.0.0.1:0").unwrap();
+    let listener_b = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address_a = listener_a.local_addr().unwrap();
+    let address_b = listener_b.local_addr().unwrap();
+    let key_a = identity();
+    let key_b = identity();
+    drop(listener_b);
+    let mut service_a = NativePeerService::start(
+        listener_a,
+        node_a.clone(),
+        NativePeerConfig {
+            identity: key_a.clone(),
+            peers: vec![(address_b, key_b.peer_id())],
+        },
+    )
+    .unwrap();
+    let started = Instant::now();
+    while service_a.status()[0].retry_delay_ms != 30_000 {
+        assert!(started.elapsed() < Duration::from_secs(40));
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(service_a.status()[0].last_failure_stage, Some("connect"));
+    let mut service_b = NativePeerService::start(
+        TcpListener::bind(address_b).unwrap(),
+        node_b.clone(),
+        NativePeerConfig {
+            identity: key_b,
+            peers: vec![(address_a, key_a.peer_id())],
+        },
+    )
+    .unwrap();
+    await_condition(|| node_b.lock().unwrap().chain() == &winner);
+    assert_eq!(
+        node_b.lock().unwrap().pending(),
+        std::slice::from_ref(&transfer)
+    );
+    let rejoined = Instant::now();
+    while node_a.lock().unwrap().pending() != std::slice::from_ref(&transfer) {
+        assert!(
+            rejoined.elapsed() < Duration::from_secs(10),
+            "orphan exists at returning peer but did not propagate: a={:?}, b={:?}",
+            service_a.status(),
+            service_b.status()
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    mine(&node_a, &miner, &miner.pk_hex(), 1);
+    await_condition(|| node_b.lock().unwrap().confirmed_height(&transfer.id()) == Some(13));
+    service_a.stop();
+    service_b.stop();
+    assert_eq!(
+        node_a.lock().unwrap().chain(),
+        node_b.lock().unwrap().chain()
+    );
+    assert_eq!(
+        node_a.lock().unwrap().chain().ledger().balance(&recipient),
+        100_000_000
+    );
+}
+
 fn wire_hello() -> serde_json::Value {
     serde_json::json!({ "type": "hello", "protocolVersion": 1,
         "networkId": native_testnet().network_id(), "genesisHash": native_testnet().genesis_hash().to_hex(),
         "head": {"height": 0, "hash": native_testnet().genesis_hash().to_hex()} })
+}
+
+#[test]
+fn returning_peer_hint_requires_a_complete_round_and_cannot_refill_the_connect_probe() {
+    let dir = TestDir::new();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let offline = TcpListener::bind("127.0.0.1:0").unwrap();
+    let offline_address = offline.local_addr().unwrap();
+    drop(offline);
+    let local_key = identity();
+    let remote_key = identity();
+    let client =
+        TlsTransport::new(remote_key.clone(), vec![(address, local_key.peer_id())]).unwrap();
+    let mut service = NativePeerService::start(
+        listener,
+        dir.node(),
+        NativePeerConfig {
+            identity: local_key,
+            peers: vec![(offline_address, remote_key.peer_id())],
+        },
+    )
+    .unwrap();
+    await_condition(|| service.status()[0].retry_delay_ms == 8_000);
+    let failures = service.status()[0].failed_rounds;
+    // Authentication alone is not a completed protocol round.
+    drop(client.connect(&address).unwrap());
+    std::thread::sleep(Duration::from_millis(600));
+    assert_eq!(service.status()[0].failed_rounds, failures);
+    let mut connection = client.connect(&address).unwrap();
+    let mut invalid = wire_hello();
+    invalid["networkId"] = serde_json::json!("wrong-network");
+    client
+        .send_json_counted_until(
+            &mut connection,
+            &invalid,
+            4096,
+            Instant::now() + Duration::from_secs(2),
+        )
+        .unwrap();
+    assert!(client
+        .recv_json_counted_until::<serde_json::Value>(
+            &mut connection,
+            4096,
+            Instant::now() + Duration::from_secs(2),
+        )
+        .is_err());
+    drop(connection);
+    std::thread::sleep(Duration::from_millis(600));
+    assert_eq!(service.status()[0].failed_rounds, failures);
+    let complete_round = || {
+        let mut connection = client.connect(&address).unwrap();
+        client
+            .send_json_counted_until(
+                &mut connection,
+                &wire_hello(),
+                4096,
+                Instant::now() + Duration::from_secs(2),
+            )
+            .unwrap();
+        let hello: serde_json::Value = client
+            .recv_json_counted_until(
+                &mut connection,
+                4096,
+                Instant::now() + Duration::from_secs(2),
+            )
+            .unwrap()
+            .0;
+        assert_eq!(hello["type"], "hello");
+        client
+            .send_json_counted_until(
+                &mut connection,
+                &serde_json::json!({"type": "done"}),
+                4096,
+                Instant::now() + Duration::from_secs(2),
+            )
+            .unwrap();
+    };
+    complete_round();
+    await_condition(|| service.status()[0].failed_rounds == failures + 1);
+    assert_eq!(service.status()[0].retry_delay_ms, 16_000);
+    assert_eq!(service.status()[0].consecutive_failures, 6);
+    for _ in 0..3 {
+        std::thread::sleep(Duration::from_millis(600));
+        complete_round();
+    }
+    std::thread::sleep(Duration::from_millis(600));
+    assert_eq!(service.status()[0].failed_rounds, failures + 1);
+    assert_eq!(service.monitor().snapshot().completed_inbound_rounds, 4);
+    let started = Instant::now();
+    service.stop();
+    assert!(started.elapsed() < Duration::from_secs(1));
+}
+
+#[test]
+fn completed_inbound_round_does_not_bypass_tls_failure_backoff() {
+    let dir = TestDir::new();
+    let local = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = local.local_addr().unwrap();
+    let remote = TcpListener::bind("127.0.0.1:0").unwrap();
+    remote.set_nonblocking(true).unwrap();
+    let remote_address = remote.local_addr().unwrap();
+    let local_key = identity();
+    let expected_remote = identity();
+    let client = TlsTransport::new(
+        expected_remote.clone(),
+        vec![(address, local_key.peer_id())],
+    )
+    .unwrap();
+    let wrong_server = TlsTransport::new(identity(), vec![(address, local_key.peer_id())]).unwrap();
+    let (stop_tx, stop_rx) = std::sync::mpsc::channel::<()>();
+    let server = std::thread::spawn(move || {
+        while matches!(
+            stop_rx.try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Empty)
+        ) {
+            match remote.accept() {
+                Ok((socket, _)) => {
+                    let _ = wrong_server
+                        .accept_stream_until(socket, Instant::now() + Duration::from_secs(2));
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                Err(error) => panic!("TLS rejection fixture: {error}"),
+            }
+        }
+    });
+    let mut service = NativePeerService::start(
+        local,
+        dir.node(),
+        NativePeerConfig {
+            identity: local_key,
+            peers: vec![(remote_address, expected_remote.peer_id())],
+        },
+    )
+    .unwrap();
+    await_condition(|| service.status()[0].retry_delay_ms == 8_000);
+    assert_eq!(
+        service.status()[0].last_failure_stage,
+        Some("tls_handshake")
+    );
+    let failures = service.status()[0].failed_rounds;
+    let mut connection = client.connect(&address).unwrap();
+    client
+        .send_json_counted_until(
+            &mut connection,
+            &wire_hello(),
+            4096,
+            Instant::now() + Duration::from_secs(2),
+        )
+        .unwrap();
+    let hello: serde_json::Value = client
+        .recv_json_counted_until(
+            &mut connection,
+            4096,
+            Instant::now() + Duration::from_secs(2),
+        )
+        .unwrap()
+        .0;
+    assert_eq!(hello["type"], "hello");
+    client
+        .send_json_counted_until(
+            &mut connection,
+            &serde_json::json!({"type": "done"}),
+            4096,
+            Instant::now() + Duration::from_secs(2),
+        )
+        .unwrap();
+    drop(connection);
+    await_condition(|| service.monitor().snapshot().completed_inbound_rounds == 1);
+    std::thread::sleep(Duration::from_millis(700));
+    let observed_failures = service.status()[0].failed_rounds;
+    service.stop();
+    stop_tx.send(()).unwrap();
+    server.join().unwrap();
+    assert_eq!(
+        observed_failures, failures,
+        "inbound hint bypassed a TLS failure delay"
+    );
 }
 
 #[test]

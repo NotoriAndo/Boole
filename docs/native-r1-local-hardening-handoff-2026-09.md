@@ -19,9 +19,11 @@ the expired twelve-hour automation is not resumed.
 (ending September 24 at 01:02:30 KST). Its follow-up automation was verified
 PAUSED at closeout, with the original prompt, schedule and target preserved.
 No new feature or experiment was started after the deadline. At window close,
-runtime, test and dependency sources were identical to `df6a32c`; subsequent
-publication corrections below change CI orchestration/static tests, not Rust
-runtime, product tests or dependencies.
+runtime, test and dependency sources were identical to `df6a32c`. Subsequent
+publication corrections below first changed CI orchestration/static tests, then
+corrected bounded peer reconnect scheduling after an actual Linux rejoin failure.
+Earlier measurements retain their original executable/source identities and
+were not rerun as new large-state qualifications for that scheduling correction.
 At window close the project-root integration branch was the handoff checkout,
 while main and all three safety holds below remained unchanged. Only the pre-existing user edit in
 `tasks/lessons.md` remains uncommitted; no clean-worktree claim is made.
@@ -255,6 +257,57 @@ publication-failure, fork-boundary and replay/repair tests passed 13/13 (14.93s)
 Rust runtime, product tests, dependencies and acceptance criteria are unchanged.
 The failed CI remains retained; fresh full CI at the corrected head is required
 before ordinary merge, without skipped failing tests or a classifier exception.
+
+### September 25 publication: asymmetric rejoin and a single connection-recovery probe
+
+At `b3fcff2c8df43ddf975859b764a5e43086ce0e6a`,
+[full CI 36073736379](https://github.com/NotoriAndo/Boole/actions/runs/36073736379)
+again passed both Linux rootfs matrices (amd64 11m46s, arm64 42m34s). The separate
+[verdict workflow](https://github.com/NotoriAndo/Boole/actions/runs/36073736374)
+passed all six jobs. Self-test now passed the full Python stage, both workspace
+clippy modes, test build and Lean acceptance. Cargo tests reached the real native
+CLI workflow (PASS, 141.46s), then failed the three-process operator rehearsal.
+That test ran 185.79s and hit its unchanged 15-second transaction-agreement limit
+after isolated C rejoined and all heads agreed at height 14. Later suite tests
+did not run. The full CI is retained as FAIL, not an infrastructure retry or PASS.
+
+A new two-service, real-TLS reproduction isolates that boundary without encrypted
+wallet setup. It keeps A running until seven refused connections select the
+existing 30-second delay, then returns B with a valid heavier-fork recovery and
+an orphaned transfer. The original runtime failed in 42.99s: B had restored the
+correct pending transfer and completed 20 successful outgoing rounds, while A
+still reported seven connect failures and a 30,000ms delay. This demonstrates
+the asymmetric-pull mechanism matching the CI failure location, not storage loss
+or a missing signature. The initial sandbox-denied loopback bind was a permission
+failure; the subsequent permitted run is the actual RED result.
+
+The product correction allows one early connect probe when the fixed configured
+peer completes a valid authenticated inbound round. The probe still waits at
+least 500ms, uses the existing single worker and preserves all request/byte/key
+limits and the shutdown/mutation gates. Only a complete successful outbound round
+replenishes its allowance. A failed probe retains the failure count and growing
+backoff; repeated inbound rounds cannot create repeated extra probes. TLS,
+protocol/data and local-state failures do not receive this connect-only hint.
+No public endpoint, new wire message, signature shortcut or relaxed acceptance
+threshold was added. The operator test now emits bounded per-actor transaction,
+head and peer diagnostics only on failure; its 15s/3s/180s criteria are unchanged.
+
+The minimized recovery passed after correction (33.73s including the deliberate
+31.5-second offline/backoff preparation). Actual TLS controls also passed:
+authentication alone, wrong-network input and repeated completed inbound rounds
+cannot refill the probe (11.59s), and a completed inbound round does not bypass
+TLS-failure backoff (8.38s). All 23 pre-existing direct peer tests passed (81.41s).
+The original three-process workflow passed locally with the same criteria:
+76.443s scenario, 83.32s harness including a 6.86s sibling build, orphan propagation
+94ms, height 15, three transfers and the exact original accounting/original-file
+preservation assertions. Its disposable final head was
+`000008c2165acd535216c974c27d319e11e854d7c4d460be68a6068c4d535b2c`.
+This is a developer-Mac correction result, not a new Linux or large-state pass;
+fresh full CI on the final correction remains mandatory before merge.
+The final tightening retains the normal 500ms minimum even if an inbound hint
+races the start of the backoff wait. Both direct recovery/no-refill tests passed
+again on that final code (45.30s combined); the earlier individual timings and
+three-process result above precede this minimum-wait guard and remain separate.
 
 ### Earlier integrated consumer verification
 

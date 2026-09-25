@@ -104,18 +104,28 @@ fn rpc(addr: SocketAddr, path: &str) -> Option<Value> {
     serde_json::from_str(response.split_once("\r\n\r\n")?.1).ok()
 }
 
-fn await_phase(label: &str, mut predicate: impl FnMut() -> bool) {
+fn await_phase(label: &str, predicate: impl FnMut() -> bool) {
+    await_phase_with_diagnostics(label, predicate, || Value::Null);
+}
+
+fn await_phase_with_diagnostics(
+    label: &str,
+    mut predicate: impl FnMut() -> bool,
+    diagnostics: impl Fn() -> Value,
+) {
     let started = Instant::now();
     while !predicate() {
         assert!(
             started.elapsed() < Duration::from_secs(15),
-            "phase deadline: {label}"
+            "phase deadline: {label}; observations: {}",
+            diagnostics()
         );
         std::thread::sleep(Duration::from_millis(25));
     }
     assert!(
         started.elapsed() < Duration::from_secs(15),
-        "phase deadline: {label}"
+        "phase deadline: {label}; observations: {}",
+        diagnostics()
     );
     eprintln!(
         "native-operator-phase {label} elapsedMs={}",
@@ -300,17 +310,31 @@ fn await_head(actors: &[Actor], head: &str, height: u64) {
 
 fn await_transaction(actors: &[Actor], txid: &str, status: &str, height: Option<u64>) {
     let expected_height = height.map(|height| height.to_string());
-    await_phase("transaction-agreement", || {
-        actors.iter().all(|actor| {
-            rpc(actor.rpc, &format!("/native/transactions/{txid}")).is_some_and(|tx| {
-                tx["status"] == status
-                    && tx["final"] == false
-                    && expected_height
-                        .as_ref()
-                        .is_none_or(|height| tx["height"].as_str() == Some(height.as_str()))
+    await_phase_with_diagnostics(
+        "transaction-agreement",
+        || {
+            actors.iter().all(|actor| {
+                rpc(actor.rpc, &format!("/native/transactions/{txid}")).is_some_and(|tx| {
+                    tx["status"] == status
+                        && tx["final"] == false
+                        && expected_height
+                            .as_ref()
+                            .is_none_or(|height| tx["height"].as_str() == Some(height.as_str()))
+                })
             })
-        })
-    });
+        },
+        || {
+            json!({
+                "expectedTxid": txid, "expectedStatus": status, "expectedHeight": height,
+                "actors": actors.iter().map(|actor| json!({
+                    "rpc": actor.rpc.to_string(),
+                    "transaction": rpc(actor.rpc, &format!("/native/transactions/{txid}")),
+                    "info": rpc(actor.rpc, "/native/info"),
+                    "peers": rpc(actor.rpc, "/native/peers"),
+                })).collect::<Vec<_>>()
+            })
+        },
+    );
 }
 
 #[test]
