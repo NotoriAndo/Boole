@@ -16,6 +16,11 @@ records the actual CI and merge outcome, not the local measurements alone.
 An intermediate attempt passed 14 checks but was cancelled at the shared
 30-minute self-test job cap. CI now has separate bounded validation/build
 allowances and live Rust progress; the owning PR records the final full result.
+The subsequent run confirmed the corrected operator rehearsal on Linux but
+still exhausted its time budget while small capacity tests ran slowly.
+Only the test-profile curve-arithmetic dependency is now optimized, with actual
+compiler-profile checks retaining application debug/overflow guards. Earlier
+large measurements remain tied to their original build settings.
 Original measurement commits are preserved; the initial main-based rebase was
 verified byte-identical. See the
 [integration handoff and remaining safety holds](native-r1-local-hardening-handoff-2026-09.md).

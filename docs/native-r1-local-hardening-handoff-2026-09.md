@@ -353,6 +353,58 @@ self-test/workflow/prewarm/classifier/policy checks passed, as did shell syntax
 and whitespace validation. This is a harness correction; Rust runtime and
 product tests remain byte-identical to `e6289fe`.
 
+### September 25 publication: slow unoptimized test arithmetic
+
+At `990f5b467e714534a3c9fbd8ec769518feaf6b7f`,
+[full CI 36086048367](https://github.com/NotoriAndo/Boole/actions/runs/36086048367)
+again passed the actual Linux matrices (amd64 19m50s, arm64 42m58s) and all other
+preliminary checks. The separate
+[verdict workflow 36086048374](https://github.com/NotoriAndo/Boole/actions/runs/36086048374)
+passed all six jobs. Self-test nevertheless hit its new finite 60-minute step
+limit; release compilation remained unexecuted. The larger scheduling envelope
+alone was insufficient, and this failed attempt is preserved.
+
+The new progress log distinguishes slow completed tests from a single hang.
+The original native CLI passed in 108.64s and the corrected three-process operator
+rehearsal passed in 138.20s, with its unchanged 15s/3s/180s criteria. Workspace
+tests started at 03:15:22 UTC; `native_capacity` started at 03:33:00. The small
+distinct-candidate test passed at 03:35:38; mixed pressure at 03:45:54; held-input
+shutdown at 03:56:13; and small capacity at 03:57:58. Cancellation followed at
+04:07:07 during the subsequent peer-capacity test. Thus the two small mixed cases
+alone consumed approximately 615s and 619s, but did pass their assertions. The
+remaining workspace tests still have no result in this attempt.
+
+The current dalek dependency builds an automatically selected x86 SIMD arithmetic
+backend. Its severe unoptimized-test cost is also documented in the
+[Agave build configuration](https://github.com/anza-xyz/agave/blob/master/Cargo.toml).
+That is supporting evidence for the build-cost hypothesis, not a Boole Linux
+measurement. A one-variable local comparison optimized only `curve25519-dalek`
+in the test profile, keeping debug assertions and overflow checks enabled. The
+unchanged eight small capacity tests passed in 76.81s, versus the earlier 132.65s;
+the two mixed cases reported 9.786s and 14.462s. All eight large qualifications
+remained ignored. Network/host variability prevents treating that aggregate as
+a general speedup claim; actual corrected Linux CI remains necessary.
+
+The manifest now applies that narrow test-dependency override. Application
+libraries stay unoptimized with debug/overflow checks enabled, and the ordinary
+dev and release profiles, runtime/fixture source and dependency versions are
+unchanged. No signature is skipped, no test is removed, and no acceptance or
+workflow time limit is raised again. Previous large measurements remain tied
+to their original test executables/build settings and are not requalified here.
+
+The self-test build emits Cargo compiler-artifact JSON and checks the actual
+profiles before executing tests. A direct build with the old settings was
+rejected for unoptimized curve arithmetic (RED; early pipe-reader rejection also
+caused Cargo's downstream broken-pipe message). The manifest correction produced
+curve opt-level 3 and core/node opt-level 0 with both guards ON (GREEN). A separate
+ordinary dev build still reported curve/core opt-level 0 with both guards ON.
+The consumer rejects missing artifacts/build completion, conflicting profiles,
+disabled guards and malformed JSON; it does not merely inspect manifest prose.
+All 123 related Python contracts passed. All 31 direct signature/network-binding,
+native-ledger and chain tests also passed (the chain binary took 24.71s), including
+weak/wrong-key, modified payload/network, conservation and replay controls.
+Shell syntax, docs-smoke and whitespace checks passed.
+
 ### Earlier integrated consumer verification
 
 The exact-tree integration passed the actual CLI three-node operator rehearsal

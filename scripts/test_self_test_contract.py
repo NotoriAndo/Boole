@@ -24,6 +24,21 @@ def _read(path: Path) -> str:
 
 
 class SelfTestContractTests(unittest.TestCase):
+    def test_actual_compiler_profile_is_checked_after_build_before_test_execution(self) -> None:
+        body = _read(SELF_TEST)
+        build = re.search(r"(?m)^run_logged cargo-test-build (.+)$", body)
+        self.assertIsNotNone(build)
+        self.assertIn("--no-run", build.group(1))
+        self.assertIn("--message-format=json", build.group(1))
+        check = re.search(r"(?m)^run_logged cargo-test-profile (.+)$", body)
+        self.assertIsNotNone(check)
+        self.assertIn("scripts/check_cargo_test_profile.py", check.group(1))
+        self.assertIn('"$TMP_DIR/cargo-test-build.log"', check.group(1))
+        execute = re.search(r"(?m)^run_logged cargo-test cargo test ", body)
+        self.assertIsNotNone(execute)
+        self.assertLess(build.start(), check.start())
+        self.assertLess(check.start(), execute.start())
+
     def test_ci_job_budget_contains_both_validation_and_release_step_budgets(self) -> None:
         # The job-wide clock must not cancel a healthy self-test merely to
         # reserve time for a release build which has not started yet. Keep

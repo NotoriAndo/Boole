@@ -82,6 +82,7 @@ run_logged native-shadow-raw-scan-correction python3 -m unittest scripts/test_na
 run_logged native-shadow-ext4-secret-reconciliation python3 -m unittest scripts/test_native_shadow_ext4_readonly_owner_map_arm64_v1.py scripts/test_native_shadow_mac3_guest_secret_path_content_reconcile_arm64_v1.py
 run_logged development-throughput-policy python3 -m unittest scripts/test_development_throughput_policy.py
 run_logged ci-change-scope python3 -m unittest scripts/test_ci_change_scope.py
+run_logged cargo-test-profile-contract python3 -m unittest scripts/test_cargo_test_profile.py
 run_logged smoke-lifecycle-tests python3 -m unittest scripts/test_smoke_lifecycle.py
 run_logged testnet2-session-smoke-contract python3 -m unittest scripts/test_testnet2_session_smoke.py
 run_logged docs-smoke ./scripts/docs-smoke.sh
@@ -116,7 +117,8 @@ run_logged cargo-clippy-dev-features cargo clippy --workspace --all-targets --lo
 # boole-miner mining-loop tests (`AcceptingVerifier` bypass) can build
 # and run. The no-feature production build is covered by `cargo-clippy`
 # above; the cargo-test stage's job is to exercise full test coverage.
-run_logged cargo-test-build cargo test --workspace --all-targets --locked --features boole-node/dev-mock-payment,boole-miner/dev-tools --no-run
+run_logged cargo-test-build cargo test --workspace --all-targets --locked --features boole-node/dev-mock-payment,boole-miner/dev-tools --no-run --message-format=json
+run_logged cargo-test-profile python3 ./scripts/check_cargo_test_profile.py "$TMP_DIR/cargo-test-build.log"
 run_logged cargo-test-prewarm ./scripts/self-test-prewarm.sh \
   target/debug/boole-node target/debug/boole-cli target/debug/boole-miner
 # SC.10-iv-a — the Lean toolchain is REQUIRED by this gate. Several
