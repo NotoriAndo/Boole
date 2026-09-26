@@ -471,21 +471,12 @@ fn locked_file_is_current(file: &File, path: &Path) -> bool {
 /// running build; a compatible package upgrade keeps both unchanged.
 pub fn ensure_manifest(dir: &Path, expected: &StateManifest) -> Result<(), StateDirError> {
     let path = dir.join(STATE_MANIFEST_FILE);
-    if !path.exists() {
+    let Some(found) = read_manifest(dir)? else {
         let serialized = serde_json::to_string_pretty(expected)
             .expect("StateManifest serializes to JSON without io errors");
         write_manifest_atomic(&path, serialized.as_bytes())?;
         return Ok(());
-    }
-    let mut buf = String::new();
-    OpenOptions::new()
-        .read(true)
-        .open(&path)
-        .map_err(|err| StateDirError::Io(path.clone(), err))?
-        .read_to_string(&mut buf)
-        .map_err(|err| StateDirError::Io(path.clone(), err))?;
-    let found: StateManifest = serde_json::from_str(&buf)
-        .map_err(|err| StateDirError::ManifestMalformed(path.clone(), err.to_string()))?;
+    };
     if found.network_id != expected.network_id {
         return Err(StateDirError::ManifestMismatch {
             dir: dir.to_path_buf(),
@@ -562,6 +553,67 @@ pub fn ensure_manifest(dir: &Path, expected: &StateManifest) -> Result<(), State
         write_manifest_atomic(&path, serialized.as_bytes())?;
     }
     Ok(())
+}
+
+/// Export is observational: require the exact current identity/schema without
+/// the normal boot path's creation or compatibility metadata upgrades.
+pub(crate) fn verify_manifest_read_only(
+    dir: &Path,
+    expected: &StateManifest,
+) -> anyhow::Result<()> {
+    let found = read_manifest(dir)?.ok_or_else(|| anyhow::anyhow!("source manifest is missing"))?;
+    anyhow::ensure!(
+        found.network_id == expected.network_id
+            && found.genesis_hash == expected.genesis_hash
+            && found.schema_versions == expected.schema_versions,
+        "source-preserving export requires the current network, genesis and storage schema"
+    );
+    Ok(())
+}
+
+fn read_manifest(dir: &Path) -> Result<Option<StateManifest>, StateDirError> {
+    let path = dir.join(STATE_MANIFEST_FILE);
+    let io_error = |error| StateDirError::Io(path.clone(), error);
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let file = match options.open(&path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(io_error(error)),
+    };
+    let before = file.metadata().map_err(&io_error)?;
+    if before.len() > 65_536 || !locked_file_is_current(&file, &path) {
+        return Err(io_error(std::io::Error::other(
+            "manifest must be one regular single-link file of at most 65536 bytes",
+        )));
+    }
+    let mut bytes = Vec::new();
+    (&file)
+        .take(65_537)
+        .read_to_end(&mut bytes)
+        .map_err(&io_error)?;
+    let after = file.metadata().map_err(&io_error)?;
+    let mut unchanged = bytes.len() as u64 == before.len()
+        && before.len() == after.len()
+        && before.modified().map_err(&io_error)? == after.modified().map_err(&io_error)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        unchanged &= (before.ctime(), before.ctime_nsec()) == (after.ctime(), after.ctime_nsec());
+    }
+    if !unchanged || !locked_file_is_current(&file, &path) {
+        return Err(io_error(std::io::Error::other(
+            "state manifest changed while reading",
+        )));
+    }
+    serde_json::from_slice(&bytes)
+        .map(Some)
+        .map_err(|error| StateDirError::ManifestMalformed(path, error.to_string()))
 }
 
 fn write_manifest_atomic(path: &Path, bytes: &[u8]) -> Result<(), StateDirError> {

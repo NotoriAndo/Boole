@@ -32,6 +32,86 @@ fn base_issuance_goes_to_the_block_reward_recipient_without_share_credits() {
 }
 
 #[test]
+fn canonical_audit_conserves_supply_and_separates_locked_rewards_from_transfers() {
+    let alice = SigningKeyV2::from_dev_id("native-audit-alice");
+    let bob = SigningKeyV2::from_dev_id("native-audit-bob").pk_hex();
+    let producer = SigningKeyV2::from_dev_id("native-audit-producer").pk_hex();
+    let mut ledger = NativeLedger::new_with_rules(
+        NETWORK,
+        EmissionSchedule::new(1_000, 100, 100).unwrap(),
+        1,
+        2,
+    )
+    .unwrap();
+    let genesis = ledger.audit().unwrap();
+    assert_eq!(genesis.total_balance, 0);
+    assert_eq!(genesis.issued, 0);
+    assert_eq!(genesis.total_locked, 0);
+    assert_eq!(genesis.total_spendable, 0);
+    ledger.apply_block(1, &alice.pk_hex(), &[]).unwrap();
+    ledger.apply_block(2, &producer, &[]).unwrap();
+    let locked = ledger.audit().unwrap();
+    assert_eq!(locked.total_balance, 200);
+    assert_eq!(locked.total_locked, 200);
+    assert_eq!(locked.total_spendable, 0);
+    ledger
+        .apply_block(3, &producer, &[transfer(&alice, &bob, 40, 3, 0)])
+        .unwrap();
+    let settled = ledger.audit().unwrap();
+    assert_eq!(settled.issued, 300);
+    assert_eq!(settled.supply_cap, 1_000);
+    assert_eq!(settled.total_balance, 300);
+    assert_eq!(settled.total_locked, 200);
+    assert_eq!(settled.total_spendable, 100);
+    assert_eq!(settled.balance_entries, 3);
+    assert_eq!(settled.nonce_entries, 1);
+    assert_eq!(settled.pending_reward_entries, 2);
+    let mut pending = ledger.pending_view().unwrap();
+    pending.push(&transfer(&alice, &bob, 1, 1, 1)).unwrap();
+    assert_eq!(
+        ledger.audit().unwrap(),
+        settled,
+        "unconfirmed reservations are not canonical money"
+    );
+    assert!(ledger
+        .apply_block(4, &producer, &[transfer(&alice, &bob, 1, 1, 0)])
+        .is_err());
+    assert_eq!(
+        ledger.audit().unwrap(),
+        settled,
+        "rejected blocks cannot change audit totals"
+    );
+}
+
+#[test]
+fn audit_preserves_full_width_supply_and_does_not_double_count_returned_fees() {
+    let owner = SigningKeyV2::from_dev_id("native-audit-u128-owner");
+    let recipient = SigningKeyV2::from_dev_id("native-audit-u128-recipient").pk_hex();
+    let producer = SigningKeyV2::from_dev_id("native-audit-u128-producer").pk_hex();
+    let mut ledger = NativeLedger::new(
+        NETWORK,
+        EmissionSchedule::new(u128::MAX, u128::MAX, 100).unwrap(),
+    )
+    .unwrap();
+    ledger.apply_block(1, &owner.pk_hex(), &[]).unwrap();
+    ledger
+        .apply_block(
+            2,
+            &producer,
+            &[transfer(&owner, &recipient, u128::MAX - 3, 2, 0)],
+        )
+        .unwrap();
+    let audit = ledger.audit().unwrap();
+    assert_eq!(audit.issued, u128::MAX);
+    assert_eq!(audit.total_balance, u128::MAX);
+    assert_eq!(audit.total_spendable, u128::MAX);
+    assert_eq!(audit.total_locked, 0);
+    assert_eq!(ledger.balance(&owner.pk_hex()), 1);
+    assert_eq!(ledger.balance(&recipient), u128::MAX - 3);
+    assert_eq!(ledger.balance(&producer), 2);
+}
+
+#[test]
 fn signed_transfer_spends_mined_balance_and_pays_only_the_fee_to_the_producer() {
     let alice = SigningKeyV2::from_dev_id("native-ledger-alice");
     let bob = SigningKeyV2::from_dev_id("native-ledger-bob").pk_hex();

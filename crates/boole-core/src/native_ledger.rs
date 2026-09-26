@@ -1,7 +1,7 @@
-//! Native-coin accounting contract for a future, explicitly versioned network.
+//! Native-coin accounting for the explicitly versioned native testnet.
 //!
-//! This module is not connected to v3 block validation, the node, or a network
-//! preset. The caller must validate block identity, linkage, PoW and reward
+//! This module does not reinterpret v3 blocks or credit ledgers. Its native-chain
+//! caller must validate block identity, linkage, PoW and reward
 //! authorization before applying its accounting inputs. Monetary values passed
 //! here are immutable per ledger, not a runtime configuration mechanism for an
 //! existing network. There is no import path for legacy development credits.
@@ -48,6 +48,8 @@ pub enum NativeLedgerError {
     UnexpectedNonce { expected: u64, actual: u64 },
     #[error("native ledger: insufficient balance for amount plus fee")]
     InsufficientBalance,
+    #[error("native ledger: inconsistent canonical accounting")]
+    InconsistentAccounting,
 }
 
 /// Signed payload integers are canonical decimal strings, including nonce and
@@ -186,6 +188,70 @@ pub struct NativeLedger {
     pending_rewards: BTreeMap<u64, (String, u128)>,
 }
 
+/// Derived diagnostics, not a serialized balance checkpoint or spending authority.
+/// Node/wallet output layers must encode monetary values as decimal strings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NativeLedgerAudit {
+    pub issued: u128,
+    pub supply_cap: u128,
+    pub total_balance: u128,
+    pub total_locked: u128,
+    pub total_spendable: u128,
+    pub balance_entries: usize,
+    pub nonce_entries: usize,
+    pub pending_reward_entries: usize,
+}
+
+/// In-process inverse of one verified transition. There is no deserialization
+/// or external construction path; only NativeChain retains these values.
+#[derive(Debug, Clone)]
+pub(crate) struct NativeLedgerUndo {
+    height: u64,
+    issued: u128,
+    balances: BTreeMap<String, Option<u128>>,
+    next_nonces: BTreeMap<String, Option<u64>>,
+    locked_balances: BTreeMap<String, Option<u128>>,
+    pending_rewards: BTreeMap<u64, Option<(String, u128)>>,
+}
+
+impl NativeLedgerUndo {
+    fn new(ledger: &NativeLedger) -> Self {
+        Self {
+            height: ledger.height,
+            issued: ledger.issued,
+            balances: BTreeMap::new(),
+            next_nonces: BTreeMap::new(),
+            locked_balances: BTreeMap::new(),
+            pending_rewards: BTreeMap::new(),
+        }
+    }
+
+    fn balance(&mut self, ledger: &NativeLedger, pk: &str) {
+        self.balances
+            .entry(pk.to_string())
+            .or_insert_with(|| ledger.balances.get(pk).copied());
+    }
+
+    fn locked_balance(&mut self, ledger: &NativeLedger, pk: &str) {
+        self.locked_balances
+            .entry(pk.to_string())
+            .or_insert_with(|| ledger.locked_balances.get(pk).copied());
+    }
+}
+
+fn restore_entries<K: Ord, V>(map: &mut BTreeMap<K, V>, old: BTreeMap<K, Option<V>>) {
+    for (key, value) in old {
+        match value {
+            Some(value) => {
+                map.insert(key, value);
+            }
+            None => {
+                map.remove(&key);
+            }
+        }
+    }
+}
+
 /// Non-authoritative reservations for the next block. It cannot be converted
 /// into a canonical ledger; fees are reserved, not credited to an unknown
 /// future producer, and no new block reward is created.
@@ -195,12 +261,47 @@ pub struct NativePendingView {
     height: u64,
 }
 
+/// A verified reservation exclusively borrows its originating view until it is
+/// committed or dropped. It cannot be applied to a different/stale view, cloned,
+/// deserialized, or used to publish canonical state. Dropping it does nothing.
+#[derive(Debug)]
+#[must_use = "commit after durable publication, or drop to leave reservations unchanged"]
+pub struct NativePendingTransfer<'a> {
+    view: &'a mut NativePendingView,
+    prepared: PreparedTransfer,
+}
+
+impl NativePendingTransfer<'_> {
+    /// All fallible accounting and signature checks ran during preparation.
+    pub fn commit(self) {
+        self.view.ledger.commit_transfer(self.prepared);
+    }
+}
+
+#[derive(Debug)]
+struct PreparedTransfer {
+    balances: BTreeMap<String, u128>,
+    sender: String,
+    next_nonce: u64,
+}
+
 impl NativePendingView {
     pub fn push(&mut self, envelope: &SignedEnvelope) -> Result<(), NativeLedgerError> {
-        let mut next = self.ledger.clone();
-        next.apply_transfer(self.height, None, envelope)?;
-        self.ledger = next;
+        self.prepare(envelope)?.commit();
         Ok(())
+    }
+
+    /// Prepare only the affected accounts; the rest of the ledger is neither
+    /// copied nor mutated. The exclusive borrow prevents intervening changes.
+    pub fn prepare(
+        &mut self,
+        envelope: &SignedEnvelope,
+    ) -> Result<NativePendingTransfer<'_>, NativeLedgerError> {
+        let prepared = self.ledger.prepare_transfer(self.height, None, envelope)?;
+        Ok(NativePendingTransfer {
+            view: self,
+            prepared,
+        })
     }
 
     pub fn available_balance(&self, pk: &str) -> u128 {
@@ -270,6 +371,73 @@ impl NativeLedger {
         self.issued
     }
 
+    /// Scan canonical accounting for conservation and exact reward-lock
+    /// consistency. This is linear-time offline diagnostics, not block
+    /// validation, fork choice, finality, or a constant-time readiness check.
+    pub fn audit(&self) -> Result<NativeLedgerAudit, NativeLedgerError> {
+        let total_balance = self.balances.values().try_fold(0u128, |sum, balance| {
+            sum.checked_add(*balance).ok_or(NativeLedgerError::Overflow)
+        })?;
+        if total_balance != self.issued || self.issued > self.schedule.total_supply {
+            return Err(NativeLedgerError::InconsistentAccounting);
+        }
+        let mut expected_locks: BTreeMap<&str, u128> = BTreeMap::new();
+        for (unlock_height, (pk, amount)) in &self.pending_rewards {
+            if *unlock_height <= self.height
+                || *amount == 0
+                || !unlock_height
+                    .checked_sub(self.reward_maturity)
+                    .is_some_and(|created| created > 0 && created <= self.height)
+            {
+                return Err(NativeLedgerError::InconsistentAccounting);
+            }
+            let expected = expected_locks.entry(pk.as_str()).or_default();
+            *expected = expected
+                .checked_add(*amount)
+                .ok_or(NativeLedgerError::Overflow)?;
+        }
+        if !self
+            .locked_balances
+            .iter()
+            .map(|(pk, amount)| (pk.as_str(), *amount))
+            .eq(expected_locks)
+        {
+            return Err(NativeLedgerError::InconsistentAccounting);
+        }
+        let total_locked = self
+            .locked_balances
+            .iter()
+            .try_fold(0u128, |sum, (pk, locked)| {
+                if *locked == 0 || *locked > self.balance(pk) {
+                    return Err(NativeLedgerError::InconsistentAccounting);
+                }
+                sum.checked_add(*locked).ok_or(NativeLedgerError::Overflow)
+            })?;
+        let total_spendable = total_balance
+            .checked_sub(total_locked)
+            .ok_or(NativeLedgerError::InconsistentAccounting)?;
+        Ok(NativeLedgerAudit {
+            issued: self.issued,
+            supply_cap: self.schedule.total_supply,
+            total_balance,
+            total_locked,
+            total_spendable,
+            balance_entries: self.balances.len(),
+            nonce_entries: self.next_nonces.len(),
+            pending_reward_entries: self.pending_rewards.len(),
+        })
+    }
+
+    /// Stored map entries, including accounts whose current balance is zero.
+    /// This is a resource count, not a count of unique people or active wallets.
+    pub fn balance_entry_count(&self) -> usize {
+        self.balances.len()
+    }
+
+    pub fn nonce_entry_count(&self) -> usize {
+        self.next_nonces.len()
+    }
+
     pub fn next_nonce(&self, pk: &str) -> u64 {
         self.next_nonces.get(pk).copied().unwrap_or(0)
     }
@@ -296,9 +464,40 @@ impl NativeLedger {
         authenticated_reward_pk: &str,
         transfers: &[SignedEnvelope],
     ) -> Result<(), NativeLedgerError> {
-        let mut staged = self.clone();
-        staged.apply_block_inner(height, authenticated_reward_pk, transfers)?;
+        let (staged, _) = self.prepare_block(height, authenticated_reward_pk, transfers)?;
         *self = staged;
+        Ok(())
+    }
+
+    pub(crate) fn prepare_block(
+        &self,
+        height: u64,
+        authenticated_reward_pk: &str,
+        transfers: &[SignedEnvelope],
+    ) -> Result<(Self, NativeLedgerUndo), NativeLedgerError> {
+        let mut staged = self.clone();
+        let mut undo = NativeLedgerUndo::new(self);
+        staged.apply_block_inner(height, authenticated_reward_pk, transfers, &mut undo)?;
+        Ok((staged, undo))
+    }
+
+    pub(crate) fn undo_block(&mut self, undo: NativeLedgerUndo) -> Result<(), NativeLedgerError> {
+        let expected = undo
+            .height
+            .checked_add(1)
+            .ok_or(NativeLedgerError::Overflow)?;
+        if self.height != expected {
+            return Err(NativeLedgerError::UnexpectedHeight {
+                expected,
+                actual: self.height,
+            });
+        }
+        restore_entries(&mut self.balances, undo.balances);
+        restore_entries(&mut self.next_nonces, undo.next_nonces);
+        restore_entries(&mut self.locked_balances, undo.locked_balances);
+        restore_entries(&mut self.pending_rewards, undo.pending_rewards);
+        self.height = undo.height;
+        self.issued = undo.issued;
         Ok(())
     }
 
@@ -307,6 +506,7 @@ impl NativeLedger {
         height: u64,
         authenticated_reward_pk: &str,
         transfers: &[SignedEnvelope],
+        undo: &mut NativeLedgerUndo,
     ) -> Result<(), NativeLedgerError> {
         let expected = self
             .height
@@ -320,11 +520,27 @@ impl NativeLedger {
         }
         Hex32::from_hex(authenticated_reward_pk)
             .map_err(|_| NativeLedgerError::InvalidPublicKey)?;
+        for (unlock_height, (pk, amount)) in self.pending_rewards.range(..=height) {
+            undo.locked_balance(self, pk);
+            undo.pending_rewards
+                .insert(*unlock_height, Some((pk.clone(), *amount)));
+        }
         self.unlock_rewards(height)?;
         for transfer in transfers {
-            self.apply_transfer(height, Some(authenticated_reward_pk), transfer)?;
+            let prepared =
+                self.prepare_transfer(height, Some(authenticated_reward_pk), transfer)?;
+            for pk in prepared.balances.keys() {
+                undo.balance(self, pk);
+            }
+            undo.next_nonces
+                .entry(prepared.sender.clone())
+                .or_insert_with(|| self.next_nonces.get(&prepared.sender).copied());
+            self.commit_transfer(prepared);
         }
         let emission = self.schedule.emission(height, self.issued)?;
+        if emission != 0 {
+            undo.balance(self, authenticated_reward_pk);
+        }
         self.credit(authenticated_reward_pk, emission)?;
         if emission != 0 && self.reward_maturity != 0 {
             let unlock_height = height
@@ -334,6 +550,10 @@ impl NativeLedger {
                 .locked_balance(authenticated_reward_pk)
                 .checked_add(emission)
                 .ok_or(NativeLedgerError::Overflow)?;
+            undo.locked_balance(self, authenticated_reward_pk);
+            undo.pending_rewards
+                .entry(unlock_height)
+                .or_insert_with(|| self.pending_rewards.get(&unlock_height).cloned());
             self.locked_balances
                 .insert(authenticated_reward_pk.to_string(), locked);
             self.pending_rewards.insert(
@@ -369,12 +589,12 @@ impl NativeLedger {
         Ok(())
     }
 
-    fn apply_transfer(
-        &mut self,
+    fn prepare_transfer(
+        &self,
         height: u64,
         reward_pk: Option<&str>,
         envelope: &SignedEnvelope,
-    ) -> Result<(), NativeLedgerError> {
+    ) -> Result<PreparedTransfer, NativeLedgerError> {
         let payload = validate_native_transfer(envelope, &self.network_id, self.minimum_fee)?;
         if height > payload.valid_before {
             return Err(NativeLedgerError::Expired);
@@ -401,13 +621,43 @@ impl NativeLedger {
             .nonce
             .checked_add(1)
             .ok_or(NativeLedgerError::Overflow)?;
-        self.balances.insert(payload.from.clone(), remaining);
-        self.credit(&payload.to, payload.amount)?;
+        let mut balances = BTreeMap::new();
+        balances.insert(payload.from.clone(), remaining);
+        self.stage_credit(&mut balances, &payload.to, payload.amount)?;
         if let Some(reward_pk) = reward_pk {
-            self.credit(reward_pk, payload.fee)?;
+            self.stage_credit(&mut balances, reward_pk, payload.fee)?;
         }
-        self.next_nonces.insert(payload.from, next_nonce);
+        Ok(PreparedTransfer {
+            balances,
+            sender: payload.from,
+            next_nonce,
+        })
+    }
+
+    fn stage_credit(
+        &self,
+        balances: &mut BTreeMap<String, u128>,
+        pk: &str,
+        amount: u128,
+    ) -> Result<(), NativeLedgerError> {
+        if amount != 0 {
+            let balance = balances
+                .get(pk)
+                .copied()
+                .unwrap_or_else(|| self.balance(pk))
+                .checked_add(amount)
+                .ok_or(NativeLedgerError::Overflow)?;
+            balances.insert(pk.to_string(), balance);
+        }
         Ok(())
+    }
+
+    fn commit_transfer(&mut self, prepared: PreparedTransfer) {
+        for (pk, balance) in prepared.balances {
+            self.balances.insert(pk, balance);
+        }
+        self.next_nonces
+            .insert(prepared.sender, prepared.next_nonce);
     }
 
     fn credit(&mut self, pk: &str, amount: u128) -> Result<(), NativeLedgerError> {
@@ -419,5 +669,66 @@ impl NativeLedger {
             self.balances.insert(pk.to_string(), balance);
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod audit_tests {
+    use super::*;
+
+    #[test]
+    fn inconsistent_internal_accounting_is_reported_without_repair() {
+        let owner = "11".repeat(32);
+        let mut valid = NativeLedger::new_with_rules(
+            "audit-invariant-fixture",
+            EmissionSchedule::new(1_000, 100, 100).unwrap(),
+            1,
+            2,
+        )
+        .unwrap();
+        for height in 1..=3 {
+            valid.apply_block(height, &owner, &[]).unwrap();
+        }
+        assert!(valid.audit().is_ok());
+        // Internal fault injection only; no unchecked ledger constructor is
+        // exposed to an archive, peer, RPC or any production caller.
+        let faults: &[fn(&mut NativeLedger)] = &[
+            |ledger| ledger.issued += 1,
+            |ledger| *ledger.balances.values_mut().next().unwrap() += 1,
+            |ledger| ledger.schedule.total_supply = 299,
+            |ledger| *ledger.locked_balances.values_mut().next().unwrap() -= 1,
+            |ledger| {
+                let (_, reward) = ledger.pending_rewards.pop_first().unwrap();
+                ledger.pending_rewards.insert(ledger.height, reward);
+            },
+            |ledger| {
+                let (_, reward) = ledger.pending_rewards.pop_first().unwrap();
+                ledger
+                    .pending_rewards
+                    .insert(ledger.height + ledger.reward_maturity + 1, reward);
+            },
+            |ledger| {
+                let stranger = "22".repeat(32);
+                let locked = *ledger.locked_balances.values().next().unwrap();
+                ledger.locked_balances.clear();
+                ledger.locked_balances.insert(stranger.clone(), locked);
+                for (pk, _) in ledger.pending_rewards.values_mut() {
+                    *pk = stranger.clone();
+                }
+            },
+        ];
+        for fault in faults {
+            let mut ledger = valid.clone();
+            fault(&mut ledger);
+            let before = ledger.clone();
+            assert_eq!(
+                ledger.audit(),
+                Err(NativeLedgerError::InconsistentAccounting)
+            );
+            assert_eq!(ledger, before);
+        }
+        let mut overflowing = valid;
+        overflowing.balances.insert("33".repeat(32), u128::MAX);
+        assert_eq!(overflowing.audit(), Err(NativeLedgerError::Overflow));
     }
 }

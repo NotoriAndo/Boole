@@ -31,6 +31,31 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Fully replay a stopped native node and report confirmed accounting; no repair.
+    NativeAudit {
+        #[arg(long)]
+        state_dir: PathBuf,
+        /// Optional independently checked head; mismatch fails without changing journals.
+        #[arg(long)]
+        expected_head: Option<String>,
+    },
+    /// Export a stopped native node's verified canonical blocks to a new file.
+    NativeExport {
+        #[arg(long)]
+        state_dir: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Fully verify an offline block archive before normal fork-choice import.
+    NativeImport {
+        #[arg(long)]
+        state_dir: PathBuf,
+        #[arg(long)]
+        blocks: PathBuf,
+        /// Independently checked canonical head hash; never a balance checkpoint.
+        #[arg(long)]
+        expected_head: String,
+    },
     /// Create a separate, unencrypted 0600 TLS transport key. Never a wallet key.
     PeerKeygen {
         /// New key file in an existing private directory; never overwritten.
@@ -278,6 +303,41 @@ fn main() -> anyhow::Result<()> {
     boole_core::telemetry::init(boole_core::telemetry::BinaryName::Node);
     let cli = Cli::parse();
     match cli.command {
+        Command::NativeAudit {
+            state_dir,
+            expected_head,
+        } => {
+            println!(
+                "{}",
+                serde_json::to_string(&boole_node::audit_native_state(
+                    &state_dir,
+                    expected_head.as_deref()
+                )?)?
+            );
+            Ok(())
+        }
+        Command::NativeExport { state_dir, output } => {
+            println!(
+                "{}",
+                serde_json::to_string(&boole_node::export_native_archive(&state_dir, &output)?)?
+            );
+            Ok(())
+        }
+        Command::NativeImport {
+            state_dir,
+            blocks,
+            expected_head,
+        } => {
+            println!(
+                "{}",
+                serde_json::to_string(&boole_node::import_native_archive(
+                    &state_dir,
+                    &blocks,
+                    &expected_head
+                )?)?
+            );
+            Ok(())
+        }
         Command::PeerKeygen { file } => {
             let id = boole_node::create_native_peer_key(&file)?;
             println!("{}", json!({"peerId": id.to_hex(), "file": file}));

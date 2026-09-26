@@ -1,5 +1,5 @@
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
@@ -16,11 +16,84 @@ pub(crate) struct AppendFault {
 #[cfg(test)]
 thread_local! {
     static APPEND_FAULT: std::cell::Cell<Option<AppendFault>> = const { std::cell::Cell::new(None) };
+    static ATOMIC_REWRITE_FAULT: std::cell::RefCell<Option<AtomicRewriteFault>> = const { std::cell::RefCell::new(None) };
+    static APPEND_OPEN_CHANGE: std::cell::RefCell<Option<(PathBuf, Vec<u8>)>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+struct AtomicRewriteFault {
+    path: PathBuf,
+    after_rename: Option<bool>,
+    before_replace: Option<(PathBuf, Vec<u8>)>,
+    skip: usize,
+}
+
+#[cfg(test)]
+pub(crate) fn fail_atomic_rewrite(path: &Path, after_rename: bool, skip: usize) {
+    ATOMIC_REWRITE_FAULT.with(|slot| {
+        assert!(slot
+            .replace(Some(AtomicRewriteFault {
+                path: path.to_owned(),
+                after_rename: Some(after_rename),
+                before_replace: None,
+                skip
+            }))
+            .is_none());
+    });
+}
+
+#[cfg(test)]
+pub(crate) fn change_before_atomic_replace(path: &Path, target: &Path, bytes: Vec<u8>) {
+    ATOMIC_REWRITE_FAULT.with(|slot| {
+        assert!(slot
+            .replace(Some(AtomicRewriteFault {
+                path: resolved_write_path(path).unwrap(),
+                after_rename: None,
+                before_replace: Some((target.to_owned(), bytes)),
+                skip: 0,
+            }))
+            .is_none());
+    });
+}
+
+#[cfg(test)]
+pub(crate) fn atomic_rewrite_fault_consumed() -> bool {
+    ATOMIC_REWRITE_FAULT.with(|slot| slot.borrow().is_none())
+}
+
+#[cfg(test)]
+fn take_atomic_rewrite_fault(path: &Path) -> Option<AtomicRewriteFault> {
+    ATOMIC_REWRITE_FAULT.with(|slot| {
+        let mut fault = slot.borrow_mut();
+        let pending = fault.as_mut()?;
+        if pending.path != path {
+            return None;
+        }
+        if pending.skip != 0 {
+            pending.skip -= 1;
+            return None;
+        }
+        fault.take()
+    })
 }
 
 #[cfg(test)]
 pub(crate) fn fail_next_append(fault: AppendFault) {
     APPEND_FAULT.with(|slot| assert!(slot.replace(Some(fault)).is_none()));
+}
+
+#[cfg(test)]
+pub(crate) fn change_before_append_open(path: &Path, bytes: Vec<u8>) {
+    APPEND_OPEN_CHANGE.with(|slot| {
+        assert!(slot
+            .replace(Some((resolved_write_path(path).unwrap(), bytes)))
+            .is_none());
+    });
+}
+
+#[cfg(test)]
+pub(crate) fn append_open_fault_consumed() -> bool {
+    APPEND_OPEN_CHANGE.with(|slot| slot.borrow().is_none())
 }
 
 /// Process-lifetime fence for indeterminate writes. Keeping descriptors alive
@@ -151,7 +224,7 @@ impl PrivateTempDir {
         Self::new_in(&std::env::temp_dir(), prefix)
     }
 
-    fn new_in(parent: &Path, prefix: &str) -> std::io::Result<Self> {
+    pub(crate) fn new_in(parent: &Path, prefix: &str) -> std::io::Result<Self> {
         for _ in 0..32 {
             let mut random = [0u8; 16];
             OsRng
@@ -239,23 +312,84 @@ pub(crate) fn stable_jsonl_prefix_len(bytes: &[u8]) -> usize {
 /// Without the parent-dir fsync the new directory entry can be lost on crash
 /// even after the file's own data hits disk.
 pub(crate) fn append_ndjson_line_durable(path: &Path, line: &str) -> anyhow::Result<()> {
+    append_ndjson_line_with_handle(path, line, true, |_, _| Ok(())).map(drop)
+}
+
+/// A version observed on the actual durable output descriptor, not a later
+/// pathname lookup. Keep that descriptor alive until the caller checks its path.
+pub(crate) struct DurableFileVersion {
+    metadata: fs::Metadata,
+    _file: File,
+}
+
+impl DurableFileVersion {
+    fn capture(file: File) -> anyhow::Result<Self> {
+        Ok(Self {
+            metadata: file.metadata()?,
+            _file: file,
+        })
+    }
+
+    pub(crate) fn metadata(&self) -> &fs::Metadata {
+        &self.metadata
+    }
+}
+
+pub(crate) fn append_ndjson_line_versioned(
+    path: &Path,
+    line: &str,
+    create_if_missing: bool,
+    before_write: impl FnOnce(&fs::Metadata, bool) -> anyhow::Result<()>,
+) -> anyhow::Result<DurableFileVersion> {
+    DurableFileVersion::capture(append_ndjson_line_with_handle(
+        path,
+        line,
+        create_if_missing,
+        before_write,
+    )?)
+}
+
+fn append_ndjson_line_with_handle(
+    path: &Path,
+    line: &str,
+    create_if_missing: bool,
+    before_write: impl FnOnce(&fs::Metadata, bool) -> anyhow::Result<()>,
+) -> anyhow::Result<File> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
     let path = resolved_write_path(path)?;
-    check_append_fence(Some(&path), None)?;
-    let mut create = OpenOptions::new();
-    create.create_new(true).append(true);
-    let mut file = match open_regular_file(&path, &mut create) {
-        Ok(file) => file,
-        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
-            let mut append = OpenOptions::new();
-            append.append(true);
-            open_regular_file(&path, &mut append)?
+    #[cfg(test)]
+    if let Some(bytes) = APPEND_OPEN_CHANGE.with(|slot| {
+        let mut change = slot.borrow_mut();
+        if change.as_ref().is_some_and(|(target, _)| *target == path) {
+            change.take().map(|(_, bytes)| bytes)
+        } else {
+            None
         }
-        Err(err) => return Err(err.into()),
+    }) {
+        fs::write(&path, bytes)?;
+    }
+    check_append_fence(Some(&path), None)?;
+    let existing = || {
+        let mut append = OpenOptions::new();
+        append.append(true);
+        open_regular_file(&path, &mut append)
     };
-    append_ndjson_transaction(&mut file, line, Some(&path))
+    let (mut file, created) = if create_if_missing {
+        let mut create = OpenOptions::new();
+        create.create_new(true).append(true);
+        match open_regular_file(&path, &mut create) {
+            Ok(file) => (file, true),
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => (existing()?, false),
+            Err(err) => return Err(err.into()),
+        }
+    } else {
+        (existing()?, false)
+    };
+    before_write(&file.metadata()?, created)?;
+    append_ndjson_transaction(&mut file, line, Some(&path))?;
+    Ok(file)
 }
 
 /// Durable NDJSON append through an already-open authoritative file
@@ -333,6 +467,50 @@ fn append_ndjson_transaction(
 /// mix. The reorg handler uses this to swap the block store / reward ledger to
 /// a heavier chain without a window where the on-disk chain is truncated.
 pub(crate) fn write_ndjson_lines_atomic(path: &Path, lines: &[String]) -> anyhow::Result<()> {
+    write_file_atomic(path, |file| {
+        let mut writer = BufWriter::new(file);
+        for line in lines {
+            writer.write_all(line.as_bytes())?;
+            writer.write_all(b"\n")?;
+        }
+        writer.flush()?;
+        Ok(())
+    })
+}
+
+/// Stream one canonical row at a time instead of allocating another full log.
+pub(crate) fn write_ndjson_rows_versioned<T: serde::Serialize>(
+    path: &Path,
+    rows: &[T],
+    before_publish: impl FnOnce() -> anyhow::Result<()>,
+) -> anyhow::Result<DurableFileVersion> {
+    DurableFileVersion::capture(write_file_atomic_with_handle(
+        path,
+        |file| {
+            let mut writer = BufWriter::new(file);
+            for row in rows {
+                serde_json::to_writer(&mut writer, row)?;
+                writer.write_all(b"\n")?;
+            }
+            writer.flush()?;
+            Ok(())
+        },
+        before_publish,
+    )?)
+}
+
+fn write_file_atomic(
+    path: &Path,
+    write: impl FnOnce(&mut File) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    write_file_atomic_with_handle(path, write, || Ok(())).map(drop)
+}
+
+fn write_file_atomic_with_handle(
+    path: &Path,
+    write: impl FnOnce(&mut File) -> anyhow::Result<()>,
+    before_publish: impl FnOnce() -> anyhow::Result<()>,
+) -> anyhow::Result<File> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -343,13 +521,15 @@ pub(crate) fn write_ndjson_lines_atomic(path: &Path, lines: &[String]) -> anyhow
         Err(err) => return Err(err.into()),
     };
     check_append_fence(Some(&resolved), metadata.as_ref())?;
+    #[cfg(test)]
+    let fault = take_atomic_rewrite_fault(&resolved);
     let parent = path
         .parent()
         .filter(|path| !path.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
     let workspace = PrivateTempDir::new_in(parent, ".boole-rewrite")?;
     let tmp = workspace.path().join("ledger");
-    {
+    let file = {
         let mut options = OpenOptions::new();
         options.create_new(true).write(true);
         #[cfg(unix)]
@@ -358,18 +538,30 @@ pub(crate) fn write_ndjson_lines_atomic(path: &Path, lines: &[String]) -> anyhow
             options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
         }
         let mut file = options.open(&tmp)?;
-        let mut buf = String::new();
-        for line in lines {
-            buf.push_str(line);
-            buf.push('\n');
-        }
-        file.write_all(buf.as_bytes())?;
+        write(&mut file)?;
         file.flush()?;
         file.sync_all()?;
+        file
+    };
+    #[cfg(test)]
+    if fault.as_ref().and_then(|fault| fault.after_rename) == Some(false) {
+        anyhow::bail!("injected atomic rewrite failure before rename");
     }
+    #[cfg(test)]
+    if let Some((target, bytes)) = fault
+        .as_ref()
+        .and_then(|fault| fault.before_replace.as_ref())
+    {
+        fs::write(target, bytes)?;
+    }
+    before_publish()?;
     fs::rename(&tmp, path)?;
+    #[cfg(test)]
+    if fault.as_ref().and_then(|fault| fault.after_rename) == Some(true) {
+        anyhow::bail!("injected atomic rewrite failure after rename");
+    }
     fsync_parent_dir(path)?;
-    Ok(())
+    Ok(file)
 }
 
 /// Read the file at `path`, truncate any torn trailing line on disk, and

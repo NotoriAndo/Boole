@@ -85,3 +85,12 @@ panic = "abort"
 # a would-be overflow anywhere (not only the audited accounting paths) aborts
 # the release build rather than silently wrapping to a wrong value.
 overflow-checks = true
+
+# The default x86 SIMD arithmetic is exceptionally expensive without compiler
+# optimization in the high-volume native test fixtures. Optimize only this
+# test dependency, not the application or dev/release binaries. Keep all debug
+# guards: this does not skip signatures or change any test acceptance bound.
+[profile.test.package.curve25519-dalek]
+opt-level = 3
+debug-assertions = true
+overflow-checks = true

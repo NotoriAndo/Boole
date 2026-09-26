@@ -111,6 +111,20 @@ impl P2pLifecycle {
             .expect("P2P socket registry poisoned")
             .len()
     }
+
+    #[cfg(test)]
+    pub(crate) fn has_active_mutation(&self) -> bool {
+        matches!(
+            self.mutation_gate.try_write(),
+            Err(std::sync::TryLockError::WouldBlock)
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_socket_registry_locked<R>(&self, action: impl FnOnce(usize) -> R) -> R {
+        let sockets = self.sockets.lock().expect("P2P socket registry poisoned");
+        action(sockets.len())
+    }
 }
 
 pub(crate) struct P2pMutationPermit<'a> {

@@ -2,13 +2,16 @@
 //! Every accepted block independently proves PoW, producer authorization and
 //! the network-bound transfers whose accounting it changes.
 
+use std::collections::VecDeque;
+
 use num_bigint::BigUint;
 use num_traits::Zero;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::native_ledger::{
-    validate_native_transfer, NativeLedger, NativeTransferFields, NativeTransferPayload,
+    validate_native_transfer, NativeLedger, NativeLedgerUndo, NativeTransferFields,
+    NativeTransferPayload,
 };
 use crate::native_network::{native_testnet, NativeNetwork};
 use crate::signed_envelope::{SignedEnvelope, SIGNED_ENVELOPE_SCHEMA};
@@ -16,6 +19,7 @@ use crate::{canonicalize, difficulty_weight, Hex32};
 
 const BLOCK_SCHEMA: &str = "boole.native.block.v1";
 const BLOCK_AUTH_SCHEMA: &str = "boole.native.block.authorization.v1";
+pub const NATIVE_RECENT_FORK_BLOCKS: usize = 256;
 
 /// The existing signed-envelope wire spelling, with a mandatory network and
 /// a typed payload so duplicate/unknown payload fields are rejected by serde.
@@ -210,13 +214,34 @@ impl NativeBlockTemplate {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct NativeChain {
     network: NativeNetwork,
     blocks: Vec<NativeBlock>,
     ledger: NativeLedger,
     cumulative_work: BigUint,
+    recent_undo: VecDeque<VerifiedBlockUndo>,
 }
+
+#[derive(Debug, Clone)]
+struct VerifiedBlockUndo {
+    post_hash: Hex32,
+    previous_work: BigUint,
+    ledger: NativeLedgerUndo,
+}
+
+// The bounded, rebuildable undo cache is not consensus state. A rolled-back
+// chain can retain fewer old inverses than an independently replayed equal one.
+impl PartialEq for NativeChain {
+    fn eq(&self, other: &Self) -> bool {
+        self.network == other.network
+            && self.blocks == other.blocks
+            && self.ledger == other.ledger
+            && self.cumulative_work == other.cumulative_work
+    }
+}
+
+impl Eq for NativeChain {}
 
 /// A fully verified successor ready for durable publication. Private fields
 /// prevent a storage caller from constructing a claimed balance transition.
@@ -225,6 +250,7 @@ pub struct PreparedNativeBlock {
     block: NativeBlock,
     ledger: NativeLedger,
     cumulative_work: BigUint,
+    undo: NativeLedgerUndo,
 }
 
 impl PreparedNativeBlock {
@@ -241,6 +267,7 @@ impl NativeChain {
             network,
             blocks: Vec::new(),
             cumulative_work: BigUint::zero(),
+            recent_undo: VecDeque::new(),
         })
     }
 
@@ -254,6 +281,40 @@ impl NativeChain {
 
     pub fn ledger(&self) -> &NativeLedger {
         &self.ledger
+    }
+
+    /// Earliest prefix currently available without a full replay. A fork made
+    /// from this instance may retain less than the maximum 256-block window.
+    pub fn earliest_recent_fork_height(&self) -> u64 {
+        self.ledger.height() - self.recent_undo.len() as u64
+    }
+
+    /// Clone a recent prefix using only this instance's validated transitions.
+    /// No claimed external state is accepted. Missing inverses require ordinary
+    /// full replay; this bound never changes which blocks are valid.
+    pub fn fork_at(&self, height: u64) -> anyhow::Result<Self> {
+        let height = usize::try_from(height)?;
+        let depth = self
+            .blocks
+            .len()
+            .checked_sub(height)
+            .ok_or_else(|| anyhow::anyhow!("native fork height exceeds head"))?;
+        anyhow::ensure!(
+            depth <= self.recent_undo.len(),
+            "native fork requires full replay"
+        );
+        let mut fork = self.clone();
+        for _ in 0..depth {
+            let undo = fork.recent_undo.pop_back().expect("bounded undo depth");
+            anyhow::ensure!(
+                undo.post_hash == fork.head_hash(),
+                "native undo head mismatch"
+            );
+            fork.ledger.undo_block(undo.ledger)?;
+            fork.cumulative_work = undo.previous_work;
+            fork.blocks.pop().expect("verified block");
+        }
+        Ok(fork)
     }
 
     pub fn blocks(&self) -> &[NativeBlock] {
@@ -431,12 +492,14 @@ impl NativeChain {
         block.verify_authorization()?;
         let envelopes = self.transfer_envelopes(&block.transfers)?;
         let work = difficulty_weight(&BigUint::from_bytes_be(target.as_bytes()))?;
-        let mut ledger = self.ledger.clone();
-        ledger.apply_block(header.height, &header.reward_pk, &envelopes)?;
+        let (ledger, undo) =
+            self.ledger
+                .prepare_block(header.height, &header.reward_pk, &envelopes)?;
         Ok(PreparedNativeBlock {
             block,
             ledger,
             cumulative_work: &self.cumulative_work + work,
+            undo,
         })
     }
 
@@ -445,6 +508,14 @@ impl NativeChain {
             prepared.block.header.previous_hash == self.head_hash().to_hex(),
             "prepared native block is stale"
         );
+        self.recent_undo.push_back(VerifiedBlockUndo {
+            post_hash: prepared.block.hash()?,
+            previous_work: self.cumulative_work.clone(),
+            ledger: prepared.undo,
+        });
+        if self.recent_undo.len() > NATIVE_RECENT_FORK_BLOCKS {
+            self.recent_undo.pop_front();
+        }
         self.ledger = prepared.ledger;
         self.cumulative_work = prepared.cumulative_work;
         self.blocks.push(prepared.block);

@@ -28,6 +28,8 @@ enum NativeCommand {
     Info,
     /// Observe configured secure peers, bounded resource counters and sync states.
     Peers,
+    /// Observe process/peer diagnostics without checking ledger readiness or signing.
+    Diagnostics,
     Account {
         #[arg(long)]
         pk: String,
@@ -59,6 +61,11 @@ enum NativeCommand {
     },
     /// Resubmit the identical saved signature. Never automatically changes nonce.
     Submit {
+        #[arg(long)]
+        file: PathBuf,
+    },
+    /// Offline signature/format check and transaction ID. No balance or chain check.
+    InspectTransfer {
         #[arg(long)]
         file: PathBuf,
     },
@@ -245,12 +252,48 @@ fn read_transfer(path: &Path) -> anyhow::Result<NativeTransfer> {
     Ok(transfer)
 }
 
+fn inspect_transfer(file: &Path) -> anyhow::Result<Value> {
+    let transfer = read_transfer(file)?;
+    let network = native_testnet();
+    Ok(json!({
+        "schema": "boole.native.transfer.inspection.v1",
+        "verification": "signature_and_format_only",
+        "chainStatus": "not_checked",
+        "networkId": transfer.network_id,
+        // This identifies our compiled policy, not an independently signed
+        // genesis field in the transfer envelope or a contacted node's head.
+        "compiledGenesisHash": network.genesis_hash().to_hex(),
+        "txid": transfer.id().to_hex(),
+        "from": transfer.payload.from, "to": transfer.payload.to,
+        "amountAtoms": transfer.payload.amount, "feeAtoms": transfer.payload.fee,
+        "nonce": transfer.payload.nonce, "validBefore": transfer.payload.valid_before
+    }))
+}
+
 pub(super) fn run(args: NativeArgs) -> anyhow::Result<()> {
+    if let NativeCommand::InspectTransfer { file } = &args.command {
+        println!("{}", serde_json::to_string(&inspect_transfer(file)?)?);
+        return Ok(());
+    }
     let client = Client::new(&args.node)?;
+    if matches!(&args.command, NativeCommand::Diagnostics) {
+        // Deliberately independent of readiness for recovery/overload triage.
+        // This branch cannot unlock, sign, submit or expose a ledger snapshot.
+        let report = client.request("/native/diagnostics", None)?;
+        anyhow::ensure!(
+            report["schema"] == "boole.native.diagnostics.v1"
+                && report["authority"] == "local_process_only"
+                && report["ledgerReadiness"] == "not_checked",
+            "invalid non-authoritative native diagnostic report"
+        );
+        println!("{}", serde_json::to_string(&report)?);
+        return Ok(());
+    }
     let info = client.info()?;
     let result = match args.command {
         NativeCommand::Info => info,
         NativeCommand::Peers => client.request("/native/peers", None)?,
+        NativeCommand::Diagnostics => unreachable!("handled before readiness RPC"),
         NativeCommand::Account { pk } => {
             anyhow::ensure!(
                 Hex32::from_hex(&pk)?.to_hex() == pk,
@@ -323,6 +366,7 @@ pub(super) fn run(args: NativeArgs) -> anyhow::Result<()> {
             let transfer = read_transfer(&file)?;
             client.request("/native/transfers", Some(&serde_json::to_value(transfer)?))?
         }
+        NativeCommand::InspectTransfer { .. } => unreachable!("handled before RPC creation"),
         NativeCommand::Mine {
             vault,
             passphrase_stdin,

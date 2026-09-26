@@ -25,6 +25,7 @@ mod family_manifest_store;
 mod http_error;
 mod lean_bounty_verifier;
 mod local_node;
+mod native_archive;
 mod native_http;
 mod native_node;
 mod native_peer_key;
@@ -89,12 +90,16 @@ pub use local_node::{
     serve_local_node_with_shutdown, LocalNodeConfig, DEFAULT_ROUTE_TIMEOUT,
     MAX_CONCURRENT_REQUESTS, MAX_HTTP_BODY_BYTES, PROOF_ROUTE_BODY_BYTES, PROOF_ROUTE_TIMEOUT,
 };
+pub use native_archive::{
+    audit_native_state, export_native_archive, import_native_archive, NativeArchiveReceipt,
+    NativeAuditAccounting, NativeAuditReceipt, NativeAuditTransfers, NativeImportReceipt,
+};
 pub use native_http::{
     bind_loopback as bind_native_loopback, serve as serve_native_node,
     serve_with_peers as serve_native_node_with_peers, MAX_NATIVE_SYNC_BLOCKS,
     MAX_NATIVE_SYNC_BYTES,
 };
-pub use native_node::{NativeNode, NATIVE_BLOCKS_FILE, NATIVE_MEMPOOL_FILE};
+pub use native_node::{NativeNode, NativeResourceUsage, NATIVE_BLOCKS_FILE, NATIVE_MEMPOOL_FILE};
 pub use native_peer_key::{create_native_peer_key, load_native_peer_key};
 pub use native_peers::{
     NativePeerConfig, NativePeerLimits, NativePeerMonitor, NativePeerService, NativePeerSnapshot,

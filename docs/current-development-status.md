@@ -1,10 +1,34 @@
 # Boole — current development status
 
-Updated: 2026-09-23. This is the tracked entrypoint for current progress and the
+Updated: 2026-09-25. This is the tracked entrypoint for current progress and the
 ordered development roadmap. Edit it in place; execution evidence stays in its
 own result record. Local Master/Execution documents link here instead of owning
 a second current cursor. Work methods follow the
 [development policy](development-throughput-and-evidence-policy-v1.md).
+
+**Publication scope:** the recovery/resource/diagnostic/storage hardening below
+is integrated on `codex/native-r1-hardening-integration`, based on main `9be7cb0`
+through secure peers and encrypted wallet recovery. On September 25 the user
+authorized GitHub publication, required full CI and ordinary PR merge; the
+earlier publication-approval hold is resolved. The owning
+[feature PR #388](https://github.com/NotoriAndo/Boole/pull/388)
+records the actual CI and merge outcome, not the local measurements alone.
+An intermediate attempt passed 14 checks but was cancelled at the shared
+30-minute self-test job cap. CI now has separate bounded validation/build
+allowances and live Rust progress; the owning PR records the final full result.
+The subsequent run confirmed the corrected operator rehearsal on Linux but
+still exhausted its time budget while small capacity tests ran slowly.
+Only the test-profile curve-arithmetic dependency is now optimized, with actual
+compiler-profile checks retaining application debug/overflow guards. Earlier
+large measurements remain tied to their original build settings.
+Linux then passed all eight small capacity cases in 94.24s but exposed a
+shutdown-test listener missing the production address-reuse setting. The fixture
+now matches the production listener while retaining immediate rebind, exclusive
+live ownership, closed-client and unchanged-state checks; full CI remains required.
+Original measurement commits are preserved; the initial main-based rebase was
+verified byte-identical. See the
+[integration handoff and remaining safety holds](native-r1-local-hardening-handoff-2026-09.md).
+R1 remains incomplete, R2 not passed and R3 not started.
 
 ## Current boundary
 
@@ -22,24 +46,224 @@ signed transfers; the CLI preserves transactions before broadcast and retries
 the same nonce. See the
 [contract, tests and limits](native-transfer-ledger-contract.md).
 
-**Next: R1 node recovery, large-state resource limits and broader abuse readiness.**
+The [actual first-halving recovery qualification](native-halving-recovery-qualification-2026-09.md)
+also passes through 10,024 real PoW/authorized blocks: height-10,000 issuance
+halves, maturity controls spending, a fork removes the old reward/payment, and
+the exact original signature confirms once after new funding matures. Independent
+restart/audit matches 500,575,000 tBOOLE issued and 250,000 locked. The complete
+fixed run took 876.337s at 52.875MiB RSS; its earlier functional pass with unavailable
+OS memory instrumentation is retained separately. This mostly empty-block,
+three-account history is not the large-account or maximum-storage envelope.
+
+**Next: R1 large-state resource limits and broader abuse/operations readiness.**
 The foreground native node remains separate
 from the legacy credit-only node. TLS identity, incremental sync, bounded pending
 pull and local partition/rejoin are implemented; public listeners remain refused.
-The full-replay store, long-fork recovery and manual full-chain RPC limits remain.
+Bounded offline export/import now covers long-fork recovery beyond the online
+suffix and manual RPC caps, with source preservation, expected-head binding and
+independent validation. A 1,025-block recovery preserves orphaned transfers.
+Pending admission now retains verified reservations and IDs, stages only affected
+accounts and publishes after durable append. Full 512-transaction queues,
+16,384-account fixtures and failure/reorg/restart paths pass focused checks.
+Stopped-node `native-audit` now independently replays canonical history, checks
+balance/issuance/reward-lock conservation and reports exact decimal totals without
+repairing source journals. An optional independently retained head detects a
+valid-prefix rollback; a self-consistent audit alone cannot prove latest history.
+Boot/audit now refuse a missing canonical file instead of treating existing state
+as empty genesis. Ambiguous old or interrupted initialization is preserved and
+requires a fresh recovery directory. See the
+[accounting audit workflow and limits](native-transfer-ledger-contract.md#offline-canonical-accounting-audit).
+Startup/audit/export also bind their complete replay to the actual file versions
+read, rejecting later history/pending/manifest changes before readiness or stale
+pending cleanup. This closes a reproduced ready-with-stale-memory mismatch and
+preserves externally changed evidence. Intentional tail repair/pending cleanup
+has exact bounded read-back; source-preserving consumers do not repair. Direct
+failure and recovery regressions pass. The unchanged
+[large-state follow-up](native-replay-input-fence-2026-09.md) also passed:
+131,073 balances, 512 pending transfers, 52.074s/52.020s independent reopens and
+350.96875MiB peak RSS, with the exact original final head/accounting/history.
+Runtime publication now also rejects files changed during block/fork/reservation
+validation or atomic-write staging, and binds new file baselines to the actual
+durable output descriptors. A detected failure after I/O requires reconciliation,
+not automatic rollback. Direct mutation, replay, common-storage and integration
+regressions pass. The unchanged large capacity and distinct-fork follow-ups also
+passed on this corrected runtime: 52.214s/52.163s reopens at 350.671875MiB RSS;
+66.633s eight-candidate convergence and 55.585s independent replay at
+767.703125MiB RSS, with exact original winner/accounting and all 28 transient
+failed rounds retained. See the [runtime publication record](native-publication-input-fence-2026-09.md).
+Storage bytes/limits and canonical account/transaction counts are now observable
+through `native info`. A [preregistered developer-Mac scenario](native-capacity-qualification-2026-09.md)
+passes at 131,073 balance entries and ~67MiB history, including a full queue and
+two reopens. Initial maximum RSS was 327.125MiB; requalification after the recent
+fork changes measured 291.71875MiB under the same criteria. Full replay still
+takes about 52–53s;
+recent fork recovery now reuses only locally verified inverse history, validates
+every new suffix and rejects out-of-window live forks. Independent replay parity,
+same-hash tampering, pending nonce dependencies and all six reorg publication
+failure boundaries pass direct checks. The prior large-state live-fork baseline
+took 58.049s and failed its fixed 10s bound; the
+[corrected qualification](native-recent-fork-qualification-2026-09.md) passed at
+3.251s, with 51.869s restart and 551.0625MiB peak RSS. This uses more peak memory
+than the baseline and does not remove whole-history cloning/writing or startup.
+Larger histories, concurrency/abuse and other hardware remain.
 Encrypted owner-wallet backup/restore, bounded vault/KDF/file handling, isolated
 agent environment/lifetime/output and native stdin passphrases now pass direct
 recovery tests, including a restored-wallet on-chain transfer. This is the selected
 local-vault path, not operational custody or an OS-keychain/mnemonic implementation.
+Saved signed transfers can also be inspected offline for their exact ID and
+public fields without a node, wallet, password or broadcast. The report explicitly
+checks only signature/format, not balance, current nonce/expiry or chain status.
+The [operator recovery runbook](native-operator-recovery-runbook.md) now connects
+the selected wallet, canonical archive/audit and outbox steps. A real disposable
+CLI rehearsal restored both wallet and node state, reconciled an old confirmed
+signature without another debit, then explicitly sent/confirmed the next nonce
+and independently audited it while preserving the original state and outbox.
+This is prepared closed-local recovery evidence, not operational custody or R2.
 Public/untrusted participation still needs the remaining operational acceptance,
-public RPC scope and R2/R3 release/launch decisions.
+approved public P2P and R2/R3 release/launch decisions. Initial RPC is operator-local;
+public RPC is excluded, not an unfinished mandatory feature.
 Existing v3 data and verification rules remain unchanged; R1 is not complete.
+
+The [native launch-readiness checklist](native-testnet-readiness.md) now separates
+source/CI, authenticated artifacts, actual custody, platform evidence, participant
+onboarding and explicit R3 execution authority. Initial native RPC remains local
+to each operator; public RPC/gateway/faucet/admin exposure is excluded. A
+[Korean participant technical notice](native-testnet-participant-notice-ko.md)
+is prepared, not a legal agreement, actual acknowledgement or launch approval.
+Public P2P remains unimplemented and refused; documentation is not a workaround.
+The preregistered three-process local operator rehearsal passed twice (79.330s
+and 78.770s scenario time): A→B→C signed transfers, restored B vault, actual C
+partition/rejoin with same-ID orphan requeue/reconfirmation, matching independent
+audits, and fresh B node restore/old-outbox reconciliation without duplicate
+payment. All original recovery material was preserved. This is one-host process
+integration, not independent external operators or R2/R3 completion.
+The subsequent [transport-key retirement/re-enrollment rehearsal](native-peer-key-rotation-2026-09.md)
+also passed through three real processes: stop closes an old authenticated
+connection; retired and unapproved replacement identities are refused; healthy
+peers keep confirming; explicit replacement pins permit same-state catch-up and
+two exactly-once transfers under the unchanged spending key. Independent audits
+and canonical bytes agree. Trust remains per-node startup configuration; every
+affected pin requires coordinated removal/restart, not a live key-file edit.
 
 Under the operator's twelve-hour autonomous-development delegation on September
 23, the selected initial external-participant policy is an explicit node-key
 allowlist, not open enrollment. TLS 1.3 mutual raw-public-key authentication uses
 separate mode-0600 transport keys, bounded incremental sync and partition/recovery
 tests. The CLI exposes peer status, resource counters, cooldown and retry backoff.
+Its bounded `lastFailureStage` field now distinguishes outgoing connection, TLS,
+protocol/data and local-state phases without reflecting raw remote/error text.
+The previous value clears after successful recovery; it is a failure location,
+not a root-cause or malicious-peer verdict. Direct rejection/recovery tests and
+the actual loopback peer-status RPC pass; validation and retry rules are unchanged.
+Each configured peer now has its own bounded outgoing worker (at most eight),
+so one stalled authenticated peer does not serialize every other peer's I/O.
+Focused tests cover healthy progress during a stall, eight stalled rounds with
+shutdown and concurrent duplicate-transfer pulls. A subsequent
+[eight-peer resource qualification](native-peer-resource-qualification-2026-09.md)
+passed 131,073 canonical balances plus eight simultaneous incomplete fork buffers
+at 551.90625MiB process RSS, with budget rejection, unchanged journals/accounting
+and 51.784s restart. A subsequent
+[same-candidate convergence qualification](native-peer-convergence-qualification-2026-09.md)
+passed with all eight peers simultaneously holding fifteen blocks before final
+release: one 16-block adoption, seven stale-snapshot retries, no duplicate
+accounting and all peers matching within 8.292s at 544.6875MiB peak RSS. Full
+independent replay took 55.040s. A separate
+[distinct-candidate qualification](native-competing-forks-qualification-2026-09.md)
+then passed eight fixed valid branches at the same large state: 75.618s to the
+normal same-work/hash winner and stable peer polling, 702.84375MiB peak RSS and
+54.989s independent replay. Only the winner's 8,192 added IDs were confirmed;
+57,344 conflicting loser IDs were neither confirmed nor pending. Thirty-two
+failed rounds and at least three observed candidate adoptions are part of the
+result, not hidden by the final success. Continuously changing candidates, mixed
+traffic and worst-case shared-lock read latency remain unqualified. All non-loopback
+listeners/endpoints are still refused; an explicit exposure option is not implemented.
+Peer round state-lock waits now observe shutdown and the existing ten-second
+round deadline. Real pinned-TLS regression tests reproduce/fix an authenticated
+wait that previously held shutdown, and cover inbound waits plus queued block,
+fork and pending-transfer cancellation with unchanged independent replay. Actual
+running validation/publication still finishes under the existing mutation gate;
+this is not CPU/disk preemption or a universal shutdown-time promise. See the
+[bounded wait evidence and requalification status](native-peer-lock-wait-2026-09.md).
+The unchanged large distinct-fork criteria passed again after this change:
+68.778s stable convergence, 764.203125MiB peak RSS, 55.089s independent replay,
+372-microsecond drained stop, and the same exact winner/accounting/journals.
+Thirty-one transient failed rounds remain recorded. Compared with the earlier
+source this run converged sooner but used more peak RSS; it is not a general
+performance improvement claim.
+Each outgoing worker also remembers at most one fully verified losing fork for
+the exact unchanged local/remote heads, avoiding repeated suffix downloads and
+revalidation. Head changes/restart invalidate that memory; malformed candidates
+do not create it, and readiness remains checked. First verification and changing
+candidate costs remain; this is not a general CPU-abuse guarantee.
+A [preregistered 131,073-balance repeated-fork scenario](native-peer-repeat-qualification-2026-09.md)
+passed: first full candidate 4.999s, seven following polls without data requests,
+8.637s network phase, 480.078125MiB peak RSS and unchanged accounting/journals.
+Local native HTTP also acquires its eight request slots before body decoding,
+retaining the same slot through actual node work even after a caller timeout.
+Raw slow-upload and delayed-mutation tests cover early 429, slot return and
+one durable block/reward after eight timed-out duplicate submissions. This bounds
+admission, not total memory or guaranteed read availability under saturation.
+Normal native shutdown now gives HTTP client I/O up to five seconds to drain,
+then closes actual sockets while preserving already admitted durable work. A
+one-second final-owner cleanup reports an explicit error instead of claiming
+success if state references remain; it never forces an old owner off its locks.
+Actual partial-body/unread-response, immediate-reopen, retained-owner timeout
+and admitted-block regressions pass. See the
+[shutdown correction and retained failures](native-http-shutdown-drain-2026-09.md).
+This is not CPU/disk preemption or a universal five-second process-stop promise.
+A separate [held mixed-input qualification](native-http-shutdown-drain-2026-09.md#large-held-input-result--first-run-pass)
+also passed at 131,073 balances: with all 8/4/8 inputs still unfinished, normal
+stop closed eight HTTP and twelve TLS connections in 5.071s at 610.375MiB RSS.
+Old client handles/runtime remained alive during 51.803s independent replay,
+with exact original accounting and files. No missing body/page was sent first.
+This input-only combination does not qualify concurrent successful mutations.
+Final connection-lifetime review also reproduced and fixed a premature HTTP
+slot return while shutdown-descriptor cleanup waited on its registry. The slot
+now remains held through actual cleanup. Direct regressions and the same large
+held-input criteria passed on the corrected source: 5.071s stop, 51.647s replay
+and 621.75MiB RSS, with exact original state/files. The
+[separate corrective result](native-http-shutdown-drain-2026-09.md#large-held-input-follow-up-after-slot-lifetime-correction--pass)
+retains the earlier outcomes and does not raise any connection or time limit.
+`native diagnostics` now uses two separate small observation slots and no ledger
+lock/readiness check. It explicitly reports `ledgerReadiness=not_checked`, bounded
+RPC occupancy, shutdown state and the peer monitor without exposing ledger data
+or enabling signing. Actual-router tests keep diagnostics readable while eight
+normal requests wait on the ledger and while canonical storage is missing;
+existing readiness/mutation paths remain fail-closed. Shared connection/host
+exhaustion can still prevent observation, and this is not public health service.
+Publication CI also exposed slow orphaned-transfer propagation after asymmetric
+peer rejoin: the returning node had recovered its pending transfer, but the other
+side remained in a 30-second connection-failure backoff. A completed authenticated
+inbound round now permits one early connect probe, replenished only by a complete
+successful outbound round. Failure counts, TLS/data-error backoff and all input/
+worker/validation limits remain. Direct real-peer reproduction, no-amplification
+controls and the original three-process workflow pass; the latest owning PR must
+still complete full CI. See the [correction and retained failure](native-r1-local-hardening-handoff-2026-09.md#september-25-publication-asymmetric-rejoin-and-a-single-connection-recovery-probe).
+Earlier large-state measurements remain attached to their original source; they
+have not been rerun on this small peer-scheduling correction.
+Input-reflecting HTTP error bodies are also limited to 4KiB, preserving status
+and replacing oversized diagnostics with a short code.
+A [combined large-state input-pressure qualification](native-mixed-resource-qualification-2026-09.md)
+passed at 131,073 balances with eight thirty-block fork buffers, four authenticated
+incoming waits and eight unfinished near-8MiB HTTP bodies simultaneously. Excess
+admission was refused; diagnostics remained explicitly non-authoritative with
+maximum measured response 457 microseconds. The input/rejection phase took
+3.137s, drained stop 39.025ms, independent replay 51.652s and peak RSS
+621.265625MiB. Exact original accounting/journals/manifest remained unchanged.
+This is one fixed incomplete-input combination, not arbitrary mixed successful
+fork validation, a public availability SLA or R1 completion; runtime rules and
+limits were unchanged.
+After the HTTP shutdown correction, the identical mixed criteria passed again:
+3.118s input/rejection, 39.786ms drained stop, 456µs maximum diagnostic response,
+51.871s replay and 623.875MiB RSS. Exact original state/files remained unchanged;
+the [corrected-source result](native-http-shutdown-drain-2026-09.md#unchanged-large-mixed-resource-follow-up--first-corrected-source-run-pass)
+is separate from the original measurement and its unchanged scope limits.
+Exact already-known transfers still repeat immutable signature checks. A
+[developer retry baseline](native-known-transfer-qualification-2026-09.md)
+preserved state/journals but took 2.749s for 8,192 retries against a fixed 1s
+criterion. The proposed shortcut is on safety-review hold and was not applied;
+field-binding, conflicting-signature and storage-loss regression checks pass on
+the unchanged validation path.
 Tests remain
 closed-local and public operation still requires R2/R3 launch authority.
 
@@ -61,7 +285,7 @@ proceed alongside it without making all of R1 one oversized change.
 
 | ID | Boundary / completion evidence | Dependency and current state |
 |---|---|---|
-| R1 | Native transfer and launch-critical product/security/operations: signed network-bound transfers, debit/fee/nonce state, block/replay/reorg integration, wallet safety/recovery for the selected testnet UX, secure public P2P/RPC, resource limits and operator recovery/observability. Pin test-only monetary parameters and experiment criteria before running the new network. | **In progress, incomplete.** Native issuance/transfer, owner-vault recovery, mutually pinned TLS, incremental sync and local rejoin pass direct tests. Broader node recovery/abuse, public RPC scope and large-state storage readiness remain. |
+| R1 | Native transfer and launch-critical product/security/operations: signed network-bound transfers, debit/fee/nonce state, block/replay/reorg integration, wallet safety/recovery for the selected testnet UX, secure authenticated P2P, operator-local RPC, resource limits and operator recovery/observability. Pin test-only monetary parameters and experiment criteria before running the new network. | **In progress, incomplete.** Native issuance/transfer, owner-vault recovery, mutually pinned TLS, incremental sync, local rejoin and bounded offline long-fork recovery pass direct tests. Broader fault/abuse acceptance, approved public P2P and large-state storage readiness remain; public RPC is excluded from the initial scope. |
 | R2 | Public-testnet launch readiness: versioned network/genesis and release artifacts, scoped key custody, participant risk notice/onboarding, bootstrap/incident/upgrade/rollback runbook and launch approval. | After the applicable R1 acceptance tests. **Not passed.** Clean-Mac CURL.3 is the last installation-validation step, deferred until a clean machine is available; current-Mac/CI work continues. A supported-Mac public-release claim still needs that evidence, or an explicit narrower platform scope. |
 | R3 | Public base-network testnet: independently operated nodes actually mine test coins, send them between wallets, include/confirm transactions and agree on balances/fees/supply; exercise rejection, restart, partitions/rejoin, reorg and operator recovery. | After R2 and explicit public-network/mining/test-wallet scope. **Not started.** Test coins carry no real-money or future-mainnet entitlement. Mock-only accounting does not pass. Useful-work reward remains OFF unless separately authorized. |
 | U1 | BF.7: new-rule receipt consensus with `no_protocol_reward`, independent replay and DA recovery. | **HOLD.** Adapter-scoped RP0-MD/supply, BF.6a DA and deterministic resource contracts are prerequisites. Closed-local integration precedes any separately approved public extension. Existing v3 is preserved; this branch does not block R1–R3 base transfers. |
@@ -77,8 +301,8 @@ Transfer authorization must not weaken the existing work-session
 `canTransfer=false` / `canWithdraw=false` boundary.
 
 Public transport encryption and peer authentication remain required before
-public/untrusted participation; the closed-local plaintext/static-peer
-implementation is not a public-network transport certificate.
+public/untrusted participation; the implemented pinned-TLS closed-local service
+does not by itself qualify public exposure or a public-network operating envelope.
 
 ### Parallel work and conditional research
 
@@ -111,8 +335,10 @@ implementation is not a public-network transport certificate.
 | Developer-Mac user trial | PR #381; [one new tuple ACCEPT](boole-local-mcp-trial-2026-09-15.md), original MCP/budgets/terminal evidence agree on one candidate/checker and no redelivery. VM normally stopped; this trial's disk/key/spent state retained. Not clean-Mac evidence or a run of the subsequent PR #382 workflow. |
 | Prepared development MCP workflow | PR #382; problem/status reads and prepared-VM control complete. No extra model run; existing trial VM was only queried while stopped, not upgraded or reset. [Workflow](development-mcp-workflow.md). |
 | R1 native transfer integration | Compiled test-only monetary policy, actual PoW/owner-signed transfer blocks, durable pool/replay/reorg, bounded loopback RPC and owner-vault CLI/outbox. [Contract and automated closed-local evidence](native-transfer-ledger-contract.md). Not public P2P, public mining or R1 completion. |
-| R1 secure peer integration | Mutually pinned TLS, bounded incremental block sync/pending pull, local partition/rejoin, transport-key CLI and resource/status/shutdown guards. [Contract and automated evidence](native-transfer-ledger-contract.md#mutually-authenticated-native-peers). Closed-local only; full-replay/long-fork recovery and wider operations acceptance remain. |
+| R1 secure peer integration | Mutually pinned TLS, bounded incremental block sync/pending pull, local partition/rejoin, transport-key CLI and resource/status/shutdown guards. [Contract and automated evidence](native-transfer-ledger-contract.md#mutually-authenticated-native-peers). Closed-local only; wider operations acceptance remains. |
 | R1 encrypted wallet recovery | Authenticated no-overwrite backup/restore, unchanged v1/default KDF, bounded secret/file/agent processing, explicit stdin signing and a restored-owner on-chain transfer. [Contract and limitations](native-transfer-ledger-contract.md#encrypted-owner-vault-backup-and-restore). Disposable local evidence, not operational key custody. |
+| R1 offline node recovery | Source-preserving new-file export, expected-head/full-validation import, 1,025-block long-fork recovery and orphan requeue, bounded stable files/manifest and normal fork choice. [Workflow and limits](native-transfer-ledger-contract.md#bounded-offline-chain-recovery). Not unlimited history or production-scale storage. |
+| R1 offline accounting diagnostics | Confirmed canonical supply/balance/lock and gross transfer/fee audit, source-preserving replay, expected-head check and missing-history fail-closed boot. [Workflow and limits](native-transfer-ledger-contract.md#offline-canonical-accounting-audit). Unsigned local diagnostics, not finality or latest-state attestation. |
 | Mac/curl and custody foundations | Closed-local VM, install/update/rollback and non-operational trust-policy/custody rehearsal implemented. **Clean-Mac CURL.3 and operational release custody are not complete.** |
 
 Completed actual-model allowances are exhausted, not recurring permission.

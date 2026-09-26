@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::net::{SocketAddr, TcpListener, TcpStream};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -73,12 +73,16 @@ pub struct NativePeerStatus {
     pub retry_delay_ms: u64,
     /// A snapshot match, never a finality or public-connectivity claim.
     pub state: &'static str,
+    /// Fixed local phase of the last failed round, cleared on success. This is
+    /// not a root-cause verdict and never contains a remote/error string.
+    pub last_failure_stage: Option<&'static str>,
 }
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NativePeerLimits {
     pub max_peers: usize,
+    pub max_outbound_workers: usize,
     pub max_inbound_workers: usize,
     pub max_message_bytes: usize,
     pub max_round_bytes: usize,
@@ -108,6 +112,9 @@ pub struct NativePeerSnapshot {
     pub failed_inbound_rounds: u64,
     pub active_inbound_workers: usize,
     pub peak_inbound_workers: usize,
+    /// Executing a connect/handshake/round, excluding independent backoff.
+    pub active_outbound_rounds: usize,
+    pub peak_outbound_rounds: usize,
 }
 
 /// A read-only observation handle. It does not keep the durable node open.
@@ -139,7 +146,15 @@ struct Shared {
     lifecycle: Arc<P2pLifecycle>,
     active: Mutex<BTreeSet<PeerId>>,
     next_inbound: Mutex<BTreeMap<PeerId, Instant>>,
+    connect_recovery: Vec<(PeerId, Mutex<ConnectRecovery>)>,
     monitor: NativePeerMonitor,
+}
+
+#[derive(Default)]
+struct ConnectRecovery {
+    waiting: bool,
+    requested: bool,
+    used: bool,
 }
 
 pub struct NativePeerService {
@@ -178,6 +193,7 @@ impl NativePeerService {
                 listen_address: listener.local_addr()?.to_string(),
                 limits: NativePeerLimits {
                     max_peers: MAX_NATIVE_PEERS,
+                    max_outbound_workers: MAX_NATIVE_PEERS,
                     max_inbound_workers: MAX_NATIVE_PEER_WORKERS,
                     max_message_bytes: MAX_NATIVE_PEER_MESSAGE_BYTES,
                     max_round_bytes: MAX_NATIVE_PEER_ROUND_BYTES,
@@ -199,6 +215,7 @@ impl NativePeerService {
                         consecutive_failures: 0,
                         retry_delay_ms: 0,
                         state: "not_connected",
+                        last_failure_stage: None,
                     })
                     .collect(),
                 accepted_connections: 0,
@@ -210,6 +227,8 @@ impl NativePeerService {
                 failed_inbound_rounds: 0,
                 active_inbound_workers: 0,
                 peak_inbound_workers: 0,
+                active_outbound_rounds: 0,
+                peak_outbound_rounds: 0,
             })),
         };
         let shared = Arc::new(Shared {
@@ -225,67 +244,37 @@ impl NativePeerService {
                     .map(|(_, key)| (*key, Instant::now()))
                     .collect(),
             ),
+            connect_recovery: config
+                .peers
+                .iter()
+                .map(|(_, key)| (*key, Mutex::new(ConnectRecovery::default())))
+                .collect(),
             monitor,
         });
         let incoming = shared.clone();
         let acceptor = thread::Builder::new()
             .name("native-peer-accept".into())
             .spawn(move || accept_loop(listener, incoming))?;
-        let outgoing = shared.clone();
-        let sync = match thread::Builder::new()
-            .name("native-peer-sync".into())
-            .spawn(move || {
-                let mut next_attempt = vec![Instant::now(); config.peers.len()];
-                while !outgoing.lifecycle.is_stopped() {
-                    for (index, (address, _)) in config.peers.iter().enumerate() {
-                        if outgoing.lifecycle.is_stopped() {
-                            break;
-                        }
-                        if Instant::now() < next_attempt[index] {
-                            continue;
-                        }
-                        let outcome = synchronize(&outgoing, *address);
-                        let mut snapshot = outgoing
-                            .monitor
-                            .snapshot
-                            .lock()
-                            .expect("native peer status lock");
-                        let status = &mut snapshot.peers[index];
-                        match outcome {
-                            Ok(state) => {
-                                status.successful_rounds =
-                                    status.successful_rounds.saturating_add(1);
-                                status.state = state;
-                                status.consecutive_failures = 0;
-                                status.retry_delay_ms = POLL_TIME.as_millis() as u64;
-                            }
-                            Err(_) => {
-                                status.failed_rounds = status.failed_rounds.saturating_add(1);
-                                status.state = "retrying";
-                                status.consecutive_failures =
-                                    status.consecutive_failures.saturating_add(1);
-                                status.retry_delay_ms = (500
-                                    * (1u64 << (status.consecutive_failures - 1).min(6)))
-                                .min(30_000);
-                            }
-                        }
-                        next_attempt[index] =
-                            Instant::now() + Duration::from_millis(status.retry_delay_ms);
+        let mut threads = vec![acceptor];
+        // Only the bounded, statically configured peer set creates workers.
+        // A slow peer cannot serialize every other peer's network I/O.
+        for (index, (address, _)) in config.peers.into_iter().enumerate() {
+            let outgoing = shared.clone();
+            match thread::Builder::new()
+                .name(format!("native-peer-sync-{index}"))
+                .spawn(move || outbound_loop(outgoing, index, address))
+            {
+                Ok(worker) => threads.push(worker),
+                Err(error) => {
+                    shared.lifecycle.stop();
+                    for worker in threads {
+                        let _ = worker.join();
                     }
-                    outgoing.lifecycle.wait_or_stop(POLL_TIME);
+                    return Err(error.into());
                 }
-            }) {
-            Ok(worker) => worker,
-            Err(error) => {
-                shared.lifecycle.stop();
-                let _ = acceptor.join();
-                return Err(error.into());
             }
-        };
-        Ok(Self {
-            shared,
-            threads: vec![acceptor, sync],
-        })
+        }
+        Ok(Self { shared, threads })
     }
 
     pub fn status(&self) -> Vec<NativePeerStatus> {
@@ -319,12 +308,115 @@ fn lock_node(node: &Mutex<NativeNode>) -> anyhow::Result<MutexGuard<'_, NativeNo
         .map_err(|_| anyhow::anyhow!("native state lock poisoned"))
 }
 
+fn outbound_loop(shared: Arc<Shared>, index: usize, address: SocketAddr) {
+    // One ephemeral entry per fixed peer, never an attacker-sized hash cache.
+    let mut declined = None;
+    while !shared.lifecycle.is_stopped() {
+        let delay = {
+            let _round = OutboundRound::new(shared.monitor.clone());
+            let mut stage = "connect";
+            let outcome = synchronize(&shared, address, &mut declined, &mut stage);
+            {
+                let mut recovery = shared.connect_recovery[index]
+                    .1
+                    .lock()
+                    .expect("native connect recovery lock");
+                recovery.waiting = outcome.is_err() && stage == "connect";
+                if outcome.is_ok() {
+                    // Only a complete successful outgoing round replenishes
+                    // the single recovery probe, never another inbound hint.
+                    recovery.used = false;
+                }
+                if !recovery.waiting {
+                    recovery.requested = false;
+                }
+            }
+            let mut snapshot = shared
+                .monitor
+                .snapshot
+                .lock()
+                .expect("native peer status lock");
+            let status = &mut snapshot.peers[index];
+            match outcome {
+                Ok(state) => {
+                    status.successful_rounds = status.successful_rounds.saturating_add(1);
+                    status.state = state;
+                    status.last_failure_stage = None;
+                    status.consecutive_failures = 0;
+                    status.retry_delay_ms = POLL_TIME.as_millis() as u64;
+                }
+                Err(_) => {
+                    status.failed_rounds = status.failed_rounds.saturating_add(1);
+                    status.state = "retrying";
+                    status.last_failure_stage = Some(stage);
+                    status.consecutive_failures = status.consecutive_failures.saturating_add(1);
+                    status.retry_delay_ms =
+                        (500 * (1u64 << (status.consecutive_failures - 1).min(6))).min(30_000);
+                }
+            }
+            Duration::from_millis(status.retry_delay_ms)
+        };
+        let wait_started = Instant::now();
+        let deadline = wait_started + delay;
+        let probe_not_before = wait_started + POLL_TIME.min(delay);
+        loop {
+            {
+                let mut recovery = shared.connect_recovery[index]
+                    .1
+                    .lock()
+                    .expect("native connect recovery lock");
+                let now = Instant::now();
+                if now >= deadline || (recovery.requested && now >= probe_not_before) {
+                    recovery.requested = false;
+                    recovery.waiting = false;
+                    break;
+                }
+            }
+            // The existing shutdown wait remains promptly cancellable. Poll
+            // only this fixed peer's one-bit hint, without a new I/O worker.
+            if shared.lifecycle.wait_or_stop(
+                deadline
+                    .saturating_duration_since(Instant::now())
+                    .min(POLL_TIME),
+            ) {
+                return;
+            }
+        }
+    }
+}
+
+struct OutboundRound(NativePeerMonitor);
+impl OutboundRound {
+    fn new(monitor: NativePeerMonitor) -> Self {
+        monitor.update(|snapshot| {
+            snapshot.active_outbound_rounds += 1;
+            snapshot.peak_outbound_rounds = snapshot
+                .peak_outbound_rounds
+                .max(snapshot.active_outbound_rounds);
+        });
+        Self(monitor)
+    }
+}
+impl Drop for OutboundRound {
+    fn drop(&mut self) {
+        self.0
+            .update(|snapshot| snapshot.active_outbound_rounds -= 1);
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Head {
     height: u64,
     #[serde(with = "wire_hash")]
     hash: Hex32,
+}
+
+/// Remembers only a fully verified candidate that lost normal fork choice.
+/// This can avoid work, never authorize adoption or trust a claimed balance.
+struct DeclinedFork {
+    local: Head,
+    remote: Head,
 }
 
 mod wire_hash {
@@ -412,6 +504,32 @@ struct Round<'a> {
 }
 
 impl<'a> Round<'a> {
+    fn lock_node(&self) -> anyhow::Result<MutexGuard<'a, NativeNode>> {
+        loop {
+            anyhow::ensure!(!self.shared.lifecycle.is_stopped(), "native peer stopped");
+            anyhow::ensure!(Instant::now() < self.deadline, "native peer round expired");
+            match self.shared.node.try_lock() {
+                Ok(node) => {
+                    // Recheck after acquisition. Only waiting is cancellable;
+                    // an admitted validation/write retains its mutation permit
+                    // and runs to completion under the existing shutdown gate.
+                    anyhow::ensure!(!self.shared.lifecycle.is_stopped(), "native peer stopped");
+                    anyhow::ensure!(Instant::now() < self.deadline, "native peer round expired");
+                    return Ok(node);
+                }
+                Err(TryLockError::Poisoned(_)) => {
+                    anyhow::bail!("native state lock poisoned");
+                }
+                Err(TryLockError::WouldBlock) => {
+                    let remaining = self.deadline.saturating_duration_since(Instant::now());
+                    self.shared
+                        .lifecycle
+                        .wait_or_stop(remaining.min(Duration::from_millis(5)));
+                }
+            }
+        }
+    }
+
     fn send(&mut self, message: &Message) -> anyhow::Result<()> {
         let cap = MAX_NATIVE_PEER_MESSAGE_BYTES.min(MAX_NATIVE_PEER_ROUND_BYTES - self.bytes);
         self.bytes += self.shared.transport.send_json_counted_until(
@@ -640,7 +758,7 @@ fn serve_round(shared: &Shared, socket: TcpStream) -> anyhow::Result<()> {
     };
     remote_head(round.recv()?)?;
     let (greeting, advertised) = {
-        let node = lock_node(&shared.node)?;
+        let node = round.lock_node()?;
         node.ensure_ready()?;
         (hello(&node), head(node.chain()))
     };
@@ -649,10 +767,25 @@ fn serve_round(shared: &Shared, socket: TcpStream) -> anyhow::Result<()> {
     for _ in 0..MAX_REQUESTS {
         let request = round.recv()?;
         if matches!(request, Message::Done) {
+            // A completed, rate-limited and authenticated inbound round proves
+            // that a configured peer is talking again. Permit at most one
+            // extra connect probe per outage; TLS/data/local-state failures
+            // retain their backoff, and repeated hints cannot refill it.
+            if let Some((_, recovery)) = shared
+                .connect_recovery
+                .iter()
+                .find(|(peer, _)| *peer == key)
+            {
+                let mut recovery = recovery.lock().expect("native connect recovery lock");
+                if recovery.waiting && !recovery.used {
+                    recovery.used = true;
+                    recovery.requested = true;
+                }
+            }
             return Ok(());
         }
         let response = {
-            let node = lock_node(&shared.node)?;
+            let node = round.lock_node()?;
             node.ensure_ready()?;
             match request {
                 Message::GetHash { snapshot, height } => {
@@ -747,9 +880,15 @@ fn get_hash(round: &mut Round<'_>, snapshot: &Head, height: u64) -> anyhow::Resu
     }
 }
 
-fn synchronize(shared: &Shared, address: SocketAddr) -> anyhow::Result<&'static str> {
+fn synchronize(
+    shared: &Shared,
+    address: SocketAddr,
+    declined: &mut Option<DeclinedFork>,
+    stage: &mut &'static str,
+) -> anyhow::Result<&'static str> {
     let socket = TcpStream::connect_timeout(&address, Duration::from_millis(500))?;
     let _socket = shared.lifecycle.register(&socket)?;
+    *stage = "tls_handshake";
     let connection = shared
         .transport
         .connect_stream_until(socket, Instant::now() + HANDSHAKE_TIME)?;
@@ -760,14 +899,42 @@ fn synchronize(shared: &Shared, address: SocketAddr) -> anyhow::Result<&'static 
         bytes: 0,
         requests: 0,
     };
-    let (greeting, original) = {
-        let node = lock_node(&shared.node)?;
+    *stage = "local_state";
+    let (greeting, original, earliest_recent_fork) = {
+        let node = round.lock_node()?;
         node.ensure_ready()?;
-        (hello(&node), head(node.chain()))
+        (
+            hello(&node),
+            head(node.chain()),
+            node.chain().earliest_recent_fork_height(),
+        )
     };
+    *stage = "hello";
     let remote = remote_head(round.request(&greeting)?)?;
+    if declined
+        .as_ref()
+        .is_some_and(|known| known.local == original && known.remote == remote)
+    {
+        // The network exchange may have raced a local block or a storage fault.
+        // A cached preference must not mask either change in readiness/state.
+        {
+            *stage = "local_state";
+            let node = round.lock_node()?;
+            node.ensure_ready()?;
+            *stage = "local_snapshot";
+            anyhow::ensure!(
+                head(node.chain()) == original,
+                "native local snapshot changed"
+            );
+        }
+        *stage = "round_finish";
+        round.send(&Message::Done)?;
+        return Ok("local_chain_preferred");
+    }
+    *declined = None;
     if remote == original {
-        synchronize_pending(&mut round, &remote)?;
+        synchronize_pending(&mut round, &remote, stage)?;
+        *stage = "round_finish";
         round.send(&Message::Done)?;
         return Ok("snapshot_match");
     }
@@ -776,8 +943,11 @@ fn synchronize(shared: &Shared, address: SocketAddr) -> anyhow::Result<&'static 
     let mut high = original.height.min(remote.height);
     while low < high {
         let height = low + (high - low).div_ceil(2);
+        *stage = "hash_sync";
         let remote_hash = get_hash(&mut round, &remote, height)?;
-        let node = lock_node(&shared.node)?;
+        *stage = "local_state";
+        let node = round.lock_node()?;
+        *stage = "local_snapshot";
         anyhow::ensure!(
             head(node.chain()) == original,
             "native local snapshot changed"
@@ -790,7 +960,11 @@ fn synchronize(shared: &Shared, address: SocketAddr) -> anyhow::Result<&'static 
     }
     let common = low;
     let extension = common == original.height;
-    if !extension && remote.height - common > MAX_NATIVE_PEER_ROUND_BLOCKS as u64 {
+    if !extension
+        && (remote.height - common > MAX_NATIVE_PEER_ROUND_BLOCKS as u64
+            || common < earliest_recent_fork)
+    {
+        *stage = "round_finish";
         round.send(&Message::Done)?;
         return Ok("bounded_reorg_requires_recovery");
     }
@@ -802,6 +976,7 @@ fn synchronize(shared: &Shared, address: SocketAddr) -> anyhow::Result<&'static 
     let mut fork = Vec::new();
     while next <= target {
         let limit = BLOCK_PAGE.min((target - next + 1) as usize);
+        *stage = "block_download";
         let Message::Blocks {
             snapshot,
             from,
@@ -819,17 +994,21 @@ fn synchronize(shared: &Shared, address: SocketAddr) -> anyhow::Result<&'static 
             "native block response range mismatch"
         );
         for block in blocks {
+            *stage = "block_response";
             anyhow::ensure!(block.header.height == next, "native block height mismatch");
             if extension {
+                *stage = "block_apply";
                 let _permit = shared
                     .lifecycle
                     .begin_mutation()
                     .ok_or_else(|| anyhow::anyhow!("native peer stopped"))?;
-                let mut node = lock_node(&shared.node)?;
+                let mut node = round.lock_node()?;
+                *stage = "local_snapshot";
                 anyhow::ensure!(
                     head(node.chain()) == current,
                     "native local snapshot changed"
                 );
+                *stage = "block_apply";
                 node.submit_block(block)?;
                 current = head(node.chain());
             } else {
@@ -839,38 +1018,39 @@ fn synchronize(shared: &Shared, address: SocketAddr) -> anyhow::Result<&'static 
         }
     }
     if !extension && !fork.is_empty() {
-        let blocks = {
-            let node = lock_node(&shared.node)?;
-            anyhow::ensure!(
-                head(node.chain()) == original,
-                "native local snapshot changed"
-            );
-            let mut blocks = node.chain().blocks()[..common as usize].to_vec();
-            blocks.extend(fork);
-            blocks
-        };
+        *stage = "fork_response";
         anyhow::ensure!(
-            blocks.last().expect("fork nonempty").hash()? == remote.hash,
+            fork.last().expect("fork nonempty").hash()? == remote.hash,
             "native advertised head mismatch"
         );
+        *stage = "fork_apply";
         let _permit = shared
             .lifecycle
             .begin_mutation()
             .ok_or_else(|| anyhow::anyhow!("native peer stopped"))?;
-        let mut node = lock_node(&shared.node)?;
+        let mut node = round.lock_node()?;
+        *stage = "local_snapshot";
         anyhow::ensure!(
             head(node.chain()) == original,
             "native local snapshot changed"
         );
-        node.adopt_chain(&blocks)?;
+        *stage = "fork_apply";
+        if !node.adopt_recent_suffix(common, &fork)? {
+            *declined = Some(DeclinedFork {
+                local: original.clone(),
+                remote: remote.clone(),
+            });
+        }
         current = head(node.chain());
     }
     if extension && target == remote.height {
+        *stage = "block_response";
         anyhow::ensure!(current == remote, "native advertised head mismatch");
     }
     if current == remote {
-        synchronize_pending(&mut round, &remote)?;
+        synchronize_pending(&mut round, &remote, stage)?;
     }
+    *stage = "round_finish";
     round.send(&Message::Done)?;
     Ok(if current == remote {
         "snapshot_match"
@@ -881,10 +1061,15 @@ fn synchronize(shared: &Shared, address: SocketAddr) -> anyhow::Result<&'static 
     })
 }
 
-fn synchronize_pending(round: &mut Round<'_>, snapshot: &Head) -> anyhow::Result<()> {
+fn synchronize_pending(
+    round: &mut Round<'_>,
+    snapshot: &Head,
+    stage: &mut &'static str,
+) -> anyhow::Result<()> {
     let mut offset = 0;
     let mut expected_total = None;
     loop {
+        *stage = "pending_sync";
         let Message::Pending {
             snapshot: returned,
             offset: actual,
@@ -917,20 +1102,25 @@ fn synchronize_pending(round: &mut Round<'_>, snapshot: &Head) -> anyhow::Result
         for transfer in transfers {
             // Cryptographic/schema failures reject the peer round. Honest
             // nonce/funds/pool conflicts may differ between pending queues.
+            *stage = "pending_signature";
             transfer.validated_fields()?;
+            *stage = "pending_admission";
             let _permit = round
                 .shared
                 .lifecycle
                 .begin_mutation()
                 .ok_or_else(|| anyhow::anyhow!("native peer stopped"))?;
-            let mut node = lock_node(&round.shared.node)?;
+            let mut node = round.lock_node()?;
+            *stage = "local_snapshot";
             anyhow::ensure!(
                 head(node.chain()) == *snapshot,
                 "native local snapshot changed"
             );
+            *stage = "pending_admission";
             if node.submit_transfer(transfer).is_err() {
                 // A failed publication poisons NativeNode. Never disguise a
                 // durability/ownership fault as a benign admission conflict.
+                *stage = "local_state";
                 node.ensure_ready()?;
             }
         }

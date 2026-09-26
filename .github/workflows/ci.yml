@@ -136,7 +136,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.process_only != 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -438,7 +438,11 @@ jobs:
     needs: [change-scope, native-shadow-containment-linux, native-shadow-rootfs-replay-linux, native-shadow-rootfs-replay-linux-arm64, native-shadow-launcher-build-arm64, native-shadow-launcher-build-arm64-v2, native-shadow-launcher-v2-image-preflight-arm64]
     if: always()
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Outer orchestration only: full validation has grown beyond the former
+    # shared 30-minute cap. Reserve 60m for the unchanged serial test gates,
+    # 10m for release compilation, and 5m for setup/cleanup. Individual
+    # product/checker deadlines remain inside their original tests.
+    timeout-minutes: 75
     # P0.3 — declare the single-threaded determinism contract at the CI level,
     # not only inside scripts/self-test.sh. RUST_TEST_THREADS=1 keeps the gate's
     # ordering deterministic (shared temp dirs, port binds, ledger paths) so a
@@ -579,6 +583,7 @@ jobs:
 
       - name: Run Boole self-test
         if: needs.change-scope.outputs.process_only != 'true'
+        timeout-minutes: 60
         run: ./scripts/self-test.sh
 
       # P0.7 (audit) — the self-test gate only builds the dev profile, so the
@@ -588,6 +593,7 @@ jobs:
       # not production.
       - name: Build release binaries
         if: needs.change-scope.outputs.process_only != 'true'
+        timeout-minutes: 10
         run: >-
           cargo build --release --locked
           -p boole-node -p boole-cli -p boole-miner
