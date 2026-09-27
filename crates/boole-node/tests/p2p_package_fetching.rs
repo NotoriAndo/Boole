@@ -651,7 +651,11 @@ fn unavailable_response_stays_pending_and_is_retried_until_strict_bytes_arrive()
 
 #[test]
 fn metered_package_survives_unavailability_restart_and_tampered_peer_then_process_reverification() {
-    use boole_node::metered_tuple_package::{build_package, reverify_stored, StoredVerification};
+    use boole_node::{
+        build_metered_tuple_package as build_package,
+        reverify_stored_metered_tuple_package as reverify_stored,
+        StoredMeteredTupleVerification as StoredVerification,
+    };
     let parent = std::env::temp_dir().join(format!(
         "boole-metered-p2p-{}-{}",
         std::process::id(),

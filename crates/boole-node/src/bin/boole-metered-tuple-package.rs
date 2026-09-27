@@ -2,9 +2,12 @@
 //! CAS directory; the existing LocalPackageStore is single-owner, not a daemon.
 use boole_core::{LocalPackageStore, LocalPackageStoreConfig, PackageRoot};
 use boole_native_rust_meter::tuple_verifier::{Verdict, MAX_ANSWER_BYTES, MAX_TASK_BYTES};
-use boole_node::metered_tuple_package::{
-    build_package, import_package, restore_package, reverify_stored, ReverifyError,
-    StoredVerification, MAX_METERED_PACKAGE_BYTES,
+use boole_node::{
+    build_metered_tuple_package as build_package, import_metered_tuple_package as import_package,
+    restore_metered_tuple_package as restore_package,
+    reverify_stored_metered_tuple_package as reverify_stored,
+    MeteredTupleReverifyError as ReverifyError,
+    StoredMeteredTupleVerification as StoredVerification, MAX_METERED_PACKAGE_BYTES,
 };
 use std::ffi::OsStr;
 use std::io::{Read, Write};

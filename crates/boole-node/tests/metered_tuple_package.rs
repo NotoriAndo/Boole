@@ -1,10 +1,13 @@
 use boole_core::{CanonicalPackage, PackageFile};
 use boole_core::{LocalPackageStore, LocalPackageStoreConfig};
 use boole_native_rust_meter::tuple_verifier::{verify, Verdict};
-use boole_node::metered_tuple_package::restore_package;
-use boole_node::metered_tuple_package::PackageError;
-use boole_node::metered_tuple_package::{build_package, verify_package};
-use boole_node::metered_tuple_package::{import_package, reverify_stored, StoredVerification};
+use boole_node::{
+    build_metered_tuple_package as build_package, import_metered_tuple_package as import_package,
+    restore_metered_tuple_package as restore_package,
+    reverify_stored_metered_tuple_package as reverify_stored,
+    verify_metered_tuple_package as verify_package, MeteredTuplePackageError as PackageError,
+    StoredMeteredTupleVerification as StoredVerification,
+};
 
 const TASK: &[u8] = include_bytes!("../../../fixtures/native-metered-tuple-v1/task.json");
 const ANSWER: &[u8] = include_bytes!("../../../fixtures/native-metered-tuple-v1/answer.rs");
@@ -206,7 +209,7 @@ fn failed_import_and_pending_backpressure_never_become_verdicts_or_drop_intents(
     assert!(import_package(&mut store, package.root(), wrong.canonical_bytes()).is_err());
     assert!(matches!(
         reverify_stored(&mut store, wrong.root()),
-        Err(boole_node::metered_tuple_package::ReverifyError::Store(
+        Err(boole_node::MeteredTupleReverifyError::Store(
             boole_core::LocalPackageStoreError::FetchIntentCountExceeded { max: 1 }
         ))
     ));
@@ -233,7 +236,7 @@ fn maximum_verifier_inputs_fit_but_oversized_packages_are_not_parsed_or_executed
         b' ',
     );
     let package = build_package(&task, &answer).unwrap();
-    assert!(package.size_bytes() <= boole_node::metered_tuple_package::MAX_METERED_PACKAGE_BYTES);
+    assert!(package.size_bytes() <= boole_node::MAX_METERED_PACKAGE_BYTES);
     assert_eq!(
         verify_package(&package, package.root()).unwrap().verdict(),
         Verdict::Accepted

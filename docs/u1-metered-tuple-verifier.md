@@ -185,7 +185,10 @@ earlier production/large-state measurements keep their original build settings.
 
 ## Root-bound local packages and independent re-verification
 
-The local consumer in `boole-node::metered_tuple_package` uses the existing
+The local package consumer, exported by `boole-node` through the explicit
+`build_metered_tuple_package`, `verify_metered_tuple_package`,
+`import_metered_tuple_package`, `reverify_stored_metered_tuple_package` and
+`restore_metered_tuple_package` functions, uses the existing
 BF.6a canonical sidecar and content-addressed store (CAS). It does not change
 their schema, root domain, P2P frames, receipt rules or default-OFF behavior.
 Exactly three files are admitted, with no extraction to the filesystem:
@@ -253,7 +256,7 @@ regular-file check, including FIFOs.
 
 ### Missing-data and restoration boundaries
 
-For a not-yet-received root, `reverify_stored` durably registers an idempotent
+For a not-yet-received root, `reverify_stored_metered_tuple_package` durably registers an idempotent
 `metered-tuple:<root>` request before returning unavailable. The existing bounded
 fetch queue can reload it after restart without the caller supplying the root
 again. It accepts only canonical bytes matching the requested root; availability
@@ -291,6 +294,20 @@ failed before implementation; the first network invocation was denied by the
 local sandbox at loopback bind, before traffic, and the permitted closed-local
 invocation passed. This is local engineering evidence, not independent-operator
 qualification, real source supply, full useful-adapter DA qualification or BF.7.
+
+The first publication run for [PR #390](https://github.com/NotoriAndo/Boole/pull/390),
+[`36312957372`](https://github.com/NotoriAndo/Boole/actions/runs/36312957372),
+failed the existing node-module export guard in the 3,067-test Python stage:
+the initial implementation publicly exported its internal module. All other
+14 checks, including all four package platform/profile jobs and both Linux
+image-replay architectures, passed. The correction keeps the module private
+and exports only the named functions/types, following the existing node API
+boundary; the guard and acceptance criteria are unchanged. The original failed
+run is retained, and the corrected source requires fresh full CI. The focused
+guard and all ten package/CLI tests plus the real fetch/re-verification path pass
+after this change. A broader local preflight-file invocation also encountered
+two sandbox/toolchain refusals in unchanged fake-command smoke tests; no model
+was run. Those tests remain unchanged for the normal Linux CI environment.
 
 ## Remaining U1/U2 gates
 
