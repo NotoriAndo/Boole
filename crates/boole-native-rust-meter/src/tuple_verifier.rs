@@ -16,7 +16,7 @@ const LIMITS: MeterLimits = MeterLimits {
     max_ast_nodes: 256,
     max_ast_depth: 32,
     max_operations: 100_000,
-    max_fuel: 100_000,
+    max_fuel: 150_000,
     max_prefix_items: 2080,
 };
 

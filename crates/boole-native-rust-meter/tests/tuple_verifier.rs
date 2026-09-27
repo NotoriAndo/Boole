@@ -166,6 +166,43 @@ fn all_supported_tuple_field_types_keep_wrapping_i64_semantics() {
 }
 
 #[test]
+fn maximum_arity_task_has_room_for_a_direct_valid_answer() {
+    for field_types in [
+        ["i8", "u8", "i16", "u16", "i32", "u32", "i64", "u64"],
+        ["bool"; 8],
+    ] {
+        let mut task: serde_json::Value = serde_json::from_slice(SPEC).unwrap();
+        task["fieldTypes"] = serde_json::json!(field_types);
+        task["coeffs"] = serde_json::json!([1, 2, 3, 4, 5, 6, 7, 8]);
+        let mut source =
+            String::from("let mut acc: i64 = 7; for it in items { acc = acc.wrapping_mul(5)");
+        for (index, field_type) in field_types.iter().enumerate() {
+            let value = if *field_type == "bool" {
+                format!("if it.{index} {{ 1 }} else {{ 0 }}")
+            } else {
+                format!("it.{index} as i64")
+            };
+            source.push_str(&format!(
+                ".wrapping_add(({value}).wrapping_mul({}))",
+                index + 1
+            ));
+        }
+        source.push_str("; } acc");
+        let result = verify(&serde_json::to_vec(&task).unwrap(), source.as_bytes()).unwrap();
+        assert_eq!(
+            result.verdict(),
+            Verdict::Accepted,
+            "{field_types:?}: {}",
+            result.reason()
+        );
+        println!(
+            "max-arity {field_types:?}: {:?}",
+            result.resource_use().unwrap()
+        );
+    }
+}
+
+#[test]
 fn cross_platform_verdict_corpus_matches_independent_golden_bytes() {
     let corpus: serde_json::Value = serde_json::from_slice(include_bytes!(
         "../../../fixtures/native-metered-tuple-v1/corpus.json"

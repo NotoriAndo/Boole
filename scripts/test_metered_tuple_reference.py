@@ -61,7 +61,7 @@ def corpus():
     task = json.loads((FIXTURES / "task.json").read_text())
     task = {key: task[key] for key in ("schema", "fieldTypes", "taskSeed", "a0", "mul", "coeffs")}
     task_digest = domain("boole.metered-tuple-task.v1", json.dumps(task, separators=(",", ":")).encode())
-    policy_words = (4096, 64, 8192, 512, 256, 32, 100_000, 100_000, 2080)
+    policy_words = (4096, 64, 8192, 512, 256, 32, 100_000, 150_000, 2080)
     policy_digest = domain("boole.metered-tuple-policy.v1", ADAPTER.encode(), struct.pack(">9Q", *policy_words))
     accepted = (FIXTURES / "answer.rs").read_bytes()
     sources = {

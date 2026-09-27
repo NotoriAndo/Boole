@@ -74,7 +74,7 @@ checker, task, receipt and runtime authority bytes are unchanged.
 | Task specification bytes | 4,096 |
 | Answer bytes | 8,192 |
 | Tokens / AST nodes / AST depth | 512 / 256 / 32 |
-| Operations / fuel | 100,000 / 100,000 |
+| Operations / fuel | 100,000 / 150,000 |
 | Prefix item visits | 2,080 (`1 + … + 64`) |
 
 The adapter passes the same fixed limits into parsing and evaluation. Source,
@@ -107,6 +107,23 @@ wiring; an oversize-input regression also failed before early refusal was added.
 The first all-field test attempted a direct boolean cast and was rejected by the
 existing language. Its fixture now uses the already-supported explicit boolean
 branch; the language and budget were not widened to obtain a pass.
+
+Pre-merge maximum-arity review then found a separate policy-calibration defect:
+the initial candidate's 100,000 fuel ceiling rejected the direct valid answer
+for an admitted eight-field numeric task. The added public-consumer test failed
+with `budget_exceeded:fuel`. Before adopting this new, non-activated contract,
+the candidate ceiling was corrected to 150,000. Direct eight-numeric and
+eight-boolean answers use 110,560 and 127,200 fuel, respectively, with 70,784
+operations each. This provides bounded headroom for the advertised maximum
+task shape, not acceptance of every possible correct implementation.
+The original excessive-work input still rejects at the new ceiling; none of
+the existing answer, parser, operation or source-limit controls was removed.
+Only the five fixture policy digests change; task/answer/corpus/output digests,
+verdicts and measured counters remain identical. The initial source `6b52ade`
+passed its four-way corpus run `36284079396`, but that does not qualify this
+correction: the updated source must pass fresh full required CI. The initial
+full CI `36284079403` is retained as the superseded candidate run, not final
+adoption evidence. No existing V1 or network resource policy was changed.
 
 ## Remaining U1/U2 gates
 
