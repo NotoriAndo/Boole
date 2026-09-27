@@ -43,7 +43,9 @@ The schema `boole.metered-tuple-task.v1` accepts one to eight fields from
 `u8/u16/u32/u64/i8/i16/i32/i64/bool`, a lower-case 64-hex task seed, and
 `a0`, `mul`, matching `coeffs` in ±1,000,000. Unknown/duplicate fields,
 floating-point or boolean coefficients, unsupported types and trailing JSON are
-refused. There is no uploaded source anchor, arbitrary dependency, answer-supplied
+refused. The root is an object and each field type is a string; positional-array
+tasks and unit-enum object aliases are not alternate wire encodings. There is
+no uploaded source anchor, arbitrary dependency, answer-supplied
 budget or legacy task-schema fallback.
 
 For each item, `projection` is the wrapping-i64 sum of field values multiplied
@@ -124,6 +126,16 @@ passed its four-way corpus run `36284079396`, but that does not qualify this
 correction: the updated source must pass fresh full required CI. The initial
 full CI `36284079403` is retained as the superseded candidate run, not final
 adoption evidence. No existing V1 or network resource policy was changed.
+
+The subsequent input-boundary review reproduced two unintended serde aliases:
+`{"u32": null}` as a field type and a top-level positional array as a task.
+Both originally produced a verdict despite being outside the documented wire
+schema. String-only field decoding and object-only root admission now refuse
+them before producing evidence, while retaining typed duplicate-field rejection.
+All existing canonical golden bytes, including the corrected policy digest,
+remain unchanged. Intermediate source `d7cf622` passed its four-way corpus
+`36284525397` and Linux x86_64 integration in full run `36284525472`; that run is
+also superseded by the strict-input correction and is not final adoption evidence.
 
 ## Remaining U1/U2 gates
 

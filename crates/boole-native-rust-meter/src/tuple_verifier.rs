@@ -31,7 +31,7 @@ struct Task {
     coeffs: Vec<i64>,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "lowercase")]
 enum FieldType {
     U8,
@@ -43,6 +43,26 @@ enum FieldType {
     I32,
     I64,
     Bool,
+}
+
+impl<'de> Deserialize<'de> for FieldType {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // Derived unit enums also admit {"u8": null}. This wire contract
+        // deliberately permits only the documented string representation.
+        let name = String::deserialize(deserializer)?;
+        match name.as_str() {
+            "u8" => Ok(Self::U8),
+            "u16" => Ok(Self::U16),
+            "u32" => Ok(Self::U32),
+            "u64" => Ok(Self::U64),
+            "i8" => Ok(Self::I8),
+            "i16" => Ok(Self::I16),
+            "i32" => Ok(Self::I32),
+            "i64" => Ok(Self::I64),
+            "bool" => Ok(Self::Bool),
+            _ => Err(serde::de::Error::custom("unsupported tuple field type")),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -159,6 +179,12 @@ fn policy_digest() -> String {
 fn load_task(raw: &[u8]) -> Result<Task, InputError> {
     if raw.len() > MAX_TASK_BYTES {
         return Err(InputError::TaskTooLarge);
+    }
+    // serde's struct visitor also supports positional arrays; the public
+    // task wire schema is object-only. Keep typed parsing below so duplicate
+    // fields are still rejected rather than collapsed by a Value round-trip.
+    if raw.iter().find(|byte| !byte.is_ascii_whitespace()) != Some(&b'{') {
+        return Err(InputError::InvalidTaskSpecification);
     }
     // Struct deserialization refuses duplicate and unknown fields, floats,
     // booleans-as-integers, trailing JSON and unsupported field types.

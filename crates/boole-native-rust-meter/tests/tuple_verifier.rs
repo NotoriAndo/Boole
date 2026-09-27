@@ -84,6 +84,7 @@ fn malformed_or_budget_override_tasks_never_produce_a_verdict() {
         ("mul", serde_json::json!(1_000_001)),
         ("fieldTypes", serde_json::json!([])),
         ("fieldTypes", serde_json::json!(["usize", "bool"])),
+        ("fieldTypes", serde_json::json!([{"u32": null}, "bool"])),
         ("coeffs", serde_json::json!([3])),
         ("taskSeed", serde_json::json!("F".repeat(64))),
     ] {
@@ -102,6 +103,18 @@ fn malformed_or_budget_override_tasks_never_produce_a_verdict() {
         .replacen('{', "{\"a0\":7,", 1);
     assert!(matches!(
         verify(duplicate.as_bytes(), ANSWER),
+        Err(InputError::InvalidTaskSpecification)
+    ));
+    let positional = serde_json::json!([
+        task["schema"],
+        task["fieldTypes"],
+        task["taskSeed"],
+        task["a0"],
+        task["mul"],
+        task["coeffs"]
+    ]);
+    assert!(matches!(
+        verify(&serde_json::to_vec(&positional).unwrap(), ANSWER),
         Err(InputError::InvalidTaskSpecification)
     ));
     assert!(matches!(
