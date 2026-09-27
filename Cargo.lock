@@ -434,6 +434,13 @@ dependencies = [
 [[package]]
 name = "boole-native-rust-meter"
 version = "0.1.0"
+dependencies = [
+ "hex",
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2",
+]
 
 [[package]]
 name = "boole-native-shadow-launcher"

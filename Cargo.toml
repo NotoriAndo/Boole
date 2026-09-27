@@ -86,11 +86,16 @@ panic = "abort"
 # the release build rather than silently wrapping to a wrong value.
 overflow-checks = true
 
-# The default x86 SIMD arithmetic is exceptionally expensive without compiler
-# optimization in the high-volume native test fixtures. Optimize only this
-# test dependency, not the application or dev/release binaries. Keep all debug
-# guards: this does not skip signatures or change any test acceptance bound.
+# The default x86 SIMD arithmetic and default-strength wallet KDF are expensive
+# without compiler optimization in the native process fixtures. Optimize only
+# these test dependencies, not the application or dev/release binaries. Keep all
+# debug guards, signature checks, KDF work factors and test acceptance bounds.
 [profile.test.package.curve25519-dalek]
+opt-level = 3
+debug-assertions = true
+overflow-checks = true
+
+[profile.test.package.argon2]
 opt-level = 3
 debug-assertions = true
 overflow-checks = true

@@ -1,0 +1,8 @@
+{
+  "schema": "boole.metered-tuple-task.v1",
+  "fieldTypes": ["u32", "bool"],
+  "taskSeed": "3333333333333333333333333333333333333333333333333333333333333333",
+  "a0": 7,
+  "mul": 5,
+  "coeffs": [3, -2]
+}

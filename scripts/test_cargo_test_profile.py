@@ -25,6 +25,7 @@ def artifact(name: str, opt_level: str) -> dict:
 def records() -> list:
     return [
         artifact("curve25519_dalek", "3"),
+        artifact("argon2", "3"),
         artifact("boole_core", "0"),
         artifact("boole_node", "0"),
         {"reason": "build-finished", "success": True},
@@ -32,11 +33,11 @@ def records() -> list:
 
 
 class CargoTestProfileTests(unittest.TestCase):
-    def test_optimized_curve_keeps_application_debug_and_overflow_guards(self) -> None:
+    def test_optimized_crypto_keeps_application_debug_and_overflow_guards(self) -> None:
         check_profiles(["   Compiling boole-node\n", *map(json.dumps, records())])
-        for index in range(3):
+        for index in range(4):
             for field, wrong in (
-                ("opt_level", "0" if index == 0 else "3"),
+                ("opt_level", "0" if index < 2 else "3"),
                 ("debug_assertions", False),
                 ("overflow_checks", False),
             ):
@@ -47,7 +48,7 @@ class CargoTestProfileTests(unittest.TestCase):
                         check_profiles(map(json.dumps, changed))
 
     def test_missing_library_build_failure_or_conflicting_duplicate_cannot_pass(self) -> None:
-        for index in range(4):
+        for index in range(5):
             incomplete = records()
             del incomplete[index]
             with self.subTest(missing=index), self.assertRaises(ValueError):

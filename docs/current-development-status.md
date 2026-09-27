@@ -1,36 +1,40 @@
 # Boole — current development status
 
-Updated: 2026-09-25. This is the tracked entrypoint for current progress and the
+Updated: 2026-09-27. This is the tracked entrypoint for current progress and the
 ordered development roadmap. Edit it in place; execution evidence stays in its
 own result record. Local Master/Execution documents link here instead of owning
 a second current cursor. Work methods follow the
 [development policy](development-throughput-and-evidence-policy-v1.md).
 
-**Publication scope:** the recovery/resource/diagnostic/storage hardening below
-is integrated on `codex/native-r1-hardening-integration`, based on main `9be7cb0`
-through secure peers and encrypted wallet recovery. On September 25 the user
-authorized GitHub publication, required full CI and ordinary PR merge; the
-earlier publication-approval hold is resolved. The owning
-[feature PR #388](https://github.com/NotoriAndo/Boole/pull/388)
-records the actual CI and merge outcome, not the local measurements alone.
-An intermediate attempt passed 14 checks but was cancelled at the shared
-30-minute self-test job cap. CI now has separate bounded validation/build
-allowances and live Rust progress; the owning PR records the final full result.
-The subsequent run confirmed the corrected operator rehearsal on Linux but
-still exhausted its time budget while small capacity tests ran slowly.
-Only the test-profile curve-arithmetic dependency is now optimized, with actual
-compiler-profile checks retaining application debug/overflow guards. Earlier
-large measurements remain tied to their original build settings.
-Linux then passed all eight small capacity cases in 94.24s but exposed a
-shutdown-test listener missing the production address-reuse setting. The fixture
-now matches the production listener while retaining immediate rebind, exclusive
-live ownership, closed-client and unchanged-state checks; full CI remains required.
-Original measurement commits are preserved; the initial main-based rebase was
-verified byte-identical. See the
-[integration handoff and remaining safety holds](native-r1-local-hardening-handoff-2026-09.md).
-R1 remains incomplete, R2 not passed and R3 not started.
+**R1 publication complete:** [PR #388](https://github.com/NotoriAndo/Boole/pull/388)
+passed all 15 checks and merged as `70e5c8a` on September 27. The final feature
+head `be1ee6e` and merged source tree match; full CI runs `36099057858` and
+`36099057755` include the corrected Linux operator/shutdown regressions and
+release build. Original measurements and failed/interrupted attempts remain in
+the [integration handoff](native-r1-local-hardening-handoff-2026-09.md), with their
+original source/build settings. R1 remains incomplete, R2 not passed and R3 not
+started. Publication did not authorize public P2P or resume the completed
+twelve-hour delegation.
 
 ## Current boundary
+
+**Priority: U1 prerequisites, selected by the user on September 27.** The first
+[metered tuple verifier candidate](u1-metered-tuple-verifier.md) connects a bounded
+typed generated task to the existing deterministic interpreter, actual 64-prefix
+answer comparison and canonical result bytes. A local CLI distinguishes
+deterministic rejection from unavailable inputs. Independent Python reference
+results and four fresh local processes agree; the required CI matrix also checks
+Linux/macOS × debug/release. This is a separate non-activated generated-task
+adapter, not a replacement for the active compiler-based V1 family, real-world
+supply, a BF.3 receipt, receipt consensus or economic evidence.
+
+**BF.7 remains HOLD.** Adapter-scoped supply/spec fidelity, an executable/rule
+resource pin and full BF.6a package re-verification/recovery still precede the
+new-rule `no_protocol_reward` path. The active V1 supply record remains zero
+reward-ready stock / 197 candidate upper bound / annual flow unmeasured; the new
+generated profile cannot inherit those candidates. R1's remaining qualification
+is retained below but is not a dependency that prevents U1 preparation. No new
+model run, public network, reward activation or operator key/fund action follows.
 
 **R1: the 1-billion-cap native test-coin path and secure local peers are connected.**
 The operator approved producer-only base issuance for the new base testnet,
@@ -55,7 +59,7 @@ fixed run took 876.337s at 52.875MiB RSS; its earlier functional pass with unava
 OS memory instrumentation is retained separately. This mostly empty-block,
 three-account history is not the large-account or maximum-storage envelope.
 
-**Next: R1 large-state resource limits and broader abuse/operations readiness.**
+**R1 remaining work, after the selected U-first priority: large-state resource limits and broader abuse/operations readiness.**
 The foreground native node remains separate
 from the legacy credit-only node. TLS identity, incremental sync, bounded pending
 pull and local partition/rejoin are implemented; public listeners remain refused.
@@ -237,8 +241,8 @@ side remained in a 30-second connection-failure backoff. A completed authenticat
 inbound round now permits one early connect probe, replenished only by a complete
 successful outbound round. Failure counts, TLS/data-error backoff and all input/
 worker/validation limits remain. Direct real-peer reproduction, no-amplification
-controls and the original three-process workflow pass; the latest owning PR must
-still complete full CI. See the [correction and retained failure](native-r1-local-hardening-handoff-2026-09.md#september-25-publication-asymmetric-rejoin-and-a-single-connection-recovery-probe).
+controls and the original three-process workflow pass; PR #388 subsequently
+completed full CI and merged. See the [correction and retained failure](native-r1-local-hardening-handoff-2026-09.md#september-25-publication-asymmetric-rejoin-and-a-single-connection-recovery-probe).
 Earlier large-state measurements remain attached to their original source; they
 have not been rerun on this small peer-scheduling correction.
 Input-reflecting HTTP error bodies are also limited to 4KiB, preserving status
@@ -288,7 +292,7 @@ proceed alongside it without making all of R1 one oversized change.
 | R1 | Native transfer and launch-critical product/security/operations: signed network-bound transfers, debit/fee/nonce state, block/replay/reorg integration, wallet safety/recovery for the selected testnet UX, secure authenticated P2P, operator-local RPC, resource limits and operator recovery/observability. Pin test-only monetary parameters and experiment criteria before running the new network. | **In progress, incomplete.** Native issuance/transfer, owner-vault recovery, mutually pinned TLS, incremental sync, local rejoin and bounded offline long-fork recovery pass direct tests. Broader fault/abuse acceptance, approved public P2P and large-state storage readiness remain; public RPC is excluded from the initial scope. |
 | R2 | Public-testnet launch readiness: versioned network/genesis and release artifacts, scoped key custody, participant risk notice/onboarding, bootstrap/incident/upgrade/rollback runbook and launch approval. | After the applicable R1 acceptance tests. **Not passed.** Clean-Mac CURL.3 is the last installation-validation step, deferred until a clean machine is available; current-Mac/CI work continues. A supported-Mac public-release claim still needs that evidence, or an explicit narrower platform scope. |
 | R3 | Public base-network testnet: independently operated nodes actually mine test coins, send them between wallets, include/confirm transactions and agree on balances/fees/supply; exercise rejection, restart, partitions/rejoin, reorg and operator recovery. | After R2 and explicit public-network/mining/test-wallet scope. **Not started.** Test coins carry no real-money or future-mainnet entitlement. Mock-only accounting does not pass. Useful-work reward remains OFF unless separately authorized. |
-| U1 | BF.7: new-rule receipt consensus with `no_protocol_reward`, independent replay and DA recovery. | **HOLD.** Adapter-scoped RP0-MD/supply, BF.6a DA and deterministic resource contracts are prerequisites. Closed-local integration precedes any separately approved public extension. Existing v3 is preserved; this branch does not block R1–R3 base transfers. |
+| U1 | BF.7: new-rule receipt consensus with `no_protocol_reward`, independent replay and DA recovery. | **Priority prerequisite work; BF.7 HOLD.** A separate local metered generated-tuple verifier candidate is implemented. Adapter-scoped RP0-MD/supply, full BF.6a DA and pinned deterministic resource contracts remain prerequisites; generated tasks do not count as source supply. Closed-local integration precedes any separately approved public extension. Existing v3 is preserved; this branch does not block R1–R3 base transfers. |
 | U2 | BF.8: preregister economic experiments, gather supply/solve/attack/demand evidence including at least four nodes and heterogeneous operators, then accept the evidence-informed Economic ADR. | After the applicable U1 path and preregistered experiment authority. **Not passed.** Additional useful-work reward activation needs its own plan; an ACCEPT/BF.3 receipt is not issuance. |
 | R4 | Mainnet / real-value production decision and launch: testnet exit review, final monetary parameters, economic/security assumptions, release/key custody, recovery and any selected real-payment/refund service. | After R3 evidence and applicable economic/release gates. **Not ready; no launch approval.** If useful-work rewards are included, U1/U2 and their activation gates also apply. A base-only scope is a separate explicit decision, not an automatic bypass. |
 
@@ -327,6 +331,7 @@ does not by itself qualify public exposure or a public-network operating envelop
 |---|---|
 | L1/SC and N5.3 M1–M6 | Named-network authority, canonical-state durability, bounded P2P lifecycle, controlled three-node join, artifact-only Lean audit/process isolation and HTTP/P2P verification parity. PR #361–#366; [MVP closeout](verified-answer-local-mvp-closeout.md). No public-network claim. |
 | BF.0–BF.6a non-consensus foundation | Default-OFF identity/registry/assignment/receipt/store scaffold and commit/reveal, sidecar/CAS/P2P support. This is not BF.7 or reward activation. |
+| U1 local metered verifier candidate | Typed generated task → fixed-budget interpreter → actual 64-prefix verdict and bound bytes; independent reference/golden and CLI process checks. [Contract and remaining gates](u1-metered-tuple-verifier.md). Separate non-issuable profile; active V1 supply/resource and BF.7 gates are not closed. |
 | Strict MCP and real contained trace | PR #367/#368; actual MCP stdio → node → qualified launcher → Linux-contained checker → BF.3 receipt on both architectures, negative controls and restart/redelivery safety. [MCP evidence](boole-mcp-e2e.md). |
 | September audit remediation | PR #370/#371/#372, including storage role collisions, durable publication/fencing, checkpoint trust/fork convergence, MCP replacement/responsiveness and portable subprocess cleanup. [Findings and deliberate exclusions](audit-remediation-2026-09.md). Closed findings are not blanket repository security certification. |
 | Fresh-answer canary and direct model caller | PR #375 implementation/synthetic CI and the [direct-client run](boole-direct-model-canary-2026-09-08.md): one session, one direct MCP submission/candidate/checker, ACCEPT and model receipt delivery. Earlier [operator-assisted/blocked evidence](boole-real-model-canary-2026-09-08.md) remains separate. Temporary installations and development keys were removed. |
