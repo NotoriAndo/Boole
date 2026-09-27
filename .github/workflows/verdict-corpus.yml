@@ -116,6 +116,16 @@ jobs:
         if: matrix.profile == 'release'
         run: cargo test -p boole-lean-runner --test verdict_corpus --locked --release -- --nocapture
 
+      # U1 prerequisite candidate only: a separate, non-activated interpreter
+      # contract. Keep its independent golden bytes behind the same matrix.
+      - name: Run metered tuple corpus (debug)
+        if: matrix.profile == 'debug'
+        run: cargo test -p boole-native-rust-meter --test tuple_verifier --locked -- --nocapture
+
+      - name: Run metered tuple corpus (release)
+        if: matrix.profile == 'release'
+        run: cargo test -p boole-native-rust-meter --test tuple_verifier --locked --release -- --nocapture
+
   # The single status branch protection requires. `if: always()` so the
   # aggregate exists even when a matrix job fails — a required status that
   # can be silently absent protects nothing.

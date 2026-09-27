@@ -1391,6 +1391,17 @@ class VerdictCorpusWorkflowContractTest(unittest.TestCase):
             "the release-profile job must actually test the release profile",
         )
 
+    def test_metered_tuple_corpus_is_checked_in_every_platform_profile_job(self):
+        for profile, flag in (("debug", ""), ("release", " --release")):
+            self.assertIn(
+                f"if: matrix.profile == '{profile}'\n"
+                "        run: cargo test -p boole-native-rust-meter --test tuple_verifier "
+                f"--locked{flag} -- --nocapture",
+                self.text,
+                "the non-activated tuple verifier must compare its golden bytes "
+                "on Linux/macOS in both profiles, not only in self-test",
+            )
+
 
 class NativeShadowArm64LauncherBuildWorkflowContractTest(unittest.TestCase):
     """The launcher ELF is built twice on real Linux/arm64 and must match.

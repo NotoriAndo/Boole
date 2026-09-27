@@ -1,8 +1,10 @@
 # Deterministic native Rust meter core (non-activated)
 
-This crate is the first bounded resource-contract core for the Rust tuple-
-projection family. It is intentionally **not** connected to the V1 checker,
-adapter activation, receipts, blocks or rewards.
+This crate contains the bounded resource-contract core and a local generated-
+tuple verifier candidate. It is intentionally **not** connected to the V1 checker,
+adapter activation, receipts, blocks or rewards. The new explicit
+`boole-metered-tuple-check TASK_JSON ANSWER_BODY` binary checks the restricted
+answer language under a fixed policy. See the [adapter contract](../../docs/u1-metered-tuple-verifier.md).
 
 The accepted answer body is a deliberately small Rust-shaped language:
 
@@ -15,6 +17,8 @@ Numeric tuple fields must be converted with `as i64` at the access site before
 they can be bound or used in arithmetic. This avoids pretending that the meter
 knows an anchor's exact native integer width when the standalone input carries
 only normalized signed/unsigned values.
+Boolean fields use `if field { 1 } else { 0 }`; direct boolean casts are not
+part of this language.
 
 Everything else fails closed before any compiler could be started. In
 particular comments and every string/character form are rejected rather than

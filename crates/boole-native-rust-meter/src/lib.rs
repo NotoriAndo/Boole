@@ -1,14 +1,17 @@
 //! Deterministic resource meter for a deliberately restricted Rust-shaped
 //! tuple-projection answer language.
 //!
-//! The meter is deliberately standalone and non-activatable. It does not
+//! The meter and its local tuple adapter are deliberately non-activatable. They do not
 //! invoke a compiler, inspect host telemetry, or modify the V1 checker. A
-//! caller supplies every bound, and every counter uses checked arithmetic.
+//! core caller supplies every bound; the adapter owns a fixed policy. Every
+//! counter uses checked arithmetic.
 
 #![forbid(unsafe_code)]
 
 use std::collections::BTreeMap;
 use std::fmt;
+
+pub mod tuple_verifier;
 
 const ABSOLUTE_MAX_SYNTAX_DEPTH: u64 = 256;
 const RESOURCE_USE_DOMAIN: &[u8] = b"boole.native-rust-meter.resource-use.v1\0";
