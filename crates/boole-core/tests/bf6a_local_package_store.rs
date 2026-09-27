@@ -517,6 +517,110 @@ fn recovery_rejects_a_pending_reference_whose_object_is_missing() {
 }
 
 #[test]
+fn offline_restore_requires_pending_authority_and_preserves_all_references() {
+    let root = temporary_store_path("offline-restore");
+    let config = enabled_config(4, 1024 * 1024);
+    let packages = [
+        CanonicalPackage::new(vec![PackageFile::new("answer", "one")]).unwrap(),
+        CanonicalPackage::new(vec![PackageFile::new("answer", "two")]).unwrap(),
+    ];
+    let objects = packages
+        .iter()
+        .map(|package| {
+            root.join(PACKAGE_OBJECTS_DIRECTORY)
+                .join(format!("{}.pkg", package.root().to_hex()))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        LocalPackageStore::restore_missing_object(
+            &root,
+            LocalPackageStoreConfig::default(),
+            &packages[0]
+        ),
+        Err(LocalPackageStoreError::Disabled)
+    );
+    assert!(!root.exists(), "disabled restoration is a disk no-op");
+    let mut store = LocalPackageStore::open(&root, config.clone()).unwrap();
+    store.stage(&packages[0], "first").unwrap();
+    store.stage(&packages[0], "shared").unwrap();
+    store.stage(&packages[1], "second").unwrap();
+    store
+        .register_fetch_intents(&[(packages[0].root(), "first".into())])
+        .unwrap();
+    drop(store);
+    let pending = std::fs::read(root.join(PACKAGE_PENDING_FILE)).unwrap();
+    let intents = std::fs::read(root.join(PACKAGE_FETCH_INTENTS_FILE)).unwrap();
+    for object in &objects {
+        std::fs::remove_file(object).unwrap();
+    }
+    let foreign = CanonicalPackage::new(vec![PackageFile::new("answer", "foreign")]).unwrap();
+    assert_eq!(
+        LocalPackageStore::restore_missing_object(&root, config.clone(), &foreign),
+        Err(LocalPackageStoreError::PendingConflict)
+    );
+    assert_eq!(
+        std::fs::read_dir(root.join(PACKAGE_OBJECTS_DIRECTORY))
+            .unwrap()
+            .count(),
+        0
+    );
+    LocalPackageStore::restore_missing_object(&root, config.clone(), &packages[0]).unwrap();
+    assert!(matches!(
+        LocalPackageStore::open(&root, config.clone()),
+        Err(LocalPackageStoreError::MissingObject { .. })
+    ));
+    LocalPackageStore::restore_missing_object(&root, config.clone(), &packages[1]).unwrap();
+    // Idempotent restoration is permitted only for still-valid present bytes.
+    LocalPackageStore::restore_missing_object(&root, config.clone(), &packages[0]).unwrap();
+    assert_eq!(
+        std::fs::read(root.join(PACKAGE_PENDING_FILE)).unwrap(),
+        pending
+    );
+    assert_eq!(
+        std::fs::read(root.join(PACKAGE_FETCH_INTENTS_FILE)).unwrap(),
+        intents
+    );
+    let store = LocalPackageStore::open(&root, config).unwrap();
+    assert_eq!(store.pending().len(), 3);
+    assert_eq!(store.fetch_intents().len(), 1);
+    drop(store);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn offline_restore_refuses_present_corruption_and_symlinks_without_overwrite() {
+    use std::os::unix::fs::symlink;
+    let root = temporary_store_path("offline-corrupt");
+    let config = enabled_config(4, 1024 * 1024);
+    let package = CanonicalPackage::new(vec![PackageFile::new("answer", "original")]).unwrap();
+    let object = root
+        .join(PACKAGE_OBJECTS_DIRECTORY)
+        .join(format!("{}.pkg", package.root().to_hex()));
+    let mut store = LocalPackageStore::open(&root, config.clone()).unwrap();
+    store.stage(&package, "known").unwrap();
+    drop(store);
+    std::fs::write(&object, b"preserve-corrupt-evidence").unwrap();
+    assert!(LocalPackageStore::restore_missing_object(&root, config.clone(), &package).is_err());
+    assert_eq!(
+        std::fs::read(&object).unwrap(),
+        b"preserve-corrupt-evidence"
+    );
+    let outside = root.join("outside");
+    std::fs::rename(&object, &outside).unwrap();
+    symlink(&outside, &object).unwrap();
+    assert!(LocalPackageStore::restore_missing_object(&root, config, &package).is_err());
+    assert!(std::fs::symlink_metadata(&object)
+        .unwrap()
+        .file_type()
+        .is_symlink());
+    assert_eq!(
+        std::fs::read(outside).unwrap(),
+        b"preserve-corrupt-evidence"
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn invalid_references_are_rejected_before_any_cas_write() {
     let root = temporary_store_path("invalid-reference");
     let package =

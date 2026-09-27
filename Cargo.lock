@@ -482,6 +482,7 @@ dependencies = [
  "boole-core",
  "boole-evm-adapter",
  "boole-lean-runner",
+ "boole-native-rust-meter",
  "boole-native-shadow-protocol",
  "boole-p2p",
  "boole-testkit",

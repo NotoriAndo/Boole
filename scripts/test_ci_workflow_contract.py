@@ -1402,6 +1402,18 @@ class VerdictCorpusWorkflowContractTest(unittest.TestCase):
                 "on Linux/macOS in both profiles, not only in self-test",
             )
 
+    def test_metered_package_reverification_runs_in_every_platform_profile_job(self):
+        for profile, flag in (("debug", ""), ("release", " --release")):
+            self.assertIn(
+                f"if: matrix.profile == '{profile}'\n"
+                "        run: cargo test -p boole-node --test metered_tuple_package "
+                "--test metered_tuple_package_cli "
+                f"--locked{flag} -- --nocapture",
+                self.text,
+                "package contract checks and independent CAS processes must reproduce "
+                "the golden verdict on both platforms and profiles",
+            )
+
 
 class NativeShadowArm64LauncherBuildWorkflowContractTest(unittest.TestCase):
     """The launcher ELF is built twice on real Linux/arm64 and must match.

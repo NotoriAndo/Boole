@@ -176,6 +176,45 @@ fn policy_digest() -> String {
     )
 }
 
+/// Exact local contract required by the non-activated package consumer. Source
+/// and declared build inputs identify this implementation, not the executable
+/// actually running: this is NOT a release signature or binary attestation.
+pub fn contract_bytes() -> Vec<u8> {
+    let implementation = domain_hash(
+        "boole.metered-tuple-implementation.v1",
+        &[
+            include_bytes!("lib.rs"),
+            include_bytes!("tuple_verifier.rs"),
+            include_bytes!("../Cargo.toml"),
+            include_bytes!("../../../Cargo.toml"),
+            include_bytes!("../../../Cargo.lock"),
+            include_bytes!("../../../rust-toolchain.toml"),
+        ],
+    );
+    serde_json::to_vec(&serde_json::json!({
+        "schema": "boole.metered-tuple-contract.v1",
+        "adapter": ADAPTER,
+        "implementationDigest": implementation,
+        "policyDigest": policy_digest(),
+        "taskSchema": "boole.metered-tuple-task.v1",
+        "resultSchema": "boole.metered-tuple-verification.v1",
+        "limits": {
+            "taskBytes": MAX_TASK_BYTES,
+            "answerBytes": LIMITS.max_source_bytes,
+            "tokens": LIMITS.max_tokens,
+            "astNodes": LIMITS.max_ast_nodes,
+            "astDepth": LIMITS.max_ast_depth,
+            "operations": LIMITS.max_operations,
+            "fuel": LIMITS.max_fuel,
+            "prefixItems": LIMITS.max_prefix_items,
+            "cases": CASES,
+        },
+        "nonIssuable": true,
+        "activationAllowed": false,
+    }))
+    .expect("constant contract serialization")
+}
+
 fn load_task(raw: &[u8]) -> Result<Task, InputError> {
     if raw.len() > MAX_TASK_BYTES {
         return Err(InputError::TaskTooLarge);

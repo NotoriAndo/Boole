@@ -650,6 +650,104 @@ fn unavailable_response_stays_pending_and_is_retried_until_strict_bytes_arrive()
 }
 
 #[test]
+fn metered_package_survives_unavailability_restart_and_tampered_peer_then_process_reverification() {
+    use boole_node::metered_tuple_package::{build_package, reverify_stored, StoredVerification};
+    let parent = std::env::temp_dir().join(format!(
+        "boole-metered-p2p-{}-{}",
+        std::process::id(),
+        rand_suffix()
+    ));
+    fs::create_dir(&parent).unwrap();
+    let store_path = parent.join("store");
+    let task = include_bytes!("../../../fixtures/native-metered-tuple-v1/task.json");
+    let answer = include_bytes!("../../../fixtures/native-metered-tuple-v1/answer.rs");
+    let package = build_package(task, answer).unwrap();
+    let root = package.root();
+    let mut store = LocalPackageStore::open(&store_path, enabled_store_config()).unwrap();
+    assert!(matches!(
+        reverify_stored(&mut store, root).unwrap(),
+        StoredVerification::RetryableUnavailable
+    ));
+    drop(store);
+
+    let (peer, peer_thread) = serve_package_response_once(
+        root,
+        Frame::Package {
+            root: root.to_hex(),
+            canonical_bytes: None,
+        },
+    );
+    let store = LocalPackageStore::open(&store_path, enabled_store_config()).unwrap();
+    let fetching = PackageFetchingConfig::new(store, []).unwrap();
+    let first = boot(peer, fetching);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while metric_value(first.http_addr, "boole_p2p_package_fetch_unavailable_total") == 0 {
+        assert!(Instant::now() < deadline, "missing response not observed");
+        thread::sleep(Duration::from_millis(20));
+    }
+    stop(first);
+    peer_thread.join().unwrap();
+
+    let store = LocalPackageStore::open(&store_path, enabled_store_config()).unwrap();
+    assert_eq!(store.fetch_intents().len(), 1);
+    assert!(store.pending().is_empty());
+    let wrong = build_package(task, b"7").unwrap();
+    let (peer, peer_thread) = serve_package_responses(
+        root,
+        vec![
+            Frame::Package {
+                root: root.to_hex(),
+                canonical_bytes: Some(wrong.canonical_bytes().to_vec()),
+            },
+            Frame::Package {
+                root: root.to_hex(),
+                canonical_bytes: Some(package.canonical_bytes().to_vec()),
+            },
+        ],
+    );
+    // No caller resupplies the root on restart: the verifier's original
+    // durable availability request drives the existing fetch worker.
+    let fetching = PackageFetchingConfig::new(store, [])
+        .unwrap()
+        .with_retry_interval(Duration::from_millis(50));
+    let second = boot(peer, fetching);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while metric_value(second.http_addr, "boole_p2p_package_fetch_staged_total") == 0 {
+        assert!(Instant::now() < deadline, "restarted package not recovered");
+        thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(
+        metric_value(second.http_addr, "boole_p2p_package_fetch_invalid_total"),
+        1
+    );
+    stop(second);
+    peer_thread.join().unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_boole-metered-tuple-package"))
+        .arg("verify")
+        .arg(&store_path)
+        .arg(root.to_hex())
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let expected: serde_json::Value = serde_json::from_slice(
+        &boole_native_rust_meter::tuple_verifier::verify(task, answer)
+            .unwrap()
+            .canonical_bytes(),
+    )
+    .unwrap();
+    assert_eq!(value["packageRoot"], root.to_hex());
+    assert_eq!(value["verification"], expected);
+    let store = LocalPackageStore::open(&store_path, enabled_store_config()).unwrap();
+    assert!(store.fetch_intents().is_empty());
+    assert_eq!(store.pending().len(), 1);
+    assert_eq!(store.read(root).unwrap(), package.canonical_bytes());
+    drop(store);
+    fs::remove_dir_all(parent).unwrap();
+}
+
+#[test]
 fn unavailable_response_keeps_the_intent_durable_without_any_cas_write() {
     let parent = std::env::temp_dir().join(format!(
         "boole-bf6a-unavailable-intent-{}-{}",

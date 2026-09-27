@@ -143,11 +143,7 @@ impl CanonicalPackage {
         }
         let mut files = Vec::with_capacity(file_count);
         for _ in 0..file_count {
-            let path_len = read_u32(bytes, &mut cursor)? as usize;
-            let path = take_bytes(bytes, &mut cursor, path_len)?;
-            let content_len = usize::try_from(read_u64(bytes, &mut cursor)?)
-                .map_err(|_| PackageSidecarError::MalformedCanonicalBytes)?;
-            let contents = take_bytes(bytes, &mut cursor, content_len)?;
+            let (path, contents) = read_entry(bytes, &mut cursor)?;
             files.push(PackageFile::new(path, contents));
         }
         if cursor != bytes.len() {
@@ -164,6 +160,15 @@ impl CanonicalPackage {
         &self.canonical_bytes
     }
 
+    /// Borrow validated entries without extracting files or duplicating their
+    /// contents. Both constructors guarantee this immutable encoding is valid.
+    pub fn files(&self) -> impl ExactSizeIterator<Item = (&[u8], &[u8])> {
+        let bytes = &self.canonical_bytes;
+        let mut cursor = 4 + PACKAGE_SIDECAR_SCHEMA.len();
+        let count = read_u32(bytes, &mut cursor).expect("validated package header");
+        (0..count).map(move |_| read_entry(bytes, &mut cursor).expect("validated package entry"))
+    }
+
     pub fn size_bytes(&self) -> usize {
         self.canonical_bytes.len()
     }
@@ -171,6 +176,18 @@ impl CanonicalPackage {
     pub fn root(&self) -> PackageRoot {
         self.root
     }
+}
+
+fn read_entry<'a>(
+    bytes: &'a [u8],
+    cursor: &mut usize,
+) -> Result<(&'a [u8], &'a [u8]), PackageSidecarError> {
+    let path_len = read_u32(bytes, cursor)? as usize;
+    let path = take_bytes(bytes, cursor, path_len)?;
+    let content_len = usize::try_from(read_u64(bytes, cursor)?)
+        .map_err(|_| PackageSidecarError::MalformedCanonicalBytes)?;
+    let contents = take_bytes(bytes, cursor, content_len)?;
+    Ok((path, contents))
 }
 
 fn take_bytes<'a>(

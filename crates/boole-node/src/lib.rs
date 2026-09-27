@@ -25,6 +25,7 @@ mod family_manifest_store;
 mod http_error;
 mod lean_bounty_verifier;
 mod local_node;
+pub mod metered_tuple_package;
 mod native_archive;
 mod native_http;
 mod native_node;
