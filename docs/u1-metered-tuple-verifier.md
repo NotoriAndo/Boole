@@ -137,6 +137,50 @@ remain unchanged. Intermediate source `d7cf622` passed its four-way corpus
 `36284525397` and Linux x86_64 integration in full run `36284525472`; that run is
 also superseded by the strict-input correction and is not final adoption evidence.
 
+## Publication CI: native process fixture correction
+
+At strict-input source `45a375f`, four-way corpus run `36285860518` and the actual
+Linux x86_64/arm64 integration jobs in full run `36285860578` passed. Self-test
+nevertheless failed the existing three-node native operator rehearsal's fixed
+180-second total bound (181.62s including its 0.16s nested build). All preceding
+functional, accounting, recovery and source-preservation assertions passed;
+the 15-second phase and three-second stop bounds were not reached. The failed
+full run is retained, not reported as final adoption evidence.
+
+The unchanged fixture passed locally in 78.113s; a temporary per-command timing
+probe measured 78.162s, with ordinary wallet operations around 1.17s and repeated
+unlock/sign mining and transfer commands around 3.5s. It exposed two test-build
+issues: the nested node/wallet build used the dev profile instead of the parent
+test profile, bypassing the existing test-only curve arithmetic optimization;
+and the default-strength Argon2 KDF ran unoptimized in both. This is measured
+fixture cost, not proof of a particular hosted-runner slowdown or a runtime
+consensus defect. An initial sandboxed local attempt could not bind loopback
+and is not included among completed scenarios.
+
+The fixture now builds its actual children with `--profile test --locked` and
+checks Cargo's emitted library/binary profiles and the exact executable paths
+before starting them. The real call site first rejected dev curve opt-level 0,
+then rejected test Argon2 opt-level 0. Only the Argon2 test dependency receives
+a new opt-level 3 override, retaining debug assertions and overflow checks;
+application libraries/binaries remain at opt-level 0. The workspace profile
+consumer also checks Argon2, including missing-artifact and disabled-guard
+negative controls. Ordinary dev/release settings and dependency versions are
+unchanged.
+
+The same measured local scenario then passed in 10.457s; wallet backup/restore
+took 79/73ms and mining commands 221–391ms. Its original signature, state,
+accounting, replay, recovery and 15s/3s/180s checks remain intact.
+The fixture additionally asserts the actual vault's unchanged Argon2id
+65,536KiB/time-cost 3/parallelism 1 contract. No unlock is cached, no signature
+is skipped and no weak test vault is substituted. Temporary timing probes are
+removed before publication; the clean final fixture passed in 9.652s and the
+adjacent native CLI test passed in 11.46s including its nested build.
+The 13 focused vault tests, 19 actual wallet-agent tests and 37 Python
+profile/self-test/workspace contract tests also pass, including wrong-password,
+tamper, signature, backup/restore and fail-closed artifact controls.
+This test-only correction requires fresh full CI;
+earlier production/large-state measurements keep their original build settings.
+
 ## Remaining U1/U2 gates
 
 This closes a local task-to-meter-to-verdict seam, not the full adapter resource

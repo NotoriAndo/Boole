@@ -1,3 +1,6 @@
+#[path = "support/native_binaries.rs"]
+mod native_binaries;
+
 use serde_json::Value;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -148,11 +151,7 @@ fn restart_node(fixture: &mut Fixture, url: &str) {
 
 #[test]
 fn encrypted_owner_cli_mines_transfers_and_retries_only_the_saved_signed_transaction() {
-    assert!(Command::new(env!("CARGO"))
-        .args(["build", "-p", "boole-node", "-p", "boole-wallet-agent"])
-        .status()
-        .unwrap()
-        .success());
+    native_binaries::build(Path::new(env!("CARGO_BIN_EXE_boole-cli")));
     let dir =
         std::env::temp_dir().join(format!("boole-native-cli-{}", boole_testkit::rand_suffix()));
     let (mut fixture, url) = spawn_node(dir);

@@ -1,4 +1,7 @@
 //! One-host operational workflow only; never public-network or R2/R3 evidence.
+#[path = "support/native_binaries.rs"]
+mod native_binaries;
+
 use serde_json::{json, Value};
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
@@ -339,11 +342,7 @@ fn await_transaction(actors: &[Actor], txid: &str, status: &str, height: Option<
 
 #[test]
 fn three_real_nodes_transfer_partition_rejoin_and_restore_without_duplicate_payment() {
-    assert!(Command::new(env!("CARGO"))
-        .args(["build", "-p", "boole-node", "-p", "boole-wallet-agent"])
-        .status()
-        .unwrap()
-        .success());
+    native_binaries::build(Path::new(env!("CARGO_BIN_EXE_boole-cli")));
     let started = Instant::now();
     let scratch = Scratch::new();
     let reserved: Vec<_> = (0..6)
@@ -413,6 +412,11 @@ fn three_real_nodes_transfer_partition_rejoin_and_restore_without_duplicate_paym
     let backup_bytes = std::fs::read(&backup).unwrap();
     let original_vault = actors[1].vault.clone();
     let original_vault_bytes = std::fs::read(&original_vault).unwrap();
+    let vault_contract: Value = serde_json::from_slice(&original_vault_bytes).unwrap();
+    assert_eq!(vault_contract["kdf"]["algo"], "argon2id");
+    assert_eq!(vault_contract["kdf"]["memoryKiB"], 65_536);
+    assert_eq!(vault_contract["kdf"]["timeCost"], 3);
+    assert_eq!(vault_contract["kdf"]["parallelism"], 1);
     actors[1].vault = scratch.path.join("b-restored.vault");
     assert_eq!(
         cli(

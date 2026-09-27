@@ -7,7 +7,7 @@ import json
 import sys
 from typing import Iterable
 
-EXPECTED = {"curve25519_dalek": "3", "boole_core": "0", "boole_node": "0"}
+EXPECTED = {"curve25519_dalek": "3", "argon2": "3", "boole_core": "0", "boole_node": "0"}
 
 
 def check_profiles(lines: Iterable[str]) -> None:
@@ -58,7 +58,7 @@ def main() -> int:
     except (OSError, ValueError) as error:
         print(f"cargo test profile: FAIL ({error})", file=sys.stderr)
         return 1
-    print("cargo test profile: PASS (curve=3, core/node=0; debug/overflow checks ON)")
+    print("cargo test profile: PASS (curve/argon2=3, core/node=0; debug/overflow checks ON)")
     return 0
 
 
