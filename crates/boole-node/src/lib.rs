@@ -25,6 +25,7 @@ mod family_manifest_store;
 mod http_error;
 mod lean_bounty_verifier;
 mod local_node;
+mod metered_tuple_package;
 mod native_archive;
 mod native_http;
 mod native_node;
@@ -89,6 +90,14 @@ pub use local_node::{
     serve_local_node_with_os_signals_and_p2p, serve_local_node_with_p2p,
     serve_local_node_with_shutdown, LocalNodeConfig, DEFAULT_ROUTE_TIMEOUT,
     MAX_CONCURRENT_REQUESTS, MAX_HTTP_BODY_BYTES, PROOF_ROUTE_BODY_BYTES, PROOF_ROUTE_TIMEOUT,
+};
+pub use metered_tuple_package::{
+    build_package as build_metered_tuple_package, import_package as import_metered_tuple_package,
+    restore_package as restore_metered_tuple_package,
+    reverify_stored as reverify_stored_metered_tuple_package,
+    verify_package as verify_metered_tuple_package, PackageError as MeteredTuplePackageError,
+    ReverifyError as MeteredTupleReverifyError,
+    StoredVerification as StoredMeteredTupleVerification, MAX_METERED_PACKAGE_BYTES,
 };
 pub use native_archive::{
     audit_native_state, export_native_archive, import_native_archive, NativeArchiveReceipt,

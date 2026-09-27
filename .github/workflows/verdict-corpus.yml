@@ -126,6 +126,14 @@ jobs:
         if: matrix.profile == 'release'
         run: cargo test -p boole-native-rust-meter --test tuple_verifier --locked --release -- --nocapture
 
+      - name: Reverify metered packages through independent CAS processes (debug)
+        if: matrix.profile == 'debug'
+        run: cargo test -p boole-node --test metered_tuple_package --test metered_tuple_package_cli --locked -- --nocapture
+
+      - name: Reverify metered packages through independent CAS processes (release)
+        if: matrix.profile == 'release'
+        run: cargo test -p boole-node --test metered_tuple_package --test metered_tuple_package_cli --locked --release -- --nocapture
+
   # The single status branch protection requires. `if: always()` so the
   # aggregate exists even when a matrix job fails — a required status that
   # can be silently absent protects nothing.

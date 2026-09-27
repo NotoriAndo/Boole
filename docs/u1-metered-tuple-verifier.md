@@ -1,7 +1,9 @@
 # U1 prerequisite: non-activated metered tuple verifier
 
-Status: implemented local verifier candidate; adoption is gated by its owning
-PR's full required CI, including Linux/macOS × debug/release golden comparison.
+Status: implemented local verifier candidate with root-bound packages,
+independent CAS re-verification and explicit offline lost-object restoration.
+Adoption is gated by the owning PR's full required CI, including Linux/macOS ×
+debug/release golden comparison and independent package processes.
 **BF.7 remains HOLD.** This does not activate a registry, receipt, block, reward,
 public network or the existing V1 checker.
 
@@ -181,10 +183,137 @@ tamper, signature, backup/restore and fail-closed artifact controls.
 This test-only correction requires fresh full CI;
 earlier production/large-state measurements keep their original build settings.
 
+## Root-bound local packages and independent re-verification
+
+The local package consumer, exported by `boole-node` through the explicit
+`build_metered_tuple_package`, `verify_metered_tuple_package`,
+`import_metered_tuple_package`, `reverify_stored_metered_tuple_package` and
+`restore_metered_tuple_package` functions, uses the existing
+BF.6a canonical sidecar and content-addressed store (CAS). It does not change
+their schema, root domain, P2P frames, receipt rules or default-OFF behavior.
+Exactly three files are admitted, with no extraction to the filesystem:
+
+| File | Bound content |
+|---|---|
+| `task.json` | Exact supplied task bytes; the verifier still derives its semantic task identity from typed canonical JSON. |
+| `answer.rs` | Exact restricted answer-body bytes, never a compiler/executable selection. |
+| `verifier.json` | Byte-exact locally compiled contract: adapter/schema identifiers, policy digest, all deterministic limits, implementation identity and fixed non-issuable flags. |
+
+The new application envelope is at most 16KiB. Maximum 4KiB task + 8KiB answer
+inputs fit, including framing/contract overhead. Generic CAS reads retain their
+existing 8MiB ceiling; the smaller application cap is checked before decoding a
+received package. Extra/missing files, noncanonical framing, root substitution,
+incompatible contracts, invalid tasks and oversized inputs produce no answer
+verdict. A complete, compatible package containing a wrong answer instead
+reproduces the actual `deterministic_reject` result. Producer-claimed results
+are not an input, and a successful CAS read is never a verification cache.
+
+`implementationDigest` is a length-framed SHA-256 over the interpreter and tuple
+verifier source, crate/workspace Cargo manifests, workspace lockfile and pinned
+Rust toolchain declaration. It identifies **source and declared build inputs**,
+not the executing binary or actual compiler/linker/runtime environment. Source
+or lockfile changes intentionally require a new compatible package. This is
+not release signing, an executable measurement, proof of compiler equivalence
+or the production executable pin required by U1. The locally trusted binary
+remains an explicit premise; package bytes cannot supply a replacement for it.
+
+### Offline command interface
+
+Build with `cargo build --locked -p boole-node --bin boole-metered-tuple-package`.
+All store commands require exclusive, **stopped-node** ownership of the CAS
+directory. The inherited store does not arbitrate simultaneous processes; do
+not run these commands alongside a fetch worker or another store owner.
+
+```sh
+# Choose a new output filename. pack writes binary bytes to stdout and reports
+# packageRoot on stderr; replace EXPECTED_ROOT_HEX below with the retained root.
+set -C
+target/debug/boole-metered-tuple-package pack \
+  fixtures/native-metered-tuple-v1/task.json \
+  fixtures/native-metered-tuple-v1/answer.rs > package.bin
+target/debug/boole-metered-tuple-package import offline-cas EXPECTED_ROOT_HEX package.bin
+target/debug/boole-metered-tuple-package verify offline-cas EXPECTED_ROOT_HEX
+
+# Only for a previously staged object that is now absent, with the original
+# pending snapshot retained and all other store owners stopped:
+target/debug/boole-metered-tuple-package restore offline-cas EXPECTED_ROOT_HEX package.bin
+target/debug/boole-metered-tuple-package verify offline-cas EXPECTED_ROOT_HEX
+```
+
+For received material, the expected root must come from an independently trusted
+context. Hashing the supplied file itself or trusting its URL does not establish
+authority. `pack` output is developer metadata, not a signature or receipt.
+No command starts a network listener, compiler, model or VM.
+
+`verify` exits 0/1 only with accepted/rejected verification evidence; its stable
+JSON wrapper binds `packageRoot` to the unchanged canonical verifier result.
+Exit 2 has no verification result: `retryable_unavailable`, `input_error` or
+`package_error`. `pack`, `import` and `restore` exit 0 for completion of their
+own operation, **not answer acceptance**. They also admit correctly bound wrong
+answers so an independent consumer can reproduce the rejection. Input reads
+are capped, refuse symlinks/non-regular files and open nonblocking before the
+regular-file check, including FIFOs.
+
+### Missing-data and restoration boundaries
+
+For a not-yet-received root, `reverify_stored_metered_tuple_package` durably registers an idempotent
+`metered-tuple:<root>` request before returning unavailable. The existing bounded
+fetch queue can reload it after restart without the caller supplying the root
+again. It accepts only canonical bytes matching the requested root; availability
+completion means bytes were durably staged, not that the answer was accepted.
+The existing count/byte caps and reject-newest policy remain (default 64 pending
+references, 64MiB aggregate pending bytes, at most 64 unresolved fetch intents).
+Queue/persistence failures are errors, never a false claim that retry is durable.
+The offline CLI records requests but does not start a fetch worker; explicit
+`import` can also satisfy a request.
+
+For **already staged bytes deleted from disk**, ordinary store open still fails
+closed. Explicit offline restoration revalidates all snapshots and present
+objects, requires the exact root and size already recorded in the pending
+snapshot, and republishes only the missing canonical object through the existing
+atomic/fsync path. It never rewrites references or clears fetch intents. Multiple
+missing objects can be restored one at a time; normal open remains refused until
+all required objects are available. An existing corrupt object, symlink or
+corrupt snapshot is preserved and refused, not overwritten. An uncertain durable
+commit remains an error, not a verdict. Verification retains pending packages;
+it does not acknowledge/delete the evidence after one successful result.
+
+The closed-loopback integration test stops a node after an unavailable response,
+reloads the original durable request, rejects a wrong-root payload, then receives
+the correct bytes and starts a fresh CLI process for actual re-verification.
+This reuses the legacy BF.6a test transport, **not** the separate native R1 pinned
+TLS service or public P2P. No live node/consensus intake is activated by this module.
+
+Two separate local stores and four fresh verification processes reproduce the
+independent golden verdict. Direct tests cover policy/source-identity override,
+extra claimed verdicts, missing/oversized input, wrong answers, queue pressure,
+restart, exact offline restoration, shared references and preservation of corrupt
+files/symlinks. These package/CLI cases are also wired into the required
+Linux/macOS × debug/release matrix. The initial API/CLI and restoration tests
+failed before implementation; the first network invocation was denied by the
+local sandbox at loopback bind, before traffic, and the permitted closed-local
+invocation passed. This is local engineering evidence, not independent-operator
+qualification, real source supply, full useful-adapter DA qualification or BF.7.
+
+The first publication run for [PR #390](https://github.com/NotoriAndo/Boole/pull/390),
+[`36312957372`](https://github.com/NotoriAndo/Boole/actions/runs/36312957372),
+failed the existing node-module export guard in the 3,067-test Python stage:
+the initial implementation publicly exported its internal module. All other
+14 checks, including all four package platform/profile jobs and both Linux
+image-replay architectures, passed. The correction keeps the module private
+and exports only the named functions/types, following the existing node API
+boundary; the guard and acceptance criteria are unchanged. The original failed
+run is retained, and the corrected source requires fresh full CI. The focused
+guard and all ten package/CLI tests plus the real fetch/re-verification path pass
+after this change. A broader local preflight-file invocation also encountered
+two sandbox/toolchain refusals in unchanged fake-command smoke tests; no model
+was run. Those tests remain unchanged for the normal Linux CI environment.
+
 ## Remaining U1/U2 gates
 
-This closes a local task-to-meter-to-verdict seam, not the full adapter resource
-qualification or BF.7 entry gate. Before any new-rule receipt consensus:
+This closes the local generated-task-to-meter-to-verdict and package recovery
+seams, not the full useful-adapter resource qualification or BF.7 entry gate.
+Before any new-rule receipt consensus:
 
 1. Select and qualify the actual useful adapter, pin its executable/rule/resource
    contract and prove source/spec fidelity; generated tasks cannot stand in for
@@ -194,7 +323,9 @@ qualification or BF.7 entry gate. Before any new-rule receipt consensus:
    adapter cannot inherit even those 197 candidates.
 2. Qualify that adapter's complete verifier-effective package through BF.6a CAS/
    sidecar retrieval: hash/size/tamper checks, independent byte reconstruction,
-   missing-data retry and bounded pending recovery. No HTTP URL is a truth root.
+   missing-data retry and bounded pending recovery. The generated local candidate
+   above exercises these mechanisms but cannot qualify a different useful adapter
+   or stand in for independent-operator evidence. No HTTP URL is a truth root.
 3. Land the separate new network/rule/schema/hash/replay boundary with
    `no_protocol_reward`, one shared verification contract on producer/admission/
    ingest/replay/reorg, unchanged hash-only progress when useful work is empty,

@@ -308,7 +308,7 @@ impl LocalPackageStore {
         remove_crash_temp(&authority.root, PACKAGE_PENDING_TEMP_FILE)?;
         remove_crash_temp(&authority.root, PACKAGE_FETCH_INTENTS_TEMP_FILE)?;
         remove_object_temps(&authority.objects)?;
-        let pending = load_pending(&authority, &config)?;
+        let pending = load_pending(&authority, &config, false)?;
         let fetch_intents = load_fetch_intents(&authority, &config)?;
         collect_orphan_objects(&authority.objects, &pending)?;
 
@@ -321,6 +321,63 @@ impl LocalPackageStore {
             fault_injector,
             poisoned: false,
         })
+    }
+
+    /// Explicit OFFLINE repair of a missing object, never a degraded store
+    /// open. The existing pending snapshot must already bind this exact root
+    /// and size. Validate all snapshots and every present object; refuse
+    /// corruption/symlinks instead of overwriting evidence. Missing unrelated
+    /// objects may be restored in subsequent calls. No reference, snapshot,
+    /// verdict or availability claim is created, and normal open stays strict.
+    /// As with `open`, the caller must exclude all other process owners.
+    pub fn restore_missing_object(
+        root: impl AsRef<Path>,
+        config: LocalPackageStoreConfig,
+        package: &CanonicalPackage,
+    ) -> Result<(), LocalPackageStoreError> {
+        Self::restore_missing_object_with_fault_injector(
+            root,
+            config,
+            package,
+            Arc::new(NoCommitFaults),
+        )
+    }
+
+    fn restore_missing_object_with_fault_injector(
+        root: impl AsRef<Path>,
+        config: LocalPackageStoreConfig,
+        package: &CanonicalPackage,
+        fault_injector: Arc<dyn CommitFaultInjector>,
+    ) -> Result<(), LocalPackageStoreError> {
+        if !config.enabled {
+            return Err(LocalPackageStoreError::Disabled);
+        }
+        let authority = open_store_authority(root.as_ref())?;
+        let pending = load_pending(&authority, &config, true)?;
+        if !pending.iter().any(|entry| {
+            entry.root == package.root() && entry.size_bytes == package.size_bytes() as u64
+        }) {
+            return Err(LocalPackageStoreError::PendingConflict);
+        }
+        let fetch_intents = load_fetch_intents(&authority, &config)?;
+        let recovery = Self {
+            root: root.as_ref().to_path_buf(),
+            authority: Some(authority),
+            config,
+            pending,
+            fetch_intents,
+            fault_injector,
+            poisoned: false,
+        };
+        match write_object(&recovery, package) {
+            Ok(_) => Ok(()),
+            Err(AtomicCommitFailure::BeforeRename(error)) => Err(error),
+            Err(AtomicCommitFailure::AfterRename(_)) => {
+                Err(LocalPackageStoreError::CommitOutcomeUnknown {
+                    phase: PackageStoreCommitPhase::Object,
+                })
+            }
+        }
     }
 
     pub fn is_enabled(&self) -> bool {
@@ -1095,6 +1152,7 @@ fn remove_new_object(objects: &File, root: PackageRoot) -> Result<(), LocalPacka
 fn load_pending(
     authority: &StoreAuthority,
     config: &LocalPackageStoreConfig,
+    allow_missing_objects_for_offline_repair: bool,
 ) -> Result<Vec<PendingPackageRef>, LocalPackageStoreError> {
     let pending_name = fixed_component(PACKAGE_PENDING_FILE);
     if stat_at(&authority.root, &pending_name)?.is_none() {
@@ -1163,7 +1221,11 @@ fn load_pending(
     // Disk I/O starts only after every record and the aggregate bound pass;
     // repeated references share one CAS verification by construction.
     for (root, size_bytes) in unique_roots {
-        verify_object(&authority.objects, root, size_bytes)?;
+        match verify_object(&authority.objects, root, size_bytes) {
+            Err(LocalPackageStoreError::MissingObject { .. })
+                if allow_missing_objects_for_offline_repair => {}
+            result => result?,
+        }
     }
     Ok(pending)
 }
@@ -1638,6 +1700,45 @@ mod durability_failure_tests {
 
     fn package(name: &[u8], value: &[u8]) -> CanonicalPackage {
         CanonicalPackage::new(vec![PackageFile::new(name, value)]).expect("package")
+    }
+
+    #[test]
+    fn offline_restore_fsync_failure_is_unknown_and_never_rewrites_pending_authority() {
+        let root = temp_root("restore-after-rename");
+        let package = package(b"answer", b"restore");
+        let mut store = LocalPackageStore::open(&root, config()).unwrap();
+        store.stage(&package, "restore-reference").unwrap();
+        drop(store);
+        let pending = fs::read(root.join(PACKAGE_PENDING_FILE)).unwrap();
+        fs::remove_file(
+            root.join(PACKAGE_OBJECTS_DIRECTORY)
+                .join(format!("{}.pkg", package.root().to_hex())),
+        )
+        .unwrap();
+        let faults = Arc::new(FailController::default());
+        faults.arm(CommitFaultPoint::ObjectDurability);
+        assert_eq!(
+            LocalPackageStore::restore_missing_object_with_fault_injector(
+                &root,
+                config(),
+                &package,
+                faults,
+            ),
+            Err(LocalPackageStoreError::CommitOutcomeUnknown {
+                phase: PackageStoreCommitPhase::Object,
+            })
+        );
+        assert_eq!(fs::read(root.join(PACKAGE_PENDING_FILE)).unwrap(), pending);
+        // A fresh strict open must independently establish whether the exact
+        // restored bytes are present after the uncertain publication outcome.
+        let reopened = LocalPackageStore::open(&root, config()).unwrap();
+        assert_eq!(
+            reopened.read(package.root()).unwrap(),
+            package.canonical_bytes()
+        );
+        assert_eq!(reopened.pending().len(), 1);
+        drop(reopened);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
