@@ -15,35 +15,20 @@ from dataclasses import dataclass, field
 _IDENT = r"[A-Za-z_$][A-Za-z0-9_$]*"
 
 
+_LEXEME_RE = re.compile(r'//[^\n]*|/\*.*?(?:\*/|\Z)|"(?:\\.|[^"\\])*"?', re.S)
+
+
 def strip_comments(src: str) -> str:
     """Blank ``//`` and ``/* */`` comments (newlines kept, so offsets and line numbers survive).
 
     String literals are kept verbatim (include paths live in them) and are skipped while looking
     for comment starts."""
-    out = []
-    i, n = 0, len(src)
-    while i < n:
-        if src.startswith("//", i):
-            j = src.find("\n", i)
-            j = n if j < 0 else j
-            out.append(" " * (j - i))
-            i = j
-        elif src.startswith("/*", i):
-            j = src.find("*/", i + 2)
-            j = n if j < 0 else j + 2
-            out.append("".join(ch if ch == "\n" else " " for ch in src[i:j]))
-            i = j
-        elif src[i] == '"':
-            j = i + 1
-            while j < n and src[j] != '"':
-                j += 2 if src[j] == "\\" else 1
-            j = min(j + 1, n)
-            out.append(src[i:j])
-            i = j
-        else:
-            out.append(src[i])
-            i += 1
-    return "".join(out)
+    def blank(m: re.Match) -> str:
+        t = m.group(0)
+        if t.startswith('"'):
+            return t
+        return re.sub(r"[^\n]", " ", t)
+    return _LEXEME_RE.sub(blank, src)
 
 
 def match_bracket(text: str, open_pos: int) -> int:
@@ -243,6 +228,24 @@ def scan_file(repo_root: str, rel: str, lib_dirs: list[str] | None = None) -> So
         sf.mains.append(MainDecl(rel, m.group(2), [a for a in split_top_level(clean[po + 1:pc]) if a],
                                  (m.group(1) or "").strip(), line_of(clean, m.start())))
     return sf
+
+
+def blank_mains(text: str) -> str:
+    """``text`` with every ``component main ... = T(...);`` declaration blanked (newlines kept).
+
+    Used to include a file that declares both library templates and its own main component: circom
+    accepts one main component per compilation, so the generated main includes this copy instead."""
+    clean = strip_comments(text)
+    out = list(text)
+    for m in _MAIN_RE.finditer(clean):
+        pc = match_bracket(clean, m.end() - 1)
+        end = clean.find(";", pc) if pc >= 0 else -1
+        if end < 0:
+            continue
+        for i in range(m.start(), end + 1):
+            if out[i] != "\n":
+                out[i] = " "
+    return "".join(out)
 
 
 def scan_repo(repo_root: str, rel_paths: list[str], lib_dirs: list[str] | None = None) -> dict[str, SourceFile]:

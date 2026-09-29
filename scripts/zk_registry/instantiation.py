@@ -263,8 +263,10 @@ def plan_templates(files: dict[str, cs.SourceFile], scope: list[str], repo_id: s
     return plans
 
 
-def main_source(template_path_abs: str, template: str, args: tuple[str, ...], pragma: str = "2.0.0") -> str:
-    """The generated main file for one instantiation."""
-    return (f'pragma circom {pragma};\n'
+def main_source(template_path_abs: str, template: str, args: tuple[str, ...], pragma: str = "2.0.0",
+                comment: str | None = None) -> str:
+    """The generated main file for one instantiation (``comment``: an optional leading line)."""
+    return ((f"// {comment}\n" if comment else "") +
+            f'pragma circom {pragma};\n'
             f'include "{template_path_abs}";\n'
             f'component main = {template}({", ".join(args)});\n')

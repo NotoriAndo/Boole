@@ -204,6 +204,101 @@ class WaveHelpersTests(unittest.TestCase):
             Path(index).write_text(json.dumps(rec) + "\n", encoding="utf-8")
             self.assertEqual(D.validate_all(index, tmp), ["line 1 toy-v1/toy.Toy: problem.json differs from the index record"])
 
+    def test_combined_index_validates_against_the_collections_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            os.makedirs(os.path.join(tmp, "toy-v1"))
+            _, rec = make_package(os.path.join(tmp, "toy-v1"))
+            index = os.path.join(tmp, "INDEX.jsonl")
+            Path(index).write_text(json.dumps(rec) + "\n", encoding="utf-8")
+            self.assertEqual(D.validate_all(index, tmp, collections_root=True), [])
+            self.assertIn("package directory missing", D.validate_all(index, tmp)[0])
+
+
+class Wave1FixTests(unittest.TestCase):
+    """Regression tests for the wave-1 generator fixes (library paths, primes, main blanking,
+    dependencies, ledger id prefixes, uncompilable template sources)."""
+
+    def cfg(self, repo_dir: str, **kw) -> D.WaveConfig:
+        base = dict(repo_dir=repo_dir, repo_id="toy/repo", repo_url="https://example.invalid/t", release="r",
+                    commit="0" * 40, collection="toy-v1", scope_prefix="", exclude=[], circom="circom",
+                    circom_version_tag="v2.2.3", lean_env="env.json", node="node", work="w", out="o")
+        base.update(kw)
+        return D.WaveConfig(**base)
+
+    def shared(self, cfg: D.WaveConfig) -> D.Shared:
+        from zk_registry import circom_source as cs
+        from zk_registry import lean_runner as L
+        env = L.LeanEnv("/tc", [], "v4.33.1", {"mathlib": "c" * 40}, H, "/scratch")
+        files = cs.scan_repo(cfg.repo_dir, cs.list_circom_files(cfg.repo_dir))
+        return D.Shared(cfg, env, files, set(), None, H, "2.2.3", "v22", {"name": "g", "version": "1",
+                                                                          "sources_sha256": H})
+
+    def test_path_rules_select_prime_and_library_paths(self) -> None:
+        cfg = self.cfg("/r", include_paths=["node_modules"], path_rules=[
+            {"prefix": "circuits.gl/", "prime": "goldilocks", "include_paths": ["circuits.gl"]},
+            {"prefix": "circuits.bn128/", "include_paths": ["circuits.bn128", "node_modules/circomlib/circuits"]}])
+        self.assertEqual(D.build_options(cfg, "circuits.gl/fft.circom")[:2], ("goldilocks", ["circuits.gl"]))
+        self.assertEqual(D.build_options(cfg, "circuits.bn128/fft.circom")[:2],
+                         (None, ["circuits.bn128", "node_modules/circomlib/circuits"]))
+        self.assertEqual(D.build_options(cfg, "src/x.circom")[:2], (None, ["node_modules"]))
+        # recorded flags are repository-relative; the compiler gets absolute library paths
+        self.assertEqual(D.option_flags("goldilocks", ["circuits.gl"]), ["--prime", "goldilocks", "-l", "circuits.gl"])
+        self.assertEqual(D.option_flags(None, ["../node_modules"], "/a/repo"), ["-l", "/a/node_modules"])
+        self.assertEqual(D.option_flags(None, []), [])
+
+    def test_statement_assumptions_follow_the_prime(self) -> None:
+        self.assertEqual(P.statement_assumptions("bn128"), [
+            "[Fact (Nat.Prime p)]: primality of the circom prime, supplied as an instance hypothesis so that field "
+            "lemmas apply; p is the published BN254 scalar field order (prime), so the hypothesis does not "
+            "weaken the statement."])                                  # byte-identical to wave 0
+        self.assertIn("Goldilocks prime 2^64 - 2^32 + 1", P.statement_assumptions("goldilocks")[0])
+        self.assertIn("BLS12-381", P.statement_assumptions("bls12381")[0])
+
+    def test_main_free_copy_blanks_only_the_main_declaration(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            src = 'pragma circom 2.0.0;\ntemplate A(n) { signal input x; signal output y; y <== x; }\n' \
+                  '// component main = A(9);\ncomponent main {public [x]} = A(\n  3);\n'
+            Path(tmp, "a.circom").write_text(src, encoding="utf-8")
+            cfg = self.cfg(tmp)
+            sh = self.shared(cfg)
+            copy_path = D.main_free_copy(sh, "a.circom")
+            self.assertEqual(copy_path, os.path.join(tmp, "a.circom.boole-nomain"))
+            text = Path(copy_path).read_text(encoding="utf-8")
+            self.assertEqual((len(text), text.count("\n")), (len(src), src.count("\n")))
+            self.assertIn("template A(n) { signal input x;", text)
+            self.assertNotIn("public", text)
+            self.assertIn("// component main = A(9);", text)           # comments are left alone
+            from zk_registry import circom_source as cs
+            self.assertEqual(cs.find_templates(cs.strip_comments(text), "a")[0].name, "A")
+            self.assertFalse(cs._MAIN_RE.search(cs.strip_comments(text)))
+            self.assertNotIn("a.circom.boole-nomain", cs.list_circom_files(tmp))   # never scanned as a source
+            Path(tmp, "b.circom").write_text("template B() {}\n", encoding="utf-8")
+            self.assertIsNone(D.main_free_copy(self.shared(cfg), "b.circom"))
+
+    def test_record_for_a_template_in_a_non_circom_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "v.circom.ejs").write_text("<% x %>\ntemplate Main() {\n}\n", encoding="utf-8")
+            deps = [{"name": "circomlib", "version": "2.0.5", "source": "https://registry.npmjs.org/c.tgz",
+                     "path": "node_modules/circomlib", "tarball_sha256": H, "resolved_by": "lockfile yarn.lock"}]
+            cfg = self.cfg(tmp, ledger_item_prefix="toy:CC/", dependencies=deps)
+            rec = D.missing_record(self.shared(cfg), "v.circom.ejs#Main")
+            self.assertEqual(rec["status"], "UNINSTANTIABLE")
+            self.assertEqual(rec["ids"]["ledger_item_id"], "toy:CC/v.circom.ejs#Main")
+            self.assertEqual(rec["ids"]["template_line"], 2)
+            self.assertIn("not a .circom source", rec["status_reason"])
+            self.assertEqual(P.validate_problem(rec), [])
+            bad = copy.deepcopy(rec)
+            bad["ids"]["dependencies"][0]["extra"] = 1
+            self.assertTrue(P.validate_problem(bad))
+
+    def test_schema_accepts_the_main_removal_flag(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg, rec = make_package(tmp)
+            rec["instantiation"]["include_main_removed"] = True
+            self.assertEqual(P.validate_problem(rec, pkg), [])
+            rec["instantiation"]["include_main_removed"] = "yes"
+            self.assertTrue(P.validate_problem(rec, pkg))
+
 
 if __name__ == "__main__":
     unittest.main()

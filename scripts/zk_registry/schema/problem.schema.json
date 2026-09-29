@@ -43,7 +43,26 @@
         "path": {"type": "string", "minLength": 1},
         "template": {"type": "string", "minLength": 1},
         "template_line": {"type": "integer", "minimum": 1},
-        "source_sha256": {"$ref": "#/$defs/sha256"}
+        "source_sha256": {"$ref": "#/$defs/sha256"},
+        "dependencies": {
+          "description": "Library packages materialized next to the checkout for compilation (pinned by the repository's lockfile, build script or submodule gitlink).",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "version", "source", "path"],
+            "additionalProperties": false,
+            "properties": {
+              "name": {"type": "string", "minLength": 1},
+              "registry_name": {"type": "string"},
+              "version": {"type": "string", "minLength": 1},
+              "source": {"type": "string", "minLength": 1},
+              "path": {"type": "string", "minLength": 1},
+              "integrity": {"type": "string"},
+              "tarball_sha256": {"$ref": "#/$defs/sha256"},
+              "resolved_by": {"type": "string"}
+            }
+          }
+        }
       }
     },
     "instantiation": {
@@ -59,6 +78,7 @@
         "provenance": {"type": "array", "items": {"type": "string"}},
         "selection": {"type": "string"},
         "include_context": {"type": "string"},
+        "include_main_removed": {"description": "The included file also declares a component main, which was blanked in a sibling copy for this compilation.", "type": "boolean"},
         "main_sha256": {"$ref": "#/$defs/sha256"},
         "candidates": {
           "type": "array",

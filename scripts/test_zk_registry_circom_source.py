@@ -31,6 +31,17 @@ class ScannerTests(unittest.TestCase):
         self.assertNotIn("template", clean)
         self.assertIn('"p//q.circom"', clean)
 
+    def test_comment_stripping_edge_cases(self) -> None:
+        cases = ['a /* open', 'x "s // t" y // z', r'q "a\"b // c" d', 'e "unterminated // x', 'f "\\', '/**/g']
+        want = ['a        ', 'x "s // t" y     ', r'q "a\"b // c" d', 'e "unterminated // x', 'f "\\', '    g']
+        self.assertEqual([cs.strip_comments(c) for c in cases], want)
+
+    def test_blank_mains_keeps_templates_offsets_and_comments(self) -> None:
+        src = "template T() {}\n/* component main = T(); */\ncomponent main\n  = T();\ntemplate U() {}\n"
+        out = cs.blank_mains(src)
+        self.assertEqual(out, "template T() {}\n/* component main = T(); */\n" + " " * 14 + "\n" + " " * 8 +
+                         "\ntemplate U() {}\n")
+
     def test_templates_params_and_signals(self) -> None:
         files, _ = scan()
         gates = files["circuits/gates.circom"]
