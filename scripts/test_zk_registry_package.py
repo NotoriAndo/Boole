@@ -1,0 +1,209 @@
+#!/usr/bin/env python3
+"""problem.json schema, validator, identities, wave selection and summary (offline)."""
+from __future__ import annotations
+
+import copy
+import json
+import os
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from zk_registry import circom_det as D        # noqa: E402
+from zk_registry import jsonschema_lite as J   # noqa: E402
+from zk_registry import lean_emit as E         # noqa: E402
+from zk_registry import package as P           # noqa: E402
+from zk_registry import r1cs as R              # noqa: E402
+
+FIX = Path(__file__).resolve().parents[1] / "fixtures" / "zk-registry" / "toy-circuit"
+H = "ab" * 32
+ENV = {"circom": "2.2.3", "circom_binary_sha256": H, "lean": "v4.33.1", "mathlib": "c" * 40,
+       "lake_manifest_sha256": H, "packages": {"mathlib": "c" * 40}, "node": "v22", "python": "3.9"}
+
+
+def make_package(root: str, status: str = "OPEN") -> tuple[str, dict]:
+    """A package built from the toy fixture with the same emitters the wave uses."""
+    r = R.read_r1cs(str(FIX / "toy.r1cs"))
+    syms = R.read_sym(str(FIX / "toy.sym"))
+    io = R.main_io_wires(r, syms)
+    ns = P.lean_namespace("toy-v1", "toy.Toy")
+    meta = {"repo_id": "toy/repo", "instantiation": "Toy()", "generator": "gen v1", "repo_url": "https://example.invalid/t",
+            "commit": "0" * 40, "path": "toy.circom", "template": "Toy", "rule": "parameter-free",
+            "circom_version": "2.2.3", "circom_flags": D.CIRCOM_FLAGS, "r1cs_sha256": H, "prime_name": "bn128"}
+    pkg = os.path.join(root, "toy.Toy")
+    model_rel = E.model_relpath(ns)
+    os.makedirs(os.path.dirname(os.path.join(pkg, model_rel)))
+    Path(pkg, model_rel).write_text(E.emit_model(ns, meta, r, io.outputs, io.inputs, R.wire_names(syms, r.n_wires)),
+                                    encoding="utf-8")
+    statement = E.emit_statement(ns, meta)
+    Path(pkg, "Statement.lean").write_text(statement, encoding="utf-8")
+    passed = {"status": "PASS"}
+    rec = {
+        "schema_version": P.SCHEMA_VERSION, "package_id": "toy-v1/toy.Toy", "property": dict(P.DET_PROPERTY),
+        "status": status, "status_reason": "fixture",
+        "ids": {"ledger_item_id": "toy/repo:toy.circom#Toy", "repo": "toy/repo", "repo_url": "https://example.invalid/t",
+                "release": "v1", "commit": "0" * 40, "path": "toy.circom", "template": "Toy", "template_line": 6,
+                "source_sha256": H},
+        "instantiation": {"rule": "parameter-free", "args": [], "call": "Toy()", "provenance": ["toy.circom:6 Toy()"],
+                          "selection": "only candidate", "candidates": [{"tier": "parameter-free", "call": "Toy()",
+                                                                         "compile": "ok", "constraints": 2, "wires": 7}]},
+        "spec": dict(P.DET_SPEC),
+        "circuit": {"compiler": {"name": "circom", "version": "2.2.3", "flags": D.CIRCOM_FLAGS, "binary_sha256": H},
+                    "prime": str(R.BN254_SCALAR), "prime_name": "bn128", "n_constraints": 2, "n_wires": 7,
+                    "n_inputs": 3, "n_outputs": 2, "r1cs_sha256": H,
+                    "size_policy": {"max_constraints": P.MAX_CONSTRAINTS, "within": True}},
+        "statement": {"file": "Statement.lean", "theorem": "det", "theorem_fqn": f"{ns}.det",
+                      "model_module": E.model_module(ns), "model_file": model_rel, "text": statement,
+                      "assumptions": list(P.STATEMENT_ASSUMPTIONS), "truth": "unknown"},
+        "gates": {"G-ELAB": dict(passed), "G-NONVAC": dict(passed), "G-FID": dict(passed), "G-TRIV": dict(passed),
+                  "DET-SEARCH": dict(passed)},
+        "checker": {"statement_file": "Statement.lean", "theorem": "det", "theorem_fqn": f"{ns}.det",
+                    "lean_opts": list(E.LEAN_OPTIONS),
+                    "files": [{"path": "Statement.lean", "role": "statement",
+                               "sha256": P.sha256_file(os.path.join(pkg, "Statement.lean"))},
+                              {"path": model_rel, "role": "import", "module": E.model_module(ns),
+                               "sha256": P.sha256_file(os.path.join(pkg, model_rel))}],
+                    "reference_type_sha256": H, "replay_tool_sha256": P.sha256_file(D.G.REPLAY_TOOL),
+                    "allowed_axioms": ["Classical.choice", "Quot.sound", "propext"],
+                    "forbidden_tokens": D.C.FORBIDDEN_LABELS},
+        "env": dict(ENV), "generator": P.generator_info(), "evidence": {},
+    }
+    P.write_json(os.path.join(pkg, "problem.json"), rec)
+    return pkg, rec
+
+
+class SchemaValidatorTests(unittest.TestCase):
+    def test_subset_keywords(self) -> None:
+        schema = {"type": "object", "required": ["a"], "additionalProperties": False,
+                  "properties": {"a": {"type": "integer", "minimum": 1}, "b": {"enum": ["x"]}},
+                  "if": {"properties": {"a": {"const": 2}}}, "then": {"required": ["b"]}}
+        self.assertEqual(J.validate({"a": 1}, schema), [])
+        self.assertEqual(J.validate({"a": 2}, schema), ["$: missing required property 'b'"])
+        self.assertEqual(len(J.validate({"a": 0, "c": 1}, schema)), 2)
+        self.assertEqual(J.validate(True, {"type": "integer"}), ["$: expected integer"])
+
+    def test_unsupported_keywords_are_schema_errors(self) -> None:
+        with self.assertRaises(J.SchemaError):
+            J.validate({}, {"uniqueItems": True})
+        with self.assertRaises(J.SchemaError):
+            J.validate({}, {"$ref": "http://x/y"})
+
+    def test_schema_file_uses_only_supported_keywords(self) -> None:
+        schema = P.load_schema()
+        self.assertEqual(J.validate({}, schema)[:1], ["$: missing required property 'schema_version'"])
+
+
+class ProblemValidationTests(unittest.TestCase):
+    def test_open_package_validates_with_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg, rec = make_package(tmp)
+            self.assertEqual(P.validate_problem(rec, pkg), [])
+
+    def test_open_requires_passing_gates_and_unknown_truth(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            _, rec = make_package(tmp)
+            bad = copy.deepcopy(rec)
+            bad["gates"]["G-TRIV"]["status"] = "FAIL"
+            self.assertTrue(P.validate_problem(bad))
+            bad = copy.deepcopy(rec)
+            del bad["gates"]["DET-SEARCH"]
+            self.assertTrue(P.validate_problem(bad))
+            bad = copy.deepcopy(rec)
+            bad["statement"]["truth"] = "closed-by-automation"
+            self.assertTrue(P.validate_problem(bad))
+            gf = copy.deepcopy(rec)
+            gf["status"] = "GATE-FAIL"
+            gf["gates"]["G-TRIV"]["status"] = "FAIL"
+            gf["statement"]["truth"] = "closed-by-automation"
+            self.assertEqual(P.validate_problem(gf), [])
+
+    def test_file_hash_and_statement_text_are_checked(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg, rec = make_package(tmp)
+            model = os.path.join(pkg, rec["statement"]["model_file"])
+            with open(model, "a", encoding="utf-8") as f:
+                f.write("-- edit\n")
+            self.assertIn(f"sha256 mismatch for {rec['statement']['model_file']}", P.validate_problem(rec, pkg))
+            rec2 = copy.deepcopy(rec)
+            rec2["statement"]["text"] += " "
+            self.assertIn("statement.text differs from Statement.lean", P.validate_problem(rec2, pkg))
+
+    def test_index_only_statuses(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            _, rec = make_package(tmp)
+            tl = {k: v for k, v in rec.items() if k not in ("statement", "checker", "gates")}
+            tl["status"] = "TOO-LARGE"
+            self.assertTrue(P.validate_problem(tl))            # within the size policy
+            tl["circuit"] = dict(tl["circuit"], n_constraints=5000,
+                                 size_policy={"max_constraints": P.MAX_CONSTRAINTS, "within": False})
+            self.assertEqual(P.validate_problem(tl), [])
+            un = {k: v for k, v in rec.items() if k not in ("circuit", "gates")}
+            un["status"] = "UNINSTANTIABLE"
+            self.assertIn("UNINSTANTIABLE record must not carry 'statement'", P.validate_problem(un))
+
+
+class IdentityTests(unittest.TestCase):
+    def test_package_names_and_namespaces(self) -> None:
+        self.assertEqual(P.package_dir_name("circuits/bitify.circom", "Num2Bits", ("253",)), "bitify.Num2Bits.253")
+        self.assertEqual(P.package_dir_name("circuits/smt/smtlevins.circom", "SMTLevIns", ("10",)),
+                         "smt.smtlevins.SMTLevIns.10")
+        self.assertEqual(P.package_dir_name("circuits/compconstant.circom", "CompConstant", ("-1",)),
+                         "compconstant.CompConstant.m1")
+        self.assertRegex(P.package_dir_name("circuits/x.circom", "T", ("16+1", "POSEIDON_C(17)")), r"^x\.T\.h[0-9a-f]{10}$")
+        self.assertEqual(P.lean_namespace("circomlib-v2.0.5", "bitify.Num2Bits.253"),
+                         "ZkDet.circomlib_v2_0_5_bitify_Num2Bits_253")
+
+    def test_generator_hash_covers_the_sources(self) -> None:
+        info = P.generator_info()
+        self.assertRegex(info["sources_sha256"], r"^[0-9a-f]{64}$")
+        here = Path(__file__).resolve().parent / "zk_registry"
+        listed = set(P.GENERATOR_SOURCES)
+        present = {str(p.relative_to(here)) for p in here.rglob("*") if p.is_file() and p.suffix in (".py", ".js", ".lean", ".json")}
+        self.assertEqual(present - listed, set())
+
+
+class WaveHelpersTests(unittest.TestCase):
+    def rec(self, tier, call, n, w=10):
+        return {"tier": tier, "call": call, "compile_result": {"constraints": n, "wires": w}}
+
+    def test_selection_prefers_the_largest_candidate_within_the_policy(self) -> None:
+        recs = [self.rec("repo-test", "T(1)", 2), self.rec("repo-test", "T(253)", 254), self.rec("repo-test", "T(900)", 2500)]
+        chosen, fits = D.select(recs, "repo-test", 2000)
+        self.assertEqual((chosen["call"], fits), ("T(253)", True))
+        chosen, fits = D.select([self.rec("repo-main", "S(512)", 9000), self.rec("repo-main", "S(448)", 8000)], "repo-main", 2000)
+        self.assertEqual((chosen["call"], fits), ("S(448)", False))
+
+    def test_summary_counts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            _, rec = make_package(tmp)
+        tl = {k: v for k, v in rec.items() if k not in ("statement", "checker", "gates")}
+        tl.update(status="TOO-LARGE", circuit=dict(rec["circuit"], n_constraints=40000))
+        gf = copy.deepcopy(rec)
+        gf.update(status="GATE-FAIL")
+        gf["gates"]["G-TRIV"] = {"status": "FAIL", "closed_by": ["triv_V1_grind"]}
+        s = D.summarize([rec, tl, gf])
+        self.assertEqual(s["by_status"], {"OPEN": 1, "TOO-LARGE": 1, "UNINSTANTIABLE": 0, "GATE-FAIL": 1,
+                                          "DET-FALSE-CANDIDATE": 0})
+        self.assertEqual({h["bucket"]: h["count"] for h in s["constraint_histogram"]}["1-10"], 2)
+        self.assertEqual({h["bucket"]: h["count"] for h in s["constraint_histogram"]}["10001-100000"], 1)
+        self.assertEqual(s["gates"]["G-TRIV"], {"PASS": 1, "FAIL": 1})
+        self.assertEqual(s["triv_closures"], [{"package_id": "toy-v1/toy.Toy", "closed_by": ["triv_V1_grind"]}])
+        self.assertIn("| OPEN | 1 |", D.render_report(s, [rec, tl, gf], {"repo": "toy"}))
+
+    def test_index_validation_detects_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg, rec = make_package(tmp)
+            index = os.path.join(tmp, "INDEX.jsonl")
+            Path(index).write_text(json.dumps(rec) + "\n", encoding="utf-8")
+            self.assertEqual(D.validate_all(index, tmp), [])
+            rec["status_reason"] = "changed"
+            Path(index).write_text(json.dumps(rec) + "\n", encoding="utf-8")
+            self.assertEqual(D.validate_all(index, tmp), ["line 1 toy-v1/toy.Toy: problem.json differs from the index record"])
+
+
+if __name__ == "__main__":
+    unittest.main()

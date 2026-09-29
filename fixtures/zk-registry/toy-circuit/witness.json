@@ -1,0 +1,5 @@
+{
+ "comment": "Real witness of toy.circom from circom 2.2.3 (--O0) and its wasm witness generator via scripts/zk_registry/witness_runner.js",
+ "input": {"a": ["3"], "b": ["5", "11"]},
+ "witness": ["1", "36", "10", "3", "5", "11", "15"]
+}

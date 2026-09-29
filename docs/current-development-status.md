@@ -1,6 +1,6 @@
 # Boole — current development status
 
-Updated: 2026-09-27. This is the tracked entrypoint for current progress and the
+Updated: 2026-09-30. This is the tracked entrypoint for current progress and the
 ordered development roadmap. Edit it in place; execution evidence stays in its
 own result record. Local Master/Execution documents link here instead of owning
 a second current cursor. Work methods follow the
@@ -18,7 +18,19 @@ twelve-hour delegation.
 
 ## Current boundary
 
-**Priority: U1 prerequisites, selected by the user on September 27.** The first
+**Priority: ZK verification problem production, selected by the user on
+September 29.** Protocol-authored Lean problems about real ZK code (miners only
+prove) replace generated puzzles as the useful-work direction. A measured census
+of zkVM, zkEVM, proof-system, verifier, cryptographic, gadget, application and
+chain-program code found no item with full machine-checked coverage; a 30-item
+pilot produced 17 non-trivial problems, 15 of which a strong model proved with
+independent kernel checks. The first deterministic generator produces output-
+determinism (DET) problem packages from Circom templates; its first wave over
+circomlib v2.0.5 yielded 48 open packages. See the
+[problem registry](zk-problem-registry.md) for the templates, gates, package
+format and limits. Nothing is issued, rewarded or activated; BF.7 remains HOLD.
+
+**Previous priority: U1 prerequisites (September 27), now paused.** The first
 [metered tuple verifier candidate](u1-metered-tuple-verifier.md) connects a bounded
 typed generated task to the existing deterministic interpreter, actual 64-prefix
 answer comparison and canonical result bytes. A local CLI distinguishes
