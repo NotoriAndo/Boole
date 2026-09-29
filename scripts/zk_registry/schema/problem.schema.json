@@ -1,0 +1,254 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://boole.local/schemas/zk-registry-problem-v1.json",
+  "title": "ZK registry problem package (problem.json), version 1",
+  "description": "One record per template instantiation. OPEN, GATE-FAIL and DET-FALSE-CANDIDATE records describe a package directory with Lean files; TOO-LARGE and UNINSTANTIABLE records are index rows without Lean files.",
+  "type": "object",
+  "required": ["schema_version", "package_id", "property", "status", "status_reason", "ids", "instantiation", "spec", "env", "generator"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": "zk-registry-problem/v1"},
+    "package_id": {"type": "string", "pattern": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$"},
+    "property": {
+      "type": "object",
+      "required": ["template", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "template": {"enum": ["DET"]},
+        "name": {"type": "string", "minLength": 1}
+      }
+    },
+    "status": {"enum": ["OPEN", "TOO-LARGE", "UNINSTANTIABLE", "GATE-FAIL", "DET-FALSE-CANDIDATE"]},
+    "status_reason": {"type": "string"},
+    "ids": {
+      "type": "object",
+      "required": ["ledger_item_id", "repo", "repo_url", "release", "commit", "path", "template", "template_line", "source_sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "ledger_item_id": {"type": "string", "minLength": 1},
+        "ledger": {
+          "type": "object",
+          "required": ["file", "sha256", "row_found"],
+          "additionalProperties": false,
+          "properties": {
+            "file": {"type": "string"},
+            "sha256": {"$ref": "#/$defs/sha256"},
+            "row_found": {"type": "boolean"}
+          }
+        },
+        "repo": {"type": "string", "pattern": "^[^/\\s]+/[^/\\s]+$"},
+        "repo_url": {"type": "string", "pattern": "^https://"},
+        "release": {"type": "string"},
+        "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "path": {"type": "string", "minLength": 1},
+        "template": {"type": "string", "minLength": 1},
+        "template_line": {"type": "integer", "minimum": 1},
+        "source_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "instantiation": {
+      "type": "object",
+      "required": ["rule", "args", "call", "provenance", "selection", "candidates"],
+      "additionalProperties": false,
+      "properties": {
+        "rule": {"enum": ["parameter-free", "repo-main", "repo-test", "repo-internal", "repo-derived", "documented-default", "none"]},
+        "rule_order": {"type": "array", "items": {"type": "string"}},
+        "args": {"type": "array", "items": {"type": "string"}},
+        "call": {"type": "string"},
+        "params": {"type": "array", "items": {"type": "string"}},
+        "provenance": {"type": "array", "items": {"type": "string"}},
+        "selection": {"type": "string"},
+        "include_context": {"type": "string"},
+        "main_sha256": {"$ref": "#/$defs/sha256"},
+        "candidates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["tier", "call", "compile"],
+            "additionalProperties": false,
+            "properties": {
+              "tier": {"type": "string"},
+              "call": {"type": "string"},
+              "compile": {"enum": ["ok", "error", "skipped"]},
+              "include_context": {"type": "string"},
+              "constraints": {"type": "integer", "minimum": 0},
+              "wires": {"type": "integer", "minimum": 1},
+              "error": {"type": "string"}
+            }
+          }
+        }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "required": ["tier", "source", "clauses", "sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "tier": {"const": "T1"},
+        "source": {"type": "string"},
+        "clauses": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "circuit": {
+      "type": "object",
+      "required": ["compiler", "prime", "prime_name", "n_constraints", "n_wires", "size_policy"],
+      "additionalProperties": false,
+      "properties": {
+        "compiler": {
+          "type": "object",
+          "required": ["name", "version", "flags", "binary_sha256"],
+          "additionalProperties": false,
+          "properties": {
+            "name": {"const": "circom"},
+            "version": {"type": "string"},
+            "flags": {"type": "array", "items": {"type": "string"}},
+            "binary_sha256": {"$ref": "#/$defs/sha256"},
+            "source": {"type": "string"}
+          }
+        },
+        "prime": {"type": "string", "pattern": "^[0-9]+$"},
+        "prime_name": {"type": "string"},
+        "n_constraints": {"type": "integer", "minimum": 0},
+        "n_wires": {"type": "integer", "minimum": 1},
+        "n_inputs": {"type": "integer", "minimum": 0},
+        "n_outputs": {"type": "integer", "minimum": 0},
+        "r1cs_sha256": {"$ref": "#/$defs/sha256"},
+        "sym_sha256": {"$ref": "#/$defs/sha256"},
+        "size_policy": {
+          "type": "object",
+          "required": ["max_constraints", "within"],
+          "additionalProperties": false,
+          "properties": {
+            "max_constraints": {"type": "integer", "minimum": 1},
+            "within": {"type": "boolean"}
+          }
+        }
+      }
+    },
+    "statement": {
+      "type": "object",
+      "required": ["file", "theorem", "theorem_fqn", "model_module", "model_file", "text", "assumptions", "truth"],
+      "additionalProperties": false,
+      "properties": {
+        "file": {"const": "Statement.lean"},
+        "theorem": {"type": "string"},
+        "theorem_fqn": {"type": "string"},
+        "model_module": {"type": "string"},
+        "model_file": {"type": "string"},
+        "text": {"type": "string"},
+        "assumptions": {"type": "array", "items": {"type": "string"}},
+        "truth": {"enum": ["unknown", "false-counterexample-found", "closed-by-automation"]}
+      }
+    },
+    "gates": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "G-ELAB": {"$ref": "#/$defs/gate"},
+        "G-NONVAC": {"$ref": "#/$defs/gate"},
+        "G-FID": {"$ref": "#/$defs/gate"},
+        "G-TRIV": {"$ref": "#/$defs/gate"},
+        "DET-SEARCH": {"$ref": "#/$defs/gate"}
+      }
+    },
+    "checker": {
+      "type": "object",
+      "required": ["statement_file", "theorem", "theorem_fqn", "lean_opts", "files", "reference_type_sha256", "replay_tool_sha256", "allowed_axioms", "forbidden_tokens"],
+      "additionalProperties": false,
+      "properties": {
+        "statement_file": {"const": "Statement.lean"},
+        "theorem": {"type": "string"},
+        "theorem_fqn": {"type": "string"},
+        "lean_opts": {"type": "array", "items": {"type": "string"}},
+        "files": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "object",
+            "required": ["path", "role", "sha256"],
+            "additionalProperties": false,
+            "properties": {
+              "path": {"type": "string"},
+              "role": {"enum": ["statement", "import"]},
+              "module": {"type": "string"},
+              "sha256": {"$ref": "#/$defs/sha256"}
+            }
+          }
+        },
+        "reference_type_sha256": {"$ref": "#/$defs/sha256"},
+        "replay_tool_sha256": {"$ref": "#/$defs/sha256"},
+        "allowed_axioms": {"type": "array", "items": {"type": "string"}},
+        "forbidden_tokens": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "env": {
+      "type": "object",
+      "required": ["circom", "lean", "mathlib", "lake_manifest_sha256", "node", "python"],
+      "additionalProperties": false,
+      "properties": {
+        "circom": {"type": "string"},
+        "circom_binary_sha256": {"$ref": "#/$defs/sha256"},
+        "lean": {"type": "string"},
+        "mathlib": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "lake_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "packages": {"type": "object", "additionalProperties": {"type": "string"}},
+        "node": {"type": "string"},
+        "python": {"type": "string"}
+      }
+    },
+    "generator": {
+      "type": "object",
+      "required": ["name", "version", "sources_sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {"type": "string"},
+        "version": {"type": "string"},
+        "sources_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "evidence": {"type": "object"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"enum": ["OPEN", "GATE-FAIL", "DET-FALSE-CANDIDATE"]}}},
+      "then": {"required": ["circuit", "statement", "gates", "checker"]}
+    },
+    {
+      "if": {"properties": {"status": {"const": "TOO-LARGE"}}},
+      "then": {
+        "required": ["circuit"],
+        "properties": {"circuit": {"properties": {"size_policy": {"properties": {"within": {"const": false}}}}}}
+      }
+    },
+    {
+      "if": {"properties": {"status": {"const": "OPEN"}}},
+      "then": {
+        "properties": {
+          "gates": {
+            "required": ["G-ELAB", "G-NONVAC", "G-FID", "G-TRIV", "DET-SEARCH"],
+            "properties": {
+              "G-ELAB": {"properties": {"status": {"const": "PASS"}}},
+              "G-NONVAC": {"properties": {"status": {"const": "PASS"}}},
+              "G-FID": {"properties": {"status": {"const": "PASS"}}},
+              "G-TRIV": {"properties": {"status": {"const": "PASS"}}}
+            }
+          },
+          "statement": {"properties": {"truth": {"const": "unknown"}}}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"status": {"const": "DET-FALSE-CANDIDATE"}}},
+      "then": {"properties": {"statement": {"properties": {"truth": {"const": "false-counterexample-found"}}}}}
+    }
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "gate": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {"status": {"enum": ["PASS", "FAIL", "SKIPPED", "ERROR"]}}
+    }
+  }
+}
