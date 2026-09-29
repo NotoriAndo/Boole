@@ -291,6 +291,49 @@ class Wave1FixTests(unittest.TestCase):
             bad["ids"]["dependencies"][0]["extra"] = 1
             self.assertTrue(P.validate_problem(bad))
 
+    def test_compile_guard_stops_on_the_watch_hook_and_output_size(self) -> None:
+        from zk_registry import lean_runner as L
+        with tempfile.TemporaryDirectory() as tmp:
+            r = L.run_process(["sleep", "30"], dict(os.environ), tmp, 60, watch=lambda: "stop now", poll_s=0.05)
+            self.assertEqual(r.killed_by, "stop now")
+            self.assertLess(r.secs, 10)
+            self.assertEqual(D.output_guard(tmp, 1), "")
+            Path(tmp, "main.r1cs").write_bytes(b"\0" * (1024 * 1024 + 1))
+            self.assertEqual(D.output_guard(tmp, 1), "compiler output > 1 MB")
+            self.assertEqual(D.output_guard(tmp, 2), "")
+
+    def test_a_guard_stopped_candidate_decides_the_tier(self) -> None:
+        from zk_registry import instantiation as I
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "a.circom").write_text("template A(n) {\n signal input x;\n}\n", encoding="utf-8")
+            cfg = self.cfg(tmp, work=os.path.join(tmp, "w"), out=os.path.join(tmp, "o"), keep_work=False)
+            sh = self.shared(cfg)
+            t = sh.files["a.circom"].templates[0]
+            plan = I.TemplatePlan(t, {"repo-main": [I.Candidate("repo-main", ("900",), ["a:1"])],
+                                      "repo-test": [I.Candidate("repo-test", ("2",), ["b:1"])]})
+
+            def fake_compile(sh_, workdir, include_rel, template, args, flags, rule_path=None):
+                os.makedirs(workdir, exist_ok=True)
+                res = {"rc": 0, "include_context": include_rel, "main_sha256": H, "flags": flags}
+                if args == ("900",):
+                    return dict(res, rc=-1, guard="stopped by the resource guard (compiler output > 1536 MB)",
+                                error="stopped by the resource guard (compiler output > 1536 MB)")
+                return dict(res, constraints=10, wires=12, r1cs_sha256=H)
+
+            saved = D.compile_main
+            D.compile_main = fake_compile
+            try:
+                tier, records = D.size_candidates(sh, plan, os.path.join(tmp, "w"))
+                self.assertEqual((tier, len(records)), ("repo-main", 1))        # the repo-test tier is not reached
+                rec = D.process_template(sh, plan)
+            finally:
+                D.compile_main = saved
+            self.assertEqual(rec["status"], "UNINSTANTIABLE")
+            self.assertIn("resource guard", rec["status_reason"])
+            self.assertEqual(rec["instantiation"]["candidates"][0]["compile"], "error")
+            self.assertEqual(P.validate_problem(rec), [])
+            self.assertFalse(os.path.exists(os.path.join(tmp, "w", "items", "a.A")))   # keep_work=False
+
     def test_schema_accepts_the_main_removal_flag(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             pkg, rec = make_package(tmp)

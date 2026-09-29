@@ -107,18 +107,26 @@ class RunResult:
     timeout: bool
     memkill: bool = False
     peak_rss_mb: int = 0
+    killed_by: str = ""                   # reason returned by the ``watch`` hook, if it stopped the run
 
 
-def run_process(cmd: list[str], env: dict, cwd: str, timeout: float, rss_limit_mb: int | None = None) -> RunResult:
-    """Run ``cmd`` in its own session; kill the whole group on timeout or when RSS exceeds the limit."""
+def run_process(cmd: list[str], env: dict, cwd: str, timeout: float, rss_limit_mb: int | None = None,
+                watch=None, poll_s: float = 2.0) -> RunResult:
+    """Run ``cmd`` in its own session; kill the whole group on timeout, when RSS exceeds the limit, or
+    when ``watch()`` (called every poll) returns a non-empty reason."""
     t0 = time.time()
     p = subprocess.Popen(cmd, env=env, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                          start_new_session=True)
-    state = {"memkill": False, "peak": 0}
+    state = {"memkill": False, "peak": 0, "killed_by": ""}
     stop = threading.Event()
 
     def guard() -> None:
-        while not stop.wait(2.0):
+        while not stop.wait(poll_s):
+            why = watch() if watch else ""
+            if why:
+                state["killed_by"] = why
+                _kill(p)
+                return
             try:
                 o = subprocess.run(["ps", "-o", "rss=", "-p", str(p.pid)], capture_output=True, text=True).stdout.strip()
                 kb = int(o) if o else 0
@@ -141,7 +149,7 @@ def run_process(cmd: list[str], env: dict, cwd: str, timeout: float, rss_limit_m
         out, _ = p.communicate()
     stop.set()
     return RunResult(p.returncode, out.decode("utf-8", "replace"), round(time.time() - t0, 2), timed_out,
-                     state["memkill"], state["peak"] // 1024)
+                     state["memkill"], state["peak"] // 1024, state["killed_by"])
 
 
 def _kill(p: subprocess.Popen) -> None:

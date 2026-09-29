@@ -137,9 +137,14 @@ class WaveConfig:
     dependencies: list[dict] = field(default_factory=list)
     # ledger item id prefix when it is not "<repo_id>:" (census ids such as "pil-stark:CC/<path>#<T>")
     ledger_item_prefix: str | None = None
-    # resource guard for circom runs: a compile above this RSS or wall time is stopped and recorded
+    # resource guard for circom runs: a compile above this RSS, wall time or output size is stopped and recorded
     compile_rss_mb: int = 12288
     compile_timeout_s: float = 900
+    compile_output_mb: int = 1536
+    # total sizing wall time per template; later candidates are recorded as skipped
+    sizing_budget_s: float = 2400
+    # keep per-template work directories after the record is written (wave 0 kept them)
+    keep_work: bool = True
 
     @staticmethod
     def load(path: str) -> "WaveConfig":
@@ -219,6 +224,18 @@ def main_free_copy(sh: Shared, include_rel: str) -> str | None:
     return dest
 
 
+def output_guard(workdir: str, limit_mb: int) -> str:
+    """Non-empty when the files under ``workdir`` exceed ``limit_mb`` (a compile writing a huge R1CS)."""
+    total = 0
+    for root, _, names in os.walk(workdir):
+        for n in names:
+            try:
+                total += os.path.getsize(os.path.join(root, n))
+            except OSError:
+                pass
+    return f"compiler output > {limit_mb} MB" if total > limit_mb * 1024 * 1024 else ""
+
+
 def compile_main(sh: Shared, workdir: str, include_rel: str, template: str, args: tuple[str, ...],
                  flags: list[str], rule_path: str | None = None) -> dict:
     os.makedirs(workdir, exist_ok=True)
@@ -234,11 +251,13 @@ def compile_main(sh: Shared, workdir: str, include_rel: str, template: str, args
     with open(os.path.join(workdir, "main.portable.circom"), "w", encoding="utf-8") as f:
         f.write(portable)
     run = L.run_process([sh.cfg.circom, "main.circom", *flags, *option_flags(prime, libs, sh.cfg.repo_dir), "-o", "."],
-                        dict(os.environ), workdir, sh.cfg.compile_timeout_s, sh.cfg.compile_rss_mb)
+                        dict(os.environ), workdir, sh.cfg.compile_timeout_s, sh.cfg.compile_rss_mb,
+                        watch=lambda: output_guard(workdir, sh.cfg.compile_output_mb))
     log, rc = run.out, run.rc
     guard = None
-    if run.timeout or run.memkill:
-        what = f"RSS > {sh.cfg.compile_rss_mb} MB" if run.memkill else f"wall time > {sh.cfg.compile_timeout_s:g} s"
+    if run.timeout or run.memkill or run.killed_by:
+        what = (run.killed_by or (f"RSS > {sh.cfg.compile_rss_mb} MB" if run.memkill else
+                                  f"wall time > {sh.cfg.compile_timeout_s:g} s"))
         guard = f"stopped by the resource guard ({what})"
         log, rc = f"circom {guard}\n" + log, -1
     log = re.sub(r"\x1b\[[0-9;]*m", "", log)
@@ -263,25 +282,35 @@ def compile_main(sh: Shared, workdir: str, include_rel: str, template: str, args
 
 
 def size_candidates(sh: Shared, plan: I.TemplatePlan, dir_base: str) -> tuple[str | None, list[dict]]:
-    """Compile candidates tier by tier; returns (tier used, candidate records)."""
+    """Compile candidates tier by tier; returns (tier used, candidate records).
+
+    The first tier with a compiled candidate, or with a candidate stopped by the resource guard
+    (compiling, but too large to finish), is used.  After ``sizing_budget_s`` the remaining
+    candidates are recorded as skipped."""
     t = plan.template
     records_all = []
+    t0 = time.time()
     for tier, cands in plan.tiers_in_order():
         records = []
         for c in cands[:I.MAX_DERIVED_PER_TEMPLATE]:
             slug = P.args_slug(c.args) or "noargs"
             rec = {"tier": tier, "call": f"{t.name}{c.call}", "args": list(c.args), "provenance": c.provenance}
+            if time.time() - t0 > sh.cfg.sizing_budget_s:
+                rec["compile_result"] = {"rc": None, "include_context": t.path,
+                                         "skipped": f"sizing budget of {sh.cfg.sizing_budget_s:g} s exhausted"}
+                records.append(rec)
+                continue
             for ctx in include_contexts(sh.files, t.path):
                 res = compile_main(sh, os.path.join(dir_base, "size", slug, re.sub(r"[^A-Za-z0-9]+", "_", ctx)),
                                    ctx, t.name, c.args, SIZE_FLAGS, rule_path=t.path)
                 if res.get("r1cs") and os.path.exists(res["r1cs"]):
                     os.remove(res["r1cs"])        # sizes and digest are kept; large systems would fill the disk
                 rec["compile_result"] = res
-                if res["rc"] == 0 and "constraints" in res:
-                    break
+                if (res["rc"] == 0 and "constraints" in res) or res.get("guard"):
+                    break                         # compiled, or compiling but stopped by the guard
             records.append(rec)
         records_all += records
-        if any(r["compile_result"]["rc"] == 0 and "constraints" in r["compile_result"] for r in records):
+        if any("constraints" in r["compile_result"] or r["compile_result"].get("guard") for r in records):
             return tier, records_all
     return None, records_all
 
@@ -303,12 +332,13 @@ def candidate_summary(records: list[dict]) -> list[dict]:
     out = []
     for r in records:
         cr = r["compile_result"]
-        row = {"tier": r["tier"], "call": r["call"][:300], "compile": "ok" if "constraints" in cr else "error",
+        row = {"tier": r["tier"], "call": r["call"][:300],
+               "compile": "ok" if "constraints" in cr else "skipped" if cr.get("skipped") else "error",
                "include_context": cr["include_context"]}
         if "constraints" in cr:
             row.update(constraints=cr["constraints"], wires=cr["wires"])
         else:
-            row["error"] = cr.get("error", "")[:300]
+            row["error"] = (cr.get("skipped") or cr.get("error", ""))[:300]
         out.append(row)
     return out
 
@@ -350,6 +380,21 @@ def circuit_record(sh: Shared, r: R.R1cs | None, cr: dict, n_in=None, n_out=None
 
 
 def process_template(sh: Shared, plan: I.TemplatePlan) -> dict:
+    rec = None
+    try:
+        rec = _process_template(sh, plan)
+        return rec
+    finally:
+        if not sh.cfg.keep_work:          # the record and the package are written; the work tree is not needed
+            t = plan.template
+            dirs = {P.package_dir_name(t.path, t.name, (), sh.cfg.scope_prefix)}
+            if rec is not None:
+                dirs.add(rec["package_id"].split("/", 1)[1])
+            for d in dirs:
+                shutil.rmtree(os.path.join(sh.cfg.work, "items", d), ignore_errors=True)
+
+
+def _process_template(sh: Shared, plan: I.TemplatePlan) -> dict:
     t = plan.template
     t0 = time.time()
     dir_probe = P.package_dir_name(t.path, t.name, (), sh.cfg.scope_prefix)
@@ -362,14 +407,14 @@ def process_template(sh: Shared, plan: I.TemplatePlan) -> dict:
                                   "params": t.params, "provenance": [], "selection": "no candidate", "candidates": []})
         return _done(rec, t0)
     tier, records = size_candidates(sh, plan, work)
-    if tier is None:
+    if tier is None or not any("constraints" in r["compile_result"] for r in records if r["tier"] == tier):
         rec = base_record(sh, t, dir_probe)
         guarded = [r for r in records if r["compile_result"].get("guard")]
         reason = "no candidate instantiation compiles with circom (see candidates)"
         if guarded:
             reason = (f"no candidate instantiation compiles within the resource guard: {len(guarded)} of "
-                      f"{len(records)} compiles were {guarded[0]['compile_result']['guard']} (size unknown; "
-                      f"decomposition candidate), the others failed (see candidates)")
+                      f"{len(records)} candidate compiles were {guarded[0]['compile_result']['guard']} (size "
+                      f"unknown; decomposition candidate), the others failed or were skipped (see candidates)")
         rec.update(status="UNINSTANTIABLE", status_reason=reason,
                    instantiation={"rule": "none", "rule_order": rule_order, "args": [], "call": "", "params": t.params,
                                   "provenance": [], "selection": "no candidate compiled",
