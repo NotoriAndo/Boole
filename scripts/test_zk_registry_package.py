@@ -335,6 +335,26 @@ class Wave1FixTests(unittest.TestCase):
             self.assertEqual(P.validate_problem(rec), [])
             self.assertFalse(os.path.exists(os.path.join(tmp, "w", "items", "a.A")))   # keep_work=False
 
+    def test_scrub_removes_truncated_and_unknown_local_paths(self) -> None:
+        from types import SimpleNamespace
+        home = os.path.expanduser("~")
+        sh = SimpleNamespace(cfg=SimpleNamespace(work="/w/work", repo_dir="/w/repo"),
+                             env=SimpleNamespace(scratch="/w/scratch", toolchain="/w/tc"))
+        rec = {"evidence": {"generator_errors": {
+            "Constraint doesn't match 5 != 53 /private/tmp/sess-x/scratch/repos/r/circ": 1,   # truncated at 120
+            "err /w/repo/a/b.circom:3": 2, f"at {home}/projects/x.js:1": 3, "!= 0 /private/tmp": 4,
+            'quoted "/tmp/q/r" end': 5}},
+            "ids": {"repo_url": "https://github.com/Users/tmp"}}
+        out = json.dumps(D.scrub(sh, rec))
+        for leak in ("/private/tmp", home, "sess-x"):
+            self.assertNotIn(leak, out)
+        self.assertIn("err $REPO/a/b.circom:3", out)
+        self.assertIn("https://github.com/Users/tmp", out)
+        self.assertIn('quoted \\"$LOCAL\\" end', out)                      # JSON escapes survive
+        from zk_registry import witness as W
+        self.assertEqual(W.error_key("Error: Constraint doesn't match 5 != 53 /x/y/scratch/repos/r/mux.circom:12:4\nmore"),
+                         "Error: Constraint doesn't match 5 != 53 mux.circom:12:4")
+
     def test_schema_accepts_the_main_removal_flag(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             pkg, rec = make_package(tmp)

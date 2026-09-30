@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import re
 import subprocess
 from dataclasses import dataclass
 
@@ -184,6 +185,15 @@ def run_generator(node: str, wc_js: str, wasm: str, inputs: list[dict], workdir:
     return res
 
 
+_ABS_PATH_RE = re.compile(r"(?:/[^\s/'\":]+)+/([^\s/'\"]+)")
+
+
+def error_key(err: str | None) -> str:
+    """First line of a witness generator error, absolute paths shortened to their file name, at most 120
+    characters (records carry no local paths)."""
+    return _ABS_PATH_RE.sub(r"\1", (err or "").split("\n")[0])[:120]
+
+
 def collect_real(r: R.R1cs, signals: list[InputSignal], generated: list[GeneratedWitness], want: int):
     """Distinct (by input vector) generator witnesses that the oracle accepts, in sampling order.
 
@@ -192,7 +202,7 @@ def collect_real(r: R.R1cs, signals: list[InputSignal], generated: list[Generate
     seen, accepted, oracle_rejected, errors = set(), [], [], {}
     for g in generated:
         if g.witness is None:
-            key = (g.error or "").split("\n")[0][:120]
+            key = error_key(g.error)
             errors[key] = errors.get(key, 0) + 1
             continue
         vec = input_vector(g.inputs, signals)

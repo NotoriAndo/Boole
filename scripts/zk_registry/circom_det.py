@@ -691,15 +691,21 @@ def _done(rec: dict, t0: float) -> dict:
     return rec
 
 
+# absolute paths under local roots that survive the known-path replacement (e.g. a message truncated in the
+# middle of a path): replaced by $LOCAL up to the next delimiter
+_LOCAL_PATH_RE = re.compile(r"(?<![A-Za-z0-9_$.:/])/(?:private|tmp|var|Users|home)(?:/[^\s\\\"',;)]*)?")
+
+
 def scrub(sh: Shared, rec: dict) -> dict:
-    """Replace local paths (work directory, checkout, scratch, home) in gate messages by placeholders."""
+    """Replace local paths (work directory, checkout, scratch, home) in gate messages by placeholders; any
+    remaining absolute path under a local root (/private, /tmp, /var, /Users, /home) becomes ``$LOCAL``."""
     text = json.dumps(rec, sort_keys=True, ensure_ascii=False)
     for path, tag in ((sh.cfg.work, "$WORK"), (sh.cfg.repo_dir, "$REPO"), (sh.env.scratch, "$SCRATCH"),
                       (sh.env.toolchain, "$TOOLCHAIN"), (os.path.expanduser("~"), "$HOME")):
         for variant in {path, os.path.realpath(path)}:
             if variant and len(variant) > 1:
                 text = text.replace(json.dumps(variant)[1:-1], tag)
-    return json.loads(text)
+    return json.loads(_LOCAL_PATH_RE.sub("$LOCAL", text))
 
 
 def build_package(sh: Shared, t: cs.Template, rec: dict, size_cr: dict, dir_name: str, work: str,
