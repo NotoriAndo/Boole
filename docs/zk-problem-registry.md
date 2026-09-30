@@ -58,6 +58,29 @@ DET truth is unknown for every OPEN package. Several OPEN packages for linear or
 battery should be strengthened in the next revision. Packages and the wave report are kept in the operator's local
 workspace, not in this repository.
 
+## Wave 1 (all other Circom templates in the frozen ledger)
+
+1,876 ledger rows from 49 repositories were deduplicated by normalized source content to 1,661 distinct templates
+(215 in-wave duplicates mapped to their canonical template; none matched a wave-0 circomlib template).
+
+| Status | Count |
+|---|---:|
+| OPEN | 319 |
+| GATE-FAIL (127 closed by the automation battery) | 170 |
+| DET-FALSE-CANDIDATE (private) | 23 |
+| TOO-LARGE | 373 |
+| UNINSTANTIABLE | 775 |
+| ERROR (unsupported bus-typed output) | 1 |
+
+Main reasons for UNINSTANTIABLE: parameters that cannot be determined from the repository, sub-component signal
+accesses rejected by circom 2.2.3, circom 1 sources, tagged inputs (not packaged, because a wrapper would drop the
+tag precondition and could yield spurious counterexamples) and custom gates that have no R1CS form. Every row is
+recorded with its reason. Generator fixes made for this wave: multi-repository include paths and prime rules,
+includer contexts, custom-template pragmas and custom-gate rejection, a compile-output size guard and sizing budget,
+and Lean recursion limits (regression tests in `scripts/test_zk_registry_*.py`).
+
+Waves 0 and 1 together: **367 OPEN** DET packages.
+
 ## Limits
 
 - Closed-local artifacts; no registry service, issuance, receipt or reward path is wired.
