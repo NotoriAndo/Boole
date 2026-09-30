@@ -264,9 +264,11 @@ def plan_templates(files: dict[str, cs.SourceFile], scope: list[str], repo_id: s
 
 
 def main_source(template_path_abs: str, template: str, args: tuple[str, ...], pragma: str = "2.0.0",
-                comment: str | None = None) -> str:
-    """The generated main file for one instantiation (``comment``: an optional leading line)."""
+                comment: str | None = None, custom_templates: bool = False) -> str:
+    """The generated main file for one instantiation (``comment``: an optional leading line;
+    ``custom_templates``: the included files declare ``pragma custom_templates``)."""
     return ((f"// {comment}\n" if comment else "") +
-            f'pragma circom {pragma};\n'
+            f'pragma circom {pragma};\n' +
+            ("pragma custom_templates;\n" if custom_templates else "") +
             f'include "{template_path_abs}";\n'
             f'component main = {template}({", ".join(args)});\n')

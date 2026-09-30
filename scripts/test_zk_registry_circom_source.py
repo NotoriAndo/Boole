@@ -107,6 +107,36 @@ class InstantiationRuleTests(unittest.TestCase):
         self.assertEqual(D.include_contexts(files, "circuits/sub/needs_context.circom"),
                          ["circuits/sub/needs_context.circom", "circuits/top.circom"])
 
+    def test_harness_includers_are_tried_after_library_includers(self) -> None:
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "c").mkdir()
+            (root / "c/defs.circom").write_text("function K() { return 3; }\n", encoding="utf-8")
+            (root / "c/lib.circom").write_text("template L() { var k = K(); }\n", encoding="utf-8")
+            (root / "c/top.circom").write_text('include "defs.circom";\ninclude "lib.circom";\n'
+                                               "component main = L();\n", encoding="utf-8")
+            (root / "c/wrap.circom").write_text('include "lib.circom";\ntemplate W() { component l = L(); }\n',
+                                                encoding="utf-8")
+            (root / "test").mkdir()
+            (root / "test/t.circom").write_text('include "../c/defs.circom";\ninclude "../c/lib.circom";\n'
+                                                "component main = L();\n", encoding="utf-8")
+            files = cs.scan_repo(tmp, cs.list_circom_files(tmp))
+            self.assertEqual(D.include_contexts(files, "c/lib.circom"), ["c/lib.circom", "c/wrap.circom", "c/top.circom"])
+
+    def test_custom_templates_pragma_follows_the_include_closure(self) -> None:
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "g.circom").write_text("pragma circom 2.1.0;\npragma custom_templates;\ntemplate custom G() {}\n",
+                                             encoding="utf-8")
+            Path(tmp, "u.circom").write_text('include "g.circom";\ntemplate U() {}\n', encoding="utf-8")
+            Path(tmp, "v.circom").write_text("// pragma custom_templates;\ntemplate V() {}\n", encoding="utf-8")
+            files = cs.scan_repo(tmp, cs.list_circom_files(tmp))
+            self.assertTrue(D.uses_custom_templates_pragma(files, "u.circom"))
+            self.assertFalse(D.uses_custom_templates_pragma(files, "v.circom"))      # comments do not count
+        self.assertEqual(I.main_source("g.circom", "G", (), custom_templates=True),
+                         'pragma circom 2.0.0;\npragma custom_templates;\ninclude "g.circom";\ncomponent main = G();\n')
+
     def test_main_source(self) -> None:
         self.assertEqual(I.main_source("circuits/gates.circom", "Table", ("2", "[5,7]")),
                          'pragma circom 2.0.0;\ninclude "circuits/gates.circom";\ncomponent main = Table(2, [5,7]);\n')

@@ -146,17 +146,24 @@ def parse_r1cs(data: bytes) -> R1cs:
                 list(sections))
 
 
+SECTION_CUSTOM_GATES_LIST = 4
+SECTION_CUSTOM_GATES_USES = 5
+
+
 @dataclass
 class R1csHeader:
     prime: int
     n_wires: int
     n_constraints: int
+    custom_gate_uses: int = 0             # applications of circom custom gates (section 5), not in the R1CS
 
 
 def read_header(path: str) -> R1csHeader:
     """Prime, wire and constraint counts from the header section only (no constraint parsing, so
-    very large systems can be sized cheaply); same header checks as :func:`parse_r1cs`."""
+    very large systems can be sized cheaply); same header checks as :func:`parse_r1cs`.  Also the
+    number of custom gate applications (section 5, written by circom for custom templates)."""
     size = os.path.getsize(path)
+    header, uses = None, 0
     with open(path, "rb") as f:
         head = f.read(12)
         if len(head) < 12 or head[:4] != b"r1cs":
@@ -183,9 +190,13 @@ def read_header(path: str) -> R1csHeader:
                 n_wires, _, _, _, _, n_cons = struct.unpack_from("<IIIIQI", data, 4 + n8)
                 if prime < 2:
                     raise R1csFormatError("bad prime")
-                return R1csHeader(prime, n_wires, n_cons)
+                header = (prime, n_wires, n_cons)
+            elif stype == SECTION_CUSTOM_GATES_USES and ssize >= 4:
+                (uses,) = struct.unpack("<I", f.read(4))
             off += ssize
-    raise R1csFormatError("header or constraint section missing")
+    if header is None:
+        raise R1csFormatError("header or constraint section missing")
+    return R1csHeader(*header, custom_gate_uses=uses)
 
 
 def read_r1cs(path: str) -> R1cs:

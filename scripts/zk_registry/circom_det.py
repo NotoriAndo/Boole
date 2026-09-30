@@ -174,16 +174,18 @@ class Shared:
 # ------------------------------------------------------------------------------------------ compile
 
 def include_contexts(files: dict, target_path: str) -> list[str]:
-    """The template's own file, then library files whose include closure reaches it (nearest first)."""
+    """The template's own file, then library files whose include closure reaches it (nearest first),
+    then non-test files with their own ``component main`` that reach it (compiled through their
+    main-free copy; some repositories include shared definitions only from their top-level circuits)."""
     out = [target_path]
     ranked = []
     for path, sf in files.items():
-        if path == target_path or sf.is_harness or path.startswith("test/"):
+        if path == target_path or path.startswith("test/"):
             continue
         closure = cs.include_closure(files, path)
         if target_path in closure:
-            ranked.append((closure.index(target_path), len(closure), path))
-    out += [p for _, _, p in sorted(ranked)]
+            ranked.append((sf.is_harness, closure.index(target_path), len(closure), path))
+    out += [p for *_, p in sorted(ranked)]
     return out
 
 
@@ -224,6 +226,15 @@ def main_free_copy(sh: Shared, include_rel: str) -> str | None:
     return dest
 
 
+_CUSTOM_PRAGMA_RE = re.compile(r"\bpragma\s+custom_templates\s*;")
+
+
+def uses_custom_templates_pragma(files: dict, include_rel: str) -> bool:
+    """Whether a file in the include closure declares ``pragma custom_templates`` (circom then
+    requires the pragma in the main file as well)."""
+    return any(_CUSTOM_PRAGMA_RE.search(files[p].clean) for p in cs.include_closure(files, include_rel))
+
+
 def output_guard(workdir: str, limit_mb: int) -> str:
     """Non-empty when the files under ``workdir`` exceed ``limit_mb`` (a compile writing a huge R1CS)."""
     total = 0
@@ -241,13 +252,15 @@ def compile_main(sh: Shared, workdir: str, include_rel: str, template: str, args
     os.makedirs(workdir, exist_ok=True)
     prime, libs, _ = build_options(sh.cfg, rule_path or include_rel)
     nomain = main_free_copy(sh, include_rel)
+    custom = uses_custom_templates_pragma(sh.files, include_rel)
     main = os.path.join(workdir, "main.circom")
     with open(main, "w", encoding="utf-8") as f:
-        f.write(I.main_source(nomain or os.path.join(sh.cfg.repo_dir, include_rel), template, args))
+        f.write(I.main_source(nomain or os.path.join(sh.cfg.repo_dir, include_rel), template, args,
+                              custom_templates=custom))
     # the recorded main names the include relative to the repository root (no local paths)
     portable = I.main_source(include_rel, template, args,
                              comment=(f"compiled with the component main declaration of {include_rel} blanked"
-                                      if nomain else None))
+                                      if nomain else None), custom_templates=custom)
     with open(os.path.join(workdir, "main.portable.circom"), "w", encoding="utf-8") as f:
         f.write(portable)
     run = L.run_process([sh.cfg.circom, "main.circom", *flags, *option_flags(prime, libs, sh.cfg.repo_dir), "-o", "."],
@@ -276,6 +289,13 @@ def compile_main(sh: Shared, workdir: str, include_rel: str, template: str, args
         res["error"] = " | ".join(err[:4])[:400] or log[-400:]
         return res
     hdr = R.read_header(r1cs_path)
+    if hdr.custom_gate_uses:
+        # PLONK custom gates are not part of the R1CS constraints; a model of the R1CS alone would
+        # be incomplete, so no size is reported and the candidate cannot be packaged
+        res["error"] = (f"the instantiation uses {hdr.custom_gate_uses} circom custom gate application(s) "
+                        "(PLONK custom templates), which the R1CS model cannot represent")
+        res["custom_gates"] = hdr.custom_gate_uses
+        return res
     res.update(constraints=hdr.n_constraints, wires=hdr.n_wires, r1cs=r1cs_path, sym=os.path.join(workdir, "main.sym"),
                r1cs_sha256=sha256_file(r1cs_path))
     return res
@@ -306,8 +326,8 @@ def size_candidates(sh: Shared, plan: I.TemplatePlan, dir_base: str) -> tuple[st
                 if res.get("r1cs") and os.path.exists(res["r1cs"]):
                     os.remove(res["r1cs"])        # sizes and digest are kept; large systems would fill the disk
                 rec["compile_result"] = res
-                if (res["rc"] == 0 and "constraints" in res) or res.get("guard"):
-                    break                         # compiled, or compiling but stopped by the guard
+                if (res["rc"] == 0 and "constraints" in res) or res.get("guard") or res.get("custom_gates"):
+                    break                         # compiled (or stopped by the guard / custom gates)
             records.append(rec)
         records_all += records
         if any("constraints" in r["compile_result"] or r["compile_result"].get("guard") for r in records):
