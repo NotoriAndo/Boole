@@ -6,7 +6,11 @@ proofs of the generated statements.
 
 * ``r1cs``            iden3 ``.r1cs`` / ``.sym`` reader and an independent R1CS evaluator
 * ``circom_source``   light circom source scanner (templates, signals, includes, mains)
+* ``circom_eval``     compile-time integer evaluation and ``for``-loop structure of template bodies
 * ``instantiation``   instantiation rules for parametric templates
+* ``tags``            known circom input tags as DET preconditions; the untagged wrapper main
+* ``content``         content identity of templates (deduplication by content and parameters)
+* ``decompose``       decomposition of TOO-LARGE instantiations into sub-component packages
 * ``lean_emit``       Lean model / statement / harness emitters
 * ``witness``         input sampling, witness generation and mutants
 * ``det_search``      cheap searches for output-determinism counterexamples
@@ -19,4 +23,4 @@ proofs of the generated statements.
 """
 
 GENERATOR_NAME = "boole-zk-registry-circom-det"
-GENERATOR_VERSION = "1.2"
+GENERATOR_VERSION = "1.3"
