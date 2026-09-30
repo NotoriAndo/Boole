@@ -73,6 +73,42 @@ class Circom1Tests(unittest.TestCase):
                          [("input", "a", ["2"]), ("input", "b", []), ("output", "c", [])])
 
 
+class AttemptTests(unittest.TestCase):
+    def test_every_attempt_keeps_its_own_error(self) -> None:
+        from zk_registry import lean_runner as L
+        H = "ab" * 32
+        with tempfile.TemporaryDirectory() as tmp:
+            write(tmp, "a.circom", "pragma circom 2.0.0;\ntemplate A(n) { signal input x; }\n")
+            cfg = D.WaveConfig(repo_dir=tmp, repo_id="t/r", repo_url="https://x", release="r", commit="0" * 40,
+                               collection="c", scope_prefix="", exclude=[], circom="c", circom_version_tag="v2.2.3",
+                               lean_env="e", node="n", work=os.path.join(tmp, "w"), out=os.path.join(tmp, "o"))
+            env = L.LeanEnv("/tc", [], "v4.33.1", {}, H, "/s")
+            comps = {t: D.Compiler(t, "circom2", t, t[1:], H) for t in ("v2.0.9", "v2.1.9", "v2.2.3")}
+            sh = D.Shared(cfg, env, cs.scan_repo(tmp, cs.list_circom_files(tmp)), set(), None, H, "2.2.3", "v22",
+                          {"name": "g", "version": "1", "sources_sha256": H}, comps)
+            errors = {"v2.0.9": "error[T3001]: False assert reached | previous errors were found",
+                      "v2.1.9": "error[T3001]: False assert reached", "v2.2.3": "error[T2046]: Bus or signal not defined"}
+
+            def fake(sh_, workdir, include_rel, template, args, full, rule_path=None, compiler=None, tag_template=None):
+                return {"rc": 1, "include_context": include_rel, "main_sha256": H, "flags": [],
+                        "compiler": compiler.tag, "error": errors[compiler.tag]}
+            saved = D.compile_main
+            D.compile_main = fake
+            try:
+                t = sh.files["a.circom"].templates[0]
+                _, recs = D.size_candidates(sh, I.TemplatePlan(t, {"repo-main": [I.Candidate("repo-main", ("2",), [])]}),
+                                            os.path.join(tmp, "w"))
+            finally:
+                D.compile_main = saved
+            attempts = recs[0]["compile_result"]["attempts"]
+            self.assertEqual([(a["compiler"], a["result"]) for a in attempts], [
+                ("v2.0.9", "error: error[T3001]: False assert reached"),
+                ("v2.1.9", "error: error[T3001]: False assert reached"),
+                ("v2.2.3", "error: error[T2046]: Bus or signal not defined")])
+            row = D.candidate_summary(recs)[0]
+            self.assertTrue(row["error"].startswith("v2.0.9: error[T3001]"))       # the pragma-line compiler first
+
+
 class DigestTests(unittest.TestCase):
     def test_compiler_digests_are_checked(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

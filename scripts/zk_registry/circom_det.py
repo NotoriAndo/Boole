@@ -516,8 +516,7 @@ def size_candidates(sh: Shared, plan: I.TemplatePlan, dir_base: str,
                     if res.get("r1cs") and os.path.exists(res["r1cs"]):
                         os.remove(res["r1cs"])    # sizes and digest are kept; large systems would fill the disk
                     rec["compile_result"] = res
-                    attempts.append({"include_context": ctx, "compiler": tag,
-                                     "result": "ok" if "constraints" in res else (res.get("guard") or "error")})
+                    attempts.append({"include_context": ctx, "compiler": tag, "result": attempt_result(res)})
                     if (res["rc"] == 0 and "constraints" in res) or res.get("guard") or res.get("custom_gates"):
                         break                     # compiled (or stopped by the guard / custom gates)
                 else:
@@ -529,6 +528,15 @@ def size_candidates(sh: Shared, plan: I.TemplatePlan, dir_base: str,
         if any("constraints" in r["compile_result"] or r["compile_result"].get("guard") for r in records):
             return tier, records_all
     return None, records_all
+
+
+def attempt_result(res: dict) -> str:
+    """One compile attempt: ``ok``, the guard reason, or ``error: <first error>``."""
+    if "constraints" in res:
+        return "ok"
+    if res.get("guard"):
+        return res["guard"]
+    return ("error: " + (res.get("error") or "").split(" | ")[0])[:200]
 
 
 def select(records: list[dict], tier: str, max_constraints: int) -> tuple[dict, bool]:
@@ -559,6 +567,10 @@ def candidate_summary(records: list[dict]) -> list[dict]:
             row.update(constraints=cr["constraints"], wires=cr["wires"])
         else:
             row["error"] = (cr.get("skipped") or cr.get("error", ""))[:300]
+            first = next((a for a in cr.get("attempts") or [] if a["result"].startswith("error: ")), None)
+            if first and len(cr.get("attempts") or []) > 1:
+                # the preferred (pragma-line) compiler's error first; the last attempt's error follows
+                row["error"] = f"{first['compiler']}: {first['result'][7:]} || last: {row['error']}"[:300]
         out.append(row)
     return out
 
