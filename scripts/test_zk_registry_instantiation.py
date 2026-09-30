@@ -61,6 +61,14 @@ class EvalTests(unittest.TestCase):
         self.assertEqual([lp.var for lp in V.enclosing_loops(loops, pos)], ["i"])
 
 
+class ResolveTests(unittest.TestCase):
+    def test_indexing_a_substituted_array_literal_is_folded(self) -> None:
+        env = {"N_ROUNDS_P": "[56, 57, 56, 60]", "t": "3", "nRoundsP": "N_ROUNDS_P[t - 2]"}
+        self.assertEqual(I.resolve_args(["nRoundsP", "(8\\2)*t + nRoundsP"], env, set()), ("57", "(8\\2)*3+57"))
+        # an index that does not evaluate is left to circom (and the argument is still closed)
+        self.assertEqual(I.resolve_args(["N_ROUNDS_P[f(t)]"], env, {"f"}), ("[56,57,56,60][f(3)]",))
+
+
 class ChainTests(unittest.TestCase):
     def test_chains_through_parametric_test_wrappers_and_loops(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

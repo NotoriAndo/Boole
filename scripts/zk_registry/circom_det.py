@@ -45,6 +45,8 @@ if __package__ in (None, ""):
 
 from zk_registry import check as C                # noqa: E402
 from zk_registry import circom_source as cs       # noqa: E402
+from zk_registry import content as CT             # noqa: E402
+from zk_registry import decompose as DC           # noqa: E402
 from zk_registry import det_search                # noqa: E402
 from zk_registry import gates as G                # noqa: E402
 from zk_registry import instantiation as I        # noqa: E402
@@ -1076,6 +1078,183 @@ def validate_all(index_path: str, packages_dir: str, collections_root: bool = Fa
     return problems
 
 
+# ------------------------------------------------------------------------------------------ decomposition
+
+def _size_node(sh: Shared, node: dict, work: str) -> None:
+    """Size one harvested child instantiation (same compiler selection, tag wrapper and guard as the wave)."""
+    t = node["template"]
+    pre = None
+    if TG.input_tags(t):
+        try:
+            pre = TG.preconditions(t)
+        except TG.TagError as exc:
+            node["error"] = f"tagged inputs: {exc}"
+            return
+    plan = I.TemplatePlan(t, {DC.RULE: [I.Candidate(DC.RULE, node["args"], node["provenance"][:1])]})
+    _, recs = size_candidates(sh, plan, work, wrapper=pre is not None)
+    node["size_records"] = recs
+    cr = recs[0]["compile_result"]
+    if "constraints" in cr:
+        node.update(constraints=cr["constraints"], wires=cr["wires"])
+    else:
+        node["error"] = (cr.get("guard") or cr.get("skipped") or cr.get("error") or "compile failed")[:400]
+        node["guard"] = bool(cr.get("guard"))
+
+
+def _package_node(sh: Shared, key: str, node: dict, variants: list[dict]) -> dict:
+    """The package of the selected harvested instantiation of one template content."""
+    t, args = node["template"], node["args"]
+    t0 = time.time()
+    pre = TG.preconditions(t) if TG.input_tags(t) else None
+    chosen = node["size_records"][0]
+    cr = chosen["compile_result"]
+    dir_name = P.package_dir_name(t.path, t.name, args, sh.cfg.scope_prefix)
+    inst = {"rule": DC.RULE, "rule_order": [DC.RULE], "args": list(args), "call": chosen["call"], "params": t.params,
+            "provenance": node["provenance"][:6],
+            "selection": ("largest compiled constraint count within the size policy among the harvested "
+                          "sub-component instantiations of this template content (decomposition of TOO-LARGE "
+                          "instantiations)"),
+            "include_context": cr["include_context"], "main_sha256": cr["main_sha256"],
+            "candidates": candidate_summary([r for v in variants for r in v["size_records"]][:40]),
+            "decomposition": {"parents": node["parents"][:20], "n_parents": len(node["parents"]),
+                              "depth": node["depth"], "content_sha256": node["group"][1],
+                              "variants": len(variants), "instance_key": key}}
+    if cr.get("main_removed"):
+        inst["include_main_removed"] = True
+    if pre is not None:
+        inst["tag_wrapper"] = {"wrapper": TG.WRAPPER, "tagged_inputs": TG.input_tags(t),
+                               "tag_table_source": "; ".join(sorted({TG.KNOWN_TAGS[p.tag]["source"] for p in pre}))}
+    rec = base_record(sh, t, dir_name)
+    rec["env"] = sh.env_record(compiler_of(sh, cr))
+    rec["instantiation"] = inst
+    work = os.path.join(sh.cfg.work, "items", dir_name)
+    try:
+        rec = _done(build_package(sh, t, rec, cr, dir_name, work, pre), t0)
+    finally:
+        if not sh.cfg.keep_work:
+            shutil.rmtree(work, ignore_errors=True)
+    if rec["status"] in P.PACKAGED_STATUSES:
+        rec = scrub(sh, rec)
+        P.write_json(os.path.join(sh.cfg.out, dir_name, "problem.json"), rec)
+    return scrub(sh, rec)
+
+
+def run_decompose(cfgs: list[WaveConfig], parents_file: str, existing_file: str, edges_out: str, jobs: int,
+                  max_depth: int = DC.MAX_DEPTH) -> dict:
+    """Harvest, size, select and package the sub-component instantiations of the TOO-LARGE parents in
+    ``parents_file`` (one JSON object per line: collection, package_id, path, template, args, call).
+    ``existing_file``: instance keys of existing packages (key, package_id).  Writes one INDEX.jsonl per
+    configuration ``out`` and every parent -> child edge with its resolution to ``edges_out``."""
+    shs = {}
+    for cfg in cfgs:
+        sh, _, _ = prepare(cfg)
+        os.makedirs(cfg.out, exist_ok=True)
+        os.makedirs(cfg.work, exist_ok=True)
+        shs[cfg.collection] = sh
+    existing = {}
+    with open(existing_file, encoding="utf-8") as f:
+        for line in f:
+            row = json.loads(line)
+            existing.setdefault(row["key"], row["package_id"])
+    names = {c: {t.name for sf in sh.files.values() for t in sf.templates} for c, sh in shs.items()}
+    caches: dict[str, dict] = {c: {} for c in shs}
+    frontier = []
+    with open(parents_file, encoding="utf-8") as f:
+        for line in f:
+            p = json.loads(line)
+            sh = shs[p["collection"]]
+            t = next(x for x in sh.files[p["path"]].templates if x.name == p["template"])
+            frontier.append((sh, t, tuple(p["args"]), 0, {"package_id": p["package_id"], "call": p["call"]}))
+    nodes: dict[str, dict] = {}
+    edges: list[dict] = []
+    unresolved = []
+    level = 0
+    while frontier:
+        level += 1
+        new_keys = []
+        for sh, t, args, depth, ref in frontier:
+            coll = sh.cfg.collection
+            kids, unres = I.children_of(sh.files, t, args, sh.functions, names[coll])
+            if unres:
+                unresolved.append({"parent": ref, "unresolved_call_sites": unres})
+            for child, cargs, prov in kids:
+                content = CT.content_hash(sh.files, child.path, child.name, caches[coll])
+                prime = build_options(sh.cfg, child.path)[0] or "bn128"
+                key = CT.instance_key(prime, content, cargs)
+                call = f"{child.name}({', '.join(cargs)})"
+                edges.append({"parent": ref, "child_key": key, "collection": coll, "child_path": child.path,
+                              "child_template": child.name, "child_call": call[:300], "provenance": prov[:400],
+                              "depth": depth + 1})
+                if key in existing:
+                    continue
+                if key in nodes:
+                    if len(nodes[key]["parents"]) < 200:
+                        nodes[key]["parents"].append(ref)
+                    continue
+                nodes[key] = {"sh": sh, "template": child, "args": cargs, "depth": depth + 1,
+                              "group": (prime, content), "call": call, "provenance": [prov], "parents": [ref]}
+                new_keys.append(key)
+        print(f"decompose level {level}: {len(frontier)} parents, {len(new_keys)} new child instantiations",
+              flush=True)
+        with cf.ThreadPoolExecutor(max_workers=jobs) as ex:
+            futs = {ex.submit(_size_node, nodes[k]["sh"], nodes[k],
+                              os.path.join(nodes[k]["sh"].cfg.work, "decompose", f"n{abs(hash(k)) % 10**12}")): k
+                    for k in new_keys}
+            for fut in cf.as_completed(futs):
+                k = futs[fut]
+                try:
+                    fut.result()
+                except Exception as exc:  # recorded, never dropped
+                    nodes[k]["error"] = f"generator error: {type(exc).__name__}: {exc}"[:400]
+                shutil.rmtree(os.path.join(nodes[k]["sh"].cfg.work, "decompose", f"n{abs(hash(k)) % 10**12}"),
+                              ignore_errors=True)
+        frontier = []
+        for k in new_keys:
+            n = nodes[k]
+            big = (n.get("constraints") or 0) > n["sh"].cfg.max_constraints or n.get("guard")
+            if big and n["depth"] < max_depth:
+                n["expanded"] = True
+                frontier.append((n["sh"], n["template"], n["args"], n["depth"], {"key": k, "call": n["call"]}))
+    max_c = min(sh.cfg.max_constraints for sh in shs.values())
+    chosen = DC.select_variants({k: {"group": n["group"], "constraints": n.get("constraints"), "wires": n.get("wires", 0),
+                                     "call": n["call"]} for k, n in nodes.items()}, max_c)
+    selected = sorted(set(chosen.values()))
+    print(f"decompose: {len(nodes)} new child instantiations, {len(chosen)} within the size policy, "
+          f"{len(selected)} template contents to package", flush=True)
+    packaged: dict[str, dict] = {}
+    with cf.ThreadPoolExecutor(max_workers=jobs) as ex:
+        futs = {ex.submit(_package_node, nodes[k]["sh"], k, nodes[k],
+                          [nodes[v] for v in chosen if chosen[v] == k]): k for k in selected}
+        for i, fut in enumerate(cf.as_completed(futs), 1):
+            k = futs[fut]
+            try:
+                rec = fut.result()
+            except Exception as exc:  # recorded, never dropped
+                n = nodes[k]
+                rec = base_record(n["sh"], n["template"], P.package_dir_name(n["template"].path, n["template"].name,
+                                                                         n["args"], n["sh"].cfg.scope_prefix))
+                rec.update(status="UNINSTANTIABLE", status_reason=f"generator error: {type(exc).__name__}: {exc}"[:600],
+                           instantiation={"rule": DC.RULE, "args": list(n["args"]), "call": n["call"],
+                                          "provenance": n["provenance"][:6], "selection": "generator error",
+                                          "candidates": []})
+                rec = scrub(n["sh"], rec)
+            packaged[k] = rec
+            print(f"[{i}/{len(selected)}] {rec['package_id']}: {rec['status']} "
+                  f"({rec.get('evidence', {}).get('wall_secs', '?')} s)", flush=True)
+    by_out: dict[str, list] = {sh.cfg.out: [] for sh in shs.values()}
+    for k, rec in packaged.items():
+        by_out[nodes[k]["sh"].cfg.out].append(rec)
+    for out, recs in by_out.items():
+        write_index(out, recs)
+    with open(edges_out, "w", encoding="utf-8") as f:
+        for e in edges:
+            e = dict(e, **DC.resolution(e["child_key"], nodes, existing, chosen, packaged, max_c))
+            f.write(json.dumps(e, sort_keys=True) + "\n")
+        for u in unresolved:
+            f.write(json.dumps(dict(u, result="unresolved-call-sites"), sort_keys=True) + "\n")
+    return {"nodes": len(nodes), "packaged": len(packaged), "edges": len(edges)}
+
+
 # ------------------------------------------------------------------------------------------ battery P2 re-run
 
 def apply_p2(rec: dict, p2: dict) -> dict:
@@ -1245,6 +1424,13 @@ def main(argv: list[str] | None = None) -> int:
     a6.add_argument("--work", required=True)
     a6.add_argument("--out", required=True)
     a6.add_argument("--jobs", type=int, default=6)
+    a7 = sub.add_parser("decompose", help="package sub-component instantiations of TOO-LARGE parents")
+    a7.add_argument("--config", required=True, action="append")
+    a7.add_argument("--parents", required=True)
+    a7.add_argument("--existing", required=True)
+    a7.add_argument("--edges-out", required=True)
+    a7.add_argument("--jobs", type=int, default=6)
+    a7.add_argument("--max-depth", type=int, default=DC.MAX_DEPTH)
     a4 = sub.add_parser("validate")
     a4.add_argument("--index", required=True)
     a4.add_argument("--packages", required=True)
@@ -1258,6 +1444,9 @@ def main(argv: list[str] | None = None) -> int:
     elif a.cmd == "wave":
         cfgs = [WaveConfig.load(c) for c in a.config]
         run_waves(cfgs, a.jobs or cfgs[0].jobs)
+    elif a.cmd == "decompose":
+        print(json.dumps(run_decompose([WaveConfig.load(c) for c in a.config], a.parents, a.existing, a.edges_out,
+                                       a.jobs, a.max_depth)))
     elif a.cmd == "battery-p2":
         run_battery_p2([tuple(x.split("=", 1)) for x in a.source], a.lean_env, a.work, a.out, a.jobs)
     elif a.cmd == "summary":

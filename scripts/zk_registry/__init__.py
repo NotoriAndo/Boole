@@ -9,6 +9,8 @@ proofs of the generated statements.
 * ``circom_eval``     compile-time integer evaluation and ``for``-loop structure of template bodies
 * ``instantiation``   instantiation rules for parametric templates
 * ``tags``            known circom input tags as DET preconditions; the untagged wrapper main
+* ``content``         content identity of templates (deduplication by content and parameters)
+* ``decompose``       decomposition of TOO-LARGE instantiations into sub-component packages
 * ``lean_emit``       Lean model / statement / harness emitters
 * ``witness``         input sampling, witness generation and mutants
 * ``det_search``      cheap searches for output-determinism counterexamples

@@ -71,7 +71,8 @@ class TemplatePlan:
     uninstantiable_reason: str | None = None
 
     def tiers_in_order(self) -> list[tuple[str, list[Candidate]]]:
-        return [(t, self.candidates[t]) for t in TIERS if self.candidates.get(t)]
+        order = TIERS + [t for t in self.candidates if t not in TIERS]      # e.g. "decomposition" plans
+        return [(t, self.candidates[t]) for t in order if self.candidates.get(t)]
 
 
 # ------------------------------------------------------------------------------------------ helpers
@@ -150,12 +151,42 @@ def _simplify(arg: str) -> str:
     return a
 
 
+def _fold_indexing(expr: str) -> str:
+    """``[a, b, c][1]`` -> ``b`` where an array literal (e.g. a substituted ``var`` array) is indexed by an
+    index that evaluates to an integer in range; parenthesized integer literals ``(57)`` -> ``57``.  circom's
+    grammar does not accept an index applied to an array literal."""
+    changed = True
+    while changed:
+        changed = False
+        for m in re.finditer(r"\[", expr):
+            i = m.start()
+            if i > 0 and (expr[i - 1].isalnum() or expr[i - 1] in "_$])"):
+                continue                                   # an index, not an array literal
+            close = cs.match_bracket(expr, i)
+            if close < 0:
+                continue
+            j = close + 1
+            while j < len(expr) and expr[j].isspace():
+                j += 1
+            if j >= len(expr) or expr[j] != "[":
+                continue
+            iclose = cs.match_bracket(expr, j)
+            idx = V.eval_int(expr[j + 1:iclose]) if iclose > 0 else None
+            elems = cs.split_top_level(expr[i + 1:close])
+            if idx is None or not 0 <= idx < len(elems):
+                continue
+            expr = expr[:i] + _paren(elems[idx]) + expr[iclose + 1:]
+            changed = True
+            break
+    return re.sub(r"(?<![A-Za-z0-9_$\])])\((\d+)\)", r"\1", expr)
+
+
 def resolve_args(args: list[str], env: dict[str, str], functions: set[str]) -> tuple[str, ...] | None:
     out = []
     for a in args:
         cur = a
         for _ in range(6):
-            nxt = _substitute(cur, env)
+            nxt = _fold_indexing(_substitute(cur, env))
             if nxt == cur:
                 break
             cur = nxt
@@ -501,3 +532,31 @@ def main_source(template_path_abs: str, template: str, args: tuple[str, ...], pr
             ("pragma custom_templates;\n" if custom_templates else "") +
             f'include "{template_path_abs}";\n'
             f'component main = {template}({", ".join(args)});\n')
+
+
+# ------------------------------------------------------------------------------------------ decomposition
+
+def children_of(files: dict[str, cs.SourceFile], t: cs.Template, args: tuple[str, ...], functions: set[str],
+                names: set[str] | None = None) -> tuple[list[tuple[cs.Template, tuple[str, ...], str]], int]:
+    """The concrete sub-component instantiations that ``t(args)`` uses: every call site in ``t``'s body with
+    ``t``'s parameters, single-assignment bindings and loop values substituted (the ``repo-derived`` rules).
+
+    Returns ([(child template, child args, provenance)], number of call sites that could not be resolved to a
+    unique template or to closed arguments)."""
+    names = names if names is not None else {x.name for sf in files.values() for x in sf.templates}
+    out, seen, unresolved = [], set(), 0
+    for ins in cs.find_instantiations(files[t.path], names):
+        if ins.enclosing != t.name:
+            continue
+        child = cs.resolve_template(files, t.path, ins.template)
+        sets = site_arg_sets(ins, t, tuple(args), functions) if child is not None else []
+        if not sets:
+            unresolved += 1
+            continue
+        for cargs, note in sets:
+            if len(cargs) != len(child.params) or (child.key, cargs) in seen:
+                continue
+            seen.add((child.key, cargs))
+            out.append((child, cargs, f"{ins.path}:{ins.line} in {t.name}({', '.join(args)})"
+                                      f"{(' ' + note) if note else ''}: {ins.template}({', '.join(ins.args)})"))
+    return out, unresolved

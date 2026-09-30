@@ -70,7 +70,7 @@
       "required": ["rule", "args", "call", "provenance", "selection", "candidates"],
       "additionalProperties": false,
       "properties": {
-        "rule": {"enum": ["parameter-free", "repo-main", "repo-test", "repo-internal", "repo-derived", "documented-default", "probed", "none"]},
+        "rule": {"enum": ["parameter-free", "repo-main", "repo-test", "repo-internal", "repo-derived", "documented-default", "probed", "decomposition", "none"]},
         "rule_order": {"type": "array", "items": {"type": "string"}},
         "args": {"type": "array", "items": {"type": "string"}},
         "call": {"type": "string"},
@@ -79,6 +79,21 @@
         "selection": {"type": "string"},
         "include_context": {"type": "string"},
         "include_main_removed": {"description": "The included file also declares a component main, which was blanked in a sibling copy for this compilation.", "type": "boolean"},
+        "decomposition": {
+          "description": "A sub-component instantiation harvested from TOO-LARGE instantiations (rule decomposition): its parents, depth below them, template content hash and the number of harvested variants of this content.",
+          "type": "object",
+          "required": ["parents", "n_parents", "depth", "content_sha256", "variants", "instance_key"],
+          "additionalProperties": false,
+          "properties": {
+            "parents": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["call"], "additionalProperties": false,
+                        "properties": {"package_id": {"type": "string"}, "key": {"type": "string"}, "call": {"type": "string"}}}},
+            "n_parents": {"type": "integer", "minimum": 1},
+            "depth": {"type": "integer", "minimum": 1},
+            "content_sha256": {"$ref": "#/$defs/sha256"},
+            "variants": {"type": "integer", "minimum": 1},
+            "instance_key": {"type": "string"}
+          }
+        },
         "tag_wrapper": {
           "description": "The template's inputs carry known circom tags: it was compiled through a generated wrapper whose main inputs are untagged copies (same names and dimensions); statement.preconditions states the tags' preconditions.",
           "type": "object",
