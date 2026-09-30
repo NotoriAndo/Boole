@@ -5,13 +5,17 @@ Subcommands::
 
     fetch-circom  --version v2.2.3 --asset macos-amd64 --dest DIR     download + sha256-verify a release binary
     lean-env      --project DIR --toolchain DIR --scratch DIR --out F  describe a built lake project
-    wave          --config wave.json                                  generate, gate and package a repository
-    validate      --index INDEX.jsonl --packages DIR                   re-validate every record and package
+    wave          --config wave.json [--config ...] [--jobs N]         generate, gate and package repositories
+                                                                       (one shared pool of template workers)
+    validate      --index INDEX.jsonl --packages DIR [--collections-root]
+                                                                       re-validate every record and package
 
 The ``wave`` configuration names the pinned repository checkout, the circom binary, the Lean
-environment, the ledger, and the output directory.  All tool state goes to the configured work
-directory.  The driver never writes a proof: the only Lean proofs attempted are the automatic
-G-TRIV battery runs, whose closures fail the gate.
+environment, the ledger, and the output directory; optionally the repository's library paths
+(``circom -l``), per-path prime / library rules, the materialized library packages (recorded in
+``ids.dependencies``), a ledger id prefix, a template subset (``only``) and the compile guard.
+All tool state goes to the configured work directory.  The driver never writes a proof: the only
+Lean proofs attempted are the automatic G-TRIV battery runs, whose closures fail the gate.
 """
 from __future__ import annotations
 
@@ -25,6 +29,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
 from dataclasses import dataclass, field
@@ -56,7 +61,7 @@ CIRCOM_RELEASES = {
         },
     },
 }
-SIZE_FLAGS = ["--r1cs", "--sym", "--O0"]
+SIZE_FLAGS = ["--r1cs", "--O0"]          # the constraint count needs no .sym (wave 0 also wrote --sym)
 CIRCOM_FLAGS = ["--r1cs", "--sym", "--wasm", "--O0"]
 REAL_WANTED = 12
 MUTANTS = 12
@@ -123,6 +128,23 @@ class WaveConfig:
     battery_single_wall: float = 180
     det_search_budget_s: float = 20.0
     only: list[str] = field(default_factory=list)
+    # library search paths (circom -l), repository-relative
+    include_paths: list[str] = field(default_factory=list)
+    # [{"prefix": "circuits.gl/", "prime": "goldilocks", "include_paths": [...], "source": "..."}]: the
+    # first rule whose prefix matches the template's path overrides the prime and the library paths
+    path_rules: list[dict] = field(default_factory=list)
+    # materialized library packages (recorded in ids.dependencies)
+    dependencies: list[dict] = field(default_factory=list)
+    # ledger item id prefix when it is not "<repo_id>:" (census ids such as "pil-stark:CC/<path>#<T>")
+    ledger_item_prefix: str | None = None
+    # resource guard for circom runs: a compile above this RSS, wall time or output size is stopped and recorded
+    compile_rss_mb: int = 12288
+    compile_timeout_s: float = 900
+    compile_output_mb: int = 1536
+    # total sizing wall time per template; later candidates are recorded as skipped
+    sizing_budget_s: float = 2400
+    # keep per-template work directories after the record is written (wave 0 kept them)
+    keep_work: bool = True
 
     @staticmethod
     def load(path: str) -> "WaveConfig":
@@ -152,70 +174,163 @@ class Shared:
 # ------------------------------------------------------------------------------------------ compile
 
 def include_contexts(files: dict, target_path: str) -> list[str]:
-    """The template's own file, then library files whose include closure reaches it (nearest first)."""
+    """The template's own file, then library files whose include closure reaches it (nearest first),
+    then non-test files with their own ``component main`` that reach it (compiled through their
+    main-free copy; some repositories include shared definitions only from their top-level circuits)."""
     out = [target_path]
     ranked = []
     for path, sf in files.items():
-        if path == target_path or sf.is_harness or path.startswith("test/"):
+        if path == target_path or path.startswith("test/"):
             continue
         closure = cs.include_closure(files, path)
         if target_path in closure:
-            ranked.append((closure.index(target_path), len(closure), path))
-    out += [p for _, _, p in sorted(ranked)]
+            ranked.append((sf.is_harness, closure.index(target_path), len(closure), path))
+    out += [p for *_, p in sorted(ranked)]
     return out
 
 
+def build_options(cfg: WaveConfig, rel_path: str) -> tuple[str | None, list[str], str | None]:
+    """(prime or None for circom's default, library paths, rule source) for a template file."""
+    for rule in cfg.path_rules:
+        if rel_path.startswith(rule["prefix"]):
+            return (rule.get("prime"), list(rule.get("include_paths", cfg.include_paths)),
+                    rule.get("source") or rule["prefix"])
+    return None, list(cfg.include_paths), None
+
+
+def option_flags(prime: str | None, libs: list[str], root: str | None = None) -> list[str]:
+    """``--prime`` / ``-l`` flags; library paths are made absolute against ``root`` when given."""
+    out = ["--prime", prime] if prime else []
+    for lib in libs:
+        out += ["-l", os.path.normpath(os.path.join(root, lib)) if root else lib]
+    return out
+
+
+def main_free_copy(sh: Shared, include_rel: str) -> str | None:
+    """A sibling copy of ``include_rel`` with its ``component main`` blanked, if it declares one."""
+    sf = sh.files.get(include_rel)
+    if sf is None or not sf.mains:
+        return None
+    src = os.path.join(sh.cfg.repo_dir, include_rel)
+    dest = src + ".boole-nomain"               # not *.circom: never scanned as a repository file
+    text = cs.blank_mains(sf.text)
+    current = None
+    if os.path.exists(dest):
+        with open(dest, encoding="utf-8") as f:
+            current = f.read()
+    if current != text:
+        tmp = f"{dest}.{os.getpid()}.{threading.get_ident()}"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp, dest)
+    return dest
+
+
+_CUSTOM_PRAGMA_RE = re.compile(r"\bpragma\s+custom_templates\s*;")
+
+
+def uses_custom_templates_pragma(files: dict, include_rel: str) -> bool:
+    """Whether a file in the include closure declares ``pragma custom_templates`` (circom then
+    requires the pragma in the main file as well)."""
+    return any(_CUSTOM_PRAGMA_RE.search(files[p].clean) for p in cs.include_closure(files, include_rel))
+
+
+def output_guard(workdir: str, limit_mb: int) -> str:
+    """Non-empty when the files under ``workdir`` exceed ``limit_mb`` (a compile writing a huge R1CS)."""
+    total = 0
+    for root, _, names in os.walk(workdir):
+        for n in names:
+            try:
+                total += os.path.getsize(os.path.join(root, n))
+            except OSError:
+                pass
+    return f"compiler output > {limit_mb} MB" if total > limit_mb * 1024 * 1024 else ""
+
+
 def compile_main(sh: Shared, workdir: str, include_rel: str, template: str, args: tuple[str, ...],
-                 flags: list[str]) -> dict:
+                 flags: list[str], rule_path: str | None = None) -> dict:
     os.makedirs(workdir, exist_ok=True)
+    prime, libs, _ = build_options(sh.cfg, rule_path or include_rel)
+    nomain = main_free_copy(sh, include_rel)
+    custom = uses_custom_templates_pragma(sh.files, include_rel)
     main = os.path.join(workdir, "main.circom")
     with open(main, "w", encoding="utf-8") as f:
-        f.write(I.main_source(os.path.join(sh.cfg.repo_dir, include_rel), template, args))
+        f.write(I.main_source(nomain or os.path.join(sh.cfg.repo_dir, include_rel), template, args,
+                              custom_templates=custom))
     # the recorded main names the include relative to the repository root (no local paths)
-    portable = I.main_source(include_rel, template, args)
+    portable = I.main_source(include_rel, template, args,
+                             comment=(f"compiled with the component main declaration of {include_rel} blanked"
+                                      if nomain else None), custom_templates=custom)
     with open(os.path.join(workdir, "main.portable.circom"), "w", encoding="utf-8") as f:
         f.write(portable)
-    t0 = time.time()
-    try:
-        r = subprocess.run([sh.cfg.circom, "main.circom", *flags, "-o", "."], cwd=workdir, capture_output=True,
-                           text=True, timeout=3600)
-        log, rc = r.stdout + r.stderr, r.returncode
-    except subprocess.TimeoutExpired:
-        log, rc = "circom timed out after 3600 s", -1
+    run = L.run_process([sh.cfg.circom, "main.circom", *flags, *option_flags(prime, libs, sh.cfg.repo_dir), "-o", "."],
+                        dict(os.environ), workdir, sh.cfg.compile_timeout_s, sh.cfg.compile_rss_mb,
+                        watch=lambda: output_guard(workdir, sh.cfg.compile_output_mb))
+    log, rc = run.out, run.rc
+    guard = None
+    if run.timeout or run.memkill or run.killed_by:
+        what = (run.killed_by or (f"RSS > {sh.cfg.compile_rss_mb} MB" if run.memkill else
+                                  f"wall time > {sh.cfg.compile_timeout_s:g} s"))
+        guard = f"stopped by the resource guard ({what})"
+        log, rc = f"circom {guard}\n" + log, -1
     log = re.sub(r"\x1b\[[0-9;]*m", "", log)
     with open(os.path.join(workdir, "circom.log"), "w", encoding="utf-8") as f:
         f.write(log)
-    res = {"rc": rc, "secs": round(time.time() - t0, 2), "include_context": include_rel,
-           "main_sha256": hashlib.sha256(portable.encode("utf-8")).hexdigest(), "workdir": workdir}
+    res = {"rc": rc, "secs": run.secs, "peak_rss_mb": run.peak_rss_mb, "include_context": include_rel,
+           "main_sha256": hashlib.sha256(portable.encode("utf-8")).hexdigest(), "workdir": workdir,
+           "flags": [*flags, *option_flags(prime, libs)], "main_removed": bool(nomain)}
     r1cs_path = os.path.join(workdir, "main.r1cs")
+    if guard:
+        res["guard"] = guard
+        res["error"] = guard
+        return res
     if rc != 0 or not os.path.exists(r1cs_path):
         err = [ln.strip() for ln in log.splitlines() if "error" in ln.lower() or "Calling" in ln or "unknown" in ln]
         res["error"] = " | ".join(err[:4])[:400] or log[-400:]
         return res
-    r = R.read_r1cs(r1cs_path)
-    res.update(constraints=r.n_constraints, wires=r.n_wires, r1cs=r1cs_path, sym=os.path.join(workdir, "main.sym"),
+    hdr = R.read_header(r1cs_path)
+    if hdr.custom_gate_uses:
+        # PLONK custom gates are not part of the R1CS constraints; a model of the R1CS alone would
+        # be incomplete, so no size is reported and the candidate cannot be packaged
+        res["error"] = (f"the instantiation uses {hdr.custom_gate_uses} circom custom gate application(s) "
+                        "(PLONK custom templates), which the R1CS model cannot represent")
+        res["custom_gates"] = hdr.custom_gate_uses
+        return res
+    res.update(constraints=hdr.n_constraints, wires=hdr.n_wires, r1cs=r1cs_path, sym=os.path.join(workdir, "main.sym"),
                r1cs_sha256=sha256_file(r1cs_path))
     return res
 
 
 def size_candidates(sh: Shared, plan: I.TemplatePlan, dir_base: str) -> tuple[str | None, list[dict]]:
-    """Compile candidates tier by tier; returns (tier used, candidate records)."""
+    """Compile candidates tier by tier; returns (tier used, candidate records).
+
+    The first tier with a compiled candidate, or with a candidate stopped by the resource guard
+    (compiling, but too large to finish), is used.  After ``sizing_budget_s`` the remaining
+    candidates are recorded as skipped."""
     t = plan.template
     records_all = []
+    t0 = time.time()
     for tier, cands in plan.tiers_in_order():
         records = []
         for c in cands[:I.MAX_DERIVED_PER_TEMPLATE]:
             slug = P.args_slug(c.args) or "noargs"
             rec = {"tier": tier, "call": f"{t.name}{c.call}", "args": list(c.args), "provenance": c.provenance}
+            if time.time() - t0 > sh.cfg.sizing_budget_s:
+                rec["compile_result"] = {"rc": None, "include_context": t.path,
+                                         "skipped": f"sizing budget of {sh.cfg.sizing_budget_s:g} s exhausted"}
+                records.append(rec)
+                continue
             for ctx in include_contexts(sh.files, t.path):
                 res = compile_main(sh, os.path.join(dir_base, "size", slug, re.sub(r"[^A-Za-z0-9]+", "_", ctx)),
-                                   ctx, t.name, c.args, SIZE_FLAGS)
+                                   ctx, t.name, c.args, SIZE_FLAGS, rule_path=t.path)
+                if res.get("r1cs") and os.path.exists(res["r1cs"]):
+                    os.remove(res["r1cs"])        # sizes and digest are kept; large systems would fill the disk
                 rec["compile_result"] = res
-                if res["rc"] == 0 and "constraints" in res:
-                    break
+                if (res["rc"] == 0 and "constraints" in res) or res.get("guard") or res.get("custom_gates"):
+                    break                         # compiled (or stopped by the guard / custom gates)
             records.append(rec)
         records_all += records
-        if any(r["compile_result"]["rc"] == 0 and "constraints" in r["compile_result"] for r in records):
+        if any("constraints" in r["compile_result"] or r["compile_result"].get("guard") for r in records):
             return tier, records_all
     return None, records_all
 
@@ -237,12 +352,13 @@ def candidate_summary(records: list[dict]) -> list[dict]:
     out = []
     for r in records:
         cr = r["compile_result"]
-        row = {"tier": r["tier"], "call": r["call"][:300], "compile": "ok" if "constraints" in cr else "error",
+        row = {"tier": r["tier"], "call": r["call"][:300],
+               "compile": "ok" if "constraints" in cr else "skipped" if cr.get("skipped") else "error",
                "include_context": cr["include_context"]}
         if "constraints" in cr:
             row.update(constraints=cr["constraints"], wires=cr["wires"])
         else:
-            row["error"] = cr.get("error", "")[:300]
+            row["error"] = (cr.get("skipped") or cr.get("error", ""))[:300]
         out.append(row)
     return out
 
@@ -251,10 +367,12 @@ def candidate_summary(records: list[dict]) -> list[dict]:
 
 def base_record(sh: Shared, t: cs.Template, dir_name: str) -> dict:
     cfg = sh.cfg
-    item_id = f"{cfg.repo_id}:{t.path}#{t.name}"
+    item_id = f"{ledger_prefix(cfg)}{t.path}#{t.name}"
     ids = {"ledger_item_id": item_id, "repo": cfg.repo_id, "repo_url": cfg.repo_url, "release": cfg.release,
            "commit": cfg.commit, "path": t.path, "template": t.name, "template_line": t.line,
            "source_sha256": sha256_file(os.path.join(cfg.repo_dir, t.path))}
+    if cfg.dependencies:
+        ids["dependencies"] = cfg.dependencies
     if cfg.ledger:
         ids["ledger"] = {"file": os.path.basename(cfg.ledger), "sha256": sh.ledger_sha256,
                          "row_found": item_id in sh.ledger_ids}
@@ -264,7 +382,8 @@ def base_record(sh: Shared, t: cs.Template, dir_name: str) -> dict:
 
 
 def circuit_record(sh: Shared, r: R.R1cs | None, cr: dict, n_in=None, n_out=None, sym_sha=None) -> dict:
-    rec = {"compiler": {"name": "circom", "version": sh.circom_version, "flags": CIRCOM_FLAGS if r else SIZE_FLAGS,
+    rec = {"compiler": {"name": "circom", "version": sh.circom_version,
+                        "flags": cr.get("flags") or (CIRCOM_FLAGS if r else SIZE_FLAGS),
                         "binary_sha256": sh.circom_sha256,
                         "source": f"iden3/circom {sh.cfg.circom_version_tag} release binary "
                                   f"(commit {CIRCOM_RELEASES[sh.cfg.circom_version_tag]['commit']})"},
@@ -281,6 +400,21 @@ def circuit_record(sh: Shared, r: R.R1cs | None, cr: dict, n_in=None, n_out=None
 
 
 def process_template(sh: Shared, plan: I.TemplatePlan) -> dict:
+    rec = None
+    try:
+        rec = _process_template(sh, plan)
+        return rec
+    finally:
+        if not sh.cfg.keep_work:          # the record and the package are written; the work tree is not needed
+            t = plan.template
+            dirs = {P.package_dir_name(t.path, t.name, (), sh.cfg.scope_prefix)}
+            if rec is not None:
+                dirs.add(rec["package_id"].split("/", 1)[1])
+            for d in dirs:
+                shutil.rmtree(os.path.join(sh.cfg.work, "items", d), ignore_errors=True)
+
+
+def _process_template(sh: Shared, plan: I.TemplatePlan) -> dict:
     t = plan.template
     t0 = time.time()
     dir_probe = P.package_dir_name(t.path, t.name, (), sh.cfg.scope_prefix)
@@ -293,10 +427,15 @@ def process_template(sh: Shared, plan: I.TemplatePlan) -> dict:
                                   "params": t.params, "provenance": [], "selection": "no candidate", "candidates": []})
         return _done(rec, t0)
     tier, records = size_candidates(sh, plan, work)
-    if tier is None:
+    if tier is None or not any("constraints" in r["compile_result"] for r in records if r["tier"] == tier):
         rec = base_record(sh, t, dir_probe)
-        rec.update(status="UNINSTANTIABLE",
-                   status_reason="no candidate instantiation compiles with circom (see candidates)",
+        guarded = [r for r in records if r["compile_result"].get("guard")]
+        reason = "no candidate instantiation compiles with circom (see candidates)"
+        if guarded:
+            reason = (f"no candidate instantiation compiles within the resource guard: {len(guarded)} of "
+                      f"{len(records)} candidate compiles were {guarded[0]['compile_result']['guard']} (size "
+                      f"unknown; decomposition candidate), the others failed or were skipped (see candidates)")
+        rec.update(status="UNINSTANTIABLE", status_reason=reason,
                    instantiation={"rule": "none", "rule_order": rule_order, "args": [], "call": "", "params": t.params,
                                   "provenance": [], "selection": "no candidate compiled",
                                   "candidates": candidate_summary(records)})
@@ -312,6 +451,8 @@ def process_template(sh: Shared, plan: I.TemplatePlan) -> dict:
                           "no candidate of the tier fits the size policy; the smallest is recorded"),
             "include_context": cr["include_context"], "main_sha256": cr["main_sha256"],
             "candidates": candidate_summary(records)}
+    if cr.get("main_removed"):
+        inst["include_main_removed"] = True
     rec = base_record(sh, t, dir_name)
     rec["instantiation"] = inst
     if not fits:
@@ -345,7 +486,8 @@ def scrub(sh: Shared, rec: dict) -> dict:
 def build_package(sh: Shared, t: cs.Template, rec: dict, size_cr: dict, dir_name: str, work: str) -> dict:
     cfg = sh.cfg
     args = tuple(rec["instantiation"]["args"])
-    full = compile_main(sh, os.path.join(work, "compile"), size_cr["include_context"], t.name, args, CIRCOM_FLAGS)
+    full = compile_main(sh, os.path.join(work, "compile"), size_cr["include_context"], t.name, args, CIRCOM_FLAGS,
+                        rule_path=t.path)
     if full["rc"] != 0 or full.get("r1cs_sha256") != size_cr["r1cs_sha256"]:
         rec.update(status="UNINSTANTIABLE",
                    status_reason="full compile (with --wasm) failed or produced a different R1CS than the sizing compile",
@@ -360,7 +502,7 @@ def build_package(sh: Shared, t: cs.Template, rec: dict, size_cr: dict, dir_name
     meta = {"repo_id": cfg.repo_id, "instantiation": rec["instantiation"]["call"],
             "generator": f"{sh.generator['name']} v{sh.generator['version']}", "repo_url": cfg.repo_url,
             "commit": cfg.commit, "path": t.path, "template": t.name, "rule": rec["instantiation"]["rule"],
-            "circom_version": sh.circom_version, "circom_flags": CIRCOM_FLAGS, "r1cs_sha256": full["r1cs_sha256"],
+            "circom_version": sh.circom_version, "circom_flags": full["flags"], "r1cs_sha256": full["r1cs_sha256"],
             "prime_name": r.prime_name or "unknown"}
     stage = os.path.join(work, "pkg")
     shutil.rmtree(stage, ignore_errors=True)
@@ -374,7 +516,7 @@ def build_package(sh: Shared, t: cs.Template, rec: dict, size_cr: dict, dir_name
     fqn = f"{ns}.{E.STATEMENT_THEOREM}"
     rec["statement"] = {"file": "Statement.lean", "theorem": E.STATEMENT_THEOREM, "theorem_fqn": fqn,
                         "model_module": E.model_module(ns), "model_file": model_rel, "text": statement_text,
-                        "assumptions": list(P.STATEMENT_ASSUMPTIONS), "truth": "unknown"}
+                        "assumptions": P.statement_assumptions(r.prime_name or "unknown"), "truth": "unknown"}
     gates: dict[str, dict] = {}
     evidence: dict = {"work": work}
 
@@ -535,11 +677,15 @@ def write_package(sh: Shared, rec: dict, stage: str, work: str, dir_name: str) -
 
 # ------------------------------------------------------------------------------------------ wave
 
-def load_ledger(path: str | None, repo_id: str) -> tuple[set, str | None]:
+def ledger_prefix(cfg: WaveConfig) -> str:
+    return cfg.ledger_item_prefix or f"{cfg.repo_id}:"
+
+
+def load_ledger(path: str | None, item_prefix: str) -> tuple[set, str | None]:
     if not path:
         return set(), None
     ids = set()
-    prefix = f'"item_id": "{repo_id}:'
+    prefix = f'"item_id": "{item_prefix}'
     with open(path, encoding="utf-8") as f:
         for line in f:
             if prefix in line:
@@ -547,7 +693,9 @@ def load_ledger(path: str | None, repo_id: str) -> tuple[set, str | None]:
     return ids, sha256_file(path)
 
 
-def run_wave(cfg: WaveConfig) -> list[dict]:
+def prepare(cfg: WaveConfig) -> tuple[Shared, list[I.TemplatePlan], list[dict]]:
+    """Pins checked, repository scanned and templates planned; plus records for ``only`` entries
+    whose template is not declared in any scanned ``.circom`` file (recorded, never dropped)."""
     head = git_head(cfg.repo_dir)
     if head != cfg.commit:
         raise ValueError(f"repository is at {head}, the wave pins {cfg.commit}")
@@ -556,38 +704,91 @@ def run_wave(cfg: WaveConfig) -> list[dict]:
         raise ValueError("circom binary does not match the pinned release digest")
     env = L.load_env(cfg.lean_env)
     rels = cs.list_circom_files(cfg.repo_dir)
-    files = cs.scan_repo(cfg.repo_dir, rels)
+    lib_dirs = list(dict.fromkeys(cfg.include_paths + [p for r in cfg.path_rules for p in r.get("include_paths", [])]))
+    files = cs.scan_repo(cfg.repo_dir, rels, lib_dirs)
     scope = [p for p in rels if p.startswith(cfg.scope_prefix) and p not in cfg.exclude]
-    ledger_ids, ledger_sha = load_ledger(cfg.ledger, cfg.repo_id)
+    ledger_ids, ledger_sha = load_ledger(cfg.ledger, ledger_prefix(cfg))
     sh = Shared(cfg, env, files, ledger_ids, ledger_sha, circom_sha,
                 tool_version([cfg.circom, "--version"]).replace("circom compiler ", ""),
                 tool_version([cfg.node, "--version"]), P.generator_info())
     plans = I.plan_templates(files, scope, cfg.repo_id)
+    missing: list[dict] = []
     if cfg.only:
         plans = [pl for pl in plans if f"{pl.template.path}#{pl.template.name}" in cfg.only]
-    os.makedirs(cfg.out, exist_ok=True)
-    os.makedirs(cfg.work, exist_ok=True)
-    results: list[dict] = []
-    with cf.ThreadPoolExecutor(max_workers=cfg.jobs) as ex:
-        futs = {ex.submit(process_template, sh, pl): pl for pl in plans}
+        found = {f"{pl.template.path}#{pl.template.name}" for pl in plans}
+        missing = [missing_record(sh, key) for key in cfg.only if key not in found]
+    return sh, plans, missing
+
+
+def missing_record(sh: Shared, key: str) -> dict:
+    """UNINSTANTIABLE record for a requested template that no scanned ``.circom`` file declares."""
+    path, name = key.rsplit("#", 1)
+    full = os.path.join(sh.cfg.repo_dir, path)
+    if not os.path.isfile(full):              # the record needs the source digest; a wrong pin is fatal
+        raise ValueError(f"{key}: source file missing at the pin")
+    with open(full, encoding="utf-8", errors="replace") as f:
+        clean = cs.strip_comments(f.read())
+    m = re.search(r"\btemplate\s+(?:(?:parallel|custom)\s+)?" + re.escape(name) + r"\s*\(", clean)
+    where = ("the declaring file is not a .circom source (it is rendered by the project's own tooling), so "
+             "no instantiation can be compiled from the pinned sources" if not path.endswith(".circom") else
+             "the template declaration was not found by the scanner")
+    t = cs.Template(path, name, [], "", cs.line_of(clean, m.start()) if m else 1, "")
+    rec = base_record(sh, t, P.package_dir_name(path, name, (), sh.cfg.scope_prefix))
+    rec.update(status="UNINSTANTIABLE", status_reason=f"template not compiled: {where}",
+               instantiation={"rule": "none", "rule_order": list(I.TIERS), "args": [], "call": "", "params": [],
+                              "provenance": [], "selection": "template not declared in a scanned .circom file",
+                              "candidates": []})
+    return _done(rec, time.time())
+
+
+def run_wave(cfg: WaveConfig) -> list[dict]:
+    return run_waves([cfg], cfg.jobs)[cfg.out]
+
+
+def run_waves(cfgs: list[WaveConfig], jobs: int) -> dict[str, list[dict]]:
+    """Several repositories through one worker pool of ``jobs`` template workers; one INDEX.jsonl
+    per configuration's ``out`` directory."""
+    prepared = []
+    for cfg in cfgs:
+        sh, plans, missing = prepare(cfg)
+        os.makedirs(cfg.out, exist_ok=True)
+        os.makedirs(cfg.work, exist_ok=True)
+        prepared.append((sh, plans, [scrub(sh, m) for m in missing]))
+    results: dict[str, list[dict]] = {sh.cfg.out: list(missing) for sh, _, missing in prepared}
+    total = sum(len(plans) for _, plans, _ in prepared)
+    remaining = {sh.cfg.out: len(plans) for sh, plans, _ in prepared}
+    done = 0
+    # largest repositories first, so that the pool drains evenly
+    order = sorted(((sh, pl) for sh, plans, _ in prepared for pl in plans), key=lambda x: -len(x[0].files))
+    with cf.ThreadPoolExecutor(max_workers=jobs) as ex:
+        futs = {ex.submit(process_template, sh, pl): (sh, pl) for sh, pl in order}
         for fut in cf.as_completed(futs):
-            pl = futs[fut]
+            sh, pl = futs[fut]
             try:
                 rec = fut.result()
             except Exception as exc:  # recorded, never silently dropped
                 rec = base_record(sh, pl.template, P.package_dir_name(pl.template.path, pl.template.name, (),
-                                                                      cfg.scope_prefix))
+                                                                      sh.cfg.scope_prefix))
                 rec.update(status="UNINSTANTIABLE", status_reason=f"generator error: {type(exc).__name__}: {exc}"[:600],
                            instantiation={"rule": "none", "args": [], "call": "", "provenance": [],
                                           "selection": "generator error", "candidates": []})
-            results.append(scrub(sh, rec))
-            print(f"[{len(results)}/{len(plans)}] {rec['package_id']}: {rec['status']} "
+            results[sh.cfg.out].append(scrub(sh, rec))
+            done += 1
+            print(f"[{done}/{total}] {rec['package_id']}: {rec['status']} "
                   f"({rec.get('evidence', {}).get('wall_secs', '?')} s)", flush=True)
-    results.sort(key=lambda x: (x["ids"]["path"], x["ids"]["template_line"]))
-    with open(os.path.join(cfg.out, "INDEX.jsonl"), "w", encoding="utf-8") as f:
-        for rec in results:
-            f.write(json.dumps(rec, sort_keys=True, ensure_ascii=False) + "\n")
+            remaining[sh.cfg.out] -= 1
+            if not remaining[sh.cfg.out]:             # repository complete: write its index now
+                write_index(sh.cfg.out, results[sh.cfg.out])
+    for sh, _, _ in prepared:
+        write_index(sh.cfg.out, results[sh.cfg.out])
     return results
+
+
+def write_index(out: str, records: list[dict]) -> None:
+    records.sort(key=lambda x: (x["ids"]["path"], x["ids"]["template_line"], x["ids"]["template"]))
+    with open(os.path.join(out, "INDEX.jsonl"), "w", encoding="utf-8") as f:
+        for rec in records:
+            f.write(json.dumps(rec, sort_keys=True, ensure_ascii=False) + "\n")
 
 
 def _asset_for_host() -> str:
@@ -595,13 +796,15 @@ def _asset_for_host() -> str:
     return {"Darwin": "macos-amd64", "Linux": "linux-amd64"}.get(system, "windows-amd64.exe")
 
 
-def validate_all(index_path: str, packages_dir: str) -> list[str]:
+def validate_all(index_path: str, packages_dir: str, collections_root: bool = False) -> list[str]:
+    """Re-validate every record; ``collections_root``: ``packages_dir`` holds one directory per
+    collection (a combined index), otherwise it is the collection directory itself."""
     schema = P.load_schema()
     problems = []
     with open(index_path, encoding="utf-8") as f:
         for n, line in enumerate(f, 1):
             rec = json.loads(line)
-            pkg = os.path.join(packages_dir, rec["package_id"].split("/", 1)[1])
+            pkg = os.path.join(packages_dir, rec["package_id"] if collections_root else rec["package_id"].split("/", 1)[1])
             has_dir = os.path.isdir(pkg)
             errs = P.validate_problem(rec, pkg if has_dir else None, schema)
             if rec["status"] in P.PACKAGED_STATUSES:
@@ -685,24 +888,28 @@ def main(argv: list[str] | None = None) -> int:
     a2.add_argument("--scratch", required=True)
     a2.add_argument("--out", required=True)
     a3 = sub.add_parser("wave")
-    a3.add_argument("--config", required=True)
+    a3.add_argument("--config", required=True, action="append", help="repeat to run several repositories")
+    a3.add_argument("--jobs", type=int, help="template workers shared by all configurations")
     a5 = sub.add_parser("summary")
     a5.add_argument("--index", required=True)
     a4 = sub.add_parser("validate")
     a4.add_argument("--index", required=True)
     a4.add_argument("--packages", required=True)
+    a4.add_argument("--collections-root", action="store_true",
+                    help="--packages holds one directory per collection (combined index)")
     a = ap.parse_args(argv)
     if a.cmd == "fetch-circom":
         print(fetch_circom(a.version, a.asset, a.dest))
     elif a.cmd == "lean-env":
         P.write_json(a.out, L.describe_project(a.project, a.toolchain, a.scratch))
     elif a.cmd == "wave":
-        run_wave(WaveConfig.load(a.config))
+        cfgs = [WaveConfig.load(c) for c in a.config]
+        run_waves(cfgs, a.jobs or cfgs[0].jobs)
     elif a.cmd == "summary":
         with open(a.index, encoding="utf-8") as f:
             print(json.dumps(summarize([json.loads(x) for x in f]), indent=1))
     elif a.cmd == "validate":
-        errs = validate_all(a.index, a.packages)
+        errs = validate_all(a.index, a.packages, a.collections_root)
         for e in errs:
             print(e)
         print(f"{len(errs)} problem(s)")

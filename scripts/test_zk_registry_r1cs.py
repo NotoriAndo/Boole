@@ -37,6 +37,35 @@ class R1csReaderTests(unittest.TestCase):
         data = (FIX / "toy.r1cs").read_bytes()
         self.assertEqual(R.encode_r1cs(R.parse_r1cs(data)), data)
 
+    def test_header_only_reader_matches_the_full_parse(self) -> None:
+        import os
+        import tempfile
+        full = R.read_r1cs(str(FIX / "toy.r1cs"))
+        hdr = R.read_header(str(FIX / "toy.r1cs"))
+        self.assertEqual((hdr.prime, hdr.n_wires, hdr.n_constraints), (full.prime, full.n_wires, full.n_constraints))
+        data = (FIX / "toy.r1cs").read_bytes()
+        with tempfile.TemporaryDirectory() as tmp:
+            for bad in (b"xxxx" + data[4:], data[:4] + b"\x02" + data[5:], data[:20]):
+                p = os.path.join(tmp, "bad.r1cs")
+                Path(p).write_bytes(bad)
+                with self.assertRaises(R.R1csFormatError):
+                    R.read_header(p)
+
+    def test_header_reader_counts_custom_gate_applications(self) -> None:
+        import os
+        import struct
+        import tempfile
+        data = (FIX / "toy.r1cs").read_bytes()
+        self.assertEqual(R.read_header(str(FIX / "toy.r1cs")).custom_gate_uses, 0)
+        n_sections = struct.unpack_from("<I", data, 8)[0]
+        body = struct.pack("<I", 3) + b"\0" * 12                   # 3 applications (payload not parsed)
+        patched = data[:8] + struct.pack("<I", n_sections + 1) + data[12:] + struct.pack("<IQ", 5, len(body)) + body
+        with tempfile.TemporaryDirectory() as tmp:
+            p = os.path.join(tmp, "custom.r1cs")
+            Path(p).write_bytes(patched)
+            hdr = R.read_header(p)
+            self.assertEqual((hdr.n_constraints, hdr.custom_gate_uses), (2, 3))
+
     def test_malformed_files_are_rejected(self) -> None:
         data = (FIX / "toy.r1cs").read_bytes()
         for bad in (b"xxxx" + data[4:], data[:-3], data + b"\0", data[:4] + b"\x02" + data[5:]):

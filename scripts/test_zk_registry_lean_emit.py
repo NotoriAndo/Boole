@@ -69,6 +69,16 @@ class ModuleTests(unittest.TestCase):
             "  " + E.render_constraint(a, b, c, P) for a, b, c in self.r.constraints])
         self.assertIn("* `w 6`: `main.t`", text)
         self.assertTrue(text.rstrip().endswith("end ZkDet.toy"))
+        self.assertNotIn("set_option", text)                 # short lists: emitted exactly as in wave 0
+
+    def test_long_io_lists_raise_the_recursion_limit_before_the_doc_comment(self) -> None:
+        n = E.LONG_LIST + 2
+        r = R.R1cs(P, 32, n + 2, 1, n, 0, n + 2, [([(1, 1)], [(1, 1)], [(1, 1)])])
+        names = ["one", "main.o"] + [f"main.i[{k}]" for k in range(n)]
+        text = E.emit_model("ZkDet.wide", META, r, [1], list(range(2, n + 2)), names)
+        self.assertEqual(text.count("set_option maxRecDepth 100000 in\n"), 1)
+        self.assertIn("set_option maxRecDepth 100000 in\n/-- Input signals of the main component", text)
+        self.assertIn("\n/-- Output signals of the main component: `main.o`. -/\ndef Outputs", text)
 
     def test_large_systems_are_split_into_blocks(self) -> None:
         cons = [([(1, 1)], [(1, 1)], [(2, 1)])] * 130
@@ -105,6 +115,7 @@ class ModuleTests(unittest.TestCase):
         fid = E.emit_fid_runner("ZkDet.big", 130, [("real_000", "/w/a.txt")])
         self.assertEqual(fid.count("instance instDecBlock"), 3)
         self.assertEqual(fid.count("set_option synthInstance.maxSize 1000000 in\n"), 4)
+        self.assertEqual(fid.count("set_option maxRecDepth 100000 in\n"), 4)
         self.assertIn('let w ← loadWitness "/w/a.txt"', fid)
         self.assertIn('FID real_000 {if decide (Constraints w) then "ACCEPT" else "REJECT"}', fid)
         bat = E.emit_battery("ZkDet.toy", 2, "V2", E.BATTERY_TACTICS, 200000)

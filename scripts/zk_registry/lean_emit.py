@@ -93,6 +93,15 @@ def _list_literal(items: Sequence[int]) -> str:
     return "[" + ", ".join(str(i) for i in items) + "]"
 
 
+LONG_LIST = 512
+
+
+def _long_list_option(items: Sequence[int]) -> list[str]:
+    """Lean's code generator recurses once per list element; lists above :data:`LONG_LIST` elements
+    get a raised ``maxRecDepth`` (shorter lists are emitted exactly as before)."""
+    return ["set_option maxRecDepth 100000 in"] if len(items) > LONG_LIST else []
+
+
 def model_module(ns: str) -> str:
     return f"{ns}.Model"
 
@@ -149,9 +158,11 @@ def emit_model(ns: str, meta: dict, r: R1cs, outputs: Sequence[int], inputs: Seq
         "/-- Number of R1CS wires (wire 0 is the constant one). -/",
         f"abbrev nWires : ℕ := {r.n_wires}",
         "",
+        *_long_list_option(outputs),
         f"/-- Output signals of the main component: {summarize_names([wire_names[i] or '' for i in outputs])}. -/",
         f"def Outputs : List (Fin nWires) := {_list_literal(outputs)}",
         "",
+        *_long_list_option(inputs),
         f"/-- Input signals of the main component: {summarize_names([wire_names[i] or '' for i in inputs])}. -/",
         f"def Inputs : List (Fin nWires) := {_list_literal(inputs)}",
         "",
@@ -201,7 +212,8 @@ def emit_statement(ns: str, meta: dict) -> str:
 def emit_fid_runner(ns: str, n_constraints: int, witness_files: Sequence[tuple[str, str]]) -> str:
     """A Lean file that evaluates ``decide (Constraints w)`` on witness files (one value per line)."""
     # a conjunction of BLOCK + 1 equations exceeds the default `synthInstance.maxSize`
-    limits = ["set_option synthInstance.maxSize 1000000 in", "set_option maxHeartbeats 4000000 in"]
+    limits = ["set_option synthInstance.maxSize 1000000 in", "set_option maxHeartbeats 4000000 in",
+              "set_option maxRecDepth 100000 in"]      # long linear combinations (wave 1)
     lines = [f"import {model_module(ns)}", "", f"namespace {ns}", ""]
     for name in block_names(n_constraints):
         lines += limits

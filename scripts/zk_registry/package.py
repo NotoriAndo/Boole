@@ -41,11 +41,21 @@ DET_SPEC = {
     "clauses": DET_SPEC_CLAUSES,
     "sha256": hashlib.sha256("\n".join(DET_SPEC_CLAUSES).encode("utf-8")).hexdigest(),
 }
-STATEMENT_ASSUMPTIONS = [
-    "[Fact (Nat.Prime p)]: primality of the circom prime, supplied as an instance hypothesis so that field "
-    "lemmas apply; p is the published BN254 scalar field order (prime), so the hypothesis does not "
-    "weaken the statement.",
-]
+PRIME_DESCRIPTIONS = {
+    "bn128": "the published BN254 scalar field order",
+    "bls12381": "the published BLS12-381 scalar field order",
+    "goldilocks": "the Goldilocks prime 2^64 - 2^32 + 1",
+}
+
+
+def statement_assumptions(prime_name: str = "bn128") -> list[str]:
+    """The recorded statement assumptions for a circom prime (``circom --prime`` name)."""
+    what = PRIME_DESCRIPTIONS.get(prime_name, "the compilation prime recorded in circuit.prime")
+    return ["[Fact (Nat.Prime p)]: primality of the circom prime, supplied as an instance hypothesis so that field "
+            f"lemmas apply; p is {what} (prime), so the hypothesis does not weaken the statement."]
+
+
+STATEMENT_ASSUMPTIONS = statement_assumptions("bn128")
 
 GENERATOR_SOURCES = ["__init__.py", "r1cs.py", "circom_source.py", "instantiation.py", "lean_emit.py", "witness.py",
                      "witness_runner.js", "det_search.py", "package.py", "jsonschema_lite.py", "lean_runner.py",

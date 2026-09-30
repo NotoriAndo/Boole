@@ -14,6 +14,7 @@ Wire layout of a circom R1CS (checked by :func:`main_io_wires`)::
 """
 from __future__ import annotations
 
+import os
 import re
 import struct
 from dataclasses import dataclass, field
@@ -143,6 +144,59 @@ def parse_r1cs(data: bytes) -> R1cs:
         wire_to_label = list(struct.unpack_from(f"<{n_wires}Q", data, wo))
     return R1cs(prime, n8, n_wires, n_pub_out, n_pub_in, n_prv_in, n_labels, constraints, wire_to_label,
                 list(sections))
+
+
+SECTION_CUSTOM_GATES_LIST = 4
+SECTION_CUSTOM_GATES_USES = 5
+
+
+@dataclass
+class R1csHeader:
+    prime: int
+    n_wires: int
+    n_constraints: int
+    custom_gate_uses: int = 0             # applications of circom custom gates (section 5), not in the R1CS
+
+
+def read_header(path: str) -> R1csHeader:
+    """Prime, wire and constraint counts from the header section only (no constraint parsing, so
+    very large systems can be sized cheaply); same header checks as :func:`parse_r1cs`.  Also the
+    number of custom gate applications (section 5, written by circom for custom templates)."""
+    size = os.path.getsize(path)
+    header, uses = None, 0
+    with open(path, "rb") as f:
+        head = f.read(12)
+        if len(head) < 12 or head[:4] != b"r1cs":
+            raise R1csFormatError("missing r1cs magic")
+        version, n_sections = struct.unpack_from("<II", head, 4)
+        if version != 1:
+            raise R1csFormatError(f"unsupported r1cs version {version}")
+        off = 12
+        for _ in range(n_sections):
+            f.seek(off)
+            raw = f.read(12)
+            if len(raw) < 12:
+                raise R1csFormatError("truncated section table")
+            stype, ssize = struct.unpack("<IQ", raw)
+            off += 12
+            if off + ssize > size:
+                raise R1csFormatError(f"section {stype} overruns the file")
+            if stype == SECTION_HEADER:
+                data = f.read(ssize)
+                (n8,) = struct.unpack_from("<I", data, 0)
+                if n8 <= 0 or n8 % 8 or ssize != 4 + n8 + 4 * 4 + 8 + 4:
+                    raise R1csFormatError("bad header size")
+                prime = int.from_bytes(data[4:4 + n8], "little")
+                n_wires, _, _, _, _, n_cons = struct.unpack_from("<IIIIQI", data, 4 + n8)
+                if prime < 2:
+                    raise R1csFormatError("bad prime")
+                header = (prime, n_wires, n_cons)
+            elif stype == SECTION_CUSTOM_GATES_USES and ssize >= 4:
+                (uses,) = struct.unpack("<I", f.read(4))
+            off += ssize
+    if header is None:
+        raise R1csFormatError("header or constraint section missing")
+    return R1csHeader(*header, custom_gate_uses=uses)
 
 
 def read_r1cs(path: str) -> R1cs:

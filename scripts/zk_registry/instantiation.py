@@ -263,8 +263,15 @@ def plan_templates(files: dict[str, cs.SourceFile], scope: list[str], repo_id: s
     return plans
 
 
-def main_source(template_path_abs: str, template: str, args: tuple[str, ...], pragma: str = "2.0.0") -> str:
-    """The generated main file for one instantiation."""
-    return (f'pragma circom {pragma};\n'
+def main_source(template_path_abs: str, template: str, args: tuple[str, ...], pragma: str = "2.0.0",
+                comment: str | None = None, custom_templates: bool = False) -> str:
+    """The generated main file for one instantiation (``comment``: an optional leading line;
+    ``custom_templates``: the included files declare ``pragma custom_templates``, which circom
+    accepts from language version 2.0.6 on)."""
+    if custom_templates and tuple(int(x) for x in pragma.split(".")) < (2, 0, 6):
+        pragma = "2.0.6"
+    return ((f"// {comment}\n" if comment else "") +
+            f'pragma circom {pragma};\n' +
+            ("pragma custom_templates;\n" if custom_templates else "") +
             f'include "{template_path_abs}";\n'
             f'component main = {template}({", ".join(args)});\n')
