@@ -40,6 +40,13 @@ LEAN_OPTIONS = ["-DautoImplicit=false", "--tstack=400000"]
 BATTERY_TACTICS = ["decide", "simp", "simp_all", "omega", "norm_num", "aesop", "bv_decide", "grind", "ring_nf",
                    "exact?", "apply?"]
 BATTERY_VARIANTS = ["V0", "V1", "V2"]
+# Battery P2 (wave 1b), aimed at linear and copy circuits, whose DET proofs need the literal Inputs /
+# Outputs lists case-split: V3 introduces the hypotheses, flattens `∀ i ∈ [..]` into conjunctions and
+# unfolds the constraint system in the hypotheses, then runs the tactic; V4 additionally splits the goal
+# conjunction and runs the tactic on every goal.  One file, 7 forms, same heartbeat cap as P1.
+BATTERY_P2 = [("V3", ["simp", "simp_all", "decide", "omega", "grind"]), ("V4", ["simp_all", "grind"])]
+FLATTEN_LEMMAS = ["List.forall_mem_cons", "List.forall_mem_nil", "List.not_mem_nil", "IsEmpty.forall_iff",
+                  "and_true", "implies_true", "forall_const"]
 
 
 def lean_ident(text: str) -> str:
@@ -291,6 +298,15 @@ def _lean_string(s: str) -> str:
 
 
 def battery_prefix(variant: str, n_constraints: int, preconditions: bool = False, pre_lists=()) -> list[str]:
+    if variant in ("V3", "V4"):
+        hyps = ["w₁", "w₂", "h₁", "h₂"] + (["hp₁", "hp₂"] if preconditions else []) + ["hin"]
+        out = [f"intro {' '.join(hyps)}",
+               f"(try simp only [{', '.join(['Inputs', 'Outputs'] + FLATTEN_LEMMAS)}] at hin ⊢)",
+               f"(try unfold {' '.join(['Constraints'] + block_names(n_constraints))} at h₁ h₂)"]
+        if preconditions:
+            out += ["(try unfold Preconditions at hp₁ hp₂)",
+                    f"(try simp only [{', '.join(list(pre_lists) + FLATTEN_LEMMAS)}] at hp₁ hp₂)"]
+        return out + (["repeat' constructor"] if variant == "V4" else [])
     unf = ([f"(try unfold {n} at *)" for n in unfold_order(n_constraints, preconditions, pre_lists)]
            + ["(try beta_reduce at *)"])
     if variant == "V0":
@@ -309,13 +325,24 @@ def battery_theorem_name(variant: str, tactic: str) -> str:
 def emit_battery(ns: str, n_constraints: int, variant: str, tactics: Sequence[str], heartbeats: int,
                  preconditions: bool = False, pre_lists=()) -> str:
     """One file per variant; one theorem per tactic, each followed by ``#print axioms``."""
+    return emit_battery_forms(ns, n_constraints, [(variant, t) for t in tactics], heartbeats, preconditions, pre_lists)
+
+
+def emit_battery_forms(ns: str, n_constraints: int, forms: Sequence[tuple[str, str]], heartbeats: int,
+                       preconditions: bool = False, pre_lists=()) -> str:
+    """One theorem per (variant, tactic) form, each followed by ``#print axioms``.  P2 forms (V3, V4) raise
+    ``maxRecDepth`` (long literal lists) and run V4's tactic on every goal."""
     lines = ["import Mathlib", "import Std.Tactic.BVDecide", f"import {model_module(ns)}", "",
              f"namespace {ns}", ""]
-    for tactic in tactics:
+    for variant, tactic in forms:
         name = battery_theorem_name(variant, tactic)
+        p2 = variant in ("V3", "V4")
+        if p2:
+            lines.append("set_option maxRecDepth 100000 in")
         lines.append(f"set_option maxHeartbeats {heartbeats} in")
         lines.append(f"theorem {name}{theorem_signature(preconditions)} := by")
-        lines += [f"  {t}" for t in battery_prefix(variant, n_constraints, preconditions, pre_lists) + [tactic]]
+        last = f"all_goals {tactic}" if variant == "V4" else tactic
+        lines += [f"  {t}" for t in battery_prefix(variant, n_constraints, preconditions, pre_lists) + [last]]
         lines.append(f"#print axioms {name}")
         lines.append("")
     lines += [f"end {ns}", ""]

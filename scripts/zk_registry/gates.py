@@ -8,8 +8,9 @@
             and the Lean model (a template without inputs has exactly one witness), and on
             :data:`FID_MIN_MUTANTS` single-wire mutants the Lean verdict equals the oracle verdict.
             Every real witness and every mutant is evaluated in Lean; none is sampled away.
-* G-TRIV    the ZK-PILOT-TRIV-P1 battery (11 tactics x V0/V1/V2) on the statement, with a capped
-            budget; any closure fails the gate.
+* G-TRIV    the ZK-PILOT-TRIV-P1 battery (11 tactics x V0/V1/V2) plus the P2 forms for linear and copy
+            circuits (V3/V4: flatten the literal input/output lists, unfold, then simp / simp_all / decide /
+            omega / grind) on the statement, with a capped budget; any closure fails the gate.
 """
 from __future__ import annotations
 
@@ -237,42 +238,77 @@ def classify_battery(text: str, msgs: list[dict], timed_out: bool) -> dict[str, 
     return out
 
 
+def _battery_file(env: L.LeanEnv, build_dir: str, ns: str, n_constraints: int, work: str, fname: str,
+                  forms: list[tuple[str, str]], heartbeats: int, file_wall: float, single_wall: float,
+                  rss_limit_mb: int, preconditions: bool, pre_lists) -> tuple[dict[str, dict], dict]:
+    """Run one battery file; forms that time out are rerun alone with ``single_wall``."""
+    text = E.emit_battery_forms(ns, n_constraints, forms, heartbeats, preconditions, pre_lists)
+    path = os.path.join(work, f"{fname}.lean")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+    r = L.run_lean(env, E.LEAN_OPTIONS + ["--json", path], work, file_wall, extra_lean_path=[build_dir],
+                   rss_limit_mb=rss_limit_mb)
+    with open(os.path.join(work, f"{fname}.out"), "w", encoding="utf-8") as f:
+        f.write(r.out[-200000:])
+    run = {"variant": fname.replace("Battery_", ""), "secs": r.secs, "timeout": r.timeout, "memkill": r.memkill,
+           "peak_rss_mb": r.peak_rss_mb}
+    results = {}
+    for name, c in classify_battery(text, L.parse_messages(r.out), r.timeout or r.memkill).items():
+        if c["status"] == "timeout":
+            form = next(fm for fm in forms if E.battery_theorem_name(*fm) == name)
+            single = E.emit_battery_forms(ns, n_constraints, [form], heartbeats, preconditions, pre_lists)
+            spath = os.path.join(work, f"Single_{name}.lean")
+            with open(spath, "w", encoding="utf-8") as f:
+                f.write(single)
+            rs = L.run_lean(env, E.LEAN_OPTIONS + ["--json", spath], work, single_wall,
+                            extra_lean_path=[build_dir], rss_limit_mb=rss_limit_mb)
+            c = classify_battery(single, L.parse_messages(rs.out), rs.timeout or rs.memkill)[name]
+            c["rerun_single"] = {"secs": rs.secs, "timeout": rs.timeout, "memkill": rs.memkill}
+        results[name] = c
+    return results, run
+
+
+def _triv_gate(results: dict, runs: list, budget: dict, battery: str) -> Gate:
+    closed = sorted(n for n, c in results.items() if c["closed"])
+    detail = {"forms": len(results), "closed_by": closed, "battery": battery,
+              "timeouts": sorted(n for n, c in results.items() if c["status"] == "timeout"),
+              "budget": budget, "runs": runs}
+    return Gate("G-TRIV", "FAIL" if closed else "PASS", detail)
+
+
+BATTERY_P1_P2 = "P1 (V0-V2, 33 forms) + P2 (V3-V4, 7 forms)"
+BATTERY_P2_ONLY = "P2 (V3-V4, 7 forms)"
+
+
 def g_triv(env: L.LeanEnv, build_dir: str, ns: str, n_constraints: int, work: str, heartbeats: int = 200000,
            file_wall: float = 900, single_wall: float = 180, rss_limit_mb: int = 16384, preconditions: bool = False,
-           pre_lists=()) -> Gate:
+           pre_lists=(), p2: bool = True) -> Gate:
+    """The P1 battery (one file per variant V0-V2) and, with ``p2``, the P2 file (V3-V4)."""
     os.makedirs(work, exist_ok=True)
     results: dict[str, dict] = {}
     runs = []
-    for variant in E.BATTERY_VARIANTS:
-        text = E.emit_battery(ns, n_constraints, variant, E.BATTERY_TACTICS, heartbeats, preconditions, pre_lists)
-        path = os.path.join(work, f"Battery_{variant}.lean")
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(text)
-        r = L.run_lean(env, E.LEAN_OPTIONS + ["--json", path], work, file_wall, extra_lean_path=[build_dir],
-                       rss_limit_mb=rss_limit_mb)
-        with open(os.path.join(work, f"Battery_{variant}.out"), "w", encoding="utf-8") as f:
-            f.write(r.out[-200000:])
-        runs.append({"variant": variant, "secs": r.secs, "timeout": r.timeout, "memkill": r.memkill,
-                     "peak_rss_mb": r.peak_rss_mb})
-        cls = classify_battery(text, L.parse_messages(r.out), r.timeout or r.memkill)
-        for name, c in cls.items():
-            if c["status"] == "timeout":
-                tactic = next(t for t in E.BATTERY_TACTICS if E.battery_theorem_name(variant, t) == name)
-                single = E.emit_battery(ns, n_constraints, variant, [tactic], heartbeats, preconditions, pre_lists)
-                spath = os.path.join(work, f"Single_{name}.lean")
-                with open(spath, "w", encoding="utf-8") as f:
-                    f.write(single)
-                rs = L.run_lean(env, E.LEAN_OPTIONS + ["--json", spath], work, single_wall,
-                                extra_lean_path=[build_dir], rss_limit_mb=rss_limit_mb)
-                c = classify_battery(single, L.parse_messages(rs.out), rs.timeout or rs.memkill)[name]
-                c["rerun_single"] = {"secs": rs.secs, "timeout": rs.timeout, "memkill": rs.memkill}
-            results[name] = c
-    closed = sorted(n for n, c in results.items() if c["closed"])
-    detail = {"forms": len(results), "closed_by": closed,
-              "timeouts": sorted(n for n, c in results.items() if c["status"] == "timeout"),
-              "budget": {"maxHeartbeats": heartbeats, "file_wall_s": file_wall, "single_wall_s": single_wall},
-              "runs": runs}
-    return Gate("G-TRIV", "FAIL" if closed else "PASS", detail)
+    files = [(f"Battery_{v}", [(v, t) for t in E.BATTERY_TACTICS]) for v in E.BATTERY_VARIANTS]
+    if p2:
+        files.append(("Battery_P2", [(v, t) for v, ts in E.BATTERY_P2 for t in ts]))
+    for fname, forms in files:
+        res, run = _battery_file(env, build_dir, ns, n_constraints, work, fname, forms, heartbeats, file_wall,
+                                 single_wall, rss_limit_mb, preconditions, pre_lists)
+        results.update(res)
+        runs.append(run)
+    budget = {"maxHeartbeats": heartbeats, "file_wall_s": file_wall, "single_wall_s": single_wall}
+    return _triv_gate(results, runs, budget, BATTERY_P1_P2 if p2 else "P1 (V0-V2, 33 forms)")
+
+
+def g_triv_p2(env: L.LeanEnv, build_dir: str, ns: str, n_constraints: int, work: str, heartbeats: int = 200000,
+              file_wall: float = 900, single_wall: float = 180, rss_limit_mb: int = 16384,
+              preconditions: bool = False, pre_lists=()) -> Gate:
+    """The P2 file alone (re-run of packages whose P1 battery already ran)."""
+    os.makedirs(work, exist_ok=True)
+    res, run = _battery_file(env, build_dir, ns, n_constraints, work, "Battery_P2",
+                             [(v, t) for v, ts in E.BATTERY_P2 for t in ts], heartbeats, file_wall, single_wall,
+                             rss_limit_mb, preconditions, pre_lists)
+    budget = {"maxHeartbeats": heartbeats, "file_wall_s": file_wall, "single_wall_s": single_wall}
+    return _triv_gate(res, [run], budget, BATTERY_P2_ONLY)
 
 
 def write_json(path: str, obj) -> None:

@@ -266,7 +266,18 @@
         "sources_sha256": {"$ref": "#/$defs/sha256"}
       }
     },
-    "evidence": {"type": "object"}
+    "evidence": {"type": "object"},
+    "supersedes": {
+      "description": "This record replaces an earlier record of the same package (e.g. after the P2 battery re-run); the package files are unchanged.",
+      "type": "object",
+      "required": ["status", "status_reason", "generator_sources_sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "status": {"enum": ["OPEN", "TOO-LARGE", "UNINSTANTIABLE", "GATE-FAIL", "DET-FALSE-CANDIDATE"]},
+        "status_reason": {"type": "string"},
+        "generator_sources_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
   },
   "allOf": [
     {

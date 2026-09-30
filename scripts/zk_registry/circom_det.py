@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures as cf
+import copy
 import hashlib
 import json
 import os
@@ -1075,6 +1076,97 @@ def validate_all(index_path: str, packages_dir: str, collections_root: bool = Fa
     return problems
 
 
+# ------------------------------------------------------------------------------------------ battery P2 re-run
+
+def apply_p2(rec: dict, p2: dict) -> dict:
+    """The record after the P2 battery (``p2``: a G-TRIV gate from :func:`gates.g_triv_p2`) ran on its package:
+    P2 closures join ``closed_by`` and an OPEN record becomes GATE-FAIL (closed by automation).  The package
+    files are unchanged; ``supersedes`` keeps the previous status and generator."""
+    new = copy.deepcopy(rec)
+    g = dict(new["gates"]["G-TRIV"])
+    closed = sorted(set(g.get("closed_by", [])) | set(p2["closed_by"]))
+    g.update(closed_by=closed, forms=g.get("forms", 33) + p2["forms"], battery=G.BATTERY_P1_P2,
+             p2={k: v for k, v in p2.items() if k != "status"},
+             status="FAIL" if closed else g["status"])
+    new["gates"]["G-TRIV"] = g
+    new["supersedes"] = {"status": rec["status"], "status_reason": rec["status_reason"],
+                         "generator_sources_sha256": rec["generator"]["sources_sha256"]}
+    new["generator"] = P.generator_info()
+    if p2["closed_by"] and rec["status"] == "OPEN":
+        new["status"] = "GATE-FAIL"
+        new["status_reason"] = f"G-TRIV (battery P2) closed by {', '.join(p2['closed_by'][:4])}"
+        new["statement"]["truth"] = "closed-by-automation"
+    return new
+
+
+def battery_p2_one(env: L.LeanEnv, rec: dict, pkg: str, work: str, out: str, heartbeats: int = 200000,
+                   file_wall: float = 900, single_wall: float = 180) -> dict:
+    """Run the P2 battery on one packaged statement; a record whose status changes is written, with a copy of
+    its package and the P2 battery file, under ``out``.  Returns the result row."""
+    t0 = time.time()
+    st = rec["statement"]
+    ns = st["theorem_fqn"].rsplit(".", 1)[0]
+    build = os.path.join(work, "build")
+    shutil.rmtree(work, ignore_errors=True)
+    r, msgs = L.compile_module(env, pkg, st["model_file"], build, E.LEAN_OPTIONS, 3600)
+    row = {"package_id": rec["package_id"], "status_before": rec["status"]}
+    if r.rc != 0 or L.errors(msgs):
+        row.update(result="ERROR", error="model did not compile", secs=round(time.time() - t0, 1))
+        return row
+    groups = st.get("preconditions") or []
+    pre_lists = [name for name, _, _ in E.precondition_lists(groups)] if groups else []
+    gate = G.g_triv_p2(env, build, ns, rec["circuit"]["n_constraints"], os.path.join(work, "triv"), heartbeats,
+                       file_wall, single_wall, preconditions=bool(groups), pre_lists=pre_lists).to_json()
+    new = apply_p2(rec, gate)
+    row.update(result="CLOSED" if gate["closed_by"] else "SURVIVES", closed_by=gate["closed_by"],
+               timeouts=gate["timeouts"], status_after=new["status"], secs=round(time.time() - t0, 1))
+    if new["status"] != rec["status"]:
+        dest = os.path.join(out, rec["package_id"])
+        shutil.rmtree(dest, ignore_errors=True)
+        shutil.copytree(pkg, dest)
+        shutil.copyfile(os.path.join(work, "triv", "Battery_P2.lean"),
+                        os.path.join(dest, "evidence", "triv", "Battery_P2.lean"))
+        P.write_json(os.path.join(dest, "problem.json"), new)
+        row["record"] = new
+    return row
+
+
+def run_battery_p2(sources: list[tuple[str, str]], lean_env: str, work: str, out: str, jobs: int) -> list[dict]:
+    """P2 battery over every OPEN record of the given (index, packages root) pairs."""
+    env = L.load_env(lean_env)
+    todo = []
+    for index, root in sources:
+        with open(index, encoding="utf-8") as f:
+            for line in f:
+                rec = json.loads(line)
+                if rec["status"] == "OPEN":
+                    todo.append((rec, os.path.join(root, rec["package_id"])))
+    os.makedirs(out, exist_ok=True)
+    rows = []
+    with cf.ThreadPoolExecutor(max_workers=jobs) as ex:
+        futs = {ex.submit(battery_p2_one, env, rec, pkg, os.path.join(work, rec["package_id"]), out): rec
+                for rec, pkg in todo}
+        for n, fut in enumerate(cf.as_completed(futs), 1):
+            rec = futs[fut]
+            try:
+                row = fut.result()
+            except Exception as exc:  # recorded, never silently dropped
+                row = {"package_id": rec["package_id"], "result": "ERROR", "error": f"{type(exc).__name__}: {exc}"[:400]}
+            shutil.rmtree(os.path.join(work, rec["package_id"]), ignore_errors=True)
+            rows.append(row)
+            print(f"[{n}/{len(todo)}] {row['package_id']}: {row['result']} {row.get('closed_by', '')} "
+                  f"({row.get('secs', '?')} s)", flush=True)
+    rows.sort(key=lambda x: x["package_id"])
+    with open(os.path.join(out, "RESULTS.jsonl"), "w", encoding="utf-8") as f:
+        for row in rows:
+            f.write(json.dumps({k: v for k, v in row.items() if k != "record"}, sort_keys=True) + "\n")
+    with open(os.path.join(out, "INDEX.jsonl"), "w", encoding="utf-8") as f:
+        for row in rows:
+            if "record" in row:
+                f.write(json.dumps(row["record"], sort_keys=True, ensure_ascii=False) + "\n")
+    return rows
+
+
 # ------------------------------------------------------------------------------------------ report
 
 SIZE_BUCKETS = [(0, 0), (1, 10), (11, 100), (101, 500), (501, 1000), (1001, 2000), (2001, 10000),
@@ -1147,6 +1239,12 @@ def main(argv: list[str] | None = None) -> int:
     a3.add_argument("--jobs", type=int, help="template workers shared by all configurations")
     a5 = sub.add_parser("summary")
     a5.add_argument("--index", required=True)
+    a6 = sub.add_parser("battery-p2", help="run the P2 battery on every OPEN package of the given indexes")
+    a6.add_argument("--source", required=True, action="append", help="INDEX.jsonl=PACKAGES_ROOT (repeatable)")
+    a6.add_argument("--lean-env", required=True)
+    a6.add_argument("--work", required=True)
+    a6.add_argument("--out", required=True)
+    a6.add_argument("--jobs", type=int, default=6)
     a4 = sub.add_parser("validate")
     a4.add_argument("--index", required=True)
     a4.add_argument("--packages", required=True)
@@ -1160,6 +1258,8 @@ def main(argv: list[str] | None = None) -> int:
     elif a.cmd == "wave":
         cfgs = [WaveConfig.load(c) for c in a.config]
         run_waves(cfgs, a.jobs or cfgs[0].jobs)
+    elif a.cmd == "battery-p2":
+        run_battery_p2([tuple(x.split("=", 1)) for x in a.source], a.lean_env, a.work, a.out, a.jobs)
     elif a.cmd == "summary":
         with open(a.index, encoding="utf-8") as f:
             print(json.dumps(summarize([json.loads(x) for x in f]), indent=1))
