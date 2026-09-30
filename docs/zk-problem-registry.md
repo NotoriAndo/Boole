@@ -143,6 +143,30 @@ and Lean recursion limits (regression tests in `scripts/test_zk_registry_*.py`).
 
 Waves 0 and 1 together: **367 OPEN** DET packages.
 
+## Wave 1b (generator 1.3 over the unpackaged items)
+
+The four generator improvements above were applied to the 756 UNINSTANTIABLE and TOO-LARGE records of waves 0 and 1
+whose outcome they can change, the 611 TOO-LARGE or guard-stopped instantiations were decomposed, and battery P2 was
+run on all 367 OPEN packages. Wave-0/1 packages are not modified; superseding records are kept separately.
+
+| waves 0 + 1 records (1,767) | before | after |
+|---|---:|---:|
+| OPEN | 367 | 303 |
+| GATE-FAIL | 191 | 379 |
+| DET-FALSE-CANDIDATE (private) | 28 | 29 |
+| TOO-LARGE | 392 | 583 |
+| UNINSTANTIABLE | 788 | 472 |
+| ERROR | 1 | 1 |
+
+- Compiler selection compiled 173 of 208 records (T2046 136 of 159, circom 1 37 of 45); parameter derivation 112 of
+  457 ungrounded records plus 8 probed; tag preconditions 23 of 69 (all `binary`; 46 carry project-defined tags).
+- Battery P2 closed 133 of the 367 OPEN packages (`grind` / `simp_all` after flattening the input/output lists), which
+  became GATE-FAIL.
+- Decomposition produced 247 sub-component packages (one per template content): 130 OPEN, 110 GATE-FAIL,
+  6 DET-FALSE-CANDIDATE (private), 1 ERROR.
+
+Waves 0, 1 and 1b together: **433 OPEN** DET packages (DET truth unknown for each).
+
 ## Limits
 
 - Closed-local artifacts; no registry service, issuance, receipt or reward path is wired.
