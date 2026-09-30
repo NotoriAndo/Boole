@@ -22,6 +22,8 @@ from . import lean_emit as E
 
 SCHEMA_VERSION = "zk-registry-problem/v1"
 SCHEMA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "schema", "problem.schema.json")
+AIR_SCHEMA_VERSION = "zk-registry-air-problem/v1"
+AIR_SCHEMA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "schema", "air_problem.schema.json")
 PACKAGED_STATUSES = ("OPEN", "GATE-FAIL", "DET-FALSE-CANDIDATE")
 STATUSES = ("OPEN", "TOO-LARGE", "UNINSTANTIABLE", "GATE-FAIL", "DET-FALSE-CANDIDATE")
 MAX_CONSTRAINTS = 2000
@@ -107,14 +109,17 @@ def lean_namespace(collection: str, dir_name: str) -> str:
 
 # ------------------------------------------------------------------------------------------ validation
 
-def load_schema() -> dict:
-    with open(SCHEMA_PATH, encoding="utf-8") as f:
+def load_schema(version: str = SCHEMA_VERSION) -> dict:
+    path = AIR_SCHEMA_PATH if version == AIR_SCHEMA_VERSION else SCHEMA_PATH
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
 def validate_problem(problem: dict, pkg_dir: str | None = None, schema: dict | None = None) -> list[str]:
-    """Schema errors plus semantic checks; with ``pkg_dir`` also file presence and hashes."""
-    errs = jsonschema_lite.validate(problem, schema or load_schema())
+    """Schema errors plus semantic checks; with ``pkg_dir`` also file presence and hashes.  The schema follows
+    ``schema_version`` (circom packages or AIR packages)."""
+    air = problem.get("schema_version") == AIR_SCHEMA_VERSION
+    errs = jsonschema_lite.validate(problem, schema or load_schema(problem.get("schema_version", SCHEMA_VERSION)))
     if errs:
         return errs
     status = problem["status"]
@@ -127,7 +132,9 @@ def validate_problem(problem: dict, pkg_dir: str | None = None, schema: dict | N
         roles = sorted(f["role"] for f in chk["files"])
         if roles.count("statement") != 1:
             errs.append("checker.files must list exactly one statement file")
-        if problem["circuit"]["n_constraints"] > MAX_CONSTRAINTS or not problem["circuit"]["size_policy"]["within"]:
+        size = problem["air"] if air else problem["circuit"]
+        limit = size["size_policy"]["max_constraints"] if air else MAX_CONSTRAINTS
+        if size["n_constraints"] > limit or not size["size_policy"]["within"]:
             errs.append("packaged status outside the size policy")
         if pkg_dir is not None:
             for fr in chk["files"]:
@@ -145,7 +152,10 @@ def validate_problem(problem: dict, pkg_dir: str | None = None, schema: dict | N
         for key in ("statement", "checker", "gates"):
             if key in problem:
                 errs.append(f"{status} record must not carry {key!r}")
-        if status == "TOO-LARGE" and problem["circuit"]["n_constraints"] <= problem["circuit"]["size_policy"]["max_constraints"]:
+        if status == "TOO-LARGE" and not air and \
+                problem["circuit"]["n_constraints"] <= problem["circuit"]["size_policy"]["max_constraints"]:
+            errs.append("TOO-LARGE record within the size policy")
+        if status == "TOO-LARGE" and air and problem["air"]["size_policy"]["within"]:
             errs.append("TOO-LARGE record within the size policy")
     return errs
 
