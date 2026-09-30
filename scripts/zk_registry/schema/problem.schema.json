@@ -79,6 +79,17 @@
         "selection": {"type": "string"},
         "include_context": {"type": "string"},
         "include_main_removed": {"description": "The included file also declares a component main, which was blanked in a sibling copy for this compilation.", "type": "boolean"},
+        "tag_wrapper": {
+          "description": "The template's inputs carry known circom tags: it was compiled through a generated wrapper whose main inputs are untagged copies (same names and dimensions); statement.preconditions states the tags' preconditions.",
+          "type": "object",
+          "required": ["wrapper", "tagged_inputs"],
+          "additionalProperties": false,
+          "properties": {
+            "wrapper": {"type": "string"},
+            "tagged_inputs": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}}},
+            "tag_table_source": {"type": "string"}
+          }
+        },
         "main_sha256": {"$ref": "#/$defs/sha256"},
         "candidates": {
           "type": "array",
@@ -169,6 +180,23 @@
         "model_file": {"type": "string"},
         "text": {"type": "string"},
         "assumptions": {"type": "array", "items": {"type": "string"}},
+        "preconditions": {
+          "description": "DET under input preconditions: hypotheses Preconditions w1 and Preconditions w2 of the statement, one group per tagged main input signal.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["signal", "tag", "condition", "wires"],
+            "additionalProperties": false,
+            "properties": {
+              "signal": {"type": "string", "pattern": "^main\\."},
+              "tag": {"enum": ["binary", "maxbit"]},
+              "value": {"type": ["integer", "null"], "minimum": 1},
+              "condition": {"type": "string"},
+              "wires": {"type": "array", "minItems": 1, "items": {"type": "integer", "minimum": 1}}
+            }
+          }
+        },
         "truth": {"enum": ["unknown", "false-counterexample-found", "closed-by-automation"]}
       }
     },

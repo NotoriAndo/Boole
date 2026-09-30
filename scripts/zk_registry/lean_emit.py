@@ -13,6 +13,12 @@ The model module is a verbatim transcription of the compiled R1CS:
 The statement module states output determinism (T1: the definition of output determinism) with
 the primality of ``p`` as an instance hypothesis, so that field lemmas are usable; ``p`` is prime,
 so the hypothesis does not weaken the statement.
+
+Templates whose inputs carry known circom tags (``binary``, ``maxbit``) are compiled through an
+untagged wrapper, and their model has ``Preconditions w``: the tag precondition on every tagged main
+input wire (``BinaryInputs``: each value 0 or 1; ``MaxbitInputs<n>``: each value below 2^n).  Their
+statement is DET under input preconditions: both assignments satisfy ``Preconditions``.  Statements
+of untagged templates are unchanged.
 """
 from __future__ import annotations
 
@@ -26,6 +32,8 @@ STATEMENT_THEOREM = "det"
 STATEMENT_BINDERS = "[Fact (Nat.Prime p)]"
 STATEMENT_PROP = ("∀ w₁ w₂ : Fin nWires → F, Constraints w₁ → Constraints w₂ →\n"
                   "      (∀ i ∈ Inputs, w₁ i = w₂ i) → ∀ o ∈ Outputs, w₁ o = w₂ o")
+STATEMENT_PROP_PRE = ("∀ w₁ w₂ : Fin nWires → F, Constraints w₁ → Constraints w₂ → Preconditions w₁ → Preconditions w₂ →\n"
+                      "      (∀ i ∈ Inputs, w₁ i = w₂ i) → ∀ o ∈ Outputs, w₁ o = w₂ o")
 LEAN_OPTIONS = ["-DautoImplicit=false", "--tstack=400000"]
 
 # ZK-PILOT-TRIV-P1 battery: 11 tactics x variants V0 (as stated), V1 (unfold), V2 (intros, unfold).
@@ -116,13 +124,29 @@ def block_names(n_constraints: int) -> list[str]:
     return [f"Block{k}" for k in range((n_constraints + BLOCK - 1) // BLOCK)]
 
 
-def unfold_order(n_constraints: int) -> list[str]:
+def precondition_lists(groups) -> list[tuple[str, str, list[int]]]:
+    """(list name, per-wire condition, wires) for precondition groups [{"tag", "value", "wires"}]; wires with the
+    same tag and value share one list."""
+    merged: dict[str, tuple[str, list[int]]] = {}
+    for g in groups:
+        if g["tag"] == "binary":
+            name, cond = "BinaryInputs", "w i = 0 ∨ w i = 1"
+        elif g["tag"] == "maxbit":
+            name, cond = f"MaxbitInputs{g['value']}", f"(w i).val < 2 ^ {g['value']}"
+        else:
+            raise ValueError(f"no precondition for tag {g['tag']!r}")
+        merged.setdefault(name, (cond, []))[1].extend(g["wires"])
+    return [(name, cond, wires) for name, (cond, wires) in merged.items()]
+
+
+def unfold_order(n_constraints: int, preconditions: bool = False, pre_lists=()) -> list[str]:
     """Every definition of the model module, consumers before the definitions they use."""
-    return ["Constraints"] + block_names(n_constraints) + ["Outputs", "Inputs", "F", "nWires", "p"]
+    pre = ["Preconditions", *pre_lists] if preconditions else []
+    return ["Constraints", *pre] + block_names(n_constraints) + ["Outputs", "Inputs", "F", "nWires", "p"]
 
 
 def emit_model(ns: str, meta: dict, r: R1cs, outputs: Sequence[int], inputs: Sequence[int],
-               wire_names: Sequence[str | None]) -> str:
+               wire_names: Sequence[str | None], preconditions=None) -> str:
     p = r.prime
     header = [
         "import Mathlib",
@@ -167,6 +191,16 @@ def emit_model(ns: str, meta: dict, r: R1cs, outputs: Sequence[int], inputs: Seq
         f"def Inputs : List (Fin nWires) := {_list_literal(inputs)}",
         "",
     ]
+    if preconditions:
+        lists = precondition_lists(preconditions)
+        for name, cond, wires in lists:
+            body += [*_long_list_option(wires),
+                     f"/-- Main input wires whose template input carries a circom tag (precondition `{cond}`): "
+                     f"{summarize_names([wire_names[i] or '' for i in wires])}. -/",
+                     f"def {name} : List (Fin nWires) := {_list_literal(wires)}", ""]
+        body += ["/-- Input preconditions of the circom tags on the template's inputs; DET is stated under them. -/",
+                 "def Preconditions (w : Fin nWires → F) : Prop :=",
+                 "  " + " ∧ ".join(f"(∀ i ∈ {name}, {cond})" for name, cond, _ in lists), ""]
     cons = [render_constraint(a, b, c, p) for a, b, c in r.constraints]
     blocks = block_names(len(cons))
     if blocks:
@@ -187,21 +221,23 @@ def emit_model(ns: str, meta: dict, r: R1cs, outputs: Sequence[int], inputs: Seq
     return "\n".join(header + body)
 
 
-def theorem_signature() -> str:
+def theorem_signature(preconditions: bool = False) -> str:
     """Text between ``theorem det`` and ``:= by`` (shared by the statement and the battery)."""
-    return f" {STATEMENT_BINDERS} :\n    {STATEMENT_PROP}"
+    return f" {STATEMENT_BINDERS} :\n    {STATEMENT_PROP_PRE if preconditions else STATEMENT_PROP}"
 
 
-def emit_statement(ns: str, meta: dict) -> str:
+def emit_statement(ns: str, meta: dict, preconditions: bool = False) -> str:
     return "\n".join([
         f"import {model_module(ns)}",
         "",
         f"namespace {ns}",
         "",
         f"/-- Output determinism of {meta['repo_id']} `{meta['instantiation']}` ({meta['path']}): two",
-        "assignments that satisfy the compiled constraints and agree on every input wire agree on every",
+        "assignments that satisfy the compiled constraints" + (" and the input preconditions of the template's"
+                                                               if preconditions else "") +
+        (" tags" if preconditions else "") + " and agree on every input wire agree on every",
         "output wire. -/",
-        f"theorem {STATEMENT_THEOREM}{theorem_signature()} := by",
+        f"theorem {STATEMENT_THEOREM}{theorem_signature(preconditions)} := by",
         "  sorry",
         "",
         f"end {ns}",
@@ -209,8 +245,10 @@ def emit_statement(ns: str, meta: dict) -> str:
     ])
 
 
-def emit_fid_runner(ns: str, n_constraints: int, witness_files: Sequence[tuple[str, str]]) -> str:
-    """A Lean file that evaluates ``decide (Constraints w)`` on witness files (one value per line)."""
+def emit_fid_runner(ns: str, n_constraints: int, witness_files: Sequence[tuple[str, str]],
+                    preconditions: bool = False) -> str:
+    """A Lean file that evaluates ``decide (Constraints w)`` (and ``decide (Preconditions w)``) on witness
+    files (one value per line)."""
     # a conjunction of BLOCK + 1 equations exceeds the default `synthInstance.maxSize`
     limits = ["set_option synthInstance.maxSize 1000000 in", "set_option maxHeartbeats 4000000 in",
               "set_option maxRecDepth 100000 in"]      # long linear combinations (wave 1)
@@ -223,6 +261,13 @@ def emit_fid_runner(ns: str, n_constraints: int, witness_files: Sequence[tuple[s
         "instance instDecConstraints (w : Fin nWires → F) : Decidable (Constraints w) := by",
         "  unfold Constraints; infer_instance",
         "",
+    ]
+    if preconditions:
+        lines += limits + [
+            "instance instDecPreconditions (w : Fin nWires → F) : Decidable (Preconditions w) := by",
+            "  unfold Preconditions; infer_instance",
+            ""]
+    lines += [
         "def loadWitness (path : String) : IO (Fin nWires → F) := do",
         "  let ls ← IO.FS.lines path",
         "  let vals := (ls.filter (· ≠ \"\")).map String.toNat!",
@@ -235,6 +280,8 @@ def emit_fid_runner(ns: str, n_constraints: int, witness_files: Sequence[tuple[s
     for tag, path in witness_files:
         lines.append(f"  let w ← loadWitness {_lean_string(path)}")
         lines.append(f"  IO.println s!\"FID {tag} {{if decide (Constraints w) then \"ACCEPT\" else \"REJECT\"}}\"")
+        if preconditions:
+            lines.append(f"  IO.println s!\"PRE {tag} {{if decide (Preconditions w) then \"ACCEPT\" else \"REJECT\"}}\"")
     lines += ["  IO.println \"FID-DONE\"", "", f"end {ns}", ""]
     return "\n".join(lines)
 
@@ -243,8 +290,9 @@ def _lean_string(s: str) -> str:
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def battery_prefix(variant: str, n_constraints: int) -> list[str]:
-    unf = [f"(try unfold {n} at *)" for n in unfold_order(n_constraints)] + ["(try beta_reduce at *)"]
+def battery_prefix(variant: str, n_constraints: int, preconditions: bool = False, pre_lists=()) -> list[str]:
+    unf = ([f"(try unfold {n} at *)" for n in unfold_order(n_constraints, preconditions, pre_lists)]
+           + ["(try beta_reduce at *)"])
     if variant == "V0":
         return []
     if variant == "V1":
@@ -258,15 +306,16 @@ def battery_theorem_name(variant: str, tactic: str) -> str:
     return f"triv_{variant}_{tactic.replace('?', 'Q')}"
 
 
-def emit_battery(ns: str, n_constraints: int, variant: str, tactics: Sequence[str], heartbeats: int) -> str:
+def emit_battery(ns: str, n_constraints: int, variant: str, tactics: Sequence[str], heartbeats: int,
+                 preconditions: bool = False, pre_lists=()) -> str:
     """One file per variant; one theorem per tactic, each followed by ``#print axioms``."""
     lines = ["import Mathlib", "import Std.Tactic.BVDecide", f"import {model_module(ns)}", "",
              f"namespace {ns}", ""]
     for tactic in tactics:
         name = battery_theorem_name(variant, tactic)
         lines.append(f"set_option maxHeartbeats {heartbeats} in")
-        lines.append(f"theorem {name}{theorem_signature()} := by")
-        lines += [f"  {t}" for t in battery_prefix(variant, n_constraints) + [tactic]]
+        lines.append(f"theorem {name}{theorem_signature(preconditions)} := by")
+        lines += [f"  {t}" for t in battery_prefix(variant, n_constraints, preconditions, pre_lists) + [tactic]]
         lines.append(f"#print axioms {name}")
         lines.append("")
     lines += [f"end {ns}", ""]

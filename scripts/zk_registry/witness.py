@@ -22,10 +22,13 @@ RUNNER_JS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "witness_ru
 class InputSignal:
     key: str            # circom input name as the witness calculator expects it (no "main.", no indices)
     wires: list[int]    # wires in flattening order
+    # input precondition the values must satisfy: None, "binary" or ("maxbit", n)
+    domain: object = None
 
 
-def input_signals(io: R.MainIo) -> list[InputSignal]:
-    """Group the main component's input wires by signal (declaration order = wire order)."""
+def input_signals(io: R.MainIo, domains: dict | None = None) -> list[InputSignal]:
+    """Group the main component's input wires by signal (declaration order = wire order); ``domains``
+    maps a signal key to its input precondition (tag), which the samplers respect."""
     groups: list[InputSignal] = []
     for wire, name in zip(io.inputs, io.input_names):
         key = R.signal_base(name)[len("main."):]
@@ -34,8 +37,20 @@ def input_signals(io: R.MainIo) -> list[InputSignal]:
         elif any(g.key == key for g in groups):
             raise ValueError(f"input signal {key} is not contiguous in the wire order")
         else:
-            groups.append(InputSignal(key, [wire]))
+            groups.append(InputSignal(key, [wire], (domains or {}).get(key)))
     return groups
+
+
+def restrict(value: int, domain, rng: random.Random) -> int:
+    """``value`` moved inside an input precondition (binary: kept if 0/1, else a random bit; maxbit n:
+    reduced modulo 2^n)."""
+    if domain is None:
+        return value
+    if domain == "binary":
+        return value if value in (0, 1) else rng.randrange(2)
+    if isinstance(domain, tuple) and domain[0] == "maxbit":
+        return value % (2 ** domain[1])
+    raise ValueError(f"unknown input domain {domain!r}")
 
 
 def sample_value(strategy: str, rng: random.Random, p: int, shared: int = 0) -> int:
@@ -91,7 +106,7 @@ def sample_inputs(signals: list[InputSignal], p: int, seed: str, attempts: int,
                 strategies = [rng.choice(pool)] * len(sig.wires)
             else:
                 strategies = [rng.choice(pool) for _ in sig.wires]
-            obj[sig.key] = [str(sample_value(s, rng, p, shared)) for s in strategies]
+            obj[sig.key] = [str(restrict(sample_value(s, rng, p, shared), sig.domain, rng)) for s in strategies]
         out.append(obj)
     return out
 
@@ -106,13 +121,23 @@ def boundary_grid(signals: list[InputSignal], p: int, max_elements: int = GRID_M
     n = sum(len(s.wires) for s in signals)
     if not signals or n > max_elements:
         return []
-    values = ["0", "1", str(p - 1)]
+
+    def edge(domain) -> list[str]:
+        if domain == "binary":
+            return ["0", "1"]
+        if isinstance(domain, tuple) and domain[0] == "maxbit":
+            return sorted({"0", "1", str(2 ** domain[1] - 1)}, key=int)
+        return ["0", "1", str(p - 1)]
+    per = [edge(s.domain) for s in signals for _ in s.wires]
+    total = 1
+    for vals in per:
+        total *= len(vals)
     out = []
-    for code in range(3 ** n):
+    for code in range(total):
         flat = []
-        for _ in range(n):
-            flat.append(values[code % 3])
-            code //= 3
+        for vals in per:
+            flat.append(vals[code % len(vals)])
+            code //= len(vals)
         obj, k = {}, 0
         for sig in signals:
             obj[sig.key] = flat[k:k + len(sig.wires)]

@@ -30,9 +30,13 @@ class Counterexample:
     changed_outputs: list[int]
 
 
-def confirm(r: R.R1cs, w1: list[int], w2: list[int], inputs: list[int], outputs: list[int]) -> list[int] | None:
-    """Output wires that differ, if (w1, w2) is a DET counterexample; otherwise None."""
+def confirm(r: R.R1cs, w1: list[int], w2: list[int], inputs: list[int], outputs: list[int],
+            pre=None) -> list[int] | None:
+    """Output wires that differ, if (w1, w2) is a DET counterexample; otherwise None.  ``pre``: the input
+    preconditions DET is stated under (a predicate on a full assignment); both assignments must satisfy it."""
     if not (R.satisfies(r, w1) and R.satisfies(r, w2)):
+        return None
+    if pre is not None and not (pre(w1) and pre(w2)):
         return None
     if any(w1[i] != w2[i] for i in inputs):
         return None
@@ -40,13 +44,14 @@ def confirm(r: R.R1cs, w1: list[int], w2: list[int], inputs: list[int], outputs:
     return diff or None
 
 
-def output_mutation(r: R.R1cs, w: list[int], inputs: list[int], outputs: list[int], rng: random.Random) -> Counterexample | None:
+def output_mutation(r: R.R1cs, w: list[int], inputs: list[int], outputs: list[int], rng: random.Random,
+                    pre=None) -> Counterexample | None:
     p = r.prime
     for o in outputs:
         for delta in (1, p - 1, rng.randrange(1, p)):
             w2 = list(w)
             w2[o] = (w2[o] + delta) % p
-            diff = confirm(r, w, w2, inputs, outputs)
+            diff = confirm(r, w, w2, inputs, outputs, pre)
             if diff:
                 return Counterexample("output-mutation", w, w2, diff)
     return None
@@ -176,7 +181,7 @@ def propagate(r: R.R1cs, w: list[int], fixed: set[int], seed: dict[int, int], de
 
 
 def linear_kernel(r: R.R1cs, w: list[int], inputs: list[int], outputs: list[int], rng: random.Random,
-                  budget_s: float = 20.0, max_vectors: int = 64) -> tuple[Counterexample | None, str]:
+                  budget_s: float = 20.0, max_vectors: int = 64, pre=None) -> tuple[Counterexample | None, str]:
     p = r.prime
     fixed = set(inputs) | {0}
     columns = [j for j in range(r.n_wires) if j not in fixed]
@@ -190,7 +195,7 @@ def linear_kernel(r: R.R1cs, w: list[int], inputs: list[int], outputs: list[int]
                 w2 = list(w)
                 for j, v in vec.items():
                     w2[j] = (w2[j] + t * v) % p
-                diff = confirm(r, w, w2, inputs, outputs)
+                diff = confirm(r, w, w2, inputs, outputs, pre)
                 if diff:
                     return Counterexample("linear-kernel", w, w2, diff), "found"
         # re-solve from every first-order-free wire (output-moving ones first): a free wire whose
@@ -199,7 +204,7 @@ def linear_kernel(r: R.R1cs, w: list[int], inputs: list[int], outputs: list[int]
         for f, _ in ordered[:max_vectors]:
             for t in (1, rng.randrange(1, p)):
                 w3 = propagate(r, w, fixed, {f: (w[f] + t) % p}, deadline)
-                diff = confirm(r, w, w3, inputs, outputs) if w3 else None
+                diff = confirm(r, w, w3, inputs, outputs, pre) if w3 else None
                 if diff:
                     return Counterexample("re-solve", w, w3, diff), "found"
     except Budget:
@@ -214,20 +219,24 @@ def boundary_first(r: R.R1cs, witnesses: list[list[int]], inputs: list[int]) -> 
 
 
 def search(r: R.R1cs, witnesses: list[list[int]], inputs: list[int], outputs: list[int], seed: str,
-           budget_s: float = 20.0, mutation_bases: int = 32, kernel_bases: int = 6) -> tuple[Counterexample | None, dict]:
+           budget_s: float = 20.0, mutation_bases: int = 32, kernel_bases: int = 6,
+           pre=None) -> tuple[Counterexample | None, dict]:
     """Output mutation from up to ``mutation_bases`` real witnesses, then the linear-kernel search from
-    up to ``kernel_bases``; boundary-heavy witnesses first; stop at the first confirmed counterexample."""
+    up to ``kernel_bases``; boundary-heavy witnesses first; stop at the first confirmed counterexample.
+    With input preconditions ``pre``, only witnesses satisfying them are used as bases."""
     rng = random.Random(seed + "/det-search")
+    if pre is not None:
+        witnesses = [w for w in witnesses if pre(w)]
     ordered = boundary_first(r, witnesses, inputs)
     log = {"bases": len(witnesses), "mutation_bases": min(len(ordered), mutation_bases),
            "output_mutation": "no-counterexample", "linear_kernel": []}
     for w in ordered[:mutation_bases]:
-        ce = output_mutation(r, w, inputs, outputs, rng)
+        ce = output_mutation(r, w, inputs, outputs, rng, pre)
         if ce:
             log["output_mutation"] = "found"
             return ce, log
     for w in ordered[:kernel_bases]:
-        ce, status = linear_kernel(r, w, inputs, outputs, rng, budget_s=budget_s)
+        ce, status = linear_kernel(r, w, inputs, outputs, rng, budget_s=budget_s, pre=pre)
         log["linear_kernel"].append(status)
         if ce:
             return ce, log

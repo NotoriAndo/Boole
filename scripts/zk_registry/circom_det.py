@@ -51,6 +51,7 @@ from zk_registry import lean_emit as E            # noqa: E402
 from zk_registry import lean_runner as L          # noqa: E402
 from zk_registry import package as P              # noqa: E402
 from zk_registry import r1cs as R                 # noqa: E402
+from zk_registry import tags as TG                # noqa: E402
 from zk_registry import witness as W              # noqa: E402
 
 # Pinned circom compilers, one per language line.  The driver refuses any binary (or, for circom 1,
@@ -293,6 +294,7 @@ class Shared:
     node_version: str
     generator: dict
     compilers: dict = field(default_factory=dict)       # tag -> Compiler
+    functions: set = field(default_factory=set)         # circom function names of the scanned files
 
     def env_record(self, compiler: "Compiler | None" = None) -> dict:
         pins = self.env.pins()
@@ -386,21 +388,36 @@ CIRCOM1_PRIMES = {"bn128": None, "bls12381": "BLS12381"}      # circom 1 `-p` na
 
 
 def compile_main(sh: Shared, workdir: str, include_rel: str, template: str, args: tuple[str, ...],
-                 full: bool, rule_path: str | None = None, compiler: Compiler | None = None) -> dict:
+                 full: bool, rule_path: str | None = None, compiler: Compiler | None = None,
+                 tag_template: cs.Template | None = None) -> dict:
+    """Compile ``template(args)`` as the main component (``tag_template``: the template's inputs carry known
+    tags; it is compiled through the untagged wrapper of :func:`tags.wrapper_source`)."""
     compiler = compiler or sh.default_compiler()
     os.makedirs(workdir, exist_ok=True)
     prime, libs, _ = build_options(sh.cfg, rule_path or include_rel)
     nomain = main_free_copy(sh, include_rel)
     custom = uses_custom_templates_pragma(sh.files, include_rel)
     pragma = None if compiler.kind == "circom1" else "2.0.0"
+    comment = f"compiled with the component main declaration of {include_rel} blanked" if nomain else None
     main = os.path.join(workdir, "main.circom")
+    if tag_template is not None:
+        closure = max(closure_pragmas(sh.files, include_rel), default=TG.TAG_PRAGMA)
+        try:
+            main_text = TG.wrapper_source(nomain or os.path.join(sh.cfg.repo_dir, include_rel), tag_template, args,
+                                          closure, sh.functions, custom_templates=custom)
+            portable = TG.wrapper_source(include_rel, tag_template, args, closure, sh.functions, comment=comment,
+                                         custom_templates=custom)
+        except TG.TagError as exc:
+            return {"rc": None, "secs": 0.0, "include_context": include_rel, "compiler": compiler.tag, "flags": [],
+                    "main_removed": bool(nomain), "workdir": workdir, "error": f"tag wrapper: {exc}", "tag_error": True,
+                    "main_sha256": "0" * 64}
+    else:
+        main_text = I.main_source(nomain or os.path.join(sh.cfg.repo_dir, include_rel), template, args, pragma=pragma,
+                                  custom_templates=custom)
+        # the recorded main names the include relative to the repository root (no local paths)
+        portable = I.main_source(include_rel, template, args, pragma=pragma, comment=comment, custom_templates=custom)
     with open(main, "w", encoding="utf-8") as f:
-        f.write(I.main_source(nomain or os.path.join(sh.cfg.repo_dir, include_rel), template, args, pragma=pragma,
-                              custom_templates=custom))
-    # the recorded main names the include relative to the repository root (no local paths)
-    portable = I.main_source(include_rel, template, args, pragma=pragma,
-                             comment=(f"compiled with the component main declaration of {include_rel} blanked"
-                                      if nomain else None), custom_templates=custom)
+        f.write(main_text)
     with open(os.path.join(workdir, "main.portable.circom"), "w", encoding="utf-8") as f:
         f.write(portable)
     flags = compile_flags(compiler.kind, full)
@@ -462,12 +479,13 @@ def compile_main(sh: Shared, workdir: str, include_rel: str, template: str, args
     return res
 
 
-def size_candidates(sh: Shared, plan: I.TemplatePlan, dir_base: str) -> tuple[str | None, list[dict]]:
+def size_candidates(sh: Shared, plan: I.TemplatePlan, dir_base: str,
+                    wrapper: bool = False) -> tuple[str | None, list[dict]]:
     """Compile candidates tier by tier; returns (tier used, candidate records).
 
     The first tier with a compiled candidate, or with a candidate stopped by the resource guard
     (compiling, but too large to finish), is used.  After ``sizing_budget_s`` the remaining
-    candidates are recorded as skipped."""
+    candidates are recorded as skipped.  ``wrapper``: compile through the tag wrapper (circom >= 2.1)."""
     t = plan.template
     records_all = []
     t0 = time.time()
@@ -484,11 +502,14 @@ def size_candidates(sh: Shared, plan: I.TemplatePlan, dir_base: str) -> tuple[st
             attempts = []
             for ctx in include_contexts(sh.files, t.path):
                 available = sh.compilers or [sh.cfg.circom_version_tag]
-                for tag in compiler_order(closure_pragmas(sh.files, ctx), available) or [sh.cfg.circom_version_tag]:
+                order = compiler_order(closure_pragmas(sh.files, ctx), available) or [sh.cfg.circom_version_tag]
+                if wrapper:
+                    order = [x for x in order if CIRCOM_RELEASES[x]["line"] >= TG.TAG_PRAGMA[:2]] or order[-1:]
+                for tag in order:
                     comp = sh.compilers.get(tag) or sh.default_compiler()
                     res = compile_main(sh, os.path.join(dir_base, "size", slug, re.sub(r"[^A-Za-z0-9]+", "_", ctx),
                                                         tag), ctx, t.name, c.args, False, rule_path=t.path,
-                                       compiler=comp)
+                                       compiler=comp, tag_template=t if wrapper else None)
                     if res.get("r1cs") and os.path.exists(res["r1cs"]):
                         os.remove(res["r1cs"])    # sizes and digest are kept; large systems would fill the disk
                     rec["compile_result"] = res
@@ -605,7 +626,19 @@ def _process_template(sh: Shared, plan: I.TemplatePlan) -> dict:
                    instantiation={"rule": "none", "rule_order": rule_order, "args": [], "call": "",
                                   "params": t.params, "provenance": [], "selection": "no candidate", "candidates": []})
         return _done(rec, t0)
-    tier, records = size_candidates(sh, plan, work)
+    pre = None
+    if TG.input_tags(t):
+        try:
+            pre = TG.preconditions(t)
+        except TG.TagError as exc:
+            rec = base_record(sh, t, dir_probe)
+            rec.update(status="UNINSTANTIABLE", status_reason=f"tagged inputs: {exc}"[:600],
+                       instantiation={"rule": "none", "rule_order": rule_order, "args": [], "call": "",
+                                      "params": t.params, "provenance": [],
+                                      "selection": "not compiled: input tag without a known precondition",
+                                      "candidates": []})
+            return _done(rec, t0)
+    tier, records = size_candidates(sh, plan, work, wrapper=pre is not None)
     if tier is None or not any("constraints" in r["compile_result"] for r in records if r["tier"] == tier):
         rec = base_record(sh, t, dir_probe)
         guarded = [r for r in records if r["compile_result"].get("guard")]
@@ -640,7 +673,10 @@ def _process_template(sh: Shared, plan: I.TemplatePlan) -> dict:
                    status_reason=f"{cr['constraints']} constraints > {sh.cfg.max_constraints} (decomposition candidate)",
                    circuit=circuit_record(sh, None, cr))
         return _done(rec, t0)
-    rec = _done(build_package(sh, t, rec, cr, dir_name, os.path.join(sh.cfg.work, "items", dir_name)), t0)
+    if pre is not None:
+        inst["tag_wrapper"] = {"wrapper": TG.WRAPPER, "tagged_inputs": TG.input_tags(t),
+                               "tag_table_source": "; ".join(sorted({TG.KNOWN_TAGS[p.tag]["source"] for p in pre}))}
+    rec = _done(build_package(sh, t, rec, cr, dir_name, os.path.join(sh.cfg.work, "items", dir_name), pre), t0)
     if rec["status"] in P.PACKAGED_STATUSES:
         rec = scrub(sh, rec)
         P.write_json(os.path.join(sh.cfg.out, dir_name, "problem.json"), rec)
@@ -663,12 +699,16 @@ def scrub(sh: Shared, rec: dict) -> dict:
     return json.loads(text)
 
 
-def build_package(sh: Shared, t: cs.Template, rec: dict, size_cr: dict, dir_name: str, work: str) -> dict:
+def build_package(sh: Shared, t: cs.Template, rec: dict, size_cr: dict, dir_name: str, work: str,
+                  pre: list | None = None) -> dict:
+    """Compile the chosen instantiation with --sym/--wasm, emit the Lean files, run the gates and write the
+    package.  ``pre``: the tag preconditions (:func:`tags.preconditions`) when the template is compiled
+    through the tag wrapper; the statement is then DET under those input preconditions."""
     cfg = sh.cfg
     args = tuple(rec["instantiation"]["args"])
     comp = compiler_of(sh, size_cr)
     full = compile_main(sh, os.path.join(work, "compile"), size_cr["include_context"], t.name, args, True,
-                        rule_path=t.path, compiler=comp)
+                        rule_path=t.path, compiler=comp, tag_template=t if pre is not None else None)
     if full["rc"] != 0 or full.get("r1cs_sha256") != size_cr["r1cs_sha256"]:
         rec.update(status="UNINSTANTIABLE",
                    status_reason="full compile (with --wasm) failed or produced a different R1CS than the sizing compile",
@@ -679,6 +719,9 @@ def build_package(sh: Shared, t: cs.Template, rec: dict, size_cr: dict, dir_name
     io = R.main_io_wires(r, syms)
     names = R.wire_names(syms, r.n_wires)
     rec["circuit"] = circuit_record(sh, r, full, len(io.inputs), len(io.outputs), sha256_file(full["sym"]))
+    wpre = TG.wire_preconditions(pre, io.inputs, io.input_names) if pre else None
+    pre_fn = (lambda w: TG.holds(wpre, w)) if wpre else None
+    pre_lists = [name for name, _, _ in E.precondition_lists(wpre)] if wpre else []
     ns = P.lean_namespace(cfg.collection, dir_name)
     meta = {"repo_id": cfg.repo_id, "instantiation": rec["instantiation"]["call"],
             "generator": f"{sh.generator['name']} v{sh.generator['version']}", "repo_url": cfg.repo_url,
@@ -690,19 +733,29 @@ def build_package(sh: Shared, t: cs.Template, rec: dict, size_cr: dict, dir_name
     model_rel = E.model_relpath(ns)
     os.makedirs(os.path.dirname(os.path.join(stage, model_rel)), exist_ok=True)
     with open(os.path.join(stage, model_rel), "w", encoding="utf-8") as f:
-        f.write(E.emit_model(ns, meta, r, io.outputs, io.inputs, names))
-    statement_text = E.emit_statement(ns, meta)
+        f.write(E.emit_model(ns, meta, r, io.outputs, io.inputs, names, wpre))
+    statement_text = E.emit_statement(ns, meta, preconditions=bool(wpre))
     with open(os.path.join(stage, "Statement.lean"), "w", encoding="utf-8") as f:
         f.write(statement_text)
     fqn = f"{ns}.{E.STATEMENT_THEOREM}"
     rec["statement"] = {"file": "Statement.lean", "theorem": E.STATEMENT_THEOREM, "theorem_fqn": fqn,
                         "model_module": E.model_module(ns), "model_file": model_rel, "text": statement_text,
                         "assumptions": P.statement_assumptions(r.prime_name or "unknown"), "truth": "unknown"}
+    if wpre:
+        rec["statement"]["preconditions"] = [
+            {"signal": g["signal"], "tag": g["tag"], "value": g["value"],
+             "condition": TG.KNOWN_TAGS[g["tag"]]["precondition"], "wires": g["wires"]} for g in wpre]
+        rec["statement"]["assumptions"].append(
+            "Preconditions w₁ → Preconditions w₂: DET is stated under the input preconditions of the circom tags "
+            "on the template's inputs (" + ", ".join(f"`{g['signal'][5:]}` {{{g['tag']}}}" for g in wpre) +
+            "), which the template's callers promise; the main inputs are untagged copies made by the generated "
+            "wrapper, and assignments outside the preconditions are not constrained by the statement.")
     gates: dict[str, dict] = {}
     evidence: dict = {"work": work}
 
     # witnesses
-    signals = W.input_signals(io)
+    domains = {p.signal: (p.tag if p.value is None else (p.tag, p.value)) for p in (pre or [])}
+    signals = W.input_signals(io, domains)
     wc, wasm = full["witness_js"], full["wasm"]
     gen_dir = os.path.join(work, "wit-gen")
     if not signals:
@@ -722,6 +775,9 @@ def build_package(sh: Shared, t: cs.Template, rec: dict, size_cr: dict, dir_name
     grid = W.boundary_grid(signals, r.prime)
     grid_accepted = W.collect_real(r, signals, W.run_generator(cfg.node, wc, wasm, grid, gen_dir, tag="grid"),
                                    len(grid))[0] if grid else []
+    if pre_fn:                                           # the samplers respect the preconditions; checked here
+        accepted = [x for x in accepted if pre_fn(x[1])]
+        grid_accepted = [x for x in grid_accepted if pre_fn(x[1])]
     evidence["witness_sampling"] = {"attempts": attempts, "mixed_phase_strategies": allowed or "all",
                                     "generator_errors": gen_errors,
                                     "oracle_rejected_generator_witnesses": len(rejected),
@@ -742,15 +798,15 @@ def build_package(sh: Shared, t: cs.Template, rec: dict, size_cr: dict, dir_name
         os.path.join(build, model_rel[:-len(".lean")] + ".olean"))
     if model_ok:
         fid, nonvac = G.g_fid_nonvac(sh.env, build, ns, r.n_constraints, real_w, muts, not signals,
-                                     os.path.join(work, "fid"), W.write_witness)
+                                     os.path.join(work, "fid"), W.write_witness, pre=pre_fn)
     else:
         fid = G.Gate("G-FID", "SKIPPED", {"reason": "model did not compile"})
         nonvac = G.Gate("G-NONVAC", "SKIPPED", {"reason": "model did not compile"})
     gates["G-FID"], gates["G-NONVAC"] = fid.to_json(), nonvac.to_json()
 
     # DET search (Python oracle), confirmed in Lean
-    ce, log = (det_search.search(r, pool, io.inputs, io.outputs, rec["package_id"], cfg.det_search_budget_s)
-               if pool else (None, {"bases": 0}))
+    ce, log = (det_search.search(r, pool, io.inputs, io.outputs, rec["package_id"], cfg.det_search_budget_s,
+                                 pre=pre_fn) if pool else (None, {"bases": 0}))
     det_gate = {"status": "PASS", "truth": "unknown", "log": log,
                 "note": "PASS means no counterexample was found by the cheap searches; DET truth is not established"}
     if ce is not None:
@@ -759,9 +815,12 @@ def build_package(sh: Shared, t: cs.Template, rec: dict, size_cr: dict, dir_name
         W.write_witness(os.path.join(cdir, "w1.txt"), ce.base)
         W.write_witness(os.path.join(cdir, "w2.txt"), ce.other)
         verdicts, _ = (G.lean_verdicts(sh.env, build, ns, r.n_constraints,
-                                       [("w1", os.path.join(cdir, "w1.txt")), ("w2", os.path.join(cdir, "w2.txt"))], cdir)
+                                       [("w1", os.path.join(cdir, "w1.txt")), ("w2", os.path.join(cdir, "w2.txt"))], cdir,
+                                       preconditions=bool(wpre))
                        if model_ok else ({}, None))
         lean_ok = verdicts.get("w1") == "ACCEPT" and verdicts.get("w2") == "ACCEPT"
+        if wpre:                                         # both assignments inside the preconditions, in Lean too
+            lean_ok = lean_ok and verdicts.get("PRE:w1") == "ACCEPT" and verdicts.get("PRE:w2") == "ACCEPT"
         det_gate = {"status": "FAIL", "truth": "false-counterexample-found" if lean_ok else "unknown",
                     "method": ce.method, "changed_outputs": [names[o] for o in ce.changed_outputs][:20],
                     "lean_confirms_both_witnesses": lean_ok, "oracle_confirms": True, "log": log,
@@ -776,7 +835,8 @@ def build_package(sh: Shared, t: cs.Template, rec: dict, size_cr: dict, dir_name
         gates["G-TRIV"] = {"status": "SKIPPED", "reason": "statement refuted by a confirmed counterexample"}
     else:
         gates["G-TRIV"] = G.g_triv(sh.env, build, ns, r.n_constraints, os.path.join(work, "triv"),
-                                   cfg.battery_heartbeats, cfg.battery_file_wall, cfg.battery_single_wall).to_json()
+                                   cfg.battery_heartbeats, cfg.battery_file_wall, cfg.battery_single_wall,
+                                   preconditions=bool(wpre), pre_lists=pre_lists).to_json()
     rec["gates"] = gates
 
     # status
@@ -904,7 +964,7 @@ def prepare(cfg: WaveConfig) -> tuple[Shared, list[I.TemplatePlan], list[dict]]:
     scope = [p for p in rels if p.startswith(cfg.scope_prefix) and p not in cfg.exclude]
     ledger_ids, ledger_sha = load_ledger(cfg.ledger, ledger_prefix(cfg))
     sh = Shared(cfg, env, files, ledger_ids, ledger_sha, circom_sha, compilers[cfg.circom_version_tag].version,
-                tool_version([cfg.node, "--version"]), P.generator_info(), compilers)
+                tool_version([cfg.node, "--version"]), P.generator_info(), compilers, I.function_names(files))
     plans = I.plan_templates(files, scope, cfg.repo_id, config_mains=cs.scan_config_mains(cfg.repo_dir, files),
                              probe=cfg.probe)
     missing: list[dict] = []

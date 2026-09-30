@@ -84,6 +84,7 @@ class SignalDecl:
     direction: str          # "input" | "output" | "intermediate"
     name: str
     dims: list[str]         # dimension expressions, outermost first
+    tags: list[str] = field(default_factory=list)       # circom tags, e.g. ["binary"] for `signal input {binary} x`
 
 
 @dataclass
@@ -142,8 +143,10 @@ def signal_declarations(body: str) -> list[SignalDecl]:
         if dm:
             direction = dm.group(1)
             stmt = stmt[dm.end():].strip()
+        tags: list[str] = []
         if stmt.startswith("{"):
             close = match_bracket(stmt, 0)
+            tags = [x.strip() for x in stmt[1:close].split(",") if x.strip()]
             stmt = stmt[close + 1:].strip()
         stmt = re.split(r"<==|<--|==>|-->|=", stmt, maxsplit=1)[0]
         for part in split_top_level(stmt):
@@ -158,7 +161,7 @@ def signal_declarations(body: str) -> list[SignalDecl]:
                     break
                 dims.append(rest[1:close].strip())
                 rest = rest[close + 1:].strip()
-            decls.append(SignalDecl(direction, nm.group(1), dims))
+            decls.append(SignalDecl(direction, nm.group(1), dims, list(tags)))
     return decls
 
 

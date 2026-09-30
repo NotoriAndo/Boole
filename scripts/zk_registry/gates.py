@@ -127,20 +127,25 @@ def g_elab(env: L.LeanEnv, pkg_dir: str, build_dir: str, ns: str, work: str, tim
 # ------------------------------------------------------------------------------------------ G-FID / G-NONVAC
 
 def lean_verdicts(env: L.LeanEnv, build_dir: str, ns: str, n_constraints: int, files: list[tuple[str, str]],
-                  work: str, timeout: float = 3600) -> tuple[dict[str, str], L.RunResult]:
+                  work: str, timeout: float = 3600, preconditions: bool = False) -> tuple[dict[str, str], L.RunResult]:
+    """Lean verdicts per witness tag; with ``preconditions`` also ``PRE:<tag>`` for ``decide (Preconditions w)``."""
     src = os.path.join(work, "Fid.lean")
     with open(src, "w", encoding="utf-8") as f:
-        f.write(E.emit_fid_runner(ns, n_constraints, files))
+        f.write(E.emit_fid_runner(ns, n_constraints, files, preconditions))
     r = L.run_lean(env, E.LEAN_OPTIONS + ["--json", src], work, timeout, extra_lean_path=[build_dir])
     text = "\n".join(m.get("data", "") for m in L.parse_messages(r.out))
     verdicts = dict(re.findall(r"^FID (\S+) (ACCEPT|REJECT)$", text, re.M))
+    verdicts.update({f"PRE:{k}": v for k, v in re.findall(r"^PRE (\S+) (ACCEPT|REJECT)$", text, re.M)})
     if "FID-DONE" not in text:
         verdicts["__incomplete__"] = "; ".join(L.fmt_msg(m) for m in L.errors(L.parse_messages(r.out))[:3]) or r.out[-300:]
     return verdicts, r
 
 
 def g_fid_nonvac(env: L.LeanEnv, build_dir: str, ns: str, n_constraints: int, real: list[list[int]],
-                 muts: list[dict], input_free: bool, work: str, write_witness) -> tuple[Gate, Gate]:
+                 muts: list[dict], input_free: bool, work: str, write_witness, pre=None) -> tuple[Gate, Gate]:
+    """``pre``: the input preconditions (Python predicate on a full assignment) when the statement has
+    them; Lean's ``decide (Preconditions w)`` must then agree with it on every witness, and every real
+    witness must satisfy it."""
     wdir = os.path.join(work, "wit")
     os.makedirs(wdir, exist_ok=True)
     files = []
@@ -155,7 +160,7 @@ def g_fid_nonvac(env: L.LeanEnv, build_dir: str, ns: str, n_constraints: int, re
     if not files:
         detail = {"real_witnesses": 0, "reason": "the witness generator produced no oracle-accepted witness"}
         return Gate("G-FID", "FAIL", dict(detail)), Gate("G-NONVAC", "FAIL", dict(detail))
-    verdicts, r = lean_verdicts(env, build_dir, ns, n_constraints, files, work)
+    verdicts, r = lean_verdicts(env, build_dir, ns, n_constraints, files, work, preconditions=pre is not None)
     real_accept = sum(verdicts.get(f"real_{k:03d}") == "ACCEPT" for k in range(len(real)))
     agree = sum(verdicts.get(f"mut_{k:03d}") == ("ACCEPT" if m["oracle"] else "REJECT") for k, m in enumerate(muts))
     detail = {
@@ -164,13 +169,21 @@ def g_fid_nonvac(env: L.LeanEnv, build_dir: str, ns: str, n_constraints: int, re
         "mutants": len(muts), "mutants_oracle_reject": sum(not m["oracle"] for m in muts),
         "mutants_lean_agree": agree, "lean_eval_secs": r.secs,
     }
+    pre_ok = True
+    if pre is not None:
+        py = [pre(w) for w in real] + [pre(m["witness"]) for m in muts]
+        tags = [f"real_{k:03d}" for k in range(len(real))] + [f"mut_{k:03d}" for k in range(len(muts))]
+        pre_agree = sum(verdicts.get(f"PRE:{t}") == ("ACCEPT" if v else "REJECT") for t, v in zip(tags, py))
+        detail.update(preconditions_lean_python_agree=pre_agree, preconditions_evaluated=len(tags),
+                      real_satisfy_preconditions=sum(py[:len(real)]))
+        pre_ok = pre_agree == len(tags) and all(py[:len(real)])
     if "__incomplete__" in verdicts:
         detail["error"] = verdicts["__incomplete__"][:400]
         detail["reason"] = "the Lean evaluation did not complete (harness error); no verdict is inferred"
         return Gate("G-FID", "ERROR", dict(detail)), Gate("G-NONVAC", "ERROR", dict(detail))
     need_real = 1 if input_free else FID_MIN_REAL
     fid_ok = (real_accept == len(real) and len(real) >= need_real and len(muts) >= FID_MIN_MUTANTS
-              and agree == len(muts))
+              and agree == len(muts) and pre_ok)
     fid_detail = dict(detail, required_real=need_real, input_free=input_free)
     if not fid_ok:
         reasons = []
@@ -180,6 +193,8 @@ def g_fid_nonvac(env: L.LeanEnv, build_dir: str, ns: str, n_constraints: int, re
             reasons.append("the Lean model rejected a real witness")
         if agree != len(muts) or len(muts) < FID_MIN_MUTANTS:
             reasons.append("Lean and oracle verdicts differ on a mutant (or too few mutants)")
+        if not pre_ok:
+            reasons.append("Lean and Python disagree on the input preconditions (or a real witness violates them)")
         fid_detail["reason"] = "; ".join(reasons)
     nonvac_ok = real_accept >= 1
     return (Gate("G-FID", "PASS" if fid_ok else "FAIL", fid_detail),
@@ -223,12 +238,13 @@ def classify_battery(text: str, msgs: list[dict], timed_out: bool) -> dict[str, 
 
 
 def g_triv(env: L.LeanEnv, build_dir: str, ns: str, n_constraints: int, work: str, heartbeats: int = 200000,
-           file_wall: float = 900, single_wall: float = 180, rss_limit_mb: int = 16384) -> Gate:
+           file_wall: float = 900, single_wall: float = 180, rss_limit_mb: int = 16384, preconditions: bool = False,
+           pre_lists=()) -> Gate:
     os.makedirs(work, exist_ok=True)
     results: dict[str, dict] = {}
     runs = []
     for variant in E.BATTERY_VARIANTS:
-        text = E.emit_battery(ns, n_constraints, variant, E.BATTERY_TACTICS, heartbeats)
+        text = E.emit_battery(ns, n_constraints, variant, E.BATTERY_TACTICS, heartbeats, preconditions, pre_lists)
         path = os.path.join(work, f"Battery_{variant}.lean")
         with open(path, "w", encoding="utf-8") as f:
             f.write(text)
@@ -242,7 +258,7 @@ def g_triv(env: L.LeanEnv, build_dir: str, ns: str, n_constraints: int, work: st
         for name, c in cls.items():
             if c["status"] == "timeout":
                 tactic = next(t for t in E.BATTERY_TACTICS if E.battery_theorem_name(variant, t) == name)
-                single = E.emit_battery(ns, n_constraints, variant, [tactic], heartbeats)
+                single = E.emit_battery(ns, n_constraints, variant, [tactic], heartbeats, preconditions, pre_lists)
                 spath = os.path.join(work, f"Single_{name}.lean")
                 with open(spath, "w", encoding="utf-8") as f:
                     f.write(single)

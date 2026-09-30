@@ -8,6 +8,7 @@ proofs of the generated statements.
 * ``circom_source``   light circom source scanner (templates, signals, includes, mains)
 * ``circom_eval``     compile-time integer evaluation and ``for``-loop structure of template bodies
 * ``instantiation``   instantiation rules for parametric templates
+* ``tags``            known circom input tags as DET preconditions; the untagged wrapper main
 * ``lean_emit``       Lean model / statement / harness emitters
 * ``witness``         input sampling, witness generation and mutants
 * ``det_search``      cheap searches for output-determinism counterexamples
