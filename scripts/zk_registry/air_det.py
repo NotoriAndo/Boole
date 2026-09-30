@@ -55,8 +55,10 @@ GENERATOR_SOURCES = ["air_det.py", "air_ir.py", "air_lean.py", "air_bus.py", "ai
                      "air_harness/common/boole_air_ir.rs"]
 HERE = os.path.dirname(os.path.abspath(__file__))
 HARNESS_DIR = os.path.join(HERE, "air_harness")
-MAX_CONSTRAINTS = 2000
-MAX_NODES = 40000
+# size policy of a packaged AIR: constraint polynomials and distinct expression nodes (Lean elaboration and the
+# evaluation harness stay within a few minutes and 16 GB per process below these bounds)
+MAX_CONSTRAINTS = 4000
+MAX_NODES = 100000
 FID_REAL = 12
 FID_MUTANTS = 12
 SEARCH_POOL = 64
@@ -654,8 +656,7 @@ def run_wave(cfg: WaveConfig, jobs: int | None = None) -> list[dict]:
     os.makedirs(cfg.out, exist_ok=True)
     os.makedirs(cfg.work, exist_ok=True)
     results = []
-    # large AIRs first so the pool drains evenly
-    order = sorted(manifest, key=lambda m: -int(m.get("n_constraints", 0) or 0))
+    order = interleave_by_size(manifest, lambda m: _ir_size(cfg, m))
     with cf.ThreadPoolExecutor(max_workers=jobs or cfg.jobs) as ex:
         futs = {ex.submit(process_air, sh, m): m for m in order}
         for k, fut in enumerate(cf.as_completed(futs), 1):
@@ -668,6 +669,25 @@ def run_wave(cfg: WaveConfig, jobs: int | None = None) -> list[dict]:
             write_index(cfg.out, list(results))
     write_index(cfg.out, results)
     return results
+
+
+def _ir_size(cfg: WaveConfig, m: dict) -> int:
+    path = os.path.join(cfg.extract, "airs", f"{m['index']}.json")
+    return os.path.getsize(path) if m["status"] == "extracted" and os.path.exists(path) else 0
+
+
+def interleave_by_size(items: list, size) -> list:
+    """Largest first for an even drain, alternating with the smallest so that few large models (memory-heavy Lean
+    runs) are processed at the same time."""
+    ordered = sorted(items, key=lambda m: (-size(m), m["index"]))
+    out, lo, hi = [], 0, len(ordered) - 1
+    while lo <= hi:
+        out.append(ordered[lo])
+        lo += 1
+        if lo <= hi:
+            out.append(ordered[hi])
+            hi -= 1
+    return out
 
 
 def write_index(out: str, records: list[dict]) -> None:

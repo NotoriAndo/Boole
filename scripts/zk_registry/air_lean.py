@@ -157,6 +157,10 @@ def block_names(n: int) -> list[str]:
     return [] if n <= BLOCK else [f"Block{k}" for k in range((n + BLOCK - 1) // BLOCK)]
 
 
+def asm_block_names(n: int) -> list[str]:
+    return [] if n <= BLOCK else [f"AsmBlock{k}" for k in range((n + BLOCK - 1) // BLOCK)]
+
+
 def roots_of(air: IR.Air, roles: Roles) -> list[int]:
     roots = list(air.constraints)
     for m in roles.inputs + roles.outputs:
@@ -212,7 +216,8 @@ def emit_model(ns: str, meta: dict, air: IR.Air, layout: IR.Layout, roles: Roles
     ]
     for k, nm in enumerate(names):
         header.append(f"* `w {k}`: {nm}")
-    header += ["-/", "", f"namespace {ns}", ""]
+    # long sums and large windows exceed the default recursion depth while elaborating (file-local option)
+    header += ["-/", "", "set_option maxRecDepth 100000", "", f"namespace {ns}", ""]
     body = [
         f"/-- The {air.field_name} prime. -/",
         f"abbrev p : ℕ := {air.p}",
@@ -259,20 +264,29 @@ def emit_model(ns: str, meta: dict, air: IR.Air, layout: IR.Layout, roles: Roles
             asm.append(f"({v} = 0 ∨ {v} = 1)")
         if "trans" in layout.selectors and "last" in layout.selectors:
             asm.append(f"w {o + layout.selectors.index('trans')} = 1 - w {o + layout.selectors.index('last')}")
-    body += ["/-- Bus facts assumed (lookups into tables that other chips provide)"
-             + (" and normalized row selectors" if roles.selectors else "") + ". -/",
-             "def Assumptions (w : Fin nVars → F) : Prop :="]
-    if asm:
+    notes = [_asm_note(roles, k) if k < len(roles.assumptions) else "" for k in range(len(asm))]
+
+    def conj(items: list[str], item_notes: list[str]) -> str:
         # the conjunction symbol precedes the line comment, never inside it
         lines = []
-        for k, a in enumerate(asm):
-            sep = " ∧" if k + 1 < len(asm) else ""
-            note = f"  -- {_asm_note(roles, k)}" if k < len(roles.assumptions) else ""
+        for k, a in enumerate(items):
+            sep = " ∧" if k + 1 < len(items) else ""
+            note = f"  -- {item_notes[k]}" if item_notes[k] else ""
             lines.append(f"  {a}{sep}{note}")
-        body.append("\n".join(lines))
+        return "\n".join(lines)
+    asm_doc = ("Bus facts assumed (lookups into tables that other chips provide)"
+               + (" and normalized row selectors" if roles.selectors else ""))
+    asm_blocks = asm_block_names(len(asm))
+    if asm_blocks:
+        for k, name in enumerate(asm_blocks):
+            lo, hi = k * BLOCK, min((k + 1) * BLOCK, len(asm))
+            body += [f"/-- Assumptions {lo}–{hi - 1}. -/", f"def {name} (w : Fin nVars → F) : Prop :=",
+                     conj(asm[lo:hi], notes[lo:hi]), ""]
+        body += [f"/-- {asm_doc} ({len(asm)}). -/", "def Assumptions (w : Fin nVars → F) : Prop :=",
+                 "  " + " ∧ ".join(f"{b} w" for b in asm_blocks), ""]
     else:
-        body.append("  True")
-    body.append("")
+        body += [f"/-- {asm_doc}. -/", "def Assumptions (w : Fin nVars → F) : Prop :=",
+                 conj(asm, notes) if asm else "  True", ""]
     fixed = layout.fixed()
     body += [*E._long_list_option(fixed),
              "/-- Variables both windows share: preprocessed cells, public values, row selectors. -/",
@@ -280,7 +294,7 @@ def emit_model(ns: str, meta: dict, air: IR.Air, layout: IR.Layout, roles: Roles
     body += _msg_list(pr, "In", "Input messages (received values, and values provided to this AIR).", roles.inputs)
     body += _msg_list(pr, "Out", "Output messages (values this AIR is responsible for).", roles.outputs)
     body += [f"end {ns}", ""]
-    summary = {"hoisted": pr.hoisted_names(), "blocks": blocks, "tables": used_tables,
+    summary = {"hoisted": pr.hoisted_names(), "blocks": blocks, "asm_blocks": asm_blocks, "tables": used_tables,
                "n_constraints": len(cons), "n_vars": layout.n_vars}
     return "\n".join(header + body), summary
 
@@ -318,7 +332,7 @@ LIMITS = ["set_option synthInstance.maxSize 1000000 in", "set_option maxHeartbea
 
 def _decidable_instances(summary: dict) -> list[str]:
     lines = []
-    for name in summary["blocks"]:
+    for name in summary["blocks"] + summary.get("asm_blocks", []):
         lines += LIMITS + [f"instance instDec{name} (w : Fin nVars → F) : Decidable ({name} w) := by "
                            f"unfold {name}; infer_instance"]
     lines += LIMITS + ["instance instDecConstraints (w : Fin nVars → F) : Decidable (Constraints w) := by",
@@ -372,8 +386,8 @@ def write_window(path: str, w: Sequence[int]) -> None:
 
 def unfold_order(summary: dict) -> list[str]:
     """Every definition of the model module, consumers before the definitions they use."""
-    return (["Constraints", *summary["blocks"], "Assumptions", *summary["tables"], "Out", "In", "Fixed", "BusEq",
-             "MsgEq"] + list(reversed(summary["hoisted"])) + ["Msg", "F", "nVars", "p"])
+    return (["Constraints", *summary["blocks"], "Assumptions", *summary.get("asm_blocks", []), *summary["tables"],
+             "Out", "In", "Fixed", "BusEq", "MsgEq"] + list(reversed(summary["hoisted"])) + ["Msg", "F", "nVars", "p"])
 
 
 def battery_prefix(variant: str, summary: dict) -> list[str]:
@@ -381,7 +395,7 @@ def battery_prefix(variant: str, summary: dict) -> list[str]:
         out = ["intro w₁ w₂ h₁ h₂ ha₁ ha₂ hfix hin",
                f"(try simp only [{', '.join(BUS_LEMMAS)}] at hfix hin ⊢)",
                f"(try unfold {' '.join(['Constraints'] + summary['blocks'])} at h₁ h₂)",
-               "(try unfold Assumptions at ha₁ ha₂)"]
+               f"(try unfold {' '.join(['Assumptions'] + summary.get('asm_blocks', []))} at ha₁ ha₂)"]
         if summary["hoisted"]:
             out.append(f"(try unfold {' '.join(reversed(summary['hoisted']))} at *)")
         return out + (["repeat' constructor"] if variant == "V4" else [])

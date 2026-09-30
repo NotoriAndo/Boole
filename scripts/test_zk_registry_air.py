@@ -156,6 +156,7 @@ class LeanEmitTests(unittest.TestCase):
         self.assertIn("    (w 3, [w 0, w 1])  -- #0 receive State", text)
         self.assertIn("def Out (w : Fin nVars → F) : List Msg :=\n  [\n    (w 3, [w 2])  -- #1 send Result", text)
         self.assertIn("def Fixed : List (Fin nVars) := []", text)
+        self.assertIn("-/\n\nset_option maxRecDepth 100000\n\nnamespace ZkDet.toy_ToyAdd", text)
         self.assertEqual(summary["tables"], ["toyRange"])
         st = AL.emit_statement("ZkDet.toy_ToyAdd", meta, air)
         self.assertIn("theorem det [Fact (Nat.Prime p)] :\n    ∀ w₁ w₂ : Fin nVars → F, Constraints w₁ → Constraints w₂ → "
@@ -176,6 +177,23 @@ class LeanEmitTests(unittest.TestCase):
         self.assertTrue(asm[0].startswith("  (w 3 ≠ 0 → toyRange [w 0] = true) ∧  -- #2 send Byte"))
         self.assertTrue(asm[1].startswith("  (w 3 ≠ 0 → toyRange [w 1] = true)  -- #3 send Byte"))
 
+    def test_long_assumption_lists_are_blocked(self) -> None:
+        doc = toy_doc("ToyAdd", 0)
+        for _ in range(AL.BLOCK + 5):                    # 70 lookups: more than one block of conjuncts
+            doc["interactions"].append({"dir": "send", "kind": 5, "kind_name": "Byte", "bus": None, "scope": "local",
+                                        "values": [1], "mult": 3, "count_weight": None})
+        air = IR.from_json(doc)
+        roles, _ = self.roles(air)
+        meta = {"zkvm_name": "toy", "release": "v1", "generator": "g", "repo_url": "https://example.invalid",
+                "extractor": "x", "ir_sha256": "0" * 64}
+        text, summary = AL.emit_model("ZkDet.toy", meta, air, IR.Layout.of(air), roles, ToyModel.tables)
+        self.assertEqual(summary["asm_blocks"], ["AsmBlock0", "AsmBlock1"])
+        self.assertIn("def Assumptions (w : Fin nVars → F) : Prop :=\n  AsmBlock0 w ∧ AsmBlock1 w\n", text)
+        self.assertEqual(text.count("toyRange [w 1] = true"), AL.BLOCK + 5)
+        fid = AL.emit_fid_runner("ZkDet.toy", summary, [("real_000", "/x")])
+        self.assertIn("Decidable (AsmBlock1 w) := by unfold AsmBlock1; infer_instance", fid)
+        self.assertIn("(try unfold Assumptions AsmBlock0 AsmBlock1 at ha₁ ha₂)", AL.battery_prefix("V3", summary))
+
     def test_constants_are_balanced_and_shared_terms_hoisted(self) -> None:
         doc = toy_doc("ToyAdd", 0)
         doc["nodes"] += [["const", KB - 5], ["add", 9, 10]]
@@ -193,7 +211,8 @@ class LeanEmitTests(unittest.TestCase):
         self.assertLess(max(len(x) for x in text.split("\n")), 4000)
 
     def test_battery_forms(self) -> None:
-        summary = {"hoisted": ["t12"], "blocks": [], "tables": ["toyRange"], "n_constraints": 2, "n_vars": 4}
+        summary = {"hoisted": ["t12"], "blocks": [], "asm_blocks": [], "tables": ["toyRange"], "n_constraints": 2,
+                   "n_vars": 4}
         text = AL.emit_battery_forms("ZkDet.toy", summary, [("V1", "simp"), ("V3", "grind"), ("V4", "simp_all")], 200000)
         self.assertEqual(text.count("theorem triv_"), 3)
         self.assertIn("  (try unfold toyRange at *)", text)
@@ -368,6 +387,13 @@ class GeneratorInfoTests(unittest.TestCase):
         air_files = {str(p.relative_to(here)) for p in here.glob("air_*.py")}
         self.assertEqual(air_files - listed, set())
         self.assertRegex(D.generator_info()["sources_sha256"], r"^[0-9a-f]{64}$")
+
+
+class OrderTests(unittest.TestCase):
+    def test_large_and_small_alternate(self) -> None:
+        items = [{"index": i} for i in range(5)]
+        order = D.interleave_by_size(items, lambda m: [5, 1, 9, 3, 7][m["index"]])
+        self.assertEqual([m["index"] for m in order], [2, 1, 4, 3, 0])
 
 
 class RowsTests(unittest.TestCase):
