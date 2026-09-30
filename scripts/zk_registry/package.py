@@ -57,7 +57,7 @@ def statement_assumptions(prime_name: str = "bn128") -> list[str]:
 
 STATEMENT_ASSUMPTIONS = statement_assumptions("bn128")
 
-GENERATOR_SOURCES = ["__init__.py", "r1cs.py", "circom_source.py", "instantiation.py", "lean_emit.py", "witness.py",
+GENERATOR_SOURCES = ["__init__.py", "r1cs.py", "circom_source.py", "circom_eval.py", "instantiation.py", "lean_emit.py", "witness.py",
                      "witness_runner.js", "det_search.py", "package.py", "jsonschema_lite.py", "lean_runner.py",
                      "gates.py", "check.py", "circom_det.py", "lean/ZkReplay.lean", "schema/problem.schema.json"]
 

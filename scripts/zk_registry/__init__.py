@@ -6,6 +6,7 @@ proofs of the generated statements.
 
 * ``r1cs``            iden3 ``.r1cs`` / ``.sym`` reader and an independent R1CS evaluator
 * ``circom_source``   light circom source scanner (templates, signals, includes, mains)
+* ``circom_eval``     compile-time integer evaluation and ``for``-loop structure of template bodies
 * ``instantiation``   instantiation rules for parametric templates
 * ``lean_emit``       Lean model / statement / harness emitters
 * ``witness``         input sampling, witness generation and mutants

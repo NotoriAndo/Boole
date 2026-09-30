@@ -70,7 +70,7 @@
       "required": ["rule", "args", "call", "provenance", "selection", "candidates"],
       "additionalProperties": false,
       "properties": {
-        "rule": {"enum": ["parameter-free", "repo-main", "repo-test", "repo-internal", "repo-derived", "documented-default", "none"]},
+        "rule": {"enum": ["parameter-free", "repo-main", "repo-test", "repo-internal", "repo-derived", "documented-default", "probed", "none"]},
         "rule_order": {"type": "array", "items": {"type": "string"}},
         "args": {"type": "array", "items": {"type": "string"}},
         "call": {"type": "string"},

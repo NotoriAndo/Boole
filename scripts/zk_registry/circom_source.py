@@ -8,6 +8,7 @@ compiler remains the authority: every instantiation found here is compiled, and 
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 from dataclasses import dataclass, field
@@ -184,6 +185,7 @@ class Instantiation:
     template: str
     args: list[str]
     line: int
+    pos: int = -1           # offset of the call in the enclosing template's body
 
 
 @dataclass
@@ -195,6 +197,7 @@ class SourceFile:
     unresolved_includes: list[str] = field(default_factory=list)
     templates: list[Template] = field(default_factory=list)
     mains: list[MainDecl] = field(default_factory=list)
+    dependency: bool = False    # reached only through an include into a library path (e.g. node_modules)
 
     @property
     def is_harness(self) -> bool:
@@ -248,8 +251,25 @@ def blank_mains(text: str) -> str:
     return "".join(out)
 
 
-def scan_repo(repo_root: str, rel_paths: list[str], lib_dirs: list[str] | None = None) -> dict[str, SourceFile]:
-    return {rel: scan_file(repo_root, rel, lib_dirs) for rel in sorted(rel_paths)}
+def scan_repo(repo_root: str, rel_paths: list[str], lib_dirs: list[str] | None = None,
+              dependencies: bool = False) -> dict[str, SourceFile]:
+    """Scan the given files; with ``dependencies``, also every file their includes reach inside the
+    checkout that is not in ``rel_paths`` (library packages such as ``node_modules/circomlib``), marked
+    ``dependency`` so that templates they declare can be resolved but are never in scope."""
+    files = {rel: scan_file(repo_root, rel, lib_dirs) for rel in sorted(rel_paths)}
+    todo = sorted({inc for sf in files.values() for inc in sf.includes if inc not in files}) if dependencies else []
+    while todo:
+        rel = todo.pop()
+        if rel in files or not rel.endswith(".circom"):
+            continue
+        try:
+            sf = scan_file(repo_root, rel, lib_dirs)
+        except (OSError, UnicodeDecodeError):
+            continue
+        sf.dependency = True
+        files[rel] = sf
+        todo += [inc for inc in sf.includes if inc not in files]
+    return dict(sorted(files.items()))
 
 
 def list_circom_files(repo_root: str) -> list[str]:
@@ -301,7 +321,7 @@ def find_instantiations(sf: SourceFile, template_names: set[str]) -> list[Instan
             if pc < 0:
                 continue
             args = [a for a in split_top_level(body[po + 1:pc]) if a]
-            out.append(Instantiation(sf.path, t.name, name, args, t.line + body.count("\n", 0, m.start())))
+            out.append(Instantiation(sf.path, t.name, name, args, t.line + body.count("\n", 0, m.start()), m.start()))
     return out
 
 
@@ -316,3 +336,174 @@ def is_literal_arg(arg: str) -> bool:
 
 def normalize_args(args: list[str]) -> tuple[str, ...]:
     return tuple(re.sub(r"\s+", "", a) for a in args)
+
+
+# ------------------------------------------------------------------------------------------ config mains
+
+@dataclass
+class ConfigMain:
+    """A main component declared outside ``.circom`` sources: a circomkit ``circuits.json`` entry, a circomkit
+    ``WitnessTester`` / ``ProofTester`` call in a JS/TS test, or a ``component main`` inside a JS/TS string."""
+    source: str             # repository-relative path of the config or script
+    line: int
+    kind: str               # "circomkit-config" | "js-test" | "js-main"
+    template: str
+    args: list[str]         # circom argument text (literals only)
+    target: str | None      # repository-relative .circom file declaring the template, when it can be located
+
+
+_SCRIPT_EXT = (".js", ".ts", ".mjs", ".cjs")
+_JS_CONST_RE = re.compile(r"\b(?:const|let|var)\s+(" + _IDENT + r")\s*(?::\s*number\s*)?=\s*(-?\d+)\s*[;\n]")
+_JS_OBJ_KEY = r"""\b{key}\s*:\s*["'`]([^"'`]+)["'`]"""
+_TEST_PATH_RE = re.compile(r"(^|/)(test|tests|__tests__|spec)(/|$)|\.(test|spec)\.[cm]?[jt]s$")
+
+
+def _json_arg(v) -> str | None:
+    if isinstance(v, bool) or v is None:
+        return None
+    if isinstance(v, int):
+        return str(v)
+    if isinstance(v, list):
+        parts = [_json_arg(x) for x in v]
+        return None if any(p is None for p in parts) else "[" + ",".join(parts) + "]"
+    return None
+
+
+def _js_consts(text: str) -> dict[str, str]:
+    found: dict[str, list[str]] = {}
+    for m in _JS_CONST_RE.finditer(text):
+        found.setdefault(m.group(1), []).append(m.group(2))
+    return {k: v[0] for k, v in found.items() if len(v) == 1}
+
+
+def _js_arg(a: str, consts: dict[str, str]) -> str | None:
+    a = re.sub(r"\$\{\s*(" + _IDENT + r")\s*\}", lambda m: consts.get(m.group(1), m.group(0)), a.strip())
+    a = consts.get(a, a)
+    if is_literal_arg(a):
+        return re.sub(r"\s+", "", a)
+    if re.fullmatch(r"\[\s*-?\d+(\s*,\s*-?\d+)*\s*\]", a):
+        return re.sub(r"\s+", "", a)
+    return None
+
+
+def _declares(files: dict, rel: str, template: str) -> bool:
+    sf = files.get(os.path.normpath(rel))
+    return sf is not None and any(t.name == template for t in sf.templates)
+
+
+def _unique_declaring_file(files: dict, template: str) -> str | None:
+    hits = [p for p, sf in files.items() if not sf.dependency and any(t.name == template for t in sf.templates)]
+    return hits[0] if len(hits) == 1 else None
+
+
+def _circomkit_bases(repo_root: str, start_dir: str) -> list[str]:
+    """Candidate circuit directories of a circomkit project enclosing ``start_dir`` (repository-relative)."""
+    out, cur = [], start_dir
+    while True:
+        cfg = os.path.join(repo_root, cur, "circomkit.json")
+        if os.path.isfile(cfg):
+            try:
+                with open(cfg, encoding="utf-8") as f:
+                    d = json.load(f)
+            except ValueError:
+                d = {}
+            out.append(os.path.normpath(os.path.join(cur, d.get("dirCircuits", "./circuits"))))
+            out.append(os.path.normpath(cur))
+            break
+        if cur in ("", "."):
+            break
+        cur = os.path.dirname(cur)
+    return out
+
+
+def _target(files: dict, bases: list[str], file_ref: str, template: str) -> str | None:
+    for b in bases:
+        rel = os.path.normpath(os.path.join(b, file_ref if file_ref.endswith(".circom") else file_ref + ".circom"))
+        if _declares(files, rel, template):
+            return rel
+    return None
+
+
+def scan_config_mains(repo_root: str, files: dict) -> list[ConfigMain]:
+    """Main components declared by the repository outside ``.circom`` files (see :class:`ConfigMain`).
+
+    Only literal parameters are taken (JSON numbers and arrays; in scripts, numbers or ``${NAME}`` /
+    ``NAME`` where ``NAME`` is a single ``const``/``let``/``var`` numeric literal of the same file)."""
+    out: list[ConfigMain] = []
+    for dirpath, dirnames, filenames in os.walk(repo_root):
+        dirnames[:] = sorted(d for d in dirnames if d not in (".git", "node_modules"))
+        for fn in sorted(filenames):
+            full = os.path.join(dirpath, fn)
+            rel = os.path.relpath(full, repo_root)
+            if fn == "circuits.json" or fn.endswith(_SCRIPT_EXT):
+                try:
+                    if os.path.getsize(full) > 2_000_000:
+                        continue
+                    with open(full, encoding="utf-8", errors="replace") as f:
+                        text = f.read()
+                except OSError:
+                    continue
+            else:
+                continue
+            here = os.path.dirname(rel)
+            if fn == "circuits.json":
+                try:
+                    data = json.loads(text)
+                except ValueError:
+                    continue
+                if not isinstance(data, dict):
+                    continue
+                bases = _circomkit_bases(repo_root, here) + [here]
+                for name, entry in data.items():
+                    if not isinstance(entry, dict) or not isinstance(entry.get("template"), str):
+                        continue
+                    params = entry.get("params", [])
+                    args = [_json_arg(v) for v in params] if isinstance(params, list) else [None]
+                    if any(a is None for a in args):
+                        continue
+                    target = _target(files, bases, str(entry.get("file", "")), entry["template"])
+                    if target:
+                        line = line_of(text, max(text.find(json.dumps(name)), 0))
+                        out.append(ConfigMain(rel, line, "circomkit-config", entry["template"], args, target))
+                continue
+            consts = _js_consts(text)
+            bases = _circomkit_bases(repo_root, here) + [here]
+            for m in re.finditer(_JS_OBJ_KEY.format(key="template"), text):
+                lo = text.rfind("{", 0, m.start())
+                hi = match_bracket(text, lo) if lo >= 0 else -1
+                if hi < 0:
+                    continue
+                obj = text[lo:hi + 1]
+                fm = re.search(_JS_OBJ_KEY.format(key="file"), obj)
+                pm = re.search(r"\bparams\s*:\s*\[", obj)
+                args: list[str | None] = []
+                if pm:
+                    close = match_bracket(obj, pm.end() - 1)
+                    if close < 0:
+                        continue
+                    args = [_js_arg(a, consts) for a in split_top_level(obj[pm.end():close]) if a]
+                if not fm or any(a is None for a in args):
+                    continue
+                target = _target(files, bases, fm.group(1), m.group(1))
+                if target:
+                    out.append(ConfigMain(rel, line_of(text, m.start()), "js-test", m.group(1), args, target))
+            for m in _MAIN_RE.finditer(text):
+                po = m.end() - 1
+                pc = match_bracket(text, po)
+                if pc < 0:
+                    continue
+                args = [_js_arg(a, consts) for a in split_top_level(text[po + 1:pc]) if a]
+                if any(a is None for a in args):
+                    continue
+                template = m.group(2)
+                target = None
+                start = max(text.rfind("`", 0, m.start()), 0)
+                for inc in _INCLUDE_RE.finditer(text, start, m.start()):
+                    cand = os.path.normpath(os.path.join(here, inc.group(1)))
+                    if _declares(files, cand, template):
+                        target = cand
+                target = target or _unique_declaring_file(files, template)
+                if target:
+                    kind = "js-test" if _TEST_PATH_RE.search(rel) else "js-main"
+                    out.append(ConfigMain(rel, line_of(text, m.start()), kind, template, args, target))
+    return out

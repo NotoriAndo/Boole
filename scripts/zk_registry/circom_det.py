@@ -110,6 +110,8 @@ CIRCOM_FLAGS = ["--r1cs", "--sym", "--wasm", "--O0"]
 CIRCOM1_SIZE_FLAGS = ["-f", "-r", "main.r1cs"]
 CIRCOM1_FLAGS = ["-f", "-r", "main.r1cs", "-s", "main.sym", "-w", "main.wasm"]
 DEFAULT_COMPILER = "v2.2.3"
+PROBED_NOT_A_FINDING = ("not-a-finding: probed instantiation (parameter values chosen inside the template's own "
+                        "assert bounds, not taken from the repository)")
 CIRCOM1_TAG = "v0.5.46"
 _PRAGMA_RE = re.compile(r"\bpragma\s+circom\s+(\d+)\.(\d+)\.(\d+)\s*;")
 REAL_WANTED = 12
@@ -248,6 +250,8 @@ class WaveConfig:
     # of circom 1); ``circom`` / ``circom_version_tag`` stay the default compiler.  The compiler of each
     # compilation follows the include closure's ``pragma circom`` (:func:`compiler_order`).
     circoms: dict = field(default_factory=dict)
+    # the ``probed`` instantiation tier (template asserts bound every parameter; results are not findings)
+    probe: bool = True
 
     @staticmethod
     def load(path: str) -> "WaveConfig":
@@ -776,33 +780,7 @@ def build_package(sh: Shared, t: cs.Template, rec: dict, size_cr: dict, dir_name
     rec["gates"] = gates
 
     # status
-    if det_gate["truth"] == "false-counterexample-found":
-        rec["status"] = "DET-FALSE-CANDIDATE"
-        rec["status_reason"] = (f"{det_gate['method']} found two constraint-satisfying assignments with equal inputs "
-                                f"and different outputs (confirmed by the oracle and the Lean model); private finding")
-        rec["statement"]["truth"] = "false-counterexample-found"
-    else:
-        failed = [g for g in ("G-ELAB", "G-NONVAC", "G-FID", "G-TRIV") if gates[g]["status"] != "PASS"]
-        if det_gate["status"] == "FAIL":
-            failed.append("DET-SEARCH(unconfirmed-in-Lean)")
-        if not io.outputs:
-            failed.append("NO-OUTPUTS")
-        if failed:
-            rec["status"] = "GATE-FAIL"
-            reasons = []
-            for g in failed:
-                gd = gates.get(g, {})
-                if g == "NO-OUTPUTS":
-                    reasons.append("the main component has no output signals, so DET is vacuous")
-                elif g == "G-TRIV" and gd.get("closed_by"):
-                    reasons.append(f"G-TRIV closed by {', '.join(gd['closed_by'][:4])}")
-                    rec["statement"]["truth"] = "closed-by-automation"
-                else:
-                    reasons.append(f"{g}: {gd.get('reason') or gd.get('errors') or gd.get('status')}")
-            rec["status_reason"] = "; ".join(str(x) for x in reasons)[:600]
-        else:
-            rec["status"] = "OPEN"
-            rec["status_reason"] = "all gates pass; DET truth unknown"
+    set_status(rec, gates, bool(io.outputs))
 
     # checker metadata
     if elab.status == "PASS":
@@ -820,6 +798,43 @@ def build_package(sh: Shared, t: cs.Template, rec: dict, size_cr: dict, dir_name
     rec["evidence"] = evidence
     write_package(sh, rec, stage, work, dir_name)
     return rec
+
+
+def set_status(rec: dict, gates: dict, has_outputs: bool) -> None:
+    """Final status of a packaged record from its gates (DET-FALSE-CANDIDATE, GATE-FAIL or OPEN).
+
+    A counterexample on a ``probed`` instantiation is still DET-FALSE-CANDIDATE, labelled not-a-finding."""
+    det_gate = gates["DET-SEARCH"]
+    if det_gate["truth"] == "false-counterexample-found":
+        rec["status"] = "DET-FALSE-CANDIDATE"
+        rec["status_reason"] = (f"{det_gate['method']} found two constraint-satisfying assignments with equal inputs "
+                                f"and different outputs (confirmed by the oracle and the Lean model); private finding")
+        if rec["instantiation"]["rule"] == "probed":
+            det_gate["finding"] = PROBED_NOT_A_FINDING
+            rec["status_reason"] += f"; {PROBED_NOT_A_FINDING}"
+        rec["statement"]["truth"] = "false-counterexample-found"
+        return
+    failed = [g for g in ("G-ELAB", "G-NONVAC", "G-FID", "G-TRIV") if gates[g]["status"] != "PASS"]
+    if det_gate["status"] == "FAIL":
+        failed.append("DET-SEARCH(unconfirmed-in-Lean)")
+    if not has_outputs:
+        failed.append("NO-OUTPUTS")
+    if failed:
+        rec["status"] = "GATE-FAIL"
+        reasons = []
+        for g in failed:
+            gd = gates.get(g, {})
+            if g == "NO-OUTPUTS":
+                reasons.append("the main component has no output signals, so DET is vacuous")
+            elif g == "G-TRIV" and gd.get("closed_by"):
+                reasons.append(f"G-TRIV closed by {', '.join(gd['closed_by'][:4])}")
+                rec["statement"]["truth"] = "closed-by-automation"
+            else:
+                reasons.append(f"{g}: {gd.get('reason') or gd.get('errors') or gd.get('status')}")
+        rec["status_reason"] = "; ".join(str(x) for x in reasons)[:600]
+    else:
+        rec["status"] = "OPEN"
+        rec["status_reason"] = "all gates pass; DET truth unknown"
 
 
 def write_package(sh: Shared, rec: dict, stage: str, work: str, dir_name: str) -> None:
@@ -885,12 +900,13 @@ def prepare(cfg: WaveConfig) -> tuple[Shared, list[I.TemplatePlan], list[dict]]:
     env = L.load_env(cfg.lean_env)
     rels = cs.list_circom_files(cfg.repo_dir)
     lib_dirs = list(dict.fromkeys(cfg.include_paths + [p for r in cfg.path_rules for p in r.get("include_paths", [])]))
-    files = cs.scan_repo(cfg.repo_dir, rels, lib_dirs)
+    files = cs.scan_repo(cfg.repo_dir, rels, lib_dirs, dependencies=True)
     scope = [p for p in rels if p.startswith(cfg.scope_prefix) and p not in cfg.exclude]
     ledger_ids, ledger_sha = load_ledger(cfg.ledger, ledger_prefix(cfg))
     sh = Shared(cfg, env, files, ledger_ids, ledger_sha, circom_sha, compilers[cfg.circom_version_tag].version,
                 tool_version([cfg.node, "--version"]), P.generator_info(), compilers)
-    plans = I.plan_templates(files, scope, cfg.repo_id)
+    plans = I.plan_templates(files, scope, cfg.repo_id, config_mains=cs.scan_config_mains(cfg.repo_dir, files),
+                             probe=cfg.probe)
     missing: list[dict] = []
     if cfg.only:
         plans = [pl for pl in plans if f"{pl.template.path}#{pl.template.name}" in cfg.only]
