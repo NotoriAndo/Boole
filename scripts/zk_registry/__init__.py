@@ -19,4 +19,4 @@ proofs of the generated statements.
 """
 
 GENERATOR_NAME = "boole-zk-registry-circom-det"
-GENERATOR_VERSION = "1.2"
+GENERATOR_VERSION = "1.3"

@@ -137,7 +137,7 @@ def signal_declarations(body: str) -> list[SignalDecl]:
             continue
         stmt = body[m.end():end].strip()
         direction = "intermediate"
-        dm = re.match(r"(input|output)\b", stmt)
+        dm = re.match(r"(?:private\s+)?(input|output)\b", stmt)        # circom 1: `signal private input`
         if dm:
             direction = dm.group(1)
             stmt = stmt[dm.end():].strip()

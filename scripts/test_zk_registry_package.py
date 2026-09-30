@@ -312,9 +312,9 @@ class Wave1FixTests(unittest.TestCase):
             plan = I.TemplatePlan(t, {"repo-main": [I.Candidate("repo-main", ("900",), ["a:1"])],
                                       "repo-test": [I.Candidate("repo-test", ("2",), ["b:1"])]})
 
-            def fake_compile(sh_, workdir, include_rel, template, args, flags, rule_path=None):
+            def fake_compile(sh_, workdir, include_rel, template, args, full, rule_path=None, compiler=None):
                 os.makedirs(workdir, exist_ok=True)
-                res = {"rc": 0, "include_context": include_rel, "main_sha256": H, "flags": flags}
+                res = {"rc": 0, "include_context": include_rel, "main_sha256": H, "flags": D.compile_flags("circom2", full)}
                 if args == ("900",):
                     return dict(res, rc=-1, guard="stopped by the resource guard (compiler output > 1536 MB)",
                                 error="stopped by the resource guard (compiler output > 1536 MB)")

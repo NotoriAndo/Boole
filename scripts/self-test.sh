@@ -64,7 +64,7 @@ run_logged official-mirror-seed-tests python3 -m unittest scripts/test_native_sh
 run_logged fresh-answer-canary-gate-contract python3 -m unittest scripts/test_native_shadow_canary_gate.py
 run_logged development-vm-lifecycle-contract env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_boole_dev.py
 run_logged metered-tuple-independent-reference env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_metered_tuple_reference.py
-run_logged zk-registry-circom-det env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_r1cs.py scripts/test_zk_registry_circom_source.py scripts/test_zk_registry_lean_emit.py scripts/test_zk_registry_det_search.py scripts/test_zk_registry_package.py scripts/test_zk_registry_check.py
+run_logged zk-registry-circom-det env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_r1cs.py scripts/test_zk_registry_circom_source.py scripts/test_zk_registry_lean_emit.py scripts/test_zk_registry_det_search.py scripts/test_zk_registry_package.py scripts/test_zk_registry_check.py scripts/test_zk_registry_compilers.py
 run_logged fresh-answer-canary-protocol cargo test --locked -p boole-native-shadow-protocol --features development-task-admission --lib --test fresh_answer_canary --test development_task_admission
 run_logged fresh-answer-canary-node cargo test --locked -p boole-node --features development-task-admission --lib native_shadow_replay_service::canary
 run_logged fresh-answer-canary-clippy cargo clippy --locked -p boole-node -p boole-native-shadow-protocol -p boole-native-shadow-launcher --features boole-node/development-task-admission,boole-native-shadow-protocol/development-task-admission,boole-native-shadow-launcher/development-task-admission --all-targets -- -D warnings

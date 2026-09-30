@@ -4,6 +4,8 @@
 Subcommands::
 
     fetch-circom  --version v2.2.3 --asset macos-amd64 --dest DIR     download + sha256-verify a release binary
+                                                                       (v2.2.3, v2.1.9; v2.0.9 is a pinned source
+                                                                       build, circom 1 a pinned npm install)
     lean-env      --project DIR --toolchain DIR --scratch DIR --out F  describe a built lake project
     wave          --config wave.json [--config ...] [--jobs N]         generate, gate and package repositories
                                                                        (one shared pool of template workers)
@@ -14,7 +16,9 @@ The ``wave`` configuration names the pinned repository checkout, the circom bina
 environment, the ledger, and the output directory; optionally the repository's library paths
 (``circom -l``), per-path prime / library rules, the materialized library packages (recorded in
 ``ids.dependencies``), a ledger id prefix, a template subset (``only``) and the compile guard.
-All tool state goes to the configured work directory.  The driver never writes a proof: the only
+Further pinned compilers (``circoms``: circom 2.0.x / 2.1.x lines and circom 1) are chosen per compilation
+by the include closure's ``pragma circom`` (:func:`compiler_order`).  All tool state goes to the configured
+work directory.  The driver never writes a proof: the only
 Lean proofs attempted are the automatic G-TRIV battery runs, whose closures fail the gate.
 """
 from __future__ import annotations
@@ -49,9 +53,12 @@ from zk_registry import package as P              # noqa: E402
 from zk_registry import r1cs as R                 # noqa: E402
 from zk_registry import witness as W              # noqa: E402
 
-# Release binaries of circom with the sha256 digests published on the GitHub release page.
+# Pinned circom compilers, one per language line.  The driver refuses any binary (or, for circom 1,
+# installed npm tree) whose sha256 is not listed here.  ``line`` is the ``pragma circom`` line the
+# compiler serves (see :func:`compiler_order`).
 CIRCOM_RELEASES = {
     "v2.2.3": {
+        "line": (2, 2), "kind": "circom2",
         "commit": "ad44e915a12bb047b05745c2884aad9cc8326bc6",
         "url": "https://github.com/iden3/circom/releases/download/v2.2.3/circom-{asset}",
         "sha256": {
@@ -59,10 +66,52 @@ CIRCOM_RELEASES = {
             "macos-amd64": "e006332b3fe225f11c3b87bd2debbf5d7f568d6efbde25e5a6a12cd6988c8ecb",
             "windows-amd64.exe": "e43f132ee6f0aa79b705beceb59c2a7e6a54d7bdeab917ca34e9fc1951d185e1",
         },
+        "digest_source": "sha256 digests published on the GitHub release page",
+    },
+    "v2.1.9": {
+        "line": (2, 1), "kind": "circom2",
+        "commit": "2eaaa6dface934356972b34cab64b25d382e59de",
+        "url": "https://github.com/iden3/circom/releases/download/v2.1.9/circom-{asset}",
+        "sha256": {"macos-amd64": "5c7dedaec105844dd90dc42c1ba9d7f67c265c5692fb3467465285fc09177e9f"},
+        "digest_source": "sha256 of the release asset at its first anonymous download (the release page publishes "
+                         "no digest for v2.1.9); the macos asset is an arm64 Mach-O and was cross-checked against a "
+                         "source build of the tag commit (identical R1CS on the cross-check circuits)",
+    },
+    "v2.0.9": {
+        "line": (2, 0), "kind": "circom2",
+        "commit": "bdc9d9d57490f113161f3adf818120f064b7b5b2",
+        "url": None,
+        "sha256": {"macos-arm64-source": "efa7adf102ae6c266103d04a6fec08d89e55ca8675932eb46993bad8f70c2d70"},
+        "source_build": {"cargo_lock_sha256_at_tag": "628d4786acea7c3e68f3267dd47ddb803a28b118ef3923591ded7a6b5f36776e",
+                         "cargo_lock_sha256_built": "8e3343e0f9a62ec1aa5145c2293a186c9f95a12ab4da27ebc11e5b8c2891835f",
+                         "rustc": "1.60.0", "command": "cargo build --release --locked -p circom"},
+        "digest_source": "source build of the release tag commit: the v2.0.x macos release assets are x86_64 "
+                         "binaries and the build host has no x86_64 translation; the tag's Cargo.lock differs from "
+                         "its Cargo.toml only in the versions of 7 workspace crates (refreshed with `cargo update "
+                         "--workspace --offline`), every registry crate is built at its locked version and checksum; "
+                         "the digest pins this build",
+    },
+    "v0.5.46": {
+        "line": (1, 0), "kind": "circom1",
+        "npm": "circom@0.5.46",
+        "tarball_integrity": "sha512-clvfqJudyBlHAubTu4dKY04dVgst8OxGS7SAxdbXKbGO2c6XGOzP2TSygNUmYHanLDvUgJpOqQYe/AkLt9x/1g==",
+        "tarball_sha256": "4a30cb13f07a1d61bf7bd3e801e1b77ddc77bfcc7e0007401ae5a048645b09bb",
+        # the npm install tree (``npm install --ignore-scripts circom@0.5.46``) is pinned by its lockfile,
+        # which carries the registry integrity of all 136 packages (circom, circom_runtime, ffjavascript, ...)
+        "sha256": {"package-lock": "0133311ef0bd412d202c7fbc0957753370c4a70119168510ec0f52dc0f1e96bd"},
+        "cli_sha256": "f2b1f22302b66fe308a339bc10d1086d04175d6a1dc1033fb551719c7c81b96d",
+        "digest_source": "npm registry tarball integrity (sha512) of circom 0.5.46, the last circom 1 release; the "
+                         "installed tree is pinned by the sha256 of its package-lock.json",
     },
 }
 SIZE_FLAGS = ["--r1cs", "--O0"]          # the constraint count needs no .sym (wave 0 also wrote --sym)
 CIRCOM_FLAGS = ["--r1cs", "--sym", "--wasm", "--O0"]
+# circom 1 (npm circom 0.5.x): ``-f`` = "Do not optimize constraints" (the --O0 counterpart)
+CIRCOM1_SIZE_FLAGS = ["-f", "-r", "main.r1cs"]
+CIRCOM1_FLAGS = ["-f", "-r", "main.r1cs", "-s", "main.sym", "-w", "main.wasm"]
+DEFAULT_COMPILER = "v2.2.3"
+CIRCOM1_TAG = "v0.5.46"
+_PRAGMA_RE = re.compile(r"\bpragma\s+circom\s+(\d+)\.(\d+)\.(\d+)\s*;")
 REAL_WANTED = 12
 MUTANTS = 12
 DET_SEARCH_POOL = 200
@@ -92,6 +141,56 @@ def fetch_circom(version: str, asset: str, dest_dir: str) -> str:
         os.replace(tmp, dest)
     os.chmod(dest, 0o755)
     return dest
+
+
+def verify_compiler(tag: str, path: str) -> str:
+    """The pinned digest of compiler ``tag`` at ``path`` (a binary, or for circom 1 the npm install root);
+    raises ValueError for an unknown tag or a digest that is not pinned."""
+    rel = CIRCOM_RELEASES.get(tag)
+    if rel is None:
+        raise ValueError(f"unknown circom compiler {tag}")
+    if rel["kind"] == "circom1":
+        with open(os.path.join(path, "node_modules", "circom", "package.json"), encoding="utf-8") as f:
+            version = json.load(f).get("version")
+        got = sha256_file(os.path.join(path, "package-lock.json"))
+        if f"v{version}" != tag or got not in rel["sha256"].values():
+            raise ValueError(f"circom {tag} install at {path} does not match the pinned package-lock digest")
+        return got
+    got = sha256_file(path)
+    if got not in rel["sha256"].values():
+        raise ValueError(f"circom {tag} binary {path} does not match a pinned digest")
+    return got
+
+
+def closure_pragmas(files: dict, include_rel: str) -> list[tuple[int, int, int]]:
+    """``pragma circom X.Y.Z`` versions declared in the include closure of ``include_rel`` (comments ignored)."""
+    out = []
+    for p in cs.include_closure(files, include_rel):
+        out += [tuple(int(x) for x in m.groups()) for m in _PRAGMA_RE.finditer(files[p].clean)]
+    return out
+
+
+def compiler_order(pragmas: list[tuple[int, int, int]], available) -> list[str]:
+    """Compilers to try, in order, for an include closure with these ``pragma circom`` versions.
+
+    The newest declared version selects its language line: the pinned release of that line first, then the
+    pinned releases of the newer lines (2.0 -> v2.0.9, v2.1.9, v2.2.3; 2.1 -> v2.1.9, v2.2.3; 2.2 or newer ->
+    v2.2.3).  Without any pragma, circom 2's documented default (the latest compiler) comes first and
+    circom 1 second, since pre-2.0 sources carry no pragma and circom 2 rejects their grammar.  Only the
+    ``available`` (configured) compilers are returned; a wave configured with v2.2.3 alone behaves as before."""
+    lines = sorted((rel["line"], tag) for tag, rel in CIRCOM_RELEASES.items() if rel["kind"] == "circom2")
+    if pragmas:
+        top = max(pragmas)[:2]
+        order = [tag for line, tag in lines if line >= top] or [lines[-1][1]]
+    else:
+        order = [lines[-1][1], CIRCOM1_TAG]
+    return [t for t in order if t in available]
+
+
+def compile_flags(kind: str, full: bool) -> list[str]:
+    if kind == "circom1":
+        return list(CIRCOM1_FLAGS if full else CIRCOM1_SIZE_FLAGS)
+    return list(CIRCOM_FLAGS if full else SIZE_FLAGS)
 
 
 def tool_version(cmd: list[str]) -> str:
@@ -145,11 +244,37 @@ class WaveConfig:
     sizing_budget_s: float = 2400
     # keep per-template work directories after the record is written (wave 0 kept them)
     keep_work: bool = True
+    # further pinned compilers by tag (``v2.0.9``, ``v2.1.9``: binaries; ``v0.5.46``: the npm install root
+    # of circom 1); ``circom`` / ``circom_version_tag`` stay the default compiler.  The compiler of each
+    # compilation follows the include closure's ``pragma circom`` (:func:`compiler_order`).
+    circoms: dict = field(default_factory=dict)
 
     @staticmethod
     def load(path: str) -> "WaveConfig":
         with open(path, encoding="utf-8") as f:
             return WaveConfig(**json.load(f))
+
+
+@dataclass
+class Compiler:
+    tag: str                              # CIRCOM_RELEASES key
+    kind: str                             # "circom2" | "circom1"
+    path: str                             # binary, or the npm install root of circom 1
+    version: str                          # as reported by the compiler
+    sha256: str                           # the pinned digest it matched
+
+    def command(self, node: str) -> list[str]:
+        if self.kind == "circom1":
+            return [node, os.path.join(self.path, "node_modules", "circom", "cli.js")]
+        return [self.path]
+
+    def source(self) -> str:
+        rel = CIRCOM_RELEASES[self.tag]
+        if self.kind == "circom1":
+            return (f"npm {rel['npm']} (tarball {rel['tarball_integrity'][:23]}…, install pinned by its "
+                    f"package-lock.json sha256)")
+        how = "release binary" if rel.get("url") else "source build of the release tag"
+        return f"iden3/circom {self.tag} {how} (commit {rel['commit']})"
 
 
 @dataclass
@@ -163,12 +288,18 @@ class Shared:
     circom_version: str
     node_version: str
     generator: dict
+    compilers: dict = field(default_factory=dict)       # tag -> Compiler
 
-    def env_record(self) -> dict:
+    def env_record(self, compiler: "Compiler | None" = None) -> dict:
         pins = self.env.pins()
-        return {"circom": self.circom_version, "circom_binary_sha256": self.circom_sha256, "lean": pins["lean"],
+        return {"circom": compiler.version if compiler else self.circom_version,
+                "circom_binary_sha256": compiler.sha256 if compiler else self.circom_sha256, "lean": pins["lean"],
                 "mathlib": pins["mathlib"], "lake_manifest_sha256": pins["lake_manifest_sha256"],
                 "packages": pins["packages"], "node": self.node_version, "python": platform.python_version()}
+
+    def default_compiler(self) -> "Compiler":
+        return self.compilers.get(self.cfg.circom_version_tag) or Compiler(
+            self.cfg.circom_version_tag, "circom2", self.cfg.circom, self.circom_version, self.circom_sha256)
 
 
 # ------------------------------------------------------------------------------------------ compile
@@ -247,24 +378,44 @@ def output_guard(workdir: str, limit_mb: int) -> str:
     return f"compiler output > {limit_mb} MB" if total > limit_mb * 1024 * 1024 else ""
 
 
+CIRCOM1_PRIMES = {"bn128": None, "bls12381": "BLS12381"}      # circom 1 `-p` names (default: bn128)
+
+
 def compile_main(sh: Shared, workdir: str, include_rel: str, template: str, args: tuple[str, ...],
-                 flags: list[str], rule_path: str | None = None) -> dict:
+                 full: bool, rule_path: str | None = None, compiler: Compiler | None = None) -> dict:
+    compiler = compiler or sh.default_compiler()
     os.makedirs(workdir, exist_ok=True)
     prime, libs, _ = build_options(sh.cfg, rule_path or include_rel)
     nomain = main_free_copy(sh, include_rel)
     custom = uses_custom_templates_pragma(sh.files, include_rel)
+    pragma = None if compiler.kind == "circom1" else "2.0.0"
     main = os.path.join(workdir, "main.circom")
     with open(main, "w", encoding="utf-8") as f:
-        f.write(I.main_source(nomain or os.path.join(sh.cfg.repo_dir, include_rel), template, args,
+        f.write(I.main_source(nomain or os.path.join(sh.cfg.repo_dir, include_rel), template, args, pragma=pragma,
                               custom_templates=custom))
     # the recorded main names the include relative to the repository root (no local paths)
-    portable = I.main_source(include_rel, template, args,
+    portable = I.main_source(include_rel, template, args, pragma=pragma,
                              comment=(f"compiled with the component main declaration of {include_rel} blanked"
                                       if nomain else None), custom_templates=custom)
     with open(os.path.join(workdir, "main.portable.circom"), "w", encoding="utf-8") as f:
         f.write(portable)
-    run = L.run_process([sh.cfg.circom, "main.circom", *flags, *option_flags(prime, libs, sh.cfg.repo_dir), "-o", "."],
-                        dict(os.environ), workdir, sh.cfg.compile_timeout_s, sh.cfg.compile_rss_mb,
+    flags = compile_flags(compiler.kind, full)
+    env = dict(os.environ)
+    if compiler.kind == "circom1":
+        # circom 1 resolves includes relative to the including file only (no library paths)
+        if prime not in (None, *CIRCOM1_PRIMES):
+            return {"rc": None, "secs": 0.0, "include_context": include_rel, "compiler": compiler.tag,
+                    "flags": flags, "main_removed": bool(nomain), "workdir": workdir,
+                    "main_sha256": hashlib.sha256(portable.encode("utf-8")).hexdigest(),
+                    "error": f"circom 1 has no prime `{prime}`"}
+        opt = ["-p", CIRCOM1_PRIMES[prime]] if CIRCOM1_PRIMES.get(prime) else []
+        cmd = compiler.command(sh.cfg.node) + ["main.circom", *flags, *opt]
+        recorded = [*flags, *opt]
+        env.update(PATH=os.path.dirname(sh.cfg.node) + ":/usr/bin:/bin", NODE_OPTIONS="--max-old-space-size=16384")
+    else:
+        cmd = compiler.command(sh.cfg.node) + ["main.circom", *flags, *option_flags(prime, libs, sh.cfg.repo_dir), "-o", "."]
+        recorded = [*flags, *option_flags(prime, libs)]
+    run = L.run_process(cmd, env, workdir, sh.cfg.compile_timeout_s, sh.cfg.compile_rss_mb,
                         watch=lambda: output_guard(workdir, sh.cfg.compile_output_mb))
     log, rc = run.out, run.rc
     guard = None
@@ -278,7 +429,13 @@ def compile_main(sh: Shared, workdir: str, include_rel: str, template: str, args
         f.write(log)
     res = {"rc": rc, "secs": run.secs, "peak_rss_mb": run.peak_rss_mb, "include_context": include_rel,
            "main_sha256": hashlib.sha256(portable.encode("utf-8")).hexdigest(), "workdir": workdir,
-           "flags": [*flags, *option_flags(prime, libs)], "main_removed": bool(nomain)}
+           "flags": recorded, "main_removed": bool(nomain), "compiler": compiler.tag}
+    if compiler.kind == "circom1":
+        res.update(witness_js=os.path.join(compiler.path, "node_modules", "circom_runtime"),
+                   wasm=os.path.join(workdir, "main.wasm"))
+    else:
+        res.update(witness_js=os.path.join(workdir, "main_js", "witness_calculator.js"),
+                   wasm=os.path.join(workdir, "main_js", "main.wasm"))
     r1cs_path = os.path.join(workdir, "main.r1cs")
     if guard:
         res["guard"] = guard
@@ -320,14 +477,25 @@ def size_candidates(sh: Shared, plan: I.TemplatePlan, dir_base: str) -> tuple[st
                                          "skipped": f"sizing budget of {sh.cfg.sizing_budget_s:g} s exhausted"}
                 records.append(rec)
                 continue
+            attempts = []
             for ctx in include_contexts(sh.files, t.path):
-                res = compile_main(sh, os.path.join(dir_base, "size", slug, re.sub(r"[^A-Za-z0-9]+", "_", ctx)),
-                                   ctx, t.name, c.args, SIZE_FLAGS, rule_path=t.path)
-                if res.get("r1cs") and os.path.exists(res["r1cs"]):
-                    os.remove(res["r1cs"])        # sizes and digest are kept; large systems would fill the disk
-                rec["compile_result"] = res
-                if (res["rc"] == 0 and "constraints" in res) or res.get("guard") or res.get("custom_gates"):
-                    break                         # compiled (or stopped by the guard / custom gates)
+                available = sh.compilers or [sh.cfg.circom_version_tag]
+                for tag in compiler_order(closure_pragmas(sh.files, ctx), available) or [sh.cfg.circom_version_tag]:
+                    comp = sh.compilers.get(tag) or sh.default_compiler()
+                    res = compile_main(sh, os.path.join(dir_base, "size", slug, re.sub(r"[^A-Za-z0-9]+", "_", ctx),
+                                                        tag), ctx, t.name, c.args, False, rule_path=t.path,
+                                       compiler=comp)
+                    if res.get("r1cs") and os.path.exists(res["r1cs"]):
+                        os.remove(res["r1cs"])    # sizes and digest are kept; large systems would fill the disk
+                    rec["compile_result"] = res
+                    attempts.append({"include_context": ctx, "compiler": tag,
+                                     "result": "ok" if "constraints" in res else (res.get("guard") or "error")})
+                    if (res["rc"] == 0 and "constraints" in res) or res.get("guard") or res.get("custom_gates"):
+                        break                     # compiled (or stopped by the guard / custom gates)
+                else:
+                    continue
+                break
+            rec["compile_result"]["attempts"] = attempts
             records.append(rec)
         records_all += records
         if any("constraints" in r["compile_result"] or r["compile_result"].get("guard") for r in records):
@@ -355,6 +523,10 @@ def candidate_summary(records: list[dict]) -> list[dict]:
         row = {"tier": r["tier"], "call": r["call"][:300],
                "compile": "ok" if "constraints" in cr else "skipped" if cr.get("skipped") else "error",
                "include_context": cr["include_context"]}
+        if cr.get("compiler"):
+            row["compiler"] = cr["compiler"]
+        if len(cr.get("attempts") or []) > 1:
+            row["attempts"] = cr["attempts"][:12]
         if "constraints" in cr:
             row.update(constraints=cr["constraints"], wires=cr["wires"])
         else:
@@ -381,12 +553,15 @@ def base_record(sh: Shared, t: cs.Template, dir_name: str) -> dict:
             "env": sh.env_record(), "generator": sh.generator}
 
 
+def compiler_of(sh: Shared, cr: dict) -> Compiler:
+    return sh.compilers.get(cr.get("compiler")) or sh.default_compiler()
+
+
 def circuit_record(sh: Shared, r: R.R1cs | None, cr: dict, n_in=None, n_out=None, sym_sha=None) -> dict:
-    rec = {"compiler": {"name": "circom", "version": sh.circom_version,
+    comp = compiler_of(sh, cr)
+    rec = {"compiler": {"name": "circom", "version": comp.version,
                         "flags": cr.get("flags") or (CIRCOM_FLAGS if r else SIZE_FLAGS),
-                        "binary_sha256": sh.circom_sha256,
-                        "source": f"iden3/circom {sh.cfg.circom_version_tag} release binary "
-                                  f"(commit {CIRCOM_RELEASES[sh.cfg.circom_version_tag]['commit']})"},
+                        "binary_sha256": comp.sha256, "source": comp.source()},
            "prime": str(r.prime if r else R.BN254_SCALAR),
            "prime_name": (r.prime_name if r else "bn128") or "unknown",
            "n_constraints": cr["constraints"], "n_wires": cr["wires"],
@@ -454,6 +629,7 @@ def _process_template(sh: Shared, plan: I.TemplatePlan) -> dict:
     if cr.get("main_removed"):
         inst["include_main_removed"] = True
     rec = base_record(sh, t, dir_name)
+    rec["env"] = sh.env_record(compiler_of(sh, cr))
     rec["instantiation"] = inst
     if not fits:
         rec.update(status="TOO-LARGE",
@@ -486,8 +662,9 @@ def scrub(sh: Shared, rec: dict) -> dict:
 def build_package(sh: Shared, t: cs.Template, rec: dict, size_cr: dict, dir_name: str, work: str) -> dict:
     cfg = sh.cfg
     args = tuple(rec["instantiation"]["args"])
-    full = compile_main(sh, os.path.join(work, "compile"), size_cr["include_context"], t.name, args, CIRCOM_FLAGS,
-                        rule_path=t.path)
+    comp = compiler_of(sh, size_cr)
+    full = compile_main(sh, os.path.join(work, "compile"), size_cr["include_context"], t.name, args, True,
+                        rule_path=t.path, compiler=comp)
     if full["rc"] != 0 or full.get("r1cs_sha256") != size_cr["r1cs_sha256"]:
         rec.update(status="UNINSTANTIABLE",
                    status_reason="full compile (with --wasm) failed or produced a different R1CS than the sizing compile",
@@ -502,7 +679,7 @@ def build_package(sh: Shared, t: cs.Template, rec: dict, size_cr: dict, dir_name
     meta = {"repo_id": cfg.repo_id, "instantiation": rec["instantiation"]["call"],
             "generator": f"{sh.generator['name']} v{sh.generator['version']}", "repo_url": cfg.repo_url,
             "commit": cfg.commit, "path": t.path, "template": t.name, "rule": rec["instantiation"]["rule"],
-            "circom_version": sh.circom_version, "circom_flags": full["flags"], "r1cs_sha256": full["r1cs_sha256"],
+            "circom_version": comp.version, "circom_flags": full["flags"], "r1cs_sha256": full["r1cs_sha256"],
             "prime_name": r.prime_name or "unknown"}
     stage = os.path.join(work, "pkg")
     shutil.rmtree(stage, ignore_errors=True)
@@ -522,8 +699,7 @@ def build_package(sh: Shared, t: cs.Template, rec: dict, size_cr: dict, dir_name
 
     # witnesses
     signals = W.input_signals(io)
-    wc = os.path.join(work, "compile", "main_js", "witness_calculator.js")
-    wasm = os.path.join(work, "compile", "main_js", "main.wasm")
+    wc, wasm = full["witness_js"], full["wasm"]
     gen_dir = os.path.join(work, "wit-gen")
     if not signals:
         attempts, allowed = 1, []
@@ -699,18 +875,21 @@ def prepare(cfg: WaveConfig) -> tuple[Shared, list[I.TemplatePlan], list[dict]]:
     head = git_head(cfg.repo_dir)
     if head != cfg.commit:
         raise ValueError(f"repository is at {head}, the wave pins {cfg.commit}")
-    circom_sha = sha256_file(cfg.circom)
-    if circom_sha != CIRCOM_RELEASES[cfg.circom_version_tag]["sha256"].get(_asset_for_host()):
-        raise ValueError("circom binary does not match the pinned release digest")
+    compilers = {}
+    for tag, path in {cfg.circom_version_tag: cfg.circom, **cfg.circoms}.items():
+        digest = verify_compiler(tag, path)
+        kind = CIRCOM_RELEASES[tag]["kind"]
+        version = tag[1:] if kind == "circom1" else tool_version([path, "--version"]).replace("circom compiler ", "")
+        compilers[tag] = Compiler(tag, kind, path, version, digest)
+    circom_sha = compilers[cfg.circom_version_tag].sha256
     env = L.load_env(cfg.lean_env)
     rels = cs.list_circom_files(cfg.repo_dir)
     lib_dirs = list(dict.fromkeys(cfg.include_paths + [p for r in cfg.path_rules for p in r.get("include_paths", [])]))
     files = cs.scan_repo(cfg.repo_dir, rels, lib_dirs)
     scope = [p for p in rels if p.startswith(cfg.scope_prefix) and p not in cfg.exclude]
     ledger_ids, ledger_sha = load_ledger(cfg.ledger, ledger_prefix(cfg))
-    sh = Shared(cfg, env, files, ledger_ids, ledger_sha, circom_sha,
-                tool_version([cfg.circom, "--version"]).replace("circom compiler ", ""),
-                tool_version([cfg.node, "--version"]), P.generator_info())
+    sh = Shared(cfg, env, files, ledger_ids, ledger_sha, circom_sha, compilers[cfg.circom_version_tag].version,
+                tool_version([cfg.node, "--version"]), P.generator_info(), compilers)
     plans = I.plan_templates(files, scope, cfg.repo_id)
     missing: list[dict] = []
     if cfg.only:

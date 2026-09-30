@@ -91,6 +91,17 @@
               "call": {"type": "string"},
               "compile": {"enum": ["ok", "error", "skipped"]},
               "include_context": {"type": "string"},
+              "compiler": {"description": "Tag of the pinned compiler that produced this result (see circuit.compiler).", "type": "string"},
+              "attempts": {
+                "description": "Every (include context, compiler) compile tried for the candidate, in order, when more than one was tried.",
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["include_context", "compiler", "result"],
+                  "additionalProperties": false,
+                  "properties": {"include_context": {"type": "string"}, "compiler": {"type": "string"}, "result": {"type": "string"}}
+                }
+              },
               "constraints": {"type": "integer", "minimum": 0},
               "wires": {"type": "integer", "minimum": 1},
               "error": {"type": "string"}
