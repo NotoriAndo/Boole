@@ -135,7 +135,7 @@ class InstantiationRuleTests(unittest.TestCase):
             self.assertTrue(D.uses_custom_templates_pragma(files, "u.circom"))
             self.assertFalse(D.uses_custom_templates_pragma(files, "v.circom"))      # comments do not count
         self.assertEqual(I.main_source("g.circom", "G", (), custom_templates=True),
-                         'pragma circom 2.0.0;\npragma custom_templates;\ninclude "g.circom";\ncomponent main = G();\n')
+                         'pragma circom 2.0.6;\npragma custom_templates;\ninclude "g.circom";\ncomponent main = G();\n')
 
     def test_main_source(self) -> None:
         self.assertEqual(I.main_source("circuits/gates.circom", "Table", ("2", "[5,7]")),
