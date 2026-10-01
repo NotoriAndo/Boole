@@ -85,7 +85,11 @@ CIRCOM_RELEASES = {
         "line": (2, 0), "kind": "circom2",
         "commit": "bdc9d9d57490f113161f3adf818120f064b7b5b2",
         "url": None,
-        "sha256": {"macos-arm64-source": "efa7adf102ae6c266103d04a6fec08d89e55ca8675932eb46993bad8f70c2d70"},
+        "sha256": {"macos-arm64-source": "efa7adf102ae6c266103d04a6fec08d89e55ca8675932eb46993bad8f70c2d70",
+                   # recovery R1: the same source build in another scratch directory (identical Cargo.lock
+                   # digest; the binary embeds the build's registry paths), cross-checked by identical R1CS
+                   # digests against packages compiled with the first build
+                   "macos-arm64-source-r1": "0b1f258071d1ed4779f9dec0f6406ef40c58f71d10da30fa1c5187e519d1e317"},
         "source_build": {"cargo_lock_sha256_at_tag": "628d4786acea7c3e68f3267dd47ddb803a28b118ef3923591ded7a6b5f36776e",
                          "cargo_lock_sha256_built": "8e3343e0f9a62ec1aa5145c2293a186c9f95a12ab4da27ebc11e5b8c2891835f",
                          "rustc": "1.60.0", "command": "cargo build --release --locked -p circom"},
@@ -102,7 +106,10 @@ CIRCOM_RELEASES = {
         "tarball_sha256": "4a30cb13f07a1d61bf7bd3e801e1b77ddc77bfcc7e0007401ae5a048645b09bb",
         # the npm install tree (``npm install --ignore-scripts circom@0.5.46``) is pinned by its lockfile,
         # which carries the registry integrity of all 136 packages (circom, circom_runtime, ffjavascript, ...)
-        "sha256": {"package-lock": "0133311ef0bd412d202c7fbc0957753370c4a70119168510ec0f52dc0f1e96bd"},
+        "sha256": {"package-lock": "0133311ef0bd412d202c7fbc0957753370c4a70119168510ec0f52dc0f1e96bd",
+                   # recovery R1: a re-install of the same 136-package tree (``npm install --ignore-scripts
+                   # circom@0.5.46`` in an empty directory); cross-checked by identical R1CS digests
+                   "package-lock-r1": "19b48fbf65343bdb9de90b9947bb60b48ff6344ebaffb6ad5d96d5fd23661f69"},
         "cli_sha256": "f2b1f22302b66fe308a339bc10d1086d04175d6a1dc1033fb551719c7c81b96d",
         "digest_source": "npm registry tarball integrity (sha512) of circom 0.5.46, the last circom 1 release; the "
                          "installed tree is pinned by the sha256 of its package-lock.json",
@@ -256,6 +263,8 @@ class WaveConfig:
     circoms: dict = field(default_factory=dict)
     # the ``probed`` instantiation tier (template asserts bound every parameter; results are not findings)
     probe: bool = True
+    # recovery R1: probe-min for templates whose asserts do not bound every parameter (smallest compiling values)
+    probe_min: bool = False
 
     @staticmethod
     def load(path: str) -> "WaveConfig":
@@ -494,7 +503,8 @@ def size_candidates(sh: Shared, plan: I.TemplatePlan, dir_base: str,
     t0 = time.time()
     for tier, cands in plan.tiers_in_order():
         records = []
-        for c in cands[:I.MAX_DERIVED_PER_TEMPLATE]:
+        first_fit = any(c.first_fit for c in cands)
+        for c in cands[:I.PROBE_MIN_CANDIDATES if first_fit else I.MAX_DERIVED_PER_TEMPLATE]:
             slug = P.args_slug(c.args) or "noargs"
             rec = {"tier": tier, "call": f"{t.name}{c.call}", "args": list(c.args), "provenance": c.provenance}
             if time.time() - t0 > sh.cfg.sizing_budget_s:
@@ -524,6 +534,8 @@ def size_candidates(sh: Shared, plan: I.TemplatePlan, dir_base: str,
                 break
             rec["compile_result"]["attempts"] = attempts
             records.append(rec)
+            if c.first_fit and ("constraints" in rec["compile_result"] or rec["compile_result"].get("guard")):
+                break                             # probe-min: the first (smallest) candidate that compiles
         records_all += records
         if any("constraints" in r["compile_result"] or r["compile_result"].get("guard") for r in records):
             return tier, records_all
@@ -673,8 +685,10 @@ def _process_template(sh: Shared, plan: I.TemplatePlan) -> dict:
     cr = chosen["compile_result"]
     inst = {"rule": tier, "rule_order": rule_order, "args": list(args), "call": chosen["call"], "params": t.params,
             "provenance": chosen["provenance"][:6],
-            "selection": ("largest compiled constraint count within the size policy among the candidates of the "
-                          "first tier with a compilable candidate" if fits else
+            "selection": (("smallest probe-min candidate that compiles (candidates compiled in ascending order)"
+                           if any(c.first_fit for c in plan.candidates.get(tier, [])) else
+                           "largest compiled constraint count within the size policy among the candidates of the "
+                           "first tier with a compilable candidate") if fits else
                           "no candidate of the tier fits the size policy; the smallest is recorded"),
             "include_context": cr["include_context"], "main_sha256": cr["main_sha256"],
             "candidates": candidate_summary(records)}
@@ -987,7 +1001,7 @@ def prepare(cfg: WaveConfig) -> tuple[Shared, list[I.TemplatePlan], list[dict]]:
     sh = Shared(cfg, env, files, ledger_ids, ledger_sha, circom_sha, compilers[cfg.circom_version_tag].version,
                 tool_version([cfg.node, "--version"]), P.generator_info(), compilers, I.function_names(files))
     plans = I.plan_templates(files, scope, cfg.repo_id, config_mains=cs.scan_config_mains(cfg.repo_dir, files),
-                             probe=cfg.probe)
+                             probe=cfg.probe, probe_min=cfg.probe_min)
     missing: list[dict] = []
     if cfg.only:
         plans = [pl for pl in plans if f"{pl.template.path}#{pl.template.name}" in cfg.only]
@@ -1273,6 +1287,83 @@ def run_decompose(cfgs: list[WaveConfig], parents_file: str, existing_file: str,
     return {"nodes": len(nodes), "packaged": len(packaged), "edges": len(edges)}
 
 
+# ------------------------------------------------------------------------------------------ DET-MOD
+
+def run_detmod(cfgs: list[WaveConfig], parents_file: str, jobs: int) -> dict[str, list[dict]]:
+    """DET-MOD packages (:mod:`circom_detmod`) for the TOO-LARGE records in ``parents_file`` (one record per line;
+    the configuration whose ``repo_id`` names the record's repository builds it).  Parents with the same instance
+    key (prime, template content, arguments) are built once; the others are listed in the index of the first with
+    ``det_mod.same_instance_as``.  Writes one INDEX.jsonl per configuration ``out``."""
+    from zk_registry import circom_detmod as DM
+    shs = {}
+    for cfg in cfgs:
+        sh, _, _ = prepare(cfg)
+        os.makedirs(cfg.out, exist_ok=True)
+        os.makedirs(cfg.work, exist_ok=True)
+        shs[cfg.repo_id] = sh
+    caches: dict[str, dict] = {k: {} for k in shs}
+    jobs_list, dup = [], []
+    seen: dict[str, str] = {}
+    with open(parents_file, encoding="utf-8") as f:
+        for line in f:
+            parent = json.loads(line)
+            sh = shs[parent["ids"]["repo"]]
+            t = next(x for x in sh.files[parent["ids"]["path"]].templates if x.name == parent["ids"]["template"])
+            content = CT.content_hash(sh.files, t.path, t.name, caches[parent["ids"]["repo"]])
+            key = CT.instance_key(parent["circuit"]["prime_name"], content, parent["instantiation"]["args"])
+            dir_name = P.package_dir_name(t.path, t.name, tuple(parent["instantiation"]["args"]),
+                                          sh.cfg.scope_prefix) + ".detmod"
+            if key in seen:
+                dup.append((sh, parent, seen[key]))
+                continue
+            seen[key] = f"{sh.cfg.collection}/{dir_name}"
+            jobs_list.append((sh, t, parent, dir_name))
+
+    def one(sh, t, parent, dir_name):
+        work = os.path.join(sh.cfg.work, "items", dir_name)
+        try:
+            rec = DM.build(sh, t, parent, dir_name, work)
+        finally:
+            if not sh.cfg.keep_work:
+                shutil.rmtree(work, ignore_errors=True)
+        rec = scrub(sh, rec)
+        if rec["status"] in P.PACKAGED_STATUSES:
+            P.write_json(os.path.join(sh.cfg.out, dir_name, "problem.json"), rec)
+        return rec
+
+    results: dict[str, list[dict]] = {sh.cfg.out: [] for sh in shs.values()}
+    with cf.ThreadPoolExecutor(max_workers=jobs) as ex:
+        futs = {ex.submit(one, *j): j for j in jobs_list}
+        for i, fut in enumerate(cf.as_completed(futs), 1):
+            sh, t, parent, dir_name = futs[fut]
+            try:
+                rec = fut.result()
+            except Exception as exc:  # recorded, never dropped
+                rec = base_record(sh, t, dir_name)
+                rec.update(property=dict(DM.PROPERTY), spec=dict(DM.SPEC), status="UNINSTANTIABLE",
+                           status_reason=f"generator error: {type(exc).__name__}: {exc}"[:600],
+                           instantiation=dict(parent["instantiation"]),
+                           det_mod={"parent": {"package_id": parent["package_id"], "status": parent["status"]}})
+                rec = scrub(sh, rec)
+            results[sh.cfg.out].append(rec)
+            print(f"[{i}/{len(jobs_list)}] {rec['package_id']}: {rec['status']} "
+                  f"({rec.get('evidence', {}).get('wall_secs', '?')} s)", flush=True)
+    for sh, parent, first in dup:
+        t = next(x for x in sh.files[parent["ids"]["path"]].templates if x.name == parent["ids"]["template"])
+        rec = base_record(sh, t, P.package_dir_name(t.path, t.name, tuple(parent["instantiation"]["args"]),
+                                                    sh.cfg.scope_prefix) + ".detmod")
+        rec.update(property=dict(DM.PROPERTY), spec=dict(DM.SPEC), status="UNINSTANTIABLE",
+                   status_reason=f"DET-MOD not built: same instance (prime, template content, arguments) as {first}",
+                   instantiation=dict(parent["instantiation"]),
+                   det_mod={"parent": {"package_id": parent["package_id"], "status": parent["status"]},
+                            "same_instance_as": first})
+        results[sh.cfg.out].append(scrub(sh, rec))
+    for out, recs in results.items():
+        if recs:
+            write_index(out, recs)
+    return results
+
+
 # ------------------------------------------------------------------------------------------ battery P2 re-run
 
 def apply_p2(rec: dict, p2: dict) -> dict:
@@ -1449,12 +1540,21 @@ def main(argv: list[str] | None = None) -> int:
     a7.add_argument("--edges-out", required=True)
     a7.add_argument("--jobs", type=int, default=6)
     a7.add_argument("--max-depth", type=int, default=DC.MAX_DEPTH)
+    a8 = sub.add_parser("detmod", help="DET-MOD packages of TOO-LARGE records (recovery R1)")
+    a8.add_argument("--config", required=True, action="append")
+    a8.add_argument("--parents", required=True, help="TOO-LARGE records, one per line")
+    a8.add_argument("--jobs", type=int, default=6)
+    for sp in (a3, a7, a8):
+        sp.add_argument("--lean-slots", type=int, help="at most this many concurrent lean processes")
+        sp.add_argument("--lean-rss-mb", type=int, help="RSS limit of lean runs that set none themselves")
     a4 = sub.add_parser("validate")
     a4.add_argument("--index", required=True)
     a4.add_argument("--packages", required=True)
     a4.add_argument("--collections-root", action="store_true",
                     help="--packages holds one directory per collection (combined index)")
     a = ap.parse_args(argv)
+    if a.cmd in ("wave", "decompose", "detmod") and (a.lean_slots or a.lean_rss_mb):
+        L.set_lean_limits(a.lean_slots, a.lean_rss_mb)
     if a.cmd == "fetch-circom":
         print(fetch_circom(a.version, a.asset, a.dest))
     elif a.cmd == "lean-env":
@@ -1465,6 +1565,8 @@ def main(argv: list[str] | None = None) -> int:
     elif a.cmd == "decompose":
         print(json.dumps(run_decompose([WaveConfig.load(c) for c in a.config], a.parents, a.existing, a.edges_out,
                                        a.jobs, a.max_depth)))
+    elif a.cmd == "detmod":
+        run_detmod([WaveConfig.load(c) for c in a.config], a.parents, a.jobs)
     elif a.cmd == "battery-p2":
         run_battery_p2([tuple(x.split("=", 1)) for x in a.source], a.lean_env, a.work, a.out, a.jobs)
     elif a.cmd == "summary":

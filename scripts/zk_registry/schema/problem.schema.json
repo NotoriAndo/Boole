@@ -14,7 +14,7 @@
       "required": ["template", "name"],
       "additionalProperties": false,
       "properties": {
-        "template": {"enum": ["DET"]},
+        "template": {"enum": ["DET", "DET-MOD"]},
         "name": {"type": "string", "minLength": 1}
       }
     },
@@ -319,8 +319,13 @@
       "properties": {
         "status": {"enum": ["OPEN", "TOO-LARGE", "UNINSTANTIABLE", "GATE-FAIL", "DET-FALSE-CANDIDATE", "NO-INSTANTIATION", "COMPILE-FAIL", "NOT-APPLICABLE"]},
         "status_reason": {"type": "string"},
-        "generator_sources_sha256": {"$ref": "#/$defs/sha256"}
+        "generator_sources_sha256": {"$ref": "#/$defs/sha256"},
+        "package_id": {"type": "string", "description": "package_id of the superseded record when it differs (recovery R1: a new instantiation of the same ledger item)."}
       }
+    },
+    "det_mod": {
+      "description": "DET-MOD (recovery R1): the DET record whose instantiation this modular statement abstracts, the constraint-to-component mapping rule, kept / dropped constraint counts, sub-component instances and kinds.",
+      "type": "object"
     }
   },
   "allOf": [

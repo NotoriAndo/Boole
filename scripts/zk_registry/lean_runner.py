@@ -159,9 +159,25 @@ def _kill(p: subprocess.Popen) -> None:
         pass
 
 
+# Optional process-wide Lean limits (unset by default): at most ``slots`` concurrent ``lean`` processes, and an
+# RSS limit for runs that do not pass their own.  Set once by a driver before its worker pool starts.
+_LIMITS: dict = {"slots": None, "rss_mb": None}
+
+
+def set_lean_limits(slots: int | None = None, rss_mb: int | None = None) -> None:
+    """Limit concurrent ``lean`` processes (``slots``) and give runs without their own limit an RSS cap."""
+    _LIMITS["slots"] = threading.BoundedSemaphore(slots) if slots else None
+    _LIMITS["rss_mb"] = rss_mb
+
+
 def run_lean(env: LeanEnv, args: list[str], cwd: str, timeout: float, extra_lean_path=(),
              rss_limit_mb: int | None = None) -> RunResult:
-    return run_process([env.lean] + args, process_env(env, extra_lean_path), cwd, timeout, rss_limit_mb)
+    slots = _LIMITS["slots"]
+    rss = rss_limit_mb or _LIMITS["rss_mb"]
+    if slots is None:
+        return run_process([env.lean] + args, process_env(env, extra_lean_path), cwd, timeout, rss)
+    with slots:
+        return run_process([env.lean] + args, process_env(env, extra_lean_path), cwd, timeout, rss)
 
 
 def parse_messages(out: str) -> list[dict]:
