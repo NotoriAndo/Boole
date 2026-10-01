@@ -1,0 +1,2 @@
+{"mode": "module", "dir": "vm/src", "lib": "vm/src/lib.rs", "module": "boole_air_extract",
+ "note": "pico-vm test helpers and the recursion Poseidon2 chip alias are crate-private, so the extractor is a #[cfg(test)] module of pico-vm"}

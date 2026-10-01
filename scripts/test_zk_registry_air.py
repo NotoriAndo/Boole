@@ -66,7 +66,7 @@ class ToyModel(B.BusModel):
     tables = {"toyRange": "/-- values below 256 -/\ndef toyRange (v : List F) : Bool :=\n  match v with\n"
                           "  | [x] => x.val < 256\n  | _ => false"}
 
-    def rule(self, air, k, it):
+    def rule(self, air, k, it, negative=False):
         if it.kind == 1:
             return B.Rule("in", "received state")
         if it.kind == 2:
@@ -307,6 +307,130 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(rec["statement"]["truth"], "closed-by-automation")
 
 
+class NegativeMultiplicityTests(unittest.TestCase):
+    def recursion_doc(self) -> dict:
+        """A recursion-style AIR: reads sent with a multiplicity column holding -1, writes with a count column."""
+        nodes = [["main", 0, 0], ["main", 0, 1], ["prep", 0, 0], ["prep", 0, 1]]
+        return {"format": IR.FORMAT, "zkvm": "pico", "release": "v1", "commit": "0" * 40,
+                "field": {"name": "KoalaBear", "p": KB},
+                "air": {"name": "RecursionToy", "rust_type": "RecursionToy", "group": "recursion", "index": 0},
+                "width": 2, "preprocessed_width": 2, "num_public_values": 0, "meta": {}, "nodes": nodes,
+                "constraints": [],
+                "interactions": [
+                    {"dir": "send", "kind": 1, "kind_name": "Memory", "bus": None, "scope": None, "values": [0],
+                     "mult": 2, "count_weight": None},
+                    {"dir": "send", "kind": 1, "kind_name": "Memory", "bus": None, "scope": None, "values": [1],
+                     "mult": 3, "count_weight": None}]}
+
+    def test_negated_column_reads_are_inputs(self) -> None:
+        air = IR.from_json(self.recursion_doc())
+        lay = IR.Layout.of(air)
+        real = [(0, [5, 6, KB - 1, 2])]                   # prep[0] = -1 (read), prep[1] = 2 reads of the write
+        neg = D.negative_multiplicities(air, lay, real)
+        self.assertEqual(neg, frozenset({0}))
+        roles, iface = B.model_for("pico").roles(air, neg)
+        self.assertEqual([m["interaction"] for m in iface["inputs"]], [0])
+        self.assertEqual([m["interaction"] for m in iface["outputs"]], [1])
+        roles, iface = B.model_for("pico").roles(air)    # without row evidence both look like writes
+        self.assertEqual(len(iface["outputs"]), 2)
+
+
+def mini_air(name: str, interactions: list, group: str = "app-vm", nodes=None, index: int = 0) -> IR.Air:
+    nodes = nodes or [["main", 0, 0], ["main", 0, 1], ["const", 0], ["const", 1]]
+    return IR.from_json({"format": IR.FORMAT, "zkvm": "toy", "release": "v1", "commit": "0" * 40,
+                         "field": {"name": "BabyBear", "p": IR.FIELDS["BabyBear"]},
+                         "air": {"name": name, "rust_type": name, "group": group, "index": index},
+                         "width": 2, "preprocessed_width": 0, "num_public_values": 0, "meta": {}, "nodes": nodes,
+                         "constraints": [], "interactions": interactions})
+
+
+def it(direction: str, bus=None, kind=None, kind_name="", values=(0,), mult=1) -> dict:
+    return {"dir": direction, "kind": kind, "kind_name": kind_name, "bus": bus, "scope": None, "values": list(values),
+            "mult": mult, "count_weight": None}
+
+
+class BusModelTests(unittest.TestCase):
+    def test_tables(self) -> None:
+        sp1, pico, ovm = B.model_for("sp1"), B.model_for("pico"), B.model_for("openvm")
+        self.assertTrue(sp1.table_fn("sp1Byte", [0, 3 & 5, 3, 5]))
+        self.assertTrue(sp1.table_fn("sp1Byte", [5, 1, 200, 0]))
+        self.assertFalse(sp1.table_fn("sp1Byte", [5, 1, 200, 1]))         # MSB rows have c = 0
+        self.assertTrue(sp1.table_fn("sp1Byte", [6, 65535, 16, 0]))
+        self.assertFalse(sp1.table_fn("sp1Byte", [6, 2, 1, 0]))
+        self.assertTrue(pico.table_fn("picoByte", [4, 200 >> 3, 200 & 7, 200, 3]))
+        self.assertFalse(pico.table_fn("picoByte", [9, 8, 0, 3, 0]))
+        self.assertTrue(pico.table_fn("picoByte", [9, 7, 0, 3, 0]))       # bits in the b position
+        self.assertTrue(ovm.table_fn("ovmVarRange", [2 ** 17 - 1, 17]))
+        self.assertFalse(ovm.table_fn("ovmVarRange", [1, 18]))
+        self.assertTrue(ovm.table_fn("ovmBitwise", [6, 3, 5, 1]))
+        self.assertFalse(ovm.table_fn("ovmBitwise", [6, 3, 5, 0]))
+        self.assertTrue(ovm.table_fn("ovmRangeTuple", [255, 8191]))
+
+    def test_memory_direction_conventions(self) -> None:
+        # SP1 / Pico memory accesses send the previous state and receive the current one
+        sp1 = B.model_for("sp1")
+        air = mini_air("Add", [it("send", kind=1, kind_name="Memory"), it("receive", kind=1, kind_name="Memory"),
+                               it("receive", kind=7, kind_name="State"), it("send", kind=7, kind_name="State")],
+                       group="riscv")
+        _, iface = sp1.roles(air)
+        self.assertEqual([m["interaction"] for m in iface["inputs"]], [0, 2])
+        self.assertEqual([m["interaction"] for m in iface["outputs"]], [1, 3])
+        # OpenVM memory accesses receive the previous state (a negated count) and send the new one
+        ovm = B.model_for("openvm")
+        air = mini_air("VmAirWrapper<Rv32BaseAluAdapterAir, BaseAluCoreAir<4, 8>>",
+                       [it("receive", bus=1), it("send", bus=1), it("send", bus=6, values=(0, 0, 0, 0))])
+        ovm.observe([air, mini_air("BitwiseOperationLookupAir<8>", [it("receive", bus=6, values=(0, 0, 0, 0))])])
+        _, iface = ovm.roles(air)
+        self.assertEqual([m["interaction"] for m in iface["inputs"]], [0])
+        self.assertEqual([m["interaction"] for m in iface["outputs"]], [1])
+        self.assertEqual(iface["assumptions"][0]["table"], "ovmBitwise")
+
+    def test_call_buses_are_split(self) -> None:
+        pico = B.model_for("pico")
+        alu = list(range(13))
+        nodes = [["main", 0, 0], ["main", 0, 1]] + [["const", k] for k in range(13)]
+        air = mini_air("Add", [it("receive", kind=4, kind_name="Alu", values=[2 + k for k in alu])], group="riscv",
+                       nodes=nodes)
+        _, iface = pico.roles(air)
+        self.assertEqual(iface["inputs"][0]["fields"], [0, 5, 6, 7, 8, 9, 10, 11, 12])
+        self.assertEqual(iface["outputs"][0]["fields"], [1, 2, 3, 4])
+
+    def test_global_messages_follow_their_flags(self) -> None:
+        sp1 = B.model_for("sp1")
+        nodes = [["main", 0, 0], ["main", 0, 1], ["const", 0], ["const", 1]]
+        send_flag = [0] * 8 + [3, 2, 0]                  # is_send = 1, is_receive = 0
+        recv_flag = [0] * 8 + [2, 3, 0]
+        air = mini_air("MemoryLocal", [it("send", kind=9, kind_name="Global", values=send_flag),
+                                       it("send", kind=9, kind_name="Global", values=recv_flag)],
+                       group="riscv", nodes=nodes)
+        _, iface = sp1.roles(air)
+        self.assertEqual([m["interaction"] for m in iface["outputs"]], [0])
+        self.assertEqual([m["interaction"] for m in iface["inputs"]], [1])
+
+    def test_openvm_bus_names_and_labels(self) -> None:
+        ovm = B.model_for("openvm")
+        airs = [mini_air("ProgramAir", [it("receive", bus=2)]),
+                mini_air("VmConnectorAir", [it("send", bus=0), it("send", bus=2)]),
+                mini_air("MemoryMerkleAir<8>", [it("send", bus=4), it("send", bus=5)]),
+                mini_air("Poseidon2PeripheryAir<BabyBearParameters, 1>", [it("receive", bus=5)]),
+                mini_air("PersistentBoundaryAir<8>", [it("send", bus=1), it("send", bus=4), it("send", bus=5)])]
+        ovm.observe(airs)
+        self.assertEqual(ovm.bus_names, {2: "Program", 0: "Execution", 5: "Poseidon2", 4: "Merkle", 1: "Memory"})
+        self.assertEqual(ovm.chip_type("VmAirWrapper<Rv32BaseAluAdapterAir, BaseAluCoreAir<4, 8>>"), "Rv32BaseAluAir")
+        self.assertEqual(ovm.chip_type("VmAirWrapper<Rv32VecHeapAdapterAir<2, 8, 8, 4, 4>, 2, 8, 8, 4, 32, 32>, "
+                                       "ShiftCoreAir<32, 8>>"), "Rv32Shift256Air")
+        self.assertEqual(ovm.chip_type_at("VmAirWrapper<Rv32VecHeapAdapterAir<2, 8, 8, 4, 4>, FieldExpressionCoreAir>",
+                                          38), "ModularAir")
+        self.assertEqual(ovm.label(38), "bn254 Fp mul/div")
+        self.assertEqual(ovm.label(19), "bls12-381 Fp is-equal")
+
+    def test_chip_types(self) -> None:
+        self.assertEqual(B.model_for("sp1").chip_type("Secp256r1DoubleAssignUser"), "WeierstrassDoubleAssignChip")
+        self.assertEqual(B.model_for("sp1").chip_type("RecursionWrapExtFeltConvert"), "ConvertChip")
+        self.assertEqual(B.model_for("pico").chip_type("LessThan"), "LtChip")
+        self.assertEqual(B.model_for("pico").chip_type("Bls381Fp2Mul"), "Fp2MulChip")
+
+
 class CoverageTests(unittest.TestCase):
     def test_sp1_supervisor_only(self) -> None:
         self.assertEqual(B.coverage("sp1", "Add", "AddChip<SupervisorMode>")["status"], "partial")
@@ -387,6 +511,28 @@ class GeneratorInfoTests(unittest.TestCase):
         air_files = {str(p.relative_to(here)) for p in here.glob("air_*.py")}
         self.assertEqual(air_files - listed, set())
         self.assertRegex(D.generator_info()["sources_sha256"], r"^[0-9a-f]{64}$")
+
+
+class HarnessModuleTests(unittest.TestCase):
+    def test_module_install_is_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            os.makedirs(tmp + "/ws/vm/src")
+            Path(tmp, "ws/vm/src/lib.rs").write_text("pub mod chips;\n", encoding="utf-8")
+            os.makedirs(tmp + "/h/common")
+            os.makedirs(tmp + "/h/toy")
+            Path(tmp, "h/common/boole_air_ir.rs").write_text("// ir\n", encoding="utf-8")
+            Path(tmp, "h/toy/main.rs").write_text("// extractor\n", encoding="utf-8")
+            Path(tmp, "h/toy/install.json").write_text(json.dumps({"mode": "module", "dir": "vm/src",
+                                                                   "lib": "vm/src/lib.rs", "module": "boole_air_extract"}),
+                                                       encoding="utf-8")
+            with mock.patch.object(D, "HARNESS_DIR", tmp + "/h"):
+                D.prepare_harness("toy", tmp + "/ws")
+                D.prepare_harness("toy", tmp + "/ws")
+            lib = Path(tmp, "ws/vm/src/lib.rs").read_text(encoding="utf-8")
+            self.assertEqual(lib.count("pub mod boole_air_extract;"), 1)
+            self.assertEqual(lib.count("#[cfg(test)]\npub mod boole_air_ir;"), 1)
+            self.assertTrue(Path(tmp, "ws/vm/src/boole_air_extract.rs").exists())
+            self.assertFalse(Path(tmp, "ws/boole-air-extract").exists())
 
 
 class OrderTests(unittest.TestCase):

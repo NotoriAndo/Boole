@@ -38,7 +38,8 @@
         "rust_type": {"type": "string", "minLength": 1},
         "air_index": {"type": "integer", "minimum": 0},
         "group": {"type": "string"},
-        "copy_of": {"description": "An earlier AIR of the same wave with identical extracted content (constraints, interactions, widths).", "type": "string"}
+        "copy_of": {"description": "An earlier AIR of the same wave with identical extracted content (constraints, interactions, widths).", "type": "string"},
+        "label": {"description": "Instance label when several AIRs share a type name (e.g. the modulus of a field-expression AIR).", "type": "string"}
       }
     },
     "spec": {

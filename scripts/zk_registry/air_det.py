@@ -172,7 +172,7 @@ def ledger_item(sh: Shared, rust_type: str) -> tuple[str, bool]:
 
 
 def base_record(sh: Shared, m: dict) -> dict:
-    m = dict(m, rust_type=sh.bus.chip_type(m["name"]) if (m.get("rust_type") or m["name"]) == m["name"]
+    m = dict(m, rust_type=sh.bus.chip_type_at(m["name"], m["index"]) if (m.get("rust_type") or m["name"]) == m["name"]
              else m["rust_type"])
     item, found = ledger_item(sh, m["rust_type"])
     rec = {"schema_version": P.AIR_SCHEMA_VERSION,
@@ -185,6 +185,8 @@ def base_record(sh: Shared, m: dict) -> dict:
            "env": sh.env_record(), "generator": sh.generator}
     if sh.cfg.ledger:
         rec["ids"]["ledger"] = {"file": os.path.basename(sh.cfg.ledger), "sha256": sh.ledger_sha, "row_found": found}
+    if sh.bus.label(m["index"]):
+        rec["ids"]["label"] = sh.bus.label(m["index"])
     return rec
 
 
@@ -233,6 +235,21 @@ def real_windows(air: IR.Air, layout: IR.Layout, rows: dict | None) -> list[tupl
         w = layout.window(main, prep if layout.prep_width else None, pub, i, h)
         out.append((i, [x % air.p for x in w]))
     return out
+
+
+def negative_multiplicities(air: IR.Air, layout: IR.Layout, real: list[tuple[int, list[int]]]) -> frozenset:
+    """Interactions whose multiplicity takes a negated value (above p/2) on a real window that satisfies the
+    constraints (a read sent with a negated count from a column)."""
+    out = set()
+    half = air.p // 2
+    for _, w in real:
+        vals = IR.eval_nodes(air, layout, w)
+        if IR.failing_constraints(air, layout, w, vals):
+            continue
+        for k, it in enumerate(air.interactions):
+            if vals[it.mult] > half:
+                out.add(k)
+    return frozenset(out)
 
 
 def mutants(air: IR.Air, bases: list[list[int]], n: int, seed: str, fixed: set[int]) -> list[list[int]]:
@@ -411,7 +428,9 @@ def _process_air(sh: Shared, m: dict, rec: dict) -> dict:
         rec.update(status="TOO-LARGE", status_reason=(f"{len(air.constraints)} constraints / {len(air.nodes)} expression "
                                                       f"nodes exceed the size policy ({MAX_CONSTRAINTS} / {MAX_NODES})"))
         return rec
-    roles, iface = sh.bus.roles(air)
+    rows = load_rows(os.path.join(cfg.extract, "rows", f"{m['index']}.json"))
+    real = real_windows(air, layout, rows)
+    roles, iface = sh.bus.roles(air, negative_multiplicities(air, layout, real))
     rec["interface"] = iface
     dname = rec["package_id"].split("/", 1)[1]
     work = os.path.join(cfg.work, dname)
@@ -452,8 +471,6 @@ def _process_air(sh: Shared, m: dict, rec: dict) -> dict:
     model_ok = elab.detail.get("model_compile_rc") == 0 and os.path.exists(
         os.path.join(build, model_rel[:-len(".lean")] + ".olean"))
 
-    rows = load_rows(os.path.join(cfg.extract, "rows", f"{m['index']}.json"))
-    real = real_windows(air, layout, rows)
     evidence["rows"] = {"source": (rows or {}).get("source", "none"), "height": (rows or {}).get("height", 0),
                         "windows": len(real)}
     if model_ok:
@@ -643,11 +660,16 @@ def prepare(cfg: WaveConfig) -> tuple[Shared, list[dict]]:
         manifest = [m for m in manifest if m["name"] in cfg.only or str(m["index"]) in cfg.only]
     ids, sha = load_ledger(cfg.ledger, cfg.zkvm)
     sh = Shared(cfg, L.load_env(cfg.lean_env), B.model_for(cfg.zkvm), build, ids, sha, generator_info())
-    # content duplicates are resolved in manifest order, independent of worker scheduling
-    for m in manifest:
+    # content duplicates are resolved in manifest order, independent of worker scheduling; the bus model sees
+    # every AIR (bus names from their owners) before any role is assigned
+    airs = []
+    full = [json.loads(x) for x in open(os.path.join(cfg.extract, "manifest.jsonl"), encoding="utf-8") if x.strip()]
+    for m in full:
         if m["status"] == "extracted":
             air = IR.load(os.path.join(cfg.extract, "airs", f"{m['index']}.json"))
+            airs.append(air)
             sh.seen_content.setdefault(air.content_sha256(), f"{cfg.collection}/{dir_name(m['index'], m['name'])}")
+    sh.bus.observe(airs)
     return sh, manifest
 
 
@@ -814,15 +836,40 @@ def harness_sha256(zkvm: str) -> str:
 
 
 def prepare_harness(zkvm: str, src: str) -> dict:
-    """Copy the extractor crate into the workspace ``src`` (a scratch copy) and register it as a member."""
+    """Install the extractor into the workspace ``src`` (a scratch copy at the census pin).
+
+    ``install.json`` of the harness directory selects the mode: ``crate`` (default; a new workspace member
+    ``boole-air-extract``) or ``module`` (a ``#[cfg(test)]`` module of an existing crate, for zkVMs whose test
+    helpers are crate-private)."""
+    zdir = os.path.join(HARNESS_DIR, zkvm)
+    inst_path = os.path.join(zdir, "install.json")
+    inst = {"mode": "crate"}
+    if os.path.exists(inst_path):
+        with open(inst_path, encoding="utf-8") as f:
+            inst = json.load(f)
+    ir_src = os.path.join(HARNESS_DIR, "common", "boole_air_ir.rs")
+    if inst["mode"] == "module":
+        d = os.path.join(src, inst["dir"])
+        shutil.copyfile(os.path.join(zdir, "main.rs"), os.path.join(d, f"{inst['module']}.rs"))
+        shutil.copyfile(ir_src, os.path.join(d, "boole_air_ir.rs"))
+        lib = os.path.join(src, inst["lib"])
+        with open(lib, encoding="utf-8") as f:
+            text = f.read()
+        lines = ["#[cfg(test)]\npub mod boole_air_ir;", f"#[cfg(test)]\npub mod {inst['module']};"]
+        add = [x for x in lines if x not in text]
+        if add:
+            with open(lib, "a", encoding="utf-8") as f:
+                f.write("\n" + "\n".join(add) + "\n")
+        return {"module": os.path.join(d, f"{inst['module']}.rs"), "harness_sha256": harness_sha256(zkvm)}
     crate = os.path.join(src, "boole-air-extract")
     shutil.rmtree(crate, ignore_errors=True)
     os.makedirs(os.path.join(crate, "src"))
-    zdir = os.path.join(HARNESS_DIR, zkvm)
     for fn in os.listdir(zdir):
+        if fn == "install.json":
+            continue
         dst = os.path.join(crate, "Cargo.toml" if fn == "Cargo.toml.in" else os.path.join("src", fn))
         shutil.copyfile(os.path.join(zdir, fn), dst)
-    shutil.copyfile(os.path.join(HARNESS_DIR, "common", "boole_air_ir.rs"), os.path.join(crate, "src", "boole_air_ir.rs"))
+    shutil.copyfile(ir_src, os.path.join(crate, "src", "boole_air_ir.rs"))
     ws = os.path.join(src, "Cargo.toml")
     with open(ws, encoding="utf-8") as f:
         text = f.read()
@@ -833,7 +880,6 @@ def prepare_harness(zkvm: str, src: str) -> dict:
         with open(ws, "w", encoding="utf-8") as f:
             f.write(new)
     return {"crate": crate, "harness_sha256": harness_sha256(zkvm)}
-
 
 if __name__ == "__main__":
     sys.exit(main())
