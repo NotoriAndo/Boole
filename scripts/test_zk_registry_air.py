@@ -420,6 +420,15 @@ class BusModelTests(unittest.TestCase):
             self.assertEqual(iface["outputs"][0]["fields"], [0, 1, 2, 3, 4, 8, 9, 10])
             self.assertEqual(iface["outputs"][1]["role"], "out")
 
+    def test_recursion_hint_memory_is_an_input(self) -> None:
+        for z, name in (("sp1", "RecursionWrapMemoryVar"), ("pico", "RecursionMemoryVar")):
+            air = mini_air(name, [it("send", kind=1, kind_name="Memory")], group="recursion")
+            _, iface = B.model_for(z).roles(air)
+            self.assertEqual(iface["outputs"], [])
+            self.assertEqual(iface["inputs"][0]["role"], "in")
+        air = mini_air("RecursionBaseAlu", [it("send", kind=1, kind_name="Memory")], group="recursion")
+        self.assertEqual(B.model_for("pico").roles(air)[1]["outputs"][0]["role"], "out")
+
     def test_global_messages_follow_their_flags(self) -> None:
         sp1 = B.model_for("sp1")
         nodes = [["main", 0, 0], ["main", 0, 1], ["const", 0], ["const", 1]]

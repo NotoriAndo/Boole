@@ -215,6 +215,14 @@ def _const_value(air: IR.Air, node: int) -> int | None:
     return n[1] if n[0] == "const" else None
 
 
+HINT_MEMORY = ("recursion hint memory (MemoryVar): the written values are prover advice from the witness stream "
+               "(hints), so they are inputs; the AIR has no output")
+
+
+def _hint_memory(air: IR.Air) -> bool:
+    return re.sub(r"^Recursion(Wrap)?", "", air.name) == "MemoryVar"
+
+
 def _sha_compress_start(air: IR.Air, it: IR.Interaction) -> Rule | None:
     """The SHA-256 compress controller (SP1, Pico) sends the round chain's start message [clk, w_ptr, h_ptr,
     index 0, initial state]: it does not read the initial state, the compress AIR constrains it against memory
@@ -286,6 +294,8 @@ class Sp1Model(BusModel):
     def rule(self, air: IR.Air, k: int, it: IR.Interaction, negative: bool = False) -> Rule:
         kind, send = it.kind_name, it.direction == "send"
         if air.group.startswith("recursion"):
+            if _hint_memory(air):
+                return Rule("in", HINT_MEMORY)
             return Rule("out" if send else "in", "recursion write-once memory: the writer sends, readers receive")
         if kind in ("Memory", "PageProtAccess"):
             return (Rule("in", "access: the previous (timestamp, address, value) is supplied by memory") if send else
@@ -440,6 +450,8 @@ class PicoModel(BusModel):
     def rule(self, air: IR.Air, k: int, it: IR.Interaction, negative: bool = False) -> Rule:
         kind, send, n = it.kind_name, it.direction == "send", len(it.values)
         if air.group.startswith("recursion"):
+            if _hint_memory(air):
+                return Rule("in", HINT_MEMORY)
             if kind == "Memory":
                 if not send:
                     return Rule("in", "recursion memory read (looked)")
