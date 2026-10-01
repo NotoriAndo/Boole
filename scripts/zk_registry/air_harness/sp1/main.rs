@@ -758,6 +758,63 @@ mod rec {
             ins.push(instr::select(1, 1, base, base + 3, base + 4, base + 1, base + 2));
             base += 5;
         }
+        // skinny Poseidon2 (linear layers and S-boxes), ext <-> felt conversions and bit decompositions
+        {
+            use sp1_recursion_executor::{
+                instruction::HintBitsInstr, Address, Block, ExtFeltInstr, Instruction, Poseidon2LinearLayerInstr,
+                Poseidon2LinearLayerIo, Poseidon2SBoxInstr, Poseidon2SBoxIo,
+            };
+            let a = |x: u32| Address(F::from_canonical_u32(x));
+            let rb = |rng: &mut Rng| -> Block<F> {
+                Block(core::array::from_fn(|_| F::from_canonical_u32((rng.next() % P) as u32)))
+            };
+            for k in 0..12u32 {
+                for j in 0..4u32 {
+                    ins.push(instr::mem_block(MemAccessKind::Write, 1, base + j, rb(&mut rng)));
+                }
+                ins.push(Instruction::Poseidon2LinearLayer(Box::new(Poseidon2LinearLayerInstr {
+                    addrs: Poseidon2LinearLayerIo {
+                        input: core::array::from_fn(|j| a(base + j as u32)),
+                        output: core::array::from_fn(|j| a(base + 4 + j as u32)),
+                    },
+                    mults: [F::one(); 4],
+                    external: k % 2 == 0,
+                })));
+                base += 8;
+            }
+            for k in 0..12u32 {
+                ins.push(instr::mem_block(MemAccessKind::Write, 1, base, rb(&mut rng)));
+                ins.push(Instruction::Poseidon2SBox(Poseidon2SBoxInstr {
+                    addrs: Poseidon2SBoxIo { input: a(base), output: a(base + 1) },
+                    mults: F::one(),
+                    external: k % 2 == 0,
+                }));
+                base += 2;
+            }
+            for k in 0..12u32 {
+                if k % 2 == 0 {
+                    ins.push(instr::mem_block(MemAccessKind::Write, 1, base, rb(&mut rng)));
+                } else {
+                    for j in 1..5u32 {
+                        ins.push(instr::mem(MemAccessKind::Write, 1, base + j, (rng.next() % P) as u32));
+                    }
+                }
+                ins.push(Instruction::ExtFelt(ExtFeltInstr {
+                    addrs: core::array::from_fn(|j| a(base + j as u32)),
+                    mults: [F::one(); 5],
+                    ext2felt: k % 2 == 0,
+                }));
+                base += 5;
+            }
+            for _ in 0..6u32 {
+                ins.push(instr::mem(MemAccessKind::Write, 1, base, (rng.next() % 65536) as u32));
+                ins.push(Instruction::HintBits(HintBitsInstr {
+                    output_addrs_mults: (1..=16).map(|i| (a(base + i), F::one())).collect(),
+                    input_addr: a(base),
+                }));
+                base += 17;
+            }
+        }
         let program = linear_program(ins).map_err(|e| format!("{e:?}"))?;
         let mut ex = Executor::<F, BinomialExtensionField<F, D>, sp1_primitives::SP1DiffusionMatrix>::new(
             Arc::new(program.clone()),
@@ -809,7 +866,9 @@ fn dump_recursion<const D1: usize, const V: usize>(
             RowsDoc {
                 air_index: i,
                 name: c.name().to_string(),
-                source: "linear recursion program (base / extension ALU, memory) + MachineAir::generate_trace".into(),
+                source: "linear recursion program (base / extension ALU, memory, Poseidon2 wide and skinny, select, \
+                         ext-felt conversion, hint bits) + MachineAir::generate_trace"
+                    .into(),
                 height: t.height(),
                 width: t.width(),
                 prep_width: c.air.as_ref().preprocessed_width(),
