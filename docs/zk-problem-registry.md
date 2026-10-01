@@ -106,6 +106,52 @@ elaborated statement type.
 
 Tests: `scripts/test_zk_registry_*.py` (offline, fixture-based), registered in `scripts/self-test.sh`.
 
+## AIR DET generator (zkVM chips)
+
+Code: `scripts/zk_registry/air_*.py` (driver `air_det.py`, generator `boole-zk-registry-air-det`) and the Rust
+extractors in `scripts/zk_registry/air_harness/` (a standard-library IR writer plus one adapter per zkVM, built in a
+scratch copy of the zkVM's workspace at the census pin). Each adapter runs the zkVM's own symbolic builder over every
+AIR: SP1 v6.8.1 through a recording builder over p3-uni-stark `SymbolicExpression` (its own `SymbolicAirBuilder`
+labels preprocessed cells as main cells; counts are cross-checked against `Chip::num_constraints` / `sends` /
+`receives`), Pico v2.1.2 through `SymbolicConstraintFolder` (lookup counts cross-checked against `MetaChip`), OpenVM
+v2.0.2 through the keygen vkey DAG of `SdkVmConfig::standard()` and of the leaf aggregation circuit (a negated count is
+a receive). Every constraint polynomial (with `when(..)` guards and first / last / transition selectors as factors) and
+every bus interaction (direction, bus, values, multiplicity) is written as a hash-consed DAG (`boole-air-ir/v1`). Real
+rows come from each zkVM's own trace generation on sample programs (straight-line programs, in-tree ELFs, linear
+recursion programs).
+
+Statement: one row window (two rows when a constraint references the next row) over `F = ZMod p` (KoalaBear for SP1
+and Pico, BabyBear for OpenVM):
+
+```lean
+theorem det [Fact (Nat.Prime p)] :
+    ∀ w₁ w₂ : Fin nVars → F, Constraints w₁ → Constraints w₂ → Assumptions w₁ → Assumptions w₂ →
+      (∀ i ∈ Fixed, w₁ i = w₂ i) → BusEq (In w₁) (In w₂) → BusEq (Out w₁) (Out w₂) := by
+  sorry
+```
+
+`Fixed` are the preprocessed cells, public values and row selectors; `In` / `Out` are bus messages `(multiplicity,
+values)` and `BusEq` compares contributions (equal multiplicities; equal values where the multiplicity is non-zero).
+A per-zkVM bus model (`air_bus.py`) assigns every interaction a role from the bus conventions at the pin: memory
+accesses consume the previous state and produce the current one (SP1 and Pico *send* the previous state, OpenVM
+receives it), call buses that carry the request and the result in one message are split (the result is an output of
+the AIR that serves the call and an input of the caller), Global messages follow their `is_send` / `is_receive`
+fields, program and instruction lookups are inputs, and lookups into tables another chip provides (SP1 byte / range,
+Pico byte, OpenVM variable range / bitwise / range tuple) are hypotheses `m ≠ 0 → Table values = true` with the table
+written in Lean and, independently, in Python. A table AIR's own received lookups and the result of a call an AIR
+serves are never assumed. Row selectors are modelled normalized (every constraint is checked to be homogeneous in
+each selector). Bus balance (LogUp) is not modelled.
+
+Gates: G-ELAB; G-FID (≥ 10 distinct real windows and ≥ 10 single-cell mutants; Lean's `decide (Constraints w)` and
+`decide (Assumptions w)` equal the Python evaluator on every window, and every real window satisfies both);
+G-NONVAC (a real window with an active output message satisfies the model); G-TRIV (battery P1 + P2 over the AIR
+statement); DET-SEARCH (single-variable, linear-kernel and re-solve searches, confirmed in Python and Lean). A
+counterexample on a one-row window is `DET-FALSE-CANDIDATE` (private); on a two-row window it is labelled
+not-a-finding (the window omits the row's history) and the record is GATE-FAIL. Size policy: 4,000 constraints and
+100,000 expression nodes. `coverage` records public machine-checked artifacts at the same code (sp1-lean, openvm-fv;
+pico-fv only for chips unchanged since its pin) so issuance can exclude answered items. Schema
+`schema/air_problem.schema.json`; the checker accepts both schemas.
+
 ## Wave 0 (circomlib v2.0.5, 106 templates)
 
 | Status | Count |
@@ -166,6 +212,29 @@ run on all 367 OPEN packages. Wave-0/1 packages are not modified; superseding re
   6 DET-FALSE-CANDIDATE (private), 1 ERROR.
 
 Waves 0, 1 and 1b together: **433 OPEN** DET packages (DET truth unknown for each).
+
+## Wave Z0 (zkVM AIRs: SP1 v6.8.1, Pico v2.1.2, OpenVM v2.0.2)
+
+All AIRs of the three census pins were extracted (0 failures): SP1 122 RISC-V AIRs (supervisor and user variants,
+precompiles) and 20 recursion AIRs (compress and wrap machines); Pico 45 RISC-V AIRs and 9 recursion AIRs; OpenVM the
+72 AIRs of `SdkVmConfig::standard()` and the 42 AIRs of the leaf aggregation circuit. Real rows came from each zkVM's
+trace generation on straight-line programs, in-tree ELFs and linear recursion programs (none for the OpenVM leaf
+aggregation AIRs, which need application proofs).
+
+| zkVM | AIRs | OPEN | GATE-FAIL | DET-FALSE-CANDIDATE (private) |
+|---|---:|---:|---:|---:|
+| SP1 v6.8.1 | 142 | 59 | 83 | 0 |
+| Pico v2.1.2 | 54 | 40 | 14 | 0 |
+| OpenVM v2.0.2 | 114 | 56 | 54 | 4 |
+| total | 310 | 155 | 151 | 4 |
+
+GATE-FAIL is mostly AIRs without an active real row (user-mode, trap and page-permission AIRs, the leaf aggregation
+AIRs, lookup tables) and 79 closures by the automation battery; 6 two-row windows were refuted by a window
+counterexample (not a finding). 43 OPEN packages carry `coverage: partial` (sp1-lean, openvm-fv, and pico-fv for chips
+unchanged since its pin), so issuance can exclude them. Four bus-model corrections were found by the wave's own
+counterexample searches (SHA-256 compress chain start, initial memory content on the Global bus, recursion hint
+memory, deep sharing in the evaluation harness) and the affected AIRs were regenerated. DET truth is unknown for every
+OPEN package.
 
 ## Limits
 
