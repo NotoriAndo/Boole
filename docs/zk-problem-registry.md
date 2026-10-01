@@ -152,6 +152,73 @@ not-a-finding (the window omits the row's history) and the record is GATE-FAIL. 
 pico-fv only for chips unchanged since its pin) so issuance can exclude answered items. Schema
 `schema/air_problem.schema.json`; the checker accepts both schemas.
 
+## Noir DET generator (ACIR)
+
+Code: `scripts/zk_registry/noir_*.py` (driver `noir_det.py`, generator `boole-zk-registry-noir-det` 1.0) and the
+Rust decoder/executor `scripts/zk_registry/noir_tool/`. It reuses the package format, `problem.json` schema (with
+additive enum values), checker, G-ELAB, the TRIV battery and the reporting of the Circom generator; its sources are
+hashed separately (`noir_det.generator_info`).
+
+**Population.** Ledger rows with `framework == "noir"`, excluding units ending in `-constraint-site` /
+`-interaction-site`, `C2-operation`, `U1-instruction`, and rows whose flags contain any of `test`, `not-counted`,
+`deprecated`, `NOT-ITEMIZED`, `ZERO-ITEMS`, `supplementary`, `exported-api-false`, `intrinsic`, `generated`,
+`duplicate-of`, `copy-of`, `vendored`, `mapped-to`, `archived`, `excluded`, `secondary`, `program-as-circuit`
+(`noir_det.SELECTION_FILTER`). Rows are deduplicated by a content key before packaging: sha256 over the compiler and
+the comment-free text of the function, its `impl` header and every declaration of its crate (and path dependencies)
+that it reaches by name, transitively. Every row ends in one terminal status: OPEN, GATE-FAIL, DET-FALSE-CANDIDATE
+(private), TOO-LARGE, NO-INSTANTIATION, COMPILE-FAIL or NOT-APPLICABLE, each with a reason.
+
+**Compiler selection** (`noir_toolchain.REPO_COMPILERS`, every attempt recorded): aztec-packages uses its
+`noir/noir-repo` submodule commit (= tag v1.0.0-beta.25); the noir stdlib the release tag of its pin (v1.0.0-rc.2);
+other repositories their toolchain pin (CI `noirup` matrix, README `noirup -v`, a constants file, the noir crates their
+Rust code pins, or the aztec-packages release their Noir dependencies are tagged with, whose `noir/noir-repo` source is
+built); a repository without any pin gets the newest release published before its pinned commit (recorded as
+unpinned). Release assets are checked against the release page digest where one is published (otherwise the asset
+digest is recorded); source builds use `cargo build --release --locked -p nargo_cli`. `nargo` runs with `HOME` in
+scratch and `GIT_ALLOW_PROTOCOL=file`: git dependencies are fetched beforehand at their tags (sparse for
+aztec-packages), so a compile never reaches the network.
+
+**Instantiation** (`noir_instantiation.py`). Library functions get an `#[export]` wrapper appended to their own source
+file (so private items and the file's imports resolve; binary crates and contract-crate modules are compiled through a
+library copy of the crate) and are compiled by `nargo export`; stdlib items get a wrapper crate that imports the item's
+names by public paths; `fn main` of a binary crate is compiled as the repository builds it; private Aztec contract
+entrypoints are taken from the compiled contract artifact. The wrapper's parameters are the function's parameters
+(`self` and `&mut` parameters by value); it returns the return value followed by the final values of every `&mut`
+parameter. Generic parameters (function and `impl`) are assigned by tiers, first tier with a compiling candidate wins:
+`parameter-free` → `repo-main` / `repo-test` / `repo-derived` (turbofish arguments of calls and concrete
+instantiations of the `impl`'s self type written in the repository, classified by the enclosing function; global
+constants substituted) → `probed` (numeric 4, 2, 1; type parameters: the repository's implementors of their trait
+bounds, else Field, u32, u8, bool; a counterexample there is labelled not-a-finding). Within a tier the largest
+compiled instantiation within the size policy (2,000 flattened ACIR opcodes) is chosen. Unconstrained, comptime,
+oracle/builtin declarations and Aztec public/utility functions are NOT-APPLICABLE; functions with closure or slice
+parameters, contract-block helpers and private stdlib items have NO-INSTANTIATION.
+
+**ACIR extraction.** `boole-acir-tool` is built as an added member of the noir workspace at the same version (its
+`acir`, `acvm`, `noirc_abi` crates and lockfile), so the program is deserialized with the compiler's own serialization
+code and printed as serde JSON; `noir_acir.normalize_program` maps every version's shapes (hex or byte field elements,
+old/new function inputs, memory operations as expressions with predicates or as `read` flags that hold `Write`) to one
+form, and ACIR calls are inlined (callee witnesses after the caller's).
+
+**Model and statement** (`noir_lean_emit.py`, BN254 `ZMod p`). AssertZero as polynomial equations; RANGE as
+`val < 2 ^ n`; AND/XOR as `&&&` / `^^^` on `n`-bit operands; hash and curve black boxes as uninterpreted functions
+`bb k inputs` shared by both assignments (stated assumption: each is a deterministic function of its inputs, as ACVM
+computes it; with a witness predicate the call constrains only when the predicate is non-zero); memory blocks by
+`memRun` (initial witnesses, then reads/writes in program order with the index below the block length); Brillig call
+outputs are free. Inputs are the parameter witnesses, outputs the return witnesses; the statement is the Circom
+template, prefixed by `∀ bb : BlackBox` when black boxes occur.
+
+**Gates.** G-ELAB (shared); G-NONVAC: an execution of the compiled program by the compiler's own ACVM solver (the
+`nargo execute` engine, through boole-acir-tool; oracle calls answered with zeros of the declared shapes) on derived
+inputs or the repository's Prover.toml is accepted by the Python evaluator and by Lean; G-FID: every real witness (at
+least 10, 1 without parameters) and 16 single-witness mutants are evaluated by Lean (`decide`, black boxes as the
+table of real values, mutants' new black-box inputs re-solved by the compiler's solver) and by the independent
+Python evaluator; G-TRIV: battery P1 (one file, 33 forms) + P2 (7 forms), run when the other gates pass and the
+function has outputs; DET search: output mutation, the AssertZero-Jacobian kernel, re-solve from free witnesses
+(Brillig outputs first), and re-execution with pseudo-random oracle answers; candidates are confirmed under the real
+black-box semantics and in Lean. `crosscheck` compares `nargo execute` with the tool's executor on the same artifact
+and inputs; `decompose` splits TOO-LARGE functions into the crate functions they call (ledger rows and content-equal
+functions are mapped, the others instantiated, up to 4 levels).
+
 ## Wave 0 (circomlib v2.0.5, 106 templates)
 
 | Status | Count |
