@@ -23,6 +23,15 @@ repository, classified by the enclosing function: a ``main``, a ``#[test]`` / te
 global constants with literal values are substituted) -> ``probed`` (numeric generics 4, 2, 1; type
 generics Field, u32, u8, bool — recorded as probed; a counterexample there is labelled not-a-finding).
 Within a tier the largest compiled instantiation within the size policy is chosen.
+
+Generator 1.1 (recovery R1) adds: implementors from ``#[derive(..)]`` and the Aztec ``#[note]`` /
+``#[custom_note]`` / ``#[event]`` macros, implementors declared in test modules of the module tree as a
+fallback (probed), closure / function parameters supplied by a concrete function taken from a repository
+call site (:func:`fn_arg_candidates`, recorded in the provenance), closure environment generics left to
+inference (``_``), and values of non-ABI parameter types (references, function-typed fields, vectors, unit)
+built inside the wrapper from ABI-typed inputs (:class:`ValueBuilder`; every ABI field stays an input).
+Signatures that take Aztec ``PublicContext`` / ``UtilityContext`` are public-execution code
+(NOT-APPLICABLE).
 """
 from __future__ import annotations
 
@@ -40,6 +49,13 @@ TIER_ORDER = ["parameter-free", "repo-main", "repo-test", "repo-derived", "probe
 ENTRY_PRIVATE = ("private",)
 ENTRY_PUBLIC = ("public",)
 ENTRY_UNCONSTRAINED = ("utility", "view_unconstrained")
+# Aztec execution contexts that exist only in public (AVM) or utility (unconstrained) execution
+NON_CIRCUIT_TYPES = ("PublicContext", "UtilityContext")
+# attribute macros that implement traits: derive(..) lists them; the Aztec note / event macros at the pins
+# (aztec-nr macros/notes.nr, macros/events.nr) implement these
+MACRO_TRAITS = {"note": ["NoteType", "NoteHash"], "custom_note": ["NoteType"], "event": ["EventInterface"]}
+FN_TYPE = re.compile(r"(?<![A-Za-z0-9_])(fn\s*[\[(]|impl\s+Fn)")
+MAX_FN_ARG_CANDIDATES = 3
 
 
 @dataclass
@@ -87,11 +103,17 @@ def classify(t: Target) -> tuple[str, str]:
         return "NOT-APPLICABLE", "comptime function: evaluated at compile time, no ACIR"
     if fn.attr("oracle") or fn.attr("builtin"):
         return "NOT-APPLICABLE", "oracle / builtin declaration: no ACIR of its own"
+    sig = [p.type for p in fn.params] + ([fn.impl.self_type] if fn.impl is not None else [])
+    for ty in sig:
+        hit = next((n for n in NON_CIRCUIT_TYPES if re.search(r"(?<![A-Za-z0-9_])" + n + r"(?![A-Za-z0-9_])", ty)), None)
+        if hit:
+            return "NOT-APPLICABLE", (f"public-execution code: the signature takes `{hit}`, which exists only in Aztec "
+                                      "public / utility execution (Brillig, transpiled to AVM bytecode), never in an "
+                                      "ACIR circuit")
     for prm in fn.params:
-        if re.search(r"(?<![A-Za-z0-9_])(fn\s*[\[(]|impl\s+Fn)", prm.type) or re.match(r"\s*\[[^;\]]+\]\s*$", prm.type):
-            kind = "a function (closure) type" if "fn" in prm.type or "Fn" in prm.type else "a slice/vector type"
-            return "NO-INSTANTIATION", (f"parameter `{prm.pattern}: {prm.type}` has {kind}, which is not an ABI type, "
-                                        "so no circuit takes it as an input")
+        if re.search(r"(?<![A-Za-z0-9_])impl\s+Fn", prm.type):
+            return "NO-INSTANTIATION", (f"parameter `{prm.pattern}: {prm.type}` has an `impl Fn` type, which is not an "
+                                        "ABI type, so no circuit takes it as an input")
     in_contract = any(b.kind == "contract" for b in fn.blocks)
     if in_contract:
         kind = contract_attr(fn)
@@ -142,6 +164,10 @@ class RepoIndex:
     structs: dict = field(default_factory=dict)        # name -> has generics
     trait_impls: dict = field(default_factory=dict)    # trait name -> [self types]
     struct_files: dict = field(default_factory=dict)   # struct name -> [rel paths declaring it]
+    struct_defs: dict = field(default_factory=dict)    # struct name -> [(rel, NS.StructDef, in test code)]
+    test_struct_files: dict = field(default_factory=dict)   # struct name -> [rel] (declared in test code)
+    test_trait_impls: dict = field(default_factory=dict)    # trait name -> [self types] (in test code)
+    decl_files: dict = field(default_factory=dict)     # struct / trait / type name -> [rel] (outside test code)
 
     @classmethod
     def build(cls, root: str, rels: list[str]) -> "RepoIndex":
@@ -159,19 +185,38 @@ class RepoIndex:
             test_ranges = [(b.start, b.end) for b in blocks if b.kind == "mod" and re.search(r"test|mock", b.self_type)]
             for m in re.finditer(r"(?<![A-Za-z0-9_])struct\s+(" + NS.IDENT + r")\s*(<)?", text):
                 if is_test_path(rel) or any(a < m.start() < b for a, b in test_ranges):
-                    continue                      # test-only types are not instantiation candidates
+                    idx.test_struct_files.setdefault(m.group(1), []).append(rel)
+                    continue                      # test-only types are candidates only as a fallback
                 idx.structs[m.group(1)] = bool(m.group(2))
                 idx.struct_files.setdefault(m.group(1), []).append(rel)
+            for m in re.finditer(r"(?<![A-Za-z0-9_])(?:struct|trait|type)\s+(" + NS.IDENT + r")", text):
+                if not (is_test_path(rel) or any(a < m.start() < b for a, b in test_ranges)):
+                    idx.decl_files.setdefault(m.group(1), []).append(rel)
+            for sd in NS.structs(text, src):
+                in_test = is_test_path(rel) or any(a < sd.start < b for a, b in test_ranges)
+                idx.struct_defs.setdefault(sd.name, []).append((rel, sd, in_test))
+                if not sd.generics:
+                    for tr in derived_traits(sd.attrs):
+                        (idx.test_trait_impls if in_test else idx.trait_impls).setdefault(tr, []).append(sd.name)
             test_file = is_test_path(rel)
             test_mods = [b for b in blocks if b.kind == "mod" and re.search(r"test", b.self_type)]
             for b in blocks:
-                if test_file or any(m.start < b.start < m.end for m in test_mods):
-                    continue                      # implementors in test code are not candidates
+                in_test = test_file or any(m.start < b.start < m.end for m in test_mods)
                 if b.kind == "impl" and b.trait and not b.generics:
                     tm = re.match(r"\s*([A-Za-z_][A-Za-z0-9_:]*)", b.trait)
                     if tm:
-                        idx.trait_impls.setdefault(tm.group(1).split("::")[-1], []).append(b.self_type)
+                        # implementors in test code are candidates only as a fallback
+                        (idx.test_trait_impls if in_test else idx.trait_impls).setdefault(
+                            tm.group(1).split("::")[-1], []).append(b.self_type)
         return idx
+
+    def struct_def(self, name: str, scope: list[str] | None = None) -> tuple[str, "NS.StructDef"] | None:
+        """The declaration of struct ``name`` (inside ``scope`` src directories when given; non-test first)."""
+        defs = self.struct_defs.get(name, [])
+        if scope is not None:
+            defs = [d for d in defs if any(d[0] == s or d[0].startswith(s + "/") for s in scope)]
+        defs = sorted(defs, key=lambda d: (d[2], d[0]))
+        return (defs[0][0], defs[0][1]) if defs else None
 
     def context_tier(self, rel: str, pos: int, crate_type: str) -> str:
         fns, blocks, _ = self.files[rel]
@@ -226,6 +271,22 @@ class RepoIndex:
         return None
 
 
+def derived_traits(attrs: list[str]) -> list[str]:
+    """Traits an attribute list implements: ``derive(A, b::B)`` -> [A, B]; the Aztec note / event macros
+    (:data:`MACRO_TRAITS`)."""
+    out = []
+    for a in attrs:
+        a = a.strip()
+        m = re.match(r"derive\s*\((.*)\)\s*$", a, re.S)
+        if m:
+            out += [x.strip().split("::")[-1] for x in NS.split_top(m.group(1)) if x.strip()]
+            continue
+        name = re.match(r"([A-Za-z_][A-Za-z0-9_:]*)", a)
+        if name:
+            out += MACRO_TRAITS.get(name.group(1).split("::")[-1], [])
+    return out
+
+
 def _self_type_parts(self_type: str) -> tuple[str, list[str]]:
     m = re.match(r"\s*([A-Za-z_][A-Za-z0-9_:]*)\s*(<.*>)?\s*$", self_type)
     if not m:
@@ -277,12 +338,30 @@ def repo_occurrences(t: Target, idx: RepoIndex) -> list[tuple[str, dict, str]]:
     return out
 
 
+def env_generics(t: Target) -> list[str]:
+    """Generic parameters that are closure environments (``fn[Env](..)``): left to inference (``_``)."""
+    out = []
+    for p in t.fn.params:
+        for e in re.findall(r"fn\s*\[\s*([A-Za-z_][A-Za-z0-9_]*)\s*\]", p.type):
+            if e not in out:
+                out.append(e)
+    return [g.name for _, g in t.generics if g.name in out]
+
+
 def candidates(t: Target, idx: RepoIndex | None) -> list[tuple[str, dict, list[str]]]:
     """Candidate assignments (tier, {generic: value}, provenance) in tier order, at most
-    :data:`MAX_CANDIDATES_PER_TIER` per tier."""
-    gens = t.generics
+    :data:`MAX_CANDIDATES_PER_TIER` per tier.  Closure environment generics are assigned ``_``."""
+    env = env_generics(t)
+    if not env:
+        return _candidates(t, idx, [])
+    return [(tier, dict(a, **{e: "_" for e in env}), prov) for tier, a, prov in _candidates(t, idx, env)]
+
+
+def _candidates(t: Target, idx: RepoIndex | None, env: list[str]) -> list[tuple[str, dict, list[str]]]:
+    gens = [(s, g) for s, g in t.generics if g.name not in env]
     if not gens:
-        return [("parameter-free", {}, ["no generic parameters"])]
+        return [("parameter-free", {}, ["no generic parameters" if not env else
+                                        "no generic parameters besides closure environments"])]
     names = [g.name for _, g in gens]
     out: list[tuple[str, dict, list[str]]] = []
     if idx is not None:
@@ -318,9 +397,15 @@ def candidates(t: Target, idx: RepoIndex | None) -> list[tuple[str, dict, list[s
     types = [g for _, g in gens if not g.numeric]
     bounds = where_bounds(t)
     type_values = []
+    test_types: set = set()
     for g in types:
         bs = [b for b in g.bounds + bounds.get(g.name, []) if b]
-        type_values.append(implementors(idx, bs, visible_in(t, idx)) if bs and idx is not None else list(PROBE_TYPES))
+        vals = implementors(idx, bs, visible_in(t, idx)) if bs and idx is not None else list(PROBE_TYPES)
+        if not vals and bs and idx is not None:
+            # fallback: implementors declared in test modules of the repository (named from the target's crate)
+            vals = implementors(idx, bs, visible_in(t, idx, test=True), test=True)
+            test_types |= set(vals)
+        type_values.append(vals)
     probes = []
     for k in range(max([len(v) for v in type_values] + [1])):
         for nv in (PROBE_NUMERIC if numeric else [None]):
@@ -332,7 +417,12 @@ def candidates(t: Target, idx: RepoIndex | None) -> list[tuple[str, dict, list[s
                 probes.append(a)
     # numeric first (largest), Field first
     for a in probes[:MAX_CANDIDATES_PER_TIER]:
-        out.append(("probed", a, ["probed: " + ", ".join(f"{k}={v}" for k, v in a.items())]))
+        prov = ["probed: " + ", ".join(f"{k}={v}" for k, v in a.items())]
+        tt = sorted(v for v in a.values() if v in test_types)
+        if tt:
+            prov.append("implementor(s) declared in repository test code (no other implementor of the bounds): "
+                        + ", ".join(tt))
+        out.append(("probed", a, prov))
     return out
 
 
@@ -354,13 +444,14 @@ def crate_scope(t: Target) -> list[str]:
     return out
 
 
-def visible_in(t: Target, idx: RepoIndex):
+def visible_in(t: Target, idx: RepoIndex, test: bool = False):
     """Predicate: a struct name the target's crate can name (declared outside test code in the crate or a
-    path dependency)."""
+    path dependency; with ``test`` also in its test code)."""
     scope = crate_scope(t)
 
     def ok(name: str) -> bool:
-        return any(f == s or f.startswith(s + "/") for f in idx.struct_files.get(name, []) for s in scope)
+        files = idx.struct_files.get(name, []) + (idx.test_struct_files.get(name, []) if test else [])
+        return any(f == s or f.startswith(s + "/") for f in files for s in scope)
     return ok
 
 
@@ -376,22 +467,393 @@ def where_bounds(t: Target) -> dict[str, list[str]]:
     return out
 
 
-def implementors(idx: RepoIndex, bounds: list[str], visible=None) -> list[str]:
+def implementors(idx: RepoIndex, bounds: list[str], visible=None, test: bool = False) -> list[str]:
     """Non-generic types the repository implements every bound trait for (primitives first); ``visible``
-    filters out types the target's crate cannot name (declared in other crates or in test code)."""
+    filters out types the target's crate cannot name (declared in other crates or in test code); with
+    ``test`` the implementations and derives of test code count as well.  Aztec public / utility contexts
+    are never candidates."""
     sets = []
     for b in bounds:
         name = re.match(r"\s*([A-Za-z_][A-Za-z0-9_:]*)", b)
         if not name:
             continue
-        impls = idx.trait_impls.get(name.group(1).split("::")[-1], [])
+        tname = name.group(1).split("::")[-1]
+        impls = idx.trait_impls.get(tname, []) + (idx.test_trait_impls.get(tname, []) if test else [])
         sets.append({x.strip() for x in impls if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", x.strip())})
     if not sets:
         return list(PROBE_TYPES)
-    common = set.intersection(*sets)
+    common = set.intersection(*sets) - set(NON_CIRCUIT_TYPES)
     if visible is not None:
         common = {x for x in common if x in PRIMITIVES or visible(x)}
     return sorted(common, key=lambda x: (x not in PRIMITIVES, PROBE_TYPES.index(x) if x in PROBE_TYPES else 99, x))[:4]
+
+
+# ------------------------------------------------------------------------------------------ function arguments
+
+def fn_param_indices(t: Target) -> list[int]:
+    """Indices of parameters with a function (closure) type."""
+    return [i for i, p in enumerate(t.fn.params) if p.pattern != "self" and FN_TYPE.search(p.type)
+            and not re.search(r"impl\s+Fn", p.type)]
+
+
+def file_scope_paths(idx: RepoIndex, rel: str, crate_src: str) -> dict[str, str]:
+    """name -> absolute path for the items a file declares (``crate::<module>::name``) and its top-level
+    ``use`` declarations (``crate::`` / ``super::`` / ``self::`` made absolute; dependency paths kept)."""
+    fns, _, text = idx.files[rel]
+    src_rel = os.path.relpath(os.path.join(idx.root, rel), crate_src)
+    mod = NS.mod_path(src_rel)
+    here = "crate::" + "".join(p + "::" for p in mod)
+    out: dict[str, str] = {}
+    for f in fns:
+        if not f.blocks:
+            out.setdefault(f.name, here + f.name)
+    for m in re.finditer(r"(?<![A-Za-z0-9_])(?:struct|trait|global|type)\s+(" + NS.IDENT + r")", text):
+        out.setdefault(m.group(1), here + m.group(1))
+    for u in NS.uses(text, top_level=True):
+        for path in _expand_use_crate(u, mod):
+            name = path.split("::")[-1]
+            alias = re.search(r"\s+as\s+(" + NS.IDENT + r")$", path)
+            if alias:
+                name, path = alias.group(1), path[:alias.start()]
+            out[name] = path
+    return out
+
+
+def _expand_use_crate(u: str, mod: list[str]) -> list[str]:
+    u = u.strip()
+    m = re.match(r"(.*?)\{(.*)\}\s*$", u, re.S)
+    if m:
+        out = []
+        for part in NS.split_top(m.group(2)):
+            if part.strip() and part.strip() != "self":
+                out += _expand_use_crate(m.group(1) + part.strip(), mod)
+        return out
+    if u.startswith("super::"):
+        parent, rest = mod[:-1], u[len("super::"):]
+        while rest.startswith("super::"):
+            parent, rest = parent[:-1], rest[len("super::"):]
+        return ["crate::" + "".join(p + "::" for p in parent) + rest]
+    if u.startswith("self::"):
+        return ["crate::" + "".join(p + "::" for p in mod) + u[len("self::"):]]
+    return [u]
+
+
+def crate_src_of(root: str, rel: str) -> str | None:
+    """The ``src`` directory of the Nargo package containing ``rel``."""
+    d = os.path.dirname(os.path.join(root, rel))
+    while len(d) >= len(root):
+        if os.path.exists(os.path.join(d, "Nargo.toml")):
+            return os.path.join(d, "src")
+        d = os.path.dirname(d)
+    return None
+
+
+def _usable_path(path: str, site_crate_src: str | None, t: Target) -> str | None:
+    """A path written at a call site, usable inside the target's file: ``std::`` paths, and ``crate::`` paths
+    when the call site is in the target's crate."""
+    if path.startswith("std::"):
+        return path
+    if path.startswith("crate::") and t.crate is not None and site_crate_src == os.path.join(t.crate, "src"):
+        return path
+    return None
+
+
+def split_call_args(s: str) -> list[str]:
+    """Top-level call arguments; a closure's parameter list (``|a, b|``) is not split."""
+    parts, out = NS.split_top(s), []
+    while parts:
+        p = parts.pop(0)
+        while p.lstrip().startswith("|") and p.count("|") < 2 and parts:
+            p = p + ", " + parts.pop(0)
+        out.append(p)
+    return out
+
+
+def fn_arg_candidates(t: Target, idx: RepoIndex | None, k: int) -> list[tuple[str, str]]:
+    """Concrete functions for the function-typed parameter ``k`` taken from calls of the target written in the
+    repository (tests included): closure literals and named functions (qualified through the call site's
+    scope).  (expression, provenance) pairs, at most :data:`MAX_FN_ARG_CANDIDATES`; call sites in the
+    target's crate first, closures that always fail last, closures before named functions, shorter first."""
+    if idx is None:
+        return []
+    fn = t.fn
+    has_self = bool(fn.params) and fn.params[0].pattern == "self"
+    n_params = len(fn.params)
+    found: dict[str, tuple] = {}
+    pat = re.compile(r"(\.\s*|::\s*|(?<![A-Za-z0-9_]))" + re.escape(fn.name) + r"\s*(::\s*<)?")
+    target_src = os.path.join(t.crate, "src") if t.crate else None
+    for rel, (fns, _, text) in idx.files.items():
+        if fn.name not in text:
+            continue
+        site_src = crate_src_of(idx.root, rel)
+        scope = None
+        for m in pat.finditer(text):
+            if re.search(r"fn\s+$", text[max(0, m.start() - 8):m.start() + len(m.group(1))]):
+                continue                                          # the declaration
+            i = m.end()
+            if m.group(2):
+                i = NS.matching_angle(text, i - 1)
+            while i < len(text) and text[i] in " \t\r\n":
+                i += 1
+            if i >= len(text) or text[i] != "(":
+                continue
+            close = NS.matching(text, i, "(", ")")
+            args = split_call_args(text[i + 1:close - 1])
+            method = m.group(1).startswith(".")
+            if method:
+                if not has_self or len(args) != n_params - 1:
+                    continue
+                pos = k - 1
+            else:
+                if len(args) != n_params:
+                    continue
+                pos = k
+            if not 0 <= pos < len(args):
+                continue
+            arg = re.sub(r"\s+", " ", args[pos]).strip()
+            expr = None
+            if arg.startswith("|"):
+                expr = arg
+            elif re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)*(::<[^()]*>)?", arg):
+                head = arg.split("::")[0]
+                if scope is None and site_src is not None:
+                    scope = file_scope_paths(idx, rel, site_src)
+                full = arg if "::" in arg and head in ("std", "crate") else None
+                if full is None and scope is not None and head in scope:
+                    full = scope[head] + arg[len(head):]
+                expr = _usable_path(full, site_src, t) if full else None
+            if expr is None or expr in found:
+                continue
+            same = site_src == target_src
+            # closures that always fail (`assert(false)`) are tried last: no execution would satisfy them
+            found[expr] = (not same, bool(re.search(r"assert\s*\(\s*false", expr)), not expr.startswith("|"), len(expr),
+                           f"{rel}:{NS.line_of(text, m.start())} argument `{arg[:120]}`")
+    ranked = sorted(found.items(), key=lambda kv: kv[1][:4])
+    return [(e, v[4]) for e, v in ranked[:MAX_FN_ARG_CANDIDATES]]
+
+
+INT_TYPES = ("u1", "u8", "u16", "u32", "u64", "u128", "i8", "i16", "i32", "i64", "Field")
+
+
+def const_arg_candidates(t: Target, idx: RepoIndex | None, taken: dict) -> dict[int, tuple[str, str]]:
+    """Integer parameters fixed to a literal written at a repository call site (globals resolved), for a
+    function the compiler needs compile-time arguments for: {index: (literal, provenance)}.  Only parameters
+    of integer / Field type that are not already supplied in ``taken``; the first call site with a literal
+    (in the target's crate first) wins."""
+    if idx is None:
+        return {}
+    out: dict[int, tuple[str, str]] = {}
+    for k, p in enumerate(t.fn.params):
+        if p.pattern == "self" or k in taken or p.type.strip() not in INT_TYPES:
+            continue
+        for arg, prov in call_site_args(t, idx, k):
+            v = idx.resolve(re.sub(r"(u|i)(8|16|32|64|128)$", "", arg.strip()))
+            if v is not None and re.fullmatch(r"\d+", v):
+                out[k] = (v, prov)
+                break
+    return out
+
+
+def call_site_args(t: Target, idx: RepoIndex, k: int) -> list[tuple[str, str]]:
+    """Argument texts at parameter position ``k`` of the calls of the target written in the repository
+    (method calls map ``self`` away; the target's crate first)."""
+    fn = t.fn
+    has_self = bool(fn.params) and fn.params[0].pattern == "self"
+    n_params = len(fn.params)
+    pat = re.compile(r"(\.\s*|::\s*|(?<![A-Za-z0-9_]))" + re.escape(fn.name) + r"\s*(::\s*<)?")
+    target_src = os.path.join(t.crate, "src") if t.crate else None
+    out = []
+    for rel, (fns, _, text) in idx.files.items():
+        if fn.name not in text:
+            continue
+        same = crate_src_of(idx.root, rel) == target_src
+        for m in pat.finditer(text):
+            if re.search(r"fn\s+$", text[max(0, m.start() - 8):m.start() + len(m.group(1))]):
+                continue
+            i = m.end()
+            if m.group(2):
+                i = NS.matching_angle(text, i - 1)
+            while i < len(text) and text[i] in " \t\r\n":
+                i += 1
+            if i >= len(text) or text[i] != "(":
+                continue
+            args = split_call_args(text[i + 1:NS.matching(text, i, "(", ")") - 1])
+            method = m.group(1).startswith(".")
+            if method and (not has_self or len(args) != n_params - 1):
+                continue
+            if not method and len(args) != n_params:
+                continue
+            pos = k - 1 if method else k
+            if 0 <= pos < len(args):
+                out.append((not same, args[pos], f"{rel}:{NS.line_of(text, m.start())} argument `{args[pos][:80]}`"))
+    return [(a, pv) for _, a, pv in sorted(out, key=lambda x: x[0])]
+
+
+# ------------------------------------------------------------------------------------------ non-ABI values
+
+@dataclass
+class Built:
+    params: list[str]
+    pre: list[str]
+    expr: str
+    outs: list[tuple[str, str]]
+    notes: list[str]
+    abi_fields: list[tuple[str, str]] = field(default_factory=list)     # struct builds: ABI-typed fields
+
+
+class ValueBuilder:
+    """Builds a value of a non-ABI type inside the wrapper from ABI-typed inputs: a struct from its fields
+    (every ABI field is a wrapper parameter, so it stays a DET input), ``&mut T`` / ``&T`` through a local
+    whose final value is an output, function-typed fields from the function the repository stores in that
+    field (a struct literal in the crate), ``[T]`` from an array of 4 elements and ``()`` as itself."""
+
+    def __init__(self, t: Target, idx: RepoIndex | None, vector_method: str = "as_vector"):
+        self.t, self.idx, self.vector_method = t, idx, vector_method
+        self.scope = crate_scope(t) if idx is not None and t.crate else None
+
+    def struct_of(self, ty: str):
+        if self.t.stdlib:
+            return None                       # stdlib wrappers live in another crate: only [T] and () are built
+        m = re.fullmatch(r"\s*((?:[A-Za-z_][A-Za-z0-9_]*::)*)([A-Za-z_][A-Za-z0-9_]*)\s*(<.*>)?\s*", ty)
+        if not m or self.idx is None or m.group(2) in PRIMITIVES:
+            return None
+        found = self.idx.struct_def(m.group(2), self.scope)
+        if found is None:
+            return None
+        rel, sd = found
+        args = NS.split_top(m.group(3)[1:-1]) if m.group(3) else []
+        if len(args) != len(sd.generics):
+            return None
+        mapping = {g.name: a for g, a in zip(sd.generics, args)}
+        return rel, sd, [(v, n, fold_literals(subst(ft, mapping, None))) for v, n, ft in sd.fields]
+
+    def needs(self, ty: str, depth: int = 0) -> bool:
+        ty = ty.strip()
+        if depth > 6 or not ty:
+            return False
+        if ty.startswith("&") or FN_TYPE.match(ty) or ty == "()":
+            return True
+        m = re.fullmatch(r"\[(.*)\]", ty, re.S)
+        if m:
+            parts = NS.split_top(m.group(1), ";")
+            return len(parts) == 1 or self.needs(parts[0], depth + 1)
+        if ty.startswith("(") and ty.endswith(")"):
+            return any(self.needs(p, depth + 1) for p in NS.split_top(ty[1:-1]))
+        st = self.struct_of(ty)
+        return st is not None and any(self.needs(ft, depth + 1) for _, _, ft in st[2])
+
+    def build(self, ty: str, name: str, depth: int = 0) -> Built:
+        ty = ty.strip()
+        if depth > 6:
+            raise ValueError(f"type nesting too deep: {ty}")
+        if not self.needs(ty):
+            return Built([f"{name}: {ty}"], [], name, [], [])
+        m = re.match(r"&\s*(mut\s+)?(.+)$", ty, re.S)
+        if m:
+            inner = self.build(m.group(2), f"{name}_r", depth + 1)
+            loc = f"{name}_l"
+            pre = inner.pre + [f"let {'mut ' if m.group(1) else ''}{loc} = {inner.expr};"]
+            outs = inner.outs + ([(loc, m.group(2).strip())] if m.group(1) and not self.needs(m.group(2)) else [])
+            return Built(inner.params, pre, f"&{'mut ' if m.group(1) else ''}{loc}", outs,
+                         inner.notes + [f"`{ty}` through the local `{loc}`"])
+        if ty == "()":
+            return Built([], [], "()", [], ["unit value"])
+        if FN_TYPE.match(ty):
+            raise ValueError(f"function type `{ty}` without a repository function")
+        m = re.fullmatch(r"\[(.*)\]", ty, re.S)
+        if m:
+            parts = NS.split_top(m.group(1), ";")
+            if len(parts) == 1:
+                inner = self.build(f"[{parts[0]}; 4]", f"{name}_a", depth + 1)
+                return Built(inner.params, inner.pre, f"{inner.expr}.{self.vector_method}()", inner.outs,
+                             inner.notes + [f"`{ty}` from an array of 4 elements (`{self.vector_method}`)"])
+            raise ValueError(f"array of non-ABI elements `{ty}`")
+        if ty.startswith("(") and ty.endswith(")"):
+            parts = [self.build(p, f"{name}_{i}", depth + 1) for i, p in enumerate(NS.split_top(ty[1:-1]))]
+            return Built(sum((b.params for b in parts), []), sum((b.pre for b in parts), []),
+                         "(" + ", ".join(b.expr for b in parts) + ("," if len(parts) == 1 else "") + ")",
+                         sum((b.outs for b in parts), []), sum((b.notes for b in parts), []))
+        st = self.struct_of(ty)
+        if st is None:
+            raise ValueError(f"no declaration for `{ty}`")
+        rel, sd, fields = st
+        q = (lambda x: x) if rel == self.t.path else (lambda x: self.qualify(x, rel))
+        params, pre, outs, notes, inits, abi = [], [], [], [], [], []
+        for _, fname, ft in fields:
+            ft = q(ft)
+            if FN_TYPE.match(ft):
+                vals = self.field_fn_values(rel, sd.name, fname)
+                if not vals:
+                    raise ValueError(f"no repository function for the field `{sd.name}.{fname}: {ft}`")
+                inits.append(f"{fname}: {vals[0][0]}")
+                notes.append(f"`{sd.name}.{fname}` = `{vals[0][0]}` ({vals[0][1]})")
+                continue
+            b = self.build(ft, f"{name}_{fname}", depth + 1)
+            if not self.needs(ft):
+                abi.append((fname, ft))
+            params += b.params
+            pre += b.pre
+            outs += b.outs
+            notes += b.notes
+            inits.append(f"{fname}: {b.expr}")
+        var = f"{name}_v"
+        pre.append(f"let {var}: {ty} = {q(sd.name)} {{ {', '.join(inits)} }};")
+        return Built(params, pre, var, outs, notes + [f"`{ty}` built from its fields"], abi)
+
+    def qualify(self, text: str, rel: str) -> str:
+        """Names of a declaration in another file of the target's crate, written as absolute paths from that
+        file's scope (its own items and ``use`` declarations)."""
+        src = crate_src_of(self.idx.root, rel)
+        if src is None or self.t.crate is None or src != os.path.join(self.t.crate, "src"):
+            return text
+        scope = file_scope_paths(self.idx, rel, src)
+
+        def rep(m):
+            w = m.group(0)
+            return scope.get(w, w) if w not in PRIMITIVES else w
+        return re.sub(r"(?<![A-Za-z0-9_:])[A-Za-z_][A-Za-z0-9_]*(?![A-Za-z0-9_])", rep, text)
+
+    def field_fn_values(self, rel: str, struct: str, fname: str) -> list[tuple[str, str]]:
+        """Functions the crate stores in ``struct.fname``: values of that field in struct literals
+        (``Struct { .. }`` / ``Self { .. }`` inside its impls) of the crate, qualified for the target file."""
+        idx = self.idx
+        out: list[tuple[str, str]] = []
+        site_src = crate_src_of(idx.root, rel)
+        for frel, (fns, blocks, text) in idx.files.items():
+            if self.scope is not None and not any(frel.startswith(s + "/") for s in self.scope):
+                continue
+            if struct not in text:
+                continue
+            scope = None
+            for m in re.finditer(r"(?<![A-Za-z0-9_])(" + re.escape(struct) + r"|Self)\s*\{", text):
+                if m.group(1) == "Self":
+                    enc = [b for b in blocks if b.kind == "impl" and b.start < m.start() < b.end]
+                    if not enc or _self_type_parts(enc[-1].self_type)[0] != struct:
+                        continue
+                if re.search(r"(impl|for|struct|trait|mod|contract)\s*(<[^{]*>)?\s*$", text[max(0, m.start() - 60):m.start()]):
+                    continue
+                close = NS.matching(text, m.end() - 1, "{", "}")
+                for part in NS.split_top(text[m.end():close - 1]):
+                    fm = re.match(re.escape(fname) + r"\s*:\s*(.+)$", part.strip(), re.S)
+                    if not fm:
+                        continue
+                    v = re.sub(r"\s+", " ", fm.group(1)).strip()
+                    expr = None
+                    if v.startswith("|"):
+                        expr = v
+                    elif re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)*", v):
+                        if frel == self.t.path:
+                            expr = v
+                        else:
+                            fsrc = crate_src_of(idx.root, frel)
+                            if scope is None and fsrc:
+                                scope = file_scope_paths(idx, frel, fsrc)
+                            head = v.split("::")[0]
+                            full = scope.get(head) + v[len(head):] if scope and head in scope else None
+                            expr = _usable_path(full, fsrc, self.t) if full else None
+                    if expr and expr not in [e for e, _ in out]:
+                        out.append((expr, f"{frel}:{NS.line_of(text, m.start())} `{struct} {{ {fname}: {v[:80]} }}`"))
+        return out
 
 
 # ------------------------------------------------------------------------------------------ wrappers
@@ -412,11 +874,14 @@ class Wrapper:
     call: str
     outputs: list[str]
     mut_params: list[str]
+    notes: list[str] = field(default_factory=list)       # values built for non-ABI parameters
 
 
-def wrapper(t: Target, assign: dict, wid: str, qualify: str = "", method_call: bool = False) -> Wrapper:
+def wrapper(t: Target, assign: dict, wid: str, qualify: str = "", method_call: bool = False,
+            fn_args: dict | None = None, builder: ValueBuilder | None = None) -> Wrapper:
     """The ``#[export]`` wrapper for ``t`` under ``assign``; ``qualify`` prefixes free functions and is the
-    module path for stdlib wrappers (``std::hash::``)."""
+    module path for stdlib wrappers (``std::hash::``); ``fn_args`` gives the expression of function-typed
+    parameters (by index); ``builder`` builds values of non-ABI parameter types from ABI inputs."""
     fn, imp = t.fn, t.fn.impl
     name = f"boole_det_{wid}"
     lines = []
@@ -443,14 +908,27 @@ def wrapper(t: Target, assign: dict, wid: str, qualify: str = "", method_call: b
         # turbofish form `Base::<args>`
         alias = self_concrete
         alias_expr = re.sub(r"^([A-Za-z_][A-Za-z0-9_:]*)\s*<", r"\1::<", self_concrete)
-    params, pre, args, mut_outs = [], [], [], []
+    params, pre, args, mut_outs, notes = [], [], [], [], []
     for i, p in enumerate(fn.params):
+        if fn_args and i in fn_args:
+            args.append(fn_args[i])
+            continue
         if p.pattern == "self":
             ty = p.type
             if ty in ("Self", "&Self", "&mut Self"):
                 base = self_concrete
             else:
                 base = subst(re.sub(r"^&\s*(mut\s+)?", "", ty), assign, self_concrete)
+            if builder is not None and builder.needs(base):
+                b = builder.build(base, "s_self")
+                params += b.params
+                pre += b.pre
+                mutable = ty.startswith("&mut")
+                pre.append(f"let {'mut ' if mutable else ''}s_self = {b.expr};")
+                args.append("&mut s_self" if mutable else "&s_self" if ty.startswith("&") else "s_self")
+                mut_outs += b.outs + ([(f"s_self.{f}", ft) for f, ft in b.abi_fields] if mutable else [])
+                notes += b.notes
+                continue
             params.append(f"s_self: {base}")
             if ty.startswith("&mut") or ty == "&mut Self":
                 pre.append("let mut s_self = s_self;")
@@ -464,6 +942,22 @@ def wrapper(t: Target, assign: dict, wid: str, qualify: str = "", method_call: b
         ty = subst(p.type, assign, self_concrete)
         an = f"a{i}"
         m = re.match(r"&\s*mut\s+(.+)$", ty)
+        inner_ty = m.group(1) if m else (ty[1:].strip() if ty.startswith("&") else ty)
+        if builder is not None and builder.needs(inner_ty):
+            b = builder.build(inner_ty, an)
+            params += b.params
+            pre += b.pre
+            mut_outs += b.outs + ([(f"{an}.{f}", ft) for f, ft in b.abi_fields] if m else [])
+            notes += b.notes
+            if m:
+                pre.append(f"let mut {an} = {b.expr};")
+                args.append(f"&mut {an}")
+            elif ty.startswith("&"):
+                pre.append(f"let {an} = {b.expr};")
+                args.append(f"&{an}")
+            else:
+                args.append(b.expr)
+            continue
         if m:
             params.append(f"{an}: {m.group(1)}")
             pre.append(f"let mut {an} = {an};")
@@ -525,7 +1019,7 @@ def wrapper(t: Target, assign: dict, wid: str, qualify: str = "", method_call: b
         rtype = ""
     lines += ["#[export]", f"fn {name}({', '.join(params)}){rtype} {{", *body, "}"]
     text = fold_literals("\n".join(lines) + "\n")
-    return Wrapper(name, text, fold_literals(call), [o for o, _ in outs], [o for o, _ in mut_outs])
+    return Wrapper(name, text, fold_literals(call), [o for o, _ in outs], [o for o, _ in mut_outs], notes)
 
 
 def fold_literals(text: str) -> str:
@@ -555,10 +1049,12 @@ def std_module_path(rel_in_src: str, up: int = 0) -> str:
     return "std::" + "".join(p + "::" for p in parts)
 
 
-def std_import_candidates(t: "Target", wr_text: str, rel_in_src: str) -> dict[str, list[str]]:
+def std_import_candidates(t: "Target", wr_text: str, rel_in_src: str, idx: "RepoIndex | None" = None) \
+        -> dict[str, list[str]]:
     """Candidate public paths for every capitalized name the stdlib wrapper uses (Noir has no glob imports):
     the file's own ``use`` of the name (``crate::`` -> ``std::``), then the name in the file's module and in
-    each ancestor module (public re-exports), then ``std::Name``."""
+    each ancestor module (public re-exports), then ``std::Name``; with ``idx``, then the module declaring the
+    name in the stdlib and that module's ancestors."""
     mod = NS.mod_path(rel_in_src)
     file_uses: dict[str, list[str]] = {}
     for u in NS.uses(NS.blank_comments_strings(t.src, strings=False), top_level=True):
@@ -575,6 +1071,12 @@ def std_import_candidates(t: "Target", wr_text: str, rel_in_src: str) -> dict[st
     for n in names:
         cands = list(dict.fromkeys(file_uses.get(n, []) + ["std::" + "".join(p + "::" for p in mod[:k]) + n
                                                             for k in range(len(mod), -1, -1)]))
+        if idx is not None:
+            for drel in idx.decl_files.get(n, []):
+                if drel.startswith("noir_stdlib/src/"):
+                    dmod = NS.mod_path(drel[len("noir_stdlib/src/"):])
+                    cands += ["std::" + "".join(p + "::" for p in dmod[:k]) + n for k in range(len(dmod), 0, -1)]
+            cands = list(dict.fromkeys(cands))
         out[n] = cands
     return out
 

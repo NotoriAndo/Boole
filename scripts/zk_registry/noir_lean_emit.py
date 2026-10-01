@@ -34,6 +34,9 @@ from . import lean_emit as E
 from . import noir_acir as A
 
 BLOCK = 64
+MAX_BLOCKS_DEFAULT_DEPTH = 32         # above this many blocks `Constraints` raises maxRecDepth (models > 2,048 opcodes)
+LARGE_HEARTBEATS = 4000000            # ... and the heartbeat budget of its declaration (20x the default)
+LONG_LIST_HEARTBEATS = 4096           # Inputs / Outputs lists longer than this get LARGE_HEARTBEATS
 STATEMENT_THEOREM = E.STATEMENT_THEOREM
 STATEMENT_BINDERS = E.STATEMENT_BINDERS
 STATEMENT_PROP = E.STATEMENT_PROP
@@ -169,6 +172,13 @@ def opcode_conjuncts(ops: list[dict], keys: list[str]) -> list[str]:
     return out + memory_conjuncts(ops)
 
 
+def _list_options(xs) -> list[str]:
+    """Options above a long list literal: the shared recursion-depth option, and for lists of thousands of
+    witnesses (models beyond the wave-N1 size policy) the heartbeat budget of the compiler pass."""
+    return E._long_list_option(xs) + ([f"set_option maxHeartbeats {LARGE_HEARTBEATS} in"]
+                                      if len(xs) > LONG_LIST_HEARTBEATS else [])
+
+
 def block_names(n: int) -> list[str]:
     return [] if n <= BLOCK else [f"Block{k}" for k in range((n + BLOCK - 1) // BLOCK)]
 
@@ -234,11 +244,11 @@ def emit_model(ns: str, meta: dict, flat: A.Flat, names: dict[int, str]) -> tupl
         "/-- Number of witnesses. -/",
         f"abbrev nWires : ℕ := {flat.n_witnesses}",
         "",
-        *E._long_list_option(flat.outputs),
+        *_list_options(flat.outputs),
         "/-- Return-value witnesses of the instantiated function. -/",
         f"def Outputs : List (Fin nWires) := {E._list_literal(flat.outputs)}",
         "",
-        *E._long_list_option(flat.inputs),
+        *_list_options(flat.inputs),
         "/-- Parameter witnesses of the instantiated function. -/",
         f"def Inputs : List (Fin nWires) := {E._list_literal(flat.inputs)}",
         "",
@@ -256,6 +266,9 @@ def emit_model(ns: str, meta: dict, flat: A.Flat, names: dict[int, str]) -> tupl
             chunk = conj[k * BLOCK:(k + 1) * BLOCK]
             body += [f"/-- Constraints {k * BLOCK}–{k * BLOCK + len(chunk) - 1}. -/",
                      f"def {name} {arg} : Prop :=", " ∧\n".join(f"  {c}" for c in chunk), ""]
+        if len(blocks) > MAX_BLOCKS_DEFAULT_DEPTH:
+            # a conjunction of hundreds of blocks: parser recursion depth and compiler heartbeats
+            body += ["set_option maxRecDepth 100000 in", f"set_option maxHeartbeats {LARGE_HEARTBEATS} in"]
         body += [f"/-- The compiled constraint system ({len(conj)} conjuncts). -/",
                  f"def Constraints {arg} : Prop :=", "  " + " ∧ ".join(f"{b} {app}" for b in blocks)]
     else:

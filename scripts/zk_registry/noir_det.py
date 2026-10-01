@@ -6,6 +6,9 @@ Subcommands::
     select    --ledger LEDGER-v1.jsonl --out SELECTION.jsonl     apply the wave-N1 population filter
     wave      --config wave.json [--jobs N] [--only ITEM ...]    plan, compile, decode, gate and package
     validate  --index INDEX.jsonl --packages DIR                 re-validate every record and package file
+    recover   --config wave.json --prior INDEX.jsonl [...] --items ITEMS   regenerate lost records into a
+                                                                 separate collection (records carry
+                                                                 ``supersedes``; prior indexes untouched)
 
 Pipeline per ledger row (deduplicated by content key first): classify the function
 (:func:`noir_instantiation.classify`), pick the repository's pinned compiler
@@ -53,14 +56,24 @@ from zk_registry import noir_toolchain as T            # noqa: E402
 from zk_registry import package as P                   # noqa: E402
 
 GENERATOR_NAME = "boole-zk-registry-noir-det"
-GENERATOR_VERSION = "1.0"
+GENERATOR_VERSION = "1.1"
 _HERE = os.path.dirname(os.path.abspath(__file__))
 NOIR_SOURCES = ["noir_det.py", "noir_acir.py", "noir_source.py", "noir_instantiation.py", "noir_lean_emit.py",
                 "noir_det_search.py", "noir_toolchain.py", "noir_tool/Cargo.toml", "noir_tool/src/main.rs"]
 SHARED_SOURCES = ["__init__.py", "package.py", "jsonschema_lite.py", "lean_runner.py", "lean_emit.py", "gates.py",
                   "check.py", "det_search.py", "lean/ZkReplay.lean", "schema/problem.schema.json"]
 
-MAX_OPCODES = P.MAX_CONSTRAINTS
+MAX_OPCODES = P.MAX_CONSTRAINTS        # wave-N1 size policy (the default of WaveConfig.max_opcodes)
+SIZE_BANDS = [(10, "XS"), (100, "S"), (2000, "M"), (4000, "L1"), (10000, "L2"), (30000, "XL1"), (100000, "XL2")]
+
+
+def size_band(n_opcodes: int) -> str:
+    """Difficulty band of a package by flattened ACIR opcodes (XS <= 10, S <= 100, M <= 2,000, L1 <= 4,000,
+    L2 <= 10,000, XL1 <= 30,000, XL2 <= 100,000, XXL above)."""
+    for hi, name in SIZE_BANDS:
+        if n_opcodes <= hi:
+            return name
+    return "XXL"
 SIZING_LIMIT = 400000                  # flattening stops above this (size recorded as a lower bound)
 REAL_WANTED = 16
 MUTANTS = 16
@@ -128,6 +141,7 @@ class WaveConfig:
     det_search_budget_s: float = 20.0
     compile_timeout: float = 900
     git_pins: dict = field(default_factory=dict)
+    max_opcodes: int = P.MAX_CONSTRAINTS      # size policy (flattened ACIR opcodes); wave N1: 2,000
 
     @classmethod
     def load(cls, path: str) -> "WaveConfig":
@@ -400,6 +414,22 @@ def copy_crate(src_dir: str, dest: str, as_lib: bool, strip_contract: bool = Fal
         f.write(man)
 
 
+def contract_note(t: I.Target, err: str) -> str:
+    """A library copy of a contract crate drops the ``contract`` block; a name of that block in the error means
+    the function's module needs items the Aztec macros generate inside the contract (storage, interface)."""
+    main = os.path.join(t.crate, "src", "main.nr")
+    if not os.path.exists(main):
+        return err
+    with open(main, encoding="utf-8", errors="replace") as f:
+        _, blocks, _ = NS.scan(f.read())
+    for b in blocks:
+        if b.kind == "contract" and re.search(r"[Cc]ould not resolve '" + re.escape(b.self_type) + "'", err):
+            return (err + f" ({b.self_type} is the crate's contract block: its storage / interface items exist only "
+                    "in the contract build, and contract crates have no export mechanism; the block cannot be kept "
+                    "as a module of a library copy because its Aztec attributes are contract-only)")
+    return err
+
+
 def remove_contract_block(src: str) -> str:
     _, blocks, text = NS.scan(src)
     for b in sorted([b for b in blocks if b.kind == "contract"], key=lambda b: -b.start):
@@ -469,7 +499,8 @@ def compile_candidate(sh: Shared, t: I.Target, plan: str, cand: dict, cdir: str,
             # inherent method of that name, so the call resolves to the same trait method)
             with open(target_file, encoding="utf-8") as f:
                 text = f.read().replace(cand["wrapper"].text, "")
-            cand["wrapper"] = I.wrapper(t, cand["assign"], cand["wid"], "", method_call=True)
+            cand["wrapper"] = I.wrapper(t, cand["assign"], cand["wid"], "", method_call=True,
+                                        fn_args=cand.get("fn_args"), builder=cand.get("builder"))
             cand["call"] = cand["wrapper"].call
             cand["syntax"] = "method-call"
             with open(target_file, "w", encoding="utf-8") as f:
@@ -482,6 +513,8 @@ def compile_candidate(sh: Shared, t: I.Target, plan: str, cand: dict, cdir: str,
         err = "timeout" if r.timeout else ("memory limit" if r.memkill else first_error(r.out))
         if r.rc == 0 and not err.strip():
             err = "nargo export produced no artifact for the wrapper"
+        if t.crate_type == "contract":
+            err = contract_note(t, err)
         return Compiled(False, tag, error=scrub_text(sh, err), secs=round(time.time() - t0, 2), command=cmd)
     # bin-main / contract-fn: compile the crate as the repository builds it
     crate = os.path.join(cdir, "crate")
@@ -525,8 +558,9 @@ def compile_std(sh: Shared, t: I.Target, cand: dict, crate: str, tag: str, t0: f
     cmd = "nargo export --silence-warnings"
     err = ""
     for up in range(0, depth + 1):
-        wr = I.wrapper(t, cand["assign"], cand["wid"], I.std_module_path(rel, up))
-        cands = I.std_import_candidates(t, wr.text, rel)
+        wr = I.wrapper(t, cand["assign"], cand["wid"], I.std_module_path(rel, up), fn_args=cand.get("fn_args"),
+                       builder=cand.get("builder"))
+        cands = I.std_import_candidates(t, wr.text, rel, sh.indexes.get(t.repo))
         choice = {n: 0 for n in cands}
         m = None
         line = 0
@@ -557,7 +591,42 @@ def compile_std(sh: Shared, t: I.Target, cand: dict, crate: str, tag: str, t0: f
         in_wrapper = m is not None and line > len(cands)
         if not (in_wrapper and STD_RESOLUTION.search(err) and t.fn.impl is None):
             break
+    err = std_private_note(t, sh.indexes.get(t.repo), err)
     return Compiled(False, tag, error=scrub_text(sh, err), secs=round(time.time() - t0, 2), command=cmd)
+
+
+STD_NOT_PUBLIC = "declared only in standard-library modules that are not public at the pin"
+
+
+def std_private_note(t: I.Target, idx, err: str) -> str:
+    """An unresolved name of a stdlib wrapper that the stdlib declares only inside non-public modules (e.g.
+    ``pub(crate) mod poseidon2``): no wrapper crate can name it, so the instantiation does not exist."""
+    m = re.search(r"[Cc]ould not resolve '([A-Za-z_][A-Za-z0-9_]*)'", err)
+    if idx is None or not m:
+        return err
+    decl = [d for d in idx.decl_files.get(m.group(1), []) if d.startswith("noir_stdlib/src/")]
+    if decl and all(not std_module_public(t.root, d) for d in decl):
+        return f"{err} ({m.group(1)} is {STD_NOT_PUBLIC}, so no wrapper crate can name it)"
+    return err
+
+
+def std_module_public(root: str, rel: str) -> bool:
+    """Every module on the path of a stdlib file is declared ``pub mod`` by its parent."""
+    parts = NS.mod_path(rel[len("noir_stdlib/src/"):])
+    for k in range(1, len(parts) + 1):
+        parent = parts[:k - 1]
+        cands = ([os.path.join(root, "noir_stdlib", "src", *parent) + ".nr",
+                  os.path.join(root, "noir_stdlib", "src", *parent, "mod.nr")] if parent
+                 else [os.path.join(root, "noir_stdlib", "src", "lib.nr")])
+        text = ""
+        for c in cands:
+            if os.path.exists(c):
+                with open(c, encoding="utf-8", errors="replace") as f:
+                    text = NS.blank_comments_strings(f.read())
+                break
+        if not re.search(r"(?<![A-Za-z0-9_])pub\s+mod\s+" + re.escape(parts[k - 1]) + r"\s*[;{]", text):
+            return False
+    return True
 
 
 def method_call_ok(t: I.Target) -> bool:
@@ -596,7 +665,7 @@ def assignment_imports(sh: Shared, t: I.Target, assign: dict) -> list[str]:
             continue
         if any(re.search(r"(?<![A-Za-z0-9_])" + n + r"(?![A-Za-z0-9_])", u) for u in NS.uses(file_text, top_level=True)):
             continue
-        decl = idx.struct_files.get(n, [])
+        decl = idx.struct_files.get(n, []) + idx.test_struct_files.get(n, [])
         here = [r for r in decl if os.path.join(t.root, r).startswith(src_root + os.sep)]
         if len(here) == 1:
             mod = NS.mod_path(os.path.relpath(os.path.join(t.root, here[0]), src_root))
@@ -849,7 +918,8 @@ def g_fid_nonvac(sh: Shared, build: str, ns: str, info: dict, flat: A.Flat, real
                         "values), compared with the Python evaluator of the decoded ACIR under the same values",
               "real_witnesses": len(real), "real_lean_accept": real_accept, "real_python_accept": sum(real_py),
               "mutants": len(muts), "mutants_python_reject": sum(not x for x in mut_oracle),
-              "mutants_lean_agree": agree, "lean_eval_secs": r.secs, "bb_table_entries": len(oracle.interp.table)}
+              "mutants_lean_agree": agree, "lean_eval_secs": r.secs, "lean_eval_peak_rss_mb": r.peak_rss_mb,
+              "bb_table_entries": len(oracle.interp.table)}
     if "__incomplete__" in verdicts:
         detail["error"] = verdicts["__incomplete__"][:400]
         detail["reason"] = "the Lean evaluation did not complete (harness error); no verdict is inferred"
@@ -1008,6 +1078,7 @@ def process(sh: Shared, row: dict, t: I.Target | None, how: str) -> dict:
 
 def _process(sh: Shared, row: dict, t: I.Target | None, how: str) -> dict:
     cfg = sh.cfg
+    cap = cfg.max_opcodes
     if t is None:
         rec = base_record(sh, None, row, f"missing.{hashlib.sha256(row['item_id'].encode()).hexdigest()[:16]}")
         rec["status"], rec["status_reason"] = "NO-INSTANTIATION", f"source not located: {how}"
@@ -1041,6 +1112,13 @@ def _process(sh: Shared, row: dict, t: I.Target | None, how: str) -> dict:
     else:
         cands = [("contract-entrypoint", {}, [f"{os.path.relpath(t.crate, t.root)}: contract artifact function "
                                               f"{t.fn.name}"])]
+    fidx = I.fn_param_indices(t) if plan in ("export", "std-export") else []
+    if fidx:
+        cands, why = with_fn_args(t, idx, cands, fidx)
+        if not cands:
+            rec["status"], rec["status_reason"] = "NO-INSTANTIATION", why
+            return rec
+    builder = I.ValueBuilder(t, idx, "as_vector" if compilers[0] in VECTOR_TAGS else "as_slice")
     rec["instantiation"]["rule_order"] = list(dict.fromkeys(c[0] for c in cands))
     item_work = os.path.join(cfg.work, hashlib.sha256(row["item_id"].encode()).hexdigest()[:20])
     os.makedirs(item_work, exist_ok=True)
@@ -1048,17 +1126,22 @@ def _process(sh: Shared, row: dict, t: I.Target | None, how: str) -> dict:
     chosen = None
     for tier in rec["instantiation"]["rule_order"]:
         tier_res = []
-        for k, (ctier, assign, prov) in enumerate(c for c in cands if c[0] == tier):
-            cand = {"tier": ctier, "assign": assign, "provenance": prov}
-            wid = hashlib.sha256(f"{row['item_id']}|{sorted(assign.items())}".encode()).hexdigest()[:10]
+        for k, (ctier, assign, prov, *extra) in enumerate(c for c in cands if c[0] == tier):
+            fn_args = extra[0] if extra else None
+            cand = {"tier": ctier, "assign": assign, "provenance": prov, "fn_args": fn_args, "builder": builder}
+            wid = hashlib.sha256(f"{row['item_id']}|{sorted(assign.items())}".encode()
+                                 + (f"|{sorted(fn_args.items())}".encode() if fn_args else b"")).hexdigest()[:10]
             cand["wid"] = wid
             if plan in ("export", "std-export"):
                 try:
                     qualify = I.std_module_path(os.path.relpath(os.path.join(t.root, t.path),
                                                                 os.path.join(t.root, "noir_stdlib", "src"))) \
                         if plan == "std-export" else ""
-                    cand["wrapper"] = I.wrapper(t, assign, wid, qualify)    # (stdlib: rebuilt by compile_std)
+                    # (stdlib: rebuilt by compile_std)
+                    cand["wrapper"] = I.wrapper(t, assign, wid, qualify, fn_args=fn_args, builder=builder)
                     cand["call"] = cand["wrapper"].call
+                    if cand["wrapper"].notes:
+                        cand["provenance"] = prov + [f"built: {n}" for n in cand["wrapper"].notes]
                 except (ValueError, KeyError) as ex:
                     cand.update(compile="skipped", error=f"no wrapper: {ex}")
                     tier_res.append(cand)
@@ -1075,6 +1158,31 @@ def _process(sh: Shared, row: dict, t: I.Target | None, how: str) -> dict:
                                  "result": "ok" if comp.ok else comp.error[:200]})
                 if comp.ok:
                     break
+            if not comp.ok and plan in ("export", "std-export") and CONST_ERROR.search(comp.error):
+                # a parameter the compiler needs as a compile-time constant (loop bound, static assertion,
+                # constant argument of a builtin): fixed to a literal written at a repository call site
+                consts = I.const_arg_candidates(t, idx, cand.get("fn_args") or {})
+                if consts:
+                    fa = dict(cand.get("fn_args") or {})
+                    fa.update({i: v for i, (v, _) in consts.items()})
+                    try:
+                        wr = I.wrapper(t, cand["assign"], cand["wid"], qualify_of(t, plan), fn_args=fa,
+                                       builder=builder)
+                    except (ValueError, KeyError):
+                        wr = None
+                    if wr is not None:
+                        retry = dict(cand, fn_args=fa, wrapper=wr, call=wr.call)
+                        tag = compilers[0]
+                        comp2 = compile_candidate(sh, t, plan, retry, os.path.join(item_work, f"c{len(results)}_{k}_{tag}_const"),
+                                                  tag)
+                        attempts.append({"include_context": os.path.relpath(t.crate, t.root), "compiler": tag,
+                                         "result": ("ok" if comp2.ok else comp2.error[:200]) + " (constant arguments)"})
+                        if comp2.ok:
+                            cand.update(retry)
+                            cand["provenance"] = cand["provenance"] + [
+                                f"parameter `{t.fn.params[i].pattern}` fixed to the compile-time constant `{v}` from {pv}"
+                                for i, (v, pv) in sorted(consts.items())]
+                            comp = comp2
             cand["compiler"] = comp.compiler
             if len(attempts) > 1:
                 cand["attempts"] = attempts
@@ -1107,22 +1215,34 @@ def _process(sh: Shared, row: dict, t: I.Target | None, how: str) -> dict:
         results += tier_res
         ok = [c for c in tier_res if c.get("compile") == "ok"]
         if ok:
-            within = [c for c in ok if c["constraints"] <= MAX_OPCODES and "_flat" in c]
+            within = [c for c in ok if c["constraints"] <= cap and "_flat" in c]
             if within:
                 chosen = max(within, key=lambda c: (c["constraints"], c["wid"]))
-                sel = f"tier {tier}: largest compiled instantiation within {MAX_OPCODES} opcodes"
+                sel = f"tier {tier}: largest compiled instantiation within {cap} opcodes"
             else:
                 chosen = min(ok, key=lambda c: c["constraints"])
-                sel = f"tier {tier}: every compiled instantiation exceeds {MAX_OPCODES} opcodes; smallest recorded"
+                sel = f"tier {tier}: every compiled instantiation exceeds {cap} opcodes; smallest recorded"
             rec["instantiation"]["selection"] = sel
             break
     rec["instantiation"]["candidates"] = [candidate_entry(c) for c in results]
+    if chosen is not None:
+        rec["evidence"]["costs"] = {"compile_s": chosen["_compiled"].secs}
     if chosen is None:
         errs = [c for c in results if c.get("compile") in ("error", "skipped")]
         non_abi = [c for c in errs if "cannot exist as a parameter to main" in c.get("error", "")
                    or "Only sized types may be used in the entry point" in c.get("error", "")]
+        no_wrapper = [c for c in errs if c.get("compile") == "skipped" and str(c.get("error", "")).startswith(
+            "no wrapper: ")]
         if not results:
             rec["status"], rec["status_reason"] = "NO-INSTANTIATION", "no candidate instantiation"
+        elif errs and all(STD_NOT_PUBLIC in c.get("error", "") for c in errs):
+            rec["status"] = "NO-INSTANTIATION"
+            rec["status_reason"] = ("no nameable instantiation: " + errs[0]["error"][errs[0]["error"].rfind("(") + 1:]
+                                    .rstrip(")"))[:600]
+        elif no_wrapper and len(no_wrapper) + len(non_abi) == len(errs):
+            rec["status"] = "NO-INSTANTIATION"
+            rec["status_reason"] = ("no value of a parameter type that is not an ABI type can be built inside the "
+                                    "wrapper: " + no_wrapper[0]["error"][len("no wrapper: "):])[:600]
         elif errs and len(non_abi) == len(errs):
             rec["status"] = "NO-INSTANTIATION"
             rec["status_reason"] = ("every candidate's parameter types contain a type that is not an ABI type "
@@ -1163,7 +1283,7 @@ def _process(sh: Shared, row: dict, t: I.Target | None, how: str) -> dict:
                             "source": T.COMPILERS[comp.compiler].source},
                "prime": str(A.BN254), "prime_name": "bn254", "n_constraints": int(chosen["constraints"]),
                "n_wires": int(chosen["wires"]),
-               "size_policy": {"max_constraints": MAX_OPCODES, "within": chosen["constraints"] <= MAX_OPCODES}}
+               "size_policy": {"max_constraints": cap, "within": chosen["constraints"] <= cap}}
     if flat is not None:
         circuit.update(n_inputs=len(flat.inputs), n_outputs=len(flat.outputs))
         circuit["acir"] = {"sha256": prog.raw_sha256, "functions": len(prog.functions),
@@ -1172,14 +1292,50 @@ def _process(sh: Shared, row: dict, t: I.Target | None, how: str) -> dict:
                            "brillig_functions": prog.n_brillig, "oracles": prog.oracles,
                            "noir_version": prog.noir_version, "flattened_calls": len(flat.call_sites)}
     rec["circuit"] = circuit
-    if flat is None or chosen["constraints"] > MAX_OPCODES:
+    rec["evidence"]["size_band"] = size_band(int(chosen["constraints"]))
+    if flat is None or chosen["constraints"] > cap:
         rec["status"] = "TOO-LARGE"
-        rec["status_reason"] = (f"{chosen['constraints']} ACIR opcodes (flattened) > {MAX_OPCODES}"
+        rec["status_reason"] = (f"{chosen['constraints']} ACIR opcodes (flattened) > {cap}"
                                 + (" (lower bound)" if flat is None else ""))
         rec["evidence"]["callees"] = callee_names(t)
         cleanup(sh, item_work)
         return rec
     return build_package(sh, rec, t, chosen, item_work)
+
+
+VECTOR_TAGS = ("v1.0.0-beta.25", "v1.0.0-beta.26", "v1.0.0-rc.2")      # `[T; N].as_vector()` (older: as_slice)
+CONST_ERROR = re.compile(r"Argument is not constant|Could not determine loop bound at compile-time")
+
+
+def qualify_of(t: I.Target, plan: str) -> str:
+    return I.std_module_path(os.path.relpath(os.path.join(t.root, t.path), os.path.join(t.root, "noir_stdlib", "src"))) \
+        if plan == "std-export" else ""
+
+
+def with_fn_args(t: I.Target, idx, cands: list, fidx: list[int]) -> tuple[list, str]:
+    """Candidates extended by a concrete function for every function-typed parameter (repository call sites,
+    :func:`noir_instantiation.fn_arg_candidates`); ([], reason) when a parameter has none."""
+    choices = []
+    for k in fidx:
+        found = I.fn_arg_candidates(t, idx, k)
+        if not found:
+            p = t.fn.params[k]
+            return [], (f"parameter `{p.pattern}: {p.type}` has a function (closure) type, which is not an ABI type, "
+                        "and no call of the function in the repository passes a closure or a function nameable "
+                        "from the function's file")
+        choices.append([(k, e, prov) for e, prov in found])
+    combos = []
+    for combo in __import__("itertools").product(*choices):
+        combos.append(combo)
+        if len(combos) >= I.MAX_FN_ARG_CANDIDATES:
+            break
+    out = []
+    for c in cands:
+        tier, assign, prov = c[0], c[1], c[2]
+        for combo in combos:
+            out.append((tier, assign, prov + [f"function argument `{t.fn.params[k].pattern}` = `{e}` from {pv}"
+                                              for k, e, pv in combo], {k: e for k, e, _ in combo}))
+    return out, ""
 
 
 def trait_default_candidates(t: I.Target, idx, cands):
@@ -1274,7 +1430,10 @@ def build_package(sh: Shared, rec: dict, t: I.Target, chosen: dict, work: str) -
     if comp.contract_fn is None and os.path.exists(prover) and rec["instantiation"]["rule"] == "repo-main":
         inputs.insert(0, {"__prover_toml__": prover})
         sources.insert(0, "repository Prover.toml")
+    costs = rec["evidence"].setdefault("costs", {})
+    tc0 = time.time()
     execs = execute(sh, comp.compiler, comp.artifact, comp.contract_fn, inputs, os.path.join(work, "exec"))
+    costs["execute_s"] = round(time.time() - tc0, 2)
     real, seen, errors, oracles = [], set(), {}, set()
     real_sources, real_inputs = [], []
     for src_kind, ex, inp in zip(sources, execs, inputs):
@@ -1310,7 +1469,9 @@ def build_package(sh: Shared, rec: dict, t: I.Target, chosen: dict, work: str) -
     # G-ELAB
     build = os.path.join(work, "build")
     shutil.rmtree(build, ignore_errors=True)
+    tc0 = time.time()
     elab = G.g_elab(sh.env, stage, build, ns, os.path.join(work, "elab"))
+    costs["elab_s"] = round(time.time() - tc0, 2)
     gates["G-ELAB"] = elab.to_json()
     model_ok = elab.detail.get("model_compile_rc") == 0 and os.path.exists(
         os.path.join(build, model_rel[:-len(".lean")] + ".olean"))
@@ -1318,6 +1479,7 @@ def build_package(sh: Shared, rec: dict, t: I.Target, chosen: dict, work: str) -
     nonvac_source = ("the compiler's own ACVM solver (noir " + T.COMPILERS[comp.compiler].version +
                      ", via boole-acir-tool) on " + ("the repository's Prover.toml and " if "repository Prover.toml" in
                                                     real_sources else "") + "derived inputs")
+    tc0 = time.time()
     if model_ok:
         fid, nonvac, _ = g_fid_nonvac(sh, build, ns, info, flat, real_w, muts, oracle, input_free,
                                       os.path.join(work, "fid"), nonvac_source)
@@ -1325,6 +1487,8 @@ def build_package(sh: Shared, rec: dict, t: I.Target, chosen: dict, work: str) -
         fid = G.Gate("G-FID", "SKIPPED", {"reason": "model did not compile"})
         nonvac = G.Gate("G-NONVAC", "SKIPPED", {"reason": "model did not compile"})
     gates["G-FID"], gates["G-NONVAC"] = fid.to_json(), nonvac.to_json()
+    costs["fid_s"] = round(time.time() - tc0, 2)
+    tc0 = time.time()
 
     # DET search
     ce, slog = DSN.search(flat, real, oracle, rec["package_id"], cfg.det_search_budget_s) if real else \
@@ -1353,6 +1517,8 @@ def build_package(sh: Shared, rec: dict, t: I.Target, chosen: dict, work: str) -
                              (["evidence/counterexample/bb_table.txt"] if table else [])}
         evidence["counterexample_dir"] = cdir
     gates["DET-SEARCH"] = det_gate
+    costs["search_s"] = round(time.time() - tc0, 2)
+    tc0 = time.time()
 
     # G-TRIV
     if elab.status != "PASS":
@@ -1365,6 +1531,7 @@ def build_package(sh: Shared, rec: dict, t: I.Target, chosen: dict, work: str) -
         gates["G-TRIV"] = {"status": "SKIPPED", "reason": "not run: the package already fails G-NONVAC or G-FID"}
     else:
         gates["G-TRIV"] = g_triv(sh, build, ns, info, os.path.join(work, "triv")).to_json()
+    costs["triv_s"] = round(time.time() - tc0, 2)
     rec["gates"] = gates
     set_status(rec, gates, bool(flat.outputs))
     ref = elab.detail["reference_type_sha256"] if elab.status == "PASS" else "0" * 64
@@ -1642,6 +1809,102 @@ def run_rerun(cfg: WaveConfig, index_path: str, item_ids: list[str]) -> list[dic
             d["canonical_package_id"], d["canonical_status"] = (c["package_id"], c["status"]) if c else (None, None)
     write_outputs(cfg.out, list(by_id.values()), dedup)
     return merged
+
+
+# ------------------------------------------------------------------------------------------ recovery
+
+def model_key(pkg_dir: str, rec: dict) -> str:
+    """Content key of a packaged statement: sha256 of its Lean model without comments, blank lines and the
+    package namespace (two packages with the same key state the same DET problem)."""
+    path = os.path.join(pkg_dir, rec["statement"]["model_file"])
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+    text = re.sub(r"/-.*?-/", "", text, flags=re.S)
+    text = re.sub(r"--[^\n]*", "", text)
+    ns = rec["checker"]["theorem_fqn"].rsplit(".", 1)[0]
+    text = text.replace(ns, "NS")
+    return hashlib.sha256("\n".join(x.rstrip() for x in text.splitlines() if x.strip()).encode()).hexdigest()
+
+
+def prior_records(paths: list[str]) -> dict[str, tuple[str, dict]]:
+    """ledger item id -> (index path, record) over the prior indexes (later indexes win)."""
+    out: dict[str, tuple[str, dict]] = {}
+    for p in paths:
+        with open(p, encoding="utf-8") as f:
+            for line in f:
+                if line.strip():
+                    r = json.loads(line)
+                    out[r["ids"]["ledger_item_id"]] = (p, r)
+    return out
+
+
+def prior_model_keys(paths: list[str]) -> dict[str, str]:
+    """model key -> package id of every packaged prior record (packages next to their index)."""
+    keys = {}
+    for p in paths:
+        base = os.path.dirname(p)
+        with open(p, encoding="utf-8") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                r = json.loads(line)
+                if r["status"] not in P.PACKAGED_STATUSES:
+                    continue
+                d = os.path.join(base, *r["package_id"].split("/", 1))
+                if os.path.isdir(d):
+                    keys.setdefault(model_key(d, r), r["package_id"])
+    return keys
+
+
+def supersede(new: dict, old: dict, old_index: str, rel_base: str) -> None:
+    new["supersedes"] = {"status": old["status"], "status_reason": old["status_reason"],
+                         "generator_sources_sha256": old["generator"]["sources_sha256"]}
+    new["evidence"]["supersedes_record"] = {"index": os.path.relpath(old_index, rel_base),
+                                            "package_id": old["package_id"],
+                                            "ledger_item_id": old["ids"]["ledger_item_id"]}
+
+
+def run_recover(cfg: WaveConfig, prior: list[str], item_ids: list[str], rel_base: str) -> list[dict]:
+    """Regenerate prior records (ledger item ids) with the current generator into ``cfg.out``: every new record
+    carries ``supersedes`` (the prior status, reason and generator hash) and ``evidence.supersedes_record``;
+    the prior indexes and packages are not modified.  A packaged record whose model equals a prior package's
+    model (or an earlier record of this run) is listed in ``DEDUP.jsonl`` (``relation: same-model-as``)."""
+    os.makedirs(cfg.out, exist_ok=True)
+    os.makedirs(cfg.work, exist_ok=True)
+    sh = setup_shared(cfg)
+    olds = prior_records(prior)
+    rows = {r["item_id"]: r for r in select_rows(cfg.ledger)}
+    todo = [i for i in dict.fromkeys(item_ids) if i in olds and i in rows]
+    seen_keys = prior_model_keys(prior)
+    cache: dict = {}
+    recs, dedup = [], []
+    log(sh, f"recover {len(todo)} items (cap {cfg.max_opcodes} opcodes)")
+    with cf.ThreadPoolExecutor(max_workers=cfg.jobs) as pool:
+        futs = {}
+        for i in todo:
+            t, how = make_target(sh, rows[i], cache)
+            futs[pool.submit(process, sh, rows[i], t, how)] = i
+        for fut in cf.as_completed(futs):
+            i = futs[fut]
+            new = fut.result()
+            old_index, old = olds[i]
+            new["evidence"]["content_sha256"] = old["evidence"].get("content_sha256")
+            supersede(new, old, old_index, rel_base)
+            if new["status"] in P.PACKAGED_STATUSES:
+                d = os.path.join(cfg.out, *new["package_id"].split("/", 1))
+                key = model_key(d, new)
+                if key in seen_keys:
+                    dedup.append({"item_id": i, "package_id": new["package_id"], "model_sha256": key,
+                                  "relation": "same-model-as", "canonical_package_id": seen_keys[key]})
+                    new["evidence"]["same_model_as"] = seen_keys[key]
+                else:
+                    seen_keys[key] = new["package_id"]
+                rewrite_problem(cfg, new)
+            recs.append(new)
+            append_jsonl(os.path.join(cfg.out, "PROGRESS.jsonl"), new)
+            log(sh, f"recover {len(recs)}/{len(todo)}: {old['status']} -> {new['status']} {i}")
+    write_outputs(cfg.out, recs, dedup)
+    return recs
 
 
 # ------------------------------------------------------------------------------------------ decomposition
@@ -1927,6 +2190,13 @@ def main(argv: list[str] | None = None) -> int:
     xc = sub.add_parser("crosscheck")
     xc.add_argument("--config", required=True)
     xc.add_argument("--index", required=True)
+    rc = sub.add_parser("recover")
+    rc.add_argument("--config", required=True)
+    rc.add_argument("--prior", nargs="+", required=True, help="prior INDEX.jsonl files (not modified)")
+    rc.add_argument("--items", required=True, help="file with one ledger item id per line")
+    rc.add_argument("--rel-base", default="", help="base directory for the relative prior index paths")
+    rc.add_argument("--max-opcodes", type=int)
+    rc.add_argument("--jobs", type=int)
     v = sub.add_parser("validate")
     v.add_argument("--index", required=True)
     v.add_argument("--packages", required=True)
@@ -1968,6 +2238,21 @@ def main(argv: list[str] | None = None) -> int:
         counts: dict = {}
         for e in res:
             k = f"{e['old_status']} -> {e['new_status']}"
+            counts[k] = counts.get(k, 0) + 1
+        print(json.dumps(counts, indent=1, sort_keys=True))
+        return 0
+    if a.cmd == "recover":
+        cfg = WaveConfig.load(a.config)
+        if a.jobs:
+            cfg.jobs = min(a.jobs, 4)
+        if a.max_opcodes:
+            cfg.max_opcodes = a.max_opcodes
+        with open(a.items, encoding="utf-8") as f:
+            items = [x.strip() for x in f if x.strip()]
+        recs = run_recover(cfg, a.prior, items, a.rel_base or os.path.dirname(cfg.out))
+        counts: dict = {}
+        for r in recs:
+            k = f"{r['supersedes']['status']} -> {r['status']}"
             counts[k] = counts.get(k, 0) + 1
         print(json.dumps(counts, indent=1, sort_keys=True))
         return 0
