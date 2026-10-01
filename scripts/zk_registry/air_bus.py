@@ -581,6 +581,9 @@ class OpenVmModel(BusModel):
         self.bus_names: dict[int, str] = {}
 
     def observe(self, airs: list) -> None:
+        # bus indices are per circuit: only the application VM's AIRs are named (the leaf aggregation circuit has
+        # its own bus index manager; its buses keep the direction-literal rule)
+        airs = [a for a in airs if a.group == "app-vm"]
         owners = {"ProgramAir": "Program", "VariableRangeCheckerAir": "VarRange", "BitwiseOperationLookupAir": "Bitwise",
                   "RangeTupleCheckerAir": "RangeTuple", "Poseidon2PeripheryAir": "Poseidon2", "KeccakfPermAir":
                   "KeccakState"}
@@ -621,6 +624,13 @@ class OpenVmModel(BusModel):
 
     def bus_label(self, it: IR.Interaction) -> str:
         return f"{self.bus_names.get(it.bus, 'bus')} {it.bus}"
+
+    def roles(self, air: IR.Air, negative: frozenset = frozenset()) -> tuple[AL.Roles, dict]:
+        if air.group == "app-vm":
+            return super().roles(air, negative)
+        # another circuit (the leaf aggregation circuit): its bus indices are not the application VM's, so no bus
+        # is named and every interaction follows the direction-literal rule
+        return BusModel.roles(OpenVmModel(), air, negative)
 
     def table_doc(self, table: str) -> str:
         return {"ovmVarRange": "the OpenVM variable range checker table: `v < 2^bits` for `bits ≤ 17`.",

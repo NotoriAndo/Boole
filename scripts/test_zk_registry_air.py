@@ -424,6 +424,17 @@ class BusModelTests(unittest.TestCase):
         self.assertEqual(ovm.label(38), "bn254 Fp mul/div")
         self.assertEqual(ovm.label(19), "bls12-381 Fp is-equal")
 
+    def test_openvm_bus_names_are_per_circuit(self) -> None:
+        ovm = B.model_for("openvm")
+        table = mini_air("BitwiseOperationLookupAir<8>", [it("receive", bus=6, values=(0, 0, 0, 0))])
+        user = mini_air("VmAirWrapper<X>", [it("send", bus=6, values=(0, 0, 0, 0))])
+        leaf = mini_air("TranscriptAir", [it("send", bus=6, values=(0, 0, 0, 0))], group="recursion-leaf")
+        ovm.observe([table, user, leaf])
+        self.assertEqual(ovm.roles(user)[1]["assumptions"][0]["table"], "ovmBitwise")
+        _, iface = ovm.roles(leaf)
+        self.assertEqual(iface["assumptions"], [])
+        self.assertEqual(iface["outputs"][0]["bus"], "bus 6")
+
     def test_chip_types(self) -> None:
         self.assertEqual(B.model_for("sp1").chip_type("Secp256r1DoubleAssignUser"), "WeierstrassDoubleAssignChip")
         self.assertEqual(B.model_for("sp1").chip_type("RecursionWrapExtFeltConvert"), "ConvertChip")

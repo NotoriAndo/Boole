@@ -74,6 +74,10 @@ fn content_key(name: &str, widths: (&Option<usize>, &[usize], usize), dag: &Symb
 }
 
 fn extract(pk: &MultiStarkProvingKey<SC>, id: usize) -> Result<Extracted, String> {
+    extract_as(pk, id, id, "app-vm", "SdkVmConfig::standard()")
+}
+
+fn extract_as(pk: &MultiStarkProvingKey<SC>, id: usize, index: usize, group: &str, config: &str) -> Result<Extracted, String> {
     let apk = &pk.per_air[id];
     let vk = &apk.vk;
     let w = &vk.params.width;
@@ -138,8 +142,8 @@ fn extract(pk: &MultiStarkProvingKey<SC>, id: usize) -> Result<Extracted, String
             p: P,
             name: name.clone(),
             rust_type: name,
-            group: "app-vm".into(),
-            index: id,
+            group: group.into(),
+            index,
             width,
             prep_width,
             num_public_values: vk.params.num_public_values,
@@ -149,7 +153,7 @@ fn extract(pk: &MultiStarkProvingKey<SC>, id: usize) -> Result<Extracted, String
             meta: vec![
                 ("cached_main_widths".into(), format!("{:?}", w.cached_mains)),
                 ("common_main_width".into(), w.common_main.to_string()),
-                ("config".into(), "SdkVmConfig::standard()".into()),
+                ("config".into(), config.into()),
             ],
         },
         key,
@@ -328,6 +332,44 @@ fn main_inner(out: String, repo: String, rows: bool) {
         };
         manifest.push_str(&manifest_line(id, &name, &name, "app-vm", status, &detail));
         manifest.push('\n');
+    }
+    // the leaf aggregation circuit that verifies proofs of this application VM (the SDK's leaf prover:
+    // VerifierSubCircuit<MAX_NUM_CHILDREN_LEAF = 4> with continuations, inside InnerCircuit; leaf parameters)
+    let leaf = catch_unwind(AssertUnwindSafe(|| {
+        use openvm_continuations::circuit::{inner::InnerCircuit, Circuit};
+        use openvm_recursion_circuit::system::{VerifierConfig, VerifierSubCircuit};
+        let vk = std::sync::Arc::new(pk.get_vk());
+        let sub = VerifierSubCircuit::<4>::new_with_options(
+            vk,
+            VerifierConfig { continuations_enabled: true, ..Default::default() },
+        );
+        let circuit = InnerCircuit::new(std::sync::Arc::new(sub), None);
+        let airs = <InnerCircuit<VerifierSubCircuit<4>> as Circuit<SC>>::airs(&circuit);
+        let leaf_engine = Engine::new(openvm_stark_sdk::config::leaf_params_with_100_bits_security());
+        leaf_engine.keygen(&airs).0
+    }));
+    match leaf {
+        Ok(leaf_pk) => {
+            let base = pk.per_air.len();
+            for id in 0..leaf_pk.per_air.len() {
+                let name = leaf_pk.per_air[id].air_name.clone();
+                let r = catch_unwind(AssertUnwindSafe(|| {
+                    extract_as(&leaf_pk, id, base + id, "recursion-leaf", "leaf aggregation circuit (VerifierSubCircuit<4>)")
+                }));
+                let (status, detail) = match r {
+                    Ok(Ok(x)) => {
+                        write(&format!("{out}/airs/{}.json", base + id), &x.doc.to_json());
+                        ("extracted", format!("{} constraints, {} interactions", x.doc.constraints.len(), x.doc.interactions.len()))
+                    }
+                    Ok(Err(e)) => ("failed", e),
+                    Err(e) => ("failed", format!("panic: {}", panic_message(e.as_ref()))),
+                };
+                manifest.push_str(&manifest_line(base + id, &name, &name, "recursion-leaf", status, &detail));
+                manifest.push('\n');
+            }
+            log.push_str(&format!("leaf aggregation circuit: {} AIRs (no rows: they need app proofs)\n", leaf_pk.per_air.len()));
+        }
+        Err(e) => log.push_str(&format!("leaf aggregation circuit: panic: {}\n", panic_message(e.as_ref()))),
     }
     write(&format!("{out}/manifest.jsonl"), &manifest);
     eprintln!("extracted {} AIRs of SdkVmConfig::standard()", pk.per_air.len());
