@@ -556,7 +556,7 @@ fn recursion_rows(metas: &[MetaChip<F, RecursionChipType<F>>], offset: usize, si
         ins.push(rinstr::base_alu(op, 2, i, i - 2, i - 1));
     }
     let mut addr = 1000u32;
-    for _ in 0..12 {
+    for _ in 0..48 {
         let a: [F; 4] = core::array::from_fn(|_| F::from_canonical_u32((rng.next() % P) as u32));
         let b: [F; 4] = core::array::from_fn(|_| F::from_canonical_u32((rng.next() % P) as u32));
         ins.push(rinstr::mem_ext(MemAccessKind::Write, 1, addr, EF::from_base_slice(&a)));
@@ -574,6 +574,44 @@ fn recursion_rows(metas: &[MetaChip<F, RecursionChipType<F>>], offset: usize, si
         // output multiplicity 1: active output writes (no later read in this sample program)
         ins.push(rinstr::poseidon2([1; 16], output, input));
         base += 32;
+    }
+    // selects (Select), bit decompositions (MemoryVar through HintBits) and exp-reverse-bits (ExpReverseBitsLen)
+    {
+        use crate::compiler::recursion::{
+            instruction::{HintBitsInstr, Instruction as RInstr},
+            types::{Address, SelectInstr, SelectIo},
+        };
+        let a = |x: u32| Address(F::from_canonical_u32(x));
+        for k in 0..24u32 {
+            ins.push(rinstr::mem(MemAccessKind::Write, 1, base, k % 2));
+            ins.push(rinstr::mem(MemAccessKind::Write, 1, base + 1, (rng.next() % P) as u32));
+            ins.push(rinstr::mem(MemAccessKind::Write, 1, base + 2, (rng.next() % P) as u32));
+            ins.push(RInstr::Select(SelectInstr {
+                addrs: SelectIo { bit: a(base), out1: a(base + 3), out2: a(base + 4), in1: a(base + 1), in2: a(base + 2) },
+                mult1: F::ONE,
+                mult2: F::ONE,
+            }));
+            base += 5;
+        }
+        for _ in 0..6u32 {
+            ins.push(rinstr::mem(MemAccessKind::Write, 0, base, (rng.next() % 65536) as u32));
+            ins.push(RInstr::HintBits(HintBitsInstr {
+                output_addrs_mults: (1..=16).map(|i| (a(base + i), F::ONE)).collect(),
+                input_addr: a(base),
+            }));
+            base += 17;
+        }
+        for k in 0..24u32 {
+            let len = 4 + (k % 5);
+            ins.push(rinstr::mem(MemAccessKind::Write, 1, base, (rng.next() % P) as u32));
+            for i in 0..len {
+                ins.push(rinstr::mem(MemAccessKind::Write, 1, base + 1 + i, (rng.next() % 2) as u32));
+            }
+            let exp: Vec<F> = (0..len).map(|i| F::from_canonical_u32(base + 1 + i)).collect();
+            ins.push(rinstr::exp_reverse_bits_len(1, F::from_canonical_u32(base), exp,
+                                                  F::from_canonical_u32(base + 1 + len)));
+            base += len + 2;
+        }
     }
     let total = base as usize + 64;
     let program = RecursionProgram { instructions: ins, total_memory: total, traces: vec![], shape: None };
@@ -613,7 +651,9 @@ fn recursion_rows(metas: &[MetaChip<F, RecursionChipType<F>>], offset: usize, si
             RowsDoc {
                 air_index: i,
                 name: c.name(),
-                source: "linear recursion program (base / extension ALU, memory, Poseidon2) + generate_main".into(),
+                source: "linear recursion program (base / extension ALU, memory, Poseidon2, select, hint bits, \
+                         exp-reverse-bits) + generate_main"
+                    .into(),
                 height: t.height(),
                 width: t.width(),
                 prep_width: c.preprocessed_width(),
