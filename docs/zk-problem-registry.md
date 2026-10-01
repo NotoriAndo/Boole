@@ -221,12 +221,15 @@ precompiles) and 20 recursion AIRs (compress and wrap machines); Pico 45 RISC-V 
 trace generation on straight-line programs, in-tree ELFs and linear recursion programs (none for the OpenVM leaf
 aggregation AIRs, which need application proofs).
 
-| zkVM | AIRs | OPEN | GATE-FAIL | DET-FALSE-CANDIDATE (private) |
-|---|---:|---:|---:|---:|
-| SP1 v6.8.1 | 142 | 59 | 83 | 0 |
-| Pico v2.1.2 | 54 | 40 | 14 | 0 |
-| OpenVM v2.0.2 | 114 | 56 | 54 | 4 |
-| total | 310 | 155 | 151 | 4 |
+| zkVM | AIRs | OPEN |
+|---|---:|---:|
+| SP1 v6.8.1 | 142 | 59 |
+| Pico v2.1.2 | 54 | 40 |
+| OpenVM v2.0.2 | 114 | 56 |
+| total | 310 | 155 |
+
+The remaining 155 AIRs are 151 GATE-FAIL and 4 DET-FALSE-CANDIDATE; candidates stay private and are not broken down
+by zkVM in tracked documents.
 
 GATE-FAIL is mostly AIRs without an active real row (user-mode, trap and page-permission AIRs, the leaf aggregation
 AIRs, lookup tables) and 79 closures by the automation battery; 6 two-row windows were refuted by a window
