@@ -377,6 +377,22 @@ class DriverTests(unittest.TestCase):
             self.assertNotIn("contract", lib)
             self.assertNotIn("#[aztec]", lib)
 
+    def test_content_key_separates_mutually_reaching_functions(self) -> None:
+        sh = D.Shared.__new__(D.Shared)
+        a, b = toy_target("lib/src/lib.nr", "push"), toy_target("lib/src/lib.nr", "first")
+        self.assertNotEqual(D.content_key(sh, a, "v"), D.content_key(sh, b, "v"))
+        self.assertEqual(D.content_key(sh, a, "v"), D.content_key(sh, toy_target("lib/src/lib.nr", "push"), "v"))
+        self.assertNotEqual(D.content_key(sh, a, "v"), D.content_key(sh, a, "w"))
+        with tempfile.TemporaryDirectory() as d:          # a verbatim copy in another crate is equal by content
+            shutil.copytree(TOY / "lib", os.path.join(d, "lib"))
+            Path(d, "lib", "src", "lib.nr").write_text((TOY / "lib" / "src" / "lib.nr").read_text().replace(
+                "// \"comment with { brace\"", "// another comment"))
+            src = Path(d, "lib", "src", "lib.nr").read_text()
+            fns, _, text = NS.scan(src)
+            fn = next(f for f in fns if f.name == "push")
+            c = I.Target("c", "toy/repo", d, "lib/src/lib.nr", fn, text, src, os.path.join(d, "lib"), "lib")
+            self.assertEqual(D.content_key(sh, a, "v"), D.content_key(sh, c, "v"))
+
     def test_module_tree(self) -> None:
         files = D.module_files(str(TOY / "lib"))
         self.assertEqual({os.path.basename(f) for f in files}, {"lib.nr", "inner.nr"})

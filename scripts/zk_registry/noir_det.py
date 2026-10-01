@@ -289,16 +289,16 @@ def make_target(sh: Shared, row: dict, cache: dict) -> tuple[I.Target | None, st
 # ------------------------------------------------------------------------------------------ content identity
 
 def content_key(sh: Shared, t: I.Target, compiler: str) -> str:
-    """sha256 over the compiler tag and the comment-free, whitespace-normalized text of the function, its
-    enclosing impl header, and every declaration of the crate (and its path dependencies) whose name the
-    function reaches, transitively.  Over-approximating the reached set can only separate copies."""
-    idx = sh.indexes[t.repo]
+    """sha256 over the compiler tag, the crate-relative file path, the comment-free, whitespace-normalized text
+    of the function and its enclosing impl header, and every declaration of the crate (and its path
+    dependencies) whose name the function reaches, transitively.  Over-approximating the reached set can only
+    separate copies."""
     decls = crate_decls(sh, t)
     seen_names: set[str] = set()
-    texts = [NS.strip_for_hash(t.src[t.fn.start:t.fn.end])]
+    own = NS.strip_for_hash(t.src[t.fn.start:t.fn.end])
     imp = t.fn.impl
-    if imp is not None:
-        texts.append(NS.strip_for_hash(imp.header))
+    header = NS.strip_for_hash(imp.header) if imp is not None else ""
+    texts: list[str] = []
     frontier = set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", t.text[t.fn.start:t.fn.end]))
     while frontier:
         name = frontier.pop()
@@ -308,9 +308,14 @@ def content_key(sh: Shared, t: I.Target, compiler: str) -> str:
         for body in decls.get(name, []):
             texts.append(NS.strip_for_hash(body))
             frontier |= set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", NS.blank_comments_strings(body))) - seen_names
-    del idx
-    h = hashlib.sha256(compiler.encode() + b"\0")
-    for x in sorted(set(texts)):
+    # the function's own text and its impl header are distinguished components: functions of one impl that
+    # reach each other have the same closure, but never the same key
+    # the crate-relative file path is part of the key: same-named items of different modules (e.g. two
+    # `_verify_signature` black boxes) are reached by name, so only copies at the same module path merge
+    rel = t.rel_in_crate if t.crate else t.path
+    h = hashlib.sha256(compiler.encode() + b"\0" + rel.encode() + b"\0" + own.encode() + b"\0" +
+                       header.encode() + b"\0")
+    for x in sorted(set(texts) - {own}):
         h.update(x.encode() + b"\n")
     return h.hexdigest()
 
