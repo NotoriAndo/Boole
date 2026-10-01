@@ -304,6 +304,12 @@ class Decomposition(unittest.TestCase):
 
 
 class Toolchain(unittest.TestCase):
+    def test_gnark_version_deviation_is_semantic(self):
+        devs = [{"module": "golang.org/x/sys", "repository": "v0.1.0", "resolved": "v0.2.0"},
+                {"module": "github.com/consensys/gnark", "repository": "v0.14.0", "resolved": "v0.16.3"}]
+        self.assertEqual([d["module"] for d in D.semantic_deviations(devs)], ["github.com/consensys/gnark"])
+        self.assertEqual(D.semantic_deviations(devs[:1]), [])
+
     def test_wrapper_error_lines(self):
         err = ("wrappers/w0123456789ab_0.go:12:3: undefined: x\n"
                "boolegnarkx/wrappers/w0123456789ac_1.go:4:1: cannot use y\n")

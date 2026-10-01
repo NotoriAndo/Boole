@@ -414,6 +414,19 @@ def prepare_harness(cfg: WaveConfig, rb: RepoBuild) -> None:
         got = resolved.get(m)
         if got is not None and got != v and m != rb.module_path:
             rb.version_deviations.append({"module": m, "repository": v, "resolved": got})
+    sem = semantic_deviations(rb.version_deviations)
+    if sem:
+        raise RuntimeError("the wrapper tool would compile against " + ", ".join(
+            f"{d['module']} {d['resolved']} instead of the pinned {d['repository']}" for d in sem))
+
+
+SEMANTIC_MODULES = ("github.com/consensys/gnark", "github.com/consensys/gnark-crypto")
+
+
+def semantic_deviations(devs: list[dict]) -> list[dict]:
+    """Version deviations that change the compiled circuit (gnark and gnark-crypto): the wrapper tool is
+    not used then (production sizing in a copy of the repository module instead)."""
+    return [d for d in devs if d["module"] in SEMANTIC_MODULES]
 
 
 def _first_go_error(stderr: str) -> str:
