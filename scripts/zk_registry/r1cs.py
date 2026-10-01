@@ -204,6 +204,48 @@ def read_r1cs(path: str) -> R1cs:
         return parse_r1cs(f.read())
 
 
+# ------------------------------------------------------------------------------------------ .wtns
+
+def parse_wtns(data: bytes) -> tuple[int, list[int]]:
+    """iden3 ``.wtns`` (binary format v2): ``(prime, values)``, ``values[i]`` the witness value of wire
+    ``i`` in the companion ``.r1cs``'s wire numbering (one, public outputs, public inputs, private inputs,
+    internal, in that order; the same convention the writer used to assign wire indices)."""
+    if len(data) < 12 or data[:4] != b"wtns":
+        raise R1csFormatError("missing wtns magic")
+    version, n_sections = struct.unpack_from("<II", data, 4)
+    if version != 2:
+        raise R1csFormatError(f"unsupported wtns version {version}")
+    off = 12
+    sections: dict[int, tuple[int, int]] = {}
+    for _ in range(n_sections):
+        if off + 12 > len(data):
+            raise R1csFormatError("truncated section table")
+        stype, ssize = struct.unpack_from("<IQ", data, off)
+        off += 12
+        if off + ssize > len(data):
+            raise R1csFormatError(f"section {stype} overruns the file")
+        sections[stype] = (off, ssize)
+        off += ssize
+    if 1 not in sections or 2 not in sections:
+        raise R1csFormatError("header or witness section missing")
+    ho, hsize = sections[1]
+    (n8,) = struct.unpack_from("<I", data, ho)
+    if n8 <= 0 or n8 % 8 or hsize != 4 + n8 + 4:
+        raise R1csFormatError("bad wtns header size")
+    prime = int.from_bytes(data[ho + 4:ho + 4 + n8], "little")
+    (n_values,) = struct.unpack_from("<I", data, ho + 4 + n8)
+    wo, wsize = sections[2]
+    if wsize != n_values * n8:
+        raise R1csFormatError("wtns witness section size mismatch")
+    values = [int.from_bytes(data[wo + i * n8:wo + (i + 1) * n8], "little") for i in range(n_values)]
+    return prime, values
+
+
+def read_wtns(path: str) -> tuple[int, list[int]]:
+    with open(path, "rb") as f:
+        return parse_wtns(f.read())
+
+
 def encode_r1cs(r: R1cs) -> bytes:
     """Serialize ``r`` in the iden3 format (used for fixtures and round-trip tests)."""
     n8 = r.field_bytes
