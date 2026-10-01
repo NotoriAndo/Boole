@@ -163,11 +163,12 @@ class IdentityTests(unittest.TestCase):
         here = Path(__file__).resolve().parent / "zk_registry"
         listed = set(P.GENERATOR_SOURCES)
         present = {str(p.relative_to(here)) for p in here.rglob("*") if p.is_file() and p.suffix in (".py", ".js", ".lean", ".json")}
-        # the AIR (air_det), Noir (noir_det), gnark (gnark_det) and ZoKrates (zokrates_det) generators hash
-        # their own sources; every file belongs to one of the generators
-        from zk_registry import air_det, gnark_det, noir_det, zokrates_det
+        # the AIR (air_det), Noir (noir_det), gnark (gnark_det), ZoKrates (zokrates_det) and halo2 (halo2_det)
+        # generators hash their own sources; every file belongs to one of the generators
+        from zk_registry import air_det, gnark_det, halo2_det, noir_det, zokrates_det
         self.assertEqual(present - listed - set(air_det.generator_files()) - set(noir_det.generator_files())
-                         - set(gnark_det.generator_files()) - set(zokrates_det.generator_files()), set())
+                         - set(gnark_det.generator_files()) - set(zokrates_det.generator_files())
+                         - set(halo2_det.generator_files()), set())
 
 
 class WaveHelpersTests(unittest.TestCase):
