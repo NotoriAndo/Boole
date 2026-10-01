@@ -1,0 +1,31 @@
+[package]
+name = "boole-air-extract"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Boole AIR extractor for OpenVM (added to a scratch copy of the workspace; not upstream code)"
+
+[[bin]]
+name = "boole-air-extract"
+path = "src/main.rs"
+
+[dependencies]
+openvm-circuit = { workspace = true, features = ["parallel"] }
+openvm-sdk-config = { workspace = true }
+openvm-stark-backend = { workspace = true }
+openvm-stark-sdk = { workspace = true, features = ["cpu-backend"] }
+openvm-transpiler = { workspace = true }
+openvm-instructions = { workspace = true }
+p3-field = { workspace = true }
+k256 = { workspace = true, features = ["ecdsa"] }
+tiny-keccak = { workspace = true }
+rand_chacha = { workspace = true }
+openvm-rv32im-transpiler = { workspace = true }
+openvm-bigint-transpiler = { workspace = true }
+openvm-algebra-transpiler = { workspace = true }
+openvm-ecc-transpiler = { workspace = true }
+num-bigint = { workspace = true }
+strum = { workspace = true }
+openvm-sha2-transpiler = { workspace = true }
+openvm-continuations = { workspace = true }
+openvm-recursion-circuit = { workspace = true }

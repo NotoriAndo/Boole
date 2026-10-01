@@ -240,9 +240,13 @@ def classify_battery(text: str, msgs: list[dict], timed_out: bool) -> dict[str, 
 
 def _battery_file(env: L.LeanEnv, build_dir: str, ns: str, n_constraints: int, work: str, fname: str,
                   forms: list[tuple[str, str]], heartbeats: int, file_wall: float, single_wall: float,
-                  rss_limit_mb: int, preconditions: bool, pre_lists) -> tuple[dict[str, dict], dict]:
-    """Run one battery file; forms that time out are rerun alone with ``single_wall``."""
-    text = E.emit_battery_forms(ns, n_constraints, forms, heartbeats, preconditions, pre_lists)
+                  rss_limit_mb: int, preconditions: bool, pre_lists, emit=None) -> tuple[dict[str, dict], dict]:
+    """Run one battery file; forms that time out are rerun alone with ``single_wall``.  ``emit(forms)`` renders a
+    battery file (default: the circom statement's battery)."""
+    if emit is None:
+        def emit(fs):
+            return E.emit_battery_forms(ns, n_constraints, fs, heartbeats, preconditions, pre_lists)
+    text = emit(forms)
     path = os.path.join(work, f"{fname}.lean")
     with open(path, "w", encoding="utf-8") as f:
         f.write(text)
@@ -256,7 +260,7 @@ def _battery_file(env: L.LeanEnv, build_dir: str, ns: str, n_constraints: int, w
     for name, c in classify_battery(text, L.parse_messages(r.out), r.timeout or r.memkill).items():
         if c["status"] == "timeout":
             form = next(fm for fm in forms if E.battery_theorem_name(*fm) == name)
-            single = E.emit_battery_forms(ns, n_constraints, [form], heartbeats, preconditions, pre_lists)
+            single = emit([form])
             spath = os.path.join(work, f"Single_{name}.lean")
             with open(spath, "w", encoding="utf-8") as f:
                 f.write(single)
@@ -282,8 +286,9 @@ BATTERY_P2_ONLY = "P2 (V3-V4, 7 forms)"
 
 def g_triv(env: L.LeanEnv, build_dir: str, ns: str, n_constraints: int, work: str, heartbeats: int = 200000,
            file_wall: float = 900, single_wall: float = 180, rss_limit_mb: int = 16384, preconditions: bool = False,
-           pre_lists=(), p2: bool = True) -> Gate:
-    """The P1 battery (one file per variant V0-V2) and, with ``p2``, the P2 file (V3-V4)."""
+           pre_lists=(), p2: bool = True, emit=None) -> Gate:
+    """The P1 battery (one file per variant V0-V2) and, with ``p2``, the P2 file (V3-V4).  ``emit(forms)`` renders
+    a battery file for other statement families (default: the circom statement)."""
     os.makedirs(work, exist_ok=True)
     results: dict[str, dict] = {}
     runs = []
@@ -292,7 +297,7 @@ def g_triv(env: L.LeanEnv, build_dir: str, ns: str, n_constraints: int, work: st
         files.append(("Battery_P2", [(v, t) for v, ts in E.BATTERY_P2 for t in ts]))
     for fname, forms in files:
         res, run = _battery_file(env, build_dir, ns, n_constraints, work, fname, forms, heartbeats, file_wall,
-                                 single_wall, rss_limit_mb, preconditions, pre_lists)
+                                 single_wall, rss_limit_mb, preconditions, pre_lists, emit)
         results.update(res)
         runs.append(run)
     budget = {"maxHeartbeats": heartbeats, "file_wall_s": file_wall, "single_wall_s": single_wall}

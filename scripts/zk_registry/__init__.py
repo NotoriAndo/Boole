@@ -20,6 +20,14 @@ proofs of the generated statements.
 * ``gates``           G-ELAB, G-NONVAC, G-FID, G-TRIV
 * ``check``           generalized submission checker
 * ``circom_det``      wave driver for the circom DET generator
+
+AIR DET generator (zkVM chips; driver ``air_det``, its own generator name and source hash):
+
+* ``air_ir``          extracted AIR IR (``boole-air-ir/v1``), window layout and an independent evaluator
+* ``air_lean``        Lean model / statement / evaluation harness / battery emitters for AIR windows
+* ``air_bus``         per-zkVM bus models (input, output, split, table-fact roles), table predicates, coverage
+* ``air_search``      sound counterexample searches for AIR windows
+* ``air_harness/``    the Rust extractors (std-only IR writer plus one adapter per zkVM)
 """
 
 GENERATOR_NAME = "boole-zk-registry-circom-det"
