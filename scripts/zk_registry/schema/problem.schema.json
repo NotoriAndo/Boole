@@ -157,7 +157,7 @@
           "required": ["name", "version", "flags", "binary_sha256"],
           "additionalProperties": false,
           "properties": {
-            "name": {"enum": ["circom", "nargo"]},
+            "name": {"enum": ["circom", "nargo", "gnark"]},
             "version": {"type": "string"},
             "flags": {"type": "array", "items": {"type": "string"}},
             "binary_sha256": {"$ref": "#/$defs/sha256"},
@@ -172,6 +172,7 @@
         "n_outputs": {"type": "integer", "minimum": 0},
         "r1cs_sha256": {"$ref": "#/$defs/sha256"},
         "acir": {"description": "Noir packages: ACIR program statistics (sha256 of the decoded functions, opcode counts by kind, Brillig calls, black boxes, oracles, ACIR functions inlined); n_constraints counts the opcodes of the flattened main function.", "type": "object"},
+        "gnark": {"description": "gnark packages: production constraint count and commitments (gnark's own builder), the model builder's range checks, the commitment model (challenge degree and points) and the wrapper id; n_constraints counts the constraints of the model.", "type": "object"},
         "sym_sha256": {"$ref": "#/$defs/sha256"},
         "size_policy": {
           "type": "object",
@@ -210,6 +211,22 @@
               "value": {"type": ["integer", "null"], "minimum": 1},
               "condition": {"type": "string"},
               "wires": {"type": "array", "minItems": 1, "items": {"type": "integer", "minimum": 1}}
+            }
+          }
+        },
+        "emulated_outputs": {
+          "description": "gnark packages: outputs that are emulated field elements, compared by value modulo the emulated modulus (EmulatedOutputs in the model).",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["wires", "bits", "modulus"],
+            "additionalProperties": false,
+            "properties": {
+              "wires": {"type": "array", "items": {"type": "integer", "minimum": 1}},
+              "bits": {"type": "integer", "minimum": 1},
+              "modulus": {"type": "string", "pattern": "^[0-9]+$"},
+              "field": {"type": "string"},
+              "result": {"type": "string"}
             }
           }
         },
@@ -260,13 +277,16 @@
     "env": {
       "type": "object",
       "required": ["lean", "mathlib", "lake_manifest_sha256", "python"],
-      "anyOf": [{"required": ["circom", "node"]}, {"required": ["nargo"]}],
+      "anyOf": [{"required": ["circom", "node"]}, {"required": ["nargo"]}, {"required": ["gnark", "go"]}],
       "additionalProperties": false,
       "properties": {
         "circom": {"type": "string"},
         "nargo": {"description": "Noir packages: the pinned nargo release or source build that compiled the circuit.", "type": "string"},
         "nargo_binary_sha256": {"$ref": "#/$defs/sha256"},
         "acir_tool_sha256": {"description": "Noir packages: the boole-acir-tool built against the same noir version (decoder and ACVM executor).", "type": "string"},
+        "gnark": {"description": "gnark packages: the gnark version the repository pins (the checkout itself for gnark).", "type": "string"},
+        "go": {"description": "gnark packages: the Go toolchain that built the wrappers (version and source).", "type": "string"},
+        "go_required": {"description": "gnark packages: the go (and toolchain) directive of the repository's go.mod.", "type": "string"},
         "circom_binary_sha256": {"$ref": "#/$defs/sha256"},
         "lean": {"type": "string"},
         "mathlib": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
