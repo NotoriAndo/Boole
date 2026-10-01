@@ -330,7 +330,7 @@ LIMITS = ["set_option synthInstance.maxSize 1000000 in", "set_option maxHeartbea
           "set_option maxRecDepth 100000 in"]
 
 
-def _decidable_instances(summary: dict) -> list[str]:
+def _decidable_instances(summary: dict, loader: bool = True) -> list[str]:
     lines = []
     for name in summary["blocks"] + summary.get("asm_blocks", []):
         lines += LIMITS + [f"instance instDec{name} (w : Fin nVars → F) : Decidable ({name} w) := by "
@@ -341,6 +341,8 @@ def _decidable_instances(summary: dict) -> list[str]:
                        "  unfold Assumptions; infer_instance", ""]
     lines += ["instance instDecMsgEq (a b : Msg) : Decidable (MsgEq a b) := by unfold MsgEq; infer_instance",
               "instance instDecBusEq (a b : List Msg) : Decidable (BusEq a b) := by unfold BusEq; infer_instance", ""]
+    if not loader:
+        return lines
     lines += ["def loadWindow (path : String) : IO (Fin nVars → F) := do",
               "  let ls ← IO.FS.lines path",
               "  let vals := (ls.filter (· ≠ \"\")).map String.toNat!",
@@ -375,6 +377,27 @@ def emit_pair_runner(ns: str, summary: dict, w1: str, w2: str) -> str:
               "  IO.println s!\"PAIR outputs {decide (BusEq (Out a) (Out b))}\"",
               "  IO.println \"PAIR-DONE\"", "", f"end {ns}", ""]
     return "\n".join(lines)
+
+
+def emit_kernel_checks(ns: str, summary: dict, windows: Sequence[tuple[str, Sequence[int]]],
+                       claims: Sequence[tuple[str, str]]) -> tuple[str, dict[str, tuple[int, int]]]:
+    """Kernel-checked evaluation, for models whose compiled evaluation re-evaluates shared subterms exponentially
+    (the kernel caches reductions of closed terms).  ``windows``: (tag, values) become closed windows ``w_<tag>``;
+    ``claims``: (name, proposition over those windows), each a theorem proved by ``decide +kernel``.  A claim holds
+    iff its theorem elaborates without error; returns the text and each claim's line range."""
+    lines = [f"import {model_module(ns)}", "", f"namespace {ns}", ""] + _decidable_instances(summary, loader=False)
+    for tag, vals in windows:
+        lines.append(f"def vals_{tag} : List ℕ := [{', '.join(str(v) for v in vals)}]")
+        lines.append(f"def w_{tag} : Fin nVars → F := fun i => ((vals_{tag}.getD i.val 0 : ℕ) : F)")
+    lines.append("")
+    ranges: dict[str, tuple[int, int]] = {}
+    for name, prop in claims:
+        start = len(lines) + 1
+        lines += ["set_option maxRecDepth 100000 in", "set_option maxHeartbeats 0 in",
+                  f"theorem {name} : {prop} := by decide +kernel"]
+        ranges[name] = (start, len(lines))
+    lines += ["", f"end {ns}", ""]
+    return "\n".join(lines), ranges
 
 
 def write_window(path: str, w: Sequence[int]) -> None:

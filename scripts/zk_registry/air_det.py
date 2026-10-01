@@ -336,12 +336,19 @@ def fid_nonvac(sh: Shared, air: IR.Air, layout: IR.Layout, roles: AL.Roles, summ
     if not files:
         detail["reason"] = "no real rows from the zkVM's trace generation on the sample programs"
         return G.Gate("G-FID", "FAIL", dict(detail)), G.Gate("G-NONVAC", "FAIL", dict(detail)), []
-    text, r = lean_eval(sh.env, build, AL.emit_fid_runner(ns, summary, files), work, "Fid")
-    verdict = dict(re.findall(r"^FID (\S+) (ACCEPT|REJECT)$", text, re.M))
-    asmv = dict(re.findall(r"^ASM (\S+) (ACCEPT|REJECT)$", text, re.M))
+    if kernel_mode(air, roles):
+        detail["method"] = ("Lean kernel evaluation (decide +kernel) of Constraints and Assumptions on every window, "
+                            "asserting the verdict of the independent Python evaluator (compiled evaluation would "
+                            "re-evaluate shared subterms exponentially)")
+        verdict, asmv, r, err = kernel_verdicts(sh, air, layout, ctx, summary, ns, build, items, work)
+    else:
+        text, r = lean_eval(sh.env, build, AL.emit_fid_runner(ns, summary, files), work, "Fid")
+        verdict = dict(re.findall(r"^FID (\S+) (ACCEPT|REJECT)$", text, re.M))
+        asmv = dict(re.findall(r"^ASM (\S+) (ACCEPT|REJECT)$", text, re.M))
+        err = None if "FID-DONE" in text else text[-400:]
     detail["lean_eval_secs"] = r.secs
-    if "FID-DONE" not in text:
-        detail["error"] = text[-400:]
+    if err is not None:
+        detail["error"] = err
         detail["reason"] = "the Lean evaluation did not complete (harness error); no verdict is inferred"
         return G.Gate("G-FID", "ERROR", dict(detail)), G.Gate("G-NONVAC", "ERROR", dict(detail)), []
     agree_c = agree_a = 0
@@ -385,8 +392,78 @@ def fid_nonvac(sh: Shared, air: IR.Air, layout: IR.Layout, roles: AL.Roles, summ
             G.Gate("G-NONVAC", "PASS" if nonvac_active else "FAIL", nonvac), [w for _, w in py_ok])
 
 
-def confirm_in_lean(sh: Shared, ns: str, summary: dict, build: str, w1: list[int], w2: list[int], work: str) -> dict:
+KERNEL_EVAL_COST = 20_000_000
+
+
+def eval_cost(air: IR.Air, roles: AL.Roles) -> int:
+    """Work of evaluating the model's terms without sharing (compiled code recomputes every shared subterm at each
+    use): the summed tree sizes of the constraint and assumption roots, capped."""
+    sizes = IR.tree_sizes(air, cap=10**12)
+    roots = list(air.constraints)
+    for a in roles.assumptions:
+        roots += [a.mult] + a.values
+    return min(sum(sizes[r] for r in roots), 10**12)
+
+
+def kernel_mode(air: IR.Air, roles: AL.Roles) -> bool:
+    return eval_cost(air, roles) > KERNEL_EVAL_COST
+
+
+def kernel_verdicts(sh: Shared, air: IR.Air, layout: IR.Layout, ctx, summary: dict, ns: str, build: str,
+                    items: list, work: str):
+    """Python verdicts asserted as kernel-checked theorems; a theorem that fails is a disagreement (its verdict is
+    recorded as the opposite).  Returns (constraint verdicts, assumption verdicts, run, error)."""
+    windows, claims, expect = [], [], {}
+    for kind, k, w in items:
+        tag = f"{kind}_{k:03d}"
+        vals = IR.eval_nodes(air, layout, w)
+        pc = not IR.failing_constraints(air, layout, w, vals)
+        pa = AS.assumptions_hold(ctx, vals, w)
+        windows.append((tag, w))
+        for what, ok in (("Constraints", pc), ("Assumptions", pa)):
+            name = f"{what[0].lower()}_{tag}"
+            claims.append((name, f"{'' if ok else '¬ '}{what} w_{tag}"))
+            expect[name] = (tag, what, ok)
+    text, ranges = AL.emit_kernel_checks(ns, summary, windows, claims)
     os.makedirs(work, exist_ok=True)
+    src = os.path.join(work, "FidKernel.lean")
+    with open(src, "w", encoding="utf-8") as f:
+        f.write(text)
+    r = L.run_lean(sh.env, AL.LEAN_OPTIONS + ["--json", src], work, 3600, extra_lean_path=[build])
+    msgs = L.parse_messages(r.out)
+    if r.timeout or (r.rc != 0 and not L.errors(msgs)):
+        return {}, {}, r, (r.out[-400:] or "timeout")
+    bad = set()
+    for m in L.errors(msgs):
+        line = (m.get("pos") or {}).get("line")
+        for name, (lo, hi) in ranges.items():
+            if line is not None and lo <= line <= hi:
+                bad.add(name)
+        if line is None or not any(lo <= line <= hi for lo, hi in ranges.values()):
+            return {}, {}, r, L.fmt_msg(m)
+    verdict, asmv = {}, {}
+    for name, (tag, what, ok) in expect.items():
+        held = name not in bad
+        accept = ok if held else not ok
+        (verdict if what == "Constraints" else asmv)[tag] = "ACCEPT" if accept else "REJECT"
+    return verdict, asmv, r, None
+
+
+def confirm_in_lean(sh: Shared, ns: str, summary: dict, build: str, w1: list[int], w2: list[int], work: str,
+                    kernel: bool = False) -> dict:
+    os.makedirs(work, exist_ok=True)
+    if kernel:
+        claims = [("pair_c1", "Constraints w_a"), ("pair_c2", "Constraints w_b"), ("pair_a1", "Assumptions w_a"),
+                  ("pair_a2", "Assumptions w_b"), ("pair_fixed", "∀ i ∈ Fixed, w_a i = w_b i"),
+                  ("pair_in", "BusEq (In w_a) (In w_b)"), ("pair_out", "¬ BusEq (Out w_a) (Out w_b)")]
+        text, ranges = AL.emit_kernel_checks(ns, summary, [("a", w1), ("b", w2)], claims)
+        src = os.path.join(work, "PairKernel.lean")
+        with open(src, "w", encoding="utf-8") as f:
+            f.write(text)
+        r = L.run_lean(sh.env, AL.LEAN_OPTIONS + ["--json", src], work, 3600, extra_lean_path=[build])
+        errs = L.errors(L.parse_messages(r.out))
+        ok = r.rc == 0 and not r.timeout and not errs
+        return {"lean_confirms": ok, "lean": {"mode": "kernel", "errors": [L.fmt_msg(m) for m in errs[:3]]}}
     a, b = os.path.join(work, "w1.txt"), os.path.join(work, "w2.txt")
     AL.write_window(a, w1)
     AL.write_window(b, w2)
@@ -494,7 +571,8 @@ def _process_air(sh: Shared, m: dict, rec: dict) -> dict:
                 "note": "PASS means no counterexample was found by the cheap searches; DET truth is not established"}
     if ce is not None:
         cdir = os.path.join(work, "counterexample")
-        lc = confirm_in_lean(sh, ns, summary, build, ce.base, ce.other, cdir) if model_ok else {"lean_confirms": False}
+        lc = (confirm_in_lean(sh, ns, summary, build, ce.base, ce.other, cdir, kernel_mode(air, roles))
+              if model_ok else {"lean_confirms": False})
         window = air.window_rows() == 2
         truth = ("window-false-counterexample-found" if window else "false-counterexample-found") \
             if lc["lean_confirms"] else "unknown"

@@ -314,6 +314,11 @@ class Sp1Model(BusModel):
         if kind == "Global" and send and len(it.values) == 11:
             is_send, is_recv = _const_value(air, it.values[8]), _const_value(air, it.values[9])
             if is_send == 1 and is_recv == 0:
+                if _const_value(air, it.values[0]) == 0 and _const_value(air, it.values[1]) == 0:
+                    return Rule("split", "initialization message (timestamp 0): the initial content (fields 5-7: the "
+                                         "memory word or page permission) is supplied by the program image or the "
+                                         "prover's input, the address is produced", in_fields=(5, 6, 7),
+                                out_fields=(0, 1, 2, 3, 4, 8, 9, 10), mult_with="out")
                 return Rule("out", "global bus message sent to other shards (is_send = 1)")
             if is_recv == 1 and is_send == 0:
                 return Rule("in", "global bus message received from other shards (is_receive = 1)")
@@ -481,6 +486,11 @@ class PicoModel(BusModel):
                 return Rule("in", "global bus messages are consumed by the Global chip")
             is_send, is_recv = _const_value(air, it.values[8]), _const_value(air, it.values[9])
             if is_send == 1 and is_recv == 0:
+                if _const_value(air, it.values[0]) == 0 and _const_value(air, it.values[1]) == 0:
+                    return Rule("split", "initialization message (timestamp 0): the initial content (fields 5-7: the "
+                                         "memory word or page permission) is supplied by the program image or the "
+                                         "prover's input, the address is produced", in_fields=(5, 6, 7),
+                                out_fields=(0, 1, 2, 3, 4, 8, 9, 10), mult_with="out")
                 return Rule("out", "global bus message sent to other chunks (is_send = 1)")
             if is_recv == 1 and is_send == 0:
                 return Rule("in", "global bus message received from other chunks (is_receive = 1)")

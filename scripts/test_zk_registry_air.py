@@ -407,6 +407,19 @@ class BusModelTests(unittest.TestCase):
             self.assertEqual(iface["outputs"][0]["fields"], list(range(9)))
             self.assertEqual([m.get("fields") for m in iface["inputs"]], [list(range(9, 25)), None])
 
+    def test_initial_memory_content_is_an_input(self) -> None:
+        nodes = [["main", 0, 0], ["main", 0, 1], ["const", 0], ["const", 1]]
+        init = [2, 2, 0, 0, 0, 1, 1, 1, 3, 2, 3]          # timestamp (0, 0), value fields 5-7, is_send = 1
+        later = [0, 1, 0, 0, 0, 1, 1, 1, 3, 2, 3]         # a non-constant timestamp: an ordinary send
+        for z in ("sp1", "pico"):
+            air = mini_air("MemoryGlobalInit", [it("send", kind=9, kind_name="Global", values=init),
+                                                it("send", kind=9, kind_name="Global", values=later)],
+                           group="riscv", nodes=nodes)
+            _, iface = B.model_for(z).roles(air)
+            self.assertEqual(iface["inputs"][0]["fields"], [5, 6, 7])
+            self.assertEqual(iface["outputs"][0]["fields"], [0, 1, 2, 3, 4, 8, 9, 10])
+            self.assertEqual(iface["outputs"][1]["role"], "out")
+
     def test_global_messages_follow_their_flags(self) -> None:
         sp1 = B.model_for("sp1")
         nodes = [["main", 0, 0], ["main", 0, 1], ["const", 0], ["const", 1]]
@@ -556,6 +569,60 @@ class HarnessModuleTests(unittest.TestCase):
             self.assertEqual(lib.count("#[cfg(test)]\npub mod boole_air_ir;"), 1)
             self.assertTrue(Path(tmp, "ws/vm/src/boole_air_extract.rs").exists())
             self.assertFalse(Path(tmp, "ws/boole-air-extract").exists())
+
+
+class KernelModeTests(unittest.TestCase):
+    def deep(self, depth: int) -> IR.Air:
+        """x_{k+1} = x_k * x_k: tree size 2^depth, DAG size depth."""
+        doc = toy_doc("Deep", 0)
+        nodes = [["main", 0, 0]]
+        for _ in range(depth):
+            nodes.append(["mul", len(nodes) - 1, len(nodes) - 1])
+        doc["nodes"], doc["constraints"], doc["interactions"] = nodes, [len(nodes) - 1], []
+        return IR.from_json(doc)
+
+    def test_exponential_sharing_selects_kernel_evaluation(self) -> None:
+        roles = AL.Roles()
+        self.assertFalse(D.kernel_mode(self.deep(10), roles))
+        self.assertTrue(D.kernel_mode(self.deep(40), roles))
+        self.assertEqual(D.eval_cost(self.deep(10), roles), 2 ** 11 - 1)
+
+    def test_kernel_checks_text(self) -> None:
+        summary = {"hoisted": [], "blocks": [], "asm_blocks": [], "tables": []}
+        text, ranges = AL.emit_kernel_checks("ZkDet.toy", summary, [("real_000", [3, 4, 7, 1])],
+                                             [("c_real_000", "Constraints w_real_000"),
+                                              ("a_mut_000", "¬ Assumptions w_real_000")])
+        self.assertIn("def vals_real_000 : List ℕ := [3, 4, 7, 1]", text)
+        self.assertIn("theorem a_mut_000 : ¬ Assumptions w_real_000 := by decide +kernel", text)
+        self.assertNotIn("loadWindow", text)
+        lines = text.split("\n")
+        lo, hi = ranges["c_real_000"]
+        self.assertTrue(lines[hi - 1].startswith("theorem c_real_000"))
+
+    def test_kernel_verdicts_map_errors_to_claims(self) -> None:
+        air = IR.from_json(toy_doc("ToyAdd", 0))
+        lay = IR.Layout.of(air)
+        with mock.patch.dict(B.MODELS, {"sp1": ToyModel}):
+            m = B.model_for("sp1")
+            roles, _ = m.roles(air)
+        ctx = AS.Context(air, lay, roles, m.table_fn)
+        items = [("real", 0, [3, 4, 7, 1]), ("mut", 0, [3, 4, 8, 1])]
+        summary = {"hoisted": [], "blocks": [], "asm_blocks": [], "tables": ["toyRange"]}
+        captured = {}
+
+        def fake_run(env, args, cwd, timeout, extra_lean_path=()):
+            text = open(args[-1], encoding="utf-8").read()
+            captured["text"] = text
+            line = next(i for i, l in enumerate(text.split("\n"), 1) if l.startswith("theorem c_mut_000"))
+            out = json.dumps({"severity": "error", "pos": {"line": line, "column": 0}, "data": "decide failed"})
+            return D.L.RunResult(1, out, 0.1, False)
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(D.L, "run_lean", side_effect=fake_run):
+            sh = mock.Mock()
+            verdict, asmv, _, err = D.kernel_verdicts(sh, air, lay, ctx, summary, "ZkDet.toy", tmp, items, tmp)
+        self.assertIsNone(err)
+        self.assertIn("theorem c_mut_000 : ¬ Constraints w_mut_000", captured["text"])
+        self.assertEqual(verdict, {"real_000": "ACCEPT", "mut_000": "ACCEPT"})   # the failed claim flips the verdict
+        self.assertEqual(asmv, {"real_000": "ACCEPT", "mut_000": "ACCEPT"})
 
 
 class RerunTests(unittest.TestCase):
