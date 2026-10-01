@@ -526,6 +526,20 @@ class SearchTests(unittest.TestCase):
         self.assertFalse(oracle.complete(flat.opcodes, w))
         self.assertEqual(calls, ["Poseidon2Permutation"])
 
+    def test_single_wire_confirmation_matches_full_check(self) -> None:
+        for name in ("rc2_fx_mem", "rc2_fx_logic", "rc2_fx_bb", "rc2_fx_under", "rc2_fx_call"):
+            flat, ws = real_witnesses(name)
+            touch = DSN.touching(flat)
+            oracle = DSN.Oracle(table_of(flat, ws))
+            for w in ws:
+                for o in flat.outputs:
+                    for delta in (1, 7):
+                        w2 = list(w)
+                        w2[o] = (w2[o] + delta) % A.BN254
+                        fast = bool(DSN.confirm_single(flat, w, w2, o, oracle, touch))
+                        full = bool(DSN.confirm(flat, w, w2, oracle))
+                        self.assertEqual(fast, full, (name, o))
+
     def test_propagate(self) -> None:
         flat, ws = real_witnesses("rc2_fx_call")
         w = ws[0]

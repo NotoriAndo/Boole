@@ -75,15 +75,70 @@ def confirm(flat: A.Flat, w1: list[int], w2: list[int], oracle: Oracle) -> list[
     return diff
 
 
-def output_mutation(flat: A.Flat, w: list[int], rng: random.Random, oracle: Oracle) -> Counterexample | None:
+def touching(flat: A.Flat) -> dict[int, list[int]]:
+    """witness -> indices of the opcodes whose satisfaction can change with it: the opcodes mentioning it and,
+    for a memory block it occurs in, the block's whole operation sequence (its initialization included)."""
+    users: dict[int, set[int]] = {}
+    blocks: dict[int, list[int]] = {}
+    for k, op in enumerate(flat.opcodes):
+        if op["kind"] in ("mem_init", "mem_op"):
+            blocks.setdefault(op["block"], []).append(k)
+    for k, op in enumerate(flat.opcodes):
+        for wi in _op_witnesses(op):
+            users.setdefault(wi, set()).add(k)
+            if op["kind"] in ("mem_init", "mem_op"):
+                users[wi].update(blocks[op["block"]])
+    return {wi: sorted(ks) for wi, ks in users.items()}
+
+
+def _op_witnesses(op: dict) -> set[int]:
+    k = op["kind"]
+    if k == "assert_zero":
+        return op["expr"].witnesses()
+    if k == "range":
+        return {op["input"][1]} if op["input"][0] == "w" else set()
+    if k in ("and", "xor"):
+        return {x[1] for x in (op["lhs"], op["rhs"]) if x[0] == "w"} | {op["output"]}
+    if k == "bb":
+        ws = {x[1] for x in op["inputs"] if x[0] == "w"} | set(op["outputs"])
+        if op["predicate"] and op["predicate"][0] == "w":
+            ws.add(op["predicate"][1])
+        return ws
+    if k == "mem_init":
+        return set(op["init"])
+    if k == "mem_op":
+        ws = op["write"].witnesses() | op["index"].witnesses() | op["value"].witnesses()
+        return ws | (op["predicate"].witnesses() if op["predicate"] is not None else set())
+    return set()
+
+
+def confirm_single(flat: A.Flat, w1: list[int], w2: list[int], wire: int, oracle: Oracle,
+                   touch: dict[int, list[int]]) -> list[int] | None:
+    """:func:`confirm` for an assignment that differs from the real witness ``w1`` in one wire only: the
+    opcodes that do not involve the wire are unchanged and hold, so only the touching ones are evaluated
+    (in program order, memory blocks whole)."""
+    if wire in flat.inputs or wire not in flat.outputs:
+        return None
+    sub = [flat.opcodes[k] for k in touch.get(wire, [])]
+    if not oracle.complete(sub, w2):
+        return None
+    if not A.check(sub, w2, oracle.interp)[0]:
+        return None
+    return [wire]
+
+
+def output_mutation(flat: A.Flat, w: list[int], rng: random.Random, oracle: Oracle,
+                    touch: dict[int, list[int]] | None = None) -> Counterexample | None:
     p = A.BN254
+    touch = touching(flat) if touch is None else touch
     for o in flat.outputs:
         for delta in (1, p - 1, rng.randrange(1, p)):
             w2 = list(w)
             w2[o] = (w2[o] + delta) % p
-            diff = confirm(flat, w, w2, oracle)
-            if diff:
-                return Counterexample("output-mutation", w, w2, diff)
+            if confirm_single(flat, w, w2, o, oracle, touch):
+                diff = confirm(flat, w, w2, oracle)      # full confirmation of the candidate
+                if diff:
+                    return Counterexample("output-mutation", w, w2, diff)
     return None
 
 
@@ -195,8 +250,9 @@ def search(flat: A.Flat, witnesses: list[list[int]], oracle: Oracle, seed: str, 
     if not flat.outputs:
         log["skipped"] = "no return witnesses"
         return None, log
+    touch = touching(flat)
     for w in witnesses[:mutation_bases]:
-        ce = output_mutation(flat, w, rng, oracle)
+        ce = output_mutation(flat, w, rng, oracle, touch)
         if ce:
             log["output_mutation"] = "found"
             return ce, log
