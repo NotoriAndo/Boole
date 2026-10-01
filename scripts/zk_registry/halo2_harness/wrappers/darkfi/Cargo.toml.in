@@ -1,0 +1,19 @@
+[package]
+name = "boole_h1_darkfi"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "boole-h1"
+path = "src/main.rs"
+
+[dependencies]
+halo2_proofs = { path = "{fork}/halo2_proofs", features = ["circuit-params"] }
+halo2_gadgets = { path = "{fork}/halo2_gadgets", features = ["circuit-params"] }
+pasta_curves = "0.5"
+ff = "0.13"
+group = "0.13"
+rand = "0.8"
+
+[workspace]

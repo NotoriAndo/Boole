@@ -157,7 +157,7 @@
           "required": ["name", "version", "flags", "binary_sha256"],
           "additionalProperties": false,
           "properties": {
-            "name": {"enum": ["circom", "nargo", "gnark", "zokrates"]},
+            "name": {"enum": ["circom", "nargo", "gnark", "zokrates", "halo2"]},
             "version": {"type": "string"},
             "flags": {"type": "array", "items": {"type": "string"}},
             "binary_sha256": {"$ref": "#/$defs/sha256"},
@@ -172,7 +172,7 @@
         "n_outputs": {"type": "integer", "minimum": 0},
         "r1cs_sha256": {"$ref": "#/$defs/sha256"},
         "acir": {"description": "Noir packages: ACIR program statistics (sha256 of the decoded functions, opcode counts by kind, Brillig calls, black boxes, oracles, ACIR functions inlined); n_constraints counts the opcodes of the flattened main function.", "type": "object"},
-        "gnark": {"description": "gnark packages: production constraint count and commitments (gnark's own builder), the model builder's range checks, the commitment model (challenge degree and points) and the wrapper id; n_constraints counts the constraints of the model.", "type": "object"},
+        "halo2": {"description": "halo2 packages: the layout (k, rows, usable rows), gate instances, copy constraints, lookups, lookup tables, expression nodes and the MockProver verdict of the wrapper run; n_constraints counts the model items (gate instances + copies + lookups) and n_wires its cells.", "type": "object"}, "gnark": {"description": "gnark packages: production constraint count and commitments (gnark's own builder), the model builder's range checks, the commitment model (challenge degree and points) and the wrapper id; n_constraints counts the constraints of the model.", "type": "object"},
         "sym_sha256": {"$ref": "#/$defs/sha256"},
         "size_policy": {
           "type": "object",
@@ -278,7 +278,7 @@
       "type": "object",
       "required": ["lean", "mathlib", "lake_manifest_sha256", "python"],
       "anyOf": [{"required": ["circom", "node"]}, {"required": ["nargo"]}, {"required": ["gnark", "go"]},
-                {"required": ["zokrates"]}],
+                {"required": ["zokrates"]}, {"required": ["halo2", "rust"]}],
       "additionalProperties": false,
       "properties": {
         "circom": {"type": "string"},
@@ -287,6 +287,8 @@
         "acir_tool_sha256": {"description": "Noir packages: the boole-acir-tool built against the same noir version (decoder and ACVM executor).", "type": "string"},
         "gnark": {"description": "gnark packages: the gnark version the repository pins (the checkout itself for gnark).", "type": "string"},
         "zokrates": {"description": "ZoKrates packages: the pinned ZoKrates version that compiled the circuit (a source build or the official release binary).", "type": "string"},
+        "halo2": {"description": "halo2 packages: the halo2_proofs line and version the repository builds against (instrumented MockProver export).", "type": "string"},
+        "rust": {"description": "halo2 packages: the installed rustup toolchain that built the wrapper tests (and the toolchain the repository pins).", "type": "string"},
         "go": {"description": "gnark packages: the Go toolchain that built the wrappers (version and source).", "type": "string"},
         "go_required": {"description": "gnark packages: the go (and toolchain) directive of the repository's go.mod.", "type": "string"},
         "circom_binary_sha256": {"$ref": "#/$defs/sha256"},

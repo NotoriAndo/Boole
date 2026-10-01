@@ -340,6 +340,64 @@ inputs are the wrapper's flattened arguments, outputs its flattened return value
 flattened arguments, accepted by the Python evaluator and by Lean's `decide (Constraints w)` on every real witness
 and 16 single-wire mutants); G-TRIV (battery P2 then P1); a sound counterexample search.
 
+## halo2 DET generator (circuits and gadgets over the concrete layout)
+
+Code: `scripts/zk_registry/halo2_*.py` (driver `halo2_det.py`, generator `boole-zk-registry-halo2-det` 1.0) and
+`scripts/zk_registry/halo2_harness/` (Rust: `export/` the MockProver exporters, `wrappers/` the wrapper circuits per
+adapter). It reuses the Circom statement template, G-ELAB, the TRIV battery, the package format, the checker, the
+`problem.json` schema (additive `"halo2"` values), the AIR term printer and the AIR counterexample search.
+
+**Population.** Ledger rows with `framework == "halo2"`, with the unit and flag exclusions of the other generators
+(`halo2_det.SELECTION_FILTER`), located by `git show` at their pins and deduplicated by a content key (symbol, census
+line and the comment-free text of the file). The `plonky3-AIR+halo2` rows are OpenVM chips (AIRs, extracted in wave
+Z0 through OpenVM's keygen) and its verifier contracts, not halo2 circuits; they are not taken. Every row ends in one
+terminal status: OPEN, GATE-FAIL, DET-FALSE-CANDIDATE (private), TOO-LARGE, NO-INSTANTIATION, COMPILE-FAIL or
+NOT-APPLICABLE, each with a reason (`halo2_targets.py` holds every rule: proof-system, transcript, commitment-scheme,
+security-parameter and native or Solidity verifier code is NOT-APPLICABLE; witnessing instructions, whose result is a
+prover-supplied `Value` by design, and configuration / table-loading functions are NOT-APPLICABLE; in-circuit SNARK
+verification (aggregation, recursion), generic circuit builders and interpreter circuits have NO-INSTANTIATION).
+
+**Extraction.** One adapter per repository build. The `halo2_proofs` the repository builds against gets the exporter
+in a scratch copy (`src/dev/boole_export.rs`, plus one call in `MockProver::assign_advice` that records the region and
+annotation of every advice assignment); it reads the prover after `MockProver::run`: the gates and lookups after
+selector compression (as keygen builds them), all fixed / advice / instance values, the permutation cycles and the
+regions. Two MockProver lines are covered: zcash 0.3 (zcash/halo2, orchard, darkfi's fork, the qed-it forks) and
+scroll-tech v1.0 (the 2022-09 privacy-scaling-explorations fork; multi-phase, challenge-dependent constraints are
+rejected). A path dependency is instrumented in place; a crates.io or git dependency is replaced through `[patch]` by
+an instrumented copy of the locked source. The wrappers are `#[test]`s injected as child modules of the chip or of the
+chip's own test module, so they reuse the repository's test configuration (columns, equality, fixed bases, hash
+domains, K), or a small vendored crate (a repository's gadget sources verbatim, or a runner that depends on the
+checkout) built with the repository's Cargo.lock. Toolchain: the pinned rustup toolchain when installed, otherwise
+the installed stable (recorded as a deviation).
+
+**Wrappers and I/O.** A wrapper allocates its I/O columns first, loads its inputs from instance cells (or binds the
+cells an instruction witnesses to instance cells), calls the instruction and copies every result cell into the region
+`boole-outputs`. Cells an instruction witnesses from its `Value` parameters (e.g. the second element and the flag of
+a conditional swap) are inputs named by (region, annotation). A chip row exercises every result-producing
+instruction of the chip on the wrapper's inputs; a whole-circuit row runs the repository's own circuit and instance
+from its tests (no result cells: it is measured, and TOO-LARGE above the policy or GATE-FAIL with no outputs).
+
+**Model and statement.** The flattened circuit over the concrete layout of `MockProver::run` at the recorded k: every
+gate polynomial at every row of the domain (rotations modulo n, fixed cells and compressed selectors substituted as
+constants, instances that fold to 0 dropped, constant-false items recorded), every lookup at every usable row as
+membership of the input tuple in the table over the usable rows (fixed tables are constants: a one-column table equal
+to {0, .., m-1} is `x.val < m`, others are `Table<k>` lists; advice-defined tables are tuples of model terms, exact,
+no hypothesis), every permutation cycle as equalities (fixed cells as constants). Variables are the advice and
+instance cells the constraints reference; unreferenced cells are free. `Inputs` are the instance cells and the named
+witnessed cells, `Outputs` the cells of `boole-outputs`. Fields: Pallas base (zcash line), BN254 `Fr` and the Pasta
+field (scroll line), as the circuit is defined over. The statement is the Circom template over `nWires` cells. Size
+policy: 2,000 items (gate instances + copies + lookups).
+
+**Gates** (cheapest first). One sample sizes the layout (TOO-LARGE stops there); then 16 sampled inputs (boundary
+values and random) whose layouts must hash equal; G-ELAB; G-NONVAC (a MockProver-verified run satisfies the Python
+evaluator and Lean); G-FID (at least 10 distinct real witnesses, 1 for input-free wrappers, and 16 single-cell advice
+mutants: Lean's `decide (Constraints w)`, the independent Python evaluator and `MockProver::verify` with the cell
+overridden must agree on every mutant; a panic of `verify` is recorded and counted as a rejection); DET-SEARCH (the
+shared single-variable, linear-kernel and re-solve searches, fixed-table lookups as exact predicates; skipped for
+advice-defined tables); G-TRIV (battery P2, then P1). `decompose` maps every named region of a TOO-LARGE layout to the
+packaged wave records whose wrapper layout has the same region (the instruction that assigns it), marking children of
+the same gadget source; no new package and no compositional statement is made.
+
 ## Wave 0 (circomlib v2.0.5, 106 templates)
 
 | Status | Count |
@@ -529,6 +587,50 @@ wire layout `zokrates_r1cs`'s native path uses.
   tier produced an 11 GiB `.r1cs` at `N` = 32 before the guard existed; the guard stops probing a
   strictly larger generic value once a candidate is already far over the size policy. Full report:
   `local-docs/zk-production-v1-2026-09-29/WAVE-K1-REPORT.md` (operator's local workspace, not tracked).
+
+## Wave H1 (halo2 circuits and gadgets of the frozen ledger)
+
+187 filtered ledger rows of 21 repository pins (zcash/halo2 `halo2_gadgets` 0.5.0 41 and `halo2_proofs` 19,
+axiom-crypto and scroll-tech snark-verifier 38 + 33, nebrazkp/upa 17, darkfi 8, and 15 more repositories) were located
+at their pins (187 of 187) and are 187 distinct by content. The 125 `plonky3-AIR+halo2` rows (OpenVM chips and
+verifier contracts) are not halo2 circuits and were not taken. Seven adapters were built (zcash `halo2_gadgets`,
+darkfi's gadgets, orchard, qed-it/halo2, qed-it/orchard, scroll-tech/poseidon-circuit, scroll-tech/mpt-circuit).
+
+| status | records |
+|---|---:|
+| OPEN | 14 |
+| GATE-FAIL (18 closed by the automation battery) | 26 |
+| DET-FALSE-CANDIDATE | 0 |
+| TOO-LARGE | 4 |
+| NO-INSTANTIATION | 24 |
+| COMPILE-FAIL | 12 |
+| NOT-APPLICABLE | 107 |
+| total | 187 |
+
+- OPEN: 12 `halo2_gadgets` 0.5.0 instructions (ECC addition, incomplete addition, variable-base, fixed-base,
+  short and base-field-element scalar multiplication, the Poseidon permutation, Sinsemilla and Merkle
+  `hash_to_point` with and without private initial point, Merkle `hash_layer`; 14 to 1,670 items, 7 with lookups
+  into the 10-bit range table and the Sinsemilla generator table) and scroll-tech/poseidon-circuit `Pow5Chip` and
+  `SeptidonChip` (BN254). The scroll `Pow5Chip` model is identical to the zcash `Pow5Chip.permute` model (same
+  model hash; recorded in `DEDUP.jsonl`), so the wave adds 13 distinct OPEN problems. 10 OPEN packages carry
+  `coverage: partial` (zcash/ironwood, a Lean 4 hand port of the 0.5.0 chips at Orchard parameters; not a DET
+  statement over the layout); no row is dropped because of coverage.
+- GATE-FAIL: 18 closures by battery P2 (`grind` / `simp_all`: copies, projections, conditional swap and mux, the
+  darkfi arithmetic / select / is-equal chips, orchard `AddChip`) and 8 instructions or chips without result cells
+  (assertions and range checks; DET vacuous). Every G-FID passed on the packaged models (Lean, the Python evaluator
+  and `MockProver::verify` agreed on all mutants) except a boolean range check with two distinct inputs.
+- TOO-LARGE (measured): the Orchard Action circuit (12,779 items), qed-it's `EccChip` test circuit (10,654) and its
+  vanilla / ZSA action circuits (12,779 / 14,657). `decompose` maps their 156 named regions to wave records (98
+  mapped, 26 to the same gadget source).
+- NO-INSTANTIATION: in-circuit SNARK verification (aggregation, recursion, the halo2 loader; 14), generic circuit
+  builders and frameworks (7) and interpreter circuits (zkas VM, Vamp-IR backend, ezkl graph; 3). NOT-APPLICABLE:
+  native and Solidity verifiers, proof-system components and security parameters (95), witnessing instructions (6)
+  and configuration / table loading (6).
+- COMPILE-FAIL: scroll-tech/mpt-circuit (a dependency needs the removed nightly feature `slice_group_by`; the pinned
+  nightly is not installed) and 11 rows on halo2 lines without an exporter adaptation (PSE v0.3.0, summa-dev,
+  scroll-tech develop, zkonduit, axiom, midnight).
+- DET truth is unknown for every OPEN package. Full report: `local-docs/zk-production-v1-2026-09-29/WAVE-H1-REPORT.md`
+  (operator's local workspace, not tracked).
 
 ## Limits
 
