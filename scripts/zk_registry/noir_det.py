@@ -1535,6 +1535,8 @@ def run_wave(cfg: WaveConfig, log_every: int = 25) -> list[dict]:
         for fut in cf.as_completed(futs):
             rec = fut.result()
             rec["evidence"]["content_sha256"] = keys[futs[fut]["item_id"]]
+            if rec["status"] in P.PACKAGED_STATUSES:
+                rewrite_problem(cfg, rec)            # problem.json = the final index record
             records.append(rec)
             done += 1
             append_jsonl(os.path.join(cfg.out, "PROGRESS.jsonl"), rec)
@@ -1616,6 +1618,8 @@ def run_rerun(cfg: WaveConfig, index_path: str, item_ids: list[str]) -> list[dic
             i = futs[fut]
             new, old = fut.result(), by_id[i]
             new["evidence"]["content_sha256"] = old["evidence"].get("content_sha256")
+            if new["status"] in P.PACKAGED_STATUSES:
+                rewrite_problem(cfg, new)
             if old["package_id"] != new["package_id"] and old["status"] in P.PACKAGED_STATUSES:
                 stale = os.path.join(cfg.out, *old["package_id"].split("/", 1))
                 if stale.startswith(cfg.out + os.sep) and os.path.isdir(stale):
@@ -1795,8 +1799,8 @@ def run_decompose(cfg: WaveConfig, index_path: str, max_depth: int = 4) -> tuple
                     rec["instantiation"]["decomposition"] = {
                         "parents": node["parents"], "n_parents": len(node["parents"]), "depth": node["depth"],
                         "content_sha256": key, "variants": 1, "instance_key": key}
-                    if rec["status"] in P.PACKAGED_STATUSES:
-                        rewrite_problem(cfg, rec)
+                if rec["status"] in P.PACKAGED_STATUSES:
+                    rewrite_problem(cfg, rec)
                 node["record"] = rec
                 level_recs.append(rec)
                 append_jsonl(os.path.join(cfg.out, "PROGRESS.jsonl"), rec)
