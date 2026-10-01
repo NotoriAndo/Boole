@@ -27,7 +27,7 @@ pilot produced 17 non-trivial problems, 15 of which a strong model proved with
 independent kernel checks. The first deterministic generator produces output-
 determinism (DET) problem packages from Circom templates; its first wave over
 circomlib v2.0.5 yielded 48 open packages; an AIR generator for zkVM chips (SP1, Pico, OpenVM) produced 155 more in
-wave Z0. See the
+wave Z0, and a Noir generator over compiled ACIR produced 423 more in wave N1. See the
 [problem registry](zk-problem-registry.md) for the templates, gates, package
 format and limits. Nothing is issued, rewarded or activated; BF.7 remains HOLD.
 

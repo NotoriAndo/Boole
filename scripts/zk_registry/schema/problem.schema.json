@@ -18,7 +18,7 @@
         "name": {"type": "string", "minLength": 1}
       }
     },
-    "status": {"enum": ["OPEN", "TOO-LARGE", "UNINSTANTIABLE", "GATE-FAIL", "DET-FALSE-CANDIDATE"]},
+    "status": {"enum": ["OPEN", "TOO-LARGE", "UNINSTANTIABLE", "GATE-FAIL", "DET-FALSE-CANDIDATE", "NO-INSTANTIATION", "COMPILE-FAIL", "NOT-APPLICABLE"]},
     "status_reason": {"type": "string"},
     "ids": {
       "type": "object",
@@ -70,7 +70,7 @@
       "required": ["rule", "args", "call", "provenance", "selection", "candidates"],
       "additionalProperties": false,
       "properties": {
-        "rule": {"enum": ["parameter-free", "repo-main", "repo-test", "repo-internal", "repo-derived", "documented-default", "probed", "decomposition", "none"]},
+        "rule": {"enum": ["parameter-free", "repo-main", "repo-test", "repo-internal", "repo-derived", "documented-default", "probed", "decomposition", "contract-entrypoint", "none"]},
         "rule_order": {"type": "array", "items": {"type": "string"}},
         "args": {"type": "array", "items": {"type": "string"}},
         "call": {"type": "string"},
@@ -157,7 +157,7 @@
           "required": ["name", "version", "flags", "binary_sha256"],
           "additionalProperties": false,
           "properties": {
-            "name": {"const": "circom"},
+            "name": {"enum": ["circom", "nargo"]},
             "version": {"type": "string"},
             "flags": {"type": "array", "items": {"type": "string"}},
             "binary_sha256": {"$ref": "#/$defs/sha256"},
@@ -171,6 +171,7 @@
         "n_inputs": {"type": "integer", "minimum": 0},
         "n_outputs": {"type": "integer", "minimum": 0},
         "r1cs_sha256": {"$ref": "#/$defs/sha256"},
+        "acir": {"description": "Noir packages: ACIR program statistics (sha256 of the decoded functions, opcode counts by kind, Brillig calls, black boxes, oracles, ACIR functions inlined); n_constraints counts the opcodes of the flattened main function.", "type": "object"},
         "sym_sha256": {"$ref": "#/$defs/sha256"},
         "size_policy": {
           "type": "object",
@@ -258,10 +259,14 @@
     },
     "env": {
       "type": "object",
-      "required": ["circom", "lean", "mathlib", "lake_manifest_sha256", "node", "python"],
+      "required": ["lean", "mathlib", "lake_manifest_sha256", "python"],
+      "anyOf": [{"required": ["circom", "node"]}, {"required": ["nargo"]}],
       "additionalProperties": false,
       "properties": {
         "circom": {"type": "string"},
+        "nargo": {"description": "Noir packages: the pinned nargo release or source build that compiled the circuit.", "type": "string"},
+        "nargo_binary_sha256": {"$ref": "#/$defs/sha256"},
+        "acir_tool_sha256": {"description": "Noir packages: the boole-acir-tool built against the same noir version (decoder and ACVM executor).", "type": "string"},
         "circom_binary_sha256": {"$ref": "#/$defs/sha256"},
         "lean": {"type": "string"},
         "mathlib": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
@@ -288,7 +293,7 @@
       "required": ["status", "status_reason", "generator_sources_sha256"],
       "additionalProperties": false,
       "properties": {
-        "status": {"enum": ["OPEN", "TOO-LARGE", "UNINSTANTIABLE", "GATE-FAIL", "DET-FALSE-CANDIDATE"]},
+        "status": {"enum": ["OPEN", "TOO-LARGE", "UNINSTANTIABLE", "GATE-FAIL", "DET-FALSE-CANDIDATE", "NO-INSTANTIATION", "COMPILE-FAIL", "NOT-APPLICABLE"]},
         "status_reason": {"type": "string"},
         "generator_sources_sha256": {"$ref": "#/$defs/sha256"}
       }
