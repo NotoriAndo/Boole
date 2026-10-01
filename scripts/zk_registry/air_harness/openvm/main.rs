@@ -185,20 +185,24 @@ fn stream_u32(n: u32) -> Vec<F> {
     n.to_le_bytes().iter().map(|b| F::from_u8(*b)).collect()
 }
 
+fn elf_exe(config: &SdkVmConfig, elf_path: &str) -> Result<VmExe<F>, String> {
+    let bytes = std::fs::read(elf_path).map_err(|e| format!("read {elf_path}: {e}"))?;
+    let elf = Elf::decode(&bytes, MEM_SIZE as u32).map_err(|e| format!("decode: {e}"))?;
+    VmExe::from_elf(elf, config.transpiler()).map_err(|e| format!("transpile: {e:?}"))
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run(
     label: &str,
     config: SdkVmConfig,
-    elf_path: &str,
+    exe: Result<VmExe<F>, String>,
     input: Vec<Vec<F>>,
     standard_keys: &HashMap<u64, Vec<usize>>,
     sink: &mut Sink,
     log: &mut String,
     max_segments: usize,
 ) -> Result<(), String> {
-    let bytes = std::fs::read(elf_path).map_err(|e| format!("read {elf_path}: {e}"))?;
-    let elf = Elf::decode(&bytes, MEM_SIZE as u32).map_err(|e| format!("decode: {e}"))?;
-    let exe = VmExe::from_elf(elf, config.transpiler()).map_err(|e| format!("transpile: {e:?}"))?;
+    let exe = exe?;
     let (mut vm, pk) =
         VirtualMachine::new_with_keygen(engine(), SdkVmCpuBuilder, config).map_err(|e| format!("keygen: {e:?}"))?;
     // standard AIR ids of this configuration's AIRs (same name, widths and constraint DAG)
@@ -334,20 +338,26 @@ fn main_inner(out: String, repo: String, rows: bool) {
             let text = std::fs::read_to_string(format!("{g}/{name}/openvm.toml")).expect("openvm.toml");
             SdkVmConfig::from_toml(&text).expect("config")
         };
-        let runs: Vec<(&str, SdkVmConfig, String, Vec<Vec<F>>, usize)> = vec![
-            ("fibonacci", SdkVmConfig::standard(), format!("{g}/fibonacci/elf/openvm-fibonacci-program.elf"),
+        let std_cfg = SdkVmConfig::standard();
+        let elf = |cfg: &SdkVmConfig, path: String| elf_exe(cfg, &path);
+        let runs: Vec<(&str, SdkVmConfig, Result<VmExe<F>, String>, Vec<Vec<F>>, usize)> = vec![
+            ("standard-straight-line", std_cfg.clone(), program::standard_program(&std_cfg), vec![], 4),
+            ("fibonacci", std_cfg.clone(), elf(&std_cfg, format!("{g}/fibonacci/elf/openvm-fibonacci-program.elf")),
              vec![stream_u64(2000)], 4),
-            ("sha2_bench", SdkVmConfig::standard(), format!("{g}/sha2_bench/elf/openvm-sha2-bench-program.elf"),
+            ("sha2_bench", std_cfg.clone(), elf(&std_cfg, format!("{g}/sha2_bench/elf/openvm-sha2-bench-program.elf")),
              vec![stream_u32(4096)], 4),
-            ("keccak256", SdkVmConfig::standard(), format!("{g}/keccak256/elf/openvm-keccak256-program.elf"), vec![], 4),
-            ("ecrecover", toml("ecrecover"), format!("{g}/ecrecover/elf/openvm-ecdsa-recover-key-program.elf"),
+            ("keccak256", std_cfg.clone(), elf(&std_cfg, format!("{g}/keccak256/elf/openvm-keccak256-program.elf")),
+             vec![], 4),
+            ("ecrecover", toml("ecrecover"),
+             elf(&toml("ecrecover"), format!("{g}/ecrecover/elf/openvm-ecdsa-recover-key-program.elf")),
              ecrecover_input(), 4),
-            ("pairing", toml("pairing"), format!("{g}/pairing/elf/openvm-pairing-program.elf"), vec![], 4),
-            ("kitchen-sink", toml("kitchen-sink"), format!("{g}/kitchen-sink/elf/openvm-kitchen-sink-program.elf"),
-             vec![], 2),
+            ("pairing", toml("pairing"), elf(&toml("pairing"), format!("{g}/pairing/elf/openvm-pairing-program.elf")),
+             vec![], 4),
+            ("kitchen-sink", toml("kitchen-sink"),
+             elf(&toml("kitchen-sink"), format!("{g}/kitchen-sink/elf/openvm-kitchen-sink-program.elf")), vec![], 2),
         ];
-        for (label, cfg, elf, input, max_seg) in runs {
-            let r = catch_unwind(AssertUnwindSafe(|| run(label, cfg, &elf, input, &keys, &mut sink, &mut log, max_seg)));
+        for (label, cfg, exe, input, max_seg) in runs {
+            let r = catch_unwind(AssertUnwindSafe(|| run(label, cfg, exe, input, &keys, &mut sink, &mut log, max_seg)));
             match r {
                 Ok(Ok(())) => {}
                 Ok(Err(e)) => log.push_str(&format!("{label}: error: {e}\n")),
@@ -370,4 +380,223 @@ fn main() {
     let repo = args.get(2).cloned().expect("usage: boole-air-extract <out-dir> <openvm-repo> [--no-rows]");
     let rows = !args.iter().any(|a| a == "--no-rows");
     std::thread::Builder::new().stack_size(1 << 30).spawn(move || main_inner(out, repo, rows)).unwrap().join().unwrap();
+}
+
+// ------------------------------------------------------------------------------------------ straight-line program
+
+/// A hand-assembled program for the standard configuration: rv32 division, 256-bit shifts and branches, every
+/// modular and Fp2 operation of every configured modulus, and elliptic-curve addition / doubling on every
+/// configured curve (operands on the heap, address space 2; pointers in registers x5, x6, x7 advanced after
+/// each call).  Instruction encodings follow the transpilers (`from_r_type`, `from_i_type`, the bigint branch).
+mod program {
+    use super::*;
+    use num_bigint::BigUint;
+    use openvm_algebra_transpiler::{Fp2Opcode, Rv32ModularArithmeticOpcode};
+    use openvm_bigint_transpiler::{Rv32BranchLessThan256Opcode, Rv32Shift256Opcode};
+    use openvm_ecc_transpiler::Rv32WeierstrassOpcode;
+    use openvm_instructions::{instruction::Instruction, program::Program, LocalOpcode, SystemOpcode, VmOpcode};
+    use openvm_rv32im_transpiler::{BaseAluOpcode, BranchLessThanOpcode, DivRemOpcode, ShiftOpcode};
+    use std::collections::BTreeMap;
+    use strum::EnumCount;
+
+    const A0: u32 = 0x0010_0000;
+    const B0: u32 = 0x0020_0000;
+    const D0: u32 = 0x0030_0000;
+    const STRIDE: u32 = 128;
+    const N: usize = 12;
+
+    struct Asm {
+        ins: Vec<Instruction<F>>,
+        mem: BTreeMap<(u32, u32), u8>,
+        slot: u32,
+        rng: Rng,
+    }
+
+    impl Asm {
+        fn reg(&mut self, r: u32, v: u32) {
+            for k in 0..4 {
+                self.mem.insert((1, 4 * r + k), (v >> (8 * k)) as u8);
+            }
+        }
+        fn heap(&mut self, addr: u32, bytes: &[u8]) {
+            for (k, b) in bytes.iter().enumerate() {
+                self.mem.insert((2, addr + k as u32), *b);
+            }
+        }
+        fn addi(&mut self, rd: usize, rs1: usize, imm: usize) {
+            self.ins.push(Instruction::from_usize(BaseAluOpcode::ADD.global_opcode(), [4 * rd, 4 * rs1, imm, 1, 0]));
+        }
+        /// Writes the operands of the next slot, runs `op` on (x7 <- x5, x6) and advances the pointers.
+        fn call(&mut self, op: Instruction<F>, a: &[u8], b: &[u8]) {
+            let s = self.slot;
+            self.heap(A0 + STRIDE * s, a);
+            self.heap(B0 + STRIDE * s, b);
+            self.ins.push(op);
+            for r in [5, 6, 7] {
+                self.addi(r, r, STRIDE as usize);
+            }
+            self.slot += 1;
+        }
+        fn rand_below(&mut self, m: &BigUint) -> BigUint {
+            let bytes: Vec<u8> = (0..(m.bits() as usize / 8 + 8)).map(|_| self.rng.next() as u8).collect();
+            BigUint::from_bytes_le(&bytes) % m
+        }
+    }
+
+    fn le(x: &BigUint, n: usize) -> Vec<u8> {
+        let mut b = x.to_bytes_le();
+        b.resize(n, 0);
+        b
+    }
+
+    fn r_type(opcode: VmOpcode, rd: usize, rs1: usize, rs2: usize, e: usize) -> Instruction<F> {
+        Instruction::from_usize(opcode, [4 * rd, 4 * rs1, 4 * rs2, 1, e])
+    }
+
+    fn shifted(base: VmOpcode, idx: usize, count: usize) -> VmOpcode {
+        VmOpcode::from_usize(base.as_usize() + idx * count)
+    }
+
+    fn inv(x: &BigUint, p: &BigUint) -> BigUint {
+        x.modpow(&(p - 2u32), p)
+    }
+
+    /// A point of y^2 = x^3 + a x + b over F_p with p = 3 mod 4, then multiples (affine arithmetic).
+    fn points(p: &BigUint, a: &BigUint, b: &BigUint, n: usize) -> Vec<(BigUint, BigUint)> {
+        let mut x = BigUint::from(1u32);
+        let e = (p + 1u32) >> 2;
+        let g = loop {
+            let rhs = (&x * &x * &x + a * &x + b) % p;
+            let y = rhs.modpow(&e, p);
+            if (&y * &y) % p == rhs && y != BigUint::from(0u32) {
+                break (x.clone(), y);
+            }
+            x += 1u32;
+        };
+        let dbl = |(x1, y1): &(BigUint, BigUint)| {
+            let l = ((BigUint::from(3u32) * x1 * x1 + a) % p) * inv(&((BigUint::from(2u32) * y1) % p), p) % p;
+            let x3 = (&l * &l + p + p - x1 - x1) % p;
+            let y3 = (&l * ((x1 + p - &x3) % p) + p - y1) % p;
+            (x3, y3)
+        };
+        let add = |(x1, y1): &(BigUint, BigUint), (x2, y2): &(BigUint, BigUint)| {
+            let l = ((y2 + p - y1) % p) * inv(&((x2 + p - x1) % p), p) % p;
+            let x3 = (&l * &l + p + p - x1 - x2) % p;
+            let y3 = (&l * ((x1 + p - &x3) % p) + p - y1) % p;
+            (x3, y3)
+        };
+        let mut out = vec![g.clone(), dbl(&g)];
+        while out.len() < n {
+            let next = add(out.last().unwrap(), &g);
+            out.push(next);
+        }
+        out
+    }
+
+    pub fn standard_program(config: &SdkVmConfig) -> Result<VmExe<F>, String> {
+        let mut m = Asm { ins: vec![], mem: BTreeMap::new(), slot: 0, rng: Rng(0x0e0e_5eed) };
+        m.reg(5, A0);
+        m.reg(6, B0);
+        m.reg(7, D0);
+        // rv32 division: registers x10..x29 hold edge and random words
+        let edge = [0u32, 1, 2, u32::MAX, 0x8000_0000, 0x7FFF_FFFF, 3, 0xFFFF_FFFE];
+        for r in 10..30u32 {
+            let v = if (r as usize - 10) < edge.len() { edge[r as usize - 10] } else { m.rng.next() as u32 };
+            m.reg(r, v);
+        }
+        for (k, op) in [DivRemOpcode::DIV, DivRemOpcode::DIVU, DivRemOpcode::REM, DivRemOpcode::REMU].iter().enumerate() {
+            for j in 0..N {
+                let rs1 = 10 + (j + k) % 20;
+                let rs2 = 10 + (3 * j + 2 * k + 1) % 20;
+                m.ins.push(r_type(op.global_opcode(), 30, rs1, rs2, 1));
+            }
+        }
+        // 256-bit shifts and branches
+        for sh in [ShiftOpcode::SLL, ShiftOpcode::SRL, ShiftOpcode::SRA] {
+            for _ in 0..N {
+                let a: Vec<u8> = (0..32).map(|_| m.rng.next() as u8).collect();
+                let mut b = vec![0u8; 32];
+                b[0] = m.rng.next() as u8;
+                m.call(r_type(Rv32Shift256Opcode(sh).global_opcode(), 7, 5, 6, 2), &a, &b);
+            }
+        }
+        for br in [BranchLessThanOpcode::BLT, BranchLessThanOpcode::BLTU, BranchLessThanOpcode::BGE, BranchLessThanOpcode::BGEU] {
+            for j in 0..N {
+                let a: Vec<u8> = (0..32).map(|_| m.rng.next() as u8).collect();
+                let b: Vec<u8> = if j % 4 == 0 { a.clone() } else { (0..32).map(|_| m.rng.next() as u8).collect() };
+                // offset 4: taken and not taken both continue with the next instruction
+                let op = Instruction::from_usize(Rv32BranchLessThan256Opcode(br).global_opcode(), [4 * 5, 4 * 6, 4, 1, 2]);
+                m.call(op, &a, &b);
+            }
+        }
+        // modular arithmetic, every modulus
+        if let Some(modular) = &config.modular {
+            for (idx, p) in modular.supported_moduli.iter().enumerate() {
+                let nb = if p.bits() > 256 { 48 } else { 32 };
+                let cnt = Rv32ModularArithmeticOpcode::COUNT;
+                for op in [Rv32ModularArithmeticOpcode::ADD, Rv32ModularArithmeticOpcode::SUB,
+                           Rv32ModularArithmeticOpcode::MUL, Rv32ModularArithmeticOpcode::DIV,
+                           Rv32ModularArithmeticOpcode::IS_EQ] {
+                    for j in 0..N {
+                        let x = m.rand_below(p);
+                        let mut y = m.rand_below(p);
+                        if op == Rv32ModularArithmeticOpcode::DIV && y == BigUint::from(0u32) {
+                            y = BigUint::from(1u32);
+                        }
+                        if op == Rv32ModularArithmeticOpcode::IS_EQ && j % 3 == 0 {
+                            y = x.clone();
+                        }
+                        let code = shifted(op.global_opcode(), idx, cnt);
+                        // IS_EQ writes a register (x8); the others write the heap through x7
+                        let instr = if op == Rv32ModularArithmeticOpcode::IS_EQ {
+                            r_type(code, 8, 5, 6, 2)
+                        } else {
+                            r_type(code, 7, 5, 6, 2)
+                        };
+                        m.call(instr, &le(&x, nb), &le(&y, nb));
+                    }
+                }
+            }
+        }
+        if let Some(fp2) = &config.fp2 {
+            for (idx, (_, p)) in fp2.supported_moduli.iter().enumerate() {
+                let nb = if p.bits() > 256 { 48 } else { 32 };
+                let cnt = Fp2Opcode::COUNT;
+                for op in [Fp2Opcode::ADD, Fp2Opcode::SUB, Fp2Opcode::MUL, Fp2Opcode::DIV] {
+                    for _ in 0..N {
+                        let (x0, x1, y0, y1) = (m.rand_below(p), m.rand_below(p), m.rand_below(p), m.rand_below(p));
+                        let y1 = if y0 == BigUint::from(0u32) && y1 == BigUint::from(0u32) { BigUint::from(1u32) } else { y1 };
+                        let mut a = le(&x0, nb);
+                        a.extend(le(&x1, nb));
+                        let mut b = le(&y0, nb);
+                        b.extend(le(&y1, nb));
+                        m.call(r_type(shifted(op.global_opcode(), idx, cnt), 7, 5, 6, 2), &a, &b);
+                    }
+                }
+            }
+        }
+        if let Some(ecc) = &config.ecc {
+            for (idx, c) in ecc.supported_curves.iter().enumerate() {
+                let nb = if c.modulus.bits() > 256 { 48 } else { 32 };
+                let pts = points(&c.modulus, &c.a, &c.b, N + 2);
+                let cnt = Rv32WeierstrassOpcode::COUNT;
+                for j in 0..N {
+                    let (p1, p2) = (&pts[j + 1], &pts[0]);
+                    let mut a = le(&p1.0, nb);
+                    a.extend(le(&p1.1, nb));
+                    let mut b = le(&p2.0, nb);
+                    b.extend(le(&p2.1, nb));
+                    m.call(r_type(shifted(Rv32WeierstrassOpcode::EC_ADD_NE.global_opcode(), idx, cnt), 7, 5, 6, 2), &a, &b);
+                    let p3 = &pts[j];
+                    let mut d = le(&p3.0, nb);
+                    d.extend(le(&p3.1, nb));
+                    m.call(r_type(shifted(Rv32WeierstrassOpcode::EC_DOUBLE.global_opcode(), idx, cnt), 7, 5, 6, 2), &d, &[]);
+                }
+            }
+        }
+        m.ins.push(Instruction::from_isize(SystemOpcode::TERMINATE.global_opcode(), 0, 0, 0, 0, 0));
+        let mut exe = VmExe::new(Program::from_instructions(&m.ins));
+        exe.init_memory = m.mem;
+        Ok(exe)
+    }
 }

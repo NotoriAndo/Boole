@@ -20,3 +20,9 @@ p3-field = { workspace = true }
 k256 = { workspace = true, features = ["ecdsa"] }
 tiny-keccak = { workspace = true }
 rand_chacha = { workspace = true }
+openvm-rv32im-transpiler = { workspace = true }
+openvm-bigint-transpiler = { workspace = true }
+openvm-algebra-transpiler = { workspace = true }
+openvm-ecc-transpiler = { workspace = true }
+num-bigint = { workspace = true }
+strum = { workspace = true }
