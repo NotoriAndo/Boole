@@ -1,0 +1,31 @@
+{
+  "inputs": [
+    {
+      "name": "p",
+      "public": true,
+      "type": "struct",
+      "components": {
+        "name": "Pt",
+        "generics": [],
+        "members": [
+          {
+            "name": "x",
+            "type": "field"
+          },
+          {
+            "name": "y",
+            "type": "field"
+          }
+        ]
+      }
+    },
+    {
+      "name": "k",
+      "public": true,
+      "type": "field"
+    }
+  ],
+  "output": {
+    "type": "field"
+  }
+}

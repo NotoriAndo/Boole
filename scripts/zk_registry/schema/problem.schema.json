@@ -70,7 +70,7 @@
       "required": ["rule", "args", "call", "provenance", "selection", "candidates"],
       "additionalProperties": false,
       "properties": {
-        "rule": {"enum": ["parameter-free", "repo-main", "repo-test", "repo-internal", "repo-derived", "documented-default", "probed", "decomposition", "contract-entrypoint", "none"]},
+        "rule": {"enum": ["parameter-free", "repo-main", "repo-test", "repo-internal", "repo-derived", "repo-call", "documented-default", "probed", "decomposition", "contract-entrypoint", "none"]},
         "rule_order": {"type": "array", "items": {"type": "string"}},
         "args": {"type": "array", "items": {"type": "string"}},
         "call": {"type": "string"},
@@ -157,7 +157,7 @@
           "required": ["name", "version", "flags", "binary_sha256"],
           "additionalProperties": false,
           "properties": {
-            "name": {"enum": ["circom", "nargo", "gnark"]},
+            "name": {"enum": ["circom", "nargo", "gnark", "zokrates"]},
             "version": {"type": "string"},
             "flags": {"type": "array", "items": {"type": "string"}},
             "binary_sha256": {"$ref": "#/$defs/sha256"},
@@ -277,7 +277,8 @@
     "env": {
       "type": "object",
       "required": ["lean", "mathlib", "lake_manifest_sha256", "python"],
-      "anyOf": [{"required": ["circom", "node"]}, {"required": ["nargo"]}, {"required": ["gnark", "go"]}],
+      "anyOf": [{"required": ["circom", "node"]}, {"required": ["nargo"]}, {"required": ["gnark", "go"]},
+                {"required": ["zokrates"]}],
       "additionalProperties": false,
       "properties": {
         "circom": {"type": "string"},
@@ -285,6 +286,7 @@
         "nargo_binary_sha256": {"$ref": "#/$defs/sha256"},
         "acir_tool_sha256": {"description": "Noir packages: the boole-acir-tool built against the same noir version (decoder and ACVM executor).", "type": "string"},
         "gnark": {"description": "gnark packages: the gnark version the repository pins (the checkout itself for gnark).", "type": "string"},
+        "zokrates": {"description": "ZoKrates packages: the pinned ZoKrates version that compiled the circuit (a source build or the official release binary).", "type": "string"},
         "go": {"description": "gnark packages: the Go toolchain that built the wrappers (version and source).", "type": "string"},
         "go_required": {"description": "gnark packages: the go (and toolchain) directive of the repository's go.mod.", "type": "string"},
         "circom_binary_sha256": {"$ref": "#/$defs/sha256"},

@@ -286,6 +286,60 @@ assignment is recorded; then the counterexample search (output mutation, linear 
 statement's output relation) and the battery (P2 first, then P1 unless P2 closed the statement). `decompose` maps the
 callees of TOO-LARGE records to wave records or new records of exported module functions (up to 4 levels).
 
+## ZoKrates DET generator
+
+Code: `scripts/zk_registry/zokrates_*.py` (driver `zokrates_det.py`, generator `boole-zk-registry-zokrates-det`
+1.0). It reuses the Circom R1CS path directly: ZoKrates's own `--r1cs` export (recent releases) is byte-identical
+to circom's iden3 format, so the unmodified circom `.r1cs` parser and Python R1CS evaluator, the Lean template,
+G-ELAB, the TRIV battery, the counterexample search, the package format, the checker and the `problem.json`
+schema (additive `"zokrates"` values) all apply unchanged; only the model header text and the generics-grounding
+planner are ZoKrates-specific. ZoKrates has no tag/precondition system, so every statement is the plain DET form.
+
+**Population.** Ledger rows with `framework == "zokrates"`, with the same unit and flag exclusions as the other
+generators (`zokrates_det.SELECTION_FILTER`), deduplicated by a content key (the pinned compiler version and the
+comment-free declaration text). Every row ends in one terminal status: OPEN, GATE-FAIL, DET-FALSE-CANDIDATE
+(private), TOO-LARGE, NO-INSTANTIATION, COMPILE-FAIL or NOT-APPLICABLE, each with a reason.
+
+**Compiler selection.** One pinned ZoKrates per repository, each a source build (`zokrates_toolchain.build_source`;
+Cargo.lock at the pinned tag is the reproducibility pin): the zokrates/zokrates stdlib pins its own commit, exactly
+tag 0.8.8 (`cargo build --release --locked -p zokrates_cli`); ethereum-oasis-op/baseline's `lib/circuits` pins
+ZoKrates 0.6.1 (its own `zok6.Dockerfile`: `FROM zokrates/zokrates:0.6.1`), which has no release asset for this
+host and needs a nightly-only Rust feature (`#![feature(box_patterns, box_syntax)]`) its crate still implements;
+built from an already-installed stable rustc with `RUSTC_BOOTSTRAP=1` (a documented escape hatch; no toolchain is
+installed by the build). 0.8.8 emits the iden3 `.r1cs`/`.wtns` directly with `--r1cs`/`--circom-witness`
+(`zokrates_r1cs.build_native`); 0.6.1 predates that exporter, so the compiler's own human-readable `.ztf`
+constraint listing and a plain-text witness are parsed and renumbered into the same wire layout
+(`zokrates_legacy.build_model`: 0 the constant one, then outputs, public inputs, private inputs, internal wires,
+exactly circom's convention). Both compilers accept the same flattened positional `-a v0 v1 ...` argument
+encoding for every ABI shape (field, bool, uN, array, struct), confirmed on real compiles of both, so one sampler
+serves both (`zokrates_witness.py`, reusing `witness.py`'s strategies, one artificial signal per flattened ABI
+leaf). ZoKrates's own directive/solver outputs (division, bit-decomposition, ...) are never exported as R1CS
+wires unless a later real constraint also mentions them: ZoKrates's own writer allocates a wire only for a
+variable some constraint uses, so unconstrained hint outputs are free in the model automatically, with no
+bookkeeping needed.
+
+**Instantiation** (`zokrates_source.py`, `zokrates_instantiation.py`). A ZoKrates function's only shape parameters
+are its generic constants (`def f<N, P>(...)`; everything else is a witness value, sampled, not fixed here).
+`main` with no generics compiles as the repository's own file; every other declaration (including an overloaded
+`cast`-style function, disambiguated by its ledger `name@L<line>` symbol against the exact source line) gets a
+generated wrapper that imports it under a fixed alias (copying the exact import line the original file used for
+any struct type its substituted signature names) and calls it with the chosen generics. Tiers, first tier with a
+compiling candidate wins: `parameter-free` → `repo-call` (an explicit turbofish `name::<1, 2>(...)` call site in
+the same file, or an array-literal argument whose length grounds a generic named in that parameter's type) →
+`probed` (the function's own `assert(G1 == K * G2)` relation, when stated, grounds one generic from the other
+instead of probing independently — the stdlib's bit-width casts all state one; otherwise small values
+{1,2,3,4,8,16,32,64}, respecting an `assert` bound on a generic when the source states one; a counterexample
+there is labelled not-a-finding). Within a tier the largest compiled candidate within the size policy (2,000
+constraints) is kept.
+
+**Statement.** The Circom template over the compiled R1CS (`F = ZMod p`, p the ZoKrates curve's scalar field);
+inputs are the wrapper's flattened arguments, outputs its flattened return value, both in ABI declaration order.
+`statement.assumptions` states field primality and that ZoKrates directive outputs with no constraint are free.
+
+**Gates**, identical order and budgets to Circom: G-ELAB; G-NONVAC / G-FID (the compiler's own solver on sampled
+flattened arguments, accepted by the Python evaluator and by Lean's `decide (Constraints w)` on every real witness
+and 16 single-wire mutants); G-TRIV (battery P2 then P1); a sound counterexample search.
+
 ## Wave 0 (circomlib v2.0.5, 106 templates)
 
 | Status | Count |
@@ -437,6 +491,44 @@ at its version.
 - Coverage: the 6 light-protocol v2 circuit rows carry `coverage: partial` (in-repository Lean verification of the
   extracted circuit, not a DET statement over the compiled R1CS); no public machine-checked artifact of gnark std was
   found. DET truth is unknown for every OPEN package.
+
+## Wave K1 (ZoKrates functions of the frozen ledger)
+
+242 filtered ledger rows (`zokrates/zokrates` stdlib 160 at tag 0.8.8, `ethereum-oasis-op/baseline`
+`lib/circuits` 82 pinning ZoKrates 0.6.1) were located in their pinned sources (242 of 242) and
+deduplicated by content to 242 (no duplicates). Both compilers are source builds: 0.8.8 with the
+installed stable rustc; 0.6.1 (no release asset for this host) with an already-installed stable rustc and
+`RUSTC_BOOTSTRAP=1` (its crate's nightly-only `box_patterns`/`box_syntax` feature, later removed from
+rustc outright, is still implemented and accepted this way). 0.6.1 predates ZoKrates's `--r1cs` exporter,
+so its own `.ztf` constraint listing and a plain-text witness are parsed and renumbered into the same
+wire layout `zokrates_r1cs`'s native path uses.
+
+| status | records |
+|---|---:|
+| OPEN | 83 |
+| GATE-FAIL (53 closed by the automation battery) | 59 |
+| DET-FALSE-CANDIDATE | 0 |
+| TOO-LARGE | 48 |
+| COMPILE-FAIL | 52 |
+| total | 242 |
+
+- By repository: `zokrates/zokrates` 160 rows -> 67 OPEN, 51 GATE-FAIL, 39 TOO-LARGE, 3 COMPILE-FAIL;
+  `ethereum-oasis-op/baseline` 82 rows -> 16 OPEN, 8 GATE-FAIL, 9 TOO-LARGE, 49 COMPILE-FAIL.
+- Rules of the 142 OPEN/GATE-FAIL records: `parameter-free` 103, `probed` 37 (29 OPEN, `zokrates/zokrates`
+  only — 0.6.1 predates generics), `repo-call` 2. 40 of the 83 OPEN packages are library-function wrapper
+  packages (not a bare `main`).
+- Main losses: `ethereum-oasis-op/baseline`'s 49 COMPILE-FAIL are a relative import that does not resolve
+  under the repository's own pinned tree (19, a pre-existing inconsistency in its `lib/circuits` sources),
+  a stdlib-relative import naming a path this 0.6.1 stdlib pin does not have (18, e.g. a path later
+  reorganized, or a pre-rename `.code` path), and parse errors, curve mismatches or unresolved identifiers
+  (12). `zokrates/zokrates`'s 3 COMPILE-FAIL are `cast<N, P>`-style conversions with no generic value that
+  both compiles and resolves the intended overload.
+- DET-FALSE-CANDIDATE: 0 (the counterexample search ran on every candidate that reached it and confirmed
+  none).
+- A disk-safety guard (`SIZE_GUARD`) was added after an early trial on `mimcSponge.zok`'s `main<N>` probed
+  tier produced an 11 GiB `.r1cs` at `N` = 32 before the guard existed; the guard stops probing a
+  strictly larger generic value once a candidate is already far over the size policy. Full report:
+  `local-docs/zk-production-v1-2026-09-29/WAVE-K1-REPORT.md` (operator's local workspace, not tracked).
 
 ## Limits
 
