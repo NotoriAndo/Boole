@@ -1727,6 +1727,8 @@ def run_decompose(cfg: WaveConfig, index_path: str, max_depth: int = 4) -> tuple
     record, is mapped to it (edge only); the others are instantiated with the same planner and gates
     (``instantiation.decomposition`` names their parents).  No compositional statement is made."""
     sh = setup_shared(cfg)
+    os.makedirs(cfg.out, exist_ok=True)
+    os.makedirs(cfg.work, exist_ok=True)
     with open(index_path, encoding="utf-8") as f:
         wave = [json.loads(x) for x in f if x.strip()]
     rows = {r["item_id"]: r for r in select_rows(cfg.ledger)}
@@ -1840,7 +1842,7 @@ def crosscheck_nargo_execute(cfg: WaveConfig, index_path: str, limit: int = 24) 
     work = os.path.join(cfg.work, "crosscheck")
     os.makedirs(work, exist_ok=True)
     picked = [r for r in recs if r["status"] in P.PACKAGED_STATUSES and r["ids"]["repo"] == "noir-lang/noir"][:limit]
-    picked += [r for r in recs if r["instantiation"]["rule"] == "repo-main" and r["status"] != "COMPILE-FAIL"][:limit]
+    picked += [r for r in recs if r["evidence"].get("plan") == "bin-main" and r["status"] != "COMPILE-FAIL"][:limit]
     cache: dict = {}
     for k, rec in enumerate(picked):
         t, _ = make_target(sh, rows[rec["ids"]["ledger_item_id"]], cache)
@@ -1851,7 +1853,7 @@ def crosscheck_nargo_execute(cfg: WaveConfig, index_path: str, limit: int = 24) 
             shutil.rmtree(d)
         res = {"package_id": rec["package_id"], "compiler": tag}
         try:
-            if rec["instantiation"]["rule"] == "repo-main":
+            if rec["evidence"].get("plan") == "bin-main":
                 copy_crate(t.crate, d, as_lib=False)
                 prover = os.path.join(t.crate, "Prover.toml")
                 if not os.path.exists(prover):
