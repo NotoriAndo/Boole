@@ -679,9 +679,17 @@ def prepare(cfg: WaveConfig) -> tuple[Shared, list[dict]]:
 
 
 def run_wave(cfg: WaveConfig, jobs: int | None = None) -> list[dict]:
+    """Package every AIR of the extract (or the ``only`` subset: its records replace the same package ids of an
+    existing index, the other records are kept)."""
     sh, manifest = prepare(cfg)
     os.makedirs(cfg.out, exist_ok=True)
     os.makedirs(cfg.work, exist_ok=True)
+    kept: list[dict] = []
+    index = os.path.join(cfg.out, "INDEX.jsonl")
+    if cfg.only and os.path.exists(index):
+        rerun = {f"{cfg.collection}/{dir_name(m['index'], m['name'])}" for m in manifest}
+        with open(index, encoding="utf-8") as f:
+            kept = [r for r in (json.loads(x) for x in f if x.strip()) if r["package_id"] not in rerun]
     results = []
     order = interleave_by_size(manifest, lambda m: _ir_size(cfg, m))
     with cf.ThreadPoolExecutor(max_workers=jobs or cfg.jobs) as ex:
@@ -693,8 +701,8 @@ def run_wave(cfg: WaveConfig, jobs: int | None = None) -> list[dict]:
             results.append(rec)
             print(f"[{k}/{len(order)}] {rec['package_id']}: {rec['status']} ({rec['evidence'].get('wall_secs')} s)",
                   flush=True)
-            write_index(cfg.out, list(results))
-    write_index(cfg.out, results)
+            write_index(cfg.out, kept + results)
+    write_index(cfg.out, kept + results)
     return results
 
 

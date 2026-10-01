@@ -546,6 +546,29 @@ class HarnessModuleTests(unittest.TestCase):
             self.assertFalse(Path(tmp, "ws/boole-air-extract").exists())
 
 
+class RerunTests(unittest.TestCase):
+    def test_only_subset_replaces_its_records(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = os.path.join(tmp, "out")
+            os.makedirs(out)
+            old = [{"package_id": "toy-v1/000.A", "ids": {"air_index": 0}, "status": "OPEN"},
+                   {"package_id": "toy-v1/001.B", "ids": {"air_index": 1}, "status": "GATE-FAIL"}]
+            D.write_index(out, old)
+            cfg = D.WaveConfig(zkvm="sp1", release="v1", commit="c" * 40, repo="t/t", repo_url="https://x", extract=tmp,
+                               lean_env="", out=out, work=os.path.join(tmp, "w"), collection="toy-v1", only=["B"])
+            manifest = [{"index": 1, "name": "B", "status": "extracted"}]
+            new = {"package_id": "toy-v1/001.B", "ids": {"air_index": 1}, "status": "OPEN", "evidence": {}}
+            with mock.patch.object(D, "prepare", return_value=(mock.Mock(), manifest)), \
+                    mock.patch.object(D, "process_air", return_value=new), \
+                    mock.patch.object(D, "scrub", side_effect=lambda sh, r: r), \
+                    mock.patch.object(D, "_ir_size", return_value=0):
+                D.run_wave(cfg, 1)
+            with open(os.path.join(out, "INDEX.jsonl"), encoding="utf-8") as f:
+                got = [json.loads(x) for x in f]
+            self.assertEqual([(r["package_id"], r["status"]) for r in got],
+                             [("toy-v1/000.A", "OPEN"), ("toy-v1/001.B", "OPEN")])
+
+
 class OrderTests(unittest.TestCase):
     def test_large_and_small_alternate(self) -> None:
         items = [{"index": i} for i in range(5)]
