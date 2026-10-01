@@ -403,7 +403,10 @@ def copy_crate(src_dir: str, dest: str, as_lib: bool, strip_contract: bool = Fal
 def remove_contract_block(src: str) -> str:
     _, blocks, text = NS.scan(src)
     for b in sorted([b for b in blocks if b.kind == "contract"], key=lambda b: -b.start):
-        _, astart = NS._attrs_before(text, text.rfind("contract", 0, b.start))
+        kw = text.rfind("contract", 0, b.start)
+        m = re.search(r"pub(\s*\([^)]*\))?\s*$", text[:kw])        # `pub contract`
+        start = m.start() if m else kw
+        _, astart = NS._attrs_before(text, start)
         src = src[:astart] + src[b.end:]
     return src
 
@@ -460,6 +463,18 @@ def compile_candidate(sh: Shared, t: I.Target, plan: str, cand: dict, cdir: str,
         r = sh.tc.run_nargo(tag, ["export", "--silence-warnings"], crate, sh.cfg.compile_timeout)
         art = os.path.join(crate, "export", f"{cand['wrapper'].name}.json")
         cmd = "nargo export --silence-warnings"
+        if r.rc != 0 and "numeric generic is not of type" in first_error(r.out) and method_call_ok(t):
+            # a numeric generic argument of a non-u32 type in a `<Type as Trait>` expression is typed u32 by
+            # the compiler; the trait method is called with method-call syntax instead (the type has no
+            # inherent method of that name, so the call resolves to the same trait method)
+            with open(target_file, encoding="utf-8") as f:
+                text = f.read().replace(cand["wrapper"].text, "")
+            cand["wrapper"] = I.wrapper(t, cand["assign"], cand["wid"], "", method_call=True)
+            cand["call"] = cand["wrapper"].call
+            cand["syntax"] = "method-call"
+            with open(target_file, "w", encoding="utf-8") as f:
+                f.write(text + cand["wrapper"].text)
+            r = sh.tc.run_nargo(tag, ["export", "--silence-warnings"], crate, sh.cfg.compile_timeout)
         with open(os.path.join(cdir, "nargo.log"), "w", encoding="utf-8") as f:
             f.write(r.out[-20000:])
         if r.rc == 0 and os.path.exists(art):
@@ -483,10 +498,12 @@ def compile_candidate(sh: Shared, t: I.Target, plan: str, cand: dict, cdir: str,
     art = os.path.join(tdir, arts[0])
     if plan == "contract-fn":
         names = [f["name"] for f in T.load_json(art).get("functions", [])]
-        if t.fn.name not in names:
+        # aztec-nr of 2026 compiles entrypoints as `__aztec_nr_internals__<name>`
+        found = next((n for n in (t.fn.name, f"__aztec_nr_internals__{t.fn.name}") if n in names), None)
+        if found is None:
             return Compiled(False, tag, error=f"contract artifact has no function {t.fn.name}",
                             secs=round(time.time() - t0, 2), command=cmd)
-        return Compiled(True, tag, art, t.fn.name, "", round(time.time() - t0, 2), cmd)
+        return Compiled(True, tag, art, found, "", round(time.time() - t0, 2), cmd)
     return Compiled(True, tag, art, None, "", round(time.time() - t0, 2), cmd)
 
 
@@ -543,6 +560,25 @@ def compile_std(sh: Shared, t: I.Target, cand: dict, crate: str, tag: str, t0: f
     return Compiled(False, tag, error=scrub_text(sh, err), secs=round(time.time() - t0, 2), command=cmd)
 
 
+def method_call_ok(t: I.Target) -> bool:
+    """The target is a trait method with a ``self`` receiver and its type has no inherent method of the same
+    name in the crate scope (so method-call syntax reaches exactly this trait method)."""
+    imp = t.fn.impl
+    if imp is None or not imp.trait or not t.fn.params or t.fn.params[0].pattern != "self":
+        return False
+    base = re.match(r"\s*([A-Za-z_][A-Za-z0-9_]*)", imp.self_type)
+    for _, fn, _, _ in crate_functions(t).get(t.fn.name, []):
+        other = fn.impl
+        if other is not None and other.kind == "impl" and not other.trait and base and \
+                re.match(r"\s*" + re.escape(base.group(1)) + r"\b", other.self_type):
+            return False
+    return True
+
+
+class DecodeFailed(RuntimeError):
+    """The decoder could not print the program (size); recorded with the artifact size."""
+
+
 def assignment_imports(sh: Shared, t: I.Target, assign: dict) -> list[str]:
     """``crate::`` paths for repository types an assignment names that the target file neither declares nor
     imports (the wrapper is appended to that file)."""
@@ -588,9 +624,10 @@ def direct_path_deps(crate: str) -> dict[str, str]:
 
 def decode(sh: Shared, tag: str, art: str, contract_fn: str | None, cwd: str) -> dict:
     args = ["decode", art] + (["--contract-fn", contract_fn] if contract_fn else [])
-    r = sh.tc.run_tool(tag, args, cwd, 600)
+    r = L.run_process([sh.tc.acir_tool(tag)] + args, sh.tc.env(), cwd, 3600, 24576)
     if r.rc != 0:
-        raise A.Unsupported(f"decoder failed: {r.out[-300:]}")
+        why = "timeout" if r.timeout else "memory limit (24 GB)" if r.memkill else r.out[-300:]
+        raise DecodeFailed(f"decoder failed: {why}")
     return json.loads(r.out)
 
 
@@ -768,6 +805,8 @@ def make_mutants(flat: A.Flat, real: list[list[int]], n: int, seed: str) -> list
     rng = random.Random(seed + "/mutants")
     cw = constrained_witnesses(flat.opcodes) or list(range(flat.n_witnesses))
     out = []
+    if not cw:
+        return out                                   # a program without witnesses has no mutants
     for k in range(n):
         if not real:
             break
@@ -941,6 +980,8 @@ def coverage_of(row: dict) -> dict:
 
 def candidate_entry(c: dict) -> dict:
     e = {"tier": c["tier"], "call": c.get("call", ""), "compile": c.get("compile", "skipped")}
+    if c.get("syntax"):
+        e["call"] += f"  [{c['syntax']} syntax]"
     for k in ("compiler", "attempts", "constraints", "wires", "error"):
         if c.get(k) not in (None, "", []):
             e[k] = c[k]
@@ -1057,6 +1098,8 @@ def _process(sh: Shared, row: dict, t: I.Target | None, how: str) -> dict:
                 cand.update(compile="ok", constraints=SIZING_LIMIT + 1, wires=1,
                             error=f"flattened ACIR above {SIZING_LIMIT} opcodes (size is a lower bound)")
                 cand["_compiled"] = comp
+            except DecodeFailed as ex:
+                cand.update(compile="error", error=f"{ex} (artifact {os.path.getsize(comp.artifact)} bytes)")
             except A.Unsupported as ex:
                 cand.update(compile="error", error=f"ACIR not modelled: {ex}")
                 cand["_unsupported"] = True

@@ -121,6 +121,12 @@ def classify(t: Target) -> tuple[str, str]:
 
 # ------------------------------------------------------------------------------------------ repository index
 
+def is_test_path(rel: str) -> bool:
+    """A file of test code: a path component naming tests or mocks (``tests/``, ``test_helpers.nr``, ``mocks/``)."""
+    return any(re.search(r"(^|_)(tests?|mocks?)(_|$)|^test_|_test$", re.sub(r"\.nr$", "", c))
+               for c in rel.split("/"))
+
+
 @dataclass
 class Occurrence:
     tier: str
@@ -150,10 +156,13 @@ class RepoIndex:
             fns, blocks, text = NS.scan(src)
             idx.files[rel] = (fns, blocks, text)
             idx.globals.update(NS.globals_with_values(text))
+            test_ranges = [(b.start, b.end) for b in blocks if b.kind == "mod" and re.search(r"test|mock", b.self_type)]
             for m in re.finditer(r"(?<![A-Za-z0-9_])struct\s+(" + NS.IDENT + r")\s*(<)?", text):
+                if is_test_path(rel) or any(a < m.start() < b for a, b in test_ranges):
+                    continue                      # test-only types are not instantiation candidates
                 idx.structs[m.group(1)] = bool(m.group(2))
                 idx.struct_files.setdefault(m.group(1), []).append(rel)
-            test_file = bool(re.search(r"(^|/)(tests?|test_utils?|.*_tests?)(/|\.nr$)", rel))
+            test_file = is_test_path(rel)
             test_mods = [b for b in blocks if b.kind == "mod" and re.search(r"test", b.self_type)]
             for b in blocks:
                 if test_file or any(m.start < b.start < m.end for m in test_mods):
@@ -168,7 +177,7 @@ class RepoIndex:
         fns, blocks, _ = self.files[rel]
         enclosing = [f for f in fns if f.start <= pos < f.end]
         f = min(enclosing, key=lambda x: x.end - x.start) if enclosing else None
-        test_path = bool(re.search(r"(^|/)(tests?|test_utils?|.*_tests?)(/|\.nr$)", rel))
+        test_path = is_test_path(rel)
         in_test_mod = any(b.kind == "mod" and re.search(r"test", b.self_type) and b.start < pos < b.end for b in blocks)
         if f is not None and f.attr("test"):
             return "repo-test"
@@ -279,7 +288,11 @@ def candidates(t: Target, idx: RepoIndex | None) -> list[tuple[str, dict, list[s
     if idx is not None:
         occ = repo_occurrences(t, idx)
         by_tier: dict[str, list] = {}
+        vis = visible_in(t, idx)
         for tier, assign, prov in occ:
+            tnames = {n for v in assign.values() for n in re.findall(r"(?<![A-Za-z0-9_:])([A-Z][A-Za-z0-9_]*)", v)}
+            if any(n not in PRIMITIVES and not vis(n) for n in tnames):
+                continue                          # a type the target's crate cannot name
             by_tier.setdefault(tier, []).append((assign, prov))
         for tier in ("repo-main", "repo-test", "repo-derived"):
             parts = by_tier.get(tier, [])
@@ -307,7 +320,7 @@ def candidates(t: Target, idx: RepoIndex | None) -> list[tuple[str, dict, list[s
     type_values = []
     for g in types:
         bs = [b for b in g.bounds + bounds.get(g.name, []) if b]
-        type_values.append(implementors(idx, bs) if bs and idx is not None else list(PROBE_TYPES))
+        type_values.append(implementors(idx, bs, visible_in(t, idx)) if bs and idx is not None else list(PROBE_TYPES))
     probes = []
     for k in range(max([len(v) for v in type_values] + [1])):
         for nv in (PROBE_NUMERIC if numeric else [None]):
@@ -323,6 +336,34 @@ def candidates(t: Target, idx: RepoIndex | None) -> list[tuple[str, dict, list[s
     return out
 
 
+def crate_scope(t: Target) -> list[str]:
+    """``src`` directories of the target's crate and of its path dependencies (repository-relative)."""
+    from .noir_toolchain import read_toml
+    out, todo, seen = [], [t.crate] if t.crate else [], set()
+    while todo:
+        d = todo.pop()
+        if d in seen:
+            continue
+        seen.add(d)
+        out.append(os.path.relpath(os.path.join(d, "src"), t.root))
+        m = os.path.join(d, "Nargo.toml")
+        if os.path.exists(m):
+            for spec in read_toml(m).get("dependencies", {}).values():
+                if isinstance(spec, dict) and "path" in spec:
+                    todo.append(os.path.normpath(os.path.join(d, spec["path"])))
+    return out
+
+
+def visible_in(t: Target, idx: RepoIndex):
+    """Predicate: a struct name the target's crate can name (declared outside test code in the crate or a
+    path dependency)."""
+    scope = crate_scope(t)
+
+    def ok(name: str) -> bool:
+        return any(f == s or f.startswith(s + "/") for f in idx.struct_files.get(name, []) for s in scope)
+    return ok
+
+
 def where_bounds(t: Target) -> dict[str, list[str]]:
     """``where T: A + B, U: C`` of the function and its impl -> {T: [A, B], U: [C]}."""
     out: dict[str, list[str]] = {}
@@ -335,8 +376,9 @@ def where_bounds(t: Target) -> dict[str, list[str]]:
     return out
 
 
-def implementors(idx: RepoIndex, bounds: list[str]) -> list[str]:
-    """Non-generic types the repository implements every bound trait for (primitives first)."""
+def implementors(idx: RepoIndex, bounds: list[str], visible=None) -> list[str]:
+    """Non-generic types the repository implements every bound trait for (primitives first); ``visible``
+    filters out types the target's crate cannot name (declared in other crates or in test code)."""
     sets = []
     for b in bounds:
         name = re.match(r"\s*([A-Za-z_][A-Za-z0-9_:]*)", b)
@@ -347,6 +389,8 @@ def implementors(idx: RepoIndex, bounds: list[str]) -> list[str]:
     if not sets:
         return list(PROBE_TYPES)
     common = set.intersection(*sets)
+    if visible is not None:
+        common = {x for x in common if x in PRIMITIVES or visible(x)}
     return sorted(common, key=lambda x: (x not in PRIMITIVES, PROBE_TYPES.index(x) if x in PROBE_TYPES else 99, x))[:4]
 
 
@@ -370,24 +414,35 @@ class Wrapper:
     mut_params: list[str]
 
 
-def wrapper(t: Target, assign: dict, wid: str, qualify: str = "") -> Wrapper:
+def wrapper(t: Target, assign: dict, wid: str, qualify: str = "", method_call: bool = False) -> Wrapper:
     """The ``#[export]`` wrapper for ``t`` under ``assign``; ``qualify`` prefixes free functions and is the
     module path for stdlib wrappers (``std::hash::``)."""
     fn, imp = t.fn, t.fn.impl
     name = f"boole_det_{wid}"
-    alias = f"BooleSelf_{wid}" if imp is not None else None
     lines = []
+    # a literal argument of a numeric generic declared with another type than u32 (`let D: u64`) is typed u32
+    # in type positions; such values become typed globals, as the repositories write them
+    assign = dict(assign)
+    for _, g in t.generics:
+        v = assign.get(g.name)
+        if g.numeric and g.num_type.strip() not in ("", "u32") and v is not None and re.fullmatch(r"\d+", v):
+            gname = f"BOOLE_{wid}_{g.name}".upper()
+            lines.append(f"global {gname}: {g.num_type.strip()} = {v};")
+            assign[g.name] = gname
+    self_concrete = None
+    alias = None
     if imp is not None:
         self_ty = imp.self_type if imp.kind == "impl" else assign.get("__implementor__", "")
         if not self_ty:
             raise ValueError("trait default method without an implementing type")
-        st = subst(self_ty, assign, None)
-        lines.append(f"type {alias} = {st.replace('crate::', 'std::') if qualify.startswith('std::') else st};")
-    self_concrete = None
-    if imp is not None:
-        self_concrete = subst(imp.self_type if imp.kind == "impl" else assign.get("__implementor__", ""), assign, None)
+        self_concrete = fold_literals(subst(self_ty, assign, None))
         if qualify.startswith("std::"):
             self_concrete = self_concrete.replace("crate::", "std::")
+        # the concrete type is written out everywhere (a type alias would fix numeric generic arguments to u32,
+        # and an alias of one instantiation can select another impl); in expressions a generic type needs the
+        # turbofish form `Base::<args>`
+        alias = self_concrete
+        alias_expr = re.sub(r"^([A-Za-z_][A-Za-z0-9_:]*)\s*<", r"\1::<", self_concrete)
     params, pre, args, mut_outs = [], [], [], []
     for i, p in enumerate(fn.params):
         if p.pattern == "self":
@@ -424,6 +479,8 @@ def wrapper(t: Target, assign: dict, wid: str, qualify: str = "") -> Wrapper:
     turbo = f"::<{', '.join(fn_gen)}>" if fn_gen else ""
     if imp is None:
         callee = f"{qualify}{fn.name}{turbo}"
+    elif method_call and fn.params and fn.params[0].pattern == "self":
+        callee = None                     # trait method through method-call syntax (see noir_det.compile_candidate)
     elif imp.kind == "trait" or imp.trait:
         trait = imp.trait if imp.kind == "impl" else (imp.self_type + (
             "<" + ", ".join(assign[g.name] for g in imp.generics) + ">" if imp.generics else ""))
@@ -435,12 +492,20 @@ def wrapper(t: Target, assign: dict, wid: str, qualify: str = "") -> Wrapper:
         # inherent method with a receiver: method-call syntax (auto-ref), dispatched on the value's type
         callee = None
     else:
-        callee = f"{alias}::{fn.name}{turbo}"
+        callee = f"{alias_expr}::{fn.name}{turbo}"
     if callee is None:
         call = f"s_self.{fn.name}{turbo}({', '.join(args[1:])})"
     else:
         call = f"{callee}({', '.join(args)})"
     ret = subst(fn.ret, assign, self_concrete).strip() if fn.ret else ""
+    if imp is not None:
+        # associated constants `Self::N` in types: `<Alias as Trait>::N` (trait impls) or `Alias::N`
+        trait_txt = imp.trait if imp.kind == "impl" else imp.self_type
+        assoc = (f"<{alias} as {subst(trait_txt, assign, alias)}>::" if (imp.trait or imp.kind == "trait")
+                 else f"{alias}::")
+        sc = re.escape(self_concrete)
+        params = [re.sub(sc + r"::(?=[A-Z_][A-Za-z0-9_]*)", lambda m: assoc, x) for x in params]
+        ret = re.sub(sc + r"::(?=[A-Z_][A-Za-z0-9_]*)", lambda m: assoc, ret)
     if qualify.startswith("std::"):
         ret = ret.replace("crate::", "std::")
         params = [x.replace("crate::", "std::") for x in params]
@@ -459,7 +524,23 @@ def wrapper(t: Target, assign: dict, wid: str, qualify: str = "") -> Wrapper:
     else:
         rtype = ""
     lines += ["#[export]", f"fn {name}({', '.join(params)}){rtype} {{", *body, "}"]
-    return Wrapper(name, "\n".join(lines) + "\n", call, [o for o, _ in outs], [o for o, _ in mut_outs])
+    text = fold_literals("\n".join(lines) + "\n")
+    return Wrapper(name, text, fold_literals(call), [o for o, _ in outs], [o for o, _ in mut_outs])
+
+
+def fold_literals(text: str) -> str:
+    """``4 + 1`` -> ``5`` for integer literals produced by substituting numeric generics (Noir checks the
+    type of an arithmetic generic expression against the parameter's declared numeric type)."""
+    pat = re.compile(r"(?<![A-Za-z0-9_.])(\d+)\s*([+*-])\s*(\d+)(?![A-Za-z0-9_.])")
+    while True:
+        m = pat.search(text)
+        if not m:
+            return text
+        a, op, b = int(m.group(1)), m.group(2), int(m.group(3))
+        v = a + b if op == "+" else a * b if op == "*" else a - b
+        if v < 0:
+            return text
+        text = text[:m.start()] + str(v) + text[m.end():]
 
 
 def _qualify_trait(trait: str, qualify: str) -> str:

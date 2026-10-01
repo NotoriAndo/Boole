@@ -316,13 +316,46 @@ class InstantiationTests(unittest.TestCase):
         self.assertIn("s_self.push(a1);", w.text)
         self.assertEqual(w.outputs, ["s_self"])
         w = I.wrapper(toy_target("lib/src/lib.nr", "eq"), {}, "x2")
-        self.assertIn("<BooleSelf_x2 as Eq>::eq(s_self, a1)", w.text)
-        self.assertIn("type BooleSelf_x2 = Point;", w.text)
+        self.assertIn("<Point as Eq>::eq(s_self, a1)", w.text)
+        self.assertNotIn("type ", w.text)
         w = I.wrapper(toy_target("lib/src/lib.nr", "make"), {"T": "u8", "N": "2", "M": "3"}, "x3")
-        self.assertIn("BooleSelf_x3::make::<3>(a0)", w.text)
+        self.assertIn("Acc::<u8, 2>::make::<3>(a0)", w.text)
         self.assertIn("-> [u8; 3]", w.text)
         w = I.wrapper(toy_target("lib/src/lib.nr", "sum"), {"N": "3"}, "x4", "std::foo::")
         self.assertIn("std::foo::sum::<3>(a0)", w.text)
+
+    def test_associated_constants_and_literal_folding(self) -> None:
+        src = ("pub trait Packable { let N: u32; fn pack(self) -> [Field; Self::N]; }\n"
+               "pub struct P { x: Field }\n"
+               "impl Packable for P { let N: u32 = 2; fn pack(self) -> [Field; Self::N] { [self.x, 0] } }\n"
+               "pub struct W<let M: u32> { v: [Field; M] }\n"
+               "impl<let M: u32> W<M> { pub fn grow(self) -> [Field; M + 1] { [0; M + 1] } }\n")
+        fns, _, text = NS.scan(src)
+        pack = next(f for f in fns if f.name == "pack" and f.has_body and f.impl.kind == "impl")
+        t = I.Target("x", "toy/repo", str(TOY), "lib/src/lib.nr", pack, text, src, str(TOY / "lib"), "lib")
+        w = I.wrapper(t, {}, "a1")
+        self.assertIn("-> [Field; <P as Packable>::N]", w.text)
+        grow = next(f for f in fns if f.name == "grow")
+        t2 = I.Target("y", "toy/repo", str(TOY), "lib/src/lib.nr", grow, text, src, str(TOY / "lib"), "lib")
+        w2 = I.wrapper(t2, {"M": "4"}, "a2")
+        self.assertIn("-> [Field; 5]", w2.text)
+        self.assertEqual(I.fold_literals("StateVariable<4 + 1, Field> [u8; 2 * 3]"), "StateVariable<5, Field> [u8; 6]")
+        src3 = "pub struct D<let K: u64> { x: Field }\nimpl<let K: u64> D<K> { pub fn get(self) -> Field { self.x } }\n"
+        fns3, _, text3 = NS.scan(src3)
+        t3 = I.Target("z", "toy/repo", str(TOY), "lib/src/lib.nr", next(f for f in fns3 if f.name == "get"), text3, src3,
+                      str(TOY / "lib"), "lib")
+        w3 = I.wrapper(t3, {"K": "4"}, "a3")
+        self.assertIn("global BOOLE_A3_K: u64 = 4;", w3.text)
+        self.assertIn("s_self: D<BOOLE_A3_K>", w3.text)
+
+    def test_test_code_types_are_not_candidates(self) -> None:
+        self.assertTrue(I.is_test_path("aztec/src/unconstrained_array/test_helpers.nr"))
+        self.assertTrue(I.is_test_path("src/test/mocks/mock_struct.nr"))
+        self.assertFalse(I.is_test_path("src/state_vars/public_mutable.nr"))
+        self.assertFalse(I.is_test_path("src/attestation.nr"))
+        vis = I.visible_in(toy_target("lib/src/lib.nr", "push"), self.idx)
+        self.assertTrue(vis("Point"))
+        self.assertFalse(vis("Unknown"))
 
     def test_std_imports(self) -> None:
         t = toy_target("lib/src/lib.nr", "eq", stdlib=True)
@@ -405,6 +438,15 @@ class DriverTests(unittest.TestCase):
             Path(d, "src", "a", "mod.nr").write_text("")
             got = {os.path.relpath(f, os.path.join(d, "src")) for f in D.module_files(d)}
             self.assertEqual(got, {"lib.nr", "b.nr", "b/c.nr"})
+
+    def test_remove_pub_contract_block(self) -> None:
+        src = "mod a;\n#[aztec]\npub contract Toy {\n    fn f() {}\n}\n"
+        out = D.remove_contract_block(src)
+        self.assertEqual(out.strip(), "mod a;")
+
+    def test_mutants_of_an_empty_program(self) -> None:
+        flat = A.Flat([], [], [], 0)
+        self.assertEqual(D.make_mutants(flat, [[]], 4, "s"), [])
 
     def test_first_error(self) -> None:
         out = "warning: x\nerror: Could not resolve 'Foo' in path\n   ┌─ src/lib.nr:3:5\n  │\n"
