@@ -594,6 +594,17 @@ mod program {
                 }
             }
         }
+        // SHA-256 / SHA-512 compression: rd = output, rs1 = previous state, rs2 = message block
+        if config.sha2.is_some() {
+            for (op, state_len, block_len) in [(openvm_sha2_transpiler::Rv32Sha2Opcode::SHA256, 32usize, 64usize),
+                                               (openvm_sha2_transpiler::Rv32Sha2Opcode::SHA512, 64, 128)] {
+                for _ in 0..N {
+                    let st: Vec<u8> = (0..state_len).map(|_| m.rng.next() as u8).collect();
+                    let blk: Vec<u8> = (0..block_len).map(|_| m.rng.next() as u8).collect();
+                    m.call(r_type(op.global_opcode(), 7, 5, 6, 2), &st, &blk);
+                }
+            }
+        }
         m.ins.push(Instruction::from_isize(SystemOpcode::TERMINATE.global_opcode(), 0, 0, 0, 0, 0));
         let mut exe = VmExe::new(Program::from_instructions(&m.ins));
         exe.init_memory = m.mem;

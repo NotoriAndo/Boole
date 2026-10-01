@@ -92,15 +92,20 @@ def sha256_file(path: str) -> str:
     return P.sha256_file(path)
 
 
-def generator_info() -> dict:
-    h = hashlib.sha256()
-    for rel in GENERATOR_SOURCES:
-        h.update(rel.encode() + b"\0" + sha256_file(os.path.join(HERE, rel)).encode() + b"\n")
+def generator_files() -> list[str]:
+    """Every file the AIR generator hash covers: the listed sources and the per-zkVM extractor sources."""
+    out = list(GENERATOR_SOURCES)
     for z in sorted(os.listdir(HARNESS_DIR)):
         d = os.path.join(HARNESS_DIR, z)
         if z != "common" and os.path.isdir(d):
-            for fn in sorted(os.listdir(d)):
-                h.update(f"air_harness/{z}/{fn}".encode() + b"\0" + sha256_file(os.path.join(d, fn)).encode() + b"\n")
+            out += [f"air_harness/{z}/{fn}" for fn in sorted(os.listdir(d))]
+    return out
+
+
+def generator_info() -> dict:
+    h = hashlib.sha256()
+    for rel in generator_files():
+        h.update(rel.encode() + b"\0" + sha256_file(os.path.join(HERE, rel)).encode() + b"\n")
     return {"name": GENERATOR_NAME, "version": GENERATOR_VERSION, "sources_sha256": h.hexdigest()}
 
 

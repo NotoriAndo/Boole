@@ -26,3 +26,4 @@ openvm-algebra-transpiler = { workspace = true }
 openvm-ecc-transpiler = { workspace = true }
 num-bigint = { workspace = true }
 strum = { workspace = true }
+openvm-sha2-transpiler = { workspace = true }

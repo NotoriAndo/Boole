@@ -165,7 +165,7 @@ class IdentityTests(unittest.TestCase):
         present = {str(p.relative_to(here)) for p in here.rglob("*") if p.is_file() and p.suffix in (".py", ".js", ".lean", ".json")}
         # the AIR generator (air_det) hashes its own sources; every file belongs to one of the two generators
         from zk_registry import air_det
-        self.assertEqual(present - listed - set(air_det.GENERATOR_SOURCES), set())
+        self.assertEqual(present - listed - set(air_det.generator_files()), set())
 
 
 class WaveHelpersTests(unittest.TestCase):
