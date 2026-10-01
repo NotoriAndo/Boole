@@ -215,6 +215,18 @@ def _const_value(air: IR.Air, node: int) -> int | None:
     return n[1] if n[0] == "const" else None
 
 
+def _sha_compress_start(air: IR.Air, it: IR.Interaction) -> Rule | None:
+    """The SHA-256 compress controller (SP1, Pico) sends the round chain's start message [clk, w_ptr, h_ptr,
+    index 0, initial state]: it does not read the initial state, the compress AIR constrains it against memory
+    (\"the initial state will be constrained by the ShaCompressChip\"), so the state fields are the callee's answer."""
+    n = len(it.values)
+    if it.kind_name != "ShaCompress" or it.direction != "send" or n <= 9 or _const_value(air, it.values[8]) != 0:
+        return None
+    return Rule("split", "SHA-256 compress call made: (clk, pointers, index 0) out; the initial state is constrained "
+                         "by the compress AIR against memory, so it is an input here",
+                in_fields=tuple(range(9, n)), out_fields=tuple(range(9)), mult_with="out")
+
+
 @register
 class Sp1Model(BusModel):
     """SP1 v6.8.1 (hypercube): `InteractionKind` buses of crates/hypercube/src/lookup/interaction.rs.
@@ -296,6 +308,9 @@ class Sp1Model(BusModel):
             ins = (0, 1, 2, n - 2, n - 1)
             return Rule("split", "instruction fetch: serves (pc, clk) -> instruction", in_fields=ins,
                         out_fields=tuple(i for i in range(n) if i not in ins))
+        sha = _sha_compress_start(air, it)
+        if sha:
+            return sha
         if kind == "Global" and send and len(it.values) == 11:
             is_send, is_recv = _const_value(air, it.values[8]), _const_value(air, it.values[9])
             if is_send == 1 and is_recv == 0:
@@ -458,6 +473,9 @@ class PicoModel(BusModel):
                             out_fields=first, mult_with="out")
             return Rule("split", "Poseidon2 call served: input state in, output state out", in_fields=first,
                         out_fields=second)
+        sha = _sha_compress_start(air, it)
+        if sha:
+            return sha
         if kind == "Global" and n == 11:
             if not send:
                 return Rule("in", "global bus messages are consumed by the Global chip")

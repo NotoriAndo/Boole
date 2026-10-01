@@ -395,6 +395,18 @@ class BusModelTests(unittest.TestCase):
         self.assertEqual(iface["inputs"][0]["fields"], [0, 5, 6, 7, 8, 9, 10, 11, 12])
         self.assertEqual(iface["outputs"][0]["fields"], [1, 2, 3, 4])
 
+    def test_sha_compress_chain_start_state_is_an_input(self) -> None:
+        nodes = [["main", 0, 0], ["main", 0, 1], ["const", 0], ["const", 80]]
+        start = [0, 0, 0, 0, 0, 0, 0, 0, 2] + [1] * 16      # index field (8) is the constant 0
+        end = [0, 0, 0, 0, 0, 0, 0, 0, 3] + [1] * 16        # index 80
+        for z in ("sp1", "pico"):
+            air = mini_air("ShaCompressControl", [it("send", kind=11, kind_name="ShaCompress", values=start),
+                                                  it("receive", kind=11, kind_name="ShaCompress", values=end)],
+                           group="riscv", nodes=nodes)
+            _, iface = B.model_for(z).roles(air)
+            self.assertEqual(iface["outputs"][0]["fields"], list(range(9)))
+            self.assertEqual([m.get("fields") for m in iface["inputs"]], [list(range(9, 25)), None])
+
     def test_global_messages_follow_their_flags(self) -> None:
         sp1 = B.model_for("sp1")
         nodes = [["main", 0, 0], ["main", 0, 1], ["const", 0], ["const", 1]]
