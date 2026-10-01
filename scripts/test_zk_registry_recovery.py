@@ -81,6 +81,7 @@ class ProbeMinTests(unittest.TestCase):
 
     def plans(self, tmp: str, probe_min: bool) -> dict:
         write(tmp, "c.circom", self.SRC)
+        write(tmp, "lib.circom", 'pragma circom 2.0.0;\ninclude "c.circom";\n')      # a second include context
         files = cs.scan_repo(tmp, cs.list_circom_files(tmp))
         return {p.template.name: p for p in I.plan_templates(files, ["c.circom"], "t/r", probe_min=probe_min)}
 
@@ -127,6 +128,7 @@ class ProbeMinTests(unittest.TestCase):
                 D.compile_main = saved
             self.assertEqual(tier, "probed")
             self.assertEqual(seen, [("1",), ("2",)])                 # (3,) and later are never compiled
+            self.assertEqual(len(recs[0]["compile_result"]["attempts"]), 1)   # T3001: no other context tried
             chosen, fits = D.select(recs, tier, 2000)
             self.assertEqual((chosen["args"], fits), (["2"], True))
 

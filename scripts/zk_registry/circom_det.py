@@ -124,6 +124,9 @@ DEFAULT_COMPILER = "v2.2.3"
 PROBED_NOT_A_FINDING = ("not-a-finding: probed instantiation (parameter values chosen inside the template's own "
                         "assert bounds, not taken from the repository)")
 CIRCOM1_TAG = "v0.5.46"
+# probe-min: a compile-time evaluation error (false assert, index out of bounds, ...) means the instantiated template
+# rejected the probed values; the main component is the same in every include context, so no other context is tried
+PROBE_REJECTED = "error[T3001]"
 _PRAGMA_RE = re.compile(r"\bpragma\s+circom\s+(\d+)\.(\d+)\.(\d+)\s*;")
 REAL_WANTED = 12
 MUTANTS = 12
@@ -529,6 +532,8 @@ def size_candidates(sh: Shared, plan: I.TemplatePlan, dir_base: str,
                     attempts.append({"include_context": ctx, "compiler": tag, "result": attempt_result(res)})
                     if (res["rc"] == 0 and "constraints" in res) or res.get("guard") or res.get("custom_gates"):
                         break                     # compiled (or stopped by the guard / custom gates)
+                    if c.first_fit and PROBE_REJECTED in (res.get("error") or ""):
+                        break                     # probe-min: the template rejected these values (any context)
                 else:
                     continue
                 break
