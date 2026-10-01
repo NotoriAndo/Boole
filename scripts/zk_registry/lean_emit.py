@@ -220,9 +220,9 @@ def emit_model(ns: str, meta: dict, r: R1cs, outputs: Sequence[int], inputs: Seq
             body.append(f"def {name} (w : Fin nWires → F) : Prop :=")
             body.append(" ∧\n".join(f"  {c}" for c in chunk))
             body.append("")
-        body.append(f"/-- The compiled constraint system ({len(cons)} constraints). -/")
         if len(blocks) > LONG_CONJUNCTION:          # a long right-nested conjunction exceeds the default depth
             body.append("set_option maxRecDepth 100000 in")
+        body.append(f"/-- The compiled constraint system ({len(cons)} constraints). -/")
         body.append("def Constraints (w : Fin nWires → F) : Prop :=")
         body.append("  w 0 = 1 ∧ " + " ∧ ".join(f"{b} w" for b in blocks))
     else:

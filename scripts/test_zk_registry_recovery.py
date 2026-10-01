@@ -259,7 +259,7 @@ class LongModelTests(unittest.TestCase):
             cons = [([(1, 1)], [(1, 1)], [(2, 1)])] * n
             r = R.R1cs(R.BN254_SCALAR, 32, 3, 1, 1, 0, 3, cons)
             return E.emit_model("ZkDet.T", meta, r, [1], [2], ["one", "main.o", "main.i"])
-        flag = "set_option maxRecDepth 100000 in\ndef Constraints"
+        flag = "set_option maxRecDepth 100000 in\n/-- The compiled constraint system"
         self.assertNotIn(flag, model(E.BLOCK * E.LONG_CONJUNCTION))          # 8,192 constraints: unchanged
         self.assertIn(flag, model(E.BLOCK * E.LONG_CONJUNCTION + 1))
 
