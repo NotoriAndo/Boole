@@ -392,7 +392,7 @@ def fid_nonvac(sh: Shared, air: IR.Air, layout: IR.Layout, roles: AL.Roles, summ
             G.Gate("G-NONVAC", "PASS" if nonvac_active else "FAIL", nonvac), [w for _, w in py_ok])
 
 
-KERNEL_EVAL_COST = 20_000_000
+KERNEL_EVAL_COST = 10_000_000_000
 
 
 def eval_cost(air: IR.Air, roles: AL.Roles) -> int:
