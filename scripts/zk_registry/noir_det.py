@@ -1593,6 +1593,53 @@ def validate_all(index_path: str, packages_dir: str) -> list[str]:
     return problems
 
 
+# ------------------------------------------------------------------------------------------ targeted re-run
+
+def run_rerun(cfg: WaveConfig, index_path: str, item_ids: list[str]) -> list[dict]:
+    """Regenerate the given records with the current generator and merge them into the wave outputs: package
+    directories of replaced records are removed, every replacement is logged in ``RERUN-MERGE.jsonl`` (old and
+    new status, reason and generator hash), and the indexes are rewritten.  Records not named are unchanged."""
+    sh = setup_shared(cfg)
+    with open(index_path, encoding="utf-8") as f:
+        wave = [json.loads(x) for x in f if x.strip()]
+    by_id = {r["ids"]["ledger_item_id"]: r for r in wave}
+    rows = {r["item_id"]: r for r in select_rows(cfg.ledger)}
+    todo = [i for i in item_ids if i in by_id and i in rows]
+    cache: dict = {}
+    merged = []
+    with cf.ThreadPoolExecutor(max_workers=cfg.jobs) as pool:
+        futs = {}
+        for i in todo:
+            t, how = make_target(sh, rows[i], cache)
+            futs[pool.submit(process, sh, rows[i], t, how)] = i
+        for fut in cf.as_completed(futs):
+            i = futs[fut]
+            new, old = fut.result(), by_id[i]
+            new["evidence"]["content_sha256"] = old["evidence"].get("content_sha256")
+            if old["package_id"] != new["package_id"] and old["status"] in P.PACKAGED_STATUSES:
+                stale = os.path.join(cfg.out, *old["package_id"].split("/", 1))
+                if stale.startswith(cfg.out + os.sep) and os.path.isdir(stale):
+                    shutil.rmtree(stale)
+            by_id[i] = new
+            entry = {"item_id": i, "old_status": old["status"], "old_reason": old["status_reason"][:300],
+                     "old_generator": old["generator"]["sources_sha256"], "new_status": new["status"],
+                     "new_reason": new["status_reason"][:300], "new_generator": new["generator"]["sources_sha256"],
+                     "package_id": new["package_id"]}
+            merged.append(entry)
+            append_jsonl(os.path.join(cfg.out, "RERUN-MERGE.jsonl"), entry)
+            log(sh, f"rerun {len(merged)}/{len(todo)}: {old['status']} -> {new['status']}")
+    dedup = []
+    dpath = os.path.join(cfg.out, "DEDUP.jsonl")
+    if os.path.exists(dpath):
+        with open(dpath, encoding="utf-8") as f:
+            dedup = [json.loads(x) for x in f if x.strip()]
+        for d in dedup:
+            c = by_id.get(d["canonical_item_id"])
+            d["canonical_package_id"], d["canonical_status"] = (c["package_id"], c["status"]) if c else (None, None)
+    write_outputs(cfg.out, list(by_id.values()), dedup)
+    return merged
+
+
 # ------------------------------------------------------------------------------------------ decomposition
 
 def setup_shared(cfg: WaveConfig) -> Shared:
@@ -1866,6 +1913,11 @@ def main(argv: list[str] | None = None) -> int:
     dc.add_argument("--config", required=True)
     dc.add_argument("--index", required=True)
     dc.add_argument("--jobs", type=int)
+    rr = sub.add_parser("rerun")
+    rr.add_argument("--config", required=True)
+    rr.add_argument("--index", required=True)
+    rr.add_argument("--items", required=True, help="file with one ledger item id per line")
+    rr.add_argument("--jobs", type=int)
     xc = sub.add_parser("crosscheck")
     xc.add_argument("--config", required=True)
     xc.add_argument("--index", required=True)
@@ -1899,6 +1951,19 @@ def main(argv: list[str] | None = None) -> int:
         for r in recs:
             counts[r["status"]] = counts.get(r["status"], 0) + 1
         print(json.dumps({"records": counts, "edges": len(edges)}, indent=1, sort_keys=True))
+        return 0
+    if a.cmd == "rerun":
+        cfg = WaveConfig.load(a.config)
+        if a.jobs:
+            cfg.jobs = min(a.jobs, 4)
+        with open(a.items, encoding="utf-8") as f:
+            items = [x.strip() for x in f if x.strip()]
+        res = run_rerun(cfg, a.index, items)
+        counts: dict = {}
+        for e in res:
+            k = f"{e['old_status']} -> {e['new_status']}"
+            counts[k] = counts.get(k, 0) + 1
+        print(json.dumps(counts, indent=1, sort_keys=True))
         return 0
     if a.cmd == "crosscheck":
         res = crosscheck_nargo_execute(WaveConfig.load(a.config), a.index)
