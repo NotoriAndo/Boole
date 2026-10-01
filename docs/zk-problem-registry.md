@@ -219,6 +219,73 @@ black-box semantics and in Lean. `crosscheck` compares `nargo execute` with the 
 and inputs; `decompose` splits TOO-LARGE functions into the crate functions they call (ledger rows and content-equal
 functions are mapped, the others instantiated, up to 4 levels).
 
+## gnark DET generator (Go circuits and gadgets)
+
+Code: `scripts/zk_registry/gnark_*.py` (driver `gnark_det.py`, generator `boole-zk-registry-gnark-det` 1.0) and the Go
+tool `scripts/zk_registry/gnark_tool/` (`catalog/`: a go/packages + go/types catalog; `harness/`: builders, sampling,
+export; `main.go`: the `gnarkx` runner). It reuses the internal R1CS representation, the Lean template, G-ELAB, the
+battery, the counterexample search, the package format, the checker and the `problem.json` schema (additive values).
+
+**Population.** Ledger rows with `framework == "gnark"`, with the unit and flag exclusions of the Noir generator
+(`gnark_det.SELECTION_FILTER`), deduplicated by a content key (the comment-free declaration, every module function it
+reaches through calls, the underlying types its signature reaches, the Go and gnark versions). Every row ends in one
+terminal status: OPEN, GATE-FAIL, DET-FALSE-CANDIDATE (private), TOO-LARGE, NO-INSTANTIATION, COMPILE-FAIL or
+NOT-APPLICABLE, each with a reason.
+
+**Toolchain.** Each repository is built at its ledger pin with the Go version its `go.mod` requires: the installed Go
+when it satisfies the `go` directive, otherwise a digest-checked official release in scratch (`GOTOOLCHAIN=local`;
+`GOPATH`, `GOMODCACHE`, `GOCACHE` in scratch; modules from the public proxy only). The wrapper tool is a Go module that
+`replace`s the repository module by the checkout (with the repository's own `replace` directives); every module the
+repository requires must resolve to the version it pins (deviations are recorded). Targets in `internal` packages are
+built inside a copy of the repository module. Where the tool does not build against an older gnark API, a sizing
+program inside a copy of the module compiles the circuit with gnark's production builder and records its constraint
+count (TOO-LARGE above the policy, otherwise COMPILE-FAIL).
+
+**Instantiation** (`gnark_instantiation.py`). A wrapper circuit per candidate: its secret fields are the target's
+circuit inputs (parameters of circuit-variable types: `frontend.Variable`, emulated elements, points, extension-field
+elements, bytes, and arrays / slices / pointers of those, and a data receiver); `Define` constructs gadget objects with
+the package's in-circuit constructor (parameters supplied by zero-argument providers, recursively by constructors, or by
+constants of call sites), calls the target and passes pointers to its results to `harness.Expose`, which copies every
+circuit variable of the results into a new wire (a hint) constrained equal to it: those wires are the outputs, all
+public and secret variables are the inputs. Choices by tier, first tier with a compiling candidate wins, largest model
+within the size policy (2,000 constraints): `parameter-free` → `repo-test` (type arguments of concrete instantiations,
+constants and interface implementations at call sites in test files) → `repo-derived` (the same in non-test files) →
+`probed` (slice lengths 2 and 4, constants 2 / 8, false / true; a counterexample there is labelled not-a-finding). The
+native field is the curve the package's tests compile with (BN254 when they name it or none). Constructors and functions
+without circuit-variable inputs or outputs are NOT-APPLICABLE; parameters of function or `any` type, generic types
+without a concrete instantiation in the repository and declarations in package `main` have NO-INSTANTIATION.
+
+**Commitment model** (decision (b), sound modelling of the challenge). gnark's range checks and lookups use a
+commitment (Fiat–Shamir challenge) when the builder implements `frontend.Committer`, and emulated arithmetic checks
+every multiplication by a random evaluation of a polynomial identity; a challenge modelled as a free wire would make
+DET spuriously false. The model builder (a wrapper around gnark's `r1cs` builder, the extension point gnark documents)
+implements `frontend.Rangechecker` by gnark's own non-commitment checker (`rangecheck.New` on a view without
+`Committer`, i.e. bit decomposition: the predicate `value < 2^bits` itself), and implements `Committer` twice: in a
+*symbolic* compile the commitment is a challenge wire, and the challenge-dependent part of the system must be a
+polynomial identity of degree D in it (every challenge-dependent wire is defined by its own constraint; checked by the
+Go tool and again in Python); the model is then the common pre-commitment system plus the challenge-dependent parts of
+D + 1 *constant* compiles at distinct fixed challenges 2, 3, ..., which is equivalent to the identity holding for
+every challenge (the intended semantics; no fact the gadget enforces is assumed). Checks that are not polynomial
+identities (log-derivative lookups: `logderivlookup`, the byte tables of `uints`, GKR) are not modelled and the row is
+COMPILE-FAIL with that reason. Every package records the production constraint count (gnark's own builder) next to the
+model's.
+
+**Statement.** The Circom template over gnark's compiled constraint system (`F = ZMod p`, p the native field).
+Outputs that are emulated field elements are compared by value, since gnark keeps them in non-canonical limb form:
+`EmulatedOutputs` lists (limb wires, limb width, modulus) and the conclusion is
+`(∀ o ∈ Outputs, w₁ o = w₂ o) ∧ ∀ g ∈ EmulatedOutputs, emValue w₁ g.1 g.2.1 % g.2.2 = emValue w₂ g.1 g.2.1 % g.2.2`;
+without emulated outputs the statement is exactly the Circom one. Hint outputs are free wires (unconstrained prover
+inputs); `statement.assumptions` states the range-check and commitment model.
+
+**Gates** (cheapest first). G-ELAB; G-NONVAC: a solution of gnark's solver for the compiled system(s) on a sampled
+assignment (gnark-crypto domain samplers for curve points, GT elements and bytes; profiles for native variables) is
+accepted by the Python evaluator and by Lean; G-FID: every real witness (at least 10) and 16 single-wire mutants are
+evaluated by Lean (`decide (Constraints w)`) and the Python R1CS evaluator, the emulated output values are computed in
+Lean and in Python, every real witness is a solution of gnark's solver, and gnark's test engine's verdict on each
+assignment is recorded; then the counterexample search (output mutation, linear kernel, re-solve, under the
+statement's output relation) and the battery (P2 first, then P1 unless P2 closed the statement). `decompose` maps the
+callees of TOO-LARGE records to wave records or new records of exported module functions (up to 4 levels).
+
 ## Wave 0 (circomlib v2.0.5, 106 templates)
 
 | Status | Count |
@@ -337,6 +404,39 @@ deduplicated by content to 2,184 functions (13 `aztec_sublib` copies of aztec-nr
   (1 OPEN).
 - 70 stdlib functions carry `coverage: partial` (Lampe Hoare-triple proofs for the v1.0.0-beta.19 copy, function text
   identical at the pin; not a DET statement over ACIR). DET truth is unknown for every OPEN package.
+
+## Wave G1 (gnark circuits and gadgets of the frozen ledger)
+
+599 filtered ledger rows (gnark std 562 at `cfc7b2f9`, 37 application circuit types of 13 repositories) were located in
+their pinned sources (599 of 599) and deduplicated by content to 589 (9 `sw_grumpkin` methods that are textual copies of
+the `sw_bls12377` ones, and one duplicated lighter-prover circuit). Go: the installed 1.25.7 where the `go` directive
+allows it, otherwise the digest-checked official 1.26.8; gnark std compiled from its checkout with every pinned module
+at its version.
+
+| status | records |
+|---|---:|
+| OPEN | 76 |
+| GATE-FAIL (75 closed by the automation battery) | 125 |
+| DET-FALSE-CANDIDATE (private) | 2 |
+| TOO-LARGE | 258 |
+| NO-INSTANTIATION | 36 |
+| COMPILE-FAIL | 48 |
+| NOT-APPLICABLE | 44 |
+| total | 589 |
+
+- All 76 OPEN packages are gnark std gadgets (emulated and native algebra, emulated arithmetic, bits, comparison,
+  uints, bitslice, conversion, Poseidon2); 66 contain at least one gadget hint (free in the model), 37 have emulated
+  outputs (compared modulo their modulus), 9 hold a commitment challenge at D + 1 points, 5 are on probed instantiations.
+- Commitment model: 138 records take a commitment; 99 TOO-LARGE records fit the size policy in gnark's production
+  system but not in the model (bit-decomposition range checks and the D + 1 copies of the multiplication checks); 9 rows
+  whose checks are log-derivative lookups are COMPILE-FAIL (not modelled).
+- Application circuits (36 distinct): 6 TOO-LARGE, 1 NO-INSTANTIATION (package `main`), 29 COMPILE-FAIL (probed slice lengths and
+  zero-valued shape fields, modules that do not build at their pin, and repositories pinning an older gnark: the
+  wrapper tool would have resolved a newer gnark, so only production sizes are recorded there).
+- Decomposition of the 258 TOO-LARGE records: 1,008 callee edges, 602 to wave records, 28 new records (0 OPEN).
+- Coverage: the 6 light-protocol v2 circuit rows carry `coverage: partial` (in-repository Lean verification of the
+  extracted circuit, not a DET statement over the compiled R1CS); no public machine-checked artifact of gnark std was
+  found. DET truth is unknown for every OPEN package.
 
 ## Limits
 
