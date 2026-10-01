@@ -306,6 +306,38 @@ counterexample searches (SHA-256 compress chain start, initial memory content on
 memory, deep sharing in the evaluation harness) and the affected AIRs were regenerated. DET truth is unknown for every
 OPEN package.
 
+## Wave N1 (Noir functions of the frozen ledger)
+
+2,197 filtered ledger rows (aztec-packages 1,472, noir stdlib 456, z-imburse 142, payy 67, zkemail.nr 35, self 19,
+garaga 6; the 300 provekit rows all carry the `test` flag) were located in their pinned sources (2,197 of 2,197) and
+deduplicated by content to 2,184 functions (13 `aztec_sublib` copies of aztec-nr functions). Compilers: v1.0.0-beta.25
+(aztec-packages submodule), v1.0.0-rc.2 (stdlib), v1.0.0-beta.14 (payy), v1.0.0-beta.5 (zkemail.nr), v1.0.0-beta.16
+(garaga), a source build of aztec-packages-v0.67.0's `noir/noir-repo` (z-imburse) and v1.0.0-beta.26 (self, unpinned).
+
+| status | functions |
+|---|---:|
+| OPEN | 423 |
+| GATE-FAIL (734 closed by the automation battery) | 1,067 |
+| DET-FALSE-CANDIDATE (private) | 24 |
+| TOO-LARGE | 190 |
+| NO-INSTANTIATION | 289 |
+| COMPILE-FAIL | 152 |
+| NOT-APPLICABLE | 39 |
+| total | 2,184 |
+
+- 334 of the 423 OPEN packages contain at least one Brillig call (unconstrained hints, free in the model); 62 use
+  uninterpreted black boxes and 97 memory blocks. 98 OPEN packages are on probed instantiations.
+- Main losses: 201 functions take a closure parameter (no ABI type), 190 compile above 2,000 flattened opcodes, and
+  152 do not compile (names unresolved in instantiated generic code, compiler panics, one repository crate that does
+  not compile at its pin). Aztec public and utility functions, unconstrained functions and files outside their crate's
+  module tree are NOT-APPLICABLE.
+- `nargo execute` and the tool's executor gave identical witnesses on all 36 pairs that both executed (stdlib
+  wrappers and aztec-packages kernel / rollup mains on their own Prover.toml).
+- Decomposition of the 190 TOO-LARGE functions mapped 304 callee edges to wave records and produced 17 new records
+  (1 OPEN).
+- 70 stdlib functions carry `coverage: partial` (Lampe Hoare-triple proofs for the v1.0.0-beta.19 copy, function text
+  identical at the pin; not a DET statement over ACIR). DET truth is unknown for every OPEN package.
+
 ## Limits
 
 - Closed-local artifacts; no registry service, issuance, receipt or reward path is wired.
