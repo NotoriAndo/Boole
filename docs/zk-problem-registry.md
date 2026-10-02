@@ -517,6 +517,39 @@ deduplicated by content to 2,184 functions (13 `aztec_sublib` copies of aztec-nr
 - 70 stdlib functions carry `coverage: partial` (Lampe Hoare-triple proofs for the v1.0.0-beta.19 copy, function text
   identical at the pin; not a DET statement over ACIR). DET truth is unknown for every OPEN package.
 
+## Recovery R1 (Noir)
+
+Generator 1.1 regenerated all 631 wave-N1 loss records (190 TOO-LARGE, 289 NO-INSTANTIATION, 152 COMPILE-FAIL) into
+a separate collection (`packages/recovery-r1/noir`, `noir_det.py recover`); each new record carries `supersedes` and
+`evidence.supersedes_record`, the wave-N1 indexes are unchanged, and packages whose Lean model equals an existing
+package are listed as `same-model-as` duplicates.
+
+- Size cap 3,000 flattened opcodes (was 2,000), from a size ladder over the TOO-LARGE functions: up to 3,005 opcodes
+  every sampled package stayed inside the wave-N1 envelope (gate time ≤ 2,635 s, peak Lean RSS ≤ 12 GB, no memory
+  kill); at 3.4–4.8 k four of five took longer or used 13–14 GiB, and from 9.3 k the battery hit the 16 GiB kill.
+  Lean concurrency followed a 24 GB budget (2 processes, 8 workers). Records carry `evidence.size_band`.
+- Non-ABI parameter types are built inside the wrapper from ABI inputs (struct fields, references through locals,
+  function-typed fields from the crate's struct literals, vectors from arrays); closure parameters take a function
+  from a repository call site; integer parameters the compiler needs as constants take a call-site literal;
+  implementors also come from derives, the Aztec note / event macros and, as a fallback, test code. Code that takes
+  an Aztec `PublicContext` is NOT-APPLICABLE (public execution, AVM bytecode).
+- No TOO-LARGE program contains an ACIR `Call` opcode (every function is inlined), so no compositional DET-MOD
+  template was shipped.
+
+| outcome of the 631 records | records |
+|---|---:|
+| OPEN (32 new distinct models; 5 duplicate existing models) | 37 |
+| GATE-FAIL | 90 |
+| DET-FALSE-CANDIDATE (private) | 2 |
+| NOT-APPLICABLE (public-execution code) | 90 |
+| TOO-LARGE (above 3,000) | 163 |
+| NO-INSTANTIATION | 83 |
+| COMPILE-FAIL | 166 |
+
+Remaining reasons: compiler internal errors 51, contract-block items of contract crates 28, a crate that does not
+compile at its pin 16, stdlib types in non-public modules 36, closures without a usable call site 16, compile-time
+arguments without a call-site literal 16, and instantiation errors of the chosen candidates.
+
 ## Wave G1 (gnark circuits and gadgets of the frozen ledger)
 
 599 filtered ledger rows (gnark std 562 at `cfc7b2f9`, 37 application circuit types of 13 repositories) were located in
