@@ -54,6 +54,7 @@ NON_CIRCUIT_TYPES = ("PublicContext", "UtilityContext")
 # attribute macros that implement traits: derive(..) lists them; the Aztec note / event macros at the pins
 # (aztec-nr macros/notes.nr, macros/events.nr) implement these
 MACRO_TRAITS = {"note": ["NoteType", "NoteHash"], "custom_note": ["NoteType"], "event": ["EventInterface"]}
+PUBLIC_EXECUTION = "public-execution type"
 FN_TYPE = re.compile(r"(?<![A-Za-z0-9_])(fn\s*[\[(]|impl\s+Fn)")
 MAX_FN_ARG_CANDIDATES = 3
 
@@ -777,6 +778,8 @@ class ValueBuilder:
         if st is None:
             raise ValueError(f"no declaration for `{ty}`")
         rel, sd, fields = st
+        if sd.name in NON_CIRCUIT_TYPES:
+            raise ValueError(f"{PUBLIC_EXECUTION}: the value contains `{sd.name}`")
         q = (lambda x: x) if rel == self.t.path else (lambda x: self.qualify(x, rel))
         params, pre, outs, notes, inits, abi = [], [], [], [], [], []
         for _, fname, ft in fields:

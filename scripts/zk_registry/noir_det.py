@@ -1236,6 +1236,12 @@ def _process(sh: Shared, row: dict, t: I.Target | None, how: str) -> dict:
             "no wrapper: ")]
         if not results:
             rec["status"], rec["status_reason"] = "NO-INSTANTIATION", "no candidate instantiation"
+        elif errs and all(I.PUBLIC_EXECUTION in c.get("error", "") for c in errs):
+            hit = re.search(r"`([A-Za-z]+)`", errs[0]["error"])
+            rec["status"] = "NOT-APPLICABLE"
+            rec["status_reason"] = (f"public-execution code: the parameters contain `{hit.group(1) if hit else '?'}`, "
+                                    "which exists only in Aztec public / utility execution (Brillig, transpiled to "
+                                    "AVM bytecode), never in an ACIR circuit")
         elif errs and all(STD_NOT_PUBLIC in c.get("error", "") for c in errs):
             rec["status"] = "NO-INSTANTIATION"
             rec["status_reason"] = ("no nameable instantiation: " + errs[0]["error"][errs[0]["error"].rfind("(") + 1:]
@@ -1898,12 +1904,14 @@ def resume_records(out: str, wanted: set, seen_keys: dict) -> tuple[list[dict], 
     return recs, dedup
 
 
-def run_recover(cfg: WaveConfig, prior: list[str], item_ids: list[str], rel_base: str) -> list[dict]:
+def run_recover(cfg: WaveConfig, prior: list[str], item_ids: list[str], rel_base: str,
+                redo: set | None = None) -> list[dict]:
     """Regenerate prior records (ledger item ids) with the current generator into ``cfg.out``: every new record
     carries ``supersedes`` (the prior status, reason and generator hash) and ``evidence.supersedes_record``;
     the prior indexes and packages are not modified.  A packaged record whose model equals a prior package's
     model (or an earlier record of this run) is listed in ``DEDUP.jsonl`` (``relation: same-model-as``).
-    Records already in ``cfg.out/PROGRESS.jsonl`` (an interrupted run) are kept and not regenerated."""
+    Records already in ``cfg.out/PROGRESS.jsonl`` (an interrupted run) are kept and not regenerated, except
+    the items in ``redo`` (a targeted re-run: the new record is appended and replaces the kept one)."""
     os.makedirs(cfg.out, exist_ok=True)
     os.makedirs(cfg.work, exist_ok=True)
     sh = setup_shared(cfg)
@@ -1911,7 +1919,7 @@ def run_recover(cfg: WaveConfig, prior: list[str], item_ids: list[str], rel_base
     rows = {r["item_id"]: r for r in select_rows(cfg.ledger)}
     todo = [i for i in dict.fromkeys(item_ids) if i in olds and i in rows]
     seen_keys = prior_model_keys(prior)
-    recs, dedup = resume_records(cfg.out, set(todo), seen_keys)
+    recs, dedup = resume_records(cfg.out, set(todo) - set(redo or ()), seen_keys)
     for r in recs:
         if r["status"] in P.PACKAGED_STATUSES:
             rewrite_problem(cfg, r)                       # problem.json = the (possibly re-marked) record
@@ -2260,6 +2268,7 @@ def main(argv: list[str] | None = None) -> int:
     rc.add_argument("--max-opcodes", type=int)
     rc.add_argument("--jobs", type=int)
     rc.add_argument("--lean-slots", type=int, help="concurrent Lean processes (then up to 8 workers)")
+    rc.add_argument("--redo", help="file with item ids to regenerate although PROGRESS.jsonl has them")
     v = sub.add_parser("validate")
     v.add_argument("--index", required=True)
     v.add_argument("--packages", required=True)
@@ -2314,7 +2323,11 @@ def main(argv: list[str] | None = None) -> int:
             cfg.max_opcodes = a.max_opcodes
         with open(a.items, encoding="utf-8") as f:
             items = [x.strip() for x in f if x.strip()]
-        recs = run_recover(cfg, a.prior, items, a.rel_base or os.path.dirname(cfg.out))
+        redo = set()
+        if a.redo:
+            with open(a.redo, encoding="utf-8") as f:
+                redo = {x.strip() for x in f if x.strip()}
+        recs = run_recover(cfg, a.prior, items, a.rel_base or os.path.dirname(cfg.out), redo)
         counts: dict = {}
         for r in recs:
             k = f"{r['supersedes']['status']} -> {r['status']}"

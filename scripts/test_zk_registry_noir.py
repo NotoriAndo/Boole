@@ -417,6 +417,14 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(plan, "NOT-APPLICABLE")
         self.assertIn("PublicContext", why)
 
+    def test_values_containing_public_context(self) -> None:
+        t = rec_target("get")
+        self.assertEqual(I.classify(t)[0], "export")
+        with self.assertRaises(ValueError) as cm:
+            I.wrapper(t, {}, "p1", builder=I.ValueBuilder(t, self.idx))
+        self.assertIn(I.PUBLIC_EXECUTION, str(cm.exception))
+        self.assertIn("PublicContext", str(cm.exception))
+
     def test_closure_arguments_from_call_sites(self) -> None:
         t = rec_target("apply_twice")
         self.assertEqual(I.fn_param_indices(t), [0])

@@ -31,6 +31,10 @@ pub fn store<T>(x: T) -> Field where T: Packable { x.pack() }
 pub fn hashed<H>(x: H) -> Field where H: Hasher2 { x.h() }
 
 pub fn public_only(context: PublicContext) -> Field { 0 }
+
+pub struct PublicContext { pub args_hash: fn() -> Field }
+pub struct PubSelf { pub context: PublicContext, pub x: Field }
+impl PubSelf { pub fn get(self) -> Field { self.x } }
 pub fn vec_len(v: [Field]) -> u32 { v.len() }
 
 global CHUNK: u32 = 3;
