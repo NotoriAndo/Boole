@@ -1864,11 +1864,45 @@ def supersede(new: dict, old: dict, old_index: str, rel_base: str) -> None:
                                             "ledger_item_id": old["ids"]["ledger_item_id"]}
 
 
+def resume_records(out: str, wanted: set, seen_keys: dict) -> tuple[list[dict], list[dict]]:
+    """Records of an interrupted recovery run (``PROGRESS.jsonl``, last record per item) whose package (if any)
+    is complete; their model keys join ``seen_keys`` in item order, and a kept package whose model is already
+    known (a prior package or an earlier kept record) is marked ``same_model_as`` and listed."""
+    path = os.path.join(out, "PROGRESS.jsonl")
+    if not os.path.exists(path):
+        return [], []
+    last: dict[str, dict] = {}
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            if line.strip():
+                r = json.loads(line)
+                if r["ids"]["ledger_item_id"] in wanted:
+                    last[r["ids"]["ledger_item_id"]] = r
+    recs, dedup = [], []
+    for i, r in sorted(last.items()):
+        if r["status"] in P.PACKAGED_STATUSES:
+            d = os.path.join(out, *r["package_id"].split("/", 1))
+            if not os.path.exists(os.path.join(d, "problem.json")):
+                continue                                  # regenerate: the package was not completed
+            key = model_key(d, r)
+            canon = seen_keys.get(key)
+            if canon is not None and canon != r["package_id"]:
+                r["evidence"]["same_model_as"] = canon
+                dedup.append({"item_id": i, "package_id": r["package_id"], "model_sha256": key,
+                              "relation": "same-model-as", "canonical_package_id": canon})
+            else:
+                r["evidence"].pop("same_model_as", None)
+                seen_keys[key] = r["package_id"]
+        recs.append(r)
+    return recs, dedup
+
+
 def run_recover(cfg: WaveConfig, prior: list[str], item_ids: list[str], rel_base: str) -> list[dict]:
     """Regenerate prior records (ledger item ids) with the current generator into ``cfg.out``: every new record
     carries ``supersedes`` (the prior status, reason and generator hash) and ``evidence.supersedes_record``;
     the prior indexes and packages are not modified.  A packaged record whose model equals a prior package's
-    model (or an earlier record of this run) is listed in ``DEDUP.jsonl`` (``relation: same-model-as``)."""
+    model (or an earlier record of this run) is listed in ``DEDUP.jsonl`` (``relation: same-model-as``).
+    Records already in ``cfg.out/PROGRESS.jsonl`` (an interrupted run) are kept and not regenerated."""
     os.makedirs(cfg.out, exist_ok=True)
     os.makedirs(cfg.work, exist_ok=True)
     sh = setup_shared(cfg)
@@ -1876,9 +1910,15 @@ def run_recover(cfg: WaveConfig, prior: list[str], item_ids: list[str], rel_base
     rows = {r["item_id"]: r for r in select_rows(cfg.ledger)}
     todo = [i for i in dict.fromkeys(item_ids) if i in olds and i in rows]
     seen_keys = prior_model_keys(prior)
+    recs, dedup = resume_records(cfg.out, set(todo), seen_keys)
+    for r in recs:
+        if r["status"] in P.PACKAGED_STATUSES:
+            rewrite_problem(cfg, r)                       # problem.json = the (possibly re-marked) record
+    done_ids = {r["ids"]["ledger_item_id"] for r in recs}
+    total = len(todo)
+    todo = [i for i in todo if i not in done_ids]
     cache: dict = {}
-    recs, dedup = [], []
-    log(sh, f"recover {len(todo)} items (cap {cfg.max_opcodes} opcodes)")
+    log(sh, f"recover {len(todo)} items (cap {cfg.max_opcodes} opcodes; {len(recs)} kept from PROGRESS.jsonl)")
     with cf.ThreadPoolExecutor(max_workers=cfg.jobs) as pool:
         futs = {}
         for i in todo:
@@ -1902,7 +1942,7 @@ def run_recover(cfg: WaveConfig, prior: list[str], item_ids: list[str], rel_base
                 rewrite_problem(cfg, new)
             recs.append(new)
             append_jsonl(os.path.join(cfg.out, "PROGRESS.jsonl"), new)
-            log(sh, f"recover {len(recs)}/{len(todo)}: {old['status']} -> {new['status']} {i}")
+            log(sh, f"recover {len(recs)}/{total}: {old['status']} -> {new['status']} {i}")
     write_outputs(cfg.out, recs, dedup)
     return recs
 

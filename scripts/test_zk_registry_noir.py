@@ -524,6 +524,28 @@ class RecoveryTests(unittest.TestCase):
                 f.write(json.dumps(old) + "\n")
             path, got = D.prior_records([p1, p2])["i"]
             self.assertEqual((path, got["status"]), (p2, "TOO-LARGE"))
+            # resume: a completed record is kept, a packaged record without its package is regenerated
+            na = dict(old, status="NOT-APPLICABLE", ids={"ledger_item_id": "a"})
+            gf = dict(old, status="GATE-FAIL", ids={"ledger_item_id": "b"}, package_id="r/missing")
+            with open(os.path.join(d, "PROGRESS.jsonl"), "w") as f:
+                f.write(json.dumps(na) + "\n" + json.dumps(gf) + "\n")
+            kept, dd = D.resume_records(d, {"a", "b"}, {})
+            self.assertEqual([r["ids"]["ledger_item_id"] for r in kept], ["a"])
+            self.assertEqual(dd, [])
+            self.assertEqual(D.resume_records(d, {"b"}, {}), ([], []))
+            # kept packages with equal models: the first (by item id) is canonical, the second is marked
+            for name in ("p1", "p2"):
+                os.makedirs(os.path.join(d, "r", name, "ZkDet", "A"))
+                Path(d, "r", name, "ZkDet", "A", "Model.lean").write_text("namespace ZkDet.A\ndef c := 1\n")
+                Path(d, "r", name, "problem.json").write_text("{}")
+            pk = dict(old, status="OPEN", statement={"model_file": "ZkDet/A/Model.lean"},
+                      checker={"theorem_fqn": "ZkDet.A.det"})
+            with open(os.path.join(d, "PROGRESS.jsonl"), "w") as f:
+                f.write(json.dumps(dict(pk, ids={"ledger_item_id": "y"}, package_id="r/p2")) + "\n")
+                f.write(json.dumps(dict(pk, ids={"ledger_item_id": "x"}, package_id="r/p1")) + "\n")
+            kept, dd = D.resume_records(d, {"x", "y"}, {})
+            self.assertEqual([(x["item_id"], x["canonical_package_id"]) for x in dd], [("y", "r/p1")])
+            self.assertEqual(kept[1]["evidence"]["same_model_as"], "r/p1")
         sh = D.Shared.__new__(D.Shared)
         sh.cfg = D.WaveConfig("c", "l", {}, "/t", "/h", "/s", "/e", "/o", "/w")
         sh.env = type("E", (), {"lean_version": "v4.33.1", "packages": {"mathlib": "c" * 40},
