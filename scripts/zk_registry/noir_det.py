@@ -142,6 +142,7 @@ class WaveConfig:
     compile_timeout: float = 900
     git_pins: dict = field(default_factory=dict)
     max_opcodes: int = P.MAX_CONSTRAINTS      # size policy (flattened ACIR opcodes); wave N1: 2,000
+    lean_slots: int = 0                       # concurrent Lean processes (0: one per worker, i.e. `jobs`)
 
     @classmethod
     def load(cls, path: str) -> "WaveConfig":
@@ -1949,7 +1950,28 @@ def run_recover(cfg: WaveConfig, prior: list[str], item_ids: list[str], rel_base
 
 # ------------------------------------------------------------------------------------------ decomposition
 
+_LEAN_LIMIT: dict = {}
+
+
+def limit_lean(slots: int) -> None:
+    """At most ``slots`` concurrent Lean processes in this process (all gates call ``lean_runner.run_lean``),
+    so workers can compile and execute in parallel while Lean memory follows a budget."""
+    if slots <= 0:
+        return
+    if "orig" not in _LEAN_LIMIT:
+        _LEAN_LIMIT["orig"] = L.run_lean
+    sem = threading.BoundedSemaphore(slots)
+    orig = _LEAN_LIMIT["orig"]
+
+    def run_lean(*args, **kwargs):
+        with sem:
+            return orig(*args, **kwargs)
+    _LEAN_LIMIT["slots"] = slots
+    L.run_lean = run_lean
+
+
 def setup_shared(cfg: WaveConfig) -> Shared:
+    limit_lean(cfg.lean_slots)
     env = L.load_env(cfg.lean_env)
     tc = T.Toolchain(cfg.tools_root, cfg.home, cfg.scratch)
     sh = Shared(cfg, env, tc, P.sha256_file(cfg.ledger), generator_info())
@@ -2237,6 +2259,7 @@ def main(argv: list[str] | None = None) -> int:
     rc.add_argument("--rel-base", default="", help="base directory for the relative prior index paths")
     rc.add_argument("--max-opcodes", type=int)
     rc.add_argument("--jobs", type=int)
+    rc.add_argument("--lean-slots", type=int, help="concurrent Lean processes (then up to 8 workers)")
     v = sub.add_parser("validate")
     v.add_argument("--index", required=True)
     v.add_argument("--packages", required=True)
@@ -2283,8 +2306,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if a.cmd == "recover":
         cfg = WaveConfig.load(a.config)
+        if a.lean_slots:
+            cfg.lean_slots = min(a.lean_slots, 8)
         if a.jobs:
-            cfg.jobs = min(a.jobs, 4)
+            cfg.jobs = min(a.jobs, 8 if cfg.lean_slots else 4)
         if a.max_opcodes:
             cfg.max_opcodes = a.max_opcodes
         with open(a.items, encoding="utf-8") as f:

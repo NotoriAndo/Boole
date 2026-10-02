@@ -500,6 +500,36 @@ class RecoveryTests(unittest.TestCase):
         self.assertIn("contract block", D.contract_note(t, "Could not resolve 'Toy' in path at src/x.nr:1:1"))
         self.assertEqual(D.contract_note(t, "Could not resolve 'Other'"), "Could not resolve 'Other'")
 
+    def test_lean_concurrency_limit(self) -> None:
+        import threading
+        import time as _t
+        from zk_registry import lean_runner as LR
+        saved = LR.run_lean
+        state = {"now": 0, "max": 0}
+        lock = threading.Lock()
+
+        def fake(*a, **k):
+            with lock:
+                state["now"] += 1
+                state["max"] = max(state["max"], state["now"])
+            _t.sleep(0.02)
+            with lock:
+                state["now"] -= 1
+            return "ok"
+        try:
+            LR.run_lean = fake
+            D._LEAN_LIMIT.clear()
+            D.limit_lean(2)
+            ths = [threading.Thread(target=LR.run_lean) for _ in range(6)]
+            for th in ths:
+                th.start()
+            for th in ths:
+                th.join()
+            self.assertEqual(state["max"], 2)
+        finally:
+            LR.run_lean = saved
+            D._LEAN_LIMIT.clear()
+
     def test_size_policy_and_bands(self) -> None:
         self.assertEqual(D.WaveConfig("c", "l", {}, "/t", "/h", "/s", "/e", "/o", "/w").max_opcodes, 2000)
         self.assertEqual([D.size_band(n) for n in (0, 50, 2000, 2001, 10000, 99999, 100001)],
