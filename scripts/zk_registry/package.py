@@ -145,6 +145,7 @@ def validate_problem(problem: dict, pkg_dir: str | None = None, schema: dict | N
             limit = size["size_policy"]["max_constraints"]
             if limit not in SIZE_POLICIES:
                 errs.append(f"unknown size policy of {limit} constraints")
+                limit = MAX_CONSTRAINTS
         else:
             limit = MAX_CONSTRAINTS
         if size["n_constraints"] > limit or not size["size_policy"]["within"]:
