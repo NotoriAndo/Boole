@@ -181,6 +181,23 @@ class LeanEmitTests(unittest.TestCase):
         st0 = NE.emit_statement("ZkDet.T", {"repo_id": "t/t", "instantiation": "x", "path": "p"}, False)
         self.assertIn(NE.STATEMENT_PROP, st0)
 
+    def test_large_model_raises_recursion_depth(self) -> None:
+        flat, _ = real_witnesses("rc2_fx_bb")
+        meta = {"repo_id": "t/t", "instantiation": "x", "generator": "g", "repo_url": "https://example.invalid",
+                "commit": "0" * 40, "path": "src/lib.nr", "template": "x", "rule": "parameter-free",
+                "nargo_version": "1", "nargo_command": "nargo export", "acir_sha256": "0" * 64}
+        small, _ = NE.emit_model("ZkDet.T", meta, flat, {})
+        self.assertNotIn("maxRecDepth", small)
+        rng = [op for op in flat.opcodes if op["kind"] == "assert_zero"][:1]
+        big = A.Flat(rng * (NE.BLOCK * (NE.MAX_BLOCKS_DEFAULT_DEPTH + 1)), flat.inputs, flat.outputs, flat.n_witnesses)
+        model, info = NE.emit_model("ZkDet.T", meta, big, {})
+        self.assertIn("set_option maxRecDepth 100000 in\nset_option maxHeartbeats 4000000 in\n/-- The compiled", model)
+        self.assertEqual(info["n_conjuncts"], NE.BLOCK * (NE.MAX_BLOCKS_DEFAULT_DEPTH + 1))
+        wide = A.Flat(flat.opcodes, list(range(NE.LONG_LIST_HEARTBEATS + 1)), flat.outputs, NE.LONG_LIST_HEARTBEATS + 9)
+        model_w, _ = NE.emit_model("ZkDet.T", meta, wide, {})
+        self.assertIn("set_option maxHeartbeats 4000000 in\n/-- Parameter witnesses", model_w)
+        self.assertNotIn("maxHeartbeats", model_w.split("def Outputs")[0])
+
     def test_memory_conjunct(self) -> None:
         flat, _ = real_witnesses("rc2_fx_mem")
         conj = NE.memory_conjuncts(flat.opcodes)
@@ -272,9 +289,8 @@ class InstantiationTests(unittest.TestCase):
 
     def test_classify(self) -> None:
         self.assertEqual(I.classify(toy_target("lib/src/lib.nr", "hint"))[0], "NOT-APPLICABLE")
-        plan, why = I.classify(toy_target("lib/src/lib.nr", "apply"))
-        self.assertEqual(plan, "NO-INSTANTIATION")
-        self.assertIn("function (closure) type", why)
+        # generator 1.1: closure parameters are planned (a repository function is supplied per candidate)
+        self.assertEqual(I.classify(toy_target("lib/src/lib.nr", "apply"))[0], "export")
         self.assertEqual(I.classify(toy_target("app/src/main.nr", "main", "app", "bin"))[0], "bin-main")
         con = "con/src/main.nr"
         self.assertEqual(I.classify(toy_target(con, "transfer", "con", "contract"))[0], "contract-fn")
@@ -364,6 +380,243 @@ class InstantiationTests(unittest.TestCase):
         self.assertEqual(cands["Eq"][-1], "std::Eq")
         self.assertEqual(cands["Point"][0], "std::inner::Point")
         self.assertEqual(I._expand_use("super::{a::B, C}", ["x", "y"]), ["std::x::a::B", "std::x::C"])
+
+
+def rec_target(name: str, rel: str = "rec/src/lib.nr") -> I.Target:
+    return toy_target(rel, name, "rec")
+
+
+class RecoveryTests(unittest.TestCase):
+    """Generator 1.1 (recovery R1): implementors from derives / test code, closure arguments from call sites,
+    non-ABI parameter values, public-execution classification, size policy and superseding records."""
+
+    def setUp(self) -> None:
+        self.idx = I.RepoIndex.build(str(TOY), D.nr_files(str(TOY)))
+
+    def test_struct_parser(self) -> None:
+        src = "#[derive(Eq)]\npub struct N<T, let K: u32> { pub a: Field, b: [T; K], pub(crate) c: fn[E](u8) -> bool }\n"
+        sd = NS.structs(NS.blank_comments_strings(src), src)[0]
+        self.assertEqual((sd.name, sd.visibility, sd.attrs), ("N", "pub", ["derive(Eq)"]))
+        self.assertEqual([g.name for g in sd.generics], ["T", "K"])
+        self.assertEqual(sd.fields[2], ("pub(crate)", "c", "fn[E](u8) -> bool"))
+
+    def test_derived_and_test_implementors(self) -> None:
+        self.assertEqual(I.derived_traits(["derive(Eq, a::Packable)", "note", "aztec::macros::events::event"]),
+                         ["Eq", "Packable", "NoteType", "NoteHash", "EventInterface"])
+        self.assertIn("Note1", self.idx.trait_impls["Packable"])
+        self.assertNotIn("Hasher2", self.idx.trait_impls)
+        self.assertIn("MockH", self.idx.test_trait_impls["Hasher2"])
+        self.assertNotIn("HiddenH", self.idx.test_trait_impls["Hasher2"])      # inside `mod test {}`
+        self.assertNotIn("HiddenH", self.idx.test_struct_files)
+        store = I.candidates(rec_target("store"), self.idx)
+        self.assertEqual(store[0][1], {"T": "Note1"})
+        hashed = I.candidates(rec_target("hashed"), self.idx)
+        self.assertEqual((hashed[0][0], hashed[0][1]), ("probed", {"H": "MockH"}))
+        self.assertIn("test code", hashed[0][2][-1])
+
+    def test_public_execution_code_is_not_applicable(self) -> None:
+        plan, why = I.classify(rec_target("public_only"))
+        self.assertEqual(plan, "NOT-APPLICABLE")
+        self.assertIn("PublicContext", why)
+
+    def test_values_containing_public_context(self) -> None:
+        t = rec_target("get")
+        self.assertEqual(I.classify(t)[0], "export")
+        with self.assertRaises(ValueError) as cm:
+            I.wrapper(t, {}, "p1", builder=I.ValueBuilder(t, self.idx))
+        self.assertIn(I.PUBLIC_EXECUTION, str(cm.exception))
+        self.assertIn("PublicContext", str(cm.exception))
+
+    def test_closure_arguments_from_call_sites(self) -> None:
+        t = rec_target("apply_twice")
+        self.assertEqual(I.fn_param_indices(t), [0])
+        found = [e for e, _ in I.fn_arg_candidates(t, self.idx, 0)]
+        self.assertEqual(found[0], "|x| x + 1")                  # closures first, shorter first
+        self.assertEqual(found[-1], "|x| x + offset")             # captures a local of the call site: last
+        self.assertEqual(I.closure_captures("|x| seen_ref.push(x)"), ["seen_ref"])
+        self.assertEqual(I.closure_captures("|a, b| { let c = a + b; hash(c) }"), [])
+        self.assertEqual(I.closure_captures("|_| { *count_ref += 1; }"), ["count_ref"])
+        self.assertIn("crate::keep", found)                       # named function, qualified by its file
+        self.assertEqual(I.fn_arg_candidates(rec_target("never_called"), self.idx, 0), [])
+        cands, why = D.with_fn_args(rec_target("never_called"), self.idx, [("parameter-free", {}, [])], [0])
+        self.assertEqual(cands, [])
+        self.assertIn("no call of the function", why)
+        fw = rec_target("fold_with")
+        self.assertEqual(I.env_generics(fw), ["Env"])
+        cand = I.candidates(fw, self.idx)[0]
+        self.assertEqual(cand[1], {"Env": "_"})
+        ext, _ = D.with_fn_args(fw, self.idx, [cand], [1])
+        self.assertEqual(ext[0][3], {1: "|a, b| a + b"})
+        self.assertIn("rec/src/lib.nr:", ext[0][2][-1])
+        w = I.wrapper(fw, ext[0][1], "f1", fn_args=ext[0][3])
+        self.assertIn("fold_with::<_>(a0, |a, b| a + b)", w.text)
+        self.assertNotIn("a1", w.text)
+
+    def test_constant_arguments_from_call_sites(self) -> None:
+        t = rec_target("chunks")
+        self.assertEqual(I.const_arg_candidates(t, self.idx, {}), {1: ("3", I.const_arg_candidates(t, self.idx, {})[1][1])})
+        self.assertIn("rec/src/lib.nr:", I.const_arg_candidates(t, self.idx, {})[1][1])
+        self.assertEqual(I.const_arg_candidates(t, self.idx, {1: "2"}), {})
+        w = I.wrapper(t, {}, "c1", fn_args={1: "3"})
+        self.assertIn("fn boole_det_c1(a0: [Field; 8]) -> Field {", w.text)
+        self.assertIn("chunks(a0, 3)", w.text)
+        self.assertTrue(D.CONST_ERROR.search("Could not determine loop bound at compile-time at src/x.nr:1:1"))
+
+    def test_non_abi_values_built_from_fields(self) -> None:
+        t = rec_target("bump")
+        b = I.ValueBuilder(t, self.idx)
+        self.assertTrue(b.needs("Wrap<Field>"))
+        self.assertFalse(b.needs("Ctx"))
+        w = I.wrapper(t, {"S": "Field"}, "v1", builder=b)
+        self.assertIn("s_self_ctx_r: Ctx, s_self_storage: Field, a1: Field", w.text)
+        self.assertIn("let mut s_self_ctx_l = s_self_ctx_r;", w.text)
+        self.assertIn("let s_self_v: Wrap<Field> = Wrap { ctx: &mut s_self_ctx_l, storage: s_self_storage, "
+                      "filter: keep };", w.text)
+        self.assertIn("let mut s_self = s_self_v;", w.text)
+        self.assertEqual(w.outputs, ["r", "s_self_ctx_l", "s_self.storage"])
+        self.assertTrue(any("keep" in n for n in w.notes))
+        # a struct declared in another file of the crate: its names are written by absolute path
+        h = I.wrapper(rec_target("read", "rec/src/other.nr"), {}, "v2", builder=I.ValueBuilder(
+            rec_target("read", "rec/src/other.nr"), self.idx))
+        self.assertIn("a0_inner_r: Ctx", h.text)
+        lib = I.wrapper(rec_target("vec_len"), {}, "v3", builder=I.ValueBuilder(rec_target("vec_len"), self.idx))
+        self.assertIn("a0_a: [Field; 4]", lib.text)
+        self.assertIn("vec_len(a0_a.as_vector())", lib.text)
+        # without a builder (wave N1 behaviour) the wrapper is unchanged
+        self.assertIn("s_self: Wrap<Field>", I.wrapper(t, {"S": "Field"}, "v4").text)
+
+    def test_std_import_candidates_from_declaring_module(self) -> None:
+        idx = I.RepoIndex(str(TOY))
+        idx.decl_files["Poseidon2Hasher"] = ["noir_stdlib/src/hash/poseidon2.nr"]
+        t = toy_target("lib/src/lib.nr", "eq", stdlib=True)
+        w = I.wrapper(t, {}, "x6", "std::")
+        cands = I.std_import_candidates(t, w.text.replace("Point", "Poseidon2Hasher"), "hash/mod.nr", idx)
+        self.assertIn("std::hash::poseidon2::Poseidon2Hasher", cands["Poseidon2Hasher"])
+
+    def test_stdlib_names_in_non_public_modules(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "noir_stdlib", "src")
+            os.makedirs(os.path.join(src, "hash"))
+            Path(src, "lib.nr").write_text("pub mod hash;\n")
+            Path(src, "hash", "mod.nr").write_text("pub(crate) mod poseidon2;\npub mod keccak;\n")
+            self.assertFalse(D.std_module_public(d, "noir_stdlib/src/hash/poseidon2.nr"))
+            self.assertTrue(D.std_module_public(d, "noir_stdlib/src/hash/keccak.nr"))
+            idx = I.RepoIndex(d)
+            idx.decl_files["Poseidon2Hasher"] = ["noir_stdlib/src/hash/poseidon2.nr"]
+            t = toy_target("lib/src/lib.nr", "eq", stdlib=True)
+            t.root = d
+            err = D.std_private_note(t, idx, "Could not resolve 'Poseidon2Hasher' in path at src/lib.nr:5:58")
+            self.assertIn(D.STD_NOT_PUBLIC, err)
+            self.assertEqual(D.std_private_note(t, idx, "Could not resolve 'Other'"), "Could not resolve 'Other'")
+
+    def test_missing_dependency_note(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "c", "src"))
+            Path(d, "c", "Nargo.toml").write_text('[package]\nname = "c"\ntype = "bin"\n\n[dependencies]\n')
+            Path(d, "c", "src", "main.nr").write_text("use sha256::sha256_var;\nfn main() {}\n")
+            src = Path(d, "c", "src", "main.nr").read_text()
+            fns, _, text = NS.scan(src)
+            t = I.Target("x", "toy/repo", d, "c/src/main.nr", fns[0], text, src, os.path.join(d, "c"), "bin")
+            err = "Could not resolve 'sha256' in path at src/main.nr:1:5"
+            self.assertIn("declares no such dependency", D.dependency_note(t, err))
+            Path(d, "c", "Nargo.toml").write_text('[package]\nname = "c"\ntype = "bin"\n\n[dependencies]\n'
+                                                   'sha256 = { tag = "v0.1.0", git = "https://example.invalid/s" }\n')
+            self.assertEqual(D.dependency_note(t, err), err)
+
+    def test_contract_block_note(self) -> None:
+        t = toy_target("con/src/notes.nr", "note_hash", "con", "contract")
+        self.assertIn("contract block", D.contract_note(t, "Could not resolve 'Toy' in path at src/x.nr:1:1"))
+        self.assertEqual(D.contract_note(t, "Could not resolve 'Other'"), "Could not resolve 'Other'")
+
+    def test_lean_concurrency_limit(self) -> None:
+        import threading
+        import time as _t
+        from zk_registry import lean_runner as LR
+        saved = LR.run_lean
+        state = {"now": 0, "max": 0}
+        lock = threading.Lock()
+
+        def fake(*a, **k):
+            with lock:
+                state["now"] += 1
+                state["max"] = max(state["max"], state["now"])
+            _t.sleep(0.02)
+            with lock:
+                state["now"] -= 1
+            return "ok"
+        try:
+            LR.run_lean = fake
+            D._LEAN_LIMIT.clear()
+            D.limit_lean(2)
+            ths = [threading.Thread(target=LR.run_lean) for _ in range(6)]
+            for th in ths:
+                th.start()
+            for th in ths:
+                th.join()
+            self.assertEqual(state["max"], 2)
+        finally:
+            LR.run_lean = saved
+            D._LEAN_LIMIT.clear()
+
+    def test_size_policy_and_bands(self) -> None:
+        self.assertEqual(D.WaveConfig("c", "l", {}, "/t", "/h", "/s", "/e", "/o", "/w").max_opcodes, 2000)
+        self.assertEqual([D.size_band(n) for n in (0, 50, 2000, 2001, 10000, 99999, 100001)],
+                         ["XS", "S", "M", "L1", "L2", "XL2", "XXL"])
+
+    def test_superseding_record_and_model_key(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            rec = {"statement": {"model_file": "ZkDet/A/Model.lean"}, "checker": {"theorem_fqn": "ZkDet.A.det"}}
+            os.makedirs(os.path.join(d, "ZkDet", "A"))
+            with open(os.path.join(d, "ZkDet", "A", "Model.lean"), "w") as f:
+                f.write("-- generated for x\nnamespace ZkDet.A\n/- wire names -/\ndef c := 1\nend ZkDet.A\n")
+            k1 = D.model_key(d, rec)
+            with open(os.path.join(d, "ZkDet", "A", "Model.lean"), "w") as f:
+                f.write("-- another header\nnamespace ZkDet.A\n\ndef c := 1\nend ZkDet.A\n")
+            self.assertEqual(D.model_key(d, rec), k1)
+            p1, p2 = os.path.join(d, "a.jsonl"), os.path.join(d, "b.jsonl")
+            old = {"ids": {"ledger_item_id": "i"}, "status": "TOO-LARGE", "status_reason": "big",
+                   "package_id": "r/p", "generator": {"sources_sha256": "e" * 64}, "evidence": {}}
+            with open(p1, "w") as f:
+                f.write(json.dumps(dict(old, status="COMPILE-FAIL")) + "\n")
+            with open(p2, "w") as f:
+                f.write(json.dumps(old) + "\n")
+            path, got = D.prior_records([p1, p2])["i"]
+            self.assertEqual((path, got["status"]), (p2, "TOO-LARGE"))
+            # resume: a completed record is kept, a packaged record without its package is regenerated
+            na = dict(old, status="NOT-APPLICABLE", ids={"ledger_item_id": "a"})
+            gf = dict(old, status="GATE-FAIL", ids={"ledger_item_id": "b"}, package_id="r/missing")
+            with open(os.path.join(d, "PROGRESS.jsonl"), "w") as f:
+                f.write(json.dumps(na) + "\n" + json.dumps(gf) + "\n")
+            kept, dd = D.resume_records(d, {"a", "b"}, {})
+            self.assertEqual([r["ids"]["ledger_item_id"] for r in kept], ["a"])
+            self.assertEqual(dd, [])
+            self.assertEqual(D.resume_records(d, {"b"}, {}), ([], []))
+            # kept packages with equal models: the first (by item id) is canonical, the second is marked
+            for name in ("p1", "p2"):
+                os.makedirs(os.path.join(d, "r", name, "ZkDet", "A"))
+                Path(d, "r", name, "ZkDet", "A", "Model.lean").write_text("namespace ZkDet.A\ndef c := 1\n")
+                Path(d, "r", name, "problem.json").write_text("{}")
+            pk = dict(old, status="OPEN", statement={"model_file": "ZkDet/A/Model.lean"},
+                      checker={"theorem_fqn": "ZkDet.A.det"})
+            with open(os.path.join(d, "PROGRESS.jsonl"), "w") as f:
+                f.write(json.dumps(dict(pk, ids={"ledger_item_id": "y"}, package_id="r/p2")) + "\n")
+                f.write(json.dumps(dict(pk, ids={"ledger_item_id": "x"}, package_id="r/p1")) + "\n")
+            kept, dd = D.resume_records(d, {"x", "y"}, {})
+            self.assertEqual([(x["item_id"], x["canonical_package_id"]) for x in dd], [("y", "r/p1")])
+            self.assertEqual(kept[1]["evidence"]["same_model_as"], "r/p1")
+        sh = D.Shared.__new__(D.Shared)
+        sh.cfg = D.WaveConfig("c", "l", {}, "/t", "/h", "/s", "/e", "/o", "/w")
+        sh.env = type("E", (), {"lean_version": "v4.33.1", "packages": {"mathlib": "c" * 40},
+                                "manifest_sha256": "a" * 64})()
+        sh.ledger_sha, sh.generator = "b" * 64, D.generator_info()
+        row = {"item_id": "i", "repo": "https://github.com/o/r", "commit": "0" * 40, "path": "src/x.nr",
+               "symbol": "y", "census": [{"line": 3, "pin": "v1"}], "coverage": "none"}
+        new = D.base_record(sh, None, row, "x.y")
+        new["status"], new["status_reason"] = "NOT-APPLICABLE", "public-execution code"
+        D.supersede(new, old, "/base/packages/noir-n1/INDEX.jsonl", "/base")
+        self.assertEqual(new["supersedes"]["status"], "TOO-LARGE")
+        self.assertEqual(new["evidence"]["supersedes_record"]["index"], "packages/noir-n1/INDEX.jsonl")
+        self.assertEqual(P.validate_problem(new), [])
 
 
 class ToolchainTests(unittest.TestCase):

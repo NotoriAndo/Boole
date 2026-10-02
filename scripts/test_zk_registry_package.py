@@ -141,6 +141,14 @@ class ProblemValidationTests(unittest.TestCase):
             tl["circuit"] = dict(tl["circuit"], n_constraints=5000,
                                  size_policy={"max_constraints": P.MAX_CONSTRAINTS, "within": False})
             self.assertEqual(P.validate_problem(tl), [])
+            # a packaged ACIR (Noir) record is checked against the size policy it records; others against 2,000
+            big = dict(rec, circuit=dict(rec["circuit"], n_constraints=2500,
+                                         size_policy={"max_constraints": 3000, "within": True}))
+            self.assertIn("packaged status outside the size policy", P.validate_problem(big))
+            big["circuit"]["acir"] = {"sha256": "x"}
+            self.assertNotIn("packaged status outside the size policy", P.validate_problem(big))
+            big["circuit"]["n_constraints"] = 3001
+            self.assertIn("packaged status outside the size policy", P.validate_problem(big))
             un = {k: v for k, v in rec.items() if k not in ("circuit", "gates")}
             un["status"] = "UNINSTANTIABLE"
             self.assertIn("UNINSTANTIABLE record must not carry 'statement'", P.validate_problem(un))

@@ -133,7 +133,8 @@ def validate_problem(problem: dict, pkg_dir: str | None = None, schema: dict | N
         if roles.count("statement") != 1:
             errs.append("checker.files must list exactly one statement file")
         size = problem["air"] if air else problem["circuit"]
-        limit = size["size_policy"]["max_constraints"] if air else MAX_CONSTRAINTS
+        # AIR and Noir (ACIR) records carry their generator's size policy; the other families use the global one
+        limit = size["size_policy"]["max_constraints"] if air or "acir" in size else MAX_CONSTRAINTS
         if size["n_constraints"] > limit or not size["size_policy"]["within"]:
             errs.append("packaged status outside the size policy")
         if pkg_dir is not None:

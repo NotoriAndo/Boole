@@ -1,0 +1,6 @@
+[package]
+name = "toyrec"
+type = "lib"
+compiler_version = ">=1.0.0"
+
+[dependencies]

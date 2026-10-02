@@ -414,6 +414,46 @@ def scan(src: str) -> tuple[list[Function], list[Block], str]:
     return fns, blocks, text
 
 
+@dataclass
+class StructDef:
+    name: str
+    generics: list[Generic]
+    fields: list[tuple[str, str, str]]          # (visibility, field name, type)
+    attrs: list[str]
+    start: int
+    visibility: str = ""
+
+
+def structs(text: str, src: str | None = None) -> list[StructDef]:
+    """Struct declarations with named fields of a (blanked) source text; attributes are read from ``src``."""
+    out = []
+    for m in re.finditer(r"(?<![A-Za-z0-9_])struct\s+(" + IDENT + r")", text):
+        i = m.end()
+        while i < len(text) and text[i] in " \t\r\n":
+            i += 1
+        gen: list[Generic] = []
+        if i < len(text) and text[i] == "<":
+            k = matching_angle(text, i)
+            gen = parse_generics(text[i:k])
+            i = k
+        while i < len(text) and text[i] in " \t\r\n":
+            i += 1
+        if i >= len(text) or text[i] != "{":
+            continue
+        k = matching(text, i, "{", "}")
+        fields = []
+        for part in split_top(text[i + 1:k - 1]):
+            fm = re.match(r"(?:#\[[^\]]*\]\s*)*(pub(?:\s*\([^)]*\))?\s+)?(" + IDENT + r")\s*:\s*(.+)$", part.strip(), re.S)
+            if fm:
+                fields.append(((fm.group(1) or "").strip(), fm.group(2), re.sub(r"\s+", " ", fm.group(3)).strip()))
+        pre = text[max(0, m.start() - 40):m.start()]
+        vm = re.search(r"(pub(?:\s*\([^)]*\))?)\s+$", pre)
+        item_start = m.start() - (len(pre) - vm.start() if vm else 0)
+        attrs, _ = _attrs_before(text, item_start, src)
+        out.append(StructDef(m.group(1), gen, fields, attrs, m.start(), vm.group(1) if vm else ""))
+    return out
+
+
 def mod_path(rel: str) -> list[str]:
     """Module path of a crate source file relative to ``src/``: ``a/b.nr`` -> [a, b]; ``a/mod.nr`` -> [a];
     ``lib.nr`` / ``main.nr`` -> []."""
