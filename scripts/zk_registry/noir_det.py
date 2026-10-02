@@ -415,6 +415,28 @@ def copy_crate(src_dir: str, dest: str, as_lib: bool, strip_contract: bool = Fal
         f.write(man)
 
 
+def dependency_note(t: I.Target, err: str) -> str:
+    """``Could not resolve 'x'`` where ``x`` is imported as a crate (``use x::``) by a file of the crate but is
+    neither a dependency in its Nargo.toml nor a module of the crate: the crate does not compile at its pin."""
+    m = re.search(r"[Cc]ould not resolve '([a-z_][A-Za-z0-9_]*)' in path at (src/\S+?\.nr)", err)
+    if not m or t.crate is None:
+        return err
+    name, rel = m.group(1), m.group(2)
+    deps = T.read_toml(os.path.join(t.crate, "Nargo.toml")).get("dependencies", {}) \
+        if os.path.exists(os.path.join(t.crate, "Nargo.toml")) else {}
+    path = os.path.join(t.crate, rel)
+    if name in deps or name in ("std", "crate", "super", "self") or not os.path.exists(path):
+        return err
+    with open(path, encoding="utf-8", errors="replace") as f:
+        uses = NS.uses(NS.blank_comments_strings(f.read()), top_level=True)
+    if not any(re.match(re.escape(name) + r"\s*::", u) for u in uses):
+        return err
+    if any(os.path.exists(os.path.join(t.crate, "src", name + ext)) for ext in (".nr", "/mod.nr")):
+        return err
+    return (f"{err} (`{name}` is imported as a crate but the crate's Nargo.toml declares no such dependency at the "
+            "pin: the repository crate does not compile)")
+
+
 def contract_note(t: I.Target, err: str) -> str:
     """A library copy of a contract crate drops the ``contract`` block; a name of that block in the error means
     the function's module needs items the Aztec macros generate inside the contract (storage, interface)."""
@@ -516,6 +538,7 @@ def compile_candidate(sh: Shared, t: I.Target, plan: str, cand: dict, cdir: str,
             err = "nargo export produced no artifact for the wrapper"
         if t.crate_type == "contract":
             err = contract_note(t, err)
+        err = dependency_note(t, err)
         return Compiled(False, tag, error=scrub_text(sh, err), secs=round(time.time() - t0, 2), command=cmd)
     # bin-main / contract-fn: compile the crate as the repository builds it
     crate = os.path.join(cdir, "crate")

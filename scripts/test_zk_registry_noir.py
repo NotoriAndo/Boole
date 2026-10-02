@@ -509,6 +509,20 @@ class RecoveryTests(unittest.TestCase):
             self.assertIn(D.STD_NOT_PUBLIC, err)
             self.assertEqual(D.std_private_note(t, idx, "Could not resolve 'Other'"), "Could not resolve 'Other'")
 
+    def test_missing_dependency_note(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "c", "src"))
+            Path(d, "c", "Nargo.toml").write_text('[package]\nname = "c"\ntype = "bin"\n\n[dependencies]\n')
+            Path(d, "c", "src", "main.nr").write_text("use sha256::sha256_var;\nfn main() {}\n")
+            src = Path(d, "c", "src", "main.nr").read_text()
+            fns, _, text = NS.scan(src)
+            t = I.Target("x", "toy/repo", d, "c/src/main.nr", fns[0], text, src, os.path.join(d, "c"), "bin")
+            err = "Could not resolve 'sha256' in path at src/main.nr:1:5"
+            self.assertIn("declares no such dependency", D.dependency_note(t, err))
+            Path(d, "c", "Nargo.toml").write_text('[package]\nname = "c"\ntype = "bin"\n\n[dependencies]\n'
+                                                   'sha256 = { tag = "v0.1.0", git = "https://example.invalid/s" }\n')
+            self.assertEqual(D.dependency_note(t, err), err)
+
     def test_contract_block_note(self) -> None:
         t = toy_target("con/src/notes.nr", "note_hash", "con", "contract")
         self.assertIn("contract block", D.contract_note(t, "Could not resolve 'Toy' in path at src/x.nr:1:1"))
