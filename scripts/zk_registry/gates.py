@@ -91,17 +91,18 @@ def run_replay(env: L.LeanEnv, olean: str, fqn: str, out_file: str, opts: list[s
 
 # ------------------------------------------------------------------------------------------ G-ELAB
 
-def g_elab(env: L.LeanEnv, pkg_dir: str, build_dir: str, ns: str, work: str, timeout: float = 3600) -> Gate:
+def g_elab(env: L.LeanEnv, pkg_dir: str, build_dir: str, ns: str, work: str, timeout: float = 3600,
+           theorem: str = E.STATEMENT_THEOREM) -> Gate:
     os.makedirs(work, exist_ok=True)
     rel = E.model_relpath(ns)
     r, msgs = L.compile_module(env, pkg_dir, rel, build_dir, E.LEAN_OPTIONS, timeout)
-    detail = {"model_compile_secs": r.secs, "model_compile_rc": r.rc}
+    detail = {"model_compile_secs": r.secs, "model_compile_rc": r.rc, "model_compile_peak_rss_mb": r.peak_rss_mb}
     if r.rc != 0 or r.timeout or L.errors(msgs):
         detail["errors"] = [L.fmt_msg(m) for m in L.errors(msgs)[:5]] or [r.out[-500:]]
         return Gate("G-ELAB", "FAIL", detail)
     r, msgs = L.compile_module(env, pkg_dir, "Statement.lean", build_dir, E.LEAN_OPTIONS, timeout)
     warns = [m for m in msgs if m.get("severity") == "warning"]
-    detail.update(statement_compile_secs=r.secs, statement_compile_rc=r.rc,
+    detail.update(statement_compile_secs=r.secs, statement_compile_rc=r.rc, statement_compile_peak_rss_mb=r.peak_rss_mb,
                   statement_warnings=[m.get("data", "")[:200] for m in warns])
     if r.rc != 0 or r.timeout or L.errors(msgs):
         detail["errors"] = [L.fmt_msg(m) for m in L.errors(msgs)[:5]] or [r.out[-500:]]
@@ -109,10 +110,10 @@ def g_elab(env: L.LeanEnv, pkg_dir: str, build_dir: str, ns: str, work: str, tim
     if len(warns) != 1 or "sorry" not in warns[0].get("data", ""):
         detail["errors"] = ["expected exactly one `declaration uses sorry` warning"]
         return Gate("G-ELAB", "FAIL", detail)
-    fqn = f"{ns}.{E.STATEMENT_THEOREM}"
+    fqn = f"{ns}.{theorem}"
     rr, post = run_replay(env, os.path.join(build_dir, "Statement.olean"), fqn, os.path.join(work, "replay.out"),
                           E.LEAN_OPTIONS, [build_dir], timeout)
-    detail.update(replay=post["replay"], replay_secs=rr.secs, axioms=post["axioms"],
+    detail.update(replay=post["replay"], replay_secs=rr.secs, replay_peak_rss_mb=rr.peak_rss_mb, axioms=post["axioms"],
                   target=post["target"])
     ok = (post["replay"] == "ok" and isinstance(post["target"], dict) and post["target"]["kind"] == "theorem"
           and set(post["axioms"]) <= ALLOWED_AXIOMS | {"sorryAx"} and "sorryAx" in post["axioms"])
@@ -168,7 +169,7 @@ def g_fid_nonvac(env: L.LeanEnv, build_dir: str, ns: str, n_constraints: int, re
         "method": "Lean #eval of decide (Constraints w) on every witness file, compared with the Python R1CS oracle",
         "real_witnesses": len(real), "real_lean_accept": real_accept, "real_oracle_accept": len(real),
         "mutants": len(muts), "mutants_oracle_reject": sum(not m["oracle"] for m in muts),
-        "mutants_lean_agree": agree, "lean_eval_secs": r.secs,
+        "mutants_lean_agree": agree, "lean_eval_secs": r.secs, "lean_eval_peak_rss_mb": r.peak_rss_mb,
     }
     pre_ok = True
     if pre is not None:

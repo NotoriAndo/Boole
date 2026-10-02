@@ -22,7 +22,12 @@ this order of rule tiers (the first tier with at least one compilable candidate 
 ``probed``              only when no other tier has a candidate and the template's own top-level
                         asserts bound every parameter from above: a fixed small value set
                         (:data:`PROBE_VALUES`) inside those bounds.  Probed packages are labelled
-                        ``instantiation.rule = probed``; a DET counterexample on them is not a finding
+                        ``instantiation.rule = probed``; a DET counterexample on them is not a finding.
+                        With ``probe_min`` (recovery R1), a template whose asserts do not bound every
+                        parameter is probed systematically (:func:`probe_min_candidates`): ascending
+                        values from the asserts' lower bounds (literal arguments of the repository's own
+                        call sites first), and the first candidate that compiles is used, i.e. the
+                        smallest values that satisfy the template's asserts and array sizes
 
 Otherwise the template is UNINSTANTIABLE, with the reason recorded.  Within the selected tier the
 driver compiles every candidate and keeps the one with the largest constraint count inside the
@@ -45,6 +50,9 @@ DERIVATION_ROUNDS = 12
 LOOP_LIMIT = 64                 # values enumerated per loop variable
 COMBO_LIMIT = 256               # loop-value combinations per call site
 PROBE_VALUES = (1, 2, 3, 4, 8, 16, 32, 64)
+PROBE_MIN_STEPS = 4             # probe-min: the lower bound and the next three integers, then PROBE_VALUES above
+PROBE_MIN_CANDIDATES = 12       # probe-min: candidates compiled in ascending order until the first compiles
+PROBE_MIN_NOTE = "probe-min"
 
 # (repository id, template name) -> {"args": [[...], ...], "domain_source": "<file:line or doc URL>",
 # "reason": "..."}.  Entries are allowed only when the repository documents the parameter domain.
@@ -58,6 +66,8 @@ class Candidate:
     tier: str
     args: tuple[str, ...]
     provenance: list[str] = field(default_factory=list)   # e.g. ["test/circuits/x.circom:5 Main()"]
+    # probe-min candidates are compiled in order and the first that compiles is used (smallest values)
+    first_fit: bool = False
 
     @property
     def call(self) -> str:
@@ -394,10 +404,68 @@ def probe_candidates(t: cs.Template) -> list[tuple[tuple[str, ...], str]]:
     return out
 
 
+def literal_positions(t: cs.Template, instantiations: dict, files: dict) -> dict[int, list[int]]:
+    """Per parameter position: the integer values of literal arguments at the repository's call sites of ``t``
+    (sites whose other arguments are not compile-time evaluable, so they yield no full candidate)."""
+    out: dict[int, set[int]] = {}
+    for path, sites in instantiations.items():
+        for ins in sites:
+            if ins.template != t.name or len(ins.args) != len(t.params):
+                continue
+            if cs.resolve_template(files, path, ins.template) is not t:
+                continue
+            for k, a in enumerate(ins.args):
+                if cs.is_literal_arg(a):
+                    v = V.eval_int(a)
+                    if v is not None and v > 0:
+                        out.setdefault(k, set()).add(v)
+    return {k: sorted(v) for k, v in out.items()}
+
+
+def probe_min_candidates(t: cs.Template, grounded: dict[int, list[int]] | None = None) -> list[tuple[tuple[str, ...], str]]:
+    """probe-min tier (recovery R1): for templates the bounded probe cannot reach (some parameter has no upper
+    bound in the template's own asserts).  Per parameter the values are the literal values the repository passes
+    at that position (``grounded``), then the asserts' lower bound (else 1) and the next
+    :data:`PROBE_MIN_STEPS` - 1 integers, then :data:`PROBE_VALUES` above them, all inside the asserts' bounds.
+    Tuples are ordered by (positions that leave their grounded values, largest value index, index sum) and the
+    first :data:`PROBE_MIN_CANDIDATES` are returned; the driver compiles them in order and keeps the first that
+    compiles (the compiler checks the asserts and the array sizes)."""
+    if not t.params:
+        return []
+    grounded = grounded or {}
+    bounds = assert_bounds(t)
+    ladders, n_grounded = [], []
+    for k, p in enumerate(t.params):
+        lo, hi, _ = bounds[p]
+        lo = 1 if lo is None or lo < 1 else lo
+        ok = (lambda v, lo=lo, hi=hi: v >= lo and (hi is None or v <= hi))
+        g = [v for v in grounded.get(k, []) if ok(v)]
+        steps = [lo + i for i in range(PROBE_MIN_STEPS)] + [v for v in PROBE_VALUES if v > lo + PROBE_MIN_STEPS - 1]
+        vals = g + [v for v in steps if ok(v) and v not in g]
+        if not vals:
+            return []
+        ladders.append(vals)
+        n_grounded.append(len(g))
+    n = len(ladders)
+    width = 12 if n <= 3 else 5 if n <= 5 else 3 if n <= 9 else 2      # enough tuples for the first candidates
+    combos = []
+    for idx in itertools.product(*[range(min(len(v), width)) for v in ladders]):
+        off = sum(1 for k, i in enumerate(idx) if n_grounded[k] and i >= n_grounded[k])
+        combos.append(((off, max(idx), sum(idx), idx), idx))
+    combos.sort()
+    srcs = sorted({s for p in t.params for s in bounds[p][2]})
+    gnote = "; ".join(f"{t.params[k]} from repository call-site literals {v}" for k, v in sorted(grounded.items()) if v)
+    note = (f"{PROBE_MIN_NOTE}: smallest values satisfying the template's own asserts and array sizes, found by "
+            f"compiling ascending candidates (lower bounds from {'; '.join(srcs) if srcs else 'no assert (1)'}"
+            f"{'; ' + gnote if gnote else ''})")
+    return [(tuple(str(ladders[k][i]) for k, i in enumerate(idx)), note)
+            for _, idx in combos[:PROBE_MIN_CANDIDATES]]
+
+
 # ------------------------------------------------------------------------------------------ planning
 
 def plan_templates(files: dict[str, cs.SourceFile], scope: list[str], repo_id: str,
-                   config_mains: list | tuple = (), probe: bool = True) -> list[TemplatePlan]:
+                   config_mains: list | tuple = (), probe: bool = True, probe_min: bool = False) -> list[TemplatePlan]:
     """Instantiation candidates, by tier, for every template declared in the ``scope`` files.
 
     Candidates are tracked for every scanned template (dependency files and test wrappers included), so
@@ -409,7 +477,7 @@ def plan_templates(files: dict[str, cs.SourceFile], scope: list[str], repo_id: s
     functions = function_names(files)
     cands: dict[tuple[str, str], dict[str, dict[tuple[str, ...], Candidate]]] = {t.key: {} for t in all_templates}
 
-    def add(t: cs.Template | None, tier: str, args: tuple[str, ...], prov: str) -> bool:
+    def add(t: cs.Template | None, tier: str, args: tuple[str, ...], prov: str, first_fit: bool = False) -> bool:
         if t is None or t.key not in cands:
             return False
         if len(args) != len(t.params):
@@ -419,7 +487,7 @@ def plan_templates(files: dict[str, cs.SourceFile], scope: list[str], repo_id: s
             if prov not in slot[args].provenance:
                 slot[args].provenance.append(prov)
             return False
-        slot[args] = Candidate(tier, args, [prov])
+        slot[args] = Candidate(tier, args, [prov], first_fit)
         return True
 
     for t in all_templates:
@@ -507,15 +575,21 @@ def plan_templates(files: dict[str, cs.SourceFile], scope: list[str], repo_id: s
             if not any(cands[t.key].values()):
                 for args, note in probe_candidates(t):
                     add(t, "probed", args, note)
+                if probe_min and not cands[t.key].get("probed"):
+                    for args, note in probe_min_candidates(t, literal_positions(t, instantiations, files)):
+                        add(t, "probed", args, note, first_fit=True)
 
     plans = []
     for t in in_scope:
-        tiers = {tier: sorted(v.values(), key=lambda c: c.args) for tier, v in cands[t.key].items() if v}
+        tiers = {tier: (list(v.values()) if any(c.first_fit for c in v.values())       # probe-min: ascending order
+                        else sorted(v.values(), key=lambda c: c.args))
+                 for tier, v in cands[t.key].items() if v}
         reason = None
         if not tiers:
             reason = ("parametric template with no repository-grounded instantiation (no component main, "
                       "test wrapper, literal library use or derivable use) and no documented parameter domain"
-                      + ("; its own asserts do not bound every parameter, so it is not probed" if probe else ""))
+                      + ("; its own asserts do not bound every parameter, so it is not probed" if probe and not probe_min
+                         else "; no probe candidate" if probe else ""))
         plans.append(TemplatePlan(t, tiers, reason))
     return plans
 

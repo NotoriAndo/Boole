@@ -27,6 +27,10 @@ AIR_SCHEMA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sche
 PACKAGED_STATUSES = ("OPEN", "GATE-FAIL", "DET-FALSE-CANDIDATE")
 STATUSES = ("OPEN", "TOO-LARGE", "UNINSTANTIABLE", "GATE-FAIL", "DET-FALSE-CANDIDATE")
 MAX_CONSTRAINTS = 2000
+# constraint caps a circom-schema record may name in ``circuit.size_policy``: the default policy and the cap chosen
+# from the measured size ladder of recovery R1 (Circom; other families keep MAX_CONSTRAINTS)
+R1_MAX_CONSTRAINTS = 4000
+SIZE_POLICIES = (MAX_CONSTRAINTS, R1_MAX_CONSTRAINTS)
 
 DET_PROPERTY = {"template": "DET", "name": "output determinism (no under-constraint)"}
 DET_SPEC_CLAUSES = [
@@ -62,7 +66,7 @@ STATEMENT_ASSUMPTIONS = statement_assumptions("bn128")
 GENERATOR_SOURCES = ["__init__.py", "r1cs.py", "circom_source.py", "circom_eval.py", "instantiation.py", "lean_emit.py",
                      "witness.py", "witness_runner.js", "det_search.py", "tags.py", "content.py", "decompose.py",
                      "package.py", "jsonschema_lite.py", "lean_runner.py", "gates.py", "check.py", "circom_det.py",
-                     "lean/ZkReplay.lean", "schema/problem.schema.json"]
+                     "circom_detmod.py", "lean/ZkReplay.lean", "schema/problem.schema.json"]
 
 
 def sha256_file(path: str) -> str:
@@ -133,8 +137,17 @@ def validate_problem(problem: dict, pkg_dir: str | None = None, schema: dict | N
         if roles.count("statement") != 1:
             errs.append("checker.files must list exactly one statement file")
         size = problem["air"] if air else problem["circuit"]
-        # AIR and Noir (ACIR) records carry their generator's size policy; the other families use the global one
-        limit = size["size_policy"]["max_constraints"] if air or "acir" in size else MAX_CONSTRAINTS
+        # AIR and Noir (ACIR) records carry their generator's size policy; circom records may name the default or the
+        # recovery-R1 policy (SIZE_POLICIES); the other families use the global one
+        if air or "acir" in size:
+            limit = size["size_policy"]["max_constraints"]
+        elif size.get("compiler", {}).get("name") == "circom":
+            limit = size["size_policy"]["max_constraints"]
+            if limit not in SIZE_POLICIES:
+                errs.append(f"unknown size policy of {limit} constraints")
+                limit = MAX_CONSTRAINTS
+        else:
+            limit = MAX_CONSTRAINTS
         if size["n_constraints"] > limit or not size["size_policy"]["within"]:
             errs.append("packaged status outside the size policy")
         if pkg_dir is not None:

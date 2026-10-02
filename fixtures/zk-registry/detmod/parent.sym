@@ -1,0 +1,17 @@
+1,1,2,main.o
+2,2,2,main.q
+3,3,2,main.x
+4,4,2,main.y
+5,5,1,main.i[0].b
+6,6,1,main.i[0].a
+7,7,0,main.i[0].s.out
+8,8,0,main.i[0].s.in
+9,9,0,main.i[0].s.t
+10,10,1,main.i[1].b
+11,11,1,main.i[1].a
+12,12,0,main.i[1].s.out
+13,13,0,main.i[1].s.in
+14,14,0,main.i[1].s.t
+15,15,0,main.z.out
+16,16,0,main.z.in
+17,17,0,main.z.t

@@ -17,6 +17,12 @@ checks. Hand-authoring problems does not scale, so production uses deterministic
 - **DET** (implemented): output determinism of a circuit — two constraint-satisfying witnesses with equal inputs
   have equal outputs. No bespoke specification is needed (tier T1: the definition of determinism). A confirmed
   counterexample marks the package `DET-FALSE-CANDIDATE`; such findings stay private.
+- **DET-MOD** (implemented for Circom, recovery R1): modular determinism of an instantiation too large for DET. The
+  statement keeps the main component's own compiled constraints and replaces every sub-component instance by an
+  uninterpreted function of its inputs, shared by both assignments and by all instances of one kind (identical
+  compiled sub-circuits). DET-MOD and DET of every sub-component imply DET; DET-MOD is incomplete where the parent
+  relies on facts its sub-components enforce, so a DET-MOD counterexample is labelled `not-a-finding` (GATE-FAIL),
+  never DET-FALSE-CANDIDATE. DET-MOD packages are counted separately from DET.
 - Planned: release refinement (REL) and specification-backed templates (zkVM instruction chips against the Sail
   RISC-V model; standard primitives against FIPS / RFC / SEC / EIP) under the three-tier specification rule
   (T1 external standards, T2 published project specifications with statement review, T3 implementation-attached
@@ -27,7 +33,9 @@ checks. Hand-authoring problems does not scale, so production uses deterministic
 Code: `scripts/zk_registry/` (driver `circom_det.py`, generator 1.3). Pipeline: a pinned, digest-checked circom
 compiler compiles a template instantiation without simplification (`--O0`; circom 1: `-f`); `.r1cs` / `.sym` are
 read and emitted verbatim as a `ZMod p` R1CS model in Lean; inputs and outputs come from the main component's signal
-declarations. Instantiations above 2,000 constraints are `TOO-LARGE` and are decomposed (below).
+declarations. Instantiations above the size policy are `TOO-LARGE` and are decomposed (below). The policy is 2,000
+constraints for waves 0–1b and 4,000 for recovery R1 (chosen from a measured size ladder; every record names its
+policy in `circuit.size_policy`, and the validator accepts only these two).
 
 **Compiler selection.** The newest `pragma circom` in the template's include closure selects its language line; the
 pinned release of that line is tried first, then the pinned releases of newer lines: 2.0 → v2.0.9, v2.1.9, v2.2.3;
@@ -50,7 +58,13 @@ non-probed candidate is an expression the repository writes, evaluated with para
 optional `probed` tier applies only when no other tier has a candidate and the template's own top-level asserts bound
 every parameter from above (lower bound from asserts, else 1): values from {1, 2, 3, 4, 8, 16, 32, 64} inside the
 bounds. Probed records carry `instantiation.rule = probed`, and a counterexample on them is labelled
-`not-a-finding`. Within the tier the largest compiled instantiation within the size policy is chosen.
+`not-a-finding`. Within the tier the largest compiled instantiation within the size policy is chosen. Recovery R1
+adds **probe-min** (`probe_min` in the wave configuration) for templates whose asserts do not bound every parameter:
+per parameter the literal values the repository passes at its call sites come first, then the asserts' lower bound
+(else 1) and the next integers; candidates are compiled in ascending order (the template's own file and its nearest
+includer) and the first that compiles is used, i.e. the smallest values that satisfy the template's asserts and array
+sizes. A compile-time evaluation error (T3001) or a typing error ends the attempts for that candidate or template.
+Probe-min records are `rule = probed`, with the same `not-a-finding` label.
 
 **Statement shape.** DET for every package:
 
@@ -458,6 +472,30 @@ run on all 367 OPEN packages. Wave-0/1 packages are not modified; superseding re
   6 DET-FALSE-CANDIDATE (private), 1 ERROR.
 
 Waves 0, 1 and 1b together: **433 OPEN** DET packages (DET truth unknown for each).
+
+## Recovery R1 (Circom)
+
+The loss classes of the effective Circom state (latest record per item over waves 0, 1, 1b and battery P2; 1,767
+templates) were re-run with the R1 generator into a separate collection (`packages/recovery-r1/circom`); every new
+record carries `supersedes`, and new packages are deduplicated by (prime, template content, arguments) against all
+existing packages (1 duplicate, not packaged again). Gates as in production.
+
+- **Size cap 4,000 constraints** (was 2,000), from a 13-point ladder of TOO-LARGE instantiations (2.2k–55k): G-ELAB
+  stays cheap (≤ 92 s); G-FID grows about linearly (2,000 s and 17.8 GB at 55k); the battery bounds memory: 8–10 GB up
+  to 4k, 11.5–13.4 GB at 4.7–5.4k, and from 8k a battery file reaches its 16 GB guard. Rule: the largest band whose Lean
+  peak stays within 64 GB / 6 concurrent Lean processes and whose package cost stays ≤ 10 minutes.
+- **DET** (430 items): OPEN 303 → 403 (+66 from TOO-LARGE, +34 probed), TOO-LARGE 583 → 518, no-instantiation 339 → 0
+  (114 compile at no probed value), no-candidate-compiles 38 → 36 classified (17 PLONK custom gates, 6 circom 1 vs. a
+  very old pinned circomlib, 4 indexed function-call arguments, 3 genuine T2046, 5 false asserts, 1 include outside
+  the repository; 4 fixed by materializing declared circomlib dependencies). Circom DET OPEN with decomposition:
+  433 → 533.
+- **DET-MOD** over the 518 TOO-LARGE parents: **95 OPEN**, 77 GATE-FAIL (4 DET-MOD counterexamples, not findings),
+  30 TOO-LARGE, 316 not built (157 parents above 300,000 constraints, 134 without a reliable mapping — mostly
+  anonymous sub-components —, 25 other). The mapping (unoptimized compile, `.sym` hierarchy, input/output directions
+  from the declaring templates) keeps exactly the constraints over main-component signals and direct sub-component
+  inputs/outputs; parents it cannot map are not packaged.
+- DET-FALSE-CANDIDATE among the new DET records (private): 8 in total, 6 of them on probed instantiations
+  (`not-a-finding`).
 
 ## Wave Z0 (zkVM AIRs: SP1 v6.8.1, Pico v2.1.2, OpenVM v2.0.2)
 
