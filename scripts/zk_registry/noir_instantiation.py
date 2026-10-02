@@ -185,7 +185,9 @@ class RepoIndex:
             idx.globals.update(NS.globals_with_values(text))
             test_ranges = [(b.start, b.end) for b in blocks if b.kind == "mod" and re.search(r"test|mock", b.self_type)]
             for m in re.finditer(r"(?<![A-Za-z0-9_])struct\s+(" + NS.IDENT + r")\s*(<)?", text):
-                if is_test_path(rel) or any(a < m.start() < b for a, b in test_ranges):
+                if any(a < m.start() < b for a, b in test_ranges):
+                    continue                      # inside a `mod test {}` block: not nameable from elsewhere
+                if is_test_path(rel):
                     idx.test_struct_files.setdefault(m.group(1), []).append(rel)
                     continue                      # test-only types are candidates only as a fallback
                 idx.structs[m.group(1)] = bool(m.group(2))
@@ -194,15 +196,18 @@ class RepoIndex:
                 if not (is_test_path(rel) or any(a < m.start() < b for a, b in test_ranges)):
                     idx.decl_files.setdefault(m.group(1), []).append(rel)
             for sd in NS.structs(text, src):
-                in_test = is_test_path(rel) or any(a < sd.start < b for a, b in test_ranges)
+                in_test_mod = any(a < sd.start < b for a, b in test_ranges)
+                in_test = is_test_path(rel) or in_test_mod
                 idx.struct_defs.setdefault(sd.name, []).append((rel, sd, in_test))
-                if not sd.generics:
+                if not sd.generics and not in_test_mod:
                     for tr in derived_traits(sd.attrs):
                         (idx.test_trait_impls if in_test else idx.trait_impls).setdefault(tr, []).append(sd.name)
             test_file = is_test_path(rel)
             test_mods = [b for b in blocks if b.kind == "mod" and re.search(r"test", b.self_type)]
             for b in blocks:
-                in_test = test_file or any(m.start < b.start < m.end for m in test_mods)
+                if any(m.start < b.start < m.end for m in test_mods):
+                    continue                      # implementations inside `mod test {}` blocks
+                in_test = test_file
                 if b.kind == "impl" and b.trait and not b.generics:
                     tm = re.match(r"\s*([A-Za-z_][A-Za-z0-9_:]*)", b.trait)
                     if tm:

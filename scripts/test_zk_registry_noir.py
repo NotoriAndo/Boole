@@ -406,6 +406,8 @@ class RecoveryTests(unittest.TestCase):
         self.assertIn("Note1", self.idx.trait_impls["Packable"])
         self.assertNotIn("Hasher2", self.idx.trait_impls)
         self.assertIn("MockH", self.idx.test_trait_impls["Hasher2"])
+        self.assertNotIn("HiddenH", self.idx.test_trait_impls["Hasher2"])      # inside `mod test {}`
+        self.assertNotIn("HiddenH", self.idx.test_struct_files)
         store = I.candidates(rec_target("store"), self.idx)
         self.assertEqual(store[0][1], {"T": "Note1"})
         hashed = I.candidates(rec_target("hashed"), self.idx)
