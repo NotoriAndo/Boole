@@ -432,6 +432,10 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(I.fn_param_indices(t), [0])
         found = [e for e, _ in I.fn_arg_candidates(t, self.idx, 0)]
         self.assertEqual(found[0], "|x| x + 1")                  # closures first, shorter first
+        self.assertEqual(found[-1], "|x| x + offset")             # captures a local of the call site: last
+        self.assertEqual(I.closure_captures("|x| seen_ref.push(x)"), ["seen_ref"])
+        self.assertEqual(I.closure_captures("|a, b| { let c = a + b; hash(c) }"), [])
+        self.assertEqual(I.closure_captures("|_| { *count_ref += 1; }"), ["count_ref"])
         self.assertIn("crate::keep", found)                       # named function, qualified by its file
         self.assertEqual(I.fn_arg_candidates(rec_target("never_called"), self.idx, 0), [])
         cands, why = D.with_fn_args(rec_target("never_called"), self.idx, [("parameter-free", {}, [])], [0])

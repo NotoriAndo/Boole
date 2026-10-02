@@ -564,6 +564,29 @@ def _usable_path(path: str, site_crate_src: str | None, t: Target) -> str | None
     return None
 
 
+CLOSURE_KEYWORDS = {"let", "mut", "if", "else", "for", "in", "true", "false", "as", "return", "self", "fn",
+                    "assert", "assert_eq", "unsafe", "match"}
+
+
+def closure_captures(expr: str) -> list[str]:
+    """Identifiers a closure literal uses that are neither its parameters, its own `let` bindings, keywords nor
+    called functions: names of the call site's scope (they do not exist in the wrapper)."""
+    m = re.match(r"\s*\|([^|]*)\|(.*)$", expr, re.S)
+    if not m:
+        return []
+    bound = {re.sub(r"^mut\s+", "", p.split(":")[0].strip()) for p in m.group(1).split(",") if p.strip()}
+    body = m.group(2)
+    bound |= set(re.findall(r"(?<![A-Za-z0-9_])let\s+(?:mut\s+)?([a-z_][A-Za-z0-9_]*)", body))
+    free = []
+    for t in re.finditer(r"(?<![A-Za-z0-9_.:'])([a-z_][A-Za-z0-9_]*)(?![A-Za-z0-9_])", body):
+        name, rest = t.group(1), body[t.end():]
+        if name in bound or name in CLOSURE_KEYWORDS or name == "_" or re.match(r"\s*(\(|::|!)", rest):
+            continue
+        if name not in free:
+            free.append(name)
+    return free
+
+
 def split_call_args(s: str) -> list[str]:
     """Top-level call arguments; a closure's parameter list (``|a, b|``) is not split."""
     parts, out = NS.split_top(s), []
@@ -631,8 +654,10 @@ def fn_arg_candidates(t: Target, idx: RepoIndex | None, k: int) -> list[tuple[st
             if expr is None or expr in found:
                 continue
             same = site_src == target_src
-            # closures that always fail (`assert(false)`) are tried last: no execution would satisfy them
-            found[expr] = (not same, bool(re.search(r"assert\s*\(\s*false", expr)), not expr.startswith("|"), len(expr),
+            # closures that capture locals of the call site cannot compile in the wrapper, and closures that
+            # always fail (`assert(false)`) admit no execution: both are tried last
+            found[expr] = (not same, bool(closure_captures(expr)) or bool(re.search(r"assert\s*\(\s*false", expr)),
+                           not expr.startswith("|"), len(expr),
                            f"{rel}:{NS.line_of(text, m.start())} argument `{arg[:120]}`")
     ranked = sorted(found.items(), key=lambda kv: kv[1][:4])
     return [(e, v[4]) for e, v in ranked[:MAX_FN_ARG_CANDIDATES]]
