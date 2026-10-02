@@ -127,6 +127,7 @@ CIRCOM1_TAG = "v0.5.46"
 # probe-min: a compile-time evaluation error (false assert, index out of bounds, ...) means the instantiated template
 # rejected the probed values; the main component is the same in every include context, so no other context is tried
 PROBE_REJECTED = "error[T3001]"
+PROBE_MIN_CONTEXTS = 2          # probe-min: the template's own file and the nearest includer
 _PRAGMA_RE = re.compile(r"\bpragma\s+circom\s+(\d+)\.(\d+)\.(\d+)\s*;")
 REAL_WANTED = 12
 MUTANTS = 12
@@ -516,7 +517,8 @@ def size_candidates(sh: Shared, plan: I.TemplatePlan, dir_base: str,
                 records.append(rec)
                 continue
             attempts = []
-            for ctx in include_contexts(sh.files, t.path):
+            contexts = include_contexts(sh.files, t.path)
+            for ctx in (contexts[:PROBE_MIN_CONTEXTS] if c.first_fit else contexts):
                 available = sh.compilers or [sh.cfg.circom_version_tag]
                 order = compiler_order(closure_pragmas(sh.files, ctx), available) or [sh.cfg.circom_version_tag]
                 if wrapper:
@@ -541,6 +543,8 @@ def size_candidates(sh: Shared, plan: I.TemplatePlan, dir_base: str,
             records.append(rec)
             if c.first_fit and ("constraints" in rec["compile_result"] or rec["compile_result"].get("guard")):
                 break                             # probe-min: the first (smallest) candidate that compiles
+            if c.first_fit and attempts and all(a["result"].startswith("error: error[T2") for a in attempts):
+                break                             # probe-min: typing errors do not depend on the probed values
         records_all += records
         if any("constraints" in r["compile_result"] or r["compile_result"].get("guard") for r in records):
             return tier, records_all

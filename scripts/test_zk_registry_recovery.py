@@ -101,6 +101,35 @@ class ProbeMinTests(unittest.TestCase):
             self.assertEqual([c.args for c in pl["U"].candidates["probed"][:3]], [("1",), ("2",), ("3",)])
             self.assertLessEqual(len(cands), I.PROBE_MIN_CANDIDATES)
 
+    def test_typing_errors_end_the_probe(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            pl = self.plans(tmp, True)["U"]
+            write(tmp, "lib2.circom", 'pragma circom 2.0.0;\ninclude "c.circom";\n')      # a third context
+            sh = self.shared(tmp)
+            seen = []
+
+            def fake(sh_, workdir, include_rel, template, args, full, rule_path=None, compiler=None, tag_template=None):
+                seen.append((include_rel, args))
+                return {"rc": 1, "include_context": include_rel, "main_sha256": H, "flags": [],
+                        "compiler": compiler.tag, "error": "error[T2032]: Typing error found"}
+            saved = D.compile_main
+            D.compile_main = fake
+            try:
+                tier, recs = D.size_candidates(sh, pl, os.path.join(tmp, "w"))
+            finally:
+                D.compile_main = saved
+            self.assertIsNone(tier)
+            self.assertEqual(seen, [("c.circom", ("1",)), ("lib.circom", ("1",))])   # 2 contexts, one candidate
+
+    def shared(self, tmp: str):
+        cfg = D.WaveConfig(repo_dir=tmp, repo_id="t/r", repo_url="https://x", release="r", commit="0" * 40,
+                           collection="c", scope_prefix="", exclude=[], circom="c", circom_version_tag="v2.2.3",
+                           lean_env="e", node="n", work=os.path.join(tmp, "w"), out=os.path.join(tmp, "o"))
+        env = L.LeanEnv("/tc", [], "v4.33.1", {}, H, "/s")
+        comps = {"v2.2.3": D.Compiler("v2.2.3", "circom2", "c", "2.2.3", H)}
+        return D.Shared(cfg, env, cs.scan_repo(tmp, cs.list_circom_files(tmp)), set(), None, H, "2.2.3", "v22",
+                        {"name": "g", "version": "1", "sources_sha256": H}, comps)
+
     def test_driver_stops_at_the_first_compiling_candidate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             pl = self.plans(tmp, True)["U"]
