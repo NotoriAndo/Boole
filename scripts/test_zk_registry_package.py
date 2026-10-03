@@ -174,9 +174,9 @@ class IdentityTests(unittest.TestCase):
         # the AIR (air_det), Noir (noir_det), gnark (gnark_det), ZoKrates (zokrates_det) and halo2 (halo2_det)
         # generators hash their own sources, and so does the P3 battery tool (mech_air); every file belongs to one
         from zk_registry import air_det, gnark_det, halo2_det, mech_air, noir_det, zokrates_det
-        # the Noir P3 solver (mech_acir) produces no package content and is hashed by its runs
-        from zk_registry import mech_acir
-        present -= set(mech_acir.SOLVER_SOURCES)
+        # the Noir and R1CS P3 solvers (mech_acir, mech_r1cs) produce no package content and are hashed by their runs
+        from zk_registry import mech_acir, mech_r1cs
+        present -= set(mech_acir.SOLVER_SOURCES) | set(mech_r1cs.generator_files())
         self.assertEqual(present - listed - set(air_det.generator_files()) - set(noir_det.generator_files())
                          - set(gnark_det.generator_files()) - set(zokrates_det.generator_files())
                          - set(halo2_det.generator_files()) - set(mech_air.source_files()), set())
