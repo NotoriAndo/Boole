@@ -703,6 +703,37 @@ darkfi's gadgets, orchard, qed-it/halo2, qed-it/orchard, scroll-tech/poseidon-ci
 - DET truth is unknown for every OPEN package. Full report: `local-docs/zk-production-v1-2026-09-29/WAVE-H1-REPORT.md`
   (operator's local workspace, not tracked).
 
+## Battery P3 (mechanical propagation), AIR and halo2
+
+Code: `scripts/zk_registry/mech_air.py` (tool `boole-zk-registry-mech-p3` 1.0; `python3 -m zk_registry.mech_air run`
+over the wave indexes, `solve` for one package) and `scripts/test_zk_registry_mech_air.py`. A deterministic program,
+not a model: it reads a package's own IR (the AIR DAG, the halo2 layout export), first regenerates `Model.lean` from it
+with the production emitters and requires byte identity, then propagates "equal in both windows" from the `Fixed`
+cells (AIR) or `Inputs` (halo2). Input messages give their values only in a context where their multiplicity is known
+non-zero; each distinct output multiplicity is decided in the base context and its message values in the context
+`m ≠ 0`; a guard is peeled only when known non-zero. Rules: a single unknown cell occurring affinely with a constant
+coefficient; limb / bit decomposition by uniqueness over ranged cells; a ranged carry expression as a virtual digit;
+functional table rows; small constant-coefficient linear systems. Ranges come only from `x * (x - 1) = 0`, table
+lookups as the Lean table definitions state them, and halo2 range tables. A DETERMINED package gets an emitted
+`Solution.lean` (statement byte-identical, helper theorems above the doc comment) judged by the production checker:
+MECH-SOLVED (PASS), MECH-STUCK (reason), MECH-PROOF-FAIL, MECH-ERROR.
+
+| OPEN packages | MECH-SOLVED | MECH-STUCK | MECH-PROOF-FAIL | MECH-ERROR |
+|---|---:|---:|---:|---:|
+| SP1 v6.8.1 (59) | 10 | 49 | 0 | 0 |
+| Pico v2.1.2 (40) | 7 | 33 | 0 | 0 |
+| OpenVM v2.0.2 (56) | 4 | 52 | 0 | 0 |
+| halo2 H1 (14; 13 distinct models) | 3 (2 distinct) | 11 | 0 | 0 |
+| total (169) | 24 | 145 | 0 | 0 |
+
+- STUCK classes: coupled unknowns, no fact with a single unknown cell (field arithmetic with quotient / carry limbs,
+  ECC slopes, running sums, hash rounds) 101; constraint guarded by a factor that may be zero (opcode flags,
+  selectors) 29; an output tied to no known input on some branch (input or output multiplicity left free, or no fact)
+  12; unknown occurring non-linearly 3. DET truth is unknown for every STUCK package.
+- Acceptance: the wave's DET-FALSE-CANDIDATE packages all come out STUCK (the engine claims no false statement).
+  12 of the 24 solved packages carry `coverage: partial`. Engine time is under 10 s for all packages; a check takes
+  11–65 s at ~7 GB peak RSS. The registry status of the packages is unchanged.
+
 ## Limits
 
 - Closed-local artifacts; no registry service, issuance, receipt or reward path is wired.
