@@ -236,6 +236,12 @@ class EmitTests(unittest.TestCase):
             self.assertIn("theorem mech_hp", aux)
             self.assertIn("refine List.forall_mem_cons.2", body)
 
+    def test_single_output_black_box(self):
+        op = dict(EngineTests().bb_op(), outputs=[1])
+        pkg = mk([op], [0], [1])
+        aux, _ = self.assert_valid_submission(pkg, self.emit(pkg))
+        self.assertIn("  exact (List.cons.inj c).1\n", aux)
+
     def test_memory_and_black_box_helpers_only_when_used(self):
         t = EngineTests()
         aux, _ = self.assert_valid_submission(*(lambda p: (p, self.emit(p)))(mk([t.bb_op()], [0], [1, 2])))
@@ -245,6 +251,16 @@ class EmitTests(unittest.TestCase):
         aux, _ = self.assert_valid_submission(pkg, self.emit(pkg))
         self.assertIn("theorem mech_mr0", aux)
         self.assertIn("def mech_mb0_1", aux)
+
+    def test_whole_definition_projections_are_unfolded(self):
+        ops = [az(lin=((1, k), (-1, k + 1))) for k in range(65)]           # block 1 holds a single conjunct
+        pkg = mk(ops, [0], [65])
+        aux, _ = self.assert_valid_submission(pkg, self.emit(pkg))
+        self.assertIn("  have a := h₁.2\n  unfold Block1 at a\n", aux)
+        self.assertNotIn(M.UNFOLD, aux)
+        one = mk([az(lin=((1, 0), (-1, 1)))], [0], [1])                    # Constraints is the single conjunct
+        aux, _ = self.assert_valid_submission(one, self.emit(one))
+        self.assertIn("  have a := h₁\n  unfold Constraints at a\n", aux)
 
     def test_projection_paths_follow_blocks(self):
         ops = [az(lin=((1, k), (-1, k + 1))) for k in range(70)]

@@ -320,6 +320,23 @@ def path(pkg: Pkg, g: int, part: int = 0) -> str:
     return pre + ".2" * j + (".1" if j < total - 1 else "")
 
 
+UNFOLD = "\x00"
+
+
+def proj(pkg: Pkg, g: int, part: int = 0) -> str:
+    """``path`` for a ``have`` line; when the projection is a whole definition (a block, or ``Constraints``,
+    holding a single conjunct) a marker asks ``Emitter.emit`` to add ``unfold <def> at <name>``."""
+    _, _, total = pkg.paths[g]
+    if total > 1:
+        return path(pkg, g, part)
+    name = f"Block{g // NE.BLOCK}" if len(pkg.entries) > NE.BLOCK else "Constraints"
+    return path(pkg, g, part) + UNFOLD + name
+
+
+def resolve_unfolds(text: str) -> str:
+    return re.sub(r"(?m)^(\s*)have (\S+) := (.*)\x00(\w+)$", r"\1have \2 := \3\n\1unfold \4 at \2", text)
+
+
 # ------------------------------------------------------------------------------------------ engine
 
 @dataclass
@@ -1015,7 +1032,7 @@ class Emitter:
         for o in self.pkg.flat.outputs:
             outs.append(f"  refine List.forall_mem_cons.2 ⟨e{o}, ?_⟩")
         outs += ["  intro _ hnil", "  cases hnil"]
-        return "\n".join(self.helpers), "\n".join([intro] + self.body + outs)
+        return resolve_unfolds("\n".join(self.helpers)), "\n".join([intro] + self.body + outs)
 
     def st_const(self, st: Step) -> None:
         x, g = st.wires[0], st.entries[0]
@@ -1024,7 +1041,7 @@ class Emitter:
         a = expr_poly(e, sub)
         v = st.data["value"]
         cert = lc_cert(Poly.atom(f"w {x}") - Poly.const(v), [(signed(inv(st.data["coef"])), "a", a)])
-        lines = [f"theorem mech_k{x} {self.b1()} : w {x} = (({v} : ℕ) : F) := by", f"  have a := h{path(self.pkg, g)}"]
+        lines = [f"theorem mech_k{x} {self.b1()} : w {x} = (({v} : ℕ) : F) := by", f"  have a := h{proj(self.pkg, g)}"]
         cw = [w for w in st.cs]
         if cw:
             lines.append(f"  rw [{', '.join(f'mech_k{w} ' + ('bb ' if self.bb else '') + 'w h' for w in cw)}] at a")
@@ -1036,7 +1053,7 @@ class Emitter:
         e = self.pkg.ops[self.pkg.entries[g].op]["expr"]
         wires = set(e.witnesses())
         cmap = {w: self.res.const[w] for w in st.cs}
-        lines = [f"  have {names[0]} := h₁{path(self.pkg, g)}", f"  have {names[1]} := h₂{path(self.pkg, g)}"]
+        lines = [f"  have {names[0]} := h₁{proj(self.pkg, g)}", f"  have {names[1]} := h₂{proj(self.pkg, g)}"]
         lines += self.rw_lines(names[0], st.eq, st.cs, "₁", wires)
         lines += self.rw_lines(names[1], st.eq, st.cs, "₂", wires)
         pa = expr_poly(e, Subst(1, st.eq, cmap))
@@ -1075,7 +1092,7 @@ class Emitter:
         lines, pa, pb = self._pair_hyps(g, st)
         rng = range_bounds(self.pkg)
         for k, u in enumerate(us):
-            rp = path(self.pkg, rng[u][1])
+            rp = proj(self.pkg, rng[u][1])
             lines += [f"  have r{k}a := h₁{rp}", f"  have r{k}b := h₂{rp}"]
         lines.append(f"  have hp' : p = {P} := rfl")
 
@@ -1136,7 +1153,7 @@ class Emitter:
         op = self.pkg.ops[self.pkg.entries[g].op]
         idx = self.pkg.keys.index(op["key"])
         outs = op["outputs"]
-        lines = [f"  have a := h₁{path(self.pkg, g)}", f"  have b := h₂{path(self.pkg, g)}"]
+        lines = [f"  have a := h₁{proj(self.pkg, g)}", f"  have b := h₂{proj(self.pkg, g)}"]
         pred = op["predicate"]
         if pred is not None and pred[0] == "w":
             pw = pred[1]
@@ -1157,7 +1174,7 @@ class Emitter:
         for _ in outs:
             projs.append(f"(List.cons.inj {cur}).1")
             cur = f"(List.cons.inj {cur}).2"
-        lines.append("  exact ⟨" + ", ".join(projs) + "⟩")
+        lines.append("  exact " + (projs[0] if len(projs) == 1 else "⟨" + ", ".join(projs) + "⟩"))
         concl = " ∧ ".join(f"w₁ {o} = w₂ {o}" for o in outs)
         self.helpers.append("\n".join([self.step_head(st, concl)] + lines) + "\n")
         self.bind(list(outs), self.call(st))
@@ -1167,7 +1184,7 @@ class Emitter:
         op = self.pkg.ops[self.pkg.entries[g].op]
         o = op["output"]
         rws = ", ".join(["a", "b"] + [f"e{x}" for x in st.eq])
-        lines = [f"  have a := h₁{path(self.pkg, g, 2)}", f"  have b := h₂{path(self.pkg, g, 2)}",
+        lines = [f"  have a := h₁{proj(self.pkg, g, 2)}", f"  have b := h₂{proj(self.pkg, g, 2)}",
                  "  apply ZMod.val_injective", f"  rw [{rws}]"]
         self.helpers.append("\n".join([self.step_head(st, f"w₁ {o} = w₂ {o}")] + lines) + "\n")
         self.bind([o], self.call(st))
@@ -1223,7 +1240,7 @@ class Emitter:
         last = reads[-1]
         ops = self.mem_ops(b)
         g = next(k for k, e in enumerate(self.pkg.entries) if e.kind == "mem" and e.block == b)
-        lines = [f"  have M := h{path(self.pkg, g)}"]
+        lines = [f"  have M := h{proj(self.pkg, g)}"]
         concl, pos, state, facts = [], {}, 0, []
         for t, o in enumerate(ops[:last + 1]):
             if o["write"]:
@@ -1350,8 +1367,8 @@ def fieldcut_lean(em: "Emitter", st: Step) -> str:
              f"  have hp' : p = {P} := rfl"]
     for nm, x in (("hq", q), ("hr", r), ("ht", t), ("hs", s)):
         if x is not None:
-            lines.append(f"  have {nm} := h{path(pkg, rng[x][1])}")
-    lines += [f"  have eb := h{path(pkg, gb)}",
+            lines.append(f"  have {nm} := h{proj(pkg, rng[x][1])}")
+    lines += [f"  have eb := h{proj(pkg, gb)}",
               f"  have L1 : (({lb} : ℕ) : F) = (({rb_} : ℕ) : F) := by",
               "    push_cast [mech_cv]", f"    linear_combination {cert_b}",
               "  have N1 := mech_lift L1 (by omega) (by omega)",
@@ -1359,10 +1376,10 @@ def fieldcut_lean(em: "Emitter", st: Step) -> str:
               "  · omega",
               f"  · have hqv : (w {q}).val = {Q} := by omega",
               f"    have hqQ : w {q} = (({Q} : ℕ) : F) := by rw [← hqv]; exact (mech_cv (w {q})).symm",
-              f"    have a1 := h{path(pkg, g1)}",
+              f"    have a1 := h{proj(pkg, g1)}",
               "    rw [hqQ] at a1",
               f"    have hz : w {z} = (({d['z0']} : ℕ) : F) := by linear_combination {cert_z}",
-              f"    have a3 := h{path(pkg, g3)}",
+              f"    have a3 := h{proj(pkg, g3)}",
               "    rw [hz] at a3"]
     if s is None:
         lines += [f"    have hr0 : w {r} = (({d['R0']} : ℕ) : F) := by linear_combination {cert_r}",
@@ -1377,7 +1394,7 @@ def fieldcut_lean(em: "Emitter", st: Step) -> str:
     goal = Poly.const(M) * (Poly.atom(f"w₁ {q}") - Poly.atom(f"w₂ {q}")) + (Poly.atom(f"w₁ {r}") - Poly.atom(f"w₂ {r}"))
     sgn = 1 if co[r] > 0 else -1
     cert = lc_cert(goal, [(sgn, "a", pa), (-sgn, "b", pb2)])
-    lines2 += [f"  have r0a := h₁{path(pkg, rng[r][1])}", f"  have r0b := h₂{path(pkg, rng[r][1])}",
+    lines2 += [f"  have r0a := h₁{proj(pkg, rng[r][1])}", f"  have r0b := h₂{proj(pkg, rng[r][1])}",
                f"  have hF : (({M} * (w₁ {q}).val + (w₁ {r}).val : ℕ) : F) = "
                f"(({M} * (w₂ {q}).val + (w₂ {r}).val : ℕ) : F) := by",
                "    push_cast [mech_cv]", f"    linear_combination {cert}",
@@ -1399,9 +1416,9 @@ def euclid_lean(em: "Emitter", st: Step) -> str:
     lines = [f"theorem mech_eu{n} [Fact (Nat.Prime p)] {em.b1()} : (w {r}).val < (w {d}).val ∧ "
              f"(w {d}).val * (w {q}).val + (w {r}).val < p := by",
              f"  have hp' : p = {P} := rfl",
-             f"  have hq := h{path(pkg, rng[q][1])}", f"  have hr := h{path(pkg, rng[r][1])}",
-             f"  have ht := h{path(pkg, rng[t][1])}", f"  have hd := ZMod.val_lt (w {d})",
-             f"  have el := h{path(pkg, g1)}",
+             f"  have hq := h{proj(pkg, rng[q][1])}", f"  have hr := h{proj(pkg, rng[r][1])}",
+             f"  have ht := h{proj(pkg, rng[t][1])}", f"  have hd := ZMod.val_lt (w {d})",
+             f"  have el := h{proj(pkg, g1)}",
              f"  have L1 : (({l1} : ℕ) : F) = (({r1} : ℕ) : F) := by",
              "    push_cast [mech_cv]", f"    linear_combination {cert1}",
              "  have N1 := mech_lift L1 (by omega) (by omega)",
