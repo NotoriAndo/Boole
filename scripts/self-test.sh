@@ -67,6 +67,7 @@ run_logged metered-tuple-independent-reference env PYTHONDONTWRITEBYTECODE=1 pyt
 run_logged zk-registry-circom-det env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_r1cs.py scripts/test_zk_registry_circom_source.py scripts/test_zk_registry_lean_emit.py scripts/test_zk_registry_det_search.py scripts/test_zk_registry_package.py scripts/test_zk_registry_check.py scripts/test_zk_registry_compilers.py scripts/test_zk_registry_instantiation.py scripts/test_zk_registry_tags.py scripts/test_zk_registry_battery.py scripts/test_zk_registry_decompose.py scripts/test_zk_registry_recovery.py
 run_logged zk-registry-air-det env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_air.py
 run_logged zk-registry-noir-det env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_noir.py
+run_logged zk-registry-mech-acir env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_mech_acir.py
 run_logged zk-registry-gnark-det env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_gnark.py
 run_logged zk-registry-zokrates-det env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_zokrates.py
 run_logged zk-registry-halo2-det env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_halo2.py
