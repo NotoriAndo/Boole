@@ -588,6 +588,28 @@ Remaining reasons: compiler internal errors 51, contract-block items of contract
 compile at its pin 16, stdlib types in non-public modules 36, closures without a usable call site 16, compile-time
 arguments without a call-site literal 16, and instantiation errors of the chosen candidates.
 
+## Battery P3 (mechanical propagation), Noir
+
+Code: `scripts/zk_registry/mech_acir.py` (`boole-zk-mech-acir` 1.0; `run`, `solve`, `summary`). A deterministic
+solver over the package's own ACIR: the conjuncts are re-rendered and must equal `Model.lean`, then determined wires
+are propagated in dependency order (constants, linear steps, mixed-radix bit splits, is-zero gadgets, the
+field-to-integer cut with the comparison against p, euclidean division, black-box and AND/XOR congruence, memory in
+list mode; Brillig outputs stay free). DETERMINED packages get a generated `Solution.lean` (per-step theorems with
+exact `linear_combination` certificates) checked by the production checker; STUCK packages record the undetermined
+cone. Run over the 461 effective OPEN Noir packages (wave N1, decomposition, recovery R1; latest record per item):
+
+| outcome | packages |
+|---|---:|
+| MECH-SOLVED (checker PASS) | 354 |
+| MECH-STUCK (all Brillig-dependent) | 107 |
+| MECH-PROOF-FAIL / MECH-ERROR | 0 |
+
+- Acceptance: calibration items 3 and 4 PASS; none of the 26 DET-FALSE-CANDIDATE packages is DETERMINED.
+- Every OPEN package without a Brillig call is solved; 259 of the calibration's 322 eligible packages are solved.
+- Main STUCK classes: a hint multiplied by another undetermined wire 60, unmatched euclidean-division variants 23,
+  memory with undetermined index or contents 7, other 17. DET truth stays unknown for STUCK packages; proofs and
+  results stay in the operator's local workspace (`MECH-P3-NOIR-REPORT.md`, not tracked).
+
 ## Wave G1 (gnark circuits and gadgets of the frozen ledger)
 
 599 filtered ledger rows (gnark std 562 at `cfc7b2f9`, 37 application circuit types of 13 repositories) were located in
