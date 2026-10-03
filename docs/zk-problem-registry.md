@@ -756,6 +756,47 @@ MECH-SOLVED (PASS), MECH-STUCK (reason), MECH-PROOF-FAIL, MECH-ERROR.
   12 of the 24 solved packages carry `coverage: partial`. Engine time is under 10 s for all packages; a check takes
   11–65 s at ~7 GB peak RSS. The registry status of the packages is unchanged.
 
+## Battery P3 (mechanical propagation), R1CS family
+
+Code: `scripts/zk_registry/mech_r1cs.py` (`solve` for one package, `batch` over an item list with the production
+checker) and `scripts/test_zk_registry_mech_r1cs.py`. A deterministic program, not a model: the R1CS-family packages
+keep no constraint system besides `Model.lean`, so it parses the model back (every constraint is re-rendered with the
+generator's printer and must equal its text), propagates "equal in both assignments" from the inputs and `w 0`, and
+for a DETERMINED package writes `Solution.lean` (statement byte-identical, helpers above the doc comment) for the
+production checker. Rules: `lin` (one unknown wire, linear with a constant coefficient once known wires are
+substituted), `bits` (bit-decomposition uniqueness: boolean unknowns with coefficients `s * 2^e`, `2^n < p`), `call`
+(DET-MOD sub-component outputs once their inputs are known) — the core rules —, and two counted separately: `isz` (the
+IsZero pair `X * (β v) = γ o + K`, `(r X) * (δ o) = 0` fixes `o`) and `elim` (reduced row echelon form of the
+difference system over the constraints affine in the unknowns, with `b² = b` for booleans; unit rows and boolean rows
+with power-of-two coefficients). Every step is one `linear_combination` over an exact integer identity checked by the
+program before emission (non-unit coefficients and mod-p residues through `(p : F) = 0`); bit vectors go through one
+helper lemma. Run over the effective OPEN packages (latest record per item; probed instantiations included):
+
+| OPEN packages | MECH-SOLVED (core rules / + IsZero / + elimination) | MECH-STUCK | MECH-PROOF-FAIL | MECH-ERROR |
+|---|---:|---:|---:|---:|
+| Circom DET (533) | 358 (243 / 61 / 54) | 158 | 17 | 0 |
+| Circom DET-MOD (95) | 91 (91 / 0 / 0) | 3 | 1 | 0 |
+| gnark G1 (76) | 45 (38 / 3 / 4) | 31 | 0 | 0 |
+| ZoKrates K1 (83) | 70 (70 / 0 / 0) | 11 | 2 | 0 |
+| total (787) | 564 (442 / 64 / 58) | 203 | 20 | 0 |
+
+- Acceptance: calibration items 1 and 2 PASS; none of the 49 known-false packages of these pools (DET-FALSE-CANDIDATE,
+  DET-MOD records refuted by the search) is DETERMINED, under every rule.
+- STUCK classes (first frontier class per package): a lone unknown occurring squared, no decomposition pinning it
+  (big-integer carries and quotients, bit extraction without a full decomposition, path indices) 107; a
+  lone unknown with a value-dependent coefficient (inversion, curve addition and doubling, selectors and decoders,
+  integer division) 56; a bit decomposition with `2^n ≥ p` (`Num2Bits_strict`-style aliasing, 256-bit unpacking, field
+  to integer casts) 36; coupled unknowns only 4. The 20 MECH-PROOF-FAIL checks exceeded 22 GB of Lean memory (16 large
+  elimination systems of the big-integer multiplication circuits, 4 other long models); no proof failed otherwise.
+  Solving takes under 33 s per package; a check takes 33 s median, 149 s p90 (898 s max) at 7.1 GB median, 11.6 GB p90
+  peak RSS.
+- ZoKrates K1 packages pin a lake-manifest digest whose file was removed with the wave's scratch; they were checked in
+  the same Lean v4.33.1 / Mathlib `0df444a3` environment with that digest substituted (recorded per result), all other
+  checks unchanged. Concurrent Lean processes followed a 24 GB budget by measured RSS (3, 2 and 1 by size band); a check
+  above its band's guard was retried alone with a 22 GB guard, and MECH-PROOF-FAIL counts the checks that still
+  exceeded it. DET truth stays unknown for STUCK packages; the registry status of the packages is unchanged. Proofs and
+  results stay in the operator's local workspace (`MECH-P3-R1CS-REPORT.md`, not tracked).
+
 ## Limits
 
 - Closed-local artifacts; no registry service, issuance, receipt or reward path is wired.
