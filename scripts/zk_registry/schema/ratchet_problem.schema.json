@@ -38,7 +38,7 @@
           "required": ["tag", "version", "binary_sha256"],
           "additionalProperties": false,
           "properties": {
-            "tag": {"enum": ["v2.1.9", "v2.2.3"]},
+            "tag": {"enum": ["v2.1.9", "v2.2.3", "v2.0.9", "v0.5.46"]},
             "version": {"type": "string"},
             "binary_sha256": {"$ref": "#/$defs/sha256"}
           }
@@ -91,7 +91,9 @@
         "linear": {"type": "integer", "minimum": 0},
         "total": {"type": "integer", "minimum": 1},
         "rung": {"type": "integer", "minimum": 0},
-        "source": {"type": "string"}
+        "source": {"type": "string"},
+        "optimization": {"description": "The record compile's optimization level (source-built v2.0.9: --O2; circom 1: its full constraint reduction); absent for the release binaries (--O2).", "type": "string"},
+        "compiler_sha256": {"description": "Pinned digest of the compiler that produced the record (any pinned build of the reference's compiler tag).", "$ref": "#/$defs/sha256"}
       }
     },
     "metric": {"type": "string", "minLength": 1},
@@ -183,6 +185,24 @@
       }
     },
     "created_utc": {"type": "string"},
+    "context": {
+      "description": "A sub-component reference: the TOO-LARGE parent instantiation(s) of the registry where it was located in the unoptimized compile, and the meaning of a substitution.",
+      "type": "object",
+      "required": ["kind", "parents", "located_by", "meaning"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {"const": "sub-component"},
+        "parents": {"type": "array", "minItems": 1, "items": {
+          "type": "object", "required": ["registry_package_id", "call", "instance_paths", "n_instances"],
+          "additionalProperties": false,
+          "properties": {"registry_package_id": {"type": "string"}, "call": {"type": "string"},
+                         "instance_paths": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+                         "n_instances": {"type": "integer", "minimum": 1}}}},
+        "n_parents": {"type": "integer", "minimum": 1},
+        "located_by": {"type": "string", "minLength": 1},
+        "meaning": {"type": "string", "minLength": 1}
+      }
+    },
     "annotations": {
       "description": "Wave annotations (own-code share, size band, adoption evidence, content aliases); not part of the problem.",
       "type": "object"

@@ -813,9 +813,9 @@ proof of the reference's issued DET problem, so a solved DET problem unlocks the
 the proof limits (20,000 MB Lean memory, 30 minutes), and is recorded in the problem (`det`: method, model digest,
 proof digest, checker verdict); DET of the reference and the equivalence imply DET of every accepted candidate.
 Eligible references: DET machine-checked as above, a record with at least one non-linear constraint, `--O0` within
-4,000 constraints, a pinned release compiler with `--O2` (circom v2.1.9 or v2.2.3; not circom 1 or source builds), no
-tagged-input wrapper. A reference without outputs (an assertion circuit) is eligible too; its equivalence is about
-the set of accepted inputs. The problem package holds `problem.json` (status `OPEN`), the reference model file and the
+4,000 constraints, a compiler the registry pins (the release binaries v2.1.9 and v2.2.3, the v2.0.9 source build, or
+circom 1), no tagged-input wrapper. A reference without outputs (an assertion circuit) is eligible too; its
+equivalence is about the set of accepted inputs. The problem package holds `problem.json` (status `OPEN`), the reference model file and the
 reference main texts; it pins a repository snapshot by manifest digest.
 
 **Metric.** The record and every candidate are scored by the number of non-linear constraints of the `--O2` compile
@@ -825,6 +825,17 @@ linear constraints into quadratic ones never counts; a candidate counts only wit
 constraints than the record. Totals are reported alongside. circom writes the `--O2` constraint set in a
 run-dependent order, so every `--O2` R1CS is canonicalized (terms by wire, constraints sorted; header, wire numbering
 and labels unchanged) before it is counted, digested or modelled.
+
+**Old compilers.** The registry's v2.0.9 source build (digest-pinned) has `--O2` and is used like the releases. circom 1
+(the pinned npm package 0.5.46) has no `--O2`: its record is its only optimization, the full constraint reduction (no
+`-f`), which eliminates internal signals through linear constraints and never removes a main input or output, public
+or private; circom 1 mains keep the template's own public and private inputs (no `{public [..]}`, no `pragma`), and its
+reduced R1CS is canonicalized too. The reference and every candidate use exactly the same pinned compiler, flags and
+prime. The non-linear count is not independent of the optimization level: linear substitution can make one factor of
+a product constant, and the product becomes linear. Compiled at `--O1` as well, 545 of 664 references (the 458 RT1
+problems and 206 v2.0.9 references) have the same non-linear count as at `--O2`; on the others `--O2` is lower by a
+median of 3 constraints (1.2%; max 255) and never higher. So the comparison rests on equal treatment (same toolchain,
+its most simplifying level) rather than on level-invariance, and records of different compilers are never compared.
 
 **Admissibility of a candidate.** It declares a template with the reference's name and number of parameters (the
 harness writes `component main {public [<reference inputs>]} = <reference call>;`); it has no `component main` and no
