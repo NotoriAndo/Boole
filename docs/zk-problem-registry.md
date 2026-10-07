@@ -946,6 +946,33 @@ range checks, 289 with only linear opcodes and Brillig calls), duplicate models 
 (z-imburse), binary main 1. 284 records have non-linear terms; the others are range, logic, black-box or memory cost
 only. Priced records range from 1 to 32,695 (median 35).
 
+**Decomposition by instances** (`noir_callees.py`, waves RT-N2 / RT-G2). A TOO-LARGE reference is not a ratchet
+reference, but the functions it compiles can be. The parent is recompiled exactly as the registry compiled it (its
+wrapper and pinned nargo; the ACIR digest is compared) with `--show-monomorphized`: every constrained function instance
+reachable from the entry point (ACIR inlines all of them; calls into unconstrained functions are hints) is a callee
+instance, identified by its printed body and everything it calls with ids renamed. An instance is located in the
+parent's crate and path dependencies by name and parameter names (the standard library and git dependencies are other
+repositories; items of `quote` blocks are skipped); its generic arguments are recovered by unifying the declared types
+with the instance's (structs are printed as their field tuples; a tuple-printed argument is named by the structs of the
+same shape, ranked by the field names the instance binds; an undetermined numeric generic is guessed from the
+instance's literals). A candidate counts only when an `#[export]` wrapper with those arguments prints the very same
+instance. Confirmed instances within the size policy (3,000 flattened opcodes) whose model no registry package has
+are packaged by the DET generator (all gates; rule `decomposition`, provenance `caller instance:` with the parents), run
+through battery P3 and the ratchet builder. The ratchet problem records `reference.decomposition`: the parents and the
+meaning — the callee as instantiated; an equivalent cheaper candidate can replace it at its call sites without changing
+a parent's input-output relation (no statement about the parent's DET, cost or proof).
+
+**Wave RT-N2** (closed-local, no solving): the 165 TOO-LARGE functions (143 recompiled; 21 z-imburse functions skipped
+for their source-built compiler and one contract entrypoint) compile 1,728 distinct callee instances: 478 not in the
+parent's crates (standard library, git dependencies, closures), 301 existing records, 111 data movement only and 42
+without a priced cost, 100 above 3,000 opcodes, 449 without a confirmed instantiation (346 failing the instance
+comparison or the wrapper compile, 103 without a determined assignment), 18 with an existing or repeated model, and
+229 new packages (`packages/decomp-n2`: OPEN 72, GATE-FAIL 157; no DET-FALSE-CANDIDATE). Battery P3 solved 60 of the
+72 OPEN packages (12 STUCK); 48 battery closures were re-checked as proofs (all PASS). **108 new Noir ratchet problems**
+(aztec-packages 106, payy 2) from 88 parents; DET evidence battery P3 proof 60, battery closure 48; priced records 1 to
+3,046 (median 63), 47 with non-linear terms. Exclusions: no machine-checked DET 121 (GATE-FAIL failing fidelity or
+non-vacuity 83, battery not closing 26, OPEN with P3 STUCK 12).
+
 **Limits.** The screen does not see an under-constrained Brillig hint that the hint code fills correctly, nor negative
 values of signed parameters; only the proof decides. Uninterpreted black boxes forbid replacing a hash or curve call
 by arithmetic that computes the same function. A trade between components (fewer multiplications for more range bits)
@@ -1035,6 +1062,26 @@ proved and 2 that accept every input), DET-FALSE-CANDIDATE 2), linear record 42 
 negations, selections, copies and constants), duplicate models 3. Records range from 2 to 1,537 non-linear
 constraints (bands 1-31 / 32-99 / 100-499 / 500-999 / 1000+: 42 / 11 / 12 / 16 / 11); 27 have emulated outputs and
 none a commitment; in the 43 records with range checks the bit decompositions (23,842 bits) dominate the count.
+
+**Decomposition by instances** (`gnark_callees.py`, `gnark_tool/callees`, wave RT-G2): the TOO-LARGE record's function
+at its recorded type arguments is the root of the call graph of the instantiated code (go/ssa with generics
+instantiated, Rapid Type Analysis: static calls, closures and interface calls resolved by the types the code creates);
+every reachable function of the module is a callee instance with the type arguments of its instance. Exported ones
+outside internal packages become generator rows with those type arguments forced (tier `decomposition`, provenance
+`caller instance:`; other parameters by the usual tiers, a probed slice length or constant keeps the `probed` label)
+under the gnark ratchet's 4,000-constraint size policy (`max_constraints`; wave G1 used 2,000; references are rebuilt
+under their own policy). Problems record `reference.decomposition` with the meaning stated for Noir.
+
+**Wave RT-G2** (closed-local, no solving): 252 of the 258 TOO-LARGE records (the 6 application circuits of other
+modules are skipped) reach 2,028 distinct callee instances: 1,219 unexported, 9 in internal packages, 395 existing
+records and 405 new generator rows (`packages/decomp-g2`: OPEN 114, GATE-FAIL 128, NOT-APPLICABLE 61,
+NO-INSTANTIATION 59, TOO-LARGE 34, COMPILE-FAIL 9; no DET-FALSE-CANDIDATE). Battery P3 solved 90 of the 114 OPEN
+packages (24 STUCK); 6 battery closures were re-checked as proofs (all PASS). **89 new gnark ratchet problems** from
+165 parents, mostly emulated-field arithmetic at the curve fields the pairings and curves use (`math/emulated` 74,
+`sw_emulated` 8, `uints` 5, `sw_grumpkin` 2); DET evidence battery P3 proof 83, battery closure 6; records 3 to 3,069
+non-linear constraints (median 381), 68 with emulated outputs, 3 on probed instantiations. Exclusions: no
+machine-checked DET 240 (NOT-APPLICABLE 61, NO-INSTANTIATION 59, GATE-FAIL 53, TOO-LARGE 34, OPEN with P3 STUCK 24,
+COMPILE-FAIL 9), linear record 73, model equal to an existing package 3.
 
 **Limits.** The screen does not see an under-constrained hint that the solver fills correctly, and emulated inputs are
 sampled canonical; only the proof decides. Pricing range checks as bit decomposition overstates their production cost

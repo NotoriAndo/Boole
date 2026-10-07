@@ -169,10 +169,11 @@ def validate_problem(problem: dict, pkg_dir: str | None = None, schema: dict | N
             errs.append("checker.files must list exactly one statement file")
         size = problem["air"] if air else problem["circuit"]
         # AIR and Noir (ACIR) records carry their generator's size policy; circom records may name the default or the
-        # recovery-R1 policy (SIZE_POLICIES); the other families use the global one
+        # recovery-R1 policy, gnark records the default or the decomposition policy of wave RT-G2 (the gnark ratchet's
+        # 4,000-constraint model cap) (SIZE_POLICIES); the other families use the global one
         if air or "acir" in size:
             limit = size["size_policy"]["max_constraints"]
-        elif size.get("compiler", {}).get("name") == "circom":
+        elif size.get("compiler", {}).get("name") in ("circom", "gnark"):
             limit = size["size_policy"]["max_constraints"]
             if limit not in SIZE_POLICIES:
                 errs.append(f"unknown size policy of {limit} constraints")
