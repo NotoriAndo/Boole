@@ -1041,6 +1041,95 @@ sampled canonical; only the proof decides. Pricing range checks as bit decomposi
 for multiplications is scored by the model count. The pinned toolchain is a darwin-arm64 Go release; another platform
 needs its own release of the same version and a rebuild check.
 
+### zkVM AIR references
+
+Code: `scripts/zk_registry/ratchet_air.py` (problem builder, candidate pipeline: overlay rules, build and extraction,
+admissibility, statement generator, simulation screen, final check), schema `schema/ratchet_air_problem.schema.json`
+(`zk-registry-ratchet-air-problem/v1`; the production checker reads its CANDIDATE packages like the others), the
+extractors' ratchet mode (`air_harness/`: `BOOLE_RATCHET_AIRS`, `BOOLE_AIR_SEED`; unset, the registry behaviour is
+unchanged), tests `scripts/test_zk_registry_ratchet_air.py` (offline fixtures of a toy SP1-style AIR; a live class
+re-runs build, extraction and the screen on a real problem when its paths are configured).
+
+**Reference.** A wave Z0 AIR package whose DET is machine-checked as for Circom and Noir (battery P3 proof, or a
+battery closure re-checked as a proof; production checker within 20,000 MB / 30 minutes), with a one-row window and
+real rows (G-FID PASS). A one-row AIR constrains every row on its own, so an equivalence of row windows is an
+equivalence of traces row by row; a two-row window relation does not compose to the trace, so two-row AIRs are not
+references. The reference meaning is the registry DET model (one row window of the extracted constraint and
+interaction DAG with the bus model's roles), byte for byte; the problem pins the registry IR, the machine record
+(every AIR's IR content digest at the pin) and the reference's bus contributions on the sample programs. The workspace
+snapshot is the zkVM's tracked files at the census pin with the registry extractor installed (manifest-checked,
+symbolic links pinned); toolchains as in wave Z0 (installed rustup toolchains, deviations recorded).
+
+**Metric.** A proving-cost vector of the extracted AIR: `main_columns` (trace width: committed and low-degree-extended
+cells per row), `interactions` (bus sends and receives, table lookups included: LogUp terms per row), `constraints`,
+`constraints_deg_ge[k]` for every k ≥ 2 (cumulative, so lowering a degree never makes a component larger; the largest
+k is the maximum degree, which sets the quotient domain) and `interaction_degree` (the maximum degree of a
+multiplicity or message value). A candidate counts only if no component is larger than the record's and at least one
+is smaller: it is then no more expensive under every prover cost that grows with these components (commitment, LogUp
+and quotient work alike), and trading columns for higher-degree constraints or for lookups never counts. Preprocessed
+columns are fixed by admissibility. `priced` (columns + interactions + constraints) is a summary.
+
+**Candidate and admissibility.** A modified chip: an overlay of `.rs` files (the chip's `eval` and, as needed, its
+trace generation) on the snapshot, under the problem's editable roots (SP1 `crates/core/machine/src/`,
+`crates/recursion/machine/src/`; Pico `vm/src/chips/`; OpenVM `crates/vm/src/system/`, `crates/circuits/`,
+`extensions/*/circuit/src/`), never the extractor, manifests, build scripts or toolchain files, with no `unsafe`,
+reflection, `transmute`, `include!`, `env!`, `std::env` / `fs` / `process` / `net` / `io`, `cfg`, `asm!`, `extern`,
+linkage attributes, `static mut` or `thread_local` in added lines, and no deletions. The pipeline synchronizes a build
+tree with the snapshot plus the overlay (changed files only, with fresh modification times, so cargo rebuilds exactly
+the affected crates), builds offline with the snapshot's locked dependencies and the recorded toolchain, and extracts
+every AIR with the same harness. Every other AIR must extract to the reference build's IR; the target keeps its name,
+position, rust type, field, preprocessed width, public value count, fixed variables (preprocessed cells, public values
+and row selectors used) and one-row window, within the size policy; its input and output messages stay the same
+(order, direction, bus, scope, number of values, count weight and role: the bus model's roles, with the
+negative-multiplicity rule inherited from the matching reference message) and its table lookups go only into tables
+the reference uses (dropping or adding lookups is allowed; each is an interaction).
+
+**Statement** (generated per candidate, over the zkVM's field):
+
+```lean
+theorem equiv [Fact (Nat.Prime Ref.p)] :
+    ∀ (f : List Ref.F) (x y : List Ref.Msg),
+      (∃ w : Fin Ref.nVars → Ref.F, Ref.Constraints w ∧ Ref.Assumptions w ∧ Ref.Fixed.map w = f ∧
+        Ref.BusEq (Ref.In w) x ∧ Ref.BusEq (Ref.Out w) y) ↔
+      (∃ w : Fin Cand.nVars → Cand.F, Cand.Constraints w ∧ Cand.Assumptions w ∧ Cand.Fixed.map w = f ∧
+        Cand.BusEq (Cand.In w) x ∧ Cand.BusEq (Cand.Out w) y) := by
+  sorry
+```
+
+`Cand` is the candidate's model (production emitter, same bus model); each side keeps its own table-lookup
+assumptions inside its window relation (the tables are written in Lean), and messages compare by contribution (equal
+multiplicities, equal values where the multiplicity is non-zero). DET of the reference and the equivalence imply DET
+of the candidate.
+
+**Checks.** `ratchet_air count` (source rules, build, extraction, admissibility, cost), `simulate` (a screen: the
+reference and candidate builds' own trace generation in the extractors' ratchet mode, every row of every dumped trace
+of the target on the sample programs at seed 0 and on N random executions, the generated programs with other seeds;
+every candidate row must satisfy the candidate's constraints and lookups and read the reference's preprocessed and
+public values, and each trace must make the same multiset of active input and output contributions; the reference
+build must reproduce the problem's recorded contributions; the registry's DET counterexample search runs on the
+candidate model from its real rows, and a confirmed counterexample is a mismatch because the reference's DET is
+proved; battery P3 propagation is reported as an informational DET screen; dumped traces are bounded per problem, at
+most about 2^21 cells per trace and 2^22 per sample program), `statement` and the final `check` (the pipeline, then
+the unchanged production checker).
+
+**Wave RT-Z1** (closed-local packages, no solving): 43 problems from the 310 AIR records of wave Z0 (SP1 23, Pico
+13, OpenVM 7); DET evidence: battery P3 proof 20, battery closure re-checked as a proof 23 (all 25 re-checks PASS);
+every reference re-extracted from its workspace snapshot to the registry IR byte for byte, and every dumped reference
+row satisfies the reference model. Exclusions: no machine-checked DET 210 (by status: OPEN with battery P3 STUCK 134,
+GATE-FAIL not closed by the battery 72, DET-FALSE-CANDIDATE 4), battery-closed but without real rows 42 (GATE-FAIL:
+user-mode, trap and page-permission AIRs and others the sample programs do not exercise), two-row window 9, no trace
+within the screen's trace limits 3 (two lookup tables and one wide Pico AIR), duplicate models 3 (SP1 wrap-machine
+copies). 7 references have no outputs (lookup and program tables: the equivalence is about the accepted inputs), 14
+carry `coverage: partial`. Priced records range from 2 to 1,256 (median 38); 28 have degree-3 constraints.
+
+**Limits.** The screen sees only rows the sample programs exercise and cannot see an under-constrained column that the
+trace generation fills correctly unless the DET search finds a counterexample; only the proof decides. The relation is
+per row: bus balance (LogUp) is not modelled, the lookup tables are taken as written, and a candidate that changes
+the trace layout across rows (two events per row, a different interface) or uses the next row is out of scope.
+Several AIRs can come from one Rust chip type (SP1's supervisor and user variants), and every other AIR must stay
+unchanged. The extracted symbolic record is the meaning; the source rules forbid the usual means (reflection, `cfg`,
+`unsafe`) of a prover-side evaluation that differs from it.
+
 ## Limits
 
 - Closed-local artifacts; no registry service, issuance, receipt or reward path is wired.
