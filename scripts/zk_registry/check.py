@@ -253,7 +253,7 @@ def check(pkg_dir: str, proof_path: str, env: L.LeanEnv, workdir: str | None = N
     if perrs:
         error += [f"package: {e}" for e in perrs[:10]]
         return _finish(rep)
-    if problem["status"] not in P.PACKAGED_STATUSES:
+    if not P.has_statement(problem):
         error.append(f"status {problem['status']} has no Lean statement")
         return _finish(rep)
     rep["status"] = problem["status"]

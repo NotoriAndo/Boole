@@ -1,0 +1,275 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "zk-registry-ratchet-problem/v1",
+  "title": "zk-registry ratchet problem (verified circuit optimization)",
+  "description": "A Circom reference of the registry with its record (non-linear constraints of the canonical --O2 compile, main inputs public). Status OPEN: the problem package. Status CANDIDATE: the checker package the candidate pipeline generates for one candidate (candidate, statement and checker blocks). Answers are never part of a problem package.",
+  "type": "object",
+  "required": ["schema_version", "kind", "package_id", "status", "reference", "record", "metric", "admissibility",
+               "statement_shape", "determinism", "det", "simulate", "snapshot", "env", "generator", "created_utc"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": "zk-registry-ratchet-problem/v1"},
+    "kind": {"const": "ratchet"},
+    "package_id": {"type": "string", "pattern": "^ratchet/.+"},
+    "status": {"enum": ["OPEN", "CANDIDATE"]},
+    "reference": {
+      "type": "object",
+      "required": ["registry_package_id", "repo", "repo_url", "commit", "path", "template", "args", "call", "include",
+                   "nomain", "custom_templates", "libs", "prime_flag", "dependencies", "compiler", "main_sha256",
+                   "model_flags", "model", "io", "lean_opts"],
+      "additionalProperties": false,
+      "properties": {
+        "registry_package_id": {"type": "string", "minLength": 1},
+        "repo": {"type": "string", "minLength": 1},
+        "repo_url": {"type": "string"},
+        "commit": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "minLength": 1},
+        "template": {"type": "string", "pattern": "^[A-Za-z_$][A-Za-z0-9_$]*$"},
+        "args": {"type": "array", "items": {"type": "string"}},
+        "call": {"type": "string", "minLength": 1},
+        "include": {"type": "string", "minLength": 1},
+        "nomain": {"type": "boolean"},
+        "custom_templates": {"type": "boolean"},
+        "libs": {"type": "array", "items": {"type": "string"}},
+        "prime_flag": {"type": ["string", "null"]},
+        "dependencies": {"type": "array", "items": {"type": "object"}},
+        "compiler": {
+          "type": "object",
+          "required": ["tag", "version", "binary_sha256"],
+          "additionalProperties": false,
+          "properties": {
+            "tag": {"enum": ["v2.1.9", "v2.2.3"]},
+            "version": {"type": "string"},
+            "binary_sha256": {"$ref": "#/$defs/sha256"}
+          }
+        },
+        "main_sha256": {"$ref": "#/$defs/sha256"},
+        "model_flags": {"type": "array", "items": {"type": "string"}},
+        "model": {
+          "description": "The registry DET model of the reference, byte for byte (the reference meaning).",
+          "type": "object",
+          "required": ["file", "module", "namespace", "sha256", "r1cs_sha256", "n_constraints", "n_wires", "counts"],
+          "additionalProperties": false,
+          "properties": {
+            "file": {"type": "string", "pattern": "\\.lean$"},
+            "module": {"type": "string"},
+            "namespace": {"type": "string"},
+            "sha256": {"$ref": "#/$defs/sha256"},
+            "r1cs_sha256": {"$ref": "#/$defs/sha256"},
+            "n_constraints": {"type": "integer", "minimum": 1, "maximum": 4000},
+            "n_wires": {"type": "integer", "minimum": 1},
+            "counts": {"$ref": "#/$defs/counts"}
+          }
+        },
+        "io": {
+          "type": "object",
+          "required": ["prime", "prime_name", "input_names", "output_names", "public_inputs"],
+          "additionalProperties": false,
+          "properties": {
+            "prime": {"type": "string", "pattern": "^[0-9]+$"},
+            "prime_name": {"type": ["string", "null"]},
+            "input_names": {"type": "array", "items": {"type": "string"}},
+            "output_names": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+            "public_inputs": {"type": "array", "items": {"type": "string"}}
+          }
+        },
+        "lean_opts": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "record": {
+      "type": "object",
+      "required": ["flags", "main_sha256", "r1cs_sha256", "r1cs_raw_sha256", "n_wires", "nonlinear", "linear", "total",
+                   "rung", "source"],
+      "additionalProperties": false,
+      "properties": {
+        "flags": {"type": "array", "items": {"type": "string"}},
+        "main_sha256": {"$ref": "#/$defs/sha256"},
+        "r1cs_sha256": {"$ref": "#/$defs/sha256"},
+        "r1cs_raw_sha256": {"$ref": "#/$defs/sha256"},
+        "n_wires": {"type": "integer", "minimum": 1},
+        "nonlinear": {"type": "integer", "minimum": 1},
+        "linear": {"type": "integer", "minimum": 0},
+        "total": {"type": "integer", "minimum": 1},
+        "rung": {"type": "integer", "minimum": 0},
+        "source": {"type": "string"}
+      }
+    },
+    "metric": {"type": "string", "minLength": 1},
+    "admissibility": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "statement_shape": {"type": "string", "minLength": 1},
+    "determinism": {"type": "string", "minLength": 1},
+    "det": {
+      "description": "Machine-checked DET of the reference model file: a proof of the registry statement `det` that the production checker accepted within the proof limits.",
+      "type": "object",
+      "required": ["method", "registry_package_id", "theorem_fqn", "model_file", "model_sha256", "proof_sha256",
+                   "proof_location", "source", "checker"],
+      "additionalProperties": false,
+      "properties": {
+        "method": {"enum": ["mech-p3", "battery-closure"]},
+        "registry_package_id": {"type": "string"},
+        "theorem_fqn": {"type": "string"},
+        "model_file": {"type": "string"},
+        "model_sha256": {"$ref": "#/$defs/sha256"},
+        "proof_sha256": {"$ref": "#/$defs/sha256"},
+        "proof_location": {"type": "string"},
+        "source": {"type": "string"},
+        "form": {"type": "string"},
+        "checker": {
+          "type": "object",
+          "required": ["verdict", "peak_rss_mb", "secs", "limits"],
+          "additionalProperties": false,
+          "properties": {
+            "verdict": {"const": "PASS"},
+            "peak_rss_mb": {"type": ["integer", "null"], "maximum": 20000},
+            "secs": {"type": ["number", "null"], "maximum": 1800},
+            "limits": {"type": "object"}
+          }
+        }
+      }
+    },
+    "simulate": {
+      "type": "object",
+      "required": ["seed", "max_bits", "ladder", "reference_generator"],
+      "additionalProperties": false,
+      "properties": {
+        "seed": {"type": "string", "minLength": 1},
+        "max_bits": {"type": "object", "additionalProperties": {"type": ["integer", "null"]}},
+        "ladder": {"type": "array", "items": {"type": "integer"}},
+        "reference_generator": {
+          "type": "object",
+          "required": ["flags", "wasm_sha256", "witness_calculator_sha256", "r1cs_sha256"],
+          "additionalProperties": false,
+          "properties": {
+            "flags": {"type": "array", "items": {"type": "string"}},
+            "wasm_sha256": {"$ref": "#/$defs/sha256"},
+            "witness_calculator_sha256": {"$ref": "#/$defs/sha256"},
+            "r1cs_sha256": {"$ref": "#/$defs/sha256"}
+          }
+        }
+      }
+    },
+    "snapshot": {
+      "type": "object",
+      "required": ["id", "manifest_sha256", "n_files", "rule"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "n_files": {"type": "integer", "minimum": 1},
+        "rule": {"type": "string"}
+      }
+    },
+    "env": {
+      "type": "object",
+      "required": ["lean", "mathlib", "lake_manifest_sha256", "circom", "circom_binary_sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "lean": {"type": "string"},
+        "mathlib": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "lake_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "packages": {"type": "object", "additionalProperties": {"type": "string"}},
+        "circom": {"type": "string"},
+        "circom_binary_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "generator": {
+      "type": "object",
+      "required": ["name", "version", "sources_sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {"const": "boole-zk-registry-ratchet"},
+        "version": {"type": "string"},
+        "sources_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "created_utc": {"type": "string"},
+    "annotations": {
+      "description": "Wave annotations (own-code share, size band, adoption evidence, content aliases); not part of the problem.",
+      "type": "object"
+    },
+    "candidate": {
+      "type": "object",
+      "required": ["source_sha256", "local_files", "snapshot_includes", "pragma", "r1cs_sha256", "sym_sha256", "n_wires",
+                   "nonlinear", "linear", "total", "smaller", "reduction_pct", "total_reduction_pct"],
+      "additionalProperties": false,
+      "properties": {
+        "source_sha256": {"$ref": "#/$defs/sha256"},
+        "local_files": {"type": "array", "items": {"type": "string"}},
+        "snapshot_includes": {"type": "array", "items": {"type": "string"}},
+        "pragma": {"type": "string"},
+        "r1cs_sha256": {"$ref": "#/$defs/sha256"},
+        "sym_sha256": {"$ref": "#/$defs/sha256"},
+        "n_wires": {"type": "integer", "minimum": 1},
+        "nonlinear": {"type": "integer", "minimum": 0},
+        "linear": {"type": "integer", "minimum": 0},
+        "total": {"type": "integer", "minimum": 0},
+        "smaller": {"type": "boolean"},
+        "reduction_pct": {"type": "number"},
+        "total_reduction_pct": {"type": "number"}
+      }
+    },
+    "statement": {
+      "type": "object",
+      "required": ["file", "theorem", "theorem_fqn", "text", "imports", "assumptions"],
+      "additionalProperties": false,
+      "properties": {
+        "file": {"const": "Statement.lean"},
+        "theorem": {"const": "equiv"},
+        "theorem_fqn": {"type": "string"},
+        "text": {"type": "string"},
+        "imports": {"type": "array", "minItems": 2, "items": {"type": "string"}},
+        "assumptions": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "checker": {
+      "type": "object",
+      "required": ["statement_file", "theorem", "theorem_fqn", "lean_opts", "files", "reference_type_sha256",
+                   "replay_tool_sha256", "allowed_axioms", "forbidden_tokens"],
+      "additionalProperties": false,
+      "properties": {
+        "statement_file": {"const": "Statement.lean"},
+        "theorem": {"const": "equiv"},
+        "theorem_fqn": {"type": "string"},
+        "lean_opts": {"type": "array", "items": {"type": "string"}},
+        "files": {
+          "type": "array",
+          "minItems": 3,
+          "items": {
+            "type": "object",
+            "required": ["path", "role", "sha256"],
+            "additionalProperties": false,
+            "properties": {
+              "path": {"type": "string"},
+              "role": {"enum": ["statement", "import"]},
+              "module": {"type": "string"},
+              "sha256": {"$ref": "#/$defs/sha256"}
+            }
+          }
+        },
+        "reference_type_sha256": {"$ref": "#/$defs/sha256"},
+        "replay_tool_sha256": {"$ref": "#/$defs/sha256"},
+        "allowed_axioms": {"type": "array", "items": {"type": "string"}},
+        "forbidden_tokens": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "CANDIDATE"}}},
+      "then": {"required": ["candidate", "statement", "checker"]}
+    }
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "counts": {
+      "type": "object",
+      "required": ["nonlinear", "linear", "total"],
+      "additionalProperties": false,
+      "properties": {
+        "nonlinear": {"type": "integer", "minimum": 0},
+        "linear": {"type": "integer", "minimum": 0},
+        "total": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}
