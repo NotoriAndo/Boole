@@ -869,6 +869,87 @@ memory is the bottleneck: equivalence proofs of references with thousands of con
 exceeded 16–20 GB of Lean memory or 30 minutes in P2. Lower-bound arguments for records without a candidate are
 informal.
 
+### Noir references
+
+Code: `scripts/zk_registry/ratchet_noir.py` (problem builder, candidate pipeline, statement generator, simulation
+screen, final check), schema `schema/ratchet_noir_problem.schema.json` (`zk-registry-ratchet-noir-problem/v1`; the
+production checker reads its CANDIDATE packages like the Circom ones), tests
+`scripts/test_zk_registry_ratchet_noir.py` (offline fixtures from a toy crate compiled by nargo v1.0.0-beta.25; a live
+class re-runs build, count, simulation and the final check with the pinned nargo, boole-acir-tool and Lean when their
+paths are configured).
+
+**Reference.** A Noir registry package whose DET is machine-checked as for Circom (battery P3 proof, or a battery
+closure re-checked as a proof, production checker within 20,000 MB / 30 minutes) and that the registry compiled
+through its `#[export]` wrapper: library functions (the wrapper appended to the function's own file in a copy of the
+crate) and standard-library items (a wrapper crate). The reference meaning is the registry's DET model, byte for byte;
+the problem pins the exact wrapper text the registry appended (`reference/append.nr`) and the reference program as the
+harness rebuilds it (`reference/program.json`: noir version, ABI, bytecode), whose decoded ACIR and ABI must equal the
+registry's. Binary mains and contract entrypoints (no wrapper call to replace) and source-built compilers are not
+references.
+
+**Metric.** A cost vector of the flattened ACIR, chosen for embedding: `nonlinear` (degree-2 terms of AssertZero
+opcodes, i.e. multiplication gates), `range_bits` (RANGE), `logic_bits` (AND / XOR), `black_box` (enabled calls per
+black-box function) and `memory` (initialized elements plus operations). Free, and reported: linear-only AssertZero
+opcodes (a caller substitutes them; the wrapper's copies are among them), as in the Circom non-linear metric; the
+RANGE checks the wrapper's ABI types put on its parameter witnesses (`abi_range_bits`: a caller's values are already
+typed, and they are identical in every candidate); and Brillig calls (unconstrained hints cost nothing in proving). A
+backend gate count is not used: no proving backend is pinned with the registry's compilers, and a gate count would
+charge the linear opcodes too. A candidate counts only if no priced component is larger than the record's and at least
+one is smaller: it is then no more expensive under every backend whose cost grows with these components, whatever
+their weights (lookup-based range and logic gates included), and trading one component for another (multiplications
+for range bits) never counts. `priced`, the sum, is a summary for size bands and reports.
+
+**Candidate and admissibility.** `Candidate.nr` declares `fn boole_ratchet_candidate` (constrained, top level) plus
+helper items. The harness takes the reference's wrapper text, replaces its one reference call by
+`boole_ratchet_candidate(<the same arguments>)` (a method call passes its receiver first, as `&mut` when the wrapper
+binds it mutably) and appends the candidate after it, in the reference's file of the crate snapshot or in the
+standard-library wrapper crate. The snapshot is manifest-checked: the Nargo.toml and `.nr` files of the reference
+crates and their path dependencies at the ledger pin, and the git dependencies at their tags in nargo's cache layout
+(a standard-library snapshot only names the pinned nargo, which embeds the library). The program is compiled by the
+reference's pinned nargo (digest-checked) with `nargo export --silence-warnings`; its ABI, input witnesses and number
+of return witnesses must equal the reference's. Not admitted: an `unconstrained` or `comptime` candidate function,
+`fn main`, `mod`, `contract`, `boole_det_*` names, and attributes other than `inline_always`, `no_predicates`, `fold`,
+`allow` and `derive` (so no new oracle, foreign or builtin declaration and no extra export). Unconstrained helpers are
+allowed: their outputs are free in the model, so the proof has to pin them down.
+
+**Statement** (generated per candidate):
+
+```lean
+theorem equiv [Fact (Nat.Prime Ref.p)] :
+    ∀ (bb : ℕ → List Ref.F → List Ref.F) (x y : List Ref.F),
+      (∃ w : Fin Ref.nWires → Ref.F, Ref.Constraints bb w ∧ Ref.Inputs.map w = x ∧ Ref.Outputs.map w = y) ↔
+      (∃ w : Fin Cand.nWires → Cand.F, Cand.Constraints bb w ∧ Cand.Inputs.map w = x ∧ Cand.Outputs.map w = y) := by
+  sorry
+```
+
+Black boxes stay uninterpreted and shared: the candidate model numbers its black boxes like the reference's (keys new
+in the candidate after them), so the equivalence holds for every interpretation, in particular for the functions ACVM
+computes, and DET of the reference gives DET of the candidate per interpretation. The binder is dropped when neither
+model has black boxes, and a side without black boxes takes no `bb`.
+
+**Checks.** `ratchet_noir count` (admissibility, compile, cost), `simulate` (a screen: both programs through the
+pinned executor, boole-acir-tool `execute` with the compiler's ACVM solver and oracle calls answered with zeros, on
+structured inputs per ABI type and seeded random inputs; the candidate must fail exactly where the reference fails and
+return the same values elsewhere; every candidate witness is re-checked against its decoded ACIR by the Python
+evaluator and every return witness must occur in a constrained opcode; battery P3 propagation is reported as an
+informational DET screen), `statement` (elaboration and the checker package) and the final `check` (the pipeline, then
+the unchanged production checker). Integer-typed parameters are range-checked by the wrapper identically in both
+programs, so values outside their types fail in both; the screen draws ABI-typed values only.
+
+**Wave RT-N1** (closed-local packages, no solving): 490 problems from the 2,201 effective Noir records (aztec-packages
+280, noir stdlib 170, payy 30, zkemail.nr 9, garaga 1); DET evidence: battery P3 proof 258, battery closure re-checked
+as a proof 232 (all 366 re-checks PASS); every reference rebuilt to the registry ACIR and ABI. Exclusions: no
+machine-checked DET 1,077 (by status: COMPILE-FAIL 170, TOO-LARGE 165, GATE-FAIL 393, NOT-APPLICABLE 129, OPEN with
+battery P3 STUCK 107, NO-INSTANTIATION 87, DET-FALSE-CANDIDATE 26), free record 511 (222 with only the wrapper's ABI
+range checks, 289 with only linear opcodes and Brillig calls), duplicate models 110, source-built compiler 12
+(z-imburse), binary main 1. 284 records have non-linear terms; the others are range, logic, black-box or memory cost
+only. Priced records range from 1 to 32,695 (median 35).
+
+**Limits.** The screen does not see an under-constrained Brillig hint that the hint code fills correctly, nor negative
+values of signed parameters; only the proof decides. Uninterpreted black boxes forbid replacing a hash or curve call
+by arithmetic that computes the same function. A trade between components (fewer multiplications for more range bits)
+can be a real backend saving but does not count.
+
 ## Limits
 
 - Closed-local artifacts; no registry service, issuance, receipt or reward path is wired.
