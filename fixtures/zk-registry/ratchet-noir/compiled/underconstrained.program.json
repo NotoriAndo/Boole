@@ -1,0 +1,29 @@
+{
+ "abi": {
+  "error_types": {},
+  "parameters": [
+   {
+    "name": "a0",
+    "type": {
+     "kind": "field"
+    },
+    "visibility": "private"
+   },
+   {
+    "name": "a1",
+    "type": {
+     "kind": "field"
+    },
+    "visibility": "private"
+   }
+  ],
+  "return_type": {
+   "abi_type": {
+    "kind": "field"
+   },
+   "visibility": "private"
+  }
+ },
+ "bytecode": "H4sIAAAAAAAA/6WSzUrDQBSF8+PSh+hSd9U+gU0ruqhKiyCClGgucWDMxMmkkJ3zBpmkuFVIjWJ1J6L7vkh37ly5jpaWJlQ0TXtXw+WcM+cbRg3E9cspIRjaBrA2I155PAHvVynCGJmajnFXEjxuIcvEEPoiGJSk/0eWciXjxAsbgxr6fn4if9xyHKDsGCgJRTgolY09Oty4XX87qL9yfnSyVvnY8d5toQ2/ws8kSWR1nqJKftFAkn2h/GD3nUtXp9A+Rxa74XcasRwW8riGKJwxhd/vWgxMoNFhZXMOnhm/XMh/VZ/1S8XuT/0PTcA6Qx1QFyWYJqwUS5D40+hzGTrTNWJ7UxQt2ykTHjVIJ0gXSqrvjXLE6kQxWdey0mVpa0vTyrzXYsQWwR90z1Vk6dTbRoCNfbubUUUNF2dZMsdfT5K64iYwl1rfzQDkneIDAAA=",
+ "noir_version": "1.0.0-beta.25+75061fab15986eedee4e7d9104ff87dd9fa4ca10"
+}

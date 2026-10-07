@@ -1,0 +1,380 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "zk-registry-ratchet-noir-problem/v1",
+  "title": "zk-registry ratchet problem over a Noir reference (verified circuit optimization, ACIR)",
+  "description": "A Noir reference of the registry (the #[export] wrapper program of a library or standard-library function) with its record (the component-wise cost of its flattened ACIR). Status OPEN: the problem package. Status CANDIDATE: the checker package the candidate pipeline generates for one candidate. Answers are never part of a problem package.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "kind",
+    "family",
+    "package_id",
+    "status",
+    "reference",
+    "record",
+    "metric",
+    "admissibility",
+    "statement_shape",
+    "determinism",
+    "det",
+    "simulate",
+    "snapshot",
+    "env",
+    "generator",
+    "created_utc"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": "zk-registry-ratchet-noir-problem/v1"},
+    "kind": {"const": "ratchet"},
+    "family": {"const": "noir"},
+    "package_id": {"type": "string", "pattern": "^ratchet/.+"},
+    "status": {"enum": ["OPEN", "CANDIDATE"]},
+    "reference": {
+      "type": "object",
+      "required": [
+        "registry_package_id",
+        "repo",
+        "repo_url",
+        "commit",
+        "path",
+        "function",
+        "function_line",
+        "call",
+        "plan",
+        "crate",
+        "crate_type",
+        "target_file",
+        "wrapper_name",
+        "append",
+        "dependencies",
+        "compiler",
+        "model",
+        "io",
+        "program",
+        "lean_opts"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "registry_package_id": {"type": "string", "minLength": 1},
+        "repo": {"type": "string", "minLength": 1},
+        "repo_url": {"type": "string"},
+        "commit": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "minLength": 1},
+        "function": {"type": "string", "minLength": 1},
+        "function_line": {"type": ["integer", "null"]},
+        "call": {"type": "string", "minLength": 1},
+        "plan": {"enum": ["export", "std-export"]},
+        "crate": {"type": ["string", "null"]},
+        "crate_type": {"type": ["string", "null"]},
+        "target_file": {"type": ["string", "null"]},
+        "wrapper_name": {"type": "string", "pattern": "^boole_det_[A-Za-z0-9_]+$"},
+        "append": {
+          "type": "object",
+          "required": ["file", "sha256", "how"],
+          "additionalProperties": false,
+          "properties": {
+            "file": {"const": "reference/append.nr"},
+            "sha256": {"$ref": "#/$defs/sha256"},
+            "how": {"type": "string"}
+          }
+        },
+        "dependencies": {"type": "array", "items": {"type": "object"}},
+        "compiler": {
+          "type": "object",
+          "required": ["tag", "version", "nargo_sha256", "command"],
+          "additionalProperties": false,
+          "properties": {
+            "tag": {"type": "string", "pattern": "^v1\\.0\\.0-"},
+            "version": {"type": "string"},
+            "nargo_sha256": {"$ref": "#/$defs/sha256"},
+            "command": {"const": "nargo export --silence-warnings"}
+          }
+        },
+        "model": {
+          "description": "The registry DET model of the reference, byte for byte (the reference meaning).",
+          "type": "object",
+          "required": [
+            "file",
+            "module",
+            "namespace",
+            "sha256",
+            "acir_sha256",
+            "n_opcodes",
+            "n_wires",
+            "n_conjuncts",
+            "black_boxes",
+            "memory"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "file": {"type": "string", "pattern": "\\.lean$"},
+            "module": {"type": "string"},
+            "namespace": {"type": "string"},
+            "sha256": {"$ref": "#/$defs/sha256"},
+            "acir_sha256": {"$ref": "#/$defs/sha256"},
+            "n_opcodes": {"type": "integer", "minimum": 1, "maximum": 3000},
+            "n_wires": {"type": "integer", "minimum": 1},
+            "n_conjuncts": {"type": "integer", "minimum": 0},
+            "black_boxes": {"type": "array", "items": {"type": "string"}},
+            "memory": {"type": "boolean"}
+          }
+        },
+        "io": {
+          "type": "object",
+          "required": ["inputs", "outputs", "input_names", "abi_sha256"],
+          "additionalProperties": false,
+          "properties": {
+            "inputs": {"type": "array", "items": {"type": "integer", "minimum": 0}},
+            "outputs": {
+              "description": "May be empty: a function without a return value is an assertion program, and the equivalence is then about the set of accepted inputs.",
+              "type": "array",
+              "items": {"type": "integer", "minimum": 0}
+            },
+            "input_names": {"type": "array", "items": {"type": "string"}},
+            "abi_sha256": {"$ref": "#/$defs/sha256"}
+          }
+        },
+        "program": {
+          "type": "object",
+          "required": ["file", "sha256", "note"],
+          "additionalProperties": false,
+          "properties": {
+            "file": {"const": "reference/program.json"},
+            "sha256": {"$ref": "#/$defs/sha256"},
+            "note": {"type": "string"}
+          }
+        },
+        "lean_opts": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "record": {
+      "type": "object",
+      "required": [
+        "nonlinear",
+        "range_bits",
+        "logic_bits",
+        "black_box",
+        "memory",
+        "priced",
+        "linear",
+        "abi_range_bits",
+        "brillig",
+        "n_opcodes",
+        "rung",
+        "source"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "nonlinear": {"type": "integer", "minimum": 0},
+        "range_bits": {"type": "integer", "minimum": 0},
+        "logic_bits": {"type": "integer", "minimum": 0},
+        "black_box": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 1}},
+        "memory": {"type": "integer", "minimum": 0},
+        "priced": {"type": "integer", "minimum": 1},
+        "linear": {"type": "integer", "minimum": 0},
+        "brillig": {"type": "integer", "minimum": 0},
+        "n_opcodes": {"type": "integer", "minimum": 1},
+        "rung": {"type": "integer", "minimum": 0},
+        "source": {"type": "string"},
+        "abi_range_bits": {"type": "integer", "minimum": 0}
+      }
+    },
+    "metric": {"type": "string", "minLength": 1},
+    "admissibility": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "statement_shape": {"type": "string", "minLength": 1},
+    "determinism": {"type": "string", "minLength": 1},
+    "det": {
+      "description": "Machine-checked DET of the reference model file: a proof of the registry statement `det` that the production checker accepted within the proof limits.",
+      "type": "object",
+      "required": [
+        "method",
+        "registry_package_id",
+        "theorem_fqn",
+        "model_file",
+        "model_sha256",
+        "proof_sha256",
+        "proof_location",
+        "source",
+        "checker"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "method": {"enum": ["mech-p3", "battery-closure"]},
+        "registry_package_id": {"type": "string"},
+        "theorem_fqn": {"type": "string"},
+        "model_file": {"type": "string"},
+        "model_sha256": {"$ref": "#/$defs/sha256"},
+        "proof_sha256": {"$ref": "#/$defs/sha256"},
+        "proof_location": {"type": "string"},
+        "source": {"type": "string"},
+        "form": {"type": "string"},
+        "checker": {
+          "type": "object",
+          "required": ["verdict", "peak_rss_mb", "secs", "limits"],
+          "additionalProperties": false,
+          "properties": {
+            "verdict": {"const": "PASS"},
+            "peak_rss_mb": {"type": ["integer", "null"], "maximum": 20000},
+            "secs": {"type": ["number", "null"], "maximum": 1800},
+            "limits": {"type": "object"}
+          }
+        }
+      }
+    },
+    "simulate": {
+      "type": "object",
+      "required": ["seed", "executor", "profiles"],
+      "additionalProperties": false,
+      "properties": {
+        "seed": {"type": "string", "minLength": 1},
+        "executor": {"type": "string"},
+        "profiles": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "snapshot": {
+      "type": "object",
+      "required": ["id", "manifest_sha256", "n_files", "rule"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "n_files": {"type": "integer", "minimum": 1},
+        "rule": {"type": "string"}
+      }
+    },
+    "env": {
+      "type": "object",
+      "required": ["lean", "mathlib", "lake_manifest_sha256", "nargo", "nargo_sha256", "acir_tool_sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "lean": {"type": "string"},
+        "mathlib": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "lake_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "packages": {"type": "object", "additionalProperties": {"type": "string"}},
+        "nargo": {"type": "string"},
+        "nargo_sha256": {"$ref": "#/$defs/sha256"},
+        "acir_tool_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "generator": {
+      "type": "object",
+      "required": ["name", "version", "sources_sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {"const": "boole-zk-registry-ratchet"},
+        "version": {"type": "string"},
+        "sources_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "created_utc": {"type": "string"},
+    "annotations": {
+      "description": "Wave annotations (own-code share, size band, adoption evidence, content aliases); not part of the problem.",
+      "type": "object"
+    },
+    "candidate": {
+      "type": "object",
+      "required": [
+        "source_sha256",
+        "local_files",
+        "acir_sha256",
+        "program_sha256",
+        "n_wires",
+        "nonlinear",
+        "range_bits",
+        "logic_bits",
+        "black_box",
+        "memory",
+        "priced",
+        "linear",
+        "abi_range_bits",
+        "brillig",
+        "smaller",
+        "larger_components",
+        "reduction_pct",
+        "nonlinear_reduction_pct"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "nonlinear": {"type": "integer", "minimum": 0},
+        "range_bits": {"type": "integer", "minimum": 0},
+        "logic_bits": {"type": "integer", "minimum": 0},
+        "black_box": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 1}},
+        "memory": {"type": "integer", "minimum": 0},
+        "priced": {"type": "integer", "minimum": 0},
+        "linear": {"type": "integer", "minimum": 0},
+        "brillig": {"type": "integer", "minimum": 0},
+        "source_sha256": {"$ref": "#/$defs/sha256"},
+        "local_files": {"type": "array", "items": {"type": "string"}},
+        "acir_sha256": {"$ref": "#/$defs/sha256"},
+        "program_sha256": {"$ref": "#/$defs/sha256"},
+        "n_wires": {"type": "integer", "minimum": 1},
+        "smaller": {"type": "boolean"},
+        "larger_components": {"type": "array", "items": {"type": "string"}},
+        "reduction_pct": {"type": "number"},
+        "nonlinear_reduction_pct": {"type": "number"},
+        "abi_range_bits": {"type": "integer", "minimum": 0}
+      }
+    },
+    "statement": {
+      "type": "object",
+      "required": ["file", "theorem", "theorem_fqn", "text", "imports", "assumptions"],
+      "additionalProperties": false,
+      "properties": {
+        "file": {"const": "Statement.lean"},
+        "theorem": {"const": "equiv"},
+        "theorem_fqn": {"type": "string"},
+        "text": {"type": "string"},
+        "imports": {"type": "array", "minItems": 2, "items": {"type": "string"}},
+        "assumptions": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "checker": {
+      "type": "object",
+      "required": [
+        "statement_file",
+        "theorem",
+        "theorem_fqn",
+        "lean_opts",
+        "files",
+        "reference_type_sha256",
+        "replay_tool_sha256",
+        "allowed_axioms",
+        "forbidden_tokens"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "statement_file": {"const": "Statement.lean"},
+        "theorem": {"const": "equiv"},
+        "theorem_fqn": {"type": "string"},
+        "lean_opts": {"type": "array", "items": {"type": "string"}},
+        "files": {
+          "type": "array",
+          "minItems": 3,
+          "items": {
+            "type": "object",
+            "required": ["path", "role", "sha256"],
+            "additionalProperties": false,
+            "properties": {
+              "path": {"type": "string"},
+              "role": {"enum": ["statement", "import"]},
+              "module": {"type": "string"},
+              "sha256": {"$ref": "#/$defs/sha256"}
+            }
+          }
+        },
+        "reference_type_sha256": {"$ref": "#/$defs/sha256"},
+        "replay_tool_sha256": {"$ref": "#/$defs/sha256"},
+        "allowed_axioms": {"type": "array", "items": {"type": "string"}},
+        "forbidden_tokens": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "CANDIDATE"}}},
+      "then": {"required": ["candidate", "statement", "checker"]}
+    }
+  ],
+  "$defs": {"sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+}

@@ -391,7 +391,9 @@ def copy_crate(src_dir: str, dest: str, as_lib: bool, strip_contract: bool = Fal
     block, keeping its sibling modules)."""
     if os.path.exists(dest):
         shutil.rmtree(dest)
-    shutil.copytree(src_dir, dest, ignore=shutil.ignore_patterns(".git", "target", "export", "node_modules", "*.gz"))
+    # plain file copies: the copy is written to (manifest, wrapper) even when the source tree is read-only
+    shutil.copytree(src_dir, dest, ignore=shutil.ignore_patterns(".git", "target", "export", "node_modules", "*.gz"),
+                    copy_function=shutil.copyfile)
     mpath = os.path.join(dest, "Nargo.toml")
     with open(mpath, encoding="utf-8") as f:
         man = f.read()

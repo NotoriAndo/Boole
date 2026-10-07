@@ -1,0 +1,6 @@
+[package]
+name = "toy"
+type = "lib"
+authors = [""]
+
+[dependencies]

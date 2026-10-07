@@ -1,0 +1,29 @@
+{
+ "abi": {
+  "error_types": {},
+  "parameters": [
+   {
+    "name": "a0",
+    "type": {
+     "kind": "field"
+    },
+    "visibility": "private"
+   },
+   {
+    "name": "a1",
+    "type": {
+     "kind": "field"
+    },
+    "visibility": "private"
+   }
+  ],
+  "return_type": {
+   "abi_type": {
+    "kind": "field"
+   },
+   "visibility": "private"
+  }
+ },
+ "bytecode": "H4sIAAAAAAAA/5WPsQrCMBRFX5p+SEfdKn6BiOAkjiJIQZpNiKRZOuYP8vLA2dlZxO79kW4du3RvS/emvfPlnnO5w9f3LuVDJKnQiZZ5PIbMZ5dlQumrUJKQygimwwDQlVGcnlS1ea//58PPmMttta2PefHEfdVS09e4dwiWk9kccriQ7Mi/CeGMEuODnu9E4NdzwCwG1nbxjSlbtQEAAA==",
+ "noir_version": "1.0.0-beta.25+75061fab15986eedee4e7d9104ff87dd9fa4ca10"
+}
