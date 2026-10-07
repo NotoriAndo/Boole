@@ -1,6 +1,6 @@
 # Boole — current development status
 
-Updated: 2026-09-30. This is the tracked entrypoint for current progress and the
+Updated: 2026-10-07. This is the tracked entrypoint for current progress and the
 ordered development roadmap. Edit it in place; execution evidence stays in its
 own result record. Local Master/Execution documents link here instead of owning
 a second current cursor. Work methods follow the
@@ -20,21 +20,31 @@ twelve-hour delegation.
 
 **Priority: ZK verification problem production, selected by the user on
 September 29.** Protocol-authored Lean problems about real ZK code (miners only
-prove) replace generated puzzles as the useful-work direction. A measured census
-of zkVM, zkEVM, proof-system, verifier, cryptographic, gadget, application and
-chain-program code found no item with full machine-checked coverage; a 30-item
-pilot produced 17 non-trivial problems, 15 of which a strong model proved with
-independent kernel checks. The first deterministic generator produces output-
-determinism (DET) problem packages from Circom templates; its first wave over
-circomlib v2.0.5 yielded 48 open packages; an AIR generator for zkVM chips (SP1, Pico, OpenVM) produced 155 more in
-wave Z0, a Noir generator over compiled ACIR produced 423 more in wave N1, a gnark generator over compiled
-R1CS produced 76 more in wave G1, a ZoKrates generator over compiled R1CS produced 83 more in wave K1, and a halo2
-generator over the concrete MockProver layout produced 14 more (13 distinct models) in wave H1; Circom recovery R1
-(4,000-constraint cap from a measured size ladder, probe-min instantiation, modular DET-MOD statements) added 100
-open DET and 95 open DET-MOD packages. Ratchet problems (verified circuit optimization: fewer non-linear constraints
-plus a Lean equivalence proof) are a registry problem type over Circom references with machine-checked DET (pilot P2:
-screened candidates for 26 of 43 application targets, 6 of 10 sampled proved). See the
-[problem registry](zk-problem-registry.md) for the templates, gates, package
+prove) replace generated puzzles as the useful-work direction; block production
+stays hash-based and useful work remains an asynchronous additional-reward lane.
+A measured census found no ZK code item with full machine-checked coverage.
+
+- **Problem supply (DET).** Six deterministic generators (Circom, zkVM AIR for SP1 /
+  Pico / OpenVM, Noir, gnark, ZoKrates, halo2) and the Circom / Noir recoveries
+  ([PRs #391–#400](https://github.com/NotoriAndo/Boole/pull/400)) produced 1,317 open
+  output-determinism packages plus 95 compositional DET-MOD packages. Defect
+  candidates found by the gates stay private and are reported only as totals.
+- **Mechanical floor.** The battery P3 propagation solver
+  ([#401](https://github.com/NotoriAndo/Boole/pull/401)–[#403](https://github.com/NotoriAndo/Boole/pull/403))
+  proves 942 of 1,417 open packages in seconds with checker-accepted proofs and
+  never claims a known-false statement. These become verified facts at issuance
+  time, not mining problems; about 455 DET problems need reasoning. In a five-problem
+  solve calibration with a 45-minute budget, Opus settled all five and Sonnet
+  four; one sampled statement was false and was disproved.
+- **Ratchet problems** (verified circuit optimization: fewer non-linear
+  constraints plus a Lean equivalence proof) are a registry problem type
+  ([#404](https://github.com/NotoriAndo/Boole/pull/404)): never false by
+  construction and not reached by the public optimizer. On application circuits,
+  screened candidates were found for 26 of 43 targets and 6 of 10 sampled
+  candidates were proved (reductions 2.5–95%). Current cursor: whether ratchets
+  keep yielding after a proved rung, and the extension of ratchets to Noir.
+
+See the [problem registry](zk-problem-registry.md) for templates, gates, package
 format and limits. Nothing is issued, rewarded or activated; BF.7 remains HOLD.
 
 **Previous priority: U1 prerequisites (September 27), now paused.** The first
