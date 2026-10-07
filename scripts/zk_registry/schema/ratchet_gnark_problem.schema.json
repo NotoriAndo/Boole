@@ -1,0 +1,416 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "zk-registry-ratchet-gnark-problem/v1",
+  "title": "zk-registry ratchet problem over a gnark reference (verified circuit optimization, R1CS)",
+  "description": "A gnark reference of the registry (the registry's wrapper circuit around a Go gadget or circuit) with its record (the non-linear constraints of the registry DET model). Status OPEN: the problem package. Status CANDIDATE: the checker package the candidate pipeline generates for one candidate. Answers are never part of a problem package.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "kind",
+    "family",
+    "package_id",
+    "status",
+    "reference",
+    "record",
+    "metric",
+    "admissibility",
+    "statement_shape",
+    "determinism",
+    "det",
+    "simulate",
+    "snapshot",
+    "env",
+    "generator",
+    "created_utc"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": "zk-registry-ratchet-gnark-problem/v1"},
+    "kind": {"const": "ratchet"},
+    "family": {"const": "gnark"},
+    "package_id": {"type": "string", "pattern": "^ratchet/.+"},
+    "status": {"enum": ["OPEN", "CANDIDATE"]},
+    "reference": {
+      "type": "object",
+      "required": [
+        "registry_package_id",
+        "repo",
+        "repo_url",
+        "commit",
+        "path",
+        "symbol",
+        "symbol_line",
+        "call",
+        "rule",
+        "kind",
+        "name",
+        "receiver_type",
+        "module_dir",
+        "module_path",
+        "package_dir",
+        "package_name",
+        "import_path",
+        "wrapper",
+        "compiler",
+        "tool",
+        "model",
+        "io",
+        "lean_opts"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "registry_package_id": {"type": "string", "minLength": 1},
+        "repo": {"type": "string", "minLength": 1},
+        "repo_url": {"type": "string"},
+        "commit": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "pattern": "\\.go$"},
+        "symbol": {"type": "string", "minLength": 1},
+        "symbol_line": {"type": ["integer", "null"]},
+        "call": {"type": "string", "minLength": 1},
+        "rule": {"type": ["string", "null"]},
+        "kind": {"enum": ["method", "function", "circuit"]},
+        "name": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"},
+        "receiver_type": {"type": ["string", "null"]},
+        "module_dir": {"type": "string"},
+        "module_path": {"type": "string", "minLength": 1},
+        "package_dir": {"type": "string"},
+        "package_name": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"},
+        "import_path": {"type": "string", "minLength": 1},
+        "wrapper": {
+          "type": "object",
+          "required": ["file", "sha256", "id", "note"],
+          "additionalProperties": false,
+          "properties": {
+            "file": {"const": "reference/wrapper.go"},
+            "sha256": {"$ref": "#/$defs/sha256"},
+            "id": {"type": "string", "pattern": "^w[0-9a-f]{12}_[0-9]+$"},
+            "note": {"type": "string"}
+          }
+        },
+        "compiler": {
+          "type": "object",
+          "required": ["gnark", "go", "curve", "prime", "command"],
+          "additionalProperties": false,
+          "properties": {
+            "gnark": {"type": "string"},
+            "go": {"type": "string"},
+            "curve": {"type": "string"},
+            "prime": {"type": "string", "pattern": "^[0-9]+$"},
+            "command": {"type": "string"}
+          }
+        },
+        "tool": {
+          "type": "object",
+          "required": ["files", "sha256"],
+          "additionalProperties": false,
+          "properties": {"files": {"type": "array", "items": {"type": "string"}}, "sha256": {"$ref": "#/$defs/sha256"}}
+        },
+        "model": {
+          "type": "object",
+          "required": ["file", "module", "namespace", "sha256", "r1cs_sha256", "n_constraints", "n_wires", "counts"],
+          "additionalProperties": false,
+          "properties": {
+            "file": {"type": "string", "pattern": "\\.lean$"},
+            "module": {"type": "string"},
+            "namespace": {"type": "string"},
+            "sha256": {"$ref": "#/$defs/sha256"},
+            "r1cs_sha256": {"$ref": "#/$defs/sha256"},
+            "n_constraints": {"type": "integer", "minimum": 1, "maximum": 2000},
+            "n_wires": {"type": "integer", "minimum": 1},
+            "counts": {
+              "type": "object",
+              "required": ["nonlinear", "linear", "total"],
+              "additionalProperties": false,
+              "properties": {
+                "nonlinear": {"type": "integer", "minimum": 0},
+                "linear": {"type": "integer", "minimum": 0},
+                "total": {"type": "integer", "minimum": 0}
+              }
+            }
+          },
+          "description": "The registry DET model of the reference, byte for byte (the reference meaning)."
+        },
+        "io": {
+          "type": "object",
+          "required": [
+            "n_public",
+            "n_secret",
+            "public_names",
+            "secret_names",
+            "output_paths",
+            "groups",
+            "n_inputs",
+            "n_outputs"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "n_public": {"type": "integer", "minimum": 1},
+            "n_secret": {"type": "integer", "minimum": 0},
+            "public_names": {"type": "array", "items": {"type": "string"}},
+            "secret_names": {"type": "array", "items": {"type": "string"}},
+            "output_paths": {"type": "array", "items": {"type": "string"}},
+            "groups": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["start", "len", "bits", "modulus", "field", "path"],
+                "additionalProperties": false,
+                "properties": {
+                  "start": {"type": "integer", "minimum": 0},
+                  "len": {"type": "integer", "minimum": 1},
+                  "bits": {"type": "integer", "minimum": 1},
+                  "modulus": {"type": "string", "pattern": "^[0-9]+$"},
+                  "field": {"type": "string"},
+                  "path": {"type": "string"}
+                }
+              }
+            },
+            "n_inputs": {"type": "integer", "minimum": 0},
+            "n_outputs": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "May be 0: a wrapper without exposed results is an assertion circuit, and the equivalence is then about the set of accepted inputs."
+            }
+          }
+        },
+        "lean_opts": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "record": {
+      "type": "object",
+      "required": [
+        "nonlinear",
+        "linear",
+        "total",
+        "production_constraints",
+        "commitments",
+        "challenge_degree",
+        "challenge_points",
+        "range_checks",
+        "range_check_bits",
+        "hint_wires",
+        "n_wires",
+        "rung",
+        "source"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "nonlinear": {"type": "integer", "minimum": 1},
+        "linear": {"type": "integer", "minimum": 0},
+        "total": {"type": "integer", "minimum": 1},
+        "production_constraints": {"type": ["integer", "null"]},
+        "commitments": {"type": "integer", "minimum": 0},
+        "challenge_degree": {"type": ["integer", "null"]},
+        "challenge_points": {"type": "integer", "minimum": 0},
+        "range_checks": {"type": "integer", "minimum": 0},
+        "range_check_bits": {"type": "integer", "minimum": 0},
+        "hint_wires": {"type": "integer", "minimum": 0},
+        "n_wires": {"type": "integer", "minimum": 1},
+        "rung": {"type": "integer", "minimum": 0},
+        "source": {"type": "string"}
+      }
+    },
+    "metric": {"type": "string", "minLength": 1},
+    "admissibility": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "statement_shape": {"type": "string", "minLength": 1},
+    "determinism": {"type": "string", "minLength": 1},
+    "det": {
+      "description": "Machine-checked DET of the reference model file: a proof of the registry statement `det` that the production checker accepted within the proof limits.",
+      "type": "object",
+      "required": [
+        "method",
+        "registry_package_id",
+        "theorem_fqn",
+        "model_file",
+        "model_sha256",
+        "proof_sha256",
+        "proof_location",
+        "source",
+        "checker"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "method": {"enum": ["mech-p3", "battery-closure"]},
+        "registry_package_id": {"type": "string"},
+        "theorem_fqn": {"type": "string"},
+        "model_file": {"type": "string"},
+        "model_sha256": {"$ref": "#/$defs/sha256"},
+        "proof_sha256": {"$ref": "#/$defs/sha256"},
+        "proof_location": {"type": "string"},
+        "source": {"type": "string"},
+        "form": {"type": "string"},
+        "checker": {
+          "type": "object",
+          "required": ["verdict", "peak_rss_mb", "secs", "limits"],
+          "additionalProperties": false,
+          "properties": {
+            "verdict": {"const": "PASS"},
+            "peak_rss_mb": {"type": ["integer", "null"], "maximum": 20000},
+            "secs": {"type": ["number", "null"], "maximum": 1800},
+            "limits": {"type": "object"}
+          }
+        }
+      }
+    },
+    "simulate": {
+      "type": "object",
+      "required": ["seed", "runner", "profiles", "witnesses_rechecked"],
+      "additionalProperties": false,
+      "properties": {
+        "seed": {"type": "string", "minLength": 1},
+        "runner": {"type": "string"},
+        "profiles": {"type": "array", "items": {"type": "string"}},
+        "witnesses_rechecked": {"type": "integer", "minimum": 0}
+      }
+    },
+    "snapshot": {
+      "type": "object",
+      "required": ["id", "manifest_sha256", "n_files", "rule"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "n_files": {"type": "integer", "minimum": 1},
+        "rule": {"type": "string"}
+      }
+    },
+    "env": {
+      "type": "object",
+      "required": [
+        "lean",
+        "mathlib",
+        "lake_manifest_sha256",
+        "go",
+        "go_sha256",
+        "go_compile",
+        "go_compile_sha256",
+        "gnark"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "lean": {"type": "string"},
+        "mathlib": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "lake_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "packages": {"type": "object", "additionalProperties": {"type": "string"}},
+        "go": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+"},
+        "go_sha256": {"$ref": "#/$defs/sha256"},
+        "go_compile": {"type": "string", "pattern": "^pkg/tool/[a-z0-9_]+/compile$"},
+        "go_compile_sha256": {"$ref": "#/$defs/sha256"},
+        "gnark": {"type": "string"}
+      }
+    },
+    "generator": {
+      "type": "object",
+      "required": ["name", "version", "sources_sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {"const": "boole-zk-registry-ratchet"},
+        "version": {"type": "string"},
+        "sources_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "created_utc": {"type": "string"},
+    "annotations": {
+      "description": "Wave annotations (own-code share, size band, adoption evidence, content aliases); not part of the problem.",
+      "type": "object"
+    },
+    "candidate": {
+      "type": "object",
+      "required": [
+        "source_sha256",
+        "local_files",
+        "r1cs_sha256",
+        "n_wires",
+        "nonlinear",
+        "linear",
+        "total",
+        "smaller",
+        "reduction_pct",
+        "total_reduction_pct",
+        "production_constraints",
+        "commitments",
+        "challenge_points",
+        "range_check_bits",
+        "hint_wires"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source_sha256": {"$ref": "#/$defs/sha256"},
+        "local_files": {"type": "array", "items": {"type": "string"}},
+        "r1cs_sha256": {"$ref": "#/$defs/sha256"},
+        "n_wires": {"type": "integer", "minimum": 1},
+        "nonlinear": {"type": "integer", "minimum": 0},
+        "linear": {"type": "integer", "minimum": 0},
+        "total": {"type": "integer", "minimum": 0},
+        "smaller": {"type": "boolean"},
+        "reduction_pct": {"type": "number"},
+        "total_reduction_pct": {"type": "number"},
+        "production_constraints": {"type": ["integer", "null"]},
+        "commitments": {"type": "integer", "minimum": 0},
+        "challenge_points": {"type": "integer", "minimum": 0},
+        "range_check_bits": {"type": "integer", "minimum": 0},
+        "hint_wires": {"type": "integer", "minimum": 0}
+      }
+    },
+    "statement": {
+      "type": "object",
+      "required": ["file", "theorem", "theorem_fqn", "text", "imports", "assumptions"],
+      "additionalProperties": false,
+      "properties": {
+        "file": {"const": "Statement.lean"},
+        "theorem": {"const": "equiv"},
+        "theorem_fqn": {"type": "string"},
+        "text": {"type": "string"},
+        "imports": {"type": "array", "minItems": 2, "items": {"type": "string"}},
+        "assumptions": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "checker": {
+      "type": "object",
+      "required": [
+        "statement_file",
+        "theorem",
+        "theorem_fqn",
+        "lean_opts",
+        "files",
+        "reference_type_sha256",
+        "replay_tool_sha256",
+        "allowed_axioms",
+        "forbidden_tokens"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "statement_file": {"const": "Statement.lean"},
+        "theorem": {"const": "equiv"},
+        "theorem_fqn": {"type": "string"},
+        "lean_opts": {"type": "array", "items": {"type": "string"}},
+        "files": {
+          "type": "array",
+          "minItems": 3,
+          "items": {
+            "type": "object",
+            "required": ["path", "role", "sha256"],
+            "additionalProperties": false,
+            "properties": {
+              "path": {"type": "string"},
+              "role": {"enum": ["statement", "import"]},
+              "module": {"type": "string"},
+              "sha256": {"$ref": "#/$defs/sha256"}
+            }
+          }
+        },
+        "reference_type_sha256": {"$ref": "#/$defs/sha256"},
+        "replay_tool_sha256": {"$ref": "#/$defs/sha256"},
+        "allowed_axioms": {"type": "array", "items": {"type": "string"}},
+        "forbidden_tokens": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "CANDIDATE"}}},
+      "then": {"required": ["candidate", "statement", "checker"]}
+    }
+  ],
+  "$defs": {"sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+}

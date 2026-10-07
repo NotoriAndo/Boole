@@ -177,9 +177,10 @@ class IdentityTests(unittest.TestCase):
         # the Noir and R1CS P3 solvers (mech_acir, mech_r1cs) produce no package content and are hashed by their runs
         from zk_registry import mech_acir, mech_r1cs
         present -= set(mech_acir.SOLVER_SOURCES) | set(mech_r1cs.generator_files())
-        # the ratchet generators (ratchet problems over Circom and Noir references) hash their own sources as well
-        from zk_registry import ratchet, ratchet_noir
-        present -= set(ratchet.GENERATOR_SOURCES) | set(ratchet_noir.GENERATOR_SOURCES)
+        # the ratchet generators (ratchet problems over Circom, Noir and gnark references) hash their own sources as well
+        from zk_registry import ratchet, ratchet_gnark, ratchet_noir
+        present -= set(ratchet.GENERATOR_SOURCES) | set(ratchet_noir.GENERATOR_SOURCES) | \
+            set(ratchet_gnark.GENERATOR_SOURCES)
         self.assertEqual(present - listed - set(air_det.generator_files()) - set(noir_det.generator_files())
                          - set(gnark_det.generator_files()) - set(zokrates_det.generator_files())
                          - set(halo2_det.generator_files()) - set(mech_air.source_files()), set())
