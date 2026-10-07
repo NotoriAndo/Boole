@@ -105,7 +105,7 @@
                    "proof_location", "source", "checker"],
       "additionalProperties": false,
       "properties": {
-        "method": {"enum": ["mech-p3", "battery-closure"]},
+        "method": {"enum": ["mech-p3", "battery-closure", "det-problem"]},
         "registry_package_id": {"type": "string"},
         "theorem_fqn": {"type": "string"},
         "model_file": {"type": "string"},

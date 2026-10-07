@@ -258,6 +258,16 @@ class MetricTests(unittest.TestCase):
         self.assertTrue(RT.score(rc, {"nonlinear": 1, "linear": 9, "total": 10})["smaller"])
 
 
+class DetEvidenceMethodTests(unittest.TestCase):
+    def test_an_accepted_det_problem_proof_is_ratchet_det_evidence(self) -> None:
+        # a solved DET problem unlocks the reference's ratchet (issuance order: DET problem first, then ratchet)
+        self.assertEqual(RT.DET_METHODS, ("mech-p3", "battery-closure", "det-problem"))
+        for version in (P.RATCHET_SCHEMA_VERSION, P.RATCHET_NOIR_SCHEMA_VERSION, P.RATCHET_GNARK_SCHEMA_VERSION,
+                        P.RATCHET_AIR_SCHEMA_VERSION):
+            det = P.load_schema(version)["properties"]["det"]["properties"]["method"]["enum"]
+            self.assertEqual(det, list(RT.DET_METHODS), version)
+
+
 class CanonicalOrderTests(unittest.TestCase):
     def test_shuffled_constraints_and_terms_canonicalize_identically(self) -> None:
         base = R.read_r1cs(str(COMPILED / "toy.O0.r1cs"))
