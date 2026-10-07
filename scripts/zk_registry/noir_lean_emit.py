@@ -204,8 +204,11 @@ def _wire_comment(i: int, names: dict[int, str]) -> str:
     return f"* `w {i}`: {names[i]}"
 
 
-def emit_model(ns: str, meta: dict, flat: A.Flat, names: dict[int, str]) -> tuple[str, dict]:
-    keys = A.bb_keys(flat.opcodes)
+def emit_model(ns: str, meta: dict, flat: A.Flat, names: dict[int, str],
+               keys: list[str] | None = None) -> tuple[str, dict]:
+    """The model module; ``keys`` fixes the black-box numbering (default: first use; a ratchet candidate model
+    numbers its black boxes like its reference so one interpretation serves both)."""
+    keys = A.bb_keys(flat.opcodes) if keys is None else list(keys)
     conj = opcode_conjuncts(flat.opcodes, keys)
     bb = bool(keys)
     mem = has_memory(flat.opcodes)
