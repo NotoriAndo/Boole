@@ -222,7 +222,9 @@ def reference_spec(reg_dir: str) -> dict:
             "curve": gn.get("curve") or circ.get("prime_name"), "prime": circ.get("prime"),
             "sizing_only": bool(gn.get("sizing_only")), "r1cs_sha256": circ.get("r1cs_sha256"),
             "gnark_version": (circ.get("compiler") or {}).get("version"), "env": prob["env"],
-            "generator": prob.get("generator") or {}, "emulated": bool(st.get("emulated_outputs"))}
+            "generator": prob.get("generator") or {}, "emulated": bool(st.get("emulated_outputs")),
+            "decomposition": RT.decomposition_reference(prob),
+            "size_policy": (circ.get("size_policy") or {}).get("max_constraints") or P.MAX_CONSTRAINTS}
     if st:
         spec.update(model={"file": st["model_file"], "module": st["model_module"],
                            "namespace": st["model_module"][:-len(".Model")],
@@ -236,6 +238,12 @@ def reference_spec(reg_dir: str) -> dict:
             raise NotEligible("provenance", "evidence/wrapper.go has no recorded header line")
         spec["wrapper"] = wrapper
     return spec
+
+
+def reference_policy(n: int | None) -> int:
+    """The size policy a reference is rebuilt under: the registry's own (2,000 constraints for wave G1, 4,000 for the
+    decomposition records of wave RT-G2, the candidate cap), never below the default."""
+    return min(max(P.MAX_CONSTRAINTS, int(n or 0)), CANDIDATE_SIZE_POLICY)
 
 
 def target_name(spec: dict) -> str:
@@ -1052,7 +1060,7 @@ def simulate(problem_dir: str, cand_path: str, out: str, n_random: int, tools: s
     snapshot = resolve_snapshot(problem_dir, prob, snapshot)
     rep, res = compile_candidate(prob, cand_path, os.path.join(out, "count"), snapshot, tools, gocache)
     refc = compile_program(prob, snapshot, tools, os.path.join(out, "reference"), gocache=gocache,
-                           size_policy=P.MAX_CONSTRAINTS)
+                           size_policy=reference_policy(prob["reference"]["model"]["n_constraints"]))
     if "error" in refc or refc["r1cs_sha256"] != prob["reference"]["model"]["r1cs_sha256"]:
         raise RuntimeError(f"the reference does not rebuild to its model: {refc.get('error', 'R1CS digest differs')}")
     t0 = time.time()
@@ -1097,7 +1105,8 @@ def problem_record(spec: dict, layout: dict, meas: dict, det: dict, snapshot: di
             "tool": {"files": [f"gnark_tool/{f}" for f in TOOL_FILES], "sha256": tool_sha256()},
             "model": dict(spec["model"], r1cs_sha256=meas["r1cs_sha256"], n_constraints=meas["model"].r.n_constraints,
                           n_wires=meas["model"].r.n_wires, counts=meas["counts"]),
-            "io": meas["io"], "lean_opts": spec["lean_opts"]},
+            "io": meas["io"], "lean_opts": spec["lean_opts"],
+            **({"decomposition": spec["decomposition"]} if spec.get("decomposition") else {})},
         "record": dict(meas["counts"], **meas["facts"], rung=0,
                        source="reference (registry DET model: gnark R1CS builder, non-commitment range checks)"),
         "metric": METRIC, "admissibility": list(ADMISSIBILITY), "statement_shape": STATEMENT_DESCRIPTION,
@@ -1138,8 +1147,8 @@ def build_problem(reg_dir: str, snapshot: str, out_dir: str, tools: str, det: di
     fresh_dir(stage)
     put(os.path.join(stage, "reference", "wrapper.go"), spec["wrapper"])
     pre = {"reference": {**layout, "wrapper": wrapper, "name": target_name(spec)}, "env": pins, "_dir": stage}
-    res = compile_program(pre, snapshot, tools, os.path.join(work, "rebuild"), size_policy=P.MAX_CONSTRAINTS,
-                          gocache=gocache)
+    res = compile_program(pre, snapshot, tools, os.path.join(work, "rebuild"),
+                          size_policy=reference_policy(spec["size_policy"]), gocache=gocache)
     if "error" in res:
         raise NotEligible("rebuild", f"the reference does not rebuild: {res['error'][:300]}")
     if res["r1cs_sha256"] != meas["r1cs_sha256"]:

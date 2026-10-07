@@ -442,6 +442,30 @@ def det_exclusion(det: dict | None, model_sha256: str) -> tuple[str, str] | None
     return None
 
 
+DECOMPOSITION_MEANING = (
+    "The reference is a callee of the TOO-LARGE parent record(s) as the parent compiles it: the same function at the "
+    "same generic (type) arguments, packaged alone by the registry's DET generator. Its problem is about this callee "
+    "alone. A candidate equivalent to it (the same input-output relation) can replace it at its call sites in a parent "
+    "without changing the parent's input-output relation, so a cheaper accepted candidate is a cheaper implementation "
+    "of that part of the parent; no statement is made about the parent's DET, cost or proof.")
+
+
+CALLER_INSTANCE = "caller instance: "      # provenance prefix of an instantiation taken from a TOO-LARGE caller
+
+
+def decomposition_reference(prob: dict) -> dict | None:
+    """``reference.decomposition`` of a ratchet problem whose registry package is a callee instance of TOO-LARGE
+    parents (decomposition by instances: provenance :data:`CALLER_INSTANCE`): its parents, instance key and
+    meaning."""
+    ins = prob.get("instantiation") or {}
+    d = ins.get("decomposition")
+    if not d or not any(str(p).startswith(CALLER_INSTANCE) for p in ins.get("provenance") or []):
+        return None
+    return {"parents": [p["package_id"] for p in d.get("parents") or [] if p.get("package_id")],
+            "n_parents": d.get("n_parents"), "depth": d.get("depth"), "instance_key": d.get("instance_key"),
+            "meaning": DECOMPOSITION_MEANING}
+
+
 def det_record(method: str, spec: dict, proof_path: str, verdict: dict, source: str, form: str | None = None,
                location: str | None = None) -> dict:
     """The problem's DET evidence: a proof of ``det`` for the reference model file that the production checker

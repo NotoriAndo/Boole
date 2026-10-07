@@ -177,6 +177,10 @@ class IdentityTests(unittest.TestCase):
         # the Noir and R1CS P3 solvers (mech_acir, mech_r1cs) produce no package content and are hashed by their runs
         from zk_registry import mech_acir, mech_r1cs
         present -= set(mech_acir.SOLVER_SOURCES) | set(mech_r1cs.generator_files())
+        # the decomposition-by-instances drivers (waves RT-N2 / RT-G2) select instances; the DET generator produces
+        # their packages, and the drivers' sources are hashed by the wave's run record
+        from zk_registry import gnark_callees, noir_callees
+        present -= set(noir_callees.SOURCES) | set(gnark_callees.SOURCES)
         # the ratchet generators (ratchet problems over Circom, Noir, gnark and AIR references) hash their own sources
         # as well
         from zk_registry import ratchet, ratchet_air, ratchet_gnark, ratchet_noir

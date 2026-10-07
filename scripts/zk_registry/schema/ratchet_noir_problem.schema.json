@@ -145,7 +145,20 @@
             "note": {"type": "string"}
           }
         },
-        "lean_opts": {"type": "array", "items": {"type": "string"}}
+        "lean_opts": {"type": "array", "items": {"type": "string"}},
+        "decomposition": {
+          "description": "A reference that is a callee instance of TOO-LARGE parent records (registry rule decomposition, wave RT-N2 / RT-G2): the parents, the instance key and the meaning of the problem.",
+          "type": "object",
+          "required": ["parents", "instance_key", "meaning"],
+          "additionalProperties": false,
+          "properties": {
+            "parents": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+            "n_parents": {"type": "integer", "minimum": 1},
+            "depth": {"type": "integer", "minimum": 1},
+            "instance_key": {"type": "string"},
+            "meaning": {"type": "string"}
+          }
+        }
       }
     },
     "record": {

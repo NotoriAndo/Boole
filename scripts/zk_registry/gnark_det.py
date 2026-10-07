@@ -139,6 +139,7 @@ class WaveConfig:
     det_search_budget_s: float = 20.0
     run_timeout: float = 900
     samples: int = SAMPLES
+    max_constraints: int = MAX_CONSTRAINTS     # size policy (model constraints); wave G1: 2,000
 
     @classmethod
     def load(cls, path: str) -> "WaveConfig":
@@ -445,7 +446,8 @@ def _write_placeholder(bdir: str) -> None:
                 "import (\n\t_ \"github.com/consensys/gnark-crypto/ecc\"\n\t_ \"boole.local/gnarkx/harness\"\n)\n")
 
 
-_ERR_RE = re.compile(r"^(?:\./)?(?:boolegnarkx/)?wrappers/(w[0-9a-f]{12}_\d+)\.go:\d+:\d+: (.*)$", re.M)
+# a compile error, or an import error (indented under "package ... imports ..."), located in one wrapper file
+_ERR_RE = re.compile(r"^\s*(?:\./)?(?:boolegnarkx/)?wrappers/(w[0-9a-f]{12}_\d+)\.go:\d+:\d+: (.*)$", re.M)
 
 
 def _in_module_tree(cfg: WaveConfig, rb: RepoBuild) -> tuple[str, str]:
@@ -645,7 +647,7 @@ def plan_item(sh: Shared, rb: RepoBuild, row: dict) -> tuple[dict | None, I.Plan
     if tgt is None or not tgt.get("found"):
         return tgt, None, [], "NO-INSTANTIATION", f"declaration not located: {(tgt or {}).get('why', 'not in catalog')}"
     try:
-        plan = I.plan_target(cat, tgt)
+        plan = I.plan_target(cat, tgt, row.get("_forced_env"))
     except I.NotApplicable as ex:
         return tgt, None, [], "NOT-APPLICABLE", str(ex)
     except I.NoInstantiation as ex:
@@ -673,7 +675,7 @@ def run_candidate(sh: Shared, rb: RepoBuild, cand: Cand, work: str) -> None:
     out = os.path.join(work, f"{cand.wid}.json")
     env = go_env(sh.cfg, rb.go_name)
     try:
-        r = run_cmd([rb.binary, "run", cand.wid, out, "-limit", str(SIZING_LIMIT), "-size-policy", str(MAX_CONSTRAINTS),
+        r = run_cmd([rb.binary, "run", cand.wid, out, "-limit", str(SIZING_LIMIT), "-size-policy", str(sh.cfg.max_constraints),
                      "-samples", str(sh.cfg.samples)], work, env, timeout=sh.cfg.run_timeout)
     except subprocess.TimeoutExpired:
         cand.status, cand.error = "timeout", f"gnarkx run exceeded {sh.cfg.run_timeout:.0f} s"
@@ -746,7 +748,7 @@ def _process(sh: Shared, row: dict) -> dict:
                                                "binary_sha256": P.sha256_file(os.path.join(rb.build_dir, "gnarksize")),
                                                "source": f"{rb.repo_id}@{row['commit'][:12]} (module copy)"},
                                   "prime": str(R.BN254_SCALAR), "prime_name": "bn254", "n_constraints": sz["n"],
-                                  "n_wires": 1, "size_policy": {"max_constraints": MAX_CONSTRAINTS, "within": False},
+                                  "n_wires": 1, "size_policy": {"max_constraints": sh.cfg.max_constraints, "within": False},
                                   "gnark": {"production_constraints": sz["n"], "sizing_only": True}}
                 rec["evidence"]["callees"] = list((decl or {}).get("callees") or [])[:60]
         return rec
@@ -766,10 +768,10 @@ def _process(sh: Shared, row: dict) -> dict:
             within = [c for c in ok if c.status == "ok"]
             if within:
                 chosen = max(within, key=lambda c: (c.result["model_size"], c.wid))
-                sel = f"tier {tier}: largest compiled instantiation within {MAX_CONSTRAINTS} constraints"
+                sel = f"tier {tier}: largest compiled instantiation within {sh.cfg.max_constraints} constraints"
             else:
                 chosen = min(ok, key=lambda c: (c.result["model_size"], c.wid))
-                sel = f"tier {tier}: every compiled instantiation exceeds {MAX_CONSTRAINTS} constraints; smallest recorded"
+                sel = f"tier {tier}: every compiled instantiation exceeds {sh.cfg.max_constraints} constraints; smallest recorded"
             rec["instantiation"]["selection"] = sel
             break
     rec["instantiation"]["candidates"] = [candidate_entry(c) for c in tried] + [
@@ -801,7 +803,7 @@ def _process(sh: Shared, row: dict) -> dict:
                             "binary_sha256": rb.binary_sha256, "source": f"{rb.repo_id}@{row['commit'][:12]} (replace)"},
                "prime": res["field"], "prime_name": res["curve"], "n_constraints": int(res["model_size"]),
                "n_wires": max(1, int(sym.get("n_wires") or 1)),
-               "size_policy": {"max_constraints": MAX_CONSTRAINTS, "within": chosen.status == "ok"}}
+               "size_policy": {"max_constraints": sh.cfg.max_constraints, "within": chosen.status == "ok"}}
     circuit["gnark"] = {"production_constraints": prod.get("n_constraints"),
                         "production_commitments": prod.get("commits"),
                         "production_error": scrub_text(sh, res.get("production_error", ""))[:300] or None,
@@ -814,7 +816,7 @@ def _process(sh: Shared, row: dict) -> dict:
     if chosen.status == "too-large":
         rec["status"] = "TOO-LARGE"
         rec["status_reason"] = (f"{res['model_size']} model constraints" + (" (lower bound)" if res.get("size_lower_bound")
-                                                                            else "") + f" > {MAX_CONSTRAINTS}")
+                                                                            else "") + f" > {sh.cfg.max_constraints}")
         rec["evidence"]["callees"] = list(decl.get("callees") or [])[:60]
         shutil.rmtree(work, ignore_errors=True)
         return rec
@@ -1260,10 +1262,10 @@ def size_repo(sh: Shared, rb: RepoBuild, rows: list[dict], why: str) -> None:
         if line.startswith("N "):
             n = int(line.split()[1])
             sh.sizing[r["item_id"]] = {"n": n, "secs": round(time.time() - t0, 2)}
-            if n > MAX_CONSTRAINTS:
+            if n > sh.cfg.max_constraints:
                 sh.plans[r["item_id"]] = (tgt, None, [], "TOO-LARGE",
                                           f"{n} constraints of gnark's production R1CS builder (slice fields of length "
-                                          f"{I.PROBED_LENGTHS[0]}) > {MAX_CONSTRAINTS}; the model is not built: the "
+                                          f"{I.PROBED_LENGTHS[0]}) > {sh.cfg.max_constraints}; the model is not built: the "
                                           f"wrapper tool does not build against the repository's gnark ({why[:200]})")
             else:
                 sh.plans[r["item_id"]] = (tgt, None, [], "COMPILE-FAIL",

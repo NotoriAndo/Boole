@@ -434,6 +434,7 @@ class Plan:
 
 
 TIERS = ["parameter-free", "repo-test", "repo-derived", "probed"]
+CALLER_INSTANCE = "caller instance: "      # provenance prefix of type arguments taken from a TOO-LARGE caller (RT-G2)
 
 
 def role(cat: Catalog, t: dict) -> str:
@@ -486,7 +487,10 @@ def _reject_reason(cat: Catalog, t: dict) -> str:
     return show(t)
 
 
-def plan_target(cat: Catalog, tgt: dict) -> Plan:
+def plan_target(cat: Catalog, tgt: dict, forced_env: dict | None = None) -> Plan:
+    """``forced_env`` (decomposition by instances): the type arguments a TOO-LARGE caller instantiates the
+    target with (type parameter -> type tree); it replaces the repository's instantiations (tier
+    ``decomposition``), the other parameters are chosen as usual."""
     decl = tgt["decl"]
     if decl.get("pkg_name") == "main":
         raise NoInstantiation("declared in package main (a program, not an importable package)")
@@ -520,7 +524,7 @@ def plan_target(cat: Catalog, tgt: dict) -> Plan:
     for (r, name, t) in params:
         if r == "reject":
             raise NoInstantiation(f"parameter {name} of {_reject_reason(cat, t)} cannot be supplied by a wrapper")
-    choices = enumerate_choices(cat, decl, params, recv_tps, fn_tps)
+    choices = enumerate_choices(cat, decl, params, recv_tps, fn_tps, forced_env)
     if not choices:
         raise NoInstantiation("no candidate instantiation (type parameters without concrete instantiations in the "
                               "repository, or interface parameters without a provider at a call site)")
@@ -583,10 +587,18 @@ def _instances_for(cat: Catalog, decl: dict, recv_tps: list[str], fn_tps: list[s
     return out
 
 
-def enumerate_choices(cat: Catalog, decl: dict, params, recv_tps, fn_tps) -> list[Choice]:
+def enumerate_choices(cat: Catalog, decl: dict, params, recv_tps, fn_tps, forced_env: dict | None = None) \
+        -> list[Choice]:
     key_fn = _key_fn(decl)
     envs: list[tuple[str, dict, list]] = []
-    if recv_tps or fn_tps:
+    if forced_env is not None:
+        if set(forced_env) != set(recv_tps + fn_tps):
+            return []
+        envs = [("decomposition", dict(forced_env),
+                 [CALLER_INSTANCE + "the type arguments a TOO-LARGE caller compiles the function with: " + ", ".join(
+                     f"{k}={show(v)}" for k, v in sorted(forced_env.items())) if forced_env else
+                  CALLER_INSTANCE + "a function a TOO-LARGE caller compiles (no type parameters)"])]
+    elif recv_tps or fn_tps:
         seen: dict = {}
         for tier, env, prov in _instances_for(cat, decl, recv_tps, fn_tps):
             k = (tier, key_of(env))
@@ -641,11 +653,16 @@ def enumerate_choices(cat: Catalog, decl: dict, params, recv_tps, fn_tps) -> lis
             for it, iv, ip in is_list:
                 for lt, lv, lp in lens:
                     tiers = [t for t in (tier0, ct, it, lt) if t]
+                    if tier0 == "decomposition":
+                        # the caller's type arguments; probed constants or lengths keep the probed label
+                        tier = "probed" if "probed" in tiers else "decomposition"
+                        out.append(Choice(tier, env, cv, lv, iv, list(prov) + [x for x in (cp, ip, lp) if x]))
+                        continue
                     tier = max(tiers, key=TIERS.index)
                     if tier == "parameter-free" and (cv or iv):
                         tier = max(ct or "repo-test", it or "repo-test", key=TIERS.index)
                     out.append(Choice(tier, env, cv, lv, iv, list(prov) + [x for x in (cp, ip, lp) if x]))
-    order = {t: i for i, t in enumerate(TIERS)}
+    order = {t: i for i, t in enumerate(["decomposition"] + TIERS)}
     out.sort(key=lambda c: order[c.tier])
     return out[:MAX_CANDIDATES]
 

@@ -288,7 +288,8 @@ def reference_spec(reg_dir: str) -> dict:
             "model": {"file": st["model_file"], "module": st["model_module"],
                       "namespace": st["model_module"][:-len(".Model")],
                       "sha256": next(f["sha256"] for f in chk["files"] if f["path"] == st["model_file"])},
-            "det_theorem_fqn": st["theorem_fqn"], "lean_opts": chk["lean_opts"], "env": prob["env"]}
+            "det_theorem_fqn": st["theorem_fqn"], "lean_opts": chk["lean_opts"], "env": prob["env"],
+            "decomposition": RT.decomposition_reference(prob)}
     wpath = os.path.join(reg_dir, "evidence", "wrapper.nr")
     if os.path.exists(wpath):
         with open(wpath, encoding="utf-8") as f:
@@ -942,7 +943,8 @@ def problem_record(spec: dict, layout: dict, meas: dict, det: dict, snapshot: di
             "io": {"inputs": meas["inputs"], "outputs": meas["outputs"],
                    "input_names": [names[i] if i < len(names) else f"w{i}" for i in meas["inputs"]],
                    "abi_sha256": sha(json.dumps(abi_core(meas["abi"]), sort_keys=True).encode())},
-            "program": program, "lean_opts": spec["lean_opts"]},
+            "program": program, "lean_opts": spec["lean_opts"],
+            **({"decomposition": spec["decomposition"]} if spec.get("decomposition") else {})},
         "record": dict(rec_cost, rung=0, source="reference (registry ACIR, nargo export)"),
         "metric": METRIC, "admissibility": list(ADMISSIBILITY), "statement_shape": STATEMENT_DESCRIPTION,
         "determinism": DETERMINISM_NOTE, "det": det,
