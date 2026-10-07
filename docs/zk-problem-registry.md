@@ -808,7 +808,8 @@ when their paths are configured).
 a circuit with fewer non-linear constraints (the candidate) plus a Lean proof that it is equivalent to the reference;
 an accepted submission becomes the next record (the next rung). The reference meaning is the registry package's DET
 model of the reference (its `--O0` constraint system, the model file byte for byte). The reference's own DET must be
-machine-checked — the battery P3 proof, or a battery closure re-checked as a proof — by the production checker within
+machine-checked — the battery P3 proof, a battery closure re-checked as a proof, or (method `det-problem`) an accepted
+proof of the reference's issued DET problem, so a solved DET problem unlocks the reference's ratchet — by the production checker within
 the proof limits (20,000 MB Lean memory, 30 minutes), and is recorded in the problem (`det`: method, model digest,
 proof digest, checker verdict); DET of the reference and the equivalence imply DET of every accepted candidate.
 Eligible references: DET machine-checked as above, a record with at least one non-linear constraint, `--O0` within
