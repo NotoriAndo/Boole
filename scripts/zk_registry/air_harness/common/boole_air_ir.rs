@@ -285,3 +285,75 @@ pub fn panic_message(e: &(dyn std::any::Any + Send)) -> String {
         "panic with a non-string payload".into()
     }
 }
+
+// ------------------------------------------------------------------------------------------ ratchet mode
+
+/// Ratchet mode (`scripts/zk_registry/ratchet_air.py`): environment variable `BOOLE_RATCHET_AIRS`, a
+/// comma-separated list of AIR indices.  For these AIRs the adapter writes every row of every trace it generates
+/// (`rows-all/<index>/<nnnn>.json`, boole-air-rows/v1, all rows) and skips the trace generation of the other
+/// AIRs.  Unset: the registry behaviour (selected rows of the best trace per AIR).
+pub fn ratchet_airs() -> Option<std::collections::HashSet<usize>> {
+    std::env::var("BOOLE_RATCHET_AIRS").ok().map(|s| {
+        s.split(',')
+            .map(|x| x.trim())
+            .filter(|x| !x.is_empty())
+            .map(|x| x.parse().expect("BOOLE_RATCHET_AIRS: comma-separated AIR indices"))
+            .collect()
+    })
+}
+
+/// Seed of the generated sample programs (environment variable `BOOLE_AIR_SEED`, mixed into every program
+/// generator's seed).  0 or unset: the registry's programs.  A non-zero seed draws other operand values and
+/// skips the programs that do not depend on the seed (in-tree ELFs).
+pub fn seed_mix() -> u64 {
+    std::env::var("BOOLE_AIR_SEED").ok().map(|s| s.trim().parse().expect("BOOLE_AIR_SEED: an integer")).unwrap_or(0)
+}
+
+/// At most this many traces per AIR and sample program are taken in ratchet mode (environment variable
+/// `BOOLE_RATCHET_MAX_TRACES`, default 4); a taken trace taller than `BOOLE_RATCHET_MAX_HEIGHT` rows (default 2^16)
+/// is not written.
+pub fn ratchet_max_traces() -> usize {
+    std::env::var("BOOLE_RATCHET_MAX_TRACES").ok().map(|s| s.trim().parse().expect("BOOLE_RATCHET_MAX_TRACES")).unwrap_or(4)
+}
+
+pub fn ratchet_max_height() -> usize {
+    std::env::var("BOOLE_RATCHET_MAX_HEIGHT").ok().map(|s| s.trim().parse().expect("BOOLE_RATCHET_MAX_HEIGHT")).unwrap_or(1 << 16)
+}
+
+/// Every row index of a trace of `height` rows.
+pub fn all_rows(height: usize) -> Vec<usize> {
+    (0..height).collect()
+}
+
+/// Ratchet-mode sink: the next file number per AIR and the number of traces written per (AIR, program label).
+pub struct AllRows {
+    pub out: String,
+    pub airs: std::collections::HashSet<usize>,
+    next: HashMap<usize, usize>,
+    per_label: HashMap<(usize, String), usize>,
+}
+
+impl AllRows {
+    pub fn new(out: &str, airs: std::collections::HashSet<usize>) -> Self {
+        Self { out: out.to_string(), airs, next: HashMap::new(), per_label: HashMap::new() }
+    }
+
+    /// Whether a trace of AIR `i` from program `label` is still wanted.
+    pub fn wants(&self, i: usize, label: &str) -> bool {
+        self.airs.contains(&i) && self.per_label.get(&(i, label.to_string())).copied().unwrap_or(0) < ratchet_max_traces()
+    }
+
+    pub fn write(&mut self, label: &str, doc: &RowsDoc) {
+        let i = doc.air_index;
+        *self.per_label.entry((i, label.to_string())).or_insert(0) += 1;
+        if doc.height > ratchet_max_height() {
+            return;
+        }
+        let k = self.next.entry(i).or_insert(0);
+        let dir = format!("{}/rows-all/{}", self.out, i);
+        std::fs::create_dir_all(&dir).unwrap_or_else(|e| panic!("mkdir {dir}: {e}"));
+        let path = format!("{dir}/{:04}.json", *k);
+        std::fs::write(&path, doc.to_json()).unwrap_or_else(|e| panic!("write {path}: {e}"));
+        *k += 1;
+    }
+}

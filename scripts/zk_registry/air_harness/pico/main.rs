@@ -11,6 +11,9 @@
 //!   order) and `generate_main` / `generate_preprocessed`, on straight-line programs (ALU, memory, control flow,
 //!   precompiles without an in-tree ELF) and the in-tree RV64 ELFs of `perf/bench_data/rv64`; the recursion AIRs
 //!   on a linear recursion program run by the recursion `Runtime`.
+//! * Ratchet mode (`BOOLE_RATCHET_AIRS`, `BOOLE_AIR_SEED`; see `boole_air_ir.rs`): every row of every trace of
+//!   the requested AIRs; with a non-zero seed only the generated programs (other operand values).
+//!   `BOOLE_AIR_NO_ROWS` (any value): extraction only.
 #![allow(dead_code, clippy::all)]
 
 use crate::{
@@ -457,6 +460,18 @@ fn stdin_with(writes: &[Vec<u8>], u64s: &[u64]) -> EmulatorStdin<Program, Vec<u8
 
 struct Sink {
     docs: HashMap<usize, RowsDoc>,
+    all: Option<AllRows>,
+}
+
+impl Sink {
+    /// Ratchet mode: only the requested AIRs, at most `ratchet_max_traces` traces per program label.
+    fn skip(&self, i: usize, label: &str) -> bool {
+        self.all.as_ref().map(|a| !a.wants(i, label)).unwrap_or(false)
+    }
+
+    fn other(&self, i: usize) -> bool {
+        self.all.as_ref().map(|a| !a.airs.contains(&i)).unwrap_or(false)
+    }
 }
 
 fn distinct(rows: &[(usize, Vec<u64>)]) -> usize {
@@ -497,15 +512,19 @@ fn run_riscv(
             }
         }
     }
-    let preps: Vec<Option<RowMajorMatrix<F>>> = metas.iter().map(|c| c.generate_preprocessed(&program)).collect();
+    let preps: Vec<Option<RowMajorMatrix<F>>> = metas
+        .iter()
+        .enumerate()
+        .map(|(i, c)| if sink.other(i) { None } else { c.generate_preprocessed(&program) })
+        .collect();
     for (ri, rec) in records.iter().enumerate() {
         let pv: Vec<u64> = rec.public_values::<F>().iter().map(|x| x.as_canonical_u32() as u64).collect();
         for (i, c) in metas.iter().enumerate() {
-            if !c.is_active(rec) {
+            if !c.is_active(rec) || sink.skip(i, label) {
                 continue;
             }
             // enough distinct rows already (ByteChip::generate_main is O(2^17 x lookups): do not repeat it)
-            if sink.docs.get(&i).map(|d| distinct(&d.main_rows) >= 40).unwrap_or(false) {
+            if sink.all.is_none() && sink.docs.get(&i).map(|d| distinct(&d.main_rows) >= 40).unwrap_or(false) {
                 continue;
             }
             let t = match catch_unwind(AssertUnwindSafe(|| c.generate_main(rec, &mut EmulationRecord::default()))) {
@@ -516,6 +535,22 @@ fn run_riscv(
                 }
             };
             if t.height() == 0 {
+                continue;
+            }
+            if let Some(all) = sink.all.as_mut() {
+                let idx = all_rows(t.height());
+                let doc = RowsDoc {
+                    air_index: i,
+                    name: c.name(),
+                    source: format!("{label} record {ri} (RiscvEmulator + extra_record complement + generate_main)"),
+                    height: t.height(),
+                    width: t.width(),
+                    prep_width: c.preprocessed_width(),
+                    public_values: pv.clone(),
+                    main_rows: mrows(&t, &idx),
+                    prep_rows: preps[i].as_ref().map(|pm| mrows(pm, &idx)).unwrap_or_default(),
+                };
+                all.write(label, &doc);
                 continue;
             }
             let idx = select_rows(t.height(), 48, 16, 0x5eed ^ i as u64);
@@ -547,7 +582,7 @@ fn run_riscv(
 fn recursion_rows(metas: &[MetaChip<F, RecursionChipType<F>>], offset: usize, sink: &mut Sink, log: &mut String) {
     type EF = BinomialExtensionField<F, 4>;
     let mut ins = vec![];
-    let mut rng = Rng(0x0dec_0ded);
+    let mut rng = Rng(0x0dec_0ded ^ seed_mix());
     let n = 24u32;
     ins.push(rinstr::mem(MemAccessKind::Write, 1, 0, 0));
     ins.push(rinstr::mem(MemAccessKind::Write, n + 2, 1, 1));
@@ -636,6 +671,9 @@ fn recursion_rows(metas: &[MetaChip<F, RecursionChipType<F>>], offset: usize, si
     let pv: Vec<u64> = record.public_values::<F>().iter().map(|x| x.as_canonical_u32() as u64).collect();
     for (k, c) in metas.iter().enumerate() {
         let i = offset + k;
+        if sink.skip(i, "recursion") {
+            continue;
+        }
         let t = match catch_unwind(AssertUnwindSafe(|| c.generate_main(&record, &mut Default::default()))) {
             Ok(t) if t.height() > 0 => t,
             Ok(_) => continue,
@@ -645,6 +683,22 @@ fn recursion_rows(metas: &[MetaChip<F, RecursionChipType<F>>], offset: usize, si
             }
         };
         let prep = c.generate_preprocessed(&program);
+        if let Some(all) = sink.all.as_mut() {
+            let idx = all_rows(t.height());
+            let doc = RowsDoc {
+                air_index: i,
+                name: c.name(),
+                source: "linear recursion program + generate_main".into(),
+                height: t.height(),
+                width: t.width(),
+                prep_width: c.preprocessed_width(),
+                public_values: pv.clone(),
+                main_rows: mrows(&t, &idx),
+                prep_rows: prep.as_ref().map(|pm| mrows(pm, &idx)).unwrap_or_default(),
+            };
+            all.write("recursion", &doc);
+            continue;
+        }
         let idx = select_rows(t.height(), 48, 16, 0x5eed ^ i as u64);
         sink.docs.insert(
             i,
@@ -710,9 +764,14 @@ fn run(out: String) {
     }
     drop(record);
     write(&format!("{out}/manifest.jsonl"), &manifest);
+    if std::env::var("BOOLE_AIR_NO_ROWS").is_ok() {
+        // extraction only (the ratchet pipeline's count step)
+        write(&format!("{out}/extract.log"), &format!("extracted {index} AIRs; rows not requested\n"));
+        return;
+    }
 
-    let mut sink = Sink { docs: HashMap::new() };
-    let mut rng = Rng(0x5eed_5eed_1234_5678);
+    let mut sink = Sink { docs: HashMap::new(), all: ratchet_airs().map(|a| AllRows::new(&out, a)) };
+    let mut rng = Rng(0x5eed_5eed_1234_5678 ^ seed_mix());
     run_riscv(&metas, program_core(&mut rng), stdin_with(&[], &[]), "core", &mut sink, &mut log);
     run_riscv(&metas, program_precompiles(&mut rng), stdin_with(&[], &[]), "precompiles", &mut sink, &mut log);
     let bench = std::env::var("BOOLE_BENCH").unwrap_or_else(|_| "../perf/bench_data/rv64".into());
@@ -727,6 +786,9 @@ fn run(out: String) {
         ("bls12381-fp-elf", vec![], vec![]),
     ];
     for (name, writes, u64s) in elfs {
+        if seed_mix() != 0 {
+            break; // the in-tree ELFs do not depend on the seed
+        }
         match elf(&format!("{bench}/{name}")) {
             Some(prog) => run_riscv(&metas, prog, stdin_with(&writes, &u64s), name, &mut sink, &mut log),
             None => log.push_str(&format!("{name}: could not load\n")),

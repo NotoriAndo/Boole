@@ -12,6 +12,8 @@
 //! * Rows: the real executor and trace generation (`generate_records`, `MachineAir::generate_trace`) on
 //!   straight-line programs (ALU, memory, control flow, every precompile the machine has a chip for) and linear
 //!   recursion programs.
+//! * Ratchet mode (`BOOLE_RATCHET_AIRS`, `BOOLE_AIR_SEED`; see `boole_air_ir.rs`): every row of every trace of
+//!   the requested AIRs, on the same programs drawn with another seed when one is given.
 mod boole_air_ir;
 
 use boole_air_ir::*;
@@ -624,6 +626,14 @@ fn program_precompiles(rng: &mut Rng, which: &str) -> Program {
 
 struct RowSink {
     docs: HashMap<usize, RowsDoc>,
+    all: Option<AllRows>,
+}
+
+impl RowSink {
+    /// Ratchet mode: only the requested AIRs, at most `ratchet_max_traces` traces per program label.
+    fn skip(&self, i: usize, label: &str) -> bool {
+        self.all.as_ref().map(|a| !a.wants(i, label)).unwrap_or(false)
+    }
 }
 
 impl RowSink {
@@ -660,12 +670,21 @@ fn dump_riscv(machine_chips: &[Chip<F, RiscvAir<F>>], program: Program, label: &
         }
     };
     log.push_str(&format!("{label}: {} records\n", records.len()));
-    let preps: Vec<Option<RowMajorMatrix<F>>> =
-        machine_chips.iter().map(|c| c.air.as_ref().generate_preprocessed_trace(&prog)).collect();
+    let preps: Vec<Option<RowMajorMatrix<F>>> = machine_chips
+        .iter()
+        .enumerate()
+        .map(|(i, c)| {
+            if sink.all.as_ref().map(|a| !a.airs.contains(&i)).unwrap_or(false) {
+                None
+            } else {
+                c.air.as_ref().generate_preprocessed_trace(&prog)
+            }
+        })
+        .collect();
     for (ri, rec) in records.iter().enumerate() {
         let mut traces: Vec<(usize, RowMajorMatrix<F>)> = vec![];
         for (i, c) in machine_chips.iter().enumerate() {
-            if !c.air.as_ref().included(rec) {
+            if !c.air.as_ref().included(rec) || sink.skip(i, label) {
                 continue;
             }
             let r = catch_unwind(AssertUnwindSafe(|| c.air.as_ref().generate_trace(rec, &mut ExecutionRecord::default())));
@@ -679,6 +698,26 @@ fn dump_riscv(machine_chips: &[Chip<F, RiscvAir<F>>], program: Program, label: &
         let pv: Vec<u64> = rec.public_values::<F>().iter().map(|x| x.as_canonical_u32() as u64).collect();
         for (i, t) in traces {
             let c = &machine_chips[i];
+            if let Some(all) = sink.all.as_mut() {
+                let idx = all_rows(t.height());
+                let prep_rows = match &preps[i] {
+                    Some(pm) => matrix_rows(pm, &idx.iter().copied().filter(|&j| j < pm.height()).collect::<Vec<_>>()),
+                    None => vec![],
+                };
+                let doc = RowsDoc {
+                    air_index: i,
+                    name: c.name().to_string(),
+                    source: format!("{label} record {ri} (generate_records + MachineAir::generate_trace)"),
+                    height: t.height(),
+                    width: t.width(),
+                    prep_width: c.air.as_ref().preprocessed_width(),
+                    public_values: pv.clone(),
+                    main_rows: matrix_rows(&t, &idx),
+                    prep_rows,
+                };
+                all.write(label, &doc);
+                continue;
+            }
             let idx = select_rows(t.height(), 48, 16, 0x5eed ^ i as u64);
             let prep_rows = match &preps[i] {
                 Some(pm) => {
@@ -727,7 +766,7 @@ mod rec {
         }
         // extension ALU on a few elements
         let mut addr = 1000u32;
-        let mut rng = Rng(0x0dec_0ded);
+        let mut rng = Rng(0x0dec_0ded ^ seed_mix());
         for _ in 0..12 {
             let a: [F; 4] = core::array::from_fn(|_| F::from_canonical_u32((rng.next() % P) as u32));
             let b: [F; 4] = core::array::from_fn(|_| F::from_canonical_u32((rng.next() % P) as u32));
@@ -846,6 +885,9 @@ fn dump_recursion<const D1: usize, const V: usize>(
     let pv: Vec<u64> = record.public_values::<F>().iter().map(|x| x.as_canonical_u32() as u64).collect();
     for (k, c) in chips.iter().enumerate() {
         let i = offset + k;
+        if sink.skip(i, "recursion") {
+            continue;
+        }
         let t = catch_unwind(AssertUnwindSafe(|| c.air.as_ref().generate_trace(&record, &mut Default::default())));
         let t = match t {
             Ok(t) if t.height() > 0 => t,
@@ -856,6 +898,26 @@ fn dump_recursion<const D1: usize, const V: usize>(
             }
         };
         let prep = c.air.as_ref().generate_preprocessed_trace(&program);
+        if let Some(all) = sink.all.as_mut() {
+            let idx = all_rows(t.height());
+            let prep_rows = prep
+                .as_ref()
+                .map(|pm| matrix_rows(pm, &idx.iter().copied().filter(|&j| j < pm.height()).collect::<Vec<_>>()))
+                .unwrap_or_default();
+            let doc = RowsDoc {
+                air_index: i,
+                name: c.name().to_string(),
+                source: "linear recursion program + MachineAir::generate_trace".into(),
+                height: t.height(),
+                width: t.width(),
+                prep_width: c.air.as_ref().preprocessed_width(),
+                public_values: pv.clone(),
+                main_rows: matrix_rows(&t, &idx),
+                prep_rows,
+            };
+            all.write("recursion", &doc);
+            continue;
+        }
         let idx = select_rows(t.height(), 48, 16, 0x5eed ^ i as u64);
         let prep_rows = prep
             .as_ref()
@@ -934,8 +996,8 @@ fn run(out: String, rows: bool) {
     eprintln!("extracted {index} AIRs ({riscv_count} RISC-V)");
 
     if rows {
-        let mut sink = RowSink { docs: HashMap::new() };
-        let mut rng = Rng(0x5eed_5eed_1234_5678);
+        let mut sink = RowSink { docs: HashMap::new(), all: ratchet_airs().map(|a| AllRows::new(&out, a)) };
+        let mut rng = Rng(0x5eed_5eed_1234_5678 ^ seed_mix());
         dump_riscv(chips, program_core(&mut rng), "core", &mut sink, &mut log);
         for which in ["sha", "keccak", "ec", "ed", "uint256", "fp", "poseidon2"] {
             dump_riscv(chips, program_precompiles(&mut rng, which), which, &mut sink, &mut log);

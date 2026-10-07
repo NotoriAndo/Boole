@@ -1,0 +1,379 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "zk-registry-ratchet-air-problem/v1",
+  "title": "zk-registry ratchet problem over a zkVM AIR reference (verified chip optimization)",
+  "description": "A zkVM AIR of the registry (SP1, Pico, OpenVM) whose DET is machine-checked, with its record (the component-wise proving-cost vector of its extracted AIR). Status OPEN: the problem package. Status CANDIDATE: the checker package the candidate pipeline generates for one candidate chip. Answers are never part of a problem package.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "kind",
+    "family",
+    "package_id",
+    "status",
+    "reference",
+    "record",
+    "metric",
+    "admissibility",
+    "statement_shape",
+    "determinism",
+    "det",
+    "simulate",
+    "snapshot",
+    "build",
+    "env",
+    "generator",
+    "created_utc"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": "zk-registry-ratchet-air-problem/v1"},
+    "kind": {"const": "ratchet"},
+    "family": {"const": "air"},
+    "package_id": {"type": "string", "pattern": "^ratchet/.+"},
+    "status": {"enum": ["OPEN", "CANDIDATE"]},
+    "reference": {
+      "type": "object",
+      "required": [
+        "registry_package_id",
+        "zkvm",
+        "release",
+        "repo",
+        "repo_url",
+        "commit",
+        "air_name",
+        "air_index",
+        "rust_type",
+        "group",
+        "ir",
+        "machine",
+        "interface",
+        "negative",
+        "layout",
+        "messages",
+        "model",
+        "det_theorem_fqn",
+        "lean_opts"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "registry_package_id": {"type": "string", "minLength": 1},
+        "zkvm": {"enum": ["sp1", "pico", "openvm"]},
+        "release": {"type": "string"},
+        "repo": {"type": "string", "minLength": 1},
+        "repo_url": {"type": "string"},
+        "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "air_name": {"type": "string", "minLength": 1},
+        "air_index": {"type": "integer", "minimum": 0},
+        "rust_type": {"type": "string"},
+        "group": {"type": "string"},
+        "ir": {
+          "description": "The registry IR of the reference AIR, byte for byte (evidence/air.ir.json of the registry package).",
+          "type": "object",
+          "required": ["file", "sha256", "content_sha256", "field", "p"],
+          "additionalProperties": false,
+          "properties": {
+            "file": {"const": "reference/air.ir.json"},
+            "sha256": {"$ref": "#/$defs/sha256"},
+            "content_sha256": {"$ref": "#/$defs/sha256"},
+            "field": {"enum": ["BabyBear", "KoalaBear"]},
+            "p": {"type": "integer", "minimum": 2}
+          }
+        },
+        "machine": {
+          "description": "Every AIR of the reference extraction as [index, name, IR content sha256]: a candidate must leave every other AIR unchanged.",
+          "type": "object",
+          "required": ["file", "sha256", "n_airs"],
+          "additionalProperties": false,
+          "properties": {
+            "file": {"const": "reference/machine.json"},
+            "sha256": {"$ref": "#/$defs/sha256"},
+            "n_airs": {"type": "integer", "minimum": 1}
+          }
+        },
+        "interface": {"type": "object", "required": ["inputs", "outputs", "assumptions"]},
+        "negative": {"type": "array", "items": {"type": "integer", "minimum": 0}},
+        "layout": {
+          "type": "object",
+          "required": ["n_vars", "window_rows", "width", "prep_width", "n_public", "fixed"],
+          "additionalProperties": false,
+          "properties": {
+            "n_vars": {"type": "integer", "minimum": 1},
+            "window_rows": {"const": 1},
+            "width": {"type": "integer", "minimum": 1},
+            "prep_width": {"type": "integer", "minimum": 0},
+            "n_public": {"type": "integer", "minimum": 0},
+            "fixed": {"type": "array", "items": {"type": "string"}}
+          }
+        },
+        "messages": {
+          "description": "Bus contributions of the reference AIR on the standard sample programs (every row of every dumped trace).",
+          "type": "object",
+          "required": ["file", "sha256", "traces", "rows"],
+          "additionalProperties": false,
+          "properties": {
+            "file": {"const": "reference/messages.json"},
+            "sha256": {"$ref": "#/$defs/sha256"},
+            "traces": {"type": "integer", "minimum": 1},
+            "rows": {"type": "integer", "minimum": 1}
+          }
+        },
+        "model": {
+          "description": "The registry DET model of the reference, byte for byte (the reference meaning).",
+          "type": "object",
+          "required": ["file", "module", "namespace", "sha256"],
+          "additionalProperties": false,
+          "properties": {
+            "file": {"type": "string", "pattern": "\\.lean$"},
+            "module": {"type": "string"},
+            "namespace": {"type": "string"},
+            "sha256": {"$ref": "#/$defs/sha256"}
+          }
+        },
+        "det_theorem_fqn": {"type": "string"},
+        "lean_opts": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "record": {"$ref": "#/$defs/cost"},
+    "metric": {"type": "string", "minLength": 1},
+    "admissibility": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "statement_shape": {"type": "string", "minLength": 1},
+    "determinism": {"type": "string", "minLength": 1},
+    "det": {
+      "description": "Machine-checked DET of the reference model file: a proof of the registry statement `det` that the production checker accepted within the proof limits.",
+      "type": "object",
+      "required": [
+        "method",
+        "registry_package_id",
+        "theorem_fqn",
+        "model_file",
+        "model_sha256",
+        "proof_sha256",
+        "proof_location",
+        "source",
+        "checker"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "method": {"enum": ["mech-p3", "battery-closure"]},
+        "registry_package_id": {"type": "string"},
+        "theorem_fqn": {"type": "string"},
+        "model_file": {"type": "string"},
+        "model_sha256": {"$ref": "#/$defs/sha256"},
+        "proof_sha256": {"$ref": "#/$defs/sha256"},
+        "proof_location": {"type": "string"},
+        "source": {"type": "string"},
+        "form": {"type": "string"},
+        "checker": {
+          "type": "object",
+          "required": ["verdict", "peak_rss_mb", "secs", "limits"],
+          "additionalProperties": false,
+          "properties": {
+            "verdict": {"const": "PASS"},
+            "peak_rss_mb": {"type": ["integer", "null"], "maximum": 20000},
+            "secs": {"type": ["number", "null"], "maximum": 1800},
+            "limits": {"type": "object"}
+          }
+        }
+      }
+    },
+    "simulate": {
+      "type": "object",
+      "required": ["programs", "random_seeds", "max_traces", "max_height", "search_budget_s", "seed"],
+      "additionalProperties": false,
+      "properties": {
+        "programs": {"type": "string"},
+        "random_seeds": {"type": "string"},
+        "max_traces": {"type": "integer", "minimum": 1},
+        "max_height": {"type": "integer", "minimum": 1},
+        "search_budget_s": {"type": "number", "minimum": 0},
+        "seed": {"type": "string", "minLength": 1}
+      }
+    },
+    "snapshot": {
+      "type": "object",
+      "required": ["id", "manifest_sha256", "n_files", "rule"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "n_files": {"type": "integer", "minimum": 1},
+        "rule": {"type": "string"}
+      }
+    },
+    "build": {
+      "type": "object",
+      "required": [
+        "toolchain",
+        "pinned_toolchain",
+        "toolchain_deviation",
+        "rustc",
+        "features",
+        "command",
+        "run",
+        "harness_sha256",
+        "extractor",
+        "editable",
+        "protected"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "toolchain": {"type": "string", "minLength": 1},
+        "pinned_toolchain": {"type": "string"},
+        "toolchain_deviation": {"type": "string"},
+        "rustc": {"type": "string"},
+        "features": {"type": "string"},
+        "command": {"type": "array", "items": {"type": "string"}},
+        "run": {"type": "string"},
+        "harness_sha256": {"$ref": "#/$defs/sha256"},
+        "extractor": {"type": "string"},
+        "editable": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "protected": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "env": {
+      "type": "object",
+      "required": ["lean", "mathlib", "lake_manifest_sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "lean": {"type": "string"},
+        "mathlib": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "lake_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "packages": {"type": "object", "additionalProperties": {"type": "string"}}
+      }
+    },
+    "generator": {
+      "type": "object",
+      "required": ["name", "version", "sources_sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {"const": "boole-zk-registry-ratchet"},
+        "version": {"type": "string"},
+        "sources_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "created_utc": {"type": "string"},
+    "annotations": {
+      "description": "Wave annotations (coverage by public artifacts, size band, content aliases); not part of the problem.",
+      "type": "object"
+    },
+    "candidate": {
+      "type": "object",
+      "required": [
+        "overlay_sha256",
+        "files",
+        "ir_sha256",
+        "content_sha256",
+        "n_vars",
+        "cost",
+        "smaller",
+        "larger_components",
+        "smaller_components",
+        "reduction_pct"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "overlay_sha256": {"$ref": "#/$defs/sha256"},
+        "files": {"type": "array", "items": {"type": "string"}},
+        "ir_sha256": {"$ref": "#/$defs/sha256"},
+        "content_sha256": {"$ref": "#/$defs/sha256"},
+        "n_vars": {"type": "integer", "minimum": 1},
+        "cost": {"$ref": "#/$defs/cost"},
+        "smaller": {"type": "boolean"},
+        "larger_components": {"type": "array", "items": {"type": "string"}},
+        "smaller_components": {"type": "array", "items": {"type": "string"}},
+        "reduction_pct": {"type": "number"}
+      }
+    },
+    "statement": {
+      "type": "object",
+      "required": ["file", "theorem", "theorem_fqn", "text", "imports", "assumptions"],
+      "additionalProperties": false,
+      "properties": {
+        "file": {"const": "Statement.lean"},
+        "theorem": {"const": "equiv"},
+        "theorem_fqn": {"type": "string"},
+        "text": {"type": "string"},
+        "imports": {"type": "array", "minItems": 2, "items": {"type": "string"}},
+        "assumptions": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "checker": {
+      "type": "object",
+      "required": [
+        "statement_file",
+        "theorem",
+        "theorem_fqn",
+        "lean_opts",
+        "files",
+        "reference_type_sha256",
+        "replay_tool_sha256",
+        "allowed_axioms",
+        "forbidden_tokens"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "statement_file": {"const": "Statement.lean"},
+        "theorem": {"const": "equiv"},
+        "theorem_fqn": {"type": "string"},
+        "lean_opts": {"type": "array", "items": {"type": "string"}},
+        "files": {
+          "type": "array",
+          "minItems": 3,
+          "items": {
+            "type": "object",
+            "required": ["path", "role", "sha256"],
+            "additionalProperties": false,
+            "properties": {
+              "path": {"type": "string"},
+              "role": {"enum": ["statement", "import"]},
+              "module": {"type": "string"},
+              "sha256": {"$ref": "#/$defs/sha256"}
+            }
+          }
+        },
+        "reference_type_sha256": {"$ref": "#/$defs/sha256"},
+        "replay_tool_sha256": {"$ref": "#/$defs/sha256"},
+        "allowed_axioms": {"type": "array", "items": {"type": "string"}},
+        "forbidden_tokens": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "CANDIDATE"}}},
+      "then": {"required": ["candidate", "statement", "checker"]}
+    }
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "cost": {
+      "description": "Proving-cost vector of one AIR (see `metric`); `priced` is a summary, the order is component-wise.",
+      "type": "object",
+      "required": [
+        "main_columns",
+        "interactions",
+        "constraints",
+        "constraints_deg_ge",
+        "interaction_degree",
+        "max_degree",
+        "priced",
+        "lookups",
+        "n_nodes"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "main_columns": {"type": "integer", "minimum": 1},
+        "interactions": {"type": "integer", "minimum": 0},
+        "constraints": {"type": "integer", "minimum": 0},
+        "constraints_deg_ge": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+        "interaction_degree": {"type": "integer", "minimum": 0},
+        "max_degree": {"type": "integer", "minimum": 0},
+        "priced": {"type": "integer", "minimum": 1},
+        "lookups": {"type": "integer", "minimum": 0},
+        "n_nodes": {"type": "integer", "minimum": 0},
+        "rung": {"type": "integer", "minimum": 0},
+        "source": {"type": "string"}
+      }
+    }
+  }
+}

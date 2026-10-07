@@ -12,6 +12,8 @@
 //!   (fibonacci, sha2, keccak256 with the standard configuration; ecrecover, pairing and kitchen-sink with their
 //!   own `openvm.toml` configurations).  Rows of another configuration are attributed to a standard AIR whose name,
 //!   widths and constraint DAG are identical (bus indices do not enter the rows).
+//! * Ratchet mode (`BOOLE_RATCHET_AIRS`, `BOOLE_AIR_SEED`; see `boole_air_ir.rs`): every row of every trace of
+//!   the requested AIRs; with a non-zero seed only the straight-line program (other operand values).
 use std::{
     collections::{hash_map::DefaultHasher, HashMap, HashSet},
     hash::{Hash, Hasher},
@@ -164,6 +166,7 @@ fn extract_as(pk: &MultiStarkProvingKey<SC>, id: usize, index: usize, group: &st
 
 struct Sink {
     docs: HashMap<usize, RowsDoc>,
+    all: Option<AllRows>,
 }
 
 fn distinct(rows: &[(usize, Vec<u64>)]) -> usize {
@@ -243,10 +246,28 @@ fn run(
         let ctx = vm.generate_proving_ctx(system_records, record_arenas).map_err(|e| format!("ctx: {e:?}"))?;
         for (air_id, actx) in ctx.per_trace.iter() {
             let Some(&std_id) = to_std.get(air_id) else { continue };
+            if sink.all.as_ref().map(|a| !a.wants(std_id, label)).unwrap_or(false) {
+                continue;
+            }
             let mut parts: Vec<&RowMajorMatrix<F>> = actx.cached_mains.iter().map(|c| &c.trace).collect();
             parts.push(&actx.common_main);
             let height = actx.common_main.height();
             if height == 0 {
+                continue;
+            }
+            if let Some(all) = sink.all.as_mut() {
+                let doc = RowsDoc {
+                    air_index: std_id,
+                    name: pk.per_air[*air_id].air_name.clone(),
+                    source: format!("{label} segment {si} (metered execution + preflight + generate_proving_ctx)"),
+                    height,
+                    width: parts.iter().map(|m| m.width()).sum(),
+                    prep_width: 0,
+                    public_values: actx.public_values.iter().map(|x| x.as_canonical_u32() as u64).collect(),
+                    main_rows: all_rows(height).into_iter().map(|i| (i, row_of(&parts, i))).collect(),
+                    prep_rows: vec![],
+                };
+                all.write(label, &doc);
                 continue;
             }
             // tables with full height (range, bitwise, range tuple): the first rows and a random sample
@@ -374,7 +395,7 @@ fn main_inner(out: String, repo: String, rows: bool) {
     write(&format!("{out}/manifest.jsonl"), &manifest);
     eprintln!("extracted {} AIRs of SdkVmConfig::standard()", pk.per_air.len());
     if rows {
-        let mut sink = Sink { docs: HashMap::new() };
+        let mut sink = Sink { docs: HashMap::new(), all: ratchet_airs().map(|a| AllRows::new(&out, a)) };
         let g = format!("{repo}/benchmarks/guest");
         let toml = |name: &str| -> SdkVmConfig {
             let text = std::fs::read_to_string(format!("{g}/{name}/openvm.toml")).expect("openvm.toml");
@@ -399,6 +420,9 @@ fn main_inner(out: String, repo: String, rows: bool) {
              elf(&toml("kitchen-sink"), format!("{g}/kitchen-sink/elf/openvm-kitchen-sink-program.elf")), vec![], 2),
         ];
         for (label, cfg, exe, input, max_seg) in runs {
+            if seed_mix() != 0 && label != "standard-straight-line" {
+                continue; // the committed ELFs do not depend on the seed
+            }
             let r = catch_unwind(AssertUnwindSafe(|| run(label, cfg, exe, input, &keys, &mut sink, &mut log, max_seg)));
             match r {
                 Ok(Ok(())) => {}
@@ -536,7 +560,7 @@ mod program {
     }
 
     pub fn standard_program(config: &SdkVmConfig) -> Result<VmExe<F>, String> {
-        let mut m = Asm { ins: vec![], mem: BTreeMap::new(), slot: 0, rng: Rng(0x0e0e_5eed) };
+        let mut m = Asm { ins: vec![], mem: BTreeMap::new(), slot: 0, rng: Rng(0x0e0e_5eed ^ seed_mix()) };
         m.reg(5, A0);
         m.reg(6, B0);
         m.reg(7, D0);
