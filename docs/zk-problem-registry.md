@@ -797,6 +797,78 @@ helper lemma. Run over the effective OPEN packages (latest record per item; prob
   exceeded it. DET truth stays unknown for STUCK packages; the registry status of the packages is unchanged. Proofs and
   results stay in the operator's local workspace (`MECH-P3-R1CS-REPORT.md`, not tracked).
 
+## Ratchet problems (verified circuit optimization)
+
+Code: `scripts/zk_registry/ratchet.py` (problem builder, candidate pipeline, statement generator, final check) with
+`ratchet_sim.js` (simulation runner), schema `schema/ratchet_problem.schema.json`, tests
+`scripts/test_zk_registry_ratchet.py` (offline fixtures; a live class re-runs the pipeline with circom, node and Lean
+when their paths are configured).
+
+**Definition.** A ratchet problem is a Circom reference of the registry with its current **record**. A submission is
+a circuit with fewer non-linear constraints (the candidate) plus a Lean proof that it is equivalent to the reference;
+an accepted submission becomes the next record (the next rung). The reference meaning is the registry package's DET
+model of the reference (its `--O0` constraint system, the model file byte for byte). The reference's own DET must be
+machine-checked — the battery P3 proof, or a battery closure re-checked as a proof — by the production checker within
+the proof limits (20,000 MB Lean memory, 30 minutes), and is recorded in the problem (`det`: method, model digest,
+proof digest, checker verdict); DET of the reference and the equivalence imply DET of every accepted candidate.
+Eligible references: DET machine-checked as above, a record with at least one non-linear constraint, `--O0` within
+4,000 constraints, a pinned release compiler with `--O2` (circom v2.1.9 or v2.2.3; not circom 1 or source builds), no
+tagged-input wrapper. A reference without outputs (an assertion circuit) is eligible too; its equivalence is about
+the set of accepted inputs. The problem package holds `problem.json` (status `OPEN`), the reference model file and the
+reference main texts; it pins a repository snapshot by manifest digest.
+
+**Metric.** The record and every candidate are scored by the number of non-linear constraints of the `--O2` compile
+with every main input public: constraints `A * B = C` whose A and B both contain a non-constant wire. Linear
+constraints are free (they are substituted away when the template is embedded in a larger circuit), so compressing
+linear constraints into quadratic ones never counts; a candidate counts only with strictly fewer non-linear
+constraints than the record. Totals are reported alongside. circom writes the `--O2` constraint set in a
+run-dependent order, so every `--O2` R1CS is canonicalized (terms by wire, constraints sorted; header, wire numbering
+and labels unchanged) before it is counted, digested or modelled.
+
+**Admissibility of a candidate.** It declares a template with the reference's name and number of parameters (the
+harness writes `component main {public [<reference inputs>]} = <reference call>;`); it has no `component main` and no
+`pragma custom_templates`, and `pragma circom` at most the pinned compiler; it includes only bare `<name>.circom`
+files next to it or files of the pinned repository snapshot (the repository's files at the ledger pin that the include
+closures of its references reach, plus every `.circom` file of its circomlib dependency; manifest-checked); it is compiled by
+the reference's pinned compiler (digest-checked) with the record's flags and prime; its main inputs and outputs equal
+the reference's (prime, names, order).
+
+**Statement** (generated per candidate, both directions of the input–output relation, over the reference's field):
+
+```lean
+theorem equiv [Fact (Nat.Prime Ref.p)] :
+    ∀ x y : List Ref.F,
+      (∃ w : Fin Ref.nWires → Ref.F, Ref.Constraints w ∧ Ref.Inputs.map w = x ∧ Ref.Outputs.map w = y) ↔
+      (∃ w : Fin Cand.nWires → Cand.F, Cand.Constraints w ∧ Cand.Inputs.map w = x ∧ Cand.Outputs.map w = y) := by
+  sorry
+```
+
+`Ref` is written out as the registry model's namespace and `Cand` is the model of the candidate's canonical `--O2`
+R1CS (production emitter); the doc comment records the reference, record and candidate digests and counts.
+
+**Checks.** `ratchet count` (admissibility, compile, metric), `ratchet simulate` (a screen, not a proof: both
+circuits' own wasm witness generators on the same structured edge cases and seeded random vectors, each witness
+re-checked against its R1CS; the candidate must reject exactly what the reference rejects and give the same outputs
+elsewhere, and every candidate output must occur in a constraint; the battery P3 propagation on the candidate is
+reported as an informational DET screen), `ratchet statement` (elaboration and the checker package, status
+`CANDIDATE`), and the final `ratchet check`: the candidate pipeline (strictly fewer non-linear constraints) followed by
+the unchanged production checker (`check.py`, which reads ratchet checker packages through their schema version; DET
+packages validate as before). Candidates and proofs are never stored in the repository.
+
+**Pilot results** (closed-local, one model family, small samples; not a benchmark or public claim):
+
+| Pilot | Targets | Outcome |
+|---|---|---|
+| P0 (circomlib v2.0.5 gadgets, total-constraint record) | 6 | 1 proved (`MultiMux4(2)`, 34 → 30) |
+| P1 (application circuits) | 6 | 2 proved (−2.7%, −50.2%) + 1 metric artifact (fewer constraints in total, more non-linear: the reason for the non-linear metric, now a regression test) |
+| P2 (all eligible application circuits, non-linear metric) | 43 | 26 FOUND by the simulation screen (Wilson 95% about 45–74%; 14,133 → 7,586 non-linear over them); 6 of 10 sampled proved (about 31–83%); the 4 failures were proof cost, none shown non-equivalent |
+
+**Limits.** The simulation screen does not detect under-constraint: a hint assigned with `<--` that the witness
+generator fills correctly passes it, and only the proof decides (the DET screen is a hint, not a criterion). Proof
+memory is the bottleneck: equivalence proofs of references with thousands of constraints or 254-bit coefficients
+exceeded 16–20 GB of Lean memory or 30 minutes in P2. Lower-bound arguments for records without a candidate are
+informal.
+
 ## Limits
 
 - Closed-local artifacts; no registry service, issuance, receipt or reward path is wired.

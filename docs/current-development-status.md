@@ -31,7 +31,9 @@ wave Z0, a Noir generator over compiled ACIR produced 423 more in wave N1, a gna
 R1CS produced 76 more in wave G1, a ZoKrates generator over compiled R1CS produced 83 more in wave K1, and a halo2
 generator over the concrete MockProver layout produced 14 more (13 distinct models) in wave H1; Circom recovery R1
 (4,000-constraint cap from a measured size ladder, probe-min instantiation, modular DET-MOD statements) added 100
-open DET and 95 open DET-MOD packages. See the
+open DET and 95 open DET-MOD packages. Ratchet problems (verified circuit optimization: fewer non-linear constraints
+plus a Lean equivalence proof) are a registry problem type over Circom references with machine-checked DET (pilot P2:
+screened candidates for 26 of 43 application targets, 6 of 10 sampled proved). See the
 [problem registry](zk-problem-registry.md) for the templates, gates, package
 format and limits. Nothing is issued, rewarded or activated; BF.7 remains HOLD.
 

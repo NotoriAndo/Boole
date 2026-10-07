@@ -73,6 +73,7 @@ run_logged zk-registry-zokrates-det env PYTHONDONTWRITEBYTECODE=1 python3 -m uni
 run_logged zk-registry-halo2-det env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_halo2.py
 run_logged zk-registry-mech-air env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_mech_air.py
 run_logged zk-registry-mech-r1cs env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_mech_r1cs.py
+run_logged zk-registry-ratchet env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_ratchet.py
 run_logged fresh-answer-canary-protocol cargo test --locked -p boole-native-shadow-protocol --features development-task-admission --lib --test fresh_answer_canary --test development_task_admission
 run_logged fresh-answer-canary-node cargo test --locked -p boole-node --features development-task-admission --lib native_shadow_replay_service::canary
 run_logged fresh-answer-canary-clippy cargo clippy --locked -p boole-node -p boole-native-shadow-protocol -p boole-native-shadow-launcher --features boole-node/development-task-admission,boole-native-shadow-protocol/development-task-admission,boole-native-shadow-launcher/development-task-admission --all-targets -- -D warnings
