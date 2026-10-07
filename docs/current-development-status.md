@@ -1,6 +1,6 @@
 # Boole — current development status
 
-Updated: 2026-10-07. This is the tracked entrypoint for current progress and the
+Updated: 2026-10-08. This is the tracked entrypoint for current progress and the
 ordered development roadmap. Edit it in place; execution evidence stays in its
 own result record. Local Master/Execution documents link here instead of owning
 a second current cursor. Work methods follow the
@@ -36,16 +36,23 @@ A measured census found no ZK code item with full machine-checked coverage.
   time, not mining problems; about 455 DET problems need reasoning. In a five-problem
   solve calibration with a 45-minute budget, Opus settled all five and Sonnet
   four; one sampled statement was false and was disproved.
-- **Ratchet problems** (verified circuit optimization: fewer non-linear
-  constraints plus a Lean equivalence proof) are a registry problem type
-  ([#404](https://github.com/NotoriAndo/Boole/pull/404)): never false by
-  construction and not reached by the public optimizer. On application circuits,
-  screened candidates were found for 26 of 43 targets and 6 of 10 sampled
-  candidates were proved (reductions 2.5–95%). Ratchets over Noir references
-  followed ([#406](https://github.com/NotoriAndo/Boole/pull/406)); a second rung
-  appeared for 3 of 6 proved targets but saved little, and a random Noir sample
-  found candidates for 6 of 12, so ratchet supply grows mainly with the number
-  of eligible circuits per framework rather than with ladder depth.
+- **Ratchet problems** (verified circuit optimization: a cheaper circuit plus a
+  Lean equivalence proof) are a registry problem type for Circom, Noir, gnark
+  and zkVM AIR ([#404](https://github.com/NotoriAndo/Boole/pull/404),
+  [#406](https://github.com/NotoriAndo/Boole/pull/406),
+  [#408](https://github.com/NotoriAndo/Boole/pull/408),
+  [#409](https://github.com/NotoriAndo/Boole/pull/409)): never false by
+  construction and not reached by the public optimizers. Random samples found
+  cheaper candidates for 50–92% of references per framework (Circom application
+  targets 60%), and 20 of 21 found Noir, gnark and AIR candidates were proved
+  equivalent within an hour, most within minutes (Circom: 6 of 10). Second rungs
+  exist but save little, so supply grows with the number of eligible circuits:
+  1,280 problems are issuable after splitting too-large Noir and gnark
+  references into their callees ([#411](https://github.com/NotoriAndo/Boole/pull/411)),
+  and a proof of a stuck DET problem unlocks its reference
+  ([#410](https://github.com/NotoriAndo/Boole/pull/410); 11 of 30 sampled).
+  That is thousands of problems, not the tens of thousands a three-year supply
+  needs; further frameworks and release flow are not yet measured.
 
 See the [problem registry](zk-problem-registry.md) for templates, gates, package
 format and limits. Nothing is issued, rewarded or activated; BF.7 remains HOLD.
