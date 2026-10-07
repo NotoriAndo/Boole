@@ -380,6 +380,9 @@ class StatementTests(unittest.TestCase):
         cand, _ = compiled_candidate(self.prob, "equivalent")
         self.assertIn("OPEN ratchet problem must not carry 'candidate'",
                       P.validate_problem(dict(self.prob, candidate=cand), self.pdir))
+        ref = self.prob["reference"]
+        no_outputs = dict(self.prob, reference=dict(ref, io=dict(ref["io"], output_names=[])))
+        self.assertEqual(P.validate_problem(no_outputs), [])         # assertion circuits: accepted-input sets
         bad = dict(self.prob, det=dict(self.prob["det"], model_sha256="0" * 64))
         self.assertIn("DET evidence is not about the reference model file", P.validate_problem(bad))
         Path(self.pdir, self.prob["reference"]["model"]["file"]).write_text("tampered\n", encoding="utf-8")

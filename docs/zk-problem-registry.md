@@ -813,7 +813,8 @@ the proof limits (20,000 MB Lean memory, 30 minutes), and is recorded in the pro
 proof digest, checker verdict); DET of the reference and the equivalence imply DET of every accepted candidate.
 Eligible references: DET machine-checked as above, a record with at least one non-linear constraint, `--O0` within
 4,000 constraints, a pinned release compiler with `--O2` (circom v2.1.9 or v2.2.3; not circom 1 or source builds), no
-tagged-input wrapper. The problem package holds `problem.json` (status `OPEN`), the reference model file and the
+tagged-input wrapper. A reference without outputs (an assertion circuit) is eligible too; its equivalence is about
+the set of accepted inputs. The problem package holds `problem.json` (status `OPEN`), the reference model file and the
 reference main texts; it pins a repository snapshot by manifest digest.
 
 **Metric.** The record and every candidate are scored by the number of non-linear constraints of the `--O2` compile
