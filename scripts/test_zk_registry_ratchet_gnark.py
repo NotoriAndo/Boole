@@ -334,6 +334,13 @@ class AdmissibilityTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             RG.candidate_wrapper(twice, "Toy")
 
+    def test_build_errors_name_the_candidate_file(self) -> None:
+        r = L.RunResult(1, "# github.com/consensys/gnark/std/booletoy\n"
+                           "../../../work/x/compile/Candidate.go:4:40: undefined: frontend\n"
+                           "/abs/work/x/tool/wrappers/w0b0e1e70a700_0.go:3:2: too many errors\n", 1.0, False)
+        msg = RG.build_error(r, "/abs/work/x", "/abs/snap")
+        self.assertEqual(msg, "Candidate.go:4:40: undefined: frontend | wrapper w0b0e1e70a700_0.go:3:2: too many errors")
+
     def test_io_must_match(self) -> None:
         io = self.prob["reference"]["io"]
         self.assertIsNone(RG.io_mismatch(io, RG.io_signature(harness("equivalent"))))

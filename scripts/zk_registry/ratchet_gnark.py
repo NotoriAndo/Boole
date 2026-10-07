@@ -467,6 +467,15 @@ def _scrub(text: str, *roots: str) -> str:
     return text
 
 
+def build_error(r: L.RunResult, work: str, snapshot: str) -> str:
+    """The first lines of a failed build, with the overlaid files named as the candidate sees them."""
+    lines = [ln for ln in r.out.splitlines() if ln.strip() and not ln.startswith("#")]
+    msg = "timeout" if r.timeout else "memory guard" if r.memkill else " | ".join(lines[:6]) or "go build failed"
+    msg = re.sub(r"[^\s:]*/Candidate\.go", "Candidate.go", msg)
+    msg = re.sub(r"[^\s:]*/tool/wrappers/(w[0-9a-f]{12}_\d+\.go)", r"wrapper \1", msg)
+    return _scrub(msg, work, snapshot)[:1200]
+
+
 def build_tool(prob: dict, snapshot: str, tools: str, work: str, wrapper_text: str,
                candidate_text: str | None = None, gocache: str | None = None) -> dict:
     """``gnarkx`` built from the snapshot with the harness tool, the wrapper and (candidates) Candidate.go overlaid;
@@ -498,9 +507,7 @@ def build_tool(prob: dict, snapshot: str, tools: str, work: str, wrapper_text: s
     put(os.path.join(work, "build.log"), r.out[-20000:])
     out = {"build_secs": r.secs, "build_peak_rss_mb": r.peak_rss_mb}
     if r.rc != 0 or not os.path.isfile(binary):
-        lines = [ln for ln in r.out.splitlines() if ln.strip() and not ln.startswith("#")]
-        msg = "timeout" if r.timeout else "memory guard" if r.memkill else " | ".join(lines[:6]) or "go build failed"
-        out["error"] = _scrub(msg, work, snapshot)[:1200]
+        out["error"] = build_error(r, work, snapshot)
         return out
     out["binary"] = binary
     return out
