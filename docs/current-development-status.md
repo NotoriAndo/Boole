@@ -41,8 +41,11 @@ A measured census found no ZK code item with full machine-checked coverage.
   ([#404](https://github.com/NotoriAndo/Boole/pull/404)): never false by
   construction and not reached by the public optimizer. On application circuits,
   screened candidates were found for 26 of 43 targets and 6 of 10 sampled
-  candidates were proved (reductions 2.5–95%). Current cursor: whether ratchets
-  keep yielding after a proved rung, and the extension of ratchets to Noir.
+  candidates were proved (reductions 2.5–95%). Ratchets over Noir references
+  followed ([#406](https://github.com/NotoriAndo/Boole/pull/406)); a second rung
+  appeared for 3 of 6 proved targets but saved little, and a random Noir sample
+  found candidates for 6 of 12, so ratchet supply grows mainly with the number
+  of eligible circuits per framework rather than with ladder depth.
 
 See the [problem registry](zk-problem-registry.md) for templates, gates, package
 format and limits. Nothing is issued, rewarded or activated; BF.7 remains HOLD.
