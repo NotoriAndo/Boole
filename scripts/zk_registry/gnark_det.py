@@ -64,7 +64,7 @@ TOOL_DIR = os.path.join(_HERE, "gnark_tool")
 GNARK_SOURCES = ["gnark_det.py", "gnark_instantiation.py", "gnark_r1cs.py", "gnark_lean_emit.py", "gnark_decompose.py",
                  "gnark_tool/main.go", "gnark_tool/harness/builder.go", "gnark_tool/harness/expose.go",
                  "gnark_tool/harness/registry.go", "gnark_tool/harness/sample.go", "gnark_tool/harness/run.go",
-                 "gnark_tool/catalog/main.go"]
+                 "gnark_tool/harness/simulate.go", "gnark_tool/catalog/main.go"]
 SHARED_SOURCES = ["__init__.py", "r1cs.py", "package.py", "jsonschema_lite.py", "lean_runner.py", "lean_emit.py",
                   "gates.py", "check.py", "det_search.py", "witness.py", "lean/ZkReplay.lean",
                   "schema/problem.schema.json"]

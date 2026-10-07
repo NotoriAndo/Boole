@@ -950,6 +950,97 @@ values of signed parameters; only the proof decides. Uninterpreted black boxes f
 by arithmetic that computes the same function. A trade between components (fewer multiplications for more range bits)
 can be a real backend saving but does not count.
 
+### gnark references
+
+Code: `scripts/zk_registry/ratchet_gnark.py` (problem builder, module snapshot, candidate pipeline, statement generator,
+simulation screen, final check) with the harness runner `gnark_tool/harness/simulate.go` (`gnarkx simulate`), schema
+`schema/ratchet_gnark_problem.schema.json` (`zk-registry-ratchet-gnark-problem/v1`; the production checker reads its
+CANDIDATE packages like the others), tests `scripts/test_zk_registry_ratchet_gnark.py` (offline fixtures from a toy
+gadget compiled by the harness with Go 1.25.7 against the gnark v0.16.3 module snapshot; a live class re-runs build,
+count, simulation and the final check with the pinned Go, a gnark snapshot and Lean when their paths are configured).
+
+**Reference.** A gnark registry package whose DET is machine-checked as for Circom (battery P3 proof, or a battery
+closure re-checked as a proof, production checker within 20,000 MB / 30 minutes). The reference meaning is the
+registry's DET model, byte for byte: the R1CS gnark's builder compiles from the registry's wrapper circuit (range
+checks through gnark's non-commitment checker, a commitment held at D + 1 fixed challenges), emulated outputs compared
+by value modulo their modulus. The registry's harness result must assemble to the registry R1CS and re-render to the
+model file, and the reference must rebuild from the problem's module snapshot with the pinned toolchain to the same
+R1CS and wrapper I/O. The problem package holds `problem.json`, the model file and the registry's wrapper circuit
+(`reference/wrapper.go`).
+
+**Metric.** The record is the number of non-linear constraints of that model (`A * B = C` with a non-constant wire in
+both factors): the Circom rule, over the statement's own constraint system. Linear constraints are free: a caller
+substitutes them, gnark itself keeps linear combinations symbolic until an assertion, and the wrapper's exposure
+constraints are linear and the same in every candidate. Commitments follow the registry's sound model: a
+challenge-dependent check counts once per challenge point (D + 1 copies), so the model of a commitment-based circuit is
+itself a commitment-free R1CS of that size, and moving checks behind a commitment never buys a count that a
+commitment-free circuit could not reach. Hint outputs are free wires: a hint saves constraints only where the
+remaining constraints still pin the outputs down (the proof decides; the screen flags an output fixed only by a free
+wire). Range checks are priced as gnark's non-commitment checker (bit decomposition, one booleanity constraint per
+bit) in the record and in every candidate; gnark's production count (log-derivative range checks sharing a lookup
+table with the embedding circuit, its Groth16 commitment) depends on the caller, so it is reported, not scored. A
+candidate counts only with strictly fewer non-linear constraints than the record.
+
+**Candidate and admissibility.** `Candidate.go` is a file of the reference's own Go package (its unexported
+identifiers are in scope) declaring `BooleRatchetCandidate`: a method of the reference's receiver type (methods and
+circuit `Define`) or a function, with the reference's signature. The harness adds it to the package of the module
+snapshot through a Go build overlay (the snapshot is never written) and renames the one reference call of the
+registry wrapper to it (same receiver, type arguments and arguments). The snapshot is manifest-checked: the repository
+module at the ledger pin (go.mod, go.sum and every non-test .go file) with `vendor/` from `go mod vendor` (the
+dependency versions the repository pins). The build uses the pinned Go toolchain (the official release of the
+registry's Go version; `bin/go` and the compiler digest-checked) with `-mod=vendor`, no network, no cgo and a shared
+content-addressed build cache. Not admitted: another package clause; zero or several `BooleRatchetCandidate`; a method
+where the reference is a function or the reverse; imports outside a fixed list of the Go standard library, the
+repository module (not the harness) and the vendored dependencies (so no `unsafe`, `reflect`, `os` or cgo); `//go:`
+directives and build constraints. The wrapper's public and secret variables, output paths and emulated output groups
+must equal the reference's; a commitment must fit the registry's commitment model (one, a polynomial identity in the
+challenge; log-derivative lookups are not modelled and are rejected); the candidate model has at most 4,000
+constraints. `init` functions are allowed (hint registration); they run only in the candidate's own build.
+
+**Statement** (generated per candidate):
+
+```lean
+theorem equiv [Fact (Nat.Prime Ref.p)] :
+    ∀ (x y : List Ref.F) (z : List ℕ),
+      (∃ w : Fin Ref.nWires → Ref.F, Ref.Constraints w ∧ Ref.Inputs.map w = x ∧ Ref.Outputs.map w = y ∧
+         Ref.EmulatedOutputs.map (fun g => Ref.emValue w g.1 g.2.1 % g.2.2) = z) ↔
+      (∃ w : Fin Cand.nWires → Cand.F, Cand.Constraints w ∧ Cand.Inputs.map w = x ∧ Cand.Outputs.map w = y ∧
+         Cand.EmulatedOutputs.map (fun g => Cand.emValue w g.1 g.2.1 % g.2.2) = z) := by
+  sorry
+```
+
+`Outputs` are the native outputs; without emulated outputs the `z` part is dropped (the Circom statement). Emulated
+values are compared modulo their modulus because gnark keeps emulated elements in non-canonical limb form; DET of the
+reference (under the same output relation) and the equivalence give DET of the candidate.
+
+**Checks.** `ratchet_gnark count` (admissibility, build, compile, metric), `simulate` (a screen: both wrappers through
+gnark's own solver, the harness `simulate` runner, on structured edge vectors (every input leaf at 0, 1, 2, its maximum
+or half its bound; each input field at its maximum with the others zero and the reverse) and seeded random vectors
+with mixed value profiles; curve points and similar inputs are valid samples of their domain; the candidate must be
+solvable exactly where the reference is and give the same outputs, emulated ones by value; the solver witnesses of the
+first 64 vectors are re-checked against both models by the Python evaluator; the reference is rebuilt and compared
+with its model digest; an output fixed only by a free wire is a mismatch; battery P3 propagation is reported as an
+informational DET screen), `statement` (elaboration and the checker package) and the final `check` (the pipeline, then
+the unchanged production checker).
+
+**Wave RT-G1** (closed-local packages, no solving): 92 problems from the 617 gnark records of the registry
+(wave G1 and its 28 decomposition children), all gnark std gadgets at v0.16.3 (`cfc7b2f9`); DET evidence: battery P3
+proof 43, battery closure re-checked as a proof 49 (all 49 re-checks PASS; every DET check within 10.4 GB and 81 s); every reference
+rebuilt from the module snapshot (2,358 files, 29 MB) with the official Go 1.25.7 to the registry R1CS (the registry
+used a Homebrew build of the same version). Exclusions: no machine-checked DET 480 (by status: TOO-LARGE 258,
+NOT-APPLICABLE 53, COMPILE-FAIL 48, NO-INSTANTIATION 37, OPEN with battery P3 STUCK 31, GATE-FAIL 51 (42 failing the
+fidelity or non-vacuity gates; 9 wrappers without exposed results: 7 assertion gadgets whose vacuous DET was never
+proved and 2 that accept every input), DET-FALSE-CANDIDATE 2), linear record 42 (battery closures of additions,
+negations, selections, copies and constants), duplicate models 3. Records range from 2 to 1,537 non-linear
+constraints (bands 1-31 / 32-99 / 100-499 / 500-999 / 1000+: 42 / 11 / 12 / 16 / 11); 27 have emulated outputs and
+none a commitment; in the 43 records with range checks the bit decompositions (23,842 bits) dominate the count.
+
+**Limits.** The screen does not see an under-constrained hint that the solver fills correctly, and emulated inputs are
+sampled canonical; only the proof decides. Pricing range checks as bit decomposition overstates their production cost
+(gnark's log-derivative argument), equally for the record and every candidate; a candidate that trades range checks
+for multiplications is scored by the model count. The pinned toolchain is a darwin-arm64 Go release; another platform
+needs its own release of the same version and a rebuild check.
+
 ## Limits
 
 - Closed-local artifacts; no registry service, issuance, receipt or reward path is wired.
