@@ -881,6 +881,33 @@ memory is the bottleneck: equivalence proofs of references with thousands of con
 exceeded 16–20 GB of Lean memory or 30 minutes in P2. Lower-bound arguments for records without a candidate are
 informal.
 
+**Sub-component references.** A TOO-LARGE parent is not a reference, but its sub-components can be. Code:
+`scripts/zk_registry/subinstances.py` (offline tests `scripts/test_zk_registry_subinstances.py`). The concrete
+instantiations below a parent are harvested at every depth by the registry's decomposition rule; one is *located* in
+the parent when its standalone unoptimized compile has the same wires and `.sym` names (aliases included) as a
+component subtree of the parent's unoptimized compile (same compiler, prime and library paths, R1CS equal to the
+registry's), its constraints are that subtree's constraints, the other subtree constraints touch only the component's
+inputs and outputs (written by the parent), and no internal signal of the component is named or constrained outside
+it. Located instances within 4,000 constraints whose model no registry package has are packaged by the DET generator
+(`instantiation.rule = decomposition`); with a machine-checked DET they become ratchet problems whose `context`
+(kind `sub-component`) lists the parents, the located instance paths and the meaning: the reference is the
+sub-component as instantiated there, and an accepted candidate (same input–output relation) can replace it in the
+parent without changing the parent's input–output relation.
+
+**Wave RT-C2** (closed-local packages, no solving): **623 problems**, 170 from old compilers and 453 sub-components.
+Old compilers: of the 255 records RT1 excluded only for their compiler (v2.0.9 207, circom 1 48), 170 problems (v2.0.9
+127, circom 1 43); every reference compile reproduced the registry R1CS with the rebuilt v2.0.9 binary and the
+reinstalled circom 1 tree (added as pins); exclusions: linear record 50, duplicate model 34, DET check above the proof
+limits 1. Sub-components: 5,141 instantiations harvested below the 518 TOO-LARGE parents (the DET-MOD parents); 339
+parents compiled and mapped (157 above the DET-MOD mapping limits, 11 with tagged main inputs, 11 without a candidate
+within the limit); 674 located instances packaged (one per model; not packaged: linear record 1,390, not compiled
+653, model of an existing package 634, not located 553, duplicate model 507, above 4,000 constraints 439, tagged
+inputs 3), with DET statuses OPEN 421, GATE-FAIL 179, DET-FALSE-CANDIDATE 74 (private); battery P3 on the OPEN ones:
+MECH-SOLVED 289, STUCK 122, above the memory guard 10; 165 battery closures re-checked, all PASS. DET evidence of the
+623 problems: battery P3 proof 371, battery closure re-checked as a proof 252, every check within 18.6 GB and 688 s.
+Records range from 1 to 3,184 non-linear constraints (bands 1-31 / 32-99 / 100-499 / 500-999 / 1000+:
+193 / 129 / 185 / 44 / 72). Together with RT1: 1,081 Circom ratchet problems.
+
 ### Noir references
 
 Code: `scripts/zk_registry/ratchet_noir.py` (problem builder, candidate pipeline, statement generator, simulation

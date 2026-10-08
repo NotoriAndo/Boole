@@ -467,6 +467,21 @@ class OldCompilerTests(unittest.TestCase):
             RT.admit_sources(os.path.join(d, "Candidate.circom"), prob, self.man)
         self.assertIn("circom 1", str(cm.exception))
 
+    def test_reference_generator_rebuild_check(self) -> None:
+        # circom 1 embeds absolute source paths in its wasm (data offsets shift with the work directory): its rebuild
+        # is checked by the R1CS; circom 2 also by the wasm digest
+        work = tempfile.mkdtemp(dir=self.tmp)
+        RT.put(os.path.join(work, "main.wasm"), "\0asm.." + work)
+        refw = {"r1cs_sha256": self.prob["reference"]["model"]["r1cs_sha256"], "wasm": os.path.join(work, "main.wasm")}
+        self.assertFalse(RT.reference_generator_ok(self.prob, refw))                      # circom 2: digest differs
+        c1 = retag(self.prob, "v0.5.46", "0.5.46")
+        self.assertTrue(RT.reference_generator_ok(c1, refw))
+        self.assertFalse(RT.reference_generator_ok(c1, dict(refw, r1cs_sha256="0" * 64)))
+        self.assertFalse(RT.reference_generator_ok(c1, dict(refw, error="x")))
+        gen = dict(self.prob["simulate"]["reference_generator"], wasm_sha256=P.sha256_file(refw["wasm"]))
+        self.assertTrue(RT.reference_generator_ok(dict(self.prob, simulate=dict(self.prob["simulate"],
+                                                                                 reference_generator=gen)), refw))
+
     def test_old_compiler_records_name_their_optimization(self) -> None:
         digest = "cd" * 32
         for tag, version in (("v2.0.9", "2.0.9"), ("v0.5.46", "0.5.46")):

@@ -685,6 +685,18 @@ def probe_ranges(groups: list[tuple[str, int]], idx: list[tuple[str, int]], resu
     return out
 
 
+def reference_generator_ok(prob: dict, refw: dict) -> bool:
+    """The rebuilt reference generator is the recorded one: its R1CS is the model's, and (circom 2) its wasm has the
+    recorded digest.  circom 1 embeds the absolute paths of the compiled source files in its wasm (which shifts its
+    data offsets), so its wasm digest depends on the work directory: it is recorded, and the rebuild is checked by
+    its R1CS only (the compiler and the snapshot are digest-pinned, and every witness is re-checked against the
+    R1CS)."""
+    ref, gen = prob["reference"], prob["simulate"]["reference_generator"]
+    if "error" in refw or refw["r1cs_sha256"] != ref["model"]["r1cs_sha256"]:
+        return False
+    return kind_of(spec_of(prob)) == "circom1" or P.sha256_file(refw["wasm"]) == gen["wasm_sha256"]
+
+
 def generator_file(witness_js: str) -> str:
     """The witness-calculator source file: circom 2's ``witness_calculator.js``, or the entry file of the pinned
     ``circom_runtime`` package (circom 1)."""
@@ -1295,12 +1307,10 @@ def simulate(problem_dir: str, cand_path: str, out: str, n_random: int, compiler
                            ref["libs"], node=node, canonical=True)
     if "error" in resw or resw["r1cs_sha256"] != rep["candidate"]["r1cs_sha256"]:
         raise RuntimeError(f"--wasm compile differs from the cost compile: {resw.get('error')}")
-    gen = prob["simulate"]["reference_generator"]
     refw = compile_circuit(reference_main(ref, ref["nomain"], ref["custom_templates"]), os.path.join(out, "reference"),
                            model_flags(spec_of(prob)) + wasm_flags(spec_of(prob)), binary, snapshot, libs=ref["libs"],
                            node=node)
-    if "error" in refw or refw["r1cs_sha256"] != ref["model"]["r1cs_sha256"] or \
-            P.sha256_file(refw["wasm"]) != gen["wasm_sha256"]:
+    if not reference_generator_ok(prob, refw):
         raise RuntimeError(f"the reference generator does not rebuild as recorded: {refw.get('error')}")
     vectors = sim_vectors(prob, n_random)
     objs = [v for _, v in vectors]
