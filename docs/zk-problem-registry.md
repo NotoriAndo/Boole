@@ -1178,6 +1178,110 @@ Several AIRs can come from one Rust chip type (SP1's supervisor and user variant
 unchanged. The extracted symbolic record is the meaning; the source rules forbid the usual means (reflection, `cfg`,
 `unsafe`) of a prover-side evaluation that differs from it.
 
+### ZoKrates references
+
+Code: `scripts/zk_registry/ratchet_zokrates.py`, shared checker plumbing `ratchet_native.py`, schema
+`schema/ratchet_zokrates_problem.schema.json` (`zk-registry-ratchet-zokrates-problem/v1`), tests
+`scripts/test_zk_registry_ratchet_zokrates.py` and `test_zk_registry_ratchet_native.py`. OPEN problems contain no
+answer/statement; the candidate pipeline creates a CANDIDATE checker package for the unchanged production checker.
+
+**Reference and metric.** An effective OPEN K1 DET package with accepted evidence produced by `ratchet.det_record`
+(`mech-p3`, `battery-closure` or `det-problem`), bound to the exact reference Lean module and theorem. The reference
+wrapper is rebuilt with a digest-pinned ZoKrates 0.6.1 or 0.8.8 binary in its source/stdlib snapshot. The actual
+`A*B-C` polynomials, wire count and input/output wire numbering must reproduce the DET model. Nonzero field-scalar
+normalisation permits different factor spellings of the same equation (including `0*0=C` versus `1*0=C`); this is
+not a comparison of counts alone. The record is the native compile's number of nonlinear R1CS constraints using
+the shared Circom/gnark classifier. Linear constraints are free; all counts are reported. A zero nonlinear
+record is excluded. The native model cap is 4,000 constraints.
+
+**Candidate/admissibility.** One complete UTF-8 `.zok` main program, compiled at the reference's relative directory
+in an isolated verified snapshot. Every filesystem import must resolve inside `repo/` or `stdlib/`; absolute,
+escaped/symlink-escaped, missing or unrecognised imports are rejected before compilation. Native `EMBED` imports
+are allowed. ZoKrates snapshots reject all symbolic links before copying, because the regular-file manifest
+does not pin their targets. Snapshot files, compiler binary and stdlib manifest are pinned; a candidate supplies no alternate
+compiler or filesystem dependency. Field, scalar input/output names/order/types and public/private input
+partition must match the reference ABI. Strictly fewer nonlinear constraints are required by the final pipeline.
+
+**Statement** (both native families use the same input/output-relation shape):
+
+```lean
+theorem equiv [Fact (Nat.Prime Ref.p)] :
+    ∀ x y : List Ref.F,
+      (∃ w : Fin Ref.nWires → Ref.F,
+        Ref.Constraints w ∧ Ref.Inputs.map w = x ∧ Ref.Outputs.map w = y) ↔
+      (∃ w : Fin Cand.nWires → Cand.F,
+        Cand.Constraints w ∧ Cand.Inputs.map w = x ∧ Cand.Outputs.map w = y) := by
+  sorry
+```
+
+The reference model is copied byte-identically; the candidate is emitted by the production R1CS printer. The
+two directions preserve the accepted input domain as well as outputs, including malicious/non-generator
+witnesses. Simulation is only a screen: typed edge/seeded inputs, both pinned native witness solvers, independent
+R1CS rechecks and comparison of solver acceptance/output vectors. Reference rebuild digest/I/O must still match.
+An honest witness screen is not a DET proof or equivalence proof.
+
+**Tools.** With `PYTHONPATH=scripts`, `python3 -m zk_registry.ratchet_zokrates` provides `build`, `count`,
+`simulate`, `statement`, `check`. `build` takes `--registry`, `--snapshot`, `--det-record`, `--env-pins`,
+`--config` (the compiler pin), `--tools` and `--out`. Candidate commands take `--problem`, `--candidate`,
+`--tools`, `--out`, optional `--snapshot`; `simulate --n N` screens N vectors; `statement` and `check` take
+`--lean-env`, and `check` additionally `--solution`. `tools/compilers.json` binds each supported version to an
+exact binary and style. Candidate `check` recompiles/counts, rejects NOT-SMALLER, generates/elaborates the
+statement, validates the bound import digests, then calls the unchanged production checker. Raw proof checking
+alone does not establish the separate native cost/admissibility gate.
+
+**RT-K1 qualification.** The private wave builds every reference with accepted P3 DET evidence and a positive
+record; old K1 `/tmp` binaries were lost, so the wave explicitly pins replacement official 0.8.8 / source-built
+0.6.1 tools and requires exact polynomial/I/O reproduction. The P3 lake-manifest loss/substitution is retained in
+DET provenance; it is not permission to forge an environment digest. Private wave reports record counts,
+exclusion reasons, size bands, source/tool hashes and reference-as-candidate controls. No upstream defect
+fixtures are committed.
+
+### halo2 references
+
+Code: `scripts/zk_registry/ratchet_halo2.py`, shared `ratchet_native.py`, schema
+`schema/ratchet_halo2_problem.schema.json` (`zk-registry-ratchet-halo2-problem/v1`), tests
+`scripts/test_zk_registry_ratchet_halo2.py` and the shared native tests. DET evidence is bound exactly as for
+ZoKrates. A snapshot of the pinned H1 workspace includes the unchanged wrapper/exporter instrumentation and a
+locked offline dependency graph. Rustc and Cargo executable SHA256s, lockfile, wrapper/exporter digests and the
+snapshot manifest are explicit; the rebuilt native model/I/O/cost must reproduce the reference's DET layout.
+
+**Metric.** Component-wise concrete MockProver-layout vector: domain rows `2^k`, advice columns, fixed columns,
+nonzero gate instances after fixed-cell/compressed-selector substitution, copy equalities, lookup instances,
+and cumulative `degree_ge[d]` gate counts for every degree d ≥ 2. No component grows and at least one shrinks.
+These capture domain/column storage, constraint/permutation/lookup work and quotient-degree pressure without
+choosing an arbitrary weight that conceals a tradeoff. This is a concrete layout proxy, not measured prover
+time, recursive-verifier cost or gas. `priced = rows*(advice+fixed)+gates+copies+lookups` is informational only;
+variables/nodes/max_degree are also reported. A lower priced sum with any larger component is rejected.
+
+**Candidate.** A source overlay under the selected chip source path(s), using the existing AIR overlay verifier:
+only `.rs`, no changed manifests/build scripts/toolchain/extractor/wrapper files, symlink changes or added unsafe,
+reflection, environment, filesystem/process/network I/O, configuration or linkage escapes. No changed other
+file is accepted. Builds are offline/locked with the exact Rust tools. The H1 native test must export every
+requested sample, the independent flattened model must accept every native witness, and the actual model and
+fixed/structural layout must be witness independent. Sparse zero-valued instance serialization is normalised
+using the model's instance-cell support; this never changes its polynomials, fixed values or I/O relation.
+
+The field, instance-column count and exact ordered input/output cell coordinate names are fixed. Consequently
+moving public I/O to different coordinates is out of scope even if a more general relabelling proof could be
+possible. Other internal rows/columns/gates may change through the allowed source overlay. The fixed H1 wrapper
+defines the operation; this is not equivalence of every operation of the entire library. The source rules
+inherit the AIR pipeline's syntactic safety restrictions, not an assertion of a general Rust sandbox.
+
+**Pipeline and proof.** Same five commands and equivalence statement as ZoKrates, with native halo2 models from
+`halo2_ir` / `halo2_lean_emit`. `build --config` carries `target` and `build` configuration; the latter pins Rust
+tools, offline command, editable/protected files and harness/lock digests. The tools directory supplies
+`rust-toolchains.json` and an isolated offline Cargo cache. `--build` permits a reusable local build tree.
+Simulation runs both source trees on the same H1 seeded input stream, independently rechecks all gates/copies/
+lookups and compares input/output vectors. A generated constraint relation quantifies over all advice and
+instance assignments, not just the MockProver witnesses. `check` first enforces the component-wise reduction,
+then the unchanged checker enforces the theorem text/type, imported-file digests, standard axioms and kernel
+replay. No sorry or new axiom is allowed in an accepted solution.
+
+**Scope.** H1 P3 solved only three references; the native layouts are small, and multiple source operations can
+instantiate the same constraint model. The private RT-H1 report makes model multiplicity and all exclusions
+explicit. Synthetic offline tests cover metric tradeoffs, degree growth, sparse zeros, DET/model binding,
+candidate import integrity and malformed records; native controls and Lean checks are separate evidence.
+
 ## Limits
 
 - Closed-local artifacts; no registry service, issuance, receipt or reward path is wired.
