@@ -47,12 +47,17 @@ A measured census found no ZK code item with full machine-checked coverage.
   targets 60%), and 20 of 21 found Noir, gnark and AIR candidates were proved
   equivalent within an hour, most within minutes (Circom: 6 of 10). Second rungs
   exist but save little, so supply grows with the number of eligible circuits:
-  1,280 problems are issuable after splitting too-large Noir and gnark
-  references into their callees ([#411](https://github.com/NotoriAndo/Boole/pull/411)),
-  and a proof of a stuck DET problem unlocks its reference
-  ([#410](https://github.com/NotoriAndo/Boole/pull/410); 11 of 30 sampled).
+  1,968 problems are issuable after splitting too-large references into their
+  callees and sub-components ([#411](https://github.com/NotoriAndo/Boole/pull/411),
+  [#415](https://github.com/NotoriAndo/Boole/pull/415)), adding ZoKrates and halo2
+  ([#414](https://github.com/NotoriAndo/Boole/pull/414)) and old Circom compilers
+  (#415); a proof of a stuck DET problem unlocks its reference
+  ([#410](https://github.com/NotoriAndo/Boole/pull/410); 11 of 30 sampled). A fixed
+  constraint-simplification pass reproduces only 1 of 26 accepted improvements,
+  so the work is not mechanical, but zkVM AIR records must be pre-simplified.
   That is thousands of problems, not the tens of thousands a three-year supply
-  needs; further frameworks and release flow are not yet measured.
+  needs: inflow from new releases is small where measured, and larger pools
+  (Cairo, EVM gas) need new semantics or an unproven headroom test first.
 
 See the [problem registry](zk-problem-registry.md) for templates, gates, package
 format and limits. Nothing is issued, rewarded or activated; BF.7 remains HOLD.
