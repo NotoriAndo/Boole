@@ -11,6 +11,14 @@ from zk_registry import ratchet as RT, r1cs as R
 
 
 class Boundaries(unittest.TestCase):
+    def test_unmanifested_link_is_rejected_before_snapshot_copy(self):
+        with tempfile.TemporaryDirectory() as root:
+            snap=Path(root,'snapshot');snap.mkdir();(snap/'repo').mkdir()
+            external=Path(root,'outside.zok');external.write_text('def main() -> field { return 1; }')
+            (snap/'repo/unpinned.zok').symlink_to(external)
+            RT.write_manifest(str(snap))
+            with self.assertRaises(K.Reject):K.validate_snapshot(str(snap))
+
     def test_rebuild_matches_polynomials_not_factor_spelling(self):
         def r(c):return R.R1cs(17,32,4,1,1,0,4,c)
         a=r([([],[],[(1,1)]), ([(2,2)],[(3,1)],[(1,2)])])

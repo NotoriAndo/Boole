@@ -93,6 +93,16 @@ def source_closure(main: Path, root: Path) -> dict[str, str]:
     return result
 
 
+def validate_snapshot(snapshot,want_sha=None):
+    manifest=RT.verify_snapshot(snapshot,want_sha)
+    # RT's regular-file manifest omits links. Reject them BEFORE copytree can
+    # dereference a link and turn an unpinned external file into a local import.
+    for directory,dirs,files in os.walk(snapshot):
+        if any(Path(directory,name).is_symlink() for name in dirs+files):
+            raise RT.Reject('ZoKrates snapshots may not contain symbolic links')
+    return manifest
+
+
 def signature(model, abi):
     return dict(prime=str(model.r.prime), prime_name=model.r.prime_name, input_names=model.io.input_names,
                 output_names=model.io.output_names, input_types=model.input_leaf_types,
@@ -144,6 +154,7 @@ def tool_pin(tools, compiler, snapshot):
 
 
 def compile_program(text, relative_dir, snapshot, pin, out):
+    validate_snapshot(snapshot)
     os.makedirs(out, exist_ok=True)
     root = os.path.join(out, "source")
     if os.path.exists(root):
@@ -185,7 +196,7 @@ def compile_program(text, relative_dir, snapshot, pin, out):
 
 
 def compile_candidate(problem, problem_dir, candidate_path, out, snapshot, tools, build_dir=None):
-    RT.verify_snapshot(snapshot, problem["snapshot"]["manifest_sha256"])
+    validate_snapshot(snapshot, problem["snapshot"]["manifest_sha256"])
     path = Path(candidate_path)
     if path.is_symlink() or not path.is_file() or path.suffix != ".zok":
         raise RT.Reject("candidate must be one ordinary UTF-8 .zok main-program file")
@@ -220,7 +231,7 @@ def build_problem(reg_dir, snapshot, out, tools, det, compiler, env=None):
     if spec["compiler"]["name"] != "zokrates":
         raise RT.NotEligible("family", "not a ZoKrates reference")
     evidence = N.det_for_reference(spec, det)
-    man = RT.verify_snapshot(snapshot)
+    man = validate_snapshot(snapshot)
     wrapper_path = Path(reg_dir) / "evidence/wrapper.zok"
     if not wrapper_path.is_file():
         raise RT.NotEligible("source", "missing exact registry wrapper")

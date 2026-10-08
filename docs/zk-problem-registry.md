@@ -1197,7 +1197,8 @@ record is excluded. The native model cap is 4,000 constraints.
 **Candidate/admissibility.** One complete UTF-8 `.zok` main program, compiled at the reference's relative directory
 in an isolated verified snapshot. Every filesystem import must resolve inside `repo/` or `stdlib/`; absolute,
 escaped/symlink-escaped, missing or unrecognised imports are rejected before compilation. Native `EMBED` imports
-are allowed. Snapshot files, compiler binary and stdlib manifest are pinned; a candidate supplies no alternate
+are allowed. ZoKrates snapshots reject all symbolic links before copying, because the regular-file manifest
+does not pin their targets. Snapshot files, compiler binary and stdlib manifest are pinned; a candidate supplies no alternate
 compiler or filesystem dependency. Field, scalar input/output names/order/types and public/private input
 partition must match the reference ABI. Strictly fewer nonlinear constraints are required by the final pipeline.
 
