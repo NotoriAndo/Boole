@@ -183,9 +183,10 @@ class IdentityTests(unittest.TestCase):
         present -= set(noir_callees.SOURCES) | set(gnark_callees.SOURCES)
         # the ratchet generators (ratchet problems over Circom, Noir, gnark and AIR references) hash their own sources
         # as well
-        from zk_registry import ratchet, ratchet_air, ratchet_gnark, ratchet_noir
+        from zk_registry import ratchet, ratchet_air, ratchet_gnark, ratchet_noir, ratchet_zokrates, ratchet_halo2
         present -= set(ratchet.GENERATOR_SOURCES) | set(ratchet_noir.GENERATOR_SOURCES) | \
-            set(ratchet_gnark.GENERATOR_SOURCES) | set(ratchet_air.GENERATOR_SOURCES)
+            set(ratchet_gnark.GENERATOR_SOURCES) | set(ratchet_air.GENERATOR_SOURCES) | \
+            set(ratchet_zokrates.GENERATOR_SOURCES) | set(ratchet_halo2.GENERATOR_SOURCES)
         self.assertEqual(present - listed - set(air_det.generator_files()) - set(noir_det.generator_files())
                          - set(gnark_det.generator_files()) - set(zokrates_det.generator_files())
                          - set(halo2_det.generator_files()) - set(mech_air.source_files()), set())
