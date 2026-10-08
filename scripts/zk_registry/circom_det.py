@@ -89,7 +89,10 @@ CIRCOM_RELEASES = {
                    # recovery R1: the same source build in another scratch directory (identical Cargo.lock
                    # digest; the binary embeds the build's registry paths), cross-checked by identical R1CS
                    # digests against packages compiled with the first build
-                   "macos-arm64-source-r1": "0b1f258071d1ed4779f9dec0f6406ef40c58f71d10da30fa1c5187e519d1e317"},
+                   "macos-arm64-source-r1": "0b1f258071d1ed4779f9dec0f6406ef40c58f71d10da30fa1c5187e519d1e317",
+                   # wave RT-C2: the same source build in a third scratch directory (identical Cargo.lock digest),
+                   # cross-checked by identical --O0 R1CS digests on every v2.0.9 reference it compiled
+                   "macos-arm64-source-c2": "da7a1d83c3055665b028172d999669dc70b7c7fbface1849358bccba20b5cda6"},
         "source_build": {"cargo_lock_sha256_at_tag": "628d4786acea7c3e68f3267dd47ddb803a28b118ef3923591ded7a6b5f36776e",
                          "cargo_lock_sha256_built": "8e3343e0f9a62ec1aa5145c2293a186c9f95a12ab4da27ebc11e5b8c2891835f",
                          "rustc": "1.60.0", "command": "cargo build --release --locked -p circom"},
@@ -109,7 +112,10 @@ CIRCOM_RELEASES = {
         "sha256": {"package-lock": "0133311ef0bd412d202c7fbc0957753370c4a70119168510ec0f52dc0f1e96bd",
                    # recovery R1: a re-install of the same 136-package tree (``npm install --ignore-scripts
                    # circom@0.5.46`` in an empty directory); cross-checked by identical R1CS digests
-                   "package-lock-r1": "19b48fbf65343bdb9de90b9947bb60b48ff6344ebaffb6ad5d96d5fd23661f69"},
+                   "package-lock-r1": "19b48fbf65343bdb9de90b9947bb60b48ff6344ebaffb6ad5d96d5fd23661f69",
+                   # wave RT-C2: another re-install (same cli.js digest), cross-checked by identical -f R1CS digests
+                   # on every circom 1 reference it compiled
+                   "package-lock-c2": "760f27219f4977d06f9ffb82a41d8d4215550a59a612d2f2d5b5cd35f921f89e"},
         "cli_sha256": "f2b1f22302b66fe308a339bc10d1086d04175d6a1dc1033fb551719c7c81b96d",
         "digest_source": "npm registry tarball integrity (sha512) of circom 0.5.46, the last circom 1 release; the "
                          "installed tree is pinned by the sha256 of its package-lock.json",
@@ -1142,8 +1148,13 @@ def _size_node(sh: Shared, node: dict, work: str) -> None:
         node["guard"] = bool(cr.get("guard"))
 
 
-def _package_node(sh: Shared, key: str, node: dict, variants: list[dict]) -> dict:
-    """The package of the selected harvested instantiation of one template content."""
+DECOMPOSITION_SELECTION = ("largest compiled constraint count within the size policy among the harvested sub-component "
+                           "instantiations of this template content (decomposition of TOO-LARGE instantiations)")
+
+
+def _package_node(sh: Shared, key: str, node: dict, variants: list[dict], selection: str | None = None) -> dict:
+    """The package of the selected harvested instantiation of one template content (``selection``: the rule that
+    selected it, default :data:`DECOMPOSITION_SELECTION`)."""
     t, args = node["template"], node["args"]
     t0 = time.time()
     pre = TG.preconditions(t) if TG.input_tags(t) else None
@@ -1152,9 +1163,7 @@ def _package_node(sh: Shared, key: str, node: dict, variants: list[dict]) -> dic
     dir_name = P.package_dir_name(t.path, t.name, args, sh.cfg.scope_prefix)
     inst = {"rule": DC.RULE, "rule_order": [DC.RULE], "args": list(args), "call": chosen["call"], "params": t.params,
             "provenance": node["provenance"][:6],
-            "selection": ("largest compiled constraint count within the size policy among the harvested "
-                          "sub-component instantiations of this template content (decomposition of TOO-LARGE "
-                          "instantiations)"),
+            "selection": selection or DECOMPOSITION_SELECTION,
             "include_context": cr["include_context"], "main_sha256": cr["main_sha256"],
             "candidates": candidate_summary([r for v in variants for r in v["size_records"]][:40]),
             "decomposition": {"parents": node["parents"][:20], "n_parents": len(node["parents"]),

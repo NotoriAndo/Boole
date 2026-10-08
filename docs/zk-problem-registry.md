@@ -813,9 +813,9 @@ proof of the reference's issued DET problem, so a solved DET problem unlocks the
 the proof limits (20,000 MB Lean memory, 30 minutes), and is recorded in the problem (`det`: method, model digest,
 proof digest, checker verdict); DET of the reference and the equivalence imply DET of every accepted candidate.
 Eligible references: DET machine-checked as above, a record with at least one non-linear constraint, `--O0` within
-4,000 constraints, a pinned release compiler with `--O2` (circom v2.1.9 or v2.2.3; not circom 1 or source builds), no
-tagged-input wrapper. A reference without outputs (an assertion circuit) is eligible too; its equivalence is about
-the set of accepted inputs. The problem package holds `problem.json` (status `OPEN`), the reference model file and the
+4,000 constraints, a compiler the registry pins (the release binaries v2.1.9 and v2.2.3, the v2.0.9 source build, or
+circom 1), no tagged-input wrapper. A reference without outputs (an assertion circuit) is eligible too; its
+equivalence is about the set of accepted inputs. The problem package holds `problem.json` (status `OPEN`), the reference model file and the
 reference main texts; it pins a repository snapshot by manifest digest.
 
 **Metric.** The record and every candidate are scored by the number of non-linear constraints of the `--O2` compile
@@ -825,6 +825,17 @@ linear constraints into quadratic ones never counts; a candidate counts only wit
 constraints than the record. Totals are reported alongside. circom writes the `--O2` constraint set in a
 run-dependent order, so every `--O2` R1CS is canonicalized (terms by wire, constraints sorted; header, wire numbering
 and labels unchanged) before it is counted, digested or modelled.
+
+**Old compilers.** The registry's v2.0.9 source build (digest-pinned) has `--O2` and is used like the releases. circom 1
+(the pinned npm package 0.5.46) has no `--O2`: its record is its only optimization, the full constraint reduction (no
+`-f`), which eliminates internal signals through linear constraints and never removes a main input or output, public
+or private; circom 1 mains keep the template's own public and private inputs (no `{public [..]}`, no `pragma`), and its
+reduced R1CS is canonicalized too. The reference and every candidate use exactly the same pinned compiler, flags and
+prime. The non-linear count is not independent of the optimization level: linear substitution can make one factor of
+a product constant, and the product becomes linear. Compiled at `--O1` as well, 545 of 664 references (the 458 RT1
+problems and 206 v2.0.9 references) have the same non-linear count as at `--O2`; on the others `--O2` is lower by a
+median of 3 constraints (1.2%; max 255) and never higher. So the comparison rests on equal treatment (same toolchain,
+its most simplifying level) rather than on level-invariance, and records of different compilers are never compared.
 
 **Admissibility of a candidate.** It declares a template with the reference's name and number of parameters (the
 harness writes `component main {public [<reference inputs>]} = <reference call>;`); it has no `component main` and no
@@ -869,6 +880,33 @@ generator fills correctly passes it, and only the proof decides (the DET screen 
 memory is the bottleneck: equivalence proofs of references with thousands of constraints or 254-bit coefficients
 exceeded 16–20 GB of Lean memory or 30 minutes in P2. Lower-bound arguments for records without a candidate are
 informal.
+
+**Sub-component references.** A TOO-LARGE parent is not a reference, but its sub-components can be. Code:
+`scripts/zk_registry/subinstances.py` (offline tests `scripts/test_zk_registry_subinstances.py`). The concrete
+instantiations below a parent are harvested at every depth by the registry's decomposition rule; one is *located* in
+the parent when its standalone unoptimized compile has the same wires and `.sym` names (aliases included) as a
+component subtree of the parent's unoptimized compile (same compiler, prime and library paths, R1CS equal to the
+registry's), its constraints are that subtree's constraints, the other subtree constraints touch only the component's
+inputs and outputs (written by the parent), and no internal signal of the component is named or constrained outside
+it. Located instances within 4,000 constraints whose model no registry package has are packaged by the DET generator
+(`instantiation.rule = decomposition`); with a machine-checked DET they become ratchet problems whose `context`
+(kind `sub-component`) lists the parents, the located instance paths and the meaning: the reference is the
+sub-component as instantiated there, and an accepted candidate (same input–output relation) can replace it in the
+parent without changing the parent's input–output relation.
+
+**Wave RT-C2** (closed-local packages, no solving): **623 problems**, 170 from old compilers and 453 sub-components.
+Old compilers: of the 255 records RT1 excluded only for their compiler (v2.0.9 207, circom 1 48), 170 problems (v2.0.9
+127, circom 1 43); every reference compile reproduced the registry R1CS with the rebuilt v2.0.9 binary and the
+reinstalled circom 1 tree (added as pins); exclusions: linear record 50, duplicate model 34, DET check above the proof
+limits 1. Sub-components: 5,141 instantiations harvested below the 518 TOO-LARGE parents (the DET-MOD parents); 339
+parents compiled and mapped (157 above the DET-MOD mapping limits, 11 with tagged main inputs, 11 without a candidate
+within the limit); 674 located instances packaged (one per model; not packaged: linear record 1,390, not compiled
+653, model of an existing package 634, not located 553, duplicate model 507, above 4,000 constraints 439, tagged
+inputs 3), with DET statuses OPEN 421, GATE-FAIL 179, DET-FALSE-CANDIDATE 74 (private); battery P3 on the OPEN ones:
+MECH-SOLVED 289, STUCK 122, above the memory guard 10; 165 battery closures re-checked, all PASS. DET evidence of the
+623 problems: battery P3 proof 371, battery closure re-checked as a proof 252, every check within 18.6 GB and 688 s.
+Records range from 1 to 3,184 non-linear constraints (bands 1-31 / 32-99 / 100-499 / 500-999 / 1000+:
+193 / 129 / 185 / 44 / 72). Together with RT1: 1,081 Circom ratchet problems.
 
 ### Noir references
 

@@ -1,5 +1,6 @@
 // Ratchet simulation runner (a variant of witness_runner.js; used by ratchet.py's --simulate screen).
-// Usage: node ratchet_sim.js <witness_calculator.js> <circuit.wasm> <circuit.r1cs> <inputs.jsonl> <out.jsonl>
+// Usage: node ratchet_sim.js <witness_calculator.js | circom_runtime dir> <circuit.wasm> <circuit.r1cs> <inputs.jsonl>
+//                            <out.jsonl>
 // Runs circom's own wasm witness generator (emitted by the pinned compiler next to the wasm) on every input object
 // (one JSON object per line) and checks each generated witness against the circuit's R1CS (A.w * B.w = C.w mod p).
 // Writes one JSON line per input:
@@ -10,7 +11,10 @@
 "use strict";
 const fs = require("fs");
 const [wcPath, wasmPath, r1csPath, inPath, outPath] = process.argv.slice(2);
-const builder = require(wcPath);
+// circom 2 emits witness_calculator.js (a builder function); circom 1 wasm files are run by the
+// WitnessCalculatorBuilder of the circom_runtime package pinned with the circom 1 compiler.
+const mod = require(wcPath);
+const builder = typeof mod === "function" ? mod : mod.WitnessCalculatorBuilder;
 
 function readR1cs(path) {
   const b = fs.readFileSync(path);

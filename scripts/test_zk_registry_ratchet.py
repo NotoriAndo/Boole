@@ -357,7 +357,9 @@ class AdmissibilityTests(unittest.TestCase):
     def test_reference_eligibility(self) -> None:
         spec = RT.reference_spec(os.path.join(self.tmp, "registry", "toy.Toy"))
         self.assertIsNone(RT.static_exclusion(spec))
-        for tag in ("v2.0.9", "v0.5.46"):
+        for tag in ("v2.0.9", "v0.5.46"):              # wave RT-C2: the registry's source build and circom 1
+            self.assertIsNone(RT.static_exclusion(dict(spec, compiler=dict(spec["compiler"], tag=tag))), tag)
+        for tag in ("v2.0.8", "v2.1.0", "v0.5.45"):    # not pinned by the registry
             self.assertEqual(RT.static_exclusion(dict(spec, compiler=dict(spec["compiler"], tag=tag)))[0], "compiler")
         self.assertEqual(RT.static_exclusion(dict(spec, tag_wrapper=True))[0], "tag-wrapper")
         self.assertEqual(RT.static_exclusion(dict(spec, property="DET-MOD"))[0], "property")
@@ -370,8 +372,148 @@ class AdmissibilityTests(unittest.TestCase):
         self.assertEqual(RT.det_exclusion(dict(det, checker=dict(det["checker"], peak_rss_mb=20001)), msha)[0],
                          "det-limits")
         with self.assertRaises(RT.NotEligible) as cm:
-            RT.compiler_binary({}, "v2.0.9")
+            RT.compiler_binary({}, "v2.0.8")
         self.assertEqual(cm.exception.code, "compiler")
+        with self.assertRaises(RuntimeError):                     # pinned, but no binary configured
+            RT.compiler_binary({}, "v2.0.9")
+        with tempfile.TemporaryDirectory() as tmp:               # a configured binary must match a pinned digest
+            fake = os.path.join(tmp, "circom")
+            RT.put(fake, "not the pinned build")
+            with self.assertRaises(ValueError):
+                RT.compiler_binary({"v2.0.9": fake}, "v2.0.9")
+
+
+def retag(prob: dict, tag: str, version: str, extra_record: dict | None = None) -> dict:
+    """The toy problem as if its reference had been compiled by another pinned compiler (offline: texts and rules
+    only; the live wave RT-C2 compiles real references)."""
+    ref = dict(prob["reference"], compiler=dict(prob["reference"]["compiler"], tag=tag, version=version))
+    return dict(prob, reference=ref, record=dict(prob["record"], **(extra_record or {})))
+
+
+class OldCompilerTests(unittest.TestCase):
+    """Wave RT-C2: references compiled by the registry's v2.0.9 source build (``--O2`` like the releases) and by
+    circom 1 (no ``--O2``: its full constraint reduction is the record; no pragma, no ``{public [..]}``)."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp()
+        self.pdir, self.prob = offline_problem(self.tmp)
+        self.spec = RT.reference_spec(os.path.join(self.tmp, "registry", "toy.Toy"))
+        self.man = RT.verify_snapshot(RT.resolve_snapshot(self.pdir, self.prob, None),
+                                      self.prob["snapshot"]["manifest_sha256"])
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.tmp)
+
+    def spec_for(self, tag: str, prime_flag: str | None = None) -> dict:
+        return dict(self.spec, compiler=dict(self.spec["compiler"], tag=tag, version=tag[1:]), prime_flag=prime_flag)
+
+    def test_flags_by_compiler(self) -> None:
+        for tag in ("v2.2.3", "v2.1.9", "v2.0.9"):
+            sp = self.spec_for(tag, "bls12381")
+            self.assertEqual(RT.model_flags(sp), ["--r1cs", "--sym", "--O0", "--prime", "bls12381"], tag)
+            self.assertEqual(RT.record_flags(sp), ["--r1cs", "--sym", "--O2", "--prime", "bls12381"], tag)
+            self.assertEqual(RT.wasm_flags(sp), ["--wasm"], tag)
+        c1 = self.spec_for("v0.5.46", "BLS12381")
+        self.assertEqual(RT.model_flags(c1), ["-f", "-r", "main.r1cs", "-s", "main.sym", "-p", "BLS12381"])
+        self.assertEqual(RT.record_flags(c1), ["-r", "main.r1cs", "-s", "main.sym", "-p", "BLS12381"])
+        self.assertNotIn("-f", RT.record_flags(c1))                 # the record is circom 1's full reduction
+        self.assertEqual(RT.wasm_flags(c1), ["-w", "main.wasm"])
+        self.assertEqual(RT.record_flags(self.spec_for("v0.5.46")), ["-r", "main.r1cs", "-s", "main.sym"])
+        self.assertIn("reduction", RT.record_optimization(c1))
+        self.assertIn("--O2", RT.record_optimization(self.spec_for("v2.0.9")))
+        self.assertEqual(RT.kind_of({"libs": [], "prime_flag": None}), "circom2")   # older callers: circom 2
+
+    def test_reference_spec_reads_circom1_prime_flag(self) -> None:
+        reg = os.path.join(self.tmp, "registry", "toy.Toy", "problem.json")
+        rec = RT.read_json(reg)
+        rec["circuit"]["compiler"].update(version="0.5.46", flags=list(CD.CIRCOM1_FLAGS) + ["-p", "BLS12381"])
+        P.write_json(reg, rec)
+        sp = RT.reference_spec(os.path.dirname(reg))
+        self.assertEqual((sp["compiler"]["tag"], sp["prime_flag"], sp["libs"]), ("v0.5.46", "BLS12381", []))
+        self.assertEqual(RT.prime_flags(sp), ["-p", "BLS12381"])
+
+    def test_mains_by_compiler(self) -> None:
+        c2 = RT.reference_main(self.spec_for("v2.0.9"), False, False, ["a", "b"])
+        self.assertTrue(c2.startswith("pragma circom 2.0.0;"))
+        self.assertIn("component main {public [a, b]} = Toy();", c2)
+        c1 = self.spec_for("v0.5.46")
+        for text in (RT.reference_main(c1, False, False), RT.reference_main(c1, False, False, ["a", "b"])):
+            self.assertNotIn("pragma", text)
+            self.assertNotIn("public", text)
+            self.assertIn('include "repo/toy.circom";\ncomponent main = Toy();', text)
+        self.assertEqual(RT.registry_main(c1, False, False), I.main_source("toy.circom", "Toy", (), pragma=None))
+        self.assertEqual(RT.candidate_main(retag(self.prob, "v0.5.46", "0.5.46"), "none"),
+                         'include "Candidate.circom";\ncomponent main = Toy();\n')
+        self.assertEqual(RT.candidate_main(retag(self.prob, "v2.0.9", "2.0.9"), "2.0.0"),
+                         RT.candidate_main(self.prob, "2.0.0"))
+
+    def test_circom1_io_keeps_the_reference_public_private_split(self) -> None:
+        io = dict(self.prob["reference"]["io"], public_inputs=["a"])     # `signal input a; signal private input b`
+        sig = RT.signature({"r1cs": str(COMPILED / "equivalent.r1cs"), "sym": str(COMPILED / "equivalent.sym")})
+        self.assertIsNone(RT.io_mismatch(io, dict(sig, n_pub_in=1)))
+        self.assertIn("n_pub_in", RT.io_mismatch(io, sig))                # both public: not the reference's split
+        self.assertIn("public", RT.io_mismatch(io, dict(sig, n_pub_in=1, n_inputs=1)))
+        self.assertIsNone(RT.io_mismatch(self.prob["reference"]["io"], sig))  # circom 2: every input public
+
+    def test_circom1_candidate_sources(self) -> None:
+        prob = retag(self.prob, "v0.5.46", "0.5.46")
+        d = tempfile.mkdtemp(dir=self.tmp)
+        toy = "template Toy() { signal input a; signal private input b; signal output y; y <== a * b; }\n"
+        RT.put(os.path.join(d, "Candidate.circom"), toy)
+        srcs, snap, pragma = RT.admit_sources(os.path.join(d, "Candidate.circom"), prob, self.man)
+        self.assertEqual((sorted(srcs), snap, pragma), (["Candidate.circom"], [], "none"))
+        RT.put(os.path.join(d, "Candidate.circom"), "pragma circom 2.0.0;\n" + toy)
+        with self.assertRaises(RT.Reject) as cm:
+            RT.admit_sources(os.path.join(d, "Candidate.circom"), prob, self.man)
+        self.assertIn("circom 1", str(cm.exception))
+
+    def test_reference_generator_rebuild_check(self) -> None:
+        # circom 1 embeds absolute source paths in its wasm (data offsets shift with the work directory): its rebuild
+        # is checked by the R1CS; circom 2 also by the wasm digest
+        work = tempfile.mkdtemp(dir=self.tmp)
+        RT.put(os.path.join(work, "main.wasm"), "\0asm.." + work)
+        refw = {"r1cs_sha256": self.prob["reference"]["model"]["r1cs_sha256"], "wasm": os.path.join(work, "main.wasm")}
+        self.assertFalse(RT.reference_generator_ok(self.prob, refw))                      # circom 2: digest differs
+        c1 = retag(self.prob, "v0.5.46", "0.5.46")
+        self.assertTrue(RT.reference_generator_ok(c1, refw))
+        self.assertFalse(RT.reference_generator_ok(c1, dict(refw, r1cs_sha256="0" * 64)))
+        self.assertFalse(RT.reference_generator_ok(c1, dict(refw, error="x")))
+        gen = dict(self.prob["simulate"]["reference_generator"], wasm_sha256=P.sha256_file(refw["wasm"]))
+        self.assertTrue(RT.reference_generator_ok(dict(self.prob, simulate=dict(self.prob["simulate"],
+                                                                                 reference_generator=gen)), refw))
+
+    def test_old_compiler_records_name_their_optimization(self) -> None:
+        digest = "cd" * 32
+        for tag, version in (("v2.0.9", "2.0.9"), ("v0.5.46", "0.5.46")):
+            bare = retag(self.prob, tag, version)
+            self.assertIn("optimization", " ".join(P.validate_problem(bare)), tag)
+            full = retag(self.prob, tag, version, {"optimization": "x", "compiler_sha256": digest})
+            self.assertEqual(P.validate_problem(full, self.pdir), [], tag)
+        self.assertEqual(P.validate_problem(retag(self.prob, "v2.0.8", "2.0.8")) != [], True)
+        self.assertEqual(P.validate_problem(self.prob, self.pdir), [])        # RT1-style records are unchanged
+
+    def test_subcomponent_context(self) -> None:
+        ctx = {"kind": "sub-component", "located_by": "fixture", "n_parents": 1,
+               "parents": [{"registry_package_id": "p/Parent.4", "call": "Parent(4)",
+                            "instance_paths": ["main.c", "main.d[1]"], "n_instances": 2}]}
+        spec = RT.reference_spec(os.path.join(self.tmp, "registry", "toy.Toy"))
+        measured = {k: self.prob["reference"][k] for k in ("nomain", "custom_templates")}
+        measured.update(io={k: v for k, v in self.prob["reference"]["io"].items() if k != "public_inputs"},
+                        public_inputs=self.prob["reference"]["io"]["public_inputs"],
+                        record={k: v for k, v in self.prob["record"].items() if k not in ("rung", "source")},
+                        model_counts=self.prob["reference"]["model"]["counts"],
+                        simulate={k: v for k, v in self.prob["simulate"].items()})
+        prob = RT.problem_record(spec, measured, self.prob["det"], self.prob["snapshot"], context=ctx)
+        self.assertEqual(prob["context"]["meaning"], RT.SUBCOMPONENT_MEANING)
+        self.assertIn("preserves the parent's input-output relation", prob["context"]["meaning"])
+        self.assertEqual(P.validate_problem(prob, self.pdir), [])
+        bad = dict(prob, context=dict(prob["context"], parents=[dict(ctx["parents"][0], n_instances=1)]))
+        self.assertIn("instance paths", " ".join(P.validate_problem(bad)))
+        self.assertNotEqual(P.validate_problem(dict(prob, context=dict(prob["context"], kind="parent"))), [])
+        cand, _ = compiled_candidate(prob, "equivalent")
+        cprob = RT.candidate_problem(prob, cand, [{"path": "Statement.lean", "role": "statement", "sha256": H}] * 3,
+                                     "x", H)
+        self.assertEqual(cprob["context"], prob["context"])                # the checker package keeps the meaning
 
 
 class StatementTests(unittest.TestCase):

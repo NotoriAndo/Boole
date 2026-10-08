@@ -269,6 +269,11 @@ def validate_ratchet(problem: dict, pkg_dir: str | None = None, schema: dict | N
         errs.append("record counts do not add up")
     if det["model_sha256"] != ref["model"]["sha256"] or det["model_file"] != ref["model"]["file"]:
         errs.append("DET evidence is not about the reference model file")
+    if ref["compiler"]["tag"] in ("v2.0.9", "v0.5.46") and not ("optimization" in rec and "compiler_sha256" in rec):
+        errs.append("a record of a source-built or circom 1 compiler must name its optimization and compiler digest")
+    for par in (problem.get("context") or {}).get("parents", []):
+        if par["n_instances"] < len(par["instance_paths"]):
+            errs.append("context parent lists more instance paths than instances")
     if problem["status"] == "OPEN":
         for key in ("candidate", "statement", "checker"):
             if key in problem:

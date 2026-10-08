@@ -11,7 +11,13 @@ candidate) plus a Lean proof that it is equivalent to the reference; an accepted
 * **Metric**: the number of **non-linear** constraints of the canonicalized ``--O2`` compile with every main input
   public: constraints ``A * B = C`` whose A and B both contain a non-constant wire.  Linear constraints are free (they
   are substituted away when the template is embedded in a larger circuit), so compressing linear constraints into
-  quadratic ones never counts.  Totals are reported alongside.
+  quadratic ones never counts.  Totals are reported alongside.  Compilers: the registry's pinned release binaries
+  (v2.1.9, v2.2.3) and its pinned v2.0.9 source build use ``--O2``; circom 1 (the pinned npm package 0.5.46) has no
+  ``--O2`` and uses its only optimization, the full linear constraint reduction (no ``-f``).  Reference and
+  candidates always use exactly the same compiler and flags, at the most simplifying level the compiler offers:
+  the non-linear count can still depend on the level (substituting linear constraints can turn a product with a
+  factor that becomes constant into a linear constraint; wave RT-C2 measured --O1 above --O2 on 18% of 664
+  references, by a median of 3 constraints, never below), so records are compared only within one toolchain.
 * **Admissibility** of a candidate: it declares a template with the reference's name and arity (the harness writes
   ``component main {public [<inputs>]} = <reference call>``), it has no ``component main`` and no custom templates,
   it includes only files next to it or files of the problem's pinned repository snapshot (the repository at the
@@ -40,7 +46,8 @@ Usage::
     python3 -m zk_registry.ratchet check    --problem DIR --candidate F --solution S --out DIR --compilers C.json
                                             --lean-env E.json
 
-``C.json`` maps compiler tags (``v2.2.3``, ``v2.1.9``) to pinned binaries (digest-checked on every use).  Exit codes:
+``C.json`` maps compiler tags (``v2.2.3``, ``v2.1.9``, ``v2.0.9``; ``v0.5.46``: the circom 1 npm install root) to
+pinned compilers (digest-checked on every use); circom 1 runs under ``--node``.  Exit codes:
 ``count`` / ``simulate`` / ``statement``: 0 smaller (``simulate``: and no mismatch), 4 rejected or not smaller,
 5 simulation mismatch, 3 error; ``check``: 0 PASS, 1 FAIL, 2 INVALID, 3 ERROR, 4 REJECTED.
 """
@@ -76,14 +83,24 @@ from zk_registry import r1cs as R               # noqa: E402
 GENERATOR_NAME = "boole-zk-registry-ratchet"
 GENERATOR_VERSION = "1"
 GENERATOR_SOURCES = ["ratchet.py", "ratchet_sim.js", "schema/ratchet_problem.schema.json", "r1cs.py", "lean_emit.py",
-                     "instantiation.py", "circom_source.py", "package.py", "check.py"]
+                     "instantiation.py", "circom_source.py", "package.py", "check.py", "subinstances.py"]
 HERE = os.path.dirname(os.path.abspath(__file__))
 SIM_RUNNER = os.path.join(HERE, "ratchet_sim.js")
 
 FLAGS_MODEL = ["--r1cs", "--sym", "--O0"]       # the reference meaning (R1CS byte-identical to the registry model's)
 FLAGS_RECORD = ["--r1cs", "--sym", "--O2"]      # the cost compile of the record and of every candidate
 FLAGS_WASM = ["--wasm"]                         # added for the simulation compiles (R1CS must stay byte-identical)
-RELEASE_COMPILERS = ("v2.1.9", "v2.2.3")        # pinned release binaries with --O2 (not circom 1, not source builds)
+# circom 1 (npm circom 0.5.46): ``-f`` = no constraint reduction (the --O0 model); without ``-f`` circom 1 runs its
+# only optimization, a full linear reduction of the constraints over internal signals (main inputs and outputs, public
+# or private, are never removed), which is the record and candidate compile
+CIRCOM1_FLAGS_MODEL = ["-f", "-r", "main.r1cs", "-s", "main.sym"]
+CIRCOM1_FLAGS_RECORD = ["-r", "main.r1cs", "-s", "main.sym"]
+CIRCOM1_FLAGS_WASM = ["-w", "main.wasm"]
+CIRCOM1_PRIMES = {"bls12381": "BLS12381"}       # registry prime name -> circom 1 ``-p`` value (default bn128)
+RELEASE_COMPILERS = ("v2.1.9", "v2.2.3")        # pinned release binaries with --O2
+SOURCE_BUILD_COMPILERS = ("v2.0.9",)            # the registry's pinned source build of the release tag, with --O2
+CIRCOM1_COMPILERS = ("v0.5.46",)                # circom 1, the registry's pinned npm package (full reduction)
+PINNED_COMPILERS = RELEASE_COMPILERS + SOURCE_BUILD_COMPILERS + CIRCOM1_COMPILERS
 SIZE_LIMIT = P.R1_MAX_CONSTRAINTS               # reference --O0 size: the recovery-R1 circom size policy
 DET_PROOF_LIMITS = {"rss_mb": 20000, "timeout_s": 1800}   # Lean guard per proof check (ratchet pilot P2)
 DET_METHODS = ("mech-p3", "battery-closure", "det-problem")   # det-problem: an accepted proof of an issued DET problem
@@ -108,6 +125,32 @@ ADMISSIBILITY = [
     "main inputs and outputs equal the reference's (prime, names, order, counts)",
     "every --O2 R1CS is canonicalized before it is counted, digested or modelled",
 ]
+METRIC_CIRCOM1 = ("non-linear constraints of the canonicalized circom 1 compile with its full constraint reduction (no "
+                  "-f; circom 1's only optimization level, which eliminates internal signals through linear "
+                  "constraints and keeps every main input and output): constraints A * B = C whose A and B both "
+                  "contain a non-constant wire; linear constraints are free; the record and every candidate use the "
+                  "same pinned compiler and flags; a candidate counts only if its non-linear count is strictly below "
+                  "the record's; totals are reported")
+ADMISSIBILITY_CIRCOM1 = [
+    "the candidate declares `template <reference template>` with the reference's number of parameters; the harness "
+    "writes `component main = <reference call>;` (circom 1 has no `{public [..]}`: main inputs keep the reference's "
+    "public / private declarations)",
+    "no `component main`, no `pragma` in the candidate files (circom 1 has none)",
+    "includes: bare `<name>.circom` files next to the candidate, or files of the pinned repository snapshot "
+    "(`repo/<path>`); nothing else",
+    "compiled by the reference's pinned circom 1 package (package-lock digest-checked) with the record's flags and "
+    "prime",
+    "main inputs and outputs equal the reference's (prime, names, order, counts, public / private split)",
+    "every record R1CS is canonicalized before it is counted, digested or modelled",
+]
+SUBCOMPONENT_MEANING = (
+    "The reference is a sub-component of the listed parent instantiation(s) of the registry, as instantiated there: "
+    "the same template with the same concrete parameters, prime and compiler; its standalone --O0 constraints equal "
+    "(up to renaming) the sub-circuit of each listed instance in the parent's unoptimized compile, and every other "
+    "constraint of the parent that touches the instance touches only its input and output signals.  A candidate "
+    "accepted for this problem has the same input-output relation as the reference, so substituting it for the "
+    "sub-component in the parent preserves the parent's input-output relation (its DET included); the parent's own "
+    "constraint count drops by the difference.")
 STATEMENT_DESCRIPTION = (
     "over F = ZMod p ([Fact (Nat.Prime p)]): for all input vectors x and output vectors y, "
     "(∃ w, Ref.Constraints w ∧ Ref.Inputs.map w = x ∧ Ref.Outputs.map w = y) ↔ "
@@ -285,21 +328,38 @@ def scan_closure(base: str, start: str, libs: list[str]) -> dict[str, cs.SourceF
 
 # ------------------------------------------------------------------------------------------ compile
 
+def compiler_kind(tag: str) -> str:
+    """``circom2`` (release binaries and the v2.0.9 source build) or ``circom1`` (the npm package)."""
+    rel = CD.CIRCOM_RELEASES.get(tag)
+    if rel is None:
+        raise NotEligible("compiler", f"circom {tag} is not a pinned compiler")
+    return rel["kind"]
+
+
 def compiler_binary(compilers: dict, tag: str) -> str:
-    """The pinned compiler of ``tag`` (registry ``CIRCOM_RELEASES`` digests), digest-checked on every use."""
-    if tag not in RELEASE_COMPILERS:
-        raise NotEligible("compiler", f"circom {tag} has no pinned release binary with --O2")
+    """The pinned compiler of ``tag`` (registry ``CIRCOM_RELEASES`` digests), digest-checked on every use: a binary,
+    or for circom 1 the npm install root."""
+    if tag not in PINNED_COMPILERS:
+        raise NotEligible("compiler", f"circom {tag} is not a pinned compiler of the ratchet")
     if tag not in compilers:
         raise RuntimeError(f"no binary configured for circom {tag}")
     CD.verify_compiler(tag, compilers[tag])
     return compilers[tag]
 
 
+def is_circom1(binary: str) -> bool:
+    """A circom 1 compiler is configured as its npm install root (a directory)."""
+    return os.path.isdir(binary)
+
+
 def compile_circuit(main_text: str, workdir: str, flags: list[str], binary: str, snapshot: str,
-                    files: dict[str, str] | None = None, libs: list[str] = ()) -> dict:
+                    files: dict[str, str] | None = None, libs: list[str] = (), node: str | None = None,
+                    canonical: bool | None = None) -> dict:
     """Compile ``main_text`` (plus ``files``: name -> text next to it) in a fresh ``workdir``; the snapshot's
     top-level entries are linked into it (read-only use) and ``libs`` (repository-relative library paths) become
-    ``-l <workdir>/repo/<lib>``.  Every ``--O2`` R1CS is canonicalized."""
+    ``-l <workdir>/repo/<lib>``.  Every ``--O2`` R1CS is canonicalized (``canonical``: also another record compile,
+    circom 1's reduced one).  ``binary`` is a circom 2 binary or the circom 1 npm install root (run by ``node``;
+    circom 1 has no library paths: includes resolve relative to the including file)."""
     fresh_dir(workdir)
     for name, text in (files or {}).items():
         put(os.path.join(workdir, name), text)
@@ -307,9 +367,19 @@ def compile_circuit(main_text: str, workdir: str, flags: list[str], binary: str,
         if e != "MANIFEST.sha256":
             os.symlink(os.path.join(snapshot, e), os.path.join(workdir, e))
     put(os.path.join(workdir, "main.circom"), main_text)
-    lflags = [x for lib in libs for x in ("-l", os.path.normpath(os.path.join(workdir, "repo", lib)))]
-    run = L.run_process([binary, "main.circom", *flags, *lflags, "-o", "."], {"PATH": "/usr/bin:/bin", "HOME": workdir,
-                        "TMPDIR": workdir}, workdir, COMPILE_TIMEOUT, COMPILE_RSS_MB)
+    c1 = is_circom1(binary)
+    if c1:
+        if libs:
+            raise RuntimeError("circom 1 has no library paths")
+        nb = node_binary(node)
+        cmd = [nb, os.path.join(binary, "node_modules", "circom", "cli.js"), "main.circom", *flags]
+        env = {"PATH": os.path.dirname(nb) + ":/usr/bin:/bin", "HOME": workdir, "TMPDIR": workdir,
+               "NODE_OPTIONS": "--max-old-space-size=16384"}
+    else:
+        lflags = [x for lib in libs for x in ("-l", os.path.normpath(os.path.join(workdir, "repo", lib)))]
+        cmd = [binary, "main.circom", *flags, *lflags, "-o", "."]
+        env = {"PATH": "/usr/bin:/bin", "HOME": workdir, "TMPDIR": workdir}
+    run = L.run_process(cmd, env, workdir, COMPILE_TIMEOUT, COMPILE_RSS_MB)
     log = re.sub(r"\x1b\[[0-9;]*m", "", run.out)
     put(os.path.join(workdir, "circom.log"), log)
     res = {"rc": run.rc, "compile_secs": run.secs, "compile_peak_rss_mb": run.peak_rss_mb,
@@ -326,12 +396,17 @@ def compile_circuit(main_text: str, workdir: str, flags: list[str], binary: str,
     sym = os.path.join(workdir, stem + ".sym")
     res.update(n_constraints=R.read_header(r1cs).n_constraints, r1cs=r1cs, sym=sym,
                r1cs_sha256=P.sha256_file(r1cs), sym_sha256=P.sha256_file(sym))
-    if "--O2" in flags:
+    if ("--O2" in flags) if canonical is None else canonical:
         canon = canonical_r1cs(r1cs)
         res.update(r1cs_raw_sha256=res["r1cs_sha256"], r1cs=canon, r1cs_sha256=P.sha256_file(canon))
     res["n_wires"] = R.read_header(res["r1cs"]).n_wires
-    if "--wasm" in flags:
+    if c1 and "-w" in flags:
+        res.update(js_dir=workdir, wasm=os.path.join(workdir, flags[flags.index("-w") + 1]),
+                   witness_js=os.path.join(binary, "node_modules", "circom_runtime"))
+    elif "--wasm" in flags:
         res["js_dir"] = os.path.join(workdir, stem + "_js")
+        res.update(wasm=os.path.join(res["js_dir"], stem + ".wasm"),
+                   witness_js=os.path.join(res["js_dir"], "witness_calculator.js"))
     return res
 
 
@@ -360,28 +435,51 @@ def signature(res: dict) -> dict:
 
 
 def io_mismatch(ref_io: dict, sig: dict) -> str | None:
-    """Admissibility of a candidate's main I/O: same prime, names and order; every main input public."""
+    """Admissibility of a candidate's main I/O: same prime, names and order; the main inputs public as in the
+    record (circom 2: every main input, ``public_inputs``; circom 1, whose reduction never removes a main input,
+    keeps the reference's own public / private split)."""
+    pub = set(ref_io["public_inputs"])
     want = {"prime": ref_io["prime"], "n_pub_out": len(ref_io["output_names"]),
-            "n_pub_in": len(ref_io["input_names"]), "output_names": ref_io["output_names"],
-            "input_names": ref_io["input_names"]}
+            "n_pub_in": sum(1 for nm in ref_io["input_names"] if R.signal_base(nm)[len("main."):] in pub),
+            "output_names": ref_io["output_names"], "input_names": ref_io["input_names"]}
     for k, v in want.items():
         if sig[k] != v:
             return f"main I/O differs from the reference ({k}): {str(sig[k])[:200]} != {str(v)[:200]}"
-    if sig["n_inputs"] != sig["n_pub_in"]:
+    if sig["n_inputs"] != len(ref_io["input_names"]):
         return "main inputs must all be public in the cost compile"
     return None
 
 
+def kind_of(spec: dict) -> str:
+    """The compiler kind of a reference spec or of ``spec_of(problem)`` (circom 2 when no compiler is named)."""
+    tag = (spec.get("compiler") or {}).get("tag")
+    return compiler_kind(tag) if tag else "circom2"
+
+
 def prime_flags(spec: dict) -> list[str]:
-    return ["--prime", spec["prime_flag"]] if spec.get("prime_flag") else []
+    if not spec.get("prime_flag"):
+        return []
+    return ["-p" if kind_of(spec) == "circom1" else "--prime", spec["prime_flag"]]
 
 
 def model_flags(spec: dict) -> list[str]:
-    return list(FLAGS_MODEL) + prime_flags(spec)
+    return list(CIRCOM1_FLAGS_MODEL if kind_of(spec) == "circom1" else FLAGS_MODEL) + prime_flags(spec)
 
 
 def record_flags(spec: dict) -> list[str]:
-    return list(FLAGS_RECORD) + prime_flags(spec)
+    return list(CIRCOM1_FLAGS_RECORD if kind_of(spec) == "circom1" else FLAGS_RECORD) + prime_flags(spec)
+
+
+def wasm_flags(spec: dict) -> list[str]:
+    return list(CIRCOM1_FLAGS_WASM if kind_of(spec) == "circom1" else FLAGS_WASM)
+
+
+def record_optimization(spec: dict) -> str:
+    """The optimization level of the record compile (the same for every candidate)."""
+    if kind_of(spec) == "circom1":
+        return ("circom 1 full constraint reduction (its only optimization: linear constraints eliminate internal "
+                "signals; main inputs and outputs are kept)")
+    return "--O2 (full constraint simplification)"
 
 
 # ------------------------------------------------------------------------------------------ reference
@@ -398,7 +496,8 @@ def reference_spec(reg_dir: str) -> dict:
         "template": ids["template"], "args": [str(a) for a in ins["args"]], "call": ins["call"],
         "include": ins.get("include_context") or ids["path"],
         "libs": [flags[i + 1] for i, x in enumerate(flags) if x == "-l"],
-        "prime_flag": flags[flags.index("--prime") + 1] if "--prime" in flags else None,
+        "prime_flag": (flags[flags.index("--prime") + 1] if "--prime" in flags else
+                       flags[flags.index("-p") + 1] if "-p" in flags else None),
         "dependencies": ids.get("dependencies") or [],
         "compiler": {"tag": "v" + circ["compiler"]["version"], "version": circ["compiler"]["version"],
                      "binary_sha256": circ["compiler"]["binary_sha256"]},
@@ -416,9 +515,8 @@ def static_exclusion(spec: dict) -> tuple[str, str] | None:
     """(reason class, detail) when a registry record cannot be a ratchet reference before any compile."""
     if spec["property"] != "DET":
         return "property", f"{spec['property']} package (the reference meaning must be a full DET model)"
-    if spec["compiler"]["tag"] not in RELEASE_COMPILERS:
-        return "compiler", (f"circom {spec['compiler']['tag']}: no pinned release binary with --O2 (circom 1 or a "
-                            "source build)")
+    if spec["compiler"]["tag"] not in PINNED_COMPILERS:
+        return "compiler", f"circom {spec['compiler']['tag']}: not a pinned compiler of the ratchet"
     if spec["tag_wrapper"] or spec["preconditions"]:
         return "tag-wrapper", "tagged inputs compiled through a wrapper main (DET under input preconditions)"
     if spec["n_constraints"] > SIZE_LIMIT:
@@ -501,8 +599,11 @@ def battery_det_solution(statement: str, n_constraints: int, form: str) -> str:
 
 def reference_main(spec: dict, nomain: bool, custom: bool, public: list[str] | None = None) -> str:
     """The registry's generated main (``instantiation.main_source``) with the include path inside the snapshot;
-    with ``public`` the record's cost main (every main input public)."""
+    with ``public`` the record's cost main (every main input public).  circom 1 has neither ``pragma`` nor
+    ``{public [..]}``: its record main is the model main (its reduction keeps every main input)."""
     inc = "repo/" + spec["include"] + (".boole-nomain" if nomain else "")
+    if kind_of(spec) == "circom1":
+        return I.main_source(inc, spec["template"], tuple(spec["args"]), pragma=None, custom_templates=custom)
     text = I.main_source(inc, spec["template"], tuple(spec["args"]), pragma="2.0.0", custom_templates=custom)
     return text.replace("component main = ", f"component main{public_clause(public or [])} = ", 1)
 
@@ -510,7 +611,8 @@ def reference_main(spec: dict, nomain: bool, custom: bool, public: list[str] | N
 def registry_main(spec: dict, nomain: bool, custom: bool) -> str:
     """The registry package's recorded main text (provenance: its sha256 is ``instantiation.main_sha256``)."""
     comment = (f"compiled with the component main declaration of {spec['include']} blanked" if nomain else None)
-    return I.main_source(spec["include"], spec["template"], tuple(spec["args"]), pragma="2.0.0", comment=comment,
+    pragma = None if kind_of(spec) == "circom1" else "2.0.0"
+    return I.main_source(spec["include"], spec["template"], tuple(spec["args"]), pragma=pragma, comment=comment,
                          custom_templates=custom)
 
 
@@ -518,15 +620,19 @@ def node_binary(node: str | None = None) -> str:
     return node or shutil.which("node") or "node"
 
 
-def run_generator(node: str, js_dir: str, r1cs: str, vectors: list[dict], work: str, tag: str) -> list[dict]:
-    """The circuit's own wasm witness generator on every input object, each witness re-checked against the R1CS."""
+def run_generator(node: str, js_dir: str, r1cs: str, vectors: list[dict], work: str, tag: str,
+                  witness_js: str | None = None, wasm: str | None = None) -> list[dict]:
+    """The circuit's own wasm witness generator on every input object, each witness re-checked against the R1CS
+    (``witness_js`` / ``wasm``: the compile result's generator, default circom 2's files in ``js_dir``; circom 1
+    wasm files run through the pinned ``circom_runtime``)."""
     os.makedirs(work, exist_ok=True)
     inp, outp = os.path.join(work, tag + ".inputs.jsonl"), os.path.join(work, tag + ".results.jsonl")
     put(inp, "".join(json.dumps(v) + "\n" for v in vectors))
-    wasm = sorted(n for n in os.listdir(js_dir) if n.endswith(".wasm"))[0]
+    wasm = wasm or os.path.join(js_dir, sorted(n for n in os.listdir(js_dir) if n.endswith(".wasm"))[0])
+    witness_js = witness_js or os.path.join(js_dir, "witness_calculator.js")
     env = {"PATH": os.path.dirname(node) + ":/usr/bin:/bin", "HOME": work, "NODE_OPTIONS": "--max-old-space-size=8192"}
-    r = subprocess.run([node, SIM_RUNNER, os.path.join(js_dir, "witness_calculator.js"), os.path.join(js_dir, wasm),
-                        r1cs, inp, outp], capture_output=True, text=True, timeout=3600, env=env, cwd=work)
+    r = subprocess.run([node, SIM_RUNNER, witness_js, wasm, r1cs, inp, outp], capture_output=True, text=True,
+                       timeout=3600, env=env, cwd=work)
     if r.returncode != 0:
         raise RuntimeError(f"simulation runner failed: {(r.stderr or r.stdout)[-500:]}")
     with open(outp, encoding="utf-8") as f:
@@ -579,10 +685,32 @@ def probe_ranges(groups: list[tuple[str, int]], idx: list[tuple[str, int]], resu
     return out
 
 
+def reference_generator_ok(prob: dict, refw: dict) -> bool:
+    """The rebuilt reference generator is the recorded one: its R1CS is the model's, and (circom 2) its wasm has the
+    recorded digest.  circom 1 embeds the absolute paths of the compiled source files in its wasm (which shifts its
+    data offsets), so its wasm digest depends on the work directory: it is recorded, and the rebuild is checked by
+    its R1CS only (the compiler and the snapshot are digest-pinned, and every witness is re-checked against the
+    R1CS)."""
+    ref, gen = prob["reference"], prob["simulate"]["reference_generator"]
+    if "error" in refw or refw["r1cs_sha256"] != ref["model"]["r1cs_sha256"]:
+        return False
+    return kind_of(spec_of(prob)) == "circom1" or P.sha256_file(refw["wasm"]) == gen["wasm_sha256"]
+
+
+def generator_file(witness_js: str) -> str:
+    """The witness-calculator source file: circom 2's ``witness_calculator.js``, or the entry file of the pinned
+    ``circom_runtime`` package (circom 1)."""
+    if os.path.isdir(witness_js):
+        return os.path.join(witness_js, read_json(os.path.join(witness_js, "package.json"))["main"])
+    return witness_js
+
+
 def measure_reference(spec: dict, snapshot: str, work: str, compilers: dict, node: str | None = None) -> dict:
     """Reference compiles: the --O0 model (byte-identical to the registry R1CS), the record (--O2, inputs public,
-    canonical) and the simulation reference (--O0 --wasm, same R1CS) with the probed input ranges."""
+    canonical; circom 1: its full reduction, canonical) and the simulation reference (--O0 --wasm, same R1CS) with
+    the probed input ranges."""
     binary = compiler_binary(compilers, spec["compiler"]["tag"])
+    c1 = kind_of(spec) == "circom1"
     start = "repo/" + spec["include"]
     if not os.path.isfile(os.path.join(snapshot, start)):
         raise NotEligible("snapshot", f"{start} is not in the snapshot")
@@ -598,7 +726,7 @@ def measure_reference(spec: dict, snapshot: str, work: str, compilers: dict, nod
     m: dict = {"nomain": nomain, "custom_templates": custom, "closure_files": len(closure),
                "registry_main_identical": sha(registry_main(spec, nomain, custom).encode()) == spec["main_sha256"]}
     o0 = compile_circuit(reference_main(spec, nomain, custom), os.path.join(work, "O0"), model_flags(spec), binary,
-                         snapshot, libs=spec["libs"])
+                         snapshot, libs=spec["libs"], node=node)
     if "error" in o0:
         raise NotEligible("compile", f"--O0 compile failed: {o0['error'][:300]}")
     if o0["r1cs_sha256"] != spec["r1cs_sha256"]:
@@ -607,42 +735,46 @@ def measure_reference(spec: dict, snapshot: str, work: str, compilers: dict, nod
         raise NotEligible("provenance", "the reference main text differs from the registry's")
     sig = signature(o0)
     m["io"] = {k: sig[k] for k in ("prime", "prime_name", "output_names", "input_names")}
-    m["public_inputs"] = input_bases(sig["input_names"])
+    m["public_inputs"] = input_bases(sig["input_names"][:sig["n_pub_in"]] if c1 else sig["input_names"])
     o2 = compile_circuit(reference_main(spec, nomain, custom, m["public_inputs"]), os.path.join(work, "O2"),
-                         record_flags(spec), binary, snapshot, libs=spec["libs"])
+                         record_flags(spec), binary, snapshot, libs=spec["libs"], node=node, canonical=True)
     if "error" in o2:
         raise NotEligible("compile", f"--O2 compile failed: {o2['error'][:300]}")
     rsig = signature(o2)
-    if io_mismatch(m["io"], rsig):
+    if io_mismatch(dict(m["io"], public_inputs=m["public_inputs"]), rsig):
         raise NotEligible("compile", "the record compile's main I/O differs from the model's")
     m["record"] = {"flags": record_flags_text(spec), "main_sha256": o2["main_sha256"],
                    "r1cs_sha256": o2["r1cs_sha256"], "r1cs_raw_sha256": o2["r1cs_raw_sha256"],
                    "n_wires": o2["n_wires"], **counts(o2["r1cs"])}
+    if spec["compiler"]["tag"] not in RELEASE_COMPILERS:     # RT1 records (release binaries) keep their fields
+        m["record"].update(optimization=record_optimization(spec),
+                           compiler_sha256=CD.verify_compiler(spec["compiler"]["tag"], binary))
     m["model_counts"] = counts(o0["r1cs"])
     if m["record"]["nonlinear"] == 0:
         return m
     sw = compile_circuit(reference_main(spec, nomain, custom), os.path.join(work, "wasm"),
-                         model_flags(spec) + FLAGS_WASM, binary, snapshot, libs=spec["libs"])
+                         model_flags(spec) + wasm_flags(spec), binary, snapshot, libs=spec["libs"], node=node)
     if "error" in sw or sw["r1cs_sha256"] != spec["r1cs_sha256"]:
         raise NotEligible("compile", f"--O0 --wasm compile differs from the model: {sw.get('error', '')[:200]}")
     groups = input_groups(sig["input_names"])
     vectors, idx = probe_vectors(groups, int(sig["prime"]))
-    res = run_generator(node_binary(node), sw["js_dir"], sw["r1cs"], vectors, os.path.join(work, "probe"), "probe")
+    res = run_generator(node_binary(node), sw["js_dir"], sw["r1cs"], vectors, os.path.join(work, "probe"), "probe",
+                        sw["witness_js"], sw["wasm"])
     m["simulate"] = {"seed": None, "max_bits": probe_ranges(groups, idx, res), "ladder": list(LADDER),
-                     "reference_generator": {"flags": model_flags_text(spec) + FLAGS_WASM,
-                                             "wasm_sha256": P.sha256_file(os.path.join(sw["js_dir"], "main.wasm")),
+                     "reference_generator": {"flags": model_flags_text(spec) + wasm_flags(spec),
+                                             "wasm_sha256": P.sha256_file(sw["wasm"]),
                                              "witness_calculator_sha256": P.sha256_file(
-                                                 os.path.join(sw["js_dir"], "witness_calculator.js")),
+                                                 generator_file(sw["witness_js"])),
                                              "r1cs_sha256": sw["r1cs_sha256"]}}
     return m
 
 
 def model_flags_text(spec: dict) -> list[str]:
-    return list(FLAGS_MODEL) + _flags_text(spec)
+    return list(CIRCOM1_FLAGS_MODEL if kind_of(spec) == "circom1" else FLAGS_MODEL) + _flags_text(spec)
 
 
 def record_flags_text(spec: dict) -> list[str]:
-    return list(FLAGS_RECORD) + _flags_text(spec)
+    return list(CIRCOM1_FLAGS_RECORD if kind_of(spec) == "circom1" else FLAGS_RECORD) + _flags_text(spec)
 
 
 def _flags_text(spec: dict) -> list[str]:
@@ -656,10 +788,14 @@ def problem_id(spec: dict) -> str:
     return "ratchet/" + spec["registry_package_id"]
 
 
-def problem_record(spec: dict, measured: dict, det: dict, snapshot: dict, annotations: dict | None = None) -> dict:
+def problem_record(spec: dict, measured: dict, det: dict, snapshot: dict, annotations: dict | None = None,
+                   context: dict | None = None) -> dict:
     """The ratchet problem record (``problem.json``, status OPEN) from the reference fields, its measurements, the
-    DET evidence and the snapshot pin."""
+    DET evidence and the snapshot pin.  ``context`` (a sub-component reference): ``{"kind": "sub-component",
+    "parents": [{"registry_package_id", "call", "instance_paths", "n_instances"}], "located_by": ...}``; the record
+    states the substitution meaning (:data:`SUBCOMPONENT_MEANING`)."""
     pid = problem_id(spec)
+    c1 = kind_of(spec) == "circom1"
     sim = dict(measured["simulate"], seed=f"{SIM_SEED}|{pid}")
     env = {k: spec["env"][k] for k in ("lean", "mathlib", "lake_manifest_sha256", "packages") if k in spec["env"]}
     env.update(circom=spec["compiler"]["version"], circom_binary_sha256=spec["compiler"]["binary_sha256"])
@@ -676,11 +812,15 @@ def problem_record(spec: dict, measured: dict, det: dict, snapshot: dict, annota
                           n_wires=spec["n_wires"], counts=measured["model_counts"]),
             "io": dict(measured["io"], public_inputs=measured["public_inputs"]),
             "lean_opts": spec["lean_opts"]},
-        "record": dict(measured["record"], rung=0, source="reference (circom --O2)"),
-        "metric": METRIC, "admissibility": list(ADMISSIBILITY), "statement_shape": STATEMENT_DESCRIPTION,
+        "record": dict(measured["record"], rung=0, source=("reference (circom 1, full constraint reduction)"
+                                                             if c1 else "reference (circom --O2)")),
+        "metric": METRIC_CIRCOM1 if c1 else METRIC,
+        "admissibility": list(ADMISSIBILITY_CIRCOM1 if c1 else ADMISSIBILITY), "statement_shape": STATEMENT_DESCRIPTION,
         "determinism": DETERMINISM_NOTE, "det": det, "simulate": sim, "snapshot": snapshot, "env": env,
         "generator": generator_info(), "created_utc": now(),
     }
+    if context:
+        rec["context"] = dict(context, meaning=SUBCOMPONENT_MEANING)
     if annotations:
         rec["annotations"] = annotations
     return rec
@@ -688,9 +828,9 @@ def problem_record(spec: dict, measured: dict, det: dict, snapshot: dict, annota
 
 def build_problem(reg_dir: str, snapshot: str, out_dir: str, compilers: dict, det: dict | None,
                   snapshot_manifest_sha256: str | None = None, node: str | None = None, work: str | None = None,
-                  annotations: dict | None = None) -> dict:
+                  annotations: dict | None = None, context: dict | None = None) -> dict:
     """Reference package -> ratchet problem package (``problem.json`` + the registry model file byte for byte +
-    the reference main texts); raises NotEligible with the reason."""
+    the reference main texts); raises NotEligible with the reason.  ``context``: see :func:`problem_record`."""
     spec = reference_spec(reg_dir)
     why = static_exclusion(spec) or det_exclusion(det, spec["model"]["sha256"])
     if why:
@@ -711,7 +851,7 @@ def build_problem(reg_dir: str, snapshot: str, out_dir: str, compilers: dict, de
             "rule": "the repository's .circom files at the pinned commit that the include closures of its references "
                     "reach, every .circom file of its circomlib dependency, and blanked copies of include files that "
                     "declare component main"}
-    prob = problem_record(spec, measured, det, snap, annotations)
+    prob = problem_record(spec, measured, det, snap, annotations, context)
     src = os.path.join(reg_dir, spec["model"]["file"])
     dst = os.path.join(out_dir, spec["model"]["file"])
     os.makedirs(os.path.dirname(dst), exist_ok=True)
@@ -737,7 +877,7 @@ def load_problem(problem_dir: str) -> dict:
 
 def spec_of(prob: dict) -> dict:
     ref = prob["reference"]
-    return {"libs": ref["libs"], "prime_flag": ref["prime_flag"]}
+    return {"libs": ref["libs"], "prime_flag": ref["prime_flag"], "compiler": ref["compiler"]}
 
 
 # ------------------------------------------------------------------------------------------ candidates
@@ -753,7 +893,8 @@ def admit_sources(path: str, prob: dict, snapshot_files: dict[str, str]) -> tupl
     tops = {rel.split("/", 1)[0] for rel in snapshot_files}
     reserved = {"main.circom", "Candidate.circom"} | tops
     lib_dirs = [os.path.normpath("repo/" + lib) for lib in ref["libs"]]
-    out, snap, todo, versions = {}, [], [(path, "Candidate.circom")], [(2, 0, 0)]
+    c1 = kind_of(spec_of(prob)) == "circom1"
+    out, snap, todo, versions = {}, [], [(path, "Candidate.circom")], [] if c1 else [(2, 0, 0)]
     templates = []
     while todo:
         src, name = todo.pop()
@@ -768,6 +909,8 @@ def admit_sources(path: str, prob: dict, snapshot_files: dict[str, str]) -> tupl
             raise Reject(f"{name}: declares `component main` (the harness writes the main component)")
         if re.search(r"\bpragma\s+custom_templates\b", clean):
             raise Reject(f"{name}: `pragma custom_templates` (custom gates have no R1CS form)")
+        if c1 and re.search(r"\bpragma\b", clean):
+            raise Reject(f"{name}: `pragma` (the reference's compiler is circom 1, which has no pragma)")
         versions += [tuple(int(x) for x in m.groups()) for m in _PRAGMA.finditer(clean)]
         templates += cs.find_templates(clean, name)
         out[name] = text
@@ -785,6 +928,8 @@ def admit_sources(path: str, prob: dict, snapshot_files: dict[str, str]) -> tupl
                              f"file of the pinned repository snapshot (`repo/<path>` or a path under the reference's "
                              f"library paths {['repo/' + x for x in ref['libs']]})")
             snap.append(hit)
+    if c1:
+        versions = [(0, 0, 0)]
     top = max(versions)
     pinned = tuple(int(x) for x in ref["compiler"]["version"].split("."))
     if top > pinned:
@@ -796,11 +941,13 @@ def admit_sources(path: str, prob: dict, snapshot_files: dict[str, str]) -> tupl
     if len(own[0].params) != len(ref["args"]):
         raise Reject(f"`template {ref['template']}` takes {len(own[0].params)} parameter(s); the reference call "
                      f"`{ref['call']}` passes {len(ref['args'])}")
-    return out, sorted(set(snap)), ".".join(map(str, top))
+    return out, sorted(set(snap)), "none" if c1 else ".".join(map(str, top))
 
 
 def candidate_main(prob: dict, pragma: str) -> str:
     ref = prob["reference"]
+    if kind_of(spec_of(prob)) == "circom1":
+        return f'include "Candidate.circom";\ncomponent main = {ref["call"]};\n'
     return (f'pragma circom {pragma};\ninclude "Candidate.circom";\n'
             f'component main{public_clause(ref["io"]["public_inputs"])} = {ref["call"]};\n')
 
@@ -811,7 +958,8 @@ def resolve_snapshot(problem_dir: str, prob: dict, snapshot: str | None) -> str:
                                     prob["snapshot"]["id"])
 
 
-def compile_candidate(prob: dict, cand_path: str, out: str, snapshot: str, compilers: dict) -> tuple[dict, dict]:
+def compile_candidate(prob: dict, cand_path: str, out: str, snapshot: str, compilers: dict,
+                      node: str | None = None) -> tuple[dict, dict]:
     """Source rules, compile, main I/O, metric.  Returns (report, compile result); raises Reject."""
     man = verify_snapshot(snapshot, prob["snapshot"]["manifest_sha256"])
     os.makedirs(out, exist_ok=True)
@@ -821,8 +969,8 @@ def compile_candidate(prob: dict, cand_path: str, out: str, snapshot: str, compi
                  "snapshot_includes": snap, "pragma": pragma}
     binary = compiler_binary(compilers, prob["reference"]["compiler"]["tag"])
     res = compile_circuit(candidate_main(prob, pragma), os.path.join(out, "compile"), record_flags(spec_of(prob)),
-                          binary, snapshot, srcs, prob["reference"]["libs"])
-    rep["compile"] = {k: v for k, v in res.items() if k not in ("r1cs", "sym", "js_dir")}
+                          binary, snapshot, srcs, prob["reference"]["libs"], node=node, canonical=True)
+    rep["compile"] = {k: v for k, v in res.items() if k not in ("r1cs", "sym", "js_dir", "wasm", "witness_js")}
     if "error" in res:
         raise Reject(f"compile failed: {res['error']}")
     why = io_mismatch(prob["reference"]["io"], signature(res))
@@ -969,12 +1117,12 @@ def write_candidate_package(prob: dict, problem_dir: str, cand: dict, res: dict,
 
 
 def run_candidate(problem_dir: str, cand_path: str, out: str, compilers: dict, snapshot: str | None = None,
-                  env: L.LeanEnv | None = None, require_smaller: bool = False) -> dict:
+                  env: L.LeanEnv | None = None, require_smaller: bool = False, node: str | None = None) -> dict:
     """The trusted candidate pipeline: admissibility, compile, metric, statement and models, and with a Lean
     environment the statement's elaboration and the checker package (``<out>/pkg``)."""
     prob = load_problem(problem_dir)
     snapshot = resolve_snapshot(problem_dir, prob, snapshot)
-    rep, res = compile_candidate(prob, cand_path, out, snapshot, compilers)
+    rep, res = compile_candidate(prob, cand_path, out, snapshot, compilers, node)
     rep.pop("_srcs"), rep.pop("_pragma")
     cand = rep["candidate"]
     if require_smaller and not cand["smaller"]:
@@ -1003,13 +1151,14 @@ def run_candidate(problem_dir: str, cand_path: str, out: str, compilers: dict, s
 
 
 def run_check(problem_dir: str, cand_path: str, solution: str, out: str, compilers: dict, env: L.LeanEnv,
-              snapshot: str | None = None, timeout: float = DET_PROOF_LIMITS["timeout_s"]) -> tuple[str, dict]:
+              snapshot: str | None = None, timeout: float = DET_PROOF_LIMITS["timeout_s"],
+              node: str | None = None) -> tuple[str, dict]:
     """Final check: the candidate pipeline (strictly fewer non-linear constraints) and the production checker."""
     rep: dict = {"problem_dir": os.path.abspath(problem_dir), "solution_file": os.path.abspath(solution),
                  "started_utc": now()}
     try:
         cr = run_candidate(problem_dir, cand_path, os.path.join(out, "candidate"), compilers, snapshot, env,
-                           require_smaller=True)
+                           require_smaller=True, node=node)
     except Reject as ex:
         rep.update(verdict="REJECTED", reason=str(ex))
         return "REJECTED", rep
@@ -1149,26 +1298,28 @@ def simulate(problem_dir: str, cand_path: str, out: str, n_random: int, compiler
     """The simulation screen (not a proof) on a candidate."""
     prob = load_problem(problem_dir)
     snapshot = resolve_snapshot(problem_dir, prob, snapshot)
-    rep, res = compile_candidate(prob, cand_path, os.path.join(out, "count"), snapshot, compilers)
+    rep, res = compile_candidate(prob, cand_path, os.path.join(out, "count"), snapshot, compilers, node)
     srcs, pragma = rep.pop("_srcs"), rep.pop("_pragma")
     ref = prob["reference"]
     binary = compiler_binary(compilers, ref["compiler"]["tag"])
     resw = compile_circuit(candidate_main(prob, pragma), os.path.join(out, "wasm"),
-                           record_flags(spec_of(prob)) + FLAGS_WASM, binary, snapshot, srcs, ref["libs"])
+                           record_flags(spec_of(prob)) + wasm_flags(spec_of(prob)), binary, snapshot, srcs,
+                           ref["libs"], node=node, canonical=True)
     if "error" in resw or resw["r1cs_sha256"] != rep["candidate"]["r1cs_sha256"]:
         raise RuntimeError(f"--wasm compile differs from the cost compile: {resw.get('error')}")
-    gen = prob["simulate"]["reference_generator"]
     refw = compile_circuit(reference_main(ref, ref["nomain"], ref["custom_templates"]), os.path.join(out, "reference"),
-                           model_flags(spec_of(prob)) + FLAGS_WASM, binary, snapshot, libs=ref["libs"])
-    if "error" in refw or refw["r1cs_sha256"] != ref["model"]["r1cs_sha256"] or \
-            P.sha256_file(os.path.join(refw["js_dir"], "main.wasm")) != gen["wasm_sha256"]:
+                           model_flags(spec_of(prob)) + wasm_flags(spec_of(prob)), binary, snapshot, libs=ref["libs"],
+                           node=node)
+    if not reference_generator_ok(prob, refw):
         raise RuntimeError(f"the reference generator does not rebuild as recorded: {refw.get('error')}")
     vectors = sim_vectors(prob, n_random)
     objs = [v for _, v in vectors]
     t0 = time.time()
     nb = node_binary(node)
-    a = run_generator(nb, refw["js_dir"], refw["r1cs"], objs, os.path.join(out, "run"), "ref")
-    b = run_generator(nb, resw["js_dir"], resw["r1cs"], objs, os.path.join(out, "run"), "cand")
+    a = run_generator(nb, refw["js_dir"], refw["r1cs"], objs, os.path.join(out, "run"), "ref", refw["witness_js"],
+                      refw["wasm"])
+    b = run_generator(nb, resw["js_dir"], resw["r1cs"], objs, os.path.join(out, "run"), "cand", resw["witness_js"],
+                      resw["wasm"])
     sig = signature(resw)
     sim = compare_runs(vectors, a, b, R.read_r1cs(resw["r1cs"]), sig["outputs"], sig["output_names"])
     sim.update(random=n_random, seed=prob["simulate"]["seed"], secs=round(time.time() - t0, 2),
@@ -1199,9 +1350,9 @@ def main(argv=None) -> int:
         x.add_argument("--out", required=True)
         x.add_argument("--compilers", required=True)
         x.add_argument("--snapshot")
+        x.add_argument("--node", help="node binary (circom 1 compiles and the simulation runner)")
         if nm == "simulate":
             x.add_argument("--n", type=int, default=2000)
-            x.add_argument("--node")
         if nm in ("statement", "check"):
             x.add_argument("--lean-env", required=True)
             x.add_argument("--rss-mb", type=int, default=DET_PROOF_LIMITS["rss_mb"])
@@ -1232,7 +1383,8 @@ def _run(a) -> int:
         L.set_lean_limits(slots=1, rss_mb=a.rss_mb)
         env = L.load_env(a.lean_env)
     if a.cmd == "check":
-        verdict, rep = run_check(a.problem, a.candidate, a.solution, a.out, compilers, env, a.snapshot)
+        verdict, rep = run_check(a.problem, a.candidate, a.solution, a.out, compilers, env, a.snapshot,
+                                 node=a.node)
         rep["finished_utc"] = now()
         P.write_json(os.path.join(a.out, "verdict.json"), rep)
         print(f"{verdict} {rep.get('reason', '')}".rstrip())
@@ -1246,11 +1398,11 @@ def _run(a) -> int:
         elif a.cmd == "count":
             prob = load_problem(a.problem)
             rep, _ = compile_candidate(prob, a.candidate, a.out, resolve_snapshot(a.problem, prob, a.snapshot),
-                                       compilers)
+                                       compilers, a.node)
             rep.pop("_srcs"), rep.pop("_pragma")
             P.write_json(os.path.join(a.out, "candidate.json"), rep)
         else:
-            rep = run_candidate(a.problem, a.candidate, a.out, compilers, a.snapshot, env)
+            rep = run_candidate(a.problem, a.candidate, a.out, compilers, a.snapshot, env, node=a.node)
     except Reject as ex:
         print(f"REJECTED {ex}")
         return 4
