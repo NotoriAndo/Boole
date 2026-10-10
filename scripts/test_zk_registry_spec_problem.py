@@ -1,6 +1,7 @@
 """Specification package identity, acceptance evidence and file-binding regressions."""
 
 import copy
+import json
 import sys
 import tempfile
 import unittest
@@ -23,14 +24,53 @@ def request():
 
 
 class SpecProblemTests(unittest.TestCase):
+    def test_ready_metadata_does_not_replace_parameter_and_mutant_content(self):
+        """A complete-looking OPEN manifest cannot qualify empty parameter/mutant JSON files."""
+        with tempfile.TemporaryDirectory() as root:
+            data = request()
+            for key in ('standard', 'parameters', 'reference', 'mutants', 'protocol'):
+                path = Path(root, key + '.json')
+                path.write_text('{}')
+                digest = P.sha256_file(str(path))
+                data[key].update(file=path.name, sha256=digest)
+                data['files'].append(dict(path=path.name, sha256=digest, role=key))
+            code = Path(root, 'mutants.py')
+            code.write_text('')
+            data['parameters']['scope_complete'] = True
+            data['reference']['executable'] = True
+            data['mutants'].update(family=data['family'], code=code.name,
+                                   code_sha256=P.sha256_file(str(code)))
+            data['files'].append(dict(path=code.name, sha256=P.sha256_file(str(code)), role='mutants'))
+            problem = S.record(data)
+            self.assertEqual(S.authoring_prerequisites(problem), [])
+            self.assertIn('parameter-scope-content', S.authoring_prerequisites(problem, root))
+            self.assertIn('function-specific-mutant-content', S.authoring_prerequisites(problem, root))
+            scope = dict(function=problem['family'], count=1, units=[dict(
+                field_parameters=dict(modulus='7', bits_per_limb=4, nb_limbs=1),
+                reference_family=problem['family'], reference_domain='canonical', reference_observation='residue')])
+            parameter_file = Path(root, problem['parameters']['file'])
+            parameter_file.write_text(json.dumps(scope))
+            digest = P.sha256_file(str(parameter_file))
+            problem['parameters']['sha256'] = digest
+            next(row for row in problem['files'] if row['path'] == parameter_file.name)['sha256'] = digest
+            self.assertIn('parameter-scope-content', S.authoring_prerequisites(problem, root))
+
     def test_unbound_inventory_is_not_a_qualified_authorship_request(self):
         """The allowed pending public window is distinct from missing request prerequisites."""
         problem = S.record(request())
-        self.assertEqual(S.authoring_prerequisites(problem),
-                         ['reference-file-binding', 'mutants-file-binding', 'protocol-file-binding'])
-        for key in ('reference', 'mutants', 'protocol'):
+        self.assertIn('standard-file-binding', S.authoring_prerequisites(problem))
+        self.assertIn('parameter-scope-file-binding', S.authoring_prerequisites(problem))
+        self.assertIn('independent-executable-reference', S.authoring_prerequisites(problem))
+        for key in ('standard', 'parameters', 'reference', 'mutants', 'protocol'):
             problem[key]['file'] = key + '.json'
+            problem[key]['sha256'] = 'ab' * 32
             problem['files'].append(dict(path=key + '.json', role=key, sha256=problem[key]['sha256']))
+        problem['parameters']['scope_complete'] = True
+        problem['reference']['executable'] = True
+        problem['mutants']['family'] = problem['family']
+        problem['mutants']['code'] = 'mutants.py'
+        problem['mutants']['code_sha256'] = 'ab' * 32
+        problem['files'].append(dict(path='mutants.py', role='mutants', sha256='ab' * 32))
         self.assertEqual(S.authoring_prerequisites(problem), [])
         problem['standard']['authority_pending'] = True
         problem['reference']['executable_reference_binding'] = 'pending'
@@ -38,6 +78,9 @@ class SpecProblemTests(unittest.TestCase):
         self.assertEqual(S.authoring_prerequisites(problem),
                          ['authoritative-public-standard', 'independent-executable-reference',
                           'function-specific-fixed-mutants'])
+        problem['mutants']['fixed_protocol_only'] = False
+        problem['mutants']['family'] = 'unrelated-family'
+        self.assertIn('function-specific-fixed-mutants', S.authoring_prerequisites(problem))
 
     @patch.object(S, 'historical_binding_errors', return_value=[])
     def test_accepted_gate_content_not_just_pass_metadata(self, _history):

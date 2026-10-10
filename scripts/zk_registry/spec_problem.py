@@ -55,23 +55,93 @@ def record(request: dict, accepted: dict | None = None) -> dict:
     return problem
 
 
-def authoring_prerequisites(problem: dict) -> list[str]:
+def authoring_prerequisites(problem: dict, directory: str | None = None) -> list[str]:
     """Distinguish a transparent OPEN inventory from a fully bound authorship request."""
     files = {row['path']: row['sha256'] for row in problem['files']}
     missing = []
     if problem['standard'].get('authority_pending') is True:
         missing.append('authoritative-public-standard')
+    is_open = problem['status'] == 'OPEN'
+    if is_open:
+        standard = problem['standard']
+        if not standard.get('file') or files.get(standard.get('file')) != standard['sha256']:
+            missing.append('standard-file-binding')
+        parameters = problem['parameters']
+        if (not parameters.get('file') or not parameters.get('sha256')
+                or files.get(parameters.get('file')) != parameters['sha256']):
+            missing.append('parameter-scope-file-binding')
+        if parameters.get('scope_complete') is not True:
+            missing.append('parameter-scope')
     for key in ('reference', 'mutants', 'protocol'):
         item = problem[key]
         if not item.get('file') or files.get(item.get('file')) != item['sha256']:
             missing.append(key + '-file-binding')
-    if problem['reference'].get('executable_reference_binding') == 'pending':
+    if (problem['reference'].get('executable_reference_binding') == 'pending'
+            or (is_open and problem['reference'].get('executable') is not True)):
         missing.append('independent-executable-reference')
-    if problem['mutants'].get('fixed_protocol_only') is True:
+    mutants = problem['mutants']
+    if (mutants.get('fixed_protocol_only') is True
+            or (is_open and (mutants.get('family') != problem['family']
+                            or not mutants.get('code') or not mutants.get('code_sha256')
+                            or files.get(mutants.get('code')) != mutants['code_sha256']))):
         missing.append('function-specific-fixed-mutants')
-    if not problem['parameters']:
+    if not problem['parameters'] and 'parameter-scope' not in missing:
         missing.append('parameter-scope')
+    if is_open and directory is not None:
+        missing += authoring_content_errors(problem, directory)
     return missing
+
+
+def authoring_content_errors(problem: dict, directory: str) -> list[str]:
+    """Check actual OPEN parameter/mutant scope, not merely ready-looking metadata flags."""
+    if P._bound_file_errors(problem['files'], directory):
+        return ['request-file-content']
+    root, errors = Path(directory), []
+    files = {row['path']: row['sha256'] for row in problem['files']}
+    try:
+        data = json.loads((root / problem['parameters']['file']).read_text())
+        units = data.get('units') if isinstance(data, dict) else None
+        valid = (isinstance(units, list) and bool(units) and type(data.get('count')) is int
+                 and data['count'] == len(units) and isinstance(data.get('function'), str) and bool(data['function']))
+        if valid:
+            for unit in units:
+                if not isinstance(unit, dict):
+                    valid = False
+                    break
+                parameter = unit.get('field_parameters')
+                if (not isinstance(parameter, dict) or not isinstance(parameter.get('modulus'), str)
+                        or not parameter['modulus'].isdigit() or int(parameter['modulus']) <= 1
+                        or type(parameter.get('bits_per_limb')) is not int or parameter['bits_per_limb'] < 1
+                        or type(parameter.get('nb_limbs')) is not int or parameter['nb_limbs'] < 1
+                        or not isinstance(unit.get('reference_domain'), str) or not unit['reference_domain']
+                        or not isinstance(unit.get('reference_observation'), str) or not unit['reference_observation']
+                        or unit.get('reference_family') != data['function']
+                        or not isinstance(unit.get('original_metadata_file'), str)
+                        or not isinstance(unit.get('original_metadata_sha256'), str)
+                        or files.get(unit.get('original_metadata_file')) != unit.get('original_metadata_sha256')
+                        or not isinstance(unit.get('wrapper_file'), str)
+                        or not isinstance(unit.get('wrapper_sha256'), str)
+                        or files.get(unit.get('wrapper_file')) != unit.get('wrapper_sha256')):
+                    valid = False
+                    break
+        if not valid:
+            errors.append('parameter-scope-content')
+    except (OSError, ValueError, KeyError, TypeError):
+        errors.append('parameter-scope-content')
+    try:
+        data = json.loads((root / problem['mutants']['file']).read_text())
+        rows = data.get('mutants') if isinstance(data, dict) else None
+        if (not isinstance(rows, list) or data.get('family') != problem['family']
+                or type(data.get('count')) is not int or data['count'] != problem['mutants']['count']
+                or len(rows) != data['count']
+                or any(not isinstance(row, dict) or type(row.get('index')) is not int
+                       or row['index'] != index or row.get('family') != data.get('reference_family')
+                       or not isinstance(row.get('detail'), str) or not row['detail']
+                       for index, row in enumerate(rows, 1))):
+            errors.append('function-specific-mutant-content')
+    except (OSError, ValueError, KeyError, TypeError):
+        errors.append('function-specific-mutant-content')
+    return errors
 
 
 def historical_binding_errors(problem: dict) -> list[str]:

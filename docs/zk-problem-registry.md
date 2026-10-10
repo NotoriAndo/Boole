@@ -1337,6 +1337,9 @@ specifications byte-for-byte; only supplied parameters that their existing bodie
 are generalized. Fixed four-bit FromBits and four-choice Mux do not become arbitrary-width specs.
 Public challenge status is always `pending`; this tool does not implement its window or bond.
 `authoring_prerequisites` separates missing request bindings from that public-window limitation.
+With an actual directory it also checks concrete parameter scopes (domain, observation, fields and
+original-unit files) and ordered, family-specific mutant content; ready-looking flags alone do not
+qualify an empty JSON record. Metadata-only checks establish shape/bindings, not actual request readiness.
 Historical local acceptance validates the retained Task M D/M/C record contents and counts;
 it does not implement a general new-spec gate service or replay all raw historical gate logs.
 Actual-directory acceptance also requires exact fingerprints from the tracked approved-history
@@ -1366,6 +1369,9 @@ Field.Mul reuses the accepted multiplication-residue family, preserving the orig
 output observation even where the small-field implementation returns a raw product. This is
 direct family reuse, not a new output projection or fabricated input. Other method-name aliases
 are not accepted merely because their models or arithmetic expressions look similar.
+ReduceStrict directly reuses reduction with the same modulo-q observation and approved output-limb
+conclusions, not a stronger raw output<q claim. ToBitsCanonical reuses the unchanged raw-bit family only
+on the existing limb-bounded x<q domain and preserves the full original native output width/order.
 Assertions conclude acceptance; it is not added to their soundness premises. Reduce retains the
 approved output-limb bounds in soundness and the completeness witness conclusion, never as a premise.
 

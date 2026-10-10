@@ -22,8 +22,8 @@ from . import spec_problem as S
 SCHEMA_VERSION = 'zk-registry-correctness-gnark-problem/v1'
 GENERATOR_NAME = 'boole-zk-registry-correctness-gnark'
 OPERATIONS = {
-    'Field.Reduce': 'reduce', 'Curve.Neg': 'curve_neg', 'Field.Modulus': 'modulus',
-    'Field.ToBits': 'to_bits', 'Field.Mux': 'mux', 'Field.FromBits': 'from_bits',
+    'Field.Reduce': 'reduce', 'Field.ReduceStrict': 'reduce', 'Curve.Neg': 'curve_neg', 'Field.Modulus': 'modulus',
+    'Field.ToBits': 'to_bits', 'Field.ToBitsCanonical': 'to_bits', 'Field.Mux': 'mux', 'Field.FromBits': 'from_bits',
     'Field.MulConst': 'mul_const', 'Field.MulNoReduce': 'mul_no_reduce', 'Field.Select': 'select',
     'Field.Div': 'div', 'Ext2.Add': 'ext2_add', 'Field.Zero': 'zero',
     'Field.AssertIsDifferent': 'assert_different', 'Field.MulMod': 'mul_mod',

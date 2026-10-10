@@ -79,6 +79,12 @@
       "nb_limbs": 4,
       "prime_claim": true
     },
+    "Goldilocks": {
+      "bits_per_limb": 64,
+      "modulus": "18446744069414584321",
+      "nb_limbs": 1,
+      "prime_claim": true
+    },
     "BLS12377Fr": {
       "bits_per_limb": 64,
       "modulus": "8444461749428370424248824938781546531375899335154063827935233455917409239041",

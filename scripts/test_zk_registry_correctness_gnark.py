@@ -61,6 +61,13 @@ def package_fixture():
 
 
 class ContractTests(unittest.TestCase):
+    def test_direct_strict_families_reuse_only_approved_canonical_domain(self):
+        """Strict variants keep unchanged bodies and original widths, not a new spec or raw-output claim."""
+        self.assertEqual(C.OPERATIONS.get('Field.ReduceStrict'), 'reduce')
+        self.assertEqual(C.OPERATIONS.get('Field.ToBitsCanonical'), 'to_bits')
+        self.assertNotIn('Field.Sqrt', C.OPERATIONS)
+        self.assertNotIn('Field.ModMulCanonical', C.OPERATIONS)
+
     def test_direct_mul_family_reuse_does_not_add_projection_aliases(self):
         """Only the checked two-operand residue interface extends the original method mapping."""
         self.assertEqual(C.OPERATIONS['Field.Mul'], 'mul_mod')
