@@ -69,9 +69,13 @@ A measured census found no ZK code item with full machine-checked coverage.
   Spec and correctness problems are registry kinds with a gnark generator
   ([#418](https://github.com/NotoriAndo/Boole/pull/418)): 334 open correctness
   properties (174 non-trivial after deduplication) and 42 open spec problems.
-  Beyond circuits, EVM library functions (OpenZeppelin, Solady) reached a scoped
-  correctness pilot over an existing Yul semantics, while Rust cryptography is
-  blocked by current Rust-to-Lean translators.
+  Beyond circuits, Rust cryptography is blocked by current Rust-to-Lean
+  translators, and an EVM library correctness pilot (24 OpenZeppelin and Solady
+  functions over an existing Yul semantics) proved 4 of 16 audited contracts,
+  only 2 of them non-trivial, with 5 blocked by memory and 4 false only at input
+  sizes no real execution can reach. EVM library correctness is therefore not
+  feasible at the tested budget; circuit kinds remain the supply. A Solana sBPF
+  study modeled one pure function exactly and supports at most a narrow pilot.
 - **Operator decisions (October 10).** The useful-work budget is sized to
   verified stock over 36 months plus measured inflow, replacing the earlier
   three-year 10,950-problem stock rule; defects found by correctness work follow
