@@ -1,6 +1,6 @@
 # Boole — current development status
 
-Updated: 2026-10-10. This is the tracked entrypoint for current progress and the
+Updated: 2026-10-11. This is the tracked entrypoint for current progress and the
 ordered development roadmap. Edit it in place; execution evidence stays in its
 own result record. Local Master/Execution documents link here instead of owning
 a second current cursor. Work methods follow the
@@ -66,6 +66,12 @@ A measured census found no ZK code item with full machine-checked coverage.
   automation battery closed none. About 1,850 such problems are available now in
   standard gadgets of the registry's libraries; the registry's three zkVMs are
   mostly verified upstream already. Unlike ratchets these statements can be false.
+  Spec and correctness problems are registry kinds with a gnark generator
+  ([#418](https://github.com/NotoriAndo/Boole/pull/418)): 334 open correctness
+  properties (174 non-trivial after deduplication) and 42 open spec problems.
+  Beyond circuits, EVM library functions (OpenZeppelin, Solady) reached a scoped
+  correctness pilot over an existing Yul semantics, while Rust cryptography is
+  blocked by current Rust-to-Lean translators.
 - **Operator decisions (October 10).** The useful-work budget is sized to
   verified stock over 36 months plus measured inflow, replacing the earlier
   three-year 10,950-problem stock rule; defects found by correctness work follow
