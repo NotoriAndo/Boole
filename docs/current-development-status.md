@@ -1,6 +1,6 @@
 # Boole — current development status
 
-Updated: 2026-10-08. This is the tracked entrypoint for current progress and the
+Updated: 2026-10-10. This is the tracked entrypoint for current progress and the
 ordered development roadmap. Edit it in place; execution evidence stays in its
 own result record. Local Master/Execution documents link here instead of owning
 a second current cursor. Work methods follow the
@@ -55,9 +55,22 @@ A measured census found no ZK code item with full machine-checked coverage.
   ([#410](https://github.com/NotoriAndo/Boole/pull/410); 11 of 30 sampled). A fixed
   constraint-simplification pass reproduces only 1 of 26 accepted improvements,
   so the work is not mechanical, but zkVM AIR records must be pre-simplified.
-  That is thousands of problems, not the tens of thousands a three-year supply
-  needs: inflow from new releases is small where measured, and larger pools
-  (Cairo, EVM gas) need new semantics or an unproven headroom test first.
+  That is thousands of problems, not tens of thousands: inflow from new releases
+  is small where measured, and larger pools (Cairo, EVM gas) need new semantics
+  or an unproven headroom test first.
+- **Correctness problems** are a second paid kind at pilot scale: a model writes an
+  executable Lean specification of a public standard (accepted only through
+  reference-differential, mutant and challenger gates) and proves a component
+  sound (and complete) against it. Specs 28/28 accepted; zkVM chip soundness 9/9
+  and gnark gadget soundness 24/24, completeness 23/24 proved, while a fixed
+  automation battery closed none. About 1,850 such problems are available now in
+  standard gadgets of the registry's libraries; the registry's three zkVMs are
+  mostly verified upstream already. Unlike ratchets these statements can be false.
+- **Operator decisions (October 10).** The useful-work budget is sized to
+  verified stock over 36 months plus measured inflow, replacing the earlier
+  three-year 10,950-problem stock rule; defects found by correctness work follow
+  coordinated disclosure once a written process exists, each disclosure approved;
+  upstream proposals of improvements come later.
 
 See the [problem registry](zk-problem-registry.md) for templates, gates, package
 format and limits. Nothing is issued, rewarded or activated; BF.7 remains HOLD.
