@@ -122,6 +122,10 @@ elaborated statement type.
 
 Tests: `scripts/test_zk_registry_*.py` (offline, fixture-based), registered in `scripts/self-test.sh`.
 
+The [local registry service](zk-registry-service.md) composes the R/S/C package validators and existing
+production checkers with a deterministic catalog, commit–reveal intake, lifecycle records and independently
+rechecked hash-chained replay. It has no rewards, signatures, network, consensus or activation path.
+
 ## AIR DET generator (zkVM chips)
 
 Code: `scripts/zk_registry/air_*.py` (driver `air_det.py`, generator `boole-zk-registry-air-det`) and the Rust
@@ -1403,10 +1407,12 @@ checker core, with one unreset 1,800-second deadline for all compiler/replay pro
 The generation/check runtime is limited to 12 GB and owned-PID cleanup; it is a
 sampled cooperative guard, not an adversarial OS sandbox or a certified exact peak-memory bound.
 
-All packages and defect/vacuity hints remain private local artifacts. Stock reconciliation must
+All generated packages and defect/vacuity hints remain private local artifacts until an explicit
+allowlisted local catalog/export operation. Stock reconciliation must
 distinguish function/model census units, canonical model identities, property packages, facts,
-structural triviality, missing specs and unqualified OPEN S inventory. No registry service,
-receipt, reward, public disclosure, upstream contact or activation follows; BF.7 remains HOLD.
+structural triviality, missing specs and unqualified OPEN S inventory. The package generators do not themselves
+operate the separate local service. No reward, public disclosure, upstream contact or activation follows;
+BF.7 remains HOLD.
 The private CG1 index selects one property pair per exact original R1CS digest, with duplicate
 source/interface artifacts retained as exclusions rather than extra supply.
 OPEN is a local package lifecycle state, not a claim that no prior proof is known anywhere.
@@ -1414,7 +1420,8 @@ Known pilot proofs remain regression fixtures; this tool establishes no novel pa
 
 ## Limits
 
-- Closed-local artifacts; no registry service, issuance, receipt or reward path is wired.
+- Closed-local artifacts. The separate local service produces effect-0 receipt ids only;
+  no public issuance, consensus receipt or reward path is wired.
 - Pilot statements and proofs were produced by agents of one model family; independence of statement authorship
   from solving is not established.
 - Content-identical copies across repositories must be deduplicated by content hash before packaging.

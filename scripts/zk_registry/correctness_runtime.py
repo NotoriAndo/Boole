@@ -20,11 +20,11 @@ from . import lean_runner as L
 
 def processes() -> dict:
     """Observe PID, parent, RSS and start identity without retaining foreign command arguments."""
-    output = subprocess.check_output(['/bin/ps', '-axo', 'pid=,ppid=,rss=,lstart=,comm='], text=True)
+    output = subprocess.check_output(['/bin/ps', '-axo', 'pid=,ppid=,rss=,lstart='], text=True)
     result = {}
     for line in output.splitlines():
-        fields = line.split(None, 8)
-        if len(fields) == 9:
+        fields = line.split(None, 7)
+        if len(fields) == 8:
             result[int(fields[0])] = (int(fields[1]), int(fields[2]), ' '.join(fields[3:]))
     return result
 

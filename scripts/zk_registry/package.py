@@ -686,9 +686,14 @@ def validate_ratchet_native(problem: dict, pkg_dir: str | None = None, schema: d
     cand = problem.get("candidate")
     if problem["family"] == "zokrates":
         cnt = {k: rec[k] for k in ("nonlinear", "linear", "total")}
-        if rec["nonlinear"] + rec["linear"] != rec["total"] or cnt != ref["model"]["counts"]:
-            errs.append("reference record is not the reproduced model count")
-        if rec["nonlinear"] <= 0 or rec["r1cs_sha256"] != ref["model"]["r1cs_sha256"]:
+        if rec["nonlinear"] + rec["linear"] != rec["total"]:
+            errs.append("record counts do not add up")
+        if rec["rung"] == 0:
+            if cnt != ref["model"]["counts"] or rec["r1cs_sha256"] != ref["model"]["r1cs_sha256"]:
+                errs.append("reference record is not the reproduced model count/digest")
+        elif rec["nonlinear"] >= ref["model"]["counts"]["nonlinear"]:
+            errs.append("later record must be strictly cheaper than the immutable reference")
+        if ref["model"]["counts"]["nonlinear"] <= 0:
             errs.append("reference has no positive bound native cost record")
         if ref["compiler"]["style"] != ("brace" if ref["compiler"]["version"] == "0.8.8" else "colon"):
             errs.append("compiler version and native/legacy mode disagree")
@@ -714,8 +719,12 @@ def validate_ratchet_native(problem: dict, pkg_dir: str | None = None, schema: d
         if errs:
             return errs
         cost = {k: rec[k] for k in ref["model"]["cost"]}
-        if cost != ref["model"]["cost"] or H.priced(rec) != rec["priced"]:
-            errs.append("halo2 record is not the reference concrete-layout cost")
+        if H.priced(rec) != rec["priced"]:
+            errs.append("halo2 record priced summary does not match its components")
+        if rec["rung"] == 0 and cost != ref["model"]["cost"]:
+            errs.append("halo2 initial record is not the reference concrete-layout cost")
+        elif rec["rung"] > 0 and not H.cost_smaller(ref["model"]["cost"], rec):
+            errs.append("later record must be strictly cheaper than the immutable reference")
         if ref["ir"]["sha256"] != ref["model"]["ir_sha256"]:
             errs.append("reference IR digest differs from the recorded model")
         if cand is not None:

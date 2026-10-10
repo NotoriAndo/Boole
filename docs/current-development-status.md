@@ -77,6 +77,15 @@ A measured census found no ZK code item with full machine-checked coverage.
   three-year 10,950-problem stock rule; defects found by correctness work follow
   coordinated disclosure once a written process exists, each disclosure approved;
   upstream proposals of improvements come later.
+- **Closed-local registry service (Task P, October 11).** The
+  [no-rewards CLI](zk-registry-service.md) catalogs the current validated stock
+  (1,968 ratchets, 174 correctness properties and 61 bound specification entries),
+  binds commit–reveal intake, delegates to existing production checks, and
+  independently reruns matched verdicts during byte-identical replay. Known R/C
+  artifacts pass; sorry/changed-statement controls are rejected. R opens the next
+  record rung and C becomes VERIFIED. S remains listed but not submittable because
+  tracked tools lack a general new-spec gate rerunner. This is local tooling, not
+  issuance, rewards, signatures, networking, consensus or activation.
 
 See the [problem registry](zk-problem-registry.md) for templates, gates, package
 format and limits. Nothing is issued, rewarded or activated; BF.7 remains HOLD.
