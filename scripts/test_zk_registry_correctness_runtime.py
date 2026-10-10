@@ -1,9 +1,10 @@
-"""Owned-PID resource guard controls, using mocks only and never signalling real processes."""
+"""Owned-PID guard controls; signalling is limited to mocked handles or one actual test-owned child."""
 
 import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -14,6 +15,32 @@ from zk_registry import correctness_runtime as R, lean_runner as L
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_owned_identity_survives_exec_without_tracking_command_name(self):
+        """Own child keeps its PID/birth across exec; mutable command name must not disable the guard."""
+        code = ('import os, sys\nprint("ready", flush=True)\nsys.stdin.readline()\n'
+                'os.execv("/bin/sleep", ["sleep", "5"])\n')
+        child = subprocess.Popen([sys.executable, '-c', code], stdin=subprocess.PIPE,
+                                 stdout=subprocess.PIPE, text=True)
+        try:
+            self.assertEqual(child.stdout.readline().strip(), 'ready')
+            before = R.processes()[child.pid][2]
+            child.stdin.write('exec\n')
+            child.stdin.flush()
+            deadline = time.monotonic() + 2
+            while True:
+                command = subprocess.check_output(['/bin/ps', '-o', 'comm=', '-p', str(child.pid)], text=True)
+                if command.strip().endswith('sleep'):
+                    break
+                self.assertLess(time.monotonic(), deadline, 'owned child failed to exec')
+                time.sleep(0.01)
+            after = R.processes()[child.pid][2]
+            self.assertEqual(before, after)
+        finally:
+            child.terminate()
+            child.wait(timeout=2)
+            child.stdin.close()
+            child.stdout.close()
+
     def test_one_checker_deadline_is_not_reset_for_each_module(self):
         """Once the aggregate deadline expires, another compiler process is not started."""
         original = L.run_process

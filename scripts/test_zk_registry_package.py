@@ -189,6 +189,10 @@ class IdentityTests(unittest.TestCase):
             set(ratchet_zokrates.GENERATOR_SOURCES) | set(ratchet_halo2.GENERATOR_SOURCES)
         from zk_registry import spec_problem, correctness_gnark
         present -= set(spec_problem.generator_files()) | set(correctness_gnark.generator_files())
+        # The local service produces no generator package content; source_info records its own run identity.
+        from zk_registry import service
+        self.assertRegex(service.source_info()['sources_sha256'], r'^[0-9a-f]{64}$')
+        present -= set(service.SERVICE_SOURCES)
         self.assertEqual(present - listed - set(air_det.generator_files()) - set(noir_det.generator_files())
                          - set(gnark_det.generator_files()) - set(zokrates_det.generator_files())
                          - set(halo2_det.generator_files()) - set(mech_air.source_files()), set())

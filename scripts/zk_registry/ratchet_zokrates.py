@@ -391,7 +391,7 @@ def simulate(problem_dir, candidate_path, out, n, tools, snapshot=None, build_di
     reference = compile_program(
         text, problem["reference"]["source_dir"], snapshot, pin, os.path.join(out, "reference-compile")
     )
-    if reference["r1cs_sha256"] != problem["record"]["r1cs_sha256"] or io_mismatch(
+    if reference["r1cs_sha256"] != problem["reference"]["model"]["r1cs_sha256"] or io_mismatch(
         problem["reference"]["io"], reference["io"]
     ):
         raise RuntimeError("reference rebuild changed")
