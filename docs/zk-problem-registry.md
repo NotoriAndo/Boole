@@ -23,7 +23,9 @@ checks. Hand-authoring problems does not scale, so production uses deterministic
   compiled sub-circuits). DET-MOD and DET of every sub-component imply DET; DET-MOD is incomplete where the parent
   relies on facts its sub-components enforce, so a DET-MOD counterexample is labelled `not-a-finding` (GATE-FAIL),
   never DET-FALSE-CANDIDATE. DET-MOD packages are counted separately from DET.
-- Planned: release refinement (REL) and specification-backed templates (zkVM instruction chips against the Sail
+- **S/C** (implemented as closed-local package tools): specification-authoring requests and locally accepted
+  executable specifications; gnark soundness/completeness contracts against accepted specifications (below).
+- Planned: release refinement (REL) and other specification-backed templates (zkVM instruction chips against the Sail
   RISC-V model; standard primitives against FIPS / RFC / SEC / EIP) under the three-tier specification rule
   (T1 external standards, T2 published project specifications with statement review, T3 implementation-attached
   text not accepted).
@@ -1319,6 +1321,90 @@ replay. No sorry or new axiom is allowed in an accepted solution.
 instantiate the same constraint model. The private RT-H1 report makes model multiplicity and all exclusions
 explicit. Synthetic offline tests cover metric tradeoffs, degree growth, sparse zeros, DET/model binding,
 candidate import integrity and malformed records; native controls and Lean checks are separate evidence.
+
+## Spec problems
+
+Code: `scripts/zk_registry/spec_problem.py`, schema `schema/spec_problem.schema.json`
+(`zk-registry-spec-problem/v1`), validators in `package.py`, and
+`scripts/test_zk_registry_spec_problem.py`. S is an authorship problem, not a Lean theorem
+submission. It binds the public standard/tier, parameter scope, executable reference pin,
+fixed mutant protocol and file manifest. The request identity hashes these inputs; the full
+linked package digest additionally binds acceptance status, evidence and exact spec bytes.
+
+`OPEN` carries no accepted specification. `ACCEPTED-LOCAL` requires the executable Lean file
+and bound D/M/C gate evidence. The CG1 engineering wave reuses the nineteen accepted pilot
+specifications byte-for-byte; only supplied parameters that their existing bodies actually use
+are generalized. Fixed four-bit FromBits and four-choice Mux do not become arbitrary-width specs.
+Public challenge status is always `pending`; this tool does not implement its window or bond.
+`authoring_prerequisites` separates missing request bindings from that public-window limitation.
+Historical local acceptance validates the retained Task M D/M/C record contents and counts;
+it does not implement a general new-spec gate service or replay all raw historical gate logs.
+Actual-directory acceptance also requires exact fingerprints from the tracked approved-history
+catalogue, including the Candidate, gates, reference, mutants, protocol and tested parameters.
+Consistently rehashing an arbitrary replacement does not create a new approved entry.
+
+An OPEN inventory request can expose missing standard authority, executable-reference or
+function-specific-mutant prerequisites. These are distinct from the permitted pending public
+challenge. Such inventory records are not qualified S challenges or issuance-ready supply;
+the owning private wave report must count them separately and retain the reasons. A status
+label and manifest alone do not replace the prescribed independent authorship gates.
+
+## Correctness problems (gnark)
+
+Code: `correctness_gnark.py` (original-unit binding, contracts and checker adapter),
+`correctness_build.py` (generation/non-vacuity/fixed floor), `correctness_runtime.py`
+(owned-PID resource guard), schema `schema/correctness_gnark_problem.schema.json`
+(`zk-registry-correctness-gnark-problem/v1`), and
+`scripts/test_zk_registry_correctness_gnark.py`. No new specification or human proof is generated.
+
+Each property is soundness or accepted-domain completeness of one exact original registry R1CS
+against an ACCEPTED-LOCAL S package. Source/version, model/R1CS digests, native and foreign fields,
+limb radix, every input/output wire, free hints, range/commitment assumptions and spec digest are
+bound. The harness must reconstruct the original R1CS and reproduce the original Lean model bytes.
+CG1 pins the upstream parameter catalogue at the source revision, not a package's self-reported q.
+Field.Mul reuses the accepted multiplication-residue family, preserving the original modulo-q
+output observation even where the small-field implementation returns a raw product. This is
+direct family reuse, not a new output projection or fabricated input. Other method-name aliases
+are not accepted merely because their models or arithmetic expressions look similar.
+Assertions conclude acceptance; it is not added to their soundness premises. Reduce retains the
+approved output-limb bounds in soundness and the completeness witness conclusion, never as a premise.
+
+`Statements.lean` contains only the two propositions. `Bindings.lean` is their pure semantic
+interface (decoders, domains, accepted spec application); neither imports the generated witness evaluator.
+`EvaluationSupport.lean` and `Evaluation.lean` contain constraint decidability instances and IO,
+outside the checker import closure. `ProofStatement.lean` has exactly one reference-only theorem
+hole, replaced by a future submission. Original models and accepted spec sources are not rewritten.
+
+Non-vacuity needs one actual native solver assignment satisfying all premises jointly, checked
+against the original R1CS and evaluated by Lean. Each selected row is byte-bound to its witness,
+driver/support sources and evaluation output; changing bytes after evaluation fails closed.
+An absent or incomplete evaluation is not a successful non-vacuity gate. Finite failure to find
+a row is a gate failure, not a universal proof that no such row exists.
+
+The fixed seven-form pilot floor uses 200,000 heartbeats per form and one 600-second property
+window, with only mechanical qualification of the existing definitions. Recognized tactic
+failures are not closures; method/import/process errors do not qualify OPEN. A closure becomes
+`FACT` only after the unchanged production text, forbidden-construct, axiom, kernel replay and
+exact-type checks accept its fixed proof. Facts are not mining problems. The structural flag
+(`nonlinear < 3`) is separate from FACT and must be excluded from paid-supply counts even if its
+package remains OPEN. No borrowed pilot proof solves a CG1 package; known proofs are test fixtures only.
+
+With `PYTHONPATH=scripts`, `python3 -m zk_registry.correctness_build --help` lists the explicit
+registry, parameter, accepted-S, original-source, environment and task-local stage/work/output
+inputs. Both properties are generated for that unit. The `correctness_gnark.check_solution`
+adapter checks all environment pins, snapshots proof bytes, then uses the unchanged production
+checker core, with one unreset 1,800-second deadline for all compiler/replay processes in a check.
+The generation/check runtime is limited to 12 GB and owned-PID cleanup; it is a
+sampled cooperative guard, not an adversarial OS sandbox or a certified exact peak-memory bound.
+
+All packages and defect/vacuity hints remain private local artifacts. Stock reconciliation must
+distinguish function/model census units, canonical model identities, property packages, facts,
+structural triviality, missing specs and unqualified OPEN S inventory. No registry service,
+receipt, reward, public disclosure, upstream contact or activation follows; BF.7 remains HOLD.
+The private CG1 index selects one property pair per exact original R1CS digest, with duplicate
+source/interface artifacts retained as exclusions rather than extra supply.
+OPEN is a local package lifecycle state, not a claim that no prior proof is known anywhere.
+Known pilot proofs remain regression fixtures; this tool establishes no novel paid-work stock.
 
 ## Limits
 
