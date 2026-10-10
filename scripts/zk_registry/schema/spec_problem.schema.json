@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "zk-registry-spec-problem/v1",
+  "title": "Specification authorship problem",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "kind", "package_id", "status", "family", "standard", "parameters",
+               "reference", "mutants", "protocol", "files", "public_challenge", "generator", "created_utc"],
+  "properties": {
+    "schema_version": {"const": "zk-registry-spec-problem/v1"},
+    "kind": {"const": "S"},
+    "package_id": {"type": "string", "pattern": "^S/[a-zA-Z0-9_-]+/[0-9a-f]{64}$"},
+    "status": {"enum": ["OPEN", "ACCEPTED-LOCAL"]},
+    "family": {"type": "string", "pattern": "^[a-zA-Z0-9_-]+$"},
+    "standard": {
+      "type": "object", "required": ["tier", "source", "sha256"],
+      "properties": {"tier": {"enum": ["T1", "T2"]}, "source": {"type": "string", "minLength": 1},
+                     "sha256": {"$ref": "#/$defs/sha"}}
+    },
+    "parameters": {"type": "object"},
+    "reference": {"type": "object", "required": ["name", "version", "sha256"],
+                  "properties": {"name": {"type": "string", "minLength": 1},
+                                 "version": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha"}}},
+    "mutants": {"type": "object", "required": ["count", "sha256"],
+                "properties": {"count": {"type": "integer", "minimum": 1}, "sha256": {"$ref": "#/$defs/sha"}}},
+    "protocol": {"type": "object", "required": ["version", "sha256"],
+                 "properties": {"version": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha"}}},
+    "files": {"type": "array", "items": {"$ref": "#/$defs/file"}},
+    "public_challenge": {"type": "object", "additionalProperties": false, "required": ["status", "implemented"],
+                         "properties": {"status": {"const": "pending"}, "implemented": {"const": false}}},
+    "generator": {"type": "object", "required": ["name", "version"],
+                  "properties": {"name": {"const": "boole-zk-registry-spec"}, "version": {"const": "1.0"}}},
+    "created_utc": {"type": "string", "pattern": "Z$"},
+    "specification": {
+      "type": "object", "additionalProperties": false,
+      "required": ["file", "module", "sha256", "gate_evidence", "tested_parameters"],
+      "properties": {
+        "file": {"$ref": "#/$defs/path"}, "module": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha"}, "tested_parameters": {"type": "array"},
+        "gate_evidence": {
+          "type": "object", "additionalProperties": false, "required": ["D", "M", "C"],
+          "properties": {"D": {"$ref": "#/$defs/gate"}, "M": {"$ref": "#/$defs/gate"},
+                         "C": {"$ref": "#/$defs/gate"}}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "path": {"type": "string", "minLength": 1, "pattern": "^[^/\\\\]+"},
+    "file": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "role"],
+             "properties": {"path": {"$ref": "#/$defs/path"}, "sha256": {"$ref": "#/$defs/sha"},
+                            "role": {"type": "string", "minLength": 1}}},
+    "gate": {"type": "object", "additionalProperties": false, "required": ["status", "file", "sha256"],
+             "properties": {"status": {"const": "PASS"}, "file": {"$ref": "#/$defs/path"},
+                            "sha256": {"$ref": "#/$defs/sha"}}}
+  }
+}

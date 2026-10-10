@@ -80,6 +80,7 @@ run_logged zk-registry-ratchet-air env PYTHONDONTWRITEBYTECODE=1 python3 -m unit
 run_logged zk-registry-ratchet-native env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_ratchet_native.py
 run_logged zk-registry-ratchet-zokrates env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_ratchet_zokrates.py
 run_logged zk-registry-ratchet-halo2 env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_ratchet_halo2.py
+run_logged zk-registry-spec-correctness env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_spec_problem.py scripts/test_zk_registry_correctness_gnark.py scripts/test_zk_registry_correctness_runtime.py
 run_logged zk-registry-callees env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_callees.py
 run_logged fresh-answer-canary-protocol cargo test --locked -p boole-native-shadow-protocol --features development-task-admission --lib --test fresh_answer_canary --test development_task_admission
 run_logged fresh-answer-canary-node cargo test --locked -p boole-node --features development-task-admission --lib native_shadow_replay_service::canary

@@ -187,6 +187,8 @@ class IdentityTests(unittest.TestCase):
         present -= set(ratchet.GENERATOR_SOURCES) | set(ratchet_noir.GENERATOR_SOURCES) | \
             set(ratchet_gnark.GENERATOR_SOURCES) | set(ratchet_air.GENERATOR_SOURCES) | \
             set(ratchet_zokrates.GENERATOR_SOURCES) | set(ratchet_halo2.GENERATOR_SOURCES)
+        from zk_registry import spec_problem, correctness_gnark
+        present -= set(spec_problem.generator_files()) | set(correctness_gnark.generator_files())
         self.assertEqual(present - listed - set(air_det.generator_files()) - set(noir_det.generator_files())
                          - set(gnark_det.generator_files()) - set(zokrates_det.generator_files())
                          - set(halo2_det.generator_files()) - set(mech_air.source_files()), set())
