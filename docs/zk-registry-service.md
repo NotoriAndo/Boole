@@ -46,7 +46,9 @@ The earliest **valid commit**, not the first reveal, wins. A later valid reveal 
 commit for that problem can still reveal. An invalid reveal or expiry releases that ordering barrier.
 Once a winner exists, other valid reveals for the same property/rung are recorded as duplicates.
 Unrevealed earlier commitments can therefore delay a result until their deadline. There is no identity
-authentication, rate limiting, bond or Sybil defence in this MVP.
+authentication, rate limiting, bond or Sybil defence in this MVP; a future commit bond or per-solver limit
+is needed against mass commits that are never revealed. The local sequence number is the MVP's ordering source;
+in a network deployment the commit order must come from block inclusion, not from any node's local counter.
 
 ## Acceptance and lifecycle
 
