@@ -1,0 +1,185 @@
+"""Full-closure exports and the pinned Comparator's built-in two-kernel path."""
+from __future__ import annotations
+
+from dataclasses import dataclass
+import hashlib
+import json
+import os
+from pathlib import Path
+import platform
+import time
+
+from . import correctness_runtime as CR
+from . import lean_runner as L
+from .sandbox import Sandbox
+
+PRIMITIVES = [
+    'Nat.add', 'Nat.sub', 'Nat.mul', 'Nat.pow', 'Nat.gcd', 'Nat.div', 'Nat.mod', 'Nat.beq', 'Nat.ble',
+    'Nat.land', 'Nat.lor', 'Nat.xor', 'Nat.shiftLeft', 'Nat.shiftRight', 'String.ofList', 'Char.ofNat',
+    'List', 'eagerReduce', 'Nat', 'String', 'String.mk', 'Char', 'optParam', 'autoParam', 'semiOutParam', 'outParam',
+]
+QUOTIENTS = ['Quot', 'Quot.mk', 'Quot.lift', 'Quot.ind']
+
+
+class ToolsUnavailable(ValueError):
+    """A declared checking tool or its exact binary pin is unavailable."""
+
+
+def digest(path: str | Path) -> str:
+    """Hash executed or exported bytes with bounded read buffers."""
+    value = hashlib.sha256()
+    with Path(path).open('rb') as stream:
+        for block in iter(lambda: stream.read(4 * 1024 * 1024), b''):
+            value.update(block)
+    return value.hexdigest()
+
+
+@dataclass(frozen=True)
+class Tools:
+    comparator: str
+    exporter: str
+    nanoda: str
+    kernel_prefix: str
+    landrun: str | None
+    comparator_version: str = 'v4.34.0'
+
+    @classmethod
+    def load(cls, root: str) -> Tools:
+        """Load provisioned paths using only the tracked component and binary pins."""
+        data = json.loads((Path(__file__).parent / 'data/acceptance_tools_v2.json').read_text())
+        profile = platform.system() + '-' + platform.machine()
+        pins = data['binary_profiles'].get(profile)
+        if pins is None:
+            raise ToolsUnavailable('kernels-unavailable')
+        directory = Path(root).resolve()
+        binaries = {}
+        for name in ('comparator', 'exporter', 'nanoda'):
+            row = pins[name]
+            binary = directory / row['path']
+            if not binary.is_file() or digest(binary) != row['sha256'] or not os.access(binary, os.X_OK):
+                raise ToolsUnavailable('kernels-unavailable')
+            binaries[name] = str(binary)
+        kernel_prefix = directory / pins['kernel_prefix']
+        landrun = None
+        if platform.system() == 'Linux':
+            row = data['landrun']['paths'].get(platform.machine())
+            landrun = str(directory / row) if row else None
+        return cls(**binaries, kernel_prefix=str(kernel_prefix), landrun=landrun)
+
+
+def resource_reason(result: L.RunResult) -> str | None:
+    """Wall, memory and observation failures are availability errors, not mathematical verdicts."""
+    if result.timeout or result.memkill or result.killed_by or result.rc in (-9, -15, 124, 125, 137):
+        return 'resource-unavailable'
+    return None
+
+
+def prepare_reference(env: L.LeanEnv, problem: dict, package: str, work: str, sealed: str,
+                      tools: Tools, sandbox: Sandbox, timeout: float, axioms: list[str]) -> dict:
+    """Build and seal a pristine Challenge before compiling any solution code."""
+    from . import check as C
+
+    started = time.monotonic()
+    statement = Path(package, problem['checker']['statement_file']).read_text()
+    compiled = C.compile_in_sandbox(env, problem, package, statement, work, timeout, sandbox)
+    Path(work).mkdir(parents=True, exist_ok=True)
+    with Path(work, 'COMPILE-POSTCHECK.json').open('x') as stream:
+        json.dump(compiled, stream, indent=2)
+    if 'error' in compiled:
+        return dict(verdict='ERROR', reason=compiled['error'], compiled=compiled)
+    if compiled.get('compile_timeout') or compiled.get('compile_memkill'):
+        return dict(verdict='ERROR', reason='resource-unavailable', compiled=compiled)
+    if compiled.get('compile_rc') != 0 or compiled.get('n_errors') or compiled.get('post') is None:
+        return dict(verdict='ERROR', reason='challenge-build-unavailable', compiled=compiled)
+    post = compiled['post']
+    if post.get('timeout') or post.get('memkill') or post.get('killed_by'):
+        return dict(verdict='ERROR', reason='resource-unavailable', compiled=compiled)
+    if post.get('replay') != 'ok':
+        return dict(verdict='ERROR', reason='challenge-build-unavailable', compiled=compiled)
+    result = export_module(env, 'ProofMod', problem['checker']['theorem_fqn'], sealed, tools, sandbox,
+                           str(Path(work) / 'proof'), [str(Path(work) / 'proof'), str(Path(work) / 'build')],
+                           timeout, axioms)
+    result['reference_type_sha256'] = post.get('type_sha256')
+    result['compile_seconds'] = compiled.get('compile_secs', 0)
+    result['pristine_compile_seconds'] = (sum(row['secs'] for row in compiled.get('imports', []))
+                                         + compiled.get('compile_secs', 0) + post.get('secs', 0))
+    result['stage_seconds'] = time.monotonic() - started
+    return result
+
+
+def export_module(env: L.LeanEnv, module: str, theorem: str, output: str, tools: Tools, sandbox: Sandbox,
+                  cwd: str, extra_lean_path: list[str], timeout: float, axioms: list[str]) -> dict:
+    """Export the target's transitive type/value closure, including primitive and import dependencies."""
+    target = Path(output)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    task_env = L.process_env(env, extra_lean_path)
+    roots = list(dict.fromkeys([theorem, *axioms, *PRIMITIVES, *QUOTIENTS]))
+    argv = [tools.exporter, module, '--', *roots]
+    command = sandbox.command(argv, task_env, [env.toolchain, *env.lean_path, *extra_lean_path, cwd],
+                              [task_env['TMPDIR']])
+    run = CR.runner(str(target.parent / 'processes' / target.name), timeout)
+    result = run(command, task_env, cwd, timeout, 12000)
+    record = dict(stage='closure-export', assurance=sandbox.mode, seconds=result.secs,
+                  peak_rss_mb=result.peak_rss_mb, rc=result.rc)
+    reason = resource_reason(result)
+    if reason:
+        return dict(record, verdict='ERROR', reason=reason)
+    if result.rc != 0:
+        return dict(record, verdict='ERROR', reason='export-unavailable', stdout=result.out[-2000:])
+    with target.open('x', encoding='utf-8') as stream:
+        stream.write(result.out)
+    target.chmod(0o444)
+    return dict(record, verdict='PASS', reason=None, path=str(target), sha256=digest(target),
+                bytes=target.stat().st_size, roots=roots)
+
+
+def compare_exports(challenge: str, solution: str, theorem: str, tools: Tools, sandbox: Sandbox,
+                    work: str, timeout: float, axioms: list[str], max_constants: int = 1000000,
+                    nanoda_binary: str | None = None) -> dict:
+    """Run Comparator once; both its empty Lean kernel and built-in nanoda consume the sealed solution."""
+    directory = Path(work)
+    directory.mkdir(parents=True, exist_ok=True)
+    before = {path: digest(path) for path in (challenge, solution)}
+    config = dict(challenge_module='Challenge', solution_module='ProofMod', theorem_names=[theorem],
+                  permitted_axioms=axioms, enable_nanoda=True, max_exported_constants=max_constants)
+    config_path = directory / 'comparator.json'
+    with config_path.open('x') as stream:
+        json.dump(config, stream, sort_keys=True)
+    tmp = directory / 'tmp'
+    tmp.mkdir()
+    env = {
+        'PATH': tools.kernel_prefix + '/bin:' + L.SYSTEM_PATH,
+        'HOME': str(directory), 'TMPDIR': str(tmp), 'LANG': 'C.UTF-8',
+        'COMPARATOR_LEAN4EXPORT': tools.exporter,
+        'COMPARATOR_NANODA': nanoda_binary or tools.nanoda,
+    }
+    if sandbox.mode == 'production':
+        env['COMPARATOR_LANDRUN'] = sandbox.executable
+    else:
+        passthrough = Path(__file__).parent / 'data/development-landrun.sh'
+        env['COMPARATOR_LANDRUN'] = str(passthrough)
+    command = [tools.comparator, str(config_path), '--exports', challenge, solution]
+    run = CR.runner(str(directory / 'processes'), timeout)
+    result = run(command, env, str(directory), timeout, 12000)
+    (directory / 'comparator.stdout').write_text(result.out)
+    record = dict(stage='comparator', assurance='test-fixture' if nanoda_binary else sandbox.mode,
+                  seconds=result.secs, peak_rss_mb=result.peak_rss_mb, rc=result.rc,
+                  solution_export_sha256=before[solution], comparator_lean=tools.comparator_version)
+    if any(digest(path) != value for path, value in before.items()):
+        return dict(record, verdict='INVALID', reason='export-integrity')
+    if resource_reason(result):
+        return dict(record, verdict='ERROR', reason='resource-unavailable')
+    lean_accepts = 'Lean default kernel accepts the solution' in result.out
+    nanoda_accepts = 'nanoda kernel accepts the solution' in result.out
+    record.update(lean_accepts=lean_accepts, nanoda_accepts=nanoda_accepts)
+    if result.rc == 0 and lean_accepts and nanoda_accepts:
+        return dict(record, verdict='PASS', reason=None)
+    if 'resource-cap:' in result.out:
+        return dict(record, verdict='INVALID', reason='resource-cap')
+    if lean_accepts != nanoda_accepts:
+        return dict(record, verdict='INVALID', reason='kernel-disagreement')
+    if 'axiom' in result.out.lower():
+        return dict(record, verdict='INVALID', reason='disallowed-axiom')
+    if 'mismatch' in result.out.lower() or 'not match' in result.out.lower():
+        return dict(record, verdict='INVALID', reason='comparator-statement-mismatch')
+    return dict(record, verdict='INVALID' if result.rc else 'ERROR', reason='kernel-rejection')

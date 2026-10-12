@@ -36,7 +36,7 @@ UNSUPPORTED_SPEC = 'tracked tooling has no general reference-differential/mutant
 COMMIT_DOMAIN = 'boole-zk-registry-commit/v1'
 EVENT_DOMAIN = b'boole-zk-registry-event/v1\0'
 ZERO_HASH = '0' * 64
-SERVICE_SOURCES = ('service.py', 'service_check.py')
+SERVICE_SOURCES = ('service.py', 'service_check.py', 'catalog_v2.py')
 
 
 class RegistryError(ValueError):
@@ -114,12 +114,20 @@ def catalog_entry(problem: dict, directory: str) -> dict | None:
         raise RegistryError('invalid package: ' + '; '.join(errors[:5]))
     if kind == 'S' and SP.authoring_prerequisites(problem, directory):
         return None
-    return dict(id=problem['package_id'], kind=kind, framework=framework, status=status,
+    entry = dict(id=problem['package_id'], kind=kind, framework=framework, status=status,
                 statement_sha256=hashlib.sha256(request_statement(problem)).hexdigest(),
                 statement=request_statement(problem).decode('utf-8'),
                 record=copy.deepcopy(problem.get('record')), spec=copy.deepcopy(problem.get('spec')),
                 submittable=kind != 'S', unavailable_reason=UNSUPPORTED_SPEC if kind == 'S' else None,
                 rung=0, root_id=problem['package_id'])
+    from . import acceptance as A
+    try:
+        binding = A.read(directory, problem)
+    except (OSError, ValueError, KeyError, TypeError) as ex:
+        raise RegistryError('invalid acceptance binding: ' + str(ex)) from ex
+    if binding is not None:
+        entry['acceptance'] = A.public(binding)
+    return entry
 
 
 def build_catalog(directories: list[str]) -> dict:
@@ -469,8 +477,11 @@ class Registry:
         elif kind == 'reveal':
             if payload['matched']:
                 commit = state['commits'][str(payload['sequence'])]
-                commit.update(verdict=payload['verdict'], submission=payload['submission'], receipt=event['hash'],
-                              status='VALID-REVEAL' if payload['verdict']['verdict'] == 'PASS' else 'REJECTED')
+                if payload['verdict']['verdict'] == 'ERROR':
+                    commit['last_check_error'] = dict(verdict=payload['verdict'], receipt=event['hash'])
+                else:
+                    commit.update(verdict=payload['verdict'], submission=payload['submission'], receipt=event['hash'],
+                                  status='VALID-REVEAL' if payload['verdict']['verdict'] == 'PASS' else 'REJECTED')
         elif kind != 'advance':
             raise RegistryError('unknown event type')
         Registry._settle(state)
@@ -558,7 +569,8 @@ class Registry:
             event = self._append('reveal', payload, logical_time, events)
             self._apply(state, event)
             status = state['commits'][str(sequence)]['status'] if matched else 'REJECTED'
-            return dict(outcome='PENDING' if status == 'VALID-REVEAL' else status,
+            outcome = 'ERROR' if matched and verdict['verdict'] == 'ERROR' else status
+            return dict(outcome='PENDING' if outcome == 'VALID-REVEAL' else outcome,
                         reason=verdict.get('reason'), receipt=event['hash'])
 
     def advance(self, logical_time):
@@ -626,7 +638,10 @@ class Registry:
                                    and commit['status'] == 'COMMITTED')
                     if matched != payload['matched']:
                         raise RegistryError('replay commitment binding differs')
-                    if matched:
+                    if matched and payload['verdict']['verdict'] == 'ERROR':
+                        # Availability is recorded evidence, not a mathematical decision to reproduce.
+                        verdict = payload['verdict']
+                    elif matched:
                         verdict = replica._check(state, payload['problem'], payload['submission'])
                     else:
                         reason = ('expired-window' if commit and commit['status'] == 'EXPIRED'

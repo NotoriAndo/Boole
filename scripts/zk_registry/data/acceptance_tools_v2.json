@@ -1,0 +1,53 @@
+{
+  "schema_version": 2,
+  "comparator": {
+    "repository": "https://github.com/leanprover/comparator",
+    "revision": "d03acab154d269c06e60e4de7e4cc85deebff94b",
+    "lean": "v4.34.0",
+    "licence": "Apache-2.0",
+    "patch": "comparator-d03acab-export-files.patch"
+  },
+  "exporter": {
+    "repository": "https://github.com/leanprover/lean4export",
+    "revision": "076e8e57707e813375e8f9da8bf989799ace9680",
+    "declared_lean": "v4.34.0",
+    "build_lean": "v4.34.1",
+    "patch": "lean-toolchain only: v4.34.0 to v4.34.1",
+    "licence": "Apache-2.0"
+  },
+  "nanoda": {
+    "repository": "https://github.com/ammkrn/nanoda_lib",
+    "revision": "0f88b5f382f0f3f08aed4af0dd6c0e48c3fd7a44",
+    "version": "0.4.19",
+    "licence": "Apache-2.0"
+  },
+  "landrun": {
+    "repository": "https://github.com/Zouuup/landrun",
+    "revision": "811cfff51ceaf3d9843708aa6d22e9b84ccac8b4",
+    "licence": "MIT",
+    "best_effort": false,
+    "paths": {"x86_64": "landrun-linux-amd64", "aarch64": "landrun-linux-arm64"},
+    "binary_sha256": {
+      "x86_64": "22469c3bc701535eaa4fe5c92747704d96c89de5c930da27988c2a537d5d6108",
+      "aarch64": "462f60826d3037cbf87d0b75744eedeb7f02a59e637dc38d5c253d5d4ff1953a"
+    }
+  },
+  "binary_profiles": {
+    "Darwin-arm64": {
+      "assurance": "dev-unsandboxed",
+      "kernel_prefix": "lean-4.34.0-darwin_aarch64",
+      "comparator": {
+        "path": "comparator/.lake/build/bin/comparator",
+        "sha256": "fb34571edbeb387ff385c81eaea1f3dae4d72ecd78b806095829cd2a2b886812"
+      },
+      "exporter": {
+        "path": "lean4export/.lake/build/bin/lean4export",
+        "sha256": "17da1e168bf5d41484c940e41c1f68230798ebb38d09174b564e955895279d0f"
+      },
+      "nanoda": {
+        "path": "nanoda/target/release/nanoda_bin",
+        "sha256": "b4707ccf4e413a3e764f9d64a6c544c12ae4c5b60567dd383cc23679c2e373cb"
+      }
+    }
+  }
+}

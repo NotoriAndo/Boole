@@ -379,7 +379,7 @@ def compile_circuit(main_text: str, workdir: str, flags: list[str], binary: str,
         lflags = [x for lib in libs for x in ("-l", os.path.normpath(os.path.join(workdir, "repo", lib)))]
         cmd = [binary, "main.circom", *flags, *lflags, "-o", "."]
         env = {"PATH": "/usr/bin:/bin", "HOME": workdir, "TMPDIR": workdir}
-    run = L.run_process(cmd, env, workdir, COMPILE_TIMEOUT, COMPILE_RSS_MB)
+    run = L.run_submission(cmd, env, workdir, COMPILE_TIMEOUT, COMPILE_RSS_MB)
     log = re.sub(r"\x1b\[[0-9;]*m", "", run.out)
     put(os.path.join(workdir, "circom.log"), log)
     res = {"rc": run.rc, "compile_secs": run.secs, "compile_peak_rss_mb": run.peak_rss_mb,
@@ -631,10 +631,9 @@ def run_generator(node: str, js_dir: str, r1cs: str, vectors: list[dict], work: 
     wasm = wasm or os.path.join(js_dir, sorted(n for n in os.listdir(js_dir) if n.endswith(".wasm"))[0])
     witness_js = witness_js or os.path.join(js_dir, "witness_calculator.js")
     env = {"PATH": os.path.dirname(node) + ":/usr/bin:/bin", "HOME": work, "NODE_OPTIONS": "--max-old-space-size=8192"}
-    r = subprocess.run([node, SIM_RUNNER, witness_js, wasm, r1cs, inp, outp], capture_output=True, text=True,
-                       timeout=3600, env=env, cwd=work)
-    if r.returncode != 0:
-        raise RuntimeError(f"simulation runner failed: {(r.stderr or r.stdout)[-500:]}")
+    r = L.run_submission([node, SIM_RUNNER, witness_js, wasm, r1cs, inp, outp], env, work, 3600, 8192)
+    if r.rc != 0:
+        raise RuntimeError(f"simulation runner failed: {r.out[-500:]}")
     with open(outp, encoding="utf-8") as f:
         res = [json.loads(ln) for ln in f]
     if len(res) != len(vectors):
@@ -1046,9 +1045,26 @@ def statement_text(prob: dict, cand: dict) -> str:
 
 def elaborate(env: L.LeanEnv, pkg: str, modules: list[str], fqn: str, opts: list[str], work: str,
               timeout: float = DET_PROOF_LIMITS["timeout_s"]) -> dict:
+    """Elaborate generated submission models in a separate, narrowly writable boundary."""
+    from .sandbox import Sandbox, SandboxUnavailable
+    from . import correctness_runtime as CR
+
+    selected = env.extra.get('acceptance_sandbox')
+    if not isinstance(selected, Sandbox):
+        try:
+            selected = Sandbox.production()
+        except SandboxUnavailable:
+            return dict(status='ERROR', reason='sandbox-unavailable', errors=['sandbox-unavailable'])
+    fresh_dir(work)
+    guarded = CR.runner(os.path.join(work, 'processes'), timeout)
+    with L.sandbox_context(selected, [pkg, work, os.path.dirname(G.REPLAY_TOOL)], [work], guarded):
+        return _elaborate(env, pkg, modules, fqn, opts, work, timeout)
+
+
+def _elaborate(env: L.LeanEnv, pkg: str, modules: list[str], fqn: str, opts: list[str], work: str,
+               timeout: float) -> dict:
     """G-ELAB for a statement importing several models: each model, then ``Statement.lean`` (exactly one `sorry`
     warning), then the production replay tool; returns timings, peak RSS and the elaborated type digest."""
-    fresh_dir(work)
     build = os.path.join(work, "build")
     d: dict = {"steps": []}
     for rel in modules + ["Statement.lean"]:

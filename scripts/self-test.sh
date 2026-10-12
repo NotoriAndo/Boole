@@ -58,31 +58,41 @@ run_capture_json() {
   fi
 }
 
+run_zk_registry() {
+  run_logged zk-registry-circom-det env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_r1cs.py scripts/test_zk_registry_circom_source.py scripts/test_zk_registry_lean_emit.py scripts/test_zk_registry_det_search.py scripts/test_zk_registry_package.py scripts/test_zk_registry_check.py scripts/test_zk_registry_compilers.py scripts/test_zk_registry_instantiation.py scripts/test_zk_registry_tags.py scripts/test_zk_registry_battery.py scripts/test_zk_registry_decompose.py scripts/test_zk_registry_recovery.py scripts/test_zk_registry_subinstances.py
+  run_logged zk-registry-air-det env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_air.py
+  run_logged zk-registry-noir-det env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_noir.py
+  run_logged zk-registry-mech-acir env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_mech_acir.py
+  run_logged zk-registry-gnark-det env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_gnark.py
+  run_logged zk-registry-zokrates-det env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_zokrates.py
+  run_logged zk-registry-halo2-det env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_halo2.py
+  run_logged zk-registry-mech-air env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_mech_air.py
+  run_logged zk-registry-mech-r1cs env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_mech_r1cs.py
+  run_logged zk-registry-ratchet env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_ratchet.py
+  run_logged zk-registry-ratchet-noir env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_ratchet_noir.py
+  run_logged zk-registry-ratchet-gnark env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_ratchet_gnark.py
+  run_logged zk-registry-ratchet-air env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_ratchet_air.py
+  run_logged zk-registry-ratchet-native env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_ratchet_native.py
+  run_logged zk-registry-ratchet-zokrates env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_ratchet_zokrates.py
+  run_logged zk-registry-ratchet-halo2 env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_ratchet_halo2.py
+  run_logged zk-registry-spec-correctness env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_spec_problem.py scripts/test_zk_registry_correctness_gnark.py scripts/test_zk_registry_correctness_runtime.py
+  run_logged zk-registry-service env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_service.py
+  run_logged zk-registry-acceptance-v2 env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_acceptance_v2.py
+  run_logged zk-registry-callees env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_callees.py
+}
+
+if [[ "${1:-}" == "--zk-registry-only" ]]; then
+  run_zk_registry
+  exit 0
+fi
+
 run_logged cargo-fmt cargo fmt --all --check
 run_logged bounded-snapshot-retry-tests python3 -m unittest scripts/test_native_shadow_bounded_snapshot_retry_v1.py
 run_logged official-mirror-seed-tests python3 -m unittest scripts/test_native_shadow_official_mirror_seed_v1.py
 run_logged fresh-answer-canary-gate-contract python3 -m unittest scripts/test_native_shadow_canary_gate.py
 run_logged development-vm-lifecycle-contract env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_boole_dev.py
 run_logged metered-tuple-independent-reference env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_metered_tuple_reference.py
-run_logged zk-registry-circom-det env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_r1cs.py scripts/test_zk_registry_circom_source.py scripts/test_zk_registry_lean_emit.py scripts/test_zk_registry_det_search.py scripts/test_zk_registry_package.py scripts/test_zk_registry_check.py scripts/test_zk_registry_compilers.py scripts/test_zk_registry_instantiation.py scripts/test_zk_registry_tags.py scripts/test_zk_registry_battery.py scripts/test_zk_registry_decompose.py scripts/test_zk_registry_recovery.py scripts/test_zk_registry_subinstances.py
-run_logged zk-registry-air-det env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_air.py
-run_logged zk-registry-noir-det env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_noir.py
-run_logged zk-registry-mech-acir env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_mech_acir.py
-run_logged zk-registry-gnark-det env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_gnark.py
-run_logged zk-registry-zokrates-det env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_zokrates.py
-run_logged zk-registry-halo2-det env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_halo2.py
-run_logged zk-registry-mech-air env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_mech_air.py
-run_logged zk-registry-mech-r1cs env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_mech_r1cs.py
-run_logged zk-registry-ratchet env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_ratchet.py
-run_logged zk-registry-ratchet-noir env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_ratchet_noir.py
-run_logged zk-registry-ratchet-gnark env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_ratchet_gnark.py
-run_logged zk-registry-ratchet-air env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_ratchet_air.py
-run_logged zk-registry-ratchet-native env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_ratchet_native.py
-run_logged zk-registry-ratchet-zokrates env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_ratchet_zokrates.py
-run_logged zk-registry-ratchet-halo2 env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_ratchet_halo2.py
-run_logged zk-registry-spec-correctness env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_spec_problem.py scripts/test_zk_registry_correctness_gnark.py scripts/test_zk_registry_correctness_runtime.py
-run_logged zk-registry-service env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_service.py
-run_logged zk-registry-callees env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_zk_registry_callees.py
+run_zk_registry
 run_logged fresh-answer-canary-protocol cargo test --locked -p boole-native-shadow-protocol --features development-task-admission --lib --test fresh_answer_canary --test development_task_admission
 run_logged fresh-answer-canary-node cargo test --locked -p boole-node --features development-task-admission --lib native_shadow_replay_service::canary
 run_logged fresh-answer-canary-clippy cargo clippy --locked -p boole-node -p boole-native-shadow-protocol -p boole-native-shadow-launcher --features boole-node/development-task-admission,boole-native-shadow-protocol/development-task-admission,boole-native-shadow-launcher/development-task-admission --all-targets -- -D warnings

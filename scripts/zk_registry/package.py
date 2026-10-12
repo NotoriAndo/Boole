@@ -91,7 +91,11 @@ STATEMENT_ASSUMPTIONS = statement_assumptions("bn128")
 GENERATOR_SOURCES = ["__init__.py", "r1cs.py", "circom_source.py", "circom_eval.py", "instantiation.py", "lean_emit.py",
                      "witness.py", "witness_runner.js", "det_search.py", "tags.py", "content.py", "decompose.py",
                      "package.py", "jsonschema_lite.py", "lean_runner.py", "gates.py", "check.py", "circom_det.py",
-                     "circom_detmod.py", "lean/ZkReplay.lean", "schema/problem.schema.json"]
+                     "circom_detmod.py", "lean/ZkReplay.lean", "schema/problem.schema.json",
+                     "acceptance.py", "axiom_policy.py", "closure.py", "sandbox.py", "correctness_runtime.py",
+                     "data/acceptance_environment_v2.json", "data/acceptance_tools_v2.json",
+                     "data/measuring_stick_conformance_v2.json", "data/comparator-d03acab-export-files.patch",
+                     "data/development-landrun.sh"]
 
 
 def sha256_file(path: str) -> str:
@@ -410,7 +414,9 @@ def validate_correctness_gnark(problem: dict, pkg_dir: str | None = None, schema
         errs.append('correctness reference statement digest mismatch')
     if chk['lean_opts'] != CG.LEAN_OPTIONS or chk['allowed_axioms'] != sorted(C.ALLOWED_AXIOMS):
         errs.append('correctness checker options or allowed axioms differ from production policy')
-    if chk['forbidden_tokens'] != C.FORBIDDEN_LABELS:
+    forbidden_version = chk.get('forbidden_version', 1)
+    forbidden_labels = C.FORBIDDEN_LABELS if forbidden_version == 2 else C.FORBIDDEN_LABELS_V1
+    if chk['forbidden_tokens'] != forbidden_labels:
         errs.append('correctness forbidden constructs differ from production core')
     if problem['battery']['forms'] != CG.BATTERY_FORMS:
         errs.append('correctness battery differs from the frozen seven forms')
