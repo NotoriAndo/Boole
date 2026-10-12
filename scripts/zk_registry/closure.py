@@ -41,7 +41,7 @@ class Tools:
     nanoda: str
     kernel_prefix: str
     landrun: str | None
-    comparator_version: str = 'v4.34.0'
+    comparator_version: str = 'v4.34.1'
 
     @classmethod
     def load(cls, root: str) -> Tools:
@@ -64,7 +64,8 @@ class Tools:
         if platform.system() == 'Linux':
             row = data['landrun']['paths'].get(platform.machine())
             landrun = str(directory / row) if row else None
-        return cls(**binaries, kernel_prefix=str(kernel_prefix), landrun=landrun)
+        return cls(**binaries, kernel_prefix=str(kernel_prefix), landrun=landrun,
+                   comparator_version=data['comparator']['lean'])
 
 
 def resource_reason(result: L.RunResult) -> str | None:

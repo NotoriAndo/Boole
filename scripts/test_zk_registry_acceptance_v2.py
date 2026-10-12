@@ -26,13 +26,48 @@ class ForbiddenV2Tests(unittest.TestCase):
             'run_meta pure ()': 'run_meta',
             'initialize value : Nat := pure 1': 'initialize',
             'builtin_initialize value : Nat := pure 1': 'builtin_initialize',
-            '@[custom_handler] theorem helper : True := trivial': 'elaboration-attribute',
+            '@[custom_handler] theorem helper : True := trivial': 'forbidden-attribute',
             'exact Lean.trustCompiler': 'Lean.trustCompiler',
         }
         for source, reason in cases.items():
             with self.subTest(reason=reason):
                 reasons = C.forbidden_scan([('helper declarations', source)])
                 self.assertTrue(any(hit.startswith(reason + ' in ') for hit in reasons), reasons)
+
+    def test_safe_attributes_and_scopes_are_allowed(self):
+        attributes = ('simp', 'reducible', 'irreducible', 'semireducible', 'instance', 'ext',
+                      'norm_cast', 'inline', 'specialize')
+        for attr in attributes:
+            for scope in ('', 'local ', 'scoped '):
+                for source in (f'@[{scope}{attr}] theorem helper : True := trivial',
+                               f'attribute [{scope}{attr}] helper'):
+                    with self.subTest(source=source):
+                        self.assertEqual(C.forbidden_scan([('helper declarations', source)]), [])
+        self.assertEqual(C.forbidden_scan([('helper declarations',
+                                           '@[simp 100, ext] theorem helper : True := trivial\n'
+                                           'attribute [-simp] helper')]), [])
+
+    def test_unknown_mixed_and_nested_attributes_fail_closed(self):
+        sources = ('@[simp, custom_handler]', 'attribute [local simp, scoped custom_handler] helper',
+                   '@[simp (custom_handler), custom_handler]', '@[Lean.simp]', '@[«simp»]',
+                   '@[simp', 'attribute [custom_handler] helper', '@[]', '@[simpΩ]', '@[simp_custom]')
+        for source in sources:
+            with self.subTest(source=source):
+                hits = C.forbidden_scan([('helper declarations', source)])
+                self.assertTrue(any(hit.startswith('forbidden-attribute in ') for hit in hits), hits)
+
+    def test_code_installing_commands_are_rejected(self):
+        names = ('elab', 'elab_rules', 'simproc', 'dsimproc', 'simproc_decl', 'dsimproc_decl',
+                 'macro', 'macro_rules', 'syntax', 'run_tac', 'builtin_simproc', 'builtin_dsimproc',
+                 'builtin_simproc_decl', 'builtin_dsimproc_decl', 'declare_syntax_cat', 'register_simp_attr',
+                 'register_builtin_option', 'register_tactic_tag', 'register_error_explanation',
+                 'register_custom_handler', 'declare_custom_elaborator', 'register_ξ')
+        for name in names:
+            with self.subTest(command=name):
+                self.assertTrue(C.forbidden_scan([('helper declarations', name + ' anything')]))
+        self.assertEqual(C.forbidden_scan([('helper declarations',
+                                           '-- elab and @[bad]\n/- register_simp_attr x -/\n'
+                                           'def text := "@[bad] simproc"')]), [])
 
 
 class EnvironmentV2Tests(unittest.TestCase):
@@ -61,6 +96,14 @@ class ForbiddenVersionTests(unittest.TestCase):
         problem = package_fixture()
         problem['checker'].pop('forbidden_version', None)
         problem['checker']['forbidden_tokens'] = list(C.FORBIDDEN_LABELS_V1)
+        self.assertEqual(P.validate_problem(problem), [])
+
+    def test_previous_v2_correctness_metadata_remains_readable(self):
+        from test_zk_registry_correctness_gnark import package_fixture
+
+        problem = package_fixture()
+        problem['checker']['forbidden_version'] = 2
+        problem['checker']['forbidden_tokens'] = list(C.FORBIDDEN_LABELS_V2)
         self.assertEqual(P.validate_problem(problem), [])
 
 
@@ -262,6 +305,18 @@ class LiveFullGateV2Tests(unittest.TestCase):
             self.assertEqual(result['assurance'], 'test-fixture')
             self.assertTrue(result['two_kernels']['lean_accepts'])
             self.assertTrue(result['two_kernels']['nanoda_accepts'])
+            safe = statement.replace('theorem det', '@[simp] theorem helper : 0 = (0 : Nat) := rfl\n'
+                                     'theorem det').replace('  sorry', '  rfl')
+            proof.write_text(safe)
+            allowed = C.check(str(promoted), str(proof), env, timeout=300, keep=True,
+                              work_root=str(Path(directory, 'allowed')), policy_fixture=env.pins(),
+                              sandbox=boundary, tools=tools)
+            self.assertEqual(allowed['verdict'], 'PASS', allowed)
+            proof.write_text(safe.replace('@[simp]', '@[custom_handler]'))
+            forbidden = C.check(str(promoted), str(proof), env, timeout=300, policy_fixture=env.pins(),
+                                sandbox=boundary, tools=tools)
+            self.assertEqual((forbidden['verdict'], forbidden['reason']), ('INVALID', 'forbidden-attribute'))
+            self.assertEqual(forbidden['compile'], 'skipped')
             proof.write_text(statement.replace('0 = (0 : Nat)', '1 = (1 : Nat)').replace('  sorry', '  rfl'))
             changed = C.check(str(promoted), str(proof), env, timeout=300, policy_fixture=env.pins(),
                               sandbox=boundary, tools=tools)

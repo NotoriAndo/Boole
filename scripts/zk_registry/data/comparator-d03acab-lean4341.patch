@@ -1,0 +1,13 @@
+diff --git a/lean-toolchain b/lean-toolchain
+--- a/lean-toolchain
++++ b/lean-toolchain
+@@ -1 +1 @@
+-leanprover/lean4:v4.34.0
++leanprover/lean4:v4.34.1
+
+diff --git a/.lake/packages/lean4export/lean-toolchain b/.lake/packages/lean4export/lean-toolchain
+--- a/.lake/packages/lean4export/lean-toolchain
++++ b/.lake/packages/lean4export/lean-toolchain
+@@ -1 +1 @@
+-leanprover/lean4:v4.34.0
++leanprover/lean4:v4.34.1

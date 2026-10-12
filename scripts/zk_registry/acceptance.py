@@ -38,7 +38,7 @@ def read(directory: str, problem: dict, *, required: bool = False,
               'measuring_stick_axioms', 'migration'}
     if not isinstance(data, dict) or set(data) != fields or data['schema_version'] != 2:
         raise ValueError('reference-binding-invalid')
-    if data['package_id'] != problem['package_id'] or data['forbidden_version'] != 2:
+    if data['package_id'] != problem['package_id'] or data['forbidden_version'] not in (2, 3):
         raise ValueError('reference-binding-invalid')
     if data['metadata_sha256'] != D.digest(root / 'problem.json'):
         raise ValueError('reference-binding-invalid')
@@ -71,4 +71,5 @@ def public(binding: RootBinding) -> dict:
     return dict(schema_version=2, manifest_sha256=binding.manifest_sha256,
                 challenge_export_sha256=binding.manifest['challenge_export']['sha256'],
                 environment_descriptor_sha256=binding.manifest['environment_descriptor_sha256'],
-                tools_descriptor_sha256=binding.manifest['tools_descriptor_sha256'], forbidden_version=2)
+                tools_descriptor_sha256=binding.manifest['tools_descriptor_sha256'],
+                forbidden_version=binding.manifest['forbidden_version'])

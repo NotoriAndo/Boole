@@ -3,9 +3,11 @@
   "comparator": {
     "repository": "https://github.com/leanprover/comparator",
     "revision": "d03acab154d269c06e60e4de7e4cc85deebff94b",
-    "lean": "v4.34.0",
+    "lean": "v4.34.1",
+    "declared_lean": "v4.34.0",
     "licence": "Apache-2.0",
-    "patch": "comparator-d03acab-export-files.patch"
+    "patch": "comparator-d03acab-export-files.patch",
+    "toolchain_patch": "comparator-d03acab-lean4341.patch"
   },
   "exporter": {
     "repository": "https://github.com/leanprover/lean4export",
@@ -35,10 +37,10 @@
   "binary_profiles": {
     "Darwin-arm64": {
       "assurance": "dev-unsandboxed",
-      "kernel_prefix": "lean-4.34.0-darwin_aarch64",
+      "kernel_prefix": "lean-4.34.1-darwin_aarch64",
       "comparator": {
         "path": "comparator/.lake/build/bin/comparator",
-        "sha256": "fb34571edbeb387ff385c81eaea1f3dae4d72ecd78b806095829cd2a2b886812"
+        "sha256": "d6e6a431ba745b5f6555b1b63ad1be24eff9d2f763eba3a1ff0e4bb6f8462c77"
       },
       "exporter": {
         "path": "lean4export/.lake/build/bin/lean4export",

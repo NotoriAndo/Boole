@@ -38,7 +38,7 @@ def repin_package(source: str, destination: str, reference: dict, *, old_referen
         problem['checker'].update(forbidden_tokens=list(C.FORBIDDEN_LABELS),
                                   reference_type_sha256=reference['reference_type_sha256'])
         if problem['schema_version'] == P.CORRECTNESS_GNARK_SCHEMA_VERSION:
-            problem['checker']['forbidden_version'] = 2
+            problem['checker']['forbidden_version'] = C.FORBIDDEN_VERSION
     P.write_json(str(new / 'problem.json'), problem)
     errors = P.validate_problem(problem, str(new))
     if errors:
@@ -48,7 +48,8 @@ def repin_package(source: str, destination: str, reference: dict, *, old_referen
     shutil.copyfile(reference['path'], export)
     manifest = dict(schema_version=2, package_id=problem['package_id'], metadata_sha256=D.digest(new / 'problem.json'),
                     environment_descriptor_sha256=D.digest(A.DATA / 'acceptance_environment_v2.json'),
-                    tools_descriptor_sha256=D.digest(A.DATA / 'acceptance_tools_v2.json'), forbidden_version=2,
+                    tools_descriptor_sha256=D.digest(A.DATA / 'acceptance_tools_v2.json'),
+                    forbidden_version=C.FORBIDDEN_VERSION,
                     challenge_export=dict(path='acceptance/Challenge.ndjson', sha256=D.digest(export)),
                     reference_type_sha256=reference['reference_type_sha256'], measuring_stick_axioms=[],
                     migration=dict(old_metadata_sha256=old_metadata, old_environment=old_env,

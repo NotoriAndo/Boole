@@ -1,6 +1,6 @@
 # Boole — current development status
 
-Updated: 2026-10-12. This is the tracked entrypoint for current progress and the
+Updated: 2026-10-13. This is the tracked entrypoint for current progress and the
 ordered development roadmap. Edit it in place; execution evidence stays in its
 own result record. Local Master/Execution documents link here instead of owning
 a second current cursor. Work methods follow the
@@ -96,12 +96,15 @@ A measured census found no ZK code item with full machine-checked coverage.
 See the [problem registry](zk-problem-registry.md) for templates, gates, package
 format and limits. Nothing is issued, rewarded or activated; BF.7 remains HOLD.
 
-**Acceptance gate v2 (Task Y, local branch only).** The judge promotes the approved 4.34.1 environment, retires
-4.33.1 packages, requires one Landrun boundary and a full closure accepted by Comparator Lean 4.34.0 and nanoda.
+**Acceptance gate v2 (Tasks Y / Y-fix, local branch only).** The judge promotes the approved 4.34.1 environment, retires
+4.33.1 packages, requires one Landrun boundary and a full closure accepted by Comparator Lean 4.34.1 and nanoda.
 Compiled-evaluator axioms remain banned; N2 requires digest bindings and tracked conformance PASS (empty today).
-Twenty fixed timing items give templates 10/10 and proofs 8/10 PASS-UNCHANGED; two proofs hit the new attribute ban.
-Full catalog/proof revalidation proceeds under a new root, without changing prior indexes or rerunning floor/battery.
-No 99% qualification is claimed from that prefix. macOS is development-only; Linux sandbox evidence is out of scope
+Y-fix replaces the broad attribute ban with the fixed safe allowlist and rejects code-defining/registration commands;
+historical forbidden-policy v1/v2 metadata remains readable, new metadata uses v3. Comparator/exporter are aligned
+to 4.34.1 and the checker uses the declared theorem name. Original full revalidation closed 1,942/2,223 applicable
+items unchanged (87.3594%), below 99%. Its new root stays unchanged/incomplete; the 267 NOT-RUN and three
+resource-ERROR templates move to the Linux production-mode run, without rerunning floor/battery.
+No production qualification is claimed. macOS is development-only; Linux sandbox evidence is out of scope
 and Linux kernel-binary provisioning is still unavailable. No push, PR, issuance, rewards or activation.
 Contracts and remaining qualification boundaries are in the [gate documentation](zk-problem-registry.md#acceptance-gate-v2)
 and [service documentation](zk-registry-service.md#acceptance-and-lifecycle).

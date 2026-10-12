@@ -60,14 +60,27 @@ FORBIDDEN_V1 = [
     (r"addDeclWithoutChecking", "addDeclWithoutChecking"), (r"\bofReduce(Bool|Nat)\b", "Lean.ofReduceBool/Nat"),
     (r"#exit\b", "#exit"),
 ]
-FORBIDDEN = FORBIDDEN_V1 + [
+FORBIDDEN_V2 = FORBIDDEN_V1 + [
     (r"#eval\b", "#eval"), (r"\brun_cmd\b", "run_cmd"), (r"\brun_elab\b", "run_elab"),
     (r"\brun_meta\b", "run_meta"), (r"\binitialize\b", "initialize"),
     (r"\bbuiltin_initialize\b", "builtin_initialize"), (r"@\s*\[", "elaboration-attribute"),
     (r"\btrustCompiler\b", "Lean.trustCompiler"),
 ]
+FORBIDDEN_VERSION = 3
+SAFE_ATTRIBUTES = frozenset({'simp', 'reducible', 'irreducible', 'semireducible', 'instance',
+                             'ext', 'norm_cast', 'inline', 'specialize'})
+CODE_DEFINING_COMMANDS = (
+    'elab', 'elab_rules', 'simproc', 'dsimproc', 'simproc_decl', 'dsimproc_decl',
+    'builtin_simproc', 'builtin_dsimproc', 'builtin_simproc_decl', 'builtin_dsimproc_decl',
+    'macro', 'macro_rules', 'syntax', 'run_tac',
+)
+FORBIDDEN = [entry for entry in FORBIDDEN_V2 if entry[1] != 'elaboration-attribute'] + [
+    (r'\b' + command + r'\b', command) for command in CODE_DEFINING_COMMANDS
+] + [(r'\b(?:register|declare)_\w+\b', 'elaboration-registration')]
 FORBIDDEN_LABELS_V1 = [label for _, label in FORBIDDEN_V1]
-FORBIDDEN_LABELS = [label for _, label in FORBIDDEN]
+FORBIDDEN_LABELS_V2 = [label for _, label in FORBIDDEN_V2]
+FORBIDDEN_LABELS = [label for _, label in FORBIDDEN] + ['forbidden-attribute']
+FORBIDDEN_SETS = {1: FORBIDDEN_LABELS_V1, 2: FORBIDDEN_LABELS_V2, 3: FORBIDDEN_LABELS}
 EXIT = {"PASS": 0, "FAIL": 1, "INVALID": 2, "ERROR": 3}
 
 
@@ -171,7 +184,40 @@ def text_check(orig: str, proof: str, thm: str) -> tuple[list[str], str, str]:
     return probs, aux, body
 
 
+def forbidden_attributes(clean: str) -> list[int]:
+    """Reject every attribute entry outside the allowlist, including command and scoped forms."""
+    hits = []
+    for marker in re.finditer(r'@\s*\[|\battribute\s*\[', clean):
+        start = marker.end()
+        stack, entries, entry_start = [']'], [], start
+        pairs = {'[': ']', '(': ')', '{': '}'}
+        for index in range(start, len(clean)):
+            char = clean[index]
+            if char in pairs:
+                stack.append(pairs[char])
+            elif char in '])}':
+                if char != stack[-1]:
+                    break
+                stack.pop()
+                if not stack:
+                    entries.append(clean[entry_start:index])
+                    break
+            elif char == ',' and len(stack) == 1:
+                entries.append(clean[entry_start:index])
+                entry_start = index + 1
+        if stack:
+            hits.append(marker.start())
+            continue
+        for entry in entries:
+            match = re.match(r'\s*(?:(?:local|scoped)\s+)?-?([^\s,()\[\]{}]+)', entry)
+            if match is None or match[1] not in SAFE_ATTRIBUTES:
+                hits.append(marker.start())
+                break
+    return hits
+
+
 def forbidden_scan(parts: list[tuple[str, str]]) -> list[str]:
+    """Apply the current submission policy; historical metadata versions do not weaken checking."""
     hits = []
     for name, txt in parts:
         clean = strip_comments_strings(txt)
@@ -179,6 +225,9 @@ def forbidden_scan(parts: list[tuple[str, str]]) -> list[str]:
             for mm in re.finditer(pat, clean):
                 line = clean[: mm.start()].count("\n") + 1
                 hits.append(f"{label} in {name} (line {line} of that part)")
+        for position in forbidden_attributes(clean):
+            line = clean[:position].count('\n') + 1
+            hits.append(f'forbidden-attribute in {name} (line {line} of that part)')
     return hits
 
 
@@ -347,7 +396,10 @@ def check(pkg_dir: str, proof_path: str, env: L.LeanEnv, workdir: str | None = N
     invalid += probs
     if not probs:
         rep["statement_signature_identical"] = True
-        invalid += forbidden_scan([("helper declarations", aux), ("proof", body)])
+        scanned = forbidden_scan([("helper declarations", aux), ("proof", body)])
+        invalid += scanned
+        if any(hit.startswith('forbidden-attribute in ') for hit in scanned):
+            rep['reason'] = 'forbidden-attribute'
         rep["helper_chars"], rep["proof_chars"] = len(aux), len(body)
 
     # 4-5. compile + kernel post-check (skipped when already INVALID or ERROR)

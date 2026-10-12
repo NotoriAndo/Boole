@@ -415,7 +415,7 @@ def validate_correctness_gnark(problem: dict, pkg_dir: str | None = None, schema
     if chk['lean_opts'] != CG.LEAN_OPTIONS or chk['allowed_axioms'] != sorted(C.ALLOWED_AXIOMS):
         errs.append('correctness checker options or allowed axioms differ from production policy')
     forbidden_version = chk.get('forbidden_version', 1)
-    forbidden_labels = C.FORBIDDEN_LABELS if forbidden_version == 2 else C.FORBIDDEN_LABELS_V1
+    forbidden_labels = C.FORBIDDEN_SETS.get(forbidden_version)
     if chk['forbidden_tokens'] != forbidden_labels:
         errs.append('correctness forbidden constructs differ from production core')
     if problem['battery']['forms'] != CG.BATTERY_FORMS:

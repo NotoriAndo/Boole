@@ -43,16 +43,23 @@ never production evidence. Linux sandbox execution evidence is outside Task Y. T
 currently covers Darwin arm64 only; Linux provisioning remains unavailable, with no arbitrary-binary fallback.
 
 The v2 text stage additionally rejects `#eval`, `#exit`, `run_cmd`, `run_elab`, `run_meta`, `initialize`,
-`builtin_initialize` and conservatively all submission `@[...]` attributes. `sorry`, `native_decide`,
+`builtin_initialize`, `run_tac`, `elab`, `elab_rules`, `macro`, `macro_rules`, `syntax`,
+`simproc`, `dsimproc`, their `_decl` and `builtin_` forms, and every `register_*` / `declare_*` identifier.
+Attributes in both `@[...]` and `attribute [...]` must be on the allowlist: `simp`, `reducible`, `irreducible`,
+`semireducible`, `instance`, `ext`, `norm_cast`, `inline`, `specialize`, including local/scoped forms.
+All others are INVALID `forbidden-attribute`; this does not authorize custom elaboration handlers.
+`sorry`, `native_decide`,
 `Lean.ofReduceBool/Nat`, `Lean.trustCompiler`, `implemented_by`, `extern`, unsafe and generated
-`_native.native_decide.ax_*` axioms remain forbidden. CG1 records `forbidden_version: 2`; absent version preserves
-its recorded v1 set. Live checking always applies v2 without editing historical package roots.
+`_native.native_decide.ax_*` axioms remain forbidden. New CG1 metadata records `forbidden_version: 3`;
+the immutable v1/v2 label sets remain readable. Live checking applies the current policy without editing historical
+package roots. The checker reads each validated package's declared theorem name; it never assumes `soundness`.
 
 After text/import identity and compilation/postchecking, export the target's full transitive type/value closure,
-including Init, Mathlib and all imports, once inside the boundary. Comparator's empty-environment Lean v4.34.0 kernel
+including Init, Mathlib and all imports, once inside the boundary. Comparator's empty-environment Lean v4.34.1 kernel
 and its built-in `enable_nanoda` path both check that same sealed file/SHA256. Both must accept. Partial ZkReplay is
 diagnostic, never sufficient for production PASS. Exact commits, licences, the exporter toolchain-only 4.34.1 port
-and minimal Comparator sealed-file transport patch are tracked in `data/acceptance_tools_v2.json` and its patch.
+and minimal Comparator sealed-file transport patch are tracked in `data/acceptance_tools_v2.json` and its patches.
+Comparator and its exporter dependency are aligned to the elaboration version by the recorded toolchain patch.
 
 Allowed axioms are `propext`, `Classical.choice`, `Quot.sound`. Future N2 axioms require exact name/type/declaring-module
 olean digests and PASS from the fixed tracked `measuring_stick_conformance_v2.json`. It is empty today. No submission
@@ -65,6 +72,8 @@ candidate-specific Challenge under a trusted catalog-root binding. Original inde
 floor/battery evidence is carried over, not rerun. A fixed 20-item timing pilot precedes scaling. Closed migration
 outcomes are PASS-UNCHANGED, PASS-AFTER-MECHANICAL-RENAME (listed), FAIL (reason), NOT-APPLICABLE. Qualification needs
 at least 99% PASS-UNCHANGED among every applicable item, not a completed prefix. FAIL packages leave the new catalog.
+The original development root is incomplete. Its 267 NOT-RUN and three resource-ERROR templates await the Linux
+production-mode catalog run; Task Y-fix does not repeat them on macOS or promote development evidence.
 
 Gate outcomes are PASS / FAIL / INVALID / ERROR. Kernel disagreement is INVALID `kernel-disagreement`; deterministic
 heartbeat/exported-constant exhaustion is INVALID `resource-cap`. Wall/memory/observation interruption is retryable

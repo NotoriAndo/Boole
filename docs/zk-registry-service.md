@@ -74,11 +74,14 @@ Rejected matches carry stable reasons (`invalid-proof`, `proof-failed`, `candida
 is never accepted as evidence. A checker error does not count as an accepted proof or as a discovered defect.
 
 Acceptance v2 requires the [full-closure two-kernel gate](zk-problem-registry.md#acceptance-gate-v2): production
-4.34.1 pins, pinned Linux Landrun, sealed-export integrity and Comparator Lean v4.34.0 plus nanoda. The worker never
+4.34.1 pins, pinned Linux Landrun, sealed-export integrity and Comparator Lean v4.34.1 plus nanoda. The worker never
 promotes a development/fixture PASS or a report missing two-kernel PASS. Missing sandbox/tools is ERROR; old v4.33.1
 packages give ERROR `environment-retired`. Their old stores remain metadata-readable but matched proof replay is
 retired under this judge. Linux execution evidence is outside Task Y; Linux kernel provisioning remains unavailable
 because the current checked binary profile is Darwin-only.
+Submission attributes use the fixed safe allowlist; code-defining/elaboration-registration commands remain forbidden.
+The current forbidden policy is v3 while historical v1/v2 metadata stays readable. The package's declared target name
+is used throughout. A tool-descriptor change does not silently rewrite or qualify an older root's reference bindings.
 
 New entries expose v2 manifest/reference/environment/tool digests bound in their immutable package snapshot.
 R's runtime candidate-specific Challenge is separate from its pinned catalog template. Public export includes only
