@@ -96,18 +96,17 @@ A measured census found no ZK code item with full machine-checked coverage.
 See the [problem registry](zk-problem-registry.md) for templates, gates, package
 format and limits. Nothing is issued, rewarded or activated; BF.7 remains HOLD.
 
-**Acceptance gate v2 (Tasks Y / Y-fix, local branch only).** The judge promotes the approved 4.34.1 environment, retires
-4.33.1 packages, requires one Landrun boundary and a full closure accepted by Comparator Lean 4.34.1 and nanoda.
-Compiled-evaluator axioms remain banned; N2 requires digest bindings and tracked conformance PASS (empty today).
-Y-fix replaces the broad attribute ban with the fixed safe allowlist and rejects code-defining/registration commands;
-historical forbidden-policy v1/v2 metadata remains readable, new metadata uses v3. Comparator/exporter are aligned
-to 4.34.1 and the checker uses the declared theorem name. Original full revalidation closed 1,942/2,223 applicable
-items unchanged (87.3594%), below 99%. Its new root stays unchanged/incomplete; the 267 NOT-RUN and three
-resource-ERROR templates move to the Linux production-mode run, without rerunning floor/battery.
-No production qualification is claimed. macOS is development-only; Linux sandbox evidence is out of scope
-and Linux kernel-binary provisioning is still unavailable. No push, PR, issuance, rewards or activation.
-Contracts and remaining qualification boundaries are in the [gate documentation](zk-problem-registry.md#acceptance-gate-v2)
-and [service documentation](zk-registry-service.md#acceptance-and-lifecycle).
+**Acceptance gate v2.** The registry judge now uses Lean 4.34.1, which includes the
+2026 kernel soundness fixes, and retires 4.33.1 packages. Submission code runs inside one
+Landrun sandbox; production mode refuses to run without it. A result is accepted only
+when the full dependency closure is accepted by both Comparator's Lean kernel and
+nanoda. Compiled-evaluator shortcuts such as `native_decide` stay banned; attributes are
+limited to a safe allowlist; commands that define elaboration code are rejected. On a
+macOS development run, 1,872 of 1,875 finished catalog templates passed unchanged. The
+production-mode re-validation of the whole catalog on Linux is the next step; macOS
+results are development evidence only. Contracts are in the
+[gate documentation](zk-problem-registry.md#acceptance-gate-v2) and the
+[service documentation](zk-registry-service.md#acceptance-and-lifecycle).
 
 **Previous priority: U1 prerequisites (September 27), now paused.** The first
 [metered tuple verifier candidate](u1-metered-tuple-verifier.md) connects a bounded
