@@ -36,11 +36,36 @@ The production judge reads only `scripts/zk_registry/data/acceptance_environment
 Mathlib `d13f23b723b8a846827a245b89c10fc7d3f11612` and exact manifest/package pins. Old roots and fixtures retain
 v4.33.1. An old package gives ERROR `environment-retired` before compilation; its earlier PASS is historical evidence.
 
-Every submission-code execution uses pinned Linux Landrun: native builds/extraction, generated model elaboration,
-submission compilation, olean inspection and closure export. Native output, Lean build and sealed-export write scopes
-are separate. Missing Landrun gives ERROR `sandbox-unavailable`. macOS passthrough is explicitly `dev-unsandboxed`,
-never production evidence. Linux sandbox execution evidence is outside Task Y. The checked kernel binary profile
-currently covers Darwin arm64 only; Linux provisioning remains unavailable, with no arbitrary-binary fallback.
+Every submission-code execution uses the pinned hardened Linux boundary: native builds/extraction, generated model
+elaboration, submission compilation, olean inspection, closure export and Comparator as a whole. Native output,
+Lean build and sealed-export write scopes are separate. Fresh user/network/PID/mount/IPC namespaces, strict Landlock
+and per-architecture seccomp apply together; the network namespace contains only a down loopback. Nested user
+namespaces are disabled and payload effective/ambient/bounding capabilities are zero. Comparator's compatible inner
+Landrun CLI inherits those layers, without best-effort fallback. Missing layers or a launcher failure at any stage
+give ERROR `sandbox-unavailable`. macOS passthrough is explicitly `dev-unsandboxed`, never production evidence.
+The tracked tools descriptor, not an untracked overlay or environment override, is the binary authority.
+
+Linux nodes require Ubuntu's version/SHA256-pinned non-setuid `/usr/bin/bwrap`, the digest-pinned AppArmor profile
+`boole-gate-bwrap` granting `userns,`, Landlock ABI >=4, native seccomp, and an unprivileged systemd-delegated cgroup v2
+domain with both `memory` and `pids` controllers. Keep `kernel.apparmor_restrict_unprivileged_userns=1` when the kernel
+provides it; never disable that restriction. Every receipt records kernel, ABI, BPF digest, profile hash/label,
+sysctl, namespace identities, caps and resource observations. Whole-step payload+init memory is limited to at most
+20GB; provision a node-wide parent cap for concurrent steps (the local validation VM uses at most 24GB total).
+
+| Landlock ABI | Applied features (cumulative) | Missing-feature confinement |
+| --- | --- | --- |
+| 4 (Ubuntu 24.04 LTS 6.8) | Filesystem rights through TRUNCATE; deny TCP bind/connect | Read-only bind mounts; fresh down network namespace; socket-family seccomp |
+| 5 | Device ioctl restriction | Same mandatory namespace/mount/seccomp layers |
+| 6–7 | Signal and abstract Unix-socket scopes | Same mandatory layers |
+| 8 | Thread-synchronized ruleset restriction | Same mandatory layers |
+| 9 | Pathname Unix-socket rights | Same mandatory layers |
+
+Seccomp kills non-native architectures, including amd64 i386/x32, and denies non-AF_UNIX socket creation, socketcall,
+ptrace, mount APIs, keyctl, bpf, perf_event_open, all three io_uring calls and userfaultfd. The pinned PID-1 shim logs
+every reaped orphan and frozen payload-cgroup member at main exit. Any remaining/adopted descendant is INVALID
+`owned-descendants-remained`, not a silent cleanup. Mandatory pids exhaustion is INVALID `resource-cap` (reference
+builds: ERROR `resource-unavailable`); OOM and wall/memory interruption take ERROR precedence. The compile-time
+detachment controls deliberately bypass the text stage as trusted fixtures to exercise the actual OS boundary.
 
 The v2 text stage additionally rejects `#eval`, `#exit`, `run_cmd`, `run_elab`, `run_meta`, `initialize`,
 `builtin_initialize`, `run_tac`, `elab`, `elab_rules`, `macro`, `macro_rules`, `syntax`,

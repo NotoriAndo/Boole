@@ -34,7 +34,65 @@
       "aarch64": "462f60826d3037cbf87d0b75744eedeb7f02a59e637dc38d5c253d5d4ff1953a"
     }
   },
+  "sandbox": {
+    "version": 1,
+    "launcher_path": "gate/launcher.py",
+    "launcher_sha256": "6cb7c1a89719f6778f22ba0b43ae5fb4445d9d672c1204cf15db86c8c9408b22",
+    "inner_launcher_sha256": "0783fbb4e6ad8efd0137ab883f11a0ce6e4180d8be340dc1a8b2c579b9a11f24",
+    "bubblewrap_version": "0.9.0-1ubuntu0.3",
+    "libseccomp_version": "2.5.5-1ubuntu3.1",
+    "architectures": {
+      "x86_64": {
+        "bubblewrap_deb_sha256": "2461f1beee9cb04c8942739fe1a2b37e7b7c2a3d518f0779dc75f9245baa3094",
+        "libseccomp_dev_deb_sha256": "26421f22f2150986735b79ece61d811400debab7fa505b08b731ec5a7917e45f",
+        "bwrap_sha256": "e318903862396f96de3df57264e0158682b952fd3fb53ac23d876413e7b30f71",
+        "isolate_sha256": "204eefd99e40bd318aa5aed77c11f4fe62d631c4659a499e6ddd710150c7827b",
+        "filter_sha256": "fbc33ca5f02f6b27b9c91f34d1a8d7e428b91f5474edadeb9013e66be1eba398",
+        "apparmor_profile_sha256": "35613442bd82247d132b1102579edc5567d8047930d1b60fbb8bbba93c5abcd6"
+      },
+      "aarch64": {
+        "bubblewrap_deb_sha256": "dce3a2e5f0302eab717a64fe9c9411fe2d40469e2a7946e0f2ce1420a61025c3",
+        "libseccomp_dev_deb_sha256": "e8ad51ab54d2b1f69117f152fb011901a8822c19410c1fe7b82d000436df77d0",
+        "bwrap_sha256": "cd6b143283b464baf078ab09ca19dadc5bcc2423b833c4f9dd7e83f9ba1b640b",
+        "isolate_sha256": "8855017c49bdea15496c9364585fdaa05d281e3b74640be1dece89ba41e42ae2",
+        "filter_sha256": "fad71d7c386d2010967452f00edc94bb7b049942a2e14faf6ac5cd18a16dffd6",
+        "apparmor_profile_sha256": "35613442bd82247d132b1102579edc5567d8047930d1b60fbb8bbba93c5abcd6"
+      }
+    }
+  },
   "binary_profiles": {
+    "Linux-x86_64": {
+      "assurance": "production",
+      "kernel_prefix": "lean-4.34.1-linux",
+      "comparator": {
+        "path": "comparator/.lake/build/bin/comparator",
+        "sha256": "6622078ca4eb508ec3b6d6bbc1b6981709805cd55260c6489c94a0a04d6cd666"
+      },
+      "exporter": {
+        "path": "lean4export/.lake/build/bin/lean4export",
+        "sha256": "8c5d64ba68f4d3a68b3bcb7e1c5f188e35ae573b29470b8d4530a62324c9ddd1"
+      },
+      "nanoda": {
+        "path": "nanoda/target/x86_64-unknown-linux-gnu/release/nanoda_bin",
+        "sha256": "cfdc7bcca8deef69b3a493a6852cd05c15e6619f170feeba5e7349a428e5774e"
+      }
+    },
+    "Linux-aarch64": {
+      "assurance": "production",
+      "kernel_prefix": "lean-4.34.1-linux_aarch64",
+      "comparator": {
+        "path": "comparator/.lake/build/bin/comparator",
+        "sha256": "0f28148265646afec2851db1011cd96fd28ea61035f4c07ce33b5aea3f1e175e"
+      },
+      "exporter": {
+        "path": "lean4export/.lake/build/bin/lean4export",
+        "sha256": "cf5d18bcb62e92bf3446a7f88c1d709dae77ba2ddca9cd049dfd46e94e84904f"
+      },
+      "nanoda": {
+        "path": "nanoda/target/release/nanoda_bin",
+        "sha256": "909da1aff6aa04e11303a525d173279ff0020d18f36ffeee66e2cf24c30bd89b"
+      }
+    },
     "Darwin-arm64": {
       "assurance": "dev-unsandboxed",
       "kernel_prefix": "lean-4.34.1-darwin_aarch64",

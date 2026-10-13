@@ -1,0 +1,7 @@
+# Pinned bubblewrap path; no setuid and no global userns-policy weakening.
+abi <abi/4.0>,
+include <tunables/global>
+
+profile boole-gate-bwrap /usr/bin/bwrap flags=(unconfined) {
+  userns,
+}

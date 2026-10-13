@@ -289,7 +289,16 @@ def _compile_and_postcheck(env: L.LeanEnv, problem: dict, pkg_dir: str, text: st
             return res
         r, msgs = L.compile_module(env, src_root, fr["path"], build, opts, timeout)
         res["imports"].append({"path": fr["path"], "rc": r.rc, "secs": r.secs, "errors": len(L.errors(msgs)),
-                               "peak_rss_mb": r.peak_rss_mb})
+                               "peak_rss_mb": r.peak_rss_mb, "boundary": r.boundary})
+        from .sandbox import boundary_failure
+        stopped = boundary_failure(r)
+        if stopped:
+            res['boundary'] = stopped
+            if stopped['verdict'] == 'ERROR':
+                res['error'] = stopped['reason']
+            else:
+                res.update(compile_rc=r.rc, post=None)
+            return res
         if r.timeout or r.memkill or r.killed_by:
             res['error'] = 'resource-unavailable'
             return res
@@ -309,7 +318,7 @@ def _compile_and_postcheck(env: L.LeanEnv, problem: dict, pkg_dir: str, text: st
     errs = L.errors(msgs)
     res.update(compile_rc=r.rc, compile_secs=r.secs, compile_timeout=r.timeout, n_errors=len(errs),
                compile_memkill=r.memkill, compile_killed_by=r.killed_by, compile_peak_rss_mb=r.peak_rss_mb,
-               errors=[L.fmt_msg(m) for m in errs[:10]],
+               errors=[L.fmt_msg(m) for m in errs[:10]], boundary=r.boundary,
                sorry_warnings=sum(1 for m in msgs if m.get("severity") == "warning" and "sorry" in m.get("data", "")),
                printed_axioms=parse_printed_axioms(msgs, fqn))
     if r.rc != 0 or r.timeout or not os.path.exists(olean):
@@ -317,7 +326,7 @@ def _compile_and_postcheck(env: L.LeanEnv, problem: dict, pkg_dir: str, text: st
         return res
     rr, post = G.run_replay(env, olean, fqn, os.path.join(proof_dir, "replay.out"), opts, [build], timeout)
     post.update(rc=rr.rc, secs=rr.secs, timeout=rr.timeout, memkill=rr.memkill,
-                killed_by=rr.killed_by, peak_rss_mb=rr.peak_rss_mb, stdout=rr.out[-2000:])
+                killed_by=rr.killed_by, peak_rss_mb=rr.peak_rss_mb, stdout=rr.out[-2000:], boundary=rr.boundary)
     res["post"] = post
     return res
 
@@ -520,6 +529,14 @@ def apply_compile_result(r: dict, chk: dict, invalid: list[str], fail: list[str]
     if r.get('compile_memkill') or r.get('compile_killed_by'):
         error.append('resource-unavailable')
         return
+    post_resource = r.get('post') or {}
+    if post_resource.get('timeout') or post_resource.get('memkill') or post_resource.get('killed_by'):
+        error.append('resource-unavailable')
+        return
+    for boundary in (r.get('boundary'), post_resource.get('boundary')):
+        if boundary and boundary.get('verdict') != 'PASS':
+            (error if boundary['verdict'] == 'ERROR' else invalid).append(boundary['reason'])
+            return
     if any('maximum number of heartbeats' in text.lower() or 'maxheartbeats' in text.lower()
            for text in r.get('errors', [])):
         invalid.append('resource-cap')

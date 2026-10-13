@@ -93,6 +93,8 @@ GENERATOR_SOURCES = ["__init__.py", "r1cs.py", "circom_source.py", "circom_eval.
                      "package.py", "jsonschema_lite.py", "lean_runner.py", "gates.py", "check.py", "circom_det.py",
                      "circom_detmod.py", "lean/ZkReplay.lean", "schema/problem.schema.json",
                      "acceptance.py", "axiom_policy.py", "closure.py", "sandbox.py", "correctness_runtime.py",
+                     "sandbox_backend/launcher.py", "sandbox_backend/isolate.c", "sandbox_backend/filter.c",
+                     "sandbox_backend/probes.c", "sandbox_backend/comparator-landrun", "sandbox_backend/apparmor-bwrap",
                      "data/acceptance_environment_v2.json", "data/acceptance_tools_v2.json",
                      "data/measuring_stick_conformance_v2.json", "data/comparator-d03acab-export-files.patch",
                      "data/development-landrun.sh"]

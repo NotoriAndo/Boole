@@ -155,16 +155,19 @@ def runner(log_directory: str, total_timeout: float | None = None, *, sandbox=No
         if not owned:
             state['reason'] = state['reason'] or 'unobserved-owned-root'
         code = 125 if state['reason'] and child.returncode == 0 else child.returncode
+        result = L.RunResult(code, output.decode('utf-8', 'replace'), round(time.monotonic() - epoch, 3),
+                             state['reason'] in ('timeout', 'checker-deadline'), state['reason'] == 'rss-limit',
+                             int(state['peak']), state['reason'])
+        from .sandbox import capture_result
+        result = capture_result(cmd, result)
         record = dict(argv=cmd, cwd=cwd, start_utc=started,
                       end_utc=datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
                       exit_code=code, child_exit_code=child.returncode, reason=state['reason'],
                       peak_rss_mb=state['peak'], rss_limit_mb=rss_limit_mb or 12000,
-                      owned_identities=owned, cleanup_observation_errors=state['errors'])
+                      owned_identities=owned, cleanup_observation_errors=state['errors'], boundary=result.boundary)
         with (logs / (label + '.json')).open('x') as stream:
             json.dump(record, stream, indent=2)
-        return L.RunResult(code, output.decode('utf-8', 'replace'), round(time.monotonic() - epoch, 3),
-                           state['reason'] in ('timeout', 'checker-deadline'), state['reason'] == 'rss-limit',
-                           int(state['peak']), state['reason'])
+        return result
 
     run_process.submission_boundary = sandbox
     return run_process

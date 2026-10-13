@@ -131,10 +131,11 @@ def process_env(env: LeanEnv, extra_lean_path: list[str] | tuple[str, ...] = ())
     os.makedirs(tmp, exist_ok=True)
     home = os.path.join(env.scratch, 'home')
     os.makedirs(home, exist_ok=True)
+    toolchain = os.path.realpath(env.toolchain)
     return {
-        "PATH": f"{env.toolchain}/bin:{SYSTEM_PATH}",
-        "LEAN_SYSROOT": env.toolchain,
-        "LEAN_PATH": ":".join(list(extra_lean_path) + env.lean_path),
+        "PATH": f"{toolchain}/bin:{SYSTEM_PATH}",
+        "LEAN_SYSROOT": toolchain,
+        "LEAN_PATH": ":".join(os.path.realpath(path) for path in [*extra_lean_path, *env.lean_path]),
         "HOME": home,
         "TMPDIR": tmp,
         "ELAN_HOME": os.path.join(env.scratch, "elan-unused"),
@@ -153,6 +154,7 @@ class RunResult:
     memkill: bool = False
     peak_rss_mb: int = 0
     killed_by: str = ""                   # reason returned by the ``watch`` hook, if it stopped the run
+    boundary: dict | None = None          # trusted production namespace/cgroup receipt
 
 
 class ResourceUnavailable(RuntimeError):
