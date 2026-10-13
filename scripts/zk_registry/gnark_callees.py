@@ -19,6 +19,8 @@ import re
 import shutil
 import subprocess
 
+from zk_registry.safe_fs import open
+from zk_registry import safe_fs as FS
 from zk_registry import gnark_instantiation as I
 
 # the decomposition driver selects instances (like noir_callees); hashed by the wave's run record
@@ -34,8 +36,8 @@ def build_tool(build_dir: str, src_dir: str, env: dict) -> str:
     binary = os.path.join(cdir, "calleesx")
     if os.path.exists(binary):
         return binary
-    os.makedirs(os.path.join(cdir, "callees"), exist_ok=True)
-    shutil.copyfile(os.path.join(src_dir, "callees", "main.go"), os.path.join(cdir, "callees", "main.go"))
+    FS.makedirs(os.path.join(cdir, "callees"), exist_ok=True)
+    FS.copyfile(os.path.join(src_dir, "callees", "main.go"), os.path.join(cdir, "callees", "main.go"))
     with open(os.path.join(cdir, "go.mod"), "w", encoding="utf-8") as f:
         f.write(f"module boole.local/gnarkcallees\n\ngo 1.24\n\nrequire golang.org/x/tools {XTOOLS}\n")
     for args in (["go", "mod", "tidy"], ["go", "build", "-o", binary, "./callees"]):
@@ -177,11 +179,11 @@ def run_root(binary: str, module_dir: str, decl: dict, env: dict, work: str, go_
     """Callees of one root: {"key", "callees": [...]} or {"error"}.  The generated roots package is written inside
     the module (a scratch checkout) and removed afterwards."""
     pdir = os.path.join(module_dir, f"{ROOTS_DIR}_{hashlib.sha256(work.encode()).hexdigest()[:10]}")
-    os.makedirs(pdir, exist_ok=True)
+    FS.makedirs(pdir, exist_ok=True)
     try:
         with open(os.path.join(pdir, "roots.go"), "w", encoding="utf-8") as f:
             f.write(roots_file(decl, env).replace(f"package {ROOTS_DIR}", f"package {os.path.basename(pdir)}"))
-        os.makedirs(work, exist_ok=True)
+        FS.makedirs(work, exist_ok=True)
         out = os.path.join(work, "callees.json")
         r = subprocess.run([binary, "-dir", module_dir, "-roots", pdir, "-out", out, "-prefix", prefix], cwd=module_dir,
                            env=go_env, capture_output=True, text=True, timeout=timeout)

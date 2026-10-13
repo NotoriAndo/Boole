@@ -70,6 +70,9 @@ if __package__ in (None, ""):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     __package__ = "zk_registry"
 
+from zk_registry import safe_fs as FS
+from zk_registry.safe_fs import open
+
 from zk_registry import check as C              # noqa: E402
 from zk_registry import circom_det as CD        # noqa: E402
 from zk_registry import circom_source as cs     # noqa: E402
@@ -184,7 +187,7 @@ def read_json(path: str):
 
 
 def put(path: str, text: str) -> None:
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    FS.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         f.write(text)
 
@@ -195,7 +198,7 @@ def fresh_dir(path: str) -> str:
         raise RuntimeError(f"refusing to replace a symbolic link: {path}")
     if os.path.isdir(path):
         shutil.rmtree(path)
-    os.makedirs(path)
+    FS.makedirs(path)
     return path
 
 
@@ -625,7 +628,7 @@ def run_generator(node: str, js_dir: str, r1cs: str, vectors: list[dict], work: 
     """The circuit's own wasm witness generator on every input object, each witness re-checked against the R1CS
     (``witness_js`` / ``wasm``: the compile result's generator, default circom 2's files in ``js_dir``; circom 1
     wasm files run through the pinned ``circom_runtime``)."""
-    os.makedirs(work, exist_ok=True)
+    FS.makedirs(work, exist_ok=True)
     inp, outp = os.path.join(work, tag + ".inputs.jsonl"), os.path.join(work, tag + ".results.jsonl")
     put(inp, "".join(json.dumps(v) + "\n" for v in vectors))
     wasm = wasm or os.path.join(js_dir, sorted(n for n in os.listdir(js_dir) if n.endswith(".wasm"))[0])
@@ -853,8 +856,8 @@ def build_problem(reg_dir: str, snapshot: str, out_dir: str, compilers: dict, de
     prob = problem_record(spec, measured, det, snap, annotations, context)
     src = os.path.join(reg_dir, spec["model"]["file"])
     dst = os.path.join(out_dir, spec["model"]["file"])
-    os.makedirs(os.path.dirname(dst), exist_ok=True)
-    shutil.copyfile(src, dst)
+    FS.makedirs(os.path.dirname(dst), exist_ok=True)
+    FS.copyfile(src, dst)
     nomain, custom = measured["nomain"], measured["custom_templates"]
     put(os.path.join(out_dir, "reference", "main.circom"), reference_main(spec, nomain, custom))
     put(os.path.join(out_dir, "reference", "record.circom"),
@@ -961,7 +964,7 @@ def compile_candidate(prob: dict, cand_path: str, out: str, snapshot: str, compi
                       node: str | None = None) -> tuple[dict, dict]:
     """Source rules, compile, main I/O, metric.  Returns (report, compile result); raises Reject."""
     man = verify_snapshot(snapshot, prob["snapshot"]["manifest_sha256"])
-    os.makedirs(out, exist_ok=True)
+    FS.makedirs(out, exist_ok=True)
     srcs, snap, pragma = admit_sources(cand_path, prob, man)
     rep: dict = {"problem": prob["package_id"], "candidate_file": os.path.abspath(cand_path), "started_utc": now(),
                  "source_sha256": sha(srcs["Candidate.circom"].encode()), "local_files": sorted(srcs),
@@ -1069,6 +1072,7 @@ def _elaborate(env: L.LeanEnv, pkg: str, modules: list[str], fqn: str, opts: lis
     d: dict = {"steps": []}
     for rel in modules + ["Statement.lean"]:
         r, msgs = L.compile_module(env, pkg, rel, build, opts, timeout)
+        L.enforce_boundary(r)
         d["steps"].append({"file": rel, "rc": r.rc, "secs": r.secs, "peak_rss_mb": r.peak_rss_mb,
                            "memkill": r.memkill, "timeout": r.timeout})
         if r.rc != 0 or r.timeout or r.memkill or L.errors(msgs):
@@ -1079,6 +1083,7 @@ def _elaborate(env: L.LeanEnv, pkg: str, modules: list[str], fqn: str, opts: lis
                 return dict(d, status="FAIL", errors=["expected exactly one `declaration uses sorry` warning"])
     rr, post = G.run_replay(env, os.path.join(build, "Statement.olean"), fqn, os.path.join(work, "replay.out"), opts,
                             [build], timeout)
+    L.enforce_boundary(rr)
     d["steps"].append({"file": "replay", "rc": rr.rc, "secs": rr.secs, "peak_rss_mb": rr.peak_rss_mb})
     ok = (post["replay"] == "ok" and isinstance(post["target"], dict) and post["target"]["kind"] == "theorem"
           and set(post["axioms"]) <= G.ALLOWED_AXIOMS | {"sorryAx"} and "sorryAx" in post["axioms"])
@@ -1123,8 +1128,8 @@ def write_candidate_package(prob: dict, problem_dir: str, cand: dict, res: dict,
     cmodel = candidate_model(prob, res)
     fresh_dir(pkg)
     m = prob["reference"]["model"]
-    os.makedirs(os.path.dirname(os.path.join(pkg, m["file"])), exist_ok=True)
-    shutil.copyfile(os.path.join(problem_dir, m["file"]), os.path.join(pkg, m["file"]))
+    FS.makedirs(os.path.dirname(os.path.join(pkg, m["file"])), exist_ok=True)
+    FS.copyfile(os.path.join(problem_dir, m["file"]), os.path.join(pkg, m["file"]))
     if P.sha256_file(os.path.join(pkg, m["file"])) != m["sha256"]:
         raise RuntimeError("reference model file changed")
     put(os.path.join(pkg, E.model_relpath(cand_ns)), cmodel)
@@ -1178,6 +1183,15 @@ def run_check(problem_dir: str, cand_path: str, solution: str, out: str, compile
     except Reject as ex:
         rep.update(verdict="REJECTED", reason=str(ex))
         return "REJECTED", rep
+    except (L.BoundaryInvalid, L.ResourceUnavailable) as ex:
+        rep.update(L.boundary_outcome(ex))
+        return rep['verdict'], rep
+    except ValueError as ex:
+        from .sandbox import SandboxUnavailable
+        if not isinstance(ex, SandboxUnavailable):
+            raise
+        rep.update(L.boundary_outcome(ex))
+        return rep['verdict'], rep
     rep["candidate"] = cr["candidate"]
     if not os.path.isfile(solution):
         rep.update(verdict="ERROR", reason=f"no solution file {solution}")

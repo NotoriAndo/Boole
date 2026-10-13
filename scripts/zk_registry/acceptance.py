@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
-from pathlib import Path
+from .safe_fs import Path
 import re
 
 from . import axiom_policy as A, closure as D

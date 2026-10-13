@@ -10,11 +10,14 @@ Package directory (statuses OPEN, GATE-FAIL, DET-FALSE-CANDIDATE)::
 TOO-LARGE and UNINSTANTIABLE records have no package directory; they live in the wave index.
 """
 from __future__ import annotations
+from .safe_fs import open
 
 import hashlib
 import json
 import os
 import re
+
+from zk_registry import safe_fs as FS
 
 from . import GENERATOR_NAME, GENERATOR_VERSION
 from . import jsonschema_lite
@@ -92,7 +95,7 @@ GENERATOR_SOURCES = ["__init__.py", "r1cs.py", "circom_source.py", "circom_eval.
                      "witness.py", "witness_runner.js", "det_search.py", "tags.py", "content.py", "decompose.py",
                      "package.py", "jsonschema_lite.py", "lean_runner.py", "gates.py", "check.py", "circom_det.py",
                      "circom_detmod.py", "lean/ZkReplay.lean", "schema/problem.schema.json",
-                     "acceptance.py", "axiom_policy.py", "closure.py", "sandbox.py", "correctness_runtime.py",
+                     "acceptance.py", "axiom_policy.py", "closure.py", "sandbox.py", "correctness_runtime.py", "safe_fs.py",
                      "sandbox_backend/launcher.py", "sandbox_backend/isolate.c", "sandbox_backend/filter.c",
                      "sandbox_backend/probes.c", "sandbox_backend/comparator-landrun", "sandbox_backend/apparmor-bwrap",
                      "data/acceptance_environment_v2.json", "data/acceptance_tools_v2.json",
@@ -316,7 +319,7 @@ def validate_spec(problem: dict, pkg_dir: str | None = None, schema: dict | None
 
 def _spec_acceptance_errors(problem: dict, pkg_dir: str) -> list[str]:
     """Validate retained Task M D/M/C acceptance records, without rerunning or inventing gates."""
-    from pathlib import Path
+    from .safe_fs import Path
     from datetime import datetime, timezone
     from . import spec_problem as S
     if problem['protocol']['version'] != 'Task M D/M/C frozen':
@@ -814,7 +817,7 @@ def validate_ratchet_noir(problem: dict, pkg_dir: str | None = None, schema: dic
 
 
 def write_json(path: str, obj) -> None:
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    FS.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(obj, f, indent=1, sort_keys=True, ensure_ascii=False)
         f.write("\n")

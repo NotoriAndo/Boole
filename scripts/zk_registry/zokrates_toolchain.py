@@ -16,6 +16,8 @@ Two repositories, two release lines of the same project:
   decoded by :mod:`zokrates_legacy`.
 """
 from __future__ import annotations
+from zk_registry.safe_fs import open
+from zk_registry import safe_fs as FS
 
 import hashlib
 import os
@@ -65,7 +67,7 @@ def fetch_release(version: str, dest_dir: str) -> dict:
     stdlib = os.path.join(root, "stdlib")
     tarball = os.path.join(dest_dir, asset)
     if not os.path.isfile(binary):
-        os.makedirs(root, exist_ok=True)
+        FS.makedirs(root, exist_ok=True)
         if not os.path.isfile(tarball):
             req = urllib.request.Request(RELEASE_URL.format(version=version, asset=asset),
                                          headers={"User-Agent": USER_AGENT})
@@ -96,8 +98,8 @@ def build_source(repo_dir: str, version: str, cargo_home: str, target_dir: str, 
     lock = os.path.join(repo_dir, "Cargo.lock")
     binary = os.path.join(target_dir, "release", "zokrates")
     if not os.path.isfile(binary):
-        os.makedirs(cargo_home, exist_ok=True)
-        os.makedirs(target_dir, exist_ok=True)
+        FS.makedirs(cargo_home, exist_ok=True)
+        FS.makedirs(target_dir, exist_ok=True)
         env = dict(os.environ, CARGO_HOME=cargo_home, CARGO_TARGET_DIR=target_dir, RUSTC_BOOTSTRAP="1")
         r = subprocess.run(["cargo", f"+{rustc_toolchain}", "build", "--release", "--locked", "-p", "zokrates_cli"],
                           cwd=repo_dir, env=env, capture_output=True, text=True, timeout=1800)

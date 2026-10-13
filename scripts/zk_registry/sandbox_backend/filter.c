@@ -22,7 +22,7 @@ int main(int argc, char **argv) {
         "ptrace", "mount", "umount2", "keyctl", "add_key", "request_key", "bpf", "perf_event_open",
         "io_uring_setup", "io_uring_enter", "io_uring_register", "fsopen", "fsconfig", "fsmount",
         "fspick", "open_tree", "move_mount", "userfaultfd", "socketcall", "setns", "unshare",
-        "pidfd_getfd", "process_vm_readv", "process_vm_writev"
+        "pidfd_getfd", "process_vm_readv", "process_vm_writev", "mount_setattr"
     };
     for (unsigned i = 0; i < sizeof(denied) / sizeof(denied[0]); ++i) {
         int number = seccomp_syscall_resolve_name(denied[i]);
@@ -34,6 +34,9 @@ int main(int argc, char **argv) {
     if (seccomp_rule_add(ctx, SCMP_ACT_ERRNO(EPERM), socket_nr, 1, SCMP_A0(SCMP_CMP_NE, 1, 0)) < 0) return 2;
     int clone3_nr = seccomp_syscall_resolve_name("clone3");
     if (clone3_nr >= 0 && seccomp_rule_add(ctx, SCMP_ACT_ERRNO(ENOSYS), clone3_nr, 0) < 0) return 2;
+    int clone_nr = seccomp_syscall_resolve_name("clone");
+    if (clone_nr >= 0 && seccomp_rule_add(ctx, SCMP_ACT_ERRNO(EPERM), clone_nr, 1,
+            SCMP_A0(SCMP_CMP_MASKED_EQ, 0x10000000, 0x10000000)) < 0) return 2; /* CLONE_NEWUSER */
     int file = open(argv[2], O_WRONLY | O_CREAT | O_EXCL, 0644);
     if (file < 0 || seccomp_export_bpf(ctx, file) < 0) return 2;
     close(file);

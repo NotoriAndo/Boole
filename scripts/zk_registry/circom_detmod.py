@@ -38,6 +38,8 @@ import shutil
 import time
 from dataclasses import dataclass, field
 
+from zk_registry.safe_fs import open
+from zk_registry import safe_fs as FS
 from . import check as C
 from . import circom_source as cs
 from . import det_search
@@ -536,7 +538,7 @@ def build(sh, t: cs.Template, parent: dict, dir_name: str, work: str) -> dict:
     stage = os.path.join(work, "pkg")
     shutil.rmtree(stage, ignore_errors=True)
     model_rel = E.model_relpath(ns)
-    os.makedirs(os.path.dirname(os.path.join(stage, model_rel)), exist_ok=True)
+    FS.makedirs(os.path.dirname(os.path.join(stage, model_rel)), exist_ok=True)
     outs, ins = list(range(1, 1 + r.n_pub_out)), list(range(1 + r.n_pub_out, 1 + r.n_pub_out + r.n_pub_in + r.n_prv_in))
     with open(os.path.join(stage, model_rel), "w", encoding="utf-8") as f:
         f.write(emit_model(ns, meta, red, outs, ins, names))
@@ -595,7 +597,7 @@ def build(sh, t: cs.Template, parent: dict, dir_name: str, work: str) -> dict:
                         "respecting a common function for every sub-component kind); truth is not established"}
     if ce is not None:
         cdir = os.path.join(work, "counterexample")
-        os.makedirs(cdir, exist_ok=True)
+        FS.makedirs(cdir, exist_ok=True)
         W.write_witness(os.path.join(cdir, "w1.txt"), ce.base)
         W.write_witness(os.path.join(cdir, "w2.txt"), ce.other)
         v, _ = (lean_verdicts(sh.env, build_dir, ns, red.r.n_constraints,
@@ -649,7 +651,7 @@ def _fid(sh, build: str, ns: str, red: Reduced, real: list, muts: list, input_fr
         skip = {"reason": "model did not compile"}
         return G.Gate("G-FID", "SKIPPED", skip).to_json(), G.Gate("G-NONVAC", "SKIPPED", dict(skip)).to_json()
     wdir = os.path.join(work, "wit")
-    os.makedirs(wdir, exist_ok=True)
+    FS.makedirs(wdir, exist_ok=True)
     files = []
     for k, w in enumerate(real):
         files.append((f"real_{k:03d}", os.path.join(wdir, f"real_{k:03d}.txt")))

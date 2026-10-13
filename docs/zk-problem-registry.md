@@ -51,6 +51,12 @@ domain with both `memory` and `pids` controllers. Keep `kernel.apparmor_restrict
 provides it; never disable that restriction. Every receipt records kernel, ABI, BPF digest, profile hash/label,
 sysctl, namespace identities, caps and resource observations. Whole-step payload+init memory is limited to at most
 20GB; provision a node-wide parent cap for concurrent steps (the local validation VM uses at most 24GB total).
+At least four schedulable CPUs are mandatory: PID-1 selects exactly four before exec, and preflight fails with
+ERROR on a smaller affinity set. Lean uses `-j4`, Go uses `GOMAXPROCS=4` and build `-p4`; Cargo, Rayon and test
+runners have explicit parallelism limits. Tracked PID caps are64 for compile/replay/export/Comparator and256 for
+native build/run, at least four times measured peaks from the20-item pilot and one build of each of six frameworks.
+Readers cannot expand their allowed roots through symlinks; caller-declared reader paths reject symlink components.
+Host stage I/O uses no-follow file and directory descriptors, including logs, replay, native IR, receipts and exports.
 
 | Landlock ABI | Applied features (cumulative) | Missing-feature confinement |
 | --- | --- | --- |
@@ -62,12 +68,18 @@ sysctl, namespace identities, caps and resource observations. Whole-step payload
 
 Seccomp kills non-native architectures, including amd64 i386/x32, and denies non-AF_UNIX socket creation, socketcall,
 ptrace and its pathless fd/memory-copy equivalents, mount APIs, keyctl, bpf, perf_event_open, all three io_uring calls
-and userfaultfd. The pinned PID-1 shim is non-dumpable and reads back that state before forking; its administrative
-FDs are closed in the payload before execution. It logs
-every reaped orphan and frozen payload-cgroup member at main exit. Any remaining/adopted descendant is INVALID
+and userfaultfd, `mount_setattr`, and `clone` with `CLONE_NEWUSER` (`clone3` is denied with ENOSYS so ordinary
+thread creation falls back safely). The pinned PID-1 shim is non-dumpable and reads back that state before forking;
+its administrative FDs are closed in the payload before execution. It counts every reaped orphan, retaining at
+most the first256 events, and records frozen payload-cgroup members at main exit; every write is checked. Receipts
+are cleaned per step after their bounded observations are retained in the guard log. Any remaining/adopted descendant is INVALID
 `owned-descendants-remained`, not a silent cleanup. Mandatory pids exhaustion is INVALID `resource-cap` (reference
 builds: ERROR `resource-unavailable`); OOM and wall/memory interruption take ERROR precedence. The compile-time
 detachment controls deliberately bypass the text stage as trusted fixtures to exercise the actual OS boundary.
+Setup/exec failure uses a CLOEXEC status pipe, not the payload's exit code125. Comparator's inner launcher reports
+setup failure through a dedicated status file, never by matching submission-controlled diagnostic text. Freeze
+and asynchronous cgroup-kill waits are adaptive and bounded; cleanup failures are auxiliary observations, never
+an overwrite of a finished PASS/INVALID verdict. A missing/unwritable trusted receipt remains ERROR.
 
 The v2 text stage additionally rejects `#eval`, `#exit`, `run_cmd`, `run_elab`, `run_meta`, `initialize`,
 `builtin_initialize`, `run_tac`, `elab`, `elab_rules`, `macro`, `macro_rules`, `syntax`,

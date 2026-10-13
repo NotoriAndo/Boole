@@ -28,7 +28,10 @@
     "revision": "811cfff51ceaf3d9843708aa6d22e9b84ccac8b4",
     "licence": "MIT",
     "best_effort": false,
-    "paths": {"x86_64": "landrun-linux-amd64", "aarch64": "landrun-linux-arm64"},
+    "paths": {
+      "x86_64": "landrun-linux-amd64",
+      "aarch64": "landrun-linux-arm64"
+    },
     "binary_sha256": {
       "x86_64": "22469c3bc701535eaa4fe5c92747704d96c89de5c930da27988c2a537d5d6108",
       "aarch64": "462f60826d3037cbf87d0b75744eedeb7f02a59e637dc38d5c253d5d4ff1953a"
@@ -37,8 +40,8 @@
   "sandbox": {
     "version": 1,
     "launcher_path": "gate/launcher.py",
-    "launcher_sha256": "15d511fa92cd226da493e68c0f10a050e7ec4abdc8412a49292adbfb01d9a59a",
-    "inner_launcher_sha256": "0783fbb4e6ad8efd0137ab883f11a0ce6e4180d8be340dc1a8b2c579b9a11f24",
+    "launcher_sha256": "3d0fe9f6f1be0363976739c00a769900d53329b23204c5130343c181f4db9cae",
+    "inner_launcher_sha256": "b7c04833bbc73cdc81a3d894670db4e6fea7be92b801f0c96892b76d577d102b",
     "bubblewrap_version": "0.9.0-1ubuntu0.3",
     "libseccomp_version": "2.5.5-1ubuntu3.1",
     "architectures": {
@@ -46,18 +49,49 @@
         "bubblewrap_deb_sha256": "2461f1beee9cb04c8942739fe1a2b37e7b7c2a3d518f0779dc75f9245baa3094",
         "libseccomp_dev_deb_sha256": "26421f22f2150986735b79ece61d811400debab7fa505b08b731ec5a7917e45f",
         "bwrap_sha256": "e318903862396f96de3df57264e0158682b952fd3fb53ac23d876413e7b30f71",
-        "isolate_sha256": "31e2062f00d0b83e6ec9d53a0900e0e976afc426d43459dfcf9468f897a8ab29",
-        "filter_sha256": "27539519fed31fa4dd834fe3f3e1f9a412d640e8b2307654a785509c30a43c77",
+        "isolate_sha256": "737c3ef87d7e1903e17f011268756736ec07d519571bb4ba61845b7c41b57d1d",
+        "filter_sha256": "64b66feba53e10dc4c98dcff2833311791faf7666e805e90110406ed5b9febf4",
         "apparmor_profile_sha256": "35613442bd82247d132b1102579edc5567d8047930d1b60fbb8bbba93c5abcd6"
       },
       "aarch64": {
         "bubblewrap_deb_sha256": "dce3a2e5f0302eab717a64fe9c9411fe2d40469e2a7946e0f2ce1420a61025c3",
         "libseccomp_dev_deb_sha256": "e8ad51ab54d2b1f69117f152fb011901a8822c19410c1fe7b82d000436df77d0",
         "bwrap_sha256": "cd6b143283b464baf078ab09ca19dadc5bcc2423b833c4f9dd7e83f9ba1b640b",
-        "isolate_sha256": "191b85ce7a2b9a6e7363dcaf83b7eefc6932f56accdb133661d31f399e9974a9",
-        "filter_sha256": "6d90ed3d58823b5a047bcb857b6b974bb7fb7c67164121c0b4ede48a45174317",
+        "isolate_sha256": "5109ef285f7375118fd9147e4d982e5672369d90caa0e6decde90de736069ffb",
+        "filter_sha256": "52a4950a953e6f0df53b7ec0a1f3f54f869f7c4a68a9e5e2a60273e75f74179b",
         "apparmor_profile_sha256": "35613442bd82247d132b1102579edc5567d8047930d1b60fbb8bbba93c5abcd6"
       }
+    },
+    "parallelism": {
+      "cpus": 4,
+      "lean_threads": 4,
+      "go_build_parallelism": 4,
+      "cargo_build_jobs": 4,
+      "rayon_threads": 4,
+      "rust_test_threads": 4,
+      "extraction_test_threads": 1,
+      "pids_max": {
+        "compile": 64,
+        "replay": 64,
+        "native-build": 256,
+        "native-run": 256,
+        "export": 64,
+        "comparator": 64
+      },
+      "measured_peak_tasks": {
+        "compile": 9,
+        "replay": 8,
+        "native-build": 43,
+        "native-run": 6,
+        "export": 3,
+        "comparator": 8
+      },
+      "measurement_scope": {
+        "pilot_items": 20,
+        "framework_builds": 6
+      },
+      "measurement_status": "measured",
+      "native_run_cap_policy": "four times the maximum measured peak of any stage, rounded up to a power of two"
     }
   },
   "binary_profiles": {

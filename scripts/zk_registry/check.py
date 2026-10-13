@@ -47,10 +47,13 @@ if __package__ in (None, ""):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     __package__ = "zk_registry"
 
+from zk_registry import safe_fs as FS
+
 from zk_registry import gates as G            # noqa: E402
 from zk_registry import lean_runner as L      # noqa: E402
 from zk_registry import package as P          # noqa: E402
 from zk_registry.sandbox import Sandbox, SandboxUnavailable  # noqa: E402
+from zk_registry.safe_fs import open, copyfile  # noqa: E402
 
 ALLOWED_AXIOMS = {"propext", "Classical.choice", "Quot.sound"}
 FORBIDDEN_V1 = [
@@ -262,8 +265,11 @@ def compile_in_sandbox(env: L.LeanEnv, problem: dict, pkg_dir: str, text: str, w
         return {'error': reason}
     from zk_registry import correctness_runtime as CR
     guarded = CR.runner(os.path.join(workdir, 'processes'), timeout)
-    with L.sandbox_context(selected, [pkg_dir, workdir, os.path.dirname(G.REPLAY_TOOL)], [workdir], guarded):
-        result = _compile_and_postcheck(env, problem, pkg_dir, text, workdir, timeout)
+    try:
+        with L.sandbox_context(selected, [pkg_dir, workdir, os.path.dirname(G.REPLAY_TOOL)], [workdir], guarded):
+            result = _compile_and_postcheck(env, problem, pkg_dir, text, workdir, timeout)
+    except (OSError, SandboxUnavailable):
+        return dict(error='sandbox-unavailable', assurance=selected.mode)
     result['assurance'] = selected.mode
     return result
 
@@ -276,14 +282,14 @@ def _compile_and_postcheck(env: L.LeanEnv, problem: dict, pkg_dir: str, text: st
     opts = chk["lean_opts"]
     src_root = os.path.join(workdir, "src")
     build = os.path.join(workdir, "build")
-    os.makedirs(src_root, exist_ok=True)
+    FS.makedirs(src_root, exist_ok=True)
     res: dict = {"imports": []}
     for fr in chk["files"]:
         if fr["role"] != "import":
             continue
         dst = os.path.join(src_root, fr["path"])
-        os.makedirs(os.path.dirname(dst), exist_ok=True)
-        shutil.copyfile(os.path.join(pkg_dir, fr["path"]), dst)
+        FS.makedirs(os.path.dirname(dst), exist_ok=True)
+        copyfile(os.path.join(pkg_dir, fr["path"]), dst)
         if P.sha256_file(dst) != fr["sha256"]:
             res["error"] = f"pristine copy of {fr['path']} changed while copying"
             return res
@@ -306,7 +312,7 @@ def _compile_and_postcheck(env: L.LeanEnv, problem: dict, pkg_dir: str, text: st
             res["error"] = f"pristine import {fr['path']} does not compile: " + "; ".join(L.fmt_msg(m) for m in L.errors(msgs)[:3])
             return res
     proof_dir = os.path.join(workdir, "proof")
-    os.makedirs(proof_dir, exist_ok=True)
+    FS.makedirs(proof_dir, exist_ok=True)
     src = os.path.join(proof_dir, "ProofMod.lean")
     with open(src, "w", encoding="utf-8") as f:
         f.write(text + ("" if text.endswith("\n") else "\n") + f"\n#print axioms {fqn}\n")
@@ -479,8 +485,13 @@ def check(pkg_dir: str, proof_path: str, env: L.LeanEnv, workdir: str | None = N
                 return _finish(rep)
         try:
             bindings = A.resolve(env, manifest, os.path.join(tmp + '-reference', 'build'), selected, remaining())
-        except A.BindingUnavailable:
-            error.append('resource-unavailable')
+        except A.BindingUnavailable as ex:
+            error.append(str(ex))
+            rep['reason'] = str(ex)
+            return _finish(rep)
+        except L.BoundaryInvalid as ex:
+            invalid.append(str(ex))
+            rep['reason'] = str(ex)
             return _finish(rep)
         policy = A.validate(manifest, bindings, conformance_fixture=conformance_fixture)
         rep['axiom_policy'] = policy

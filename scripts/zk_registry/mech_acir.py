@@ -53,6 +53,8 @@ if __package__ in (None, ""):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     __package__ = "zk_registry"
 
+from zk_registry.safe_fs import open
+from zk_registry import safe_fs as FS
 from zk_registry import noir_acir as A            # noqa: E402
 from zk_registry import noir_lean_emit as NE      # noqa: E402
 
@@ -1549,7 +1551,7 @@ def proof_fail_class(chk: dict) -> str:
 
 def run(args) -> int:
     from zk_registry import lean_runner as L
-    os.makedirs(args.out, exist_ok=True)
+    FS.makedirs(args.out, exist_ok=True)
     pop = [r for r in noir_effective(args.packages) if r["status"] in ("OPEN", "DET-FALSE-CANDIDATE")]
     if args.only:
         pop = [r for r in pop if r["package_id"] in set(args.only)]
@@ -1585,7 +1587,7 @@ def run(args) -> int:
             return rec
         safe = re.sub(r"[^A-Za-z0-9_.-]", "_", r["package_id"])[:180]
         pdir = os.path.join(args.out, "proofs", safe)
-        os.makedirs(pdir, exist_ok=True)
+        FS.makedirs(pdir, exist_ok=True)
         try:
             text = emit_solution(pkg, res)
         except (AssertionError, ValueError, KeyError, NotImplementedError) as ex:
@@ -1738,7 +1740,7 @@ def main(argv: list[str] | None = None) -> int:
         rec, pkg, res = engine_record(a.package)
         print(json.dumps(rec, sort_keys=True, indent=1))
         if res is not None and res.status == "DETERMINED" and a.out:
-            os.makedirs(a.out, exist_ok=True)
+            FS.makedirs(a.out, exist_ok=True)
             with open(os.path.join(a.out, "Solution.lean"), "w", encoding="utf-8") as f:
                 f.write(emit_solution(pkg, res))
         return 0

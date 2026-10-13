@@ -6,12 +6,24 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from .safe_fs import Path as SafePath, reject_symlinks
 import platform
 import pwd
 import subprocess
+import shutil
 import uuid
 
 _PENDING = {}
+
+
+def clean_receipt(status):
+    """Remove only the exact per-step receipt paths allocated by this process."""
+    for file in (SafePath(status), SafePath(status).with_suffix('.events.ndjson'),
+                 SafePath(status).with_suffix('.preflight.log')):
+        try:
+            file.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def capture_result(command, result):
@@ -26,9 +38,10 @@ def capture_result(command, result):
     if result.timeout or result.memkill or result.killed_by:
         result.boundary = dict(verdict='ERROR', reason='resource-unavailable', assurance=mode,
                                capabilities_snapshot=capabilities)
+        clean_receipt(status)
         return result
     try:
-        record = json.loads(Path(status).read_text())
+        record = json.loads(SafePath(status).read_text())
         if record['protocol'] != 1 or record['assurance'] != mode:
             raise ValueError('invalid boundary receipt')
         if record['verdict'] == 'PASS' and record['descriptor_sha256'] != authority:
@@ -37,6 +50,9 @@ def capture_result(command, result):
     except (OSError, ValueError, KeyError):
         result.boundary = dict(verdict='ERROR', reason='sandbox-unavailable', assurance=mode,
                                capabilities_snapshot=capabilities)
+    finally:
+        # CR.runner retains the complete structured observation in its per-step log.
+        clean_receipt(status)
     return result
 
 
@@ -74,6 +90,21 @@ class SandboxUnavailable(ValueError):
     """The required pinned production boundary is unavailable."""
 
 
+def stage_kind(argv):
+    """Classify the trusted caller's executable stage, not submission stdout or environment."""
+    name = os.path.basename(argv[0])
+    if name == 'lean':
+        return 'replay' if '--run' in argv else 'compile'
+    if name == 'lean4export':
+        return 'export'
+    if name == 'comparator':
+        return 'comparator'
+    if (name in {'go', 'cargo', 'nargo', 'zokrates'} or name.startswith('circom')) and any(
+            arg in argv for arg in ('build', 'test', 'compile', 'export', '--r1cs')):
+        return 'native-build'
+    return 'native-run'
+
+
 @dataclass(frozen=True)
 class Sandbox:
     mode: str
@@ -83,7 +114,7 @@ class Sandbox:
     capabilities: dict | None = None
     inner_executable: str | None = None
     memory_max: int = 11000 * 1024 * 1024
-    pids_max: int = 128
+    pids_max: int | None = None
     role: str = 'submission'
     disabled_layer: str | None = None
 
@@ -119,7 +150,7 @@ class Sandbox:
             from .lean_runner import RunResult
             process = subprocess.run(probe, env={'PATH': '/usr/bin:/bin'}, capture_output=True,
                                      text=True, timeout=15)
-            Path(probe[probe.index('--gate-status') + 1]).with_suffix('.preflight.log').write_text(
+            SafePath(probe[probe.index('--gate-status') + 1]).with_suffix('.preflight.log').write_text(
                 process.stdout + process.stderr)
             result = capture_result(probe, RunResult(process.returncode, process.stdout, 0, False))
             if not result.boundary or result.boundary['verdict'] != 'PASS' or result.rc:
@@ -150,19 +181,44 @@ class Sandbox:
         receipts.mkdir(mode=0o700, parents=True, exist_ok=True)
         protected = (owner_home / '.elan', owner_home / '.cache/mathlib', receipts,
                      Path(self.executable).parent, Path(self.cgroup))
-        outputs = sorted({str(Path(path).resolve()) for path in writable})
+        outputs = sorted({os.path.abspath(path) for path in writable})
+        defaults = [str(Path(self.executable).parent), '/usr', '/lib', '/lib64',
+                    '/etc/alternatives', '/dev/urandom']
+        allowed = [Path(path) for path in [*readable, *defaults]
+                   if Path(path).exists() and str(Path(path).resolve()) == os.path.abspath(path)]
+        for raw in outputs:
+            try:
+                reject_symlinks(raw)
+            except OSError:
+                raise SandboxUnavailable('sandbox-unavailable') from None
         for reader in readable:
             path = Path(reader).resolve()
+            try:
+                reject_symlinks(reader)
+            except OSError:
+                raise SandboxUnavailable('sandbox-unavailable') from None
+            if not any(path == root or path.is_relative_to(root) for root in allowed):
+                raise SandboxUnavailable('sandbox-unavailable')
             if path in {Path('/'), Path('/proc'), Path('/sys'), Path('/dev')}:
                 raise SandboxUnavailable('sandbox-unavailable')
         for output in outputs:
             path = Path(output)
             if path == Path('/') or any(path.is_relative_to(root) or root.is_relative_to(path) for root in protected):
                 raise SandboxUnavailable('sandbox-unavailable')
+        executable = shutil.which(argv[0], path=env.get('PATH', '/usr/bin:/bin'))
+        if executable and not any(Path(executable).is_relative_to(Path(root)) for root in ('/usr', '/bin', '/sbin')):
+            try:
+                reject_symlinks(executable)
+            except OSError:
+                raise SandboxUnavailable('sandbox-unavailable') from None
         status = str(receipts / (uuid.uuid4().hex + '.json'))
         _PENDING[status] = self.authority, self.capabilities, self.mode
+        stage = stage_kind(argv)
+        data = json.loads((Path(__file__).parent / 'data/acceptance_tools_v2.json').read_text())
+        pids = self.pids_max if self.pids_max is not None else data['sandbox']['parallelism']['pids_max'][stage]
         command = [self.executable, '--gate-authority', self.authority, '--gate-cgroup', self.cgroup,
-                   '--gate-status', status, '--gate-memory', str(self.memory_max), '--gate-pids', str(self.pids_max),
+                   '--gate-status', status, '--gate-memory', str(self.memory_max), '--gate-pids', str(pids),
+                   '--gate-stage', stage,
                    '--gate-role', self.role, '--gate-mode', self.mode]
         if self.disabled_layer:
             command += ['--gate-fixture-no-' + self.disabled_layer]

@@ -11,8 +11,10 @@ import argparse
 import copy
 import json
 import os
-from pathlib import Path
+from .safe_fs import Path
 import sys
+
+from zk_registry import safe_fs as FS
 
 from . import correctness_gnark as CG
 from . import correctness_runtime as CR
@@ -239,8 +241,8 @@ def main():
     args = parser.parse_args()
     try:
         result = run(read_json(Path(args.config)), args.package, args.submission, args.work)
-    except L.ResourceUnavailable:
-        result = dict(verdict='ERROR', reason='resource-unavailable')
+    except (L.ResourceUnavailable, L.BoundaryInvalid, SandboxUnavailable) as ex:
+        result = L.boundary_outcome(ex)
     except (OSError, ValueError, KeyError, TypeError, RuntimeError, RT.Reject) as ex:
         (Path(args.work) / 'error.json').write_bytes(canonical(dict(type=type(ex).__name__, message=str(ex))) + b'\n')
         result = dict(verdict='ERROR', reason='checker-unavailable')

@@ -43,6 +43,8 @@ if __package__ in (None, ""):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     __package__ = "zk_registry"
 
+from zk_registry.safe_fs import open
+from zk_registry import safe_fs as FS
 from zk_registry import check as C                     # noqa: E402
 from zk_registry import gates as G                     # noqa: E402
 from zk_registry import lean_emit as E                 # noqa: E402
@@ -392,7 +394,7 @@ def copy_crate(src_dir: str, dest: str, as_lib: bool, strip_contract: bool = Fal
     if os.path.exists(dest):
         shutil.rmtree(dest)
     # plain file copies: the copy is written to (manifest, wrapper) even when the source tree is read-only
-    shutil.copytree(src_dir, dest, ignore=shutil.ignore_patterns(".git", "target", "export", "node_modules", "*.gz"),
+    FS.copytree(src_dir, dest, ignore=shutil.ignore_patterns(".git", "target", "export", "node_modules", "*.gz"),
                     copy_function=shutil.copyfile)
     mpath = os.path.join(dest, "Nargo.toml")
     with open(mpath, encoding="utf-8") as f:
@@ -505,7 +507,7 @@ def keep_output(cdir: str, extra: list[str], out: str) -> None:
 
 
 def compile_candidate(sh: Shared, t: I.Target, plan: str, cand: dict, cdir: str, tag: str) -> Compiled:
-    os.makedirs(cdir, exist_ok=True)
+    FS.makedirs(cdir, exist_ok=True)
     t0 = time.time()
     if plan in ("export", "std-export"):
         crate = os.path.join(cdir, "crate")
@@ -588,7 +590,7 @@ def compile_std(sh: Shared, t: I.Target, cand: dict, crate: str, tag: str, t0: f
     module is called through the nearest ancestor module that re-exports it."""
     if os.path.exists(crate):
         shutil.rmtree(crate)
-    os.makedirs(os.path.join(crate, "src"))
+    FS.makedirs(os.path.join(crate, "src"))
     with open(os.path.join(crate, "Nargo.toml"), "w", encoding="utf-8") as f:
         f.write('[package]\nname = "boole_wrapper"\ntype = "lib"\n\n[dependencies]\n')
     rel = os.path.relpath(os.path.join(t.root, t.path), os.path.join(t.root, "noir_stdlib", "src"))
@@ -809,7 +811,7 @@ def sample_inputs(abi: dict, n: int, seed: str) -> list[dict]:
 
 def execute(sh: Shared, tag: str, art: str, contract_fn: str | None, inputs: list[dict], work: str,
             oracle_seed: int = 0) -> list[dict]:
-    os.makedirs(work, exist_ok=True)
+    FS.makedirs(work, exist_ok=True)
     inp = os.path.join(work, f"inputs_{oracle_seed}.jsonl")
     outp = os.path.join(work, f"executions_{oracle_seed}.jsonl")
     with open(inp, "w", encoding="utf-8") as f:
@@ -829,7 +831,7 @@ def to_ints(m: dict) -> dict[int, int]:
 
 
 def make_bbeval(sh: Shared, tag: str, art: str, contract_fn: str | None, work: str):
-    os.makedirs(work, exist_ok=True)
+    FS.makedirs(work, exist_ok=True)
     counter = {"n": 0}
 
     def bbeval(op: dict, w: list[int]):
@@ -928,7 +930,7 @@ def g_fid_nonvac(sh: Shared, build: str, ns: str, info: dict, flat: A.Flat, real
                  muts: list[list[int]], oracle: DSN.Oracle, input_free: bool, work: str,
                  nonvac_source: str) -> tuple[G.Gate, G.Gate, dict]:
     wdir = os.path.join(work, "wit")
-    os.makedirs(wdir, exist_ok=True)
+    FS.makedirs(wdir, exist_ok=True)
     files = []
     for k, w in enumerate(real):
         p = os.path.join(wdir, f"real_{k:03d}.txt")
@@ -984,7 +986,7 @@ def g_fid_nonvac(sh: Shared, build: str, ns: str, info: dict, flat: A.Flat, real
 def g_triv(sh: Shared, build: str, ns: str, info: dict, work: str) -> G.Gate:
     """The P1 battery (V0-V2, 33 forms) and the P2 forms (V3-V4, 7 forms) on the Noir statement."""
     cfg = sh.cfg
-    os.makedirs(work, exist_ok=True)
+    FS.makedirs(work, exist_ok=True)
     # P1 in one file (V0-V2, 33 forms; one Mathlib import instead of three), P2 in a second file
     files = [("Battery_P1", [(v, t) for v in E.BATTERY_VARIANTS for t in E.BATTERY_TACTICS]),
              ("Battery_P2", [(v, t) for v, ts in E.BATTERY_P2 for t in ts])]
@@ -1162,7 +1164,7 @@ def _process(sh: Shared, row: dict, t: I.Target | None, how: str) -> dict:
     builder = I.ValueBuilder(t, idx, "as_vector" if compilers[0] in VECTOR_TAGS else "as_slice")
     rec["instantiation"]["rule_order"] = list(dict.fromkeys(c[0] for c in cands))
     item_work = os.path.join(cfg.work, hashlib.sha256(row["item_id"].encode()).hexdigest()[:20])
-    os.makedirs(item_work, exist_ok=True)
+    FS.makedirs(item_work, exist_ok=True)
     results = []
     chosen = None
     for tier in rec["instantiation"]["rule_order"]:
@@ -1449,7 +1451,7 @@ def build_package(sh: Shared, rec: dict, t: I.Target, chosen: dict, work: str) -
     stage = os.path.join(work, "pkg")
     shutil.rmtree(stage, ignore_errors=True)
     model_rel = NE.model_relpath(ns)
-    os.makedirs(os.path.dirname(os.path.join(stage, model_rel)), exist_ok=True)
+    FS.makedirs(os.path.dirname(os.path.join(stage, model_rel)), exist_ok=True)
     try:
         model, info = NE.emit_model(ns, meta, flat, names)
     except A.Unsupported as ex:
@@ -1546,7 +1548,7 @@ def build_package(sh: Shared, rec: dict, t: I.Target, chosen: dict, work: str) -
                 "note": "PASS means no counterexample was found by the cheap searches; DET truth is not established"}
     if ce is not None:
         cdir = os.path.join(work, "counterexample")
-        os.makedirs(cdir, exist_ok=True)
+        FS.makedirs(cdir, exist_ok=True)
         write_witness(os.path.join(cdir, "w1.txt"), ce.base)
         write_witness(os.path.join(cdir, "w2.txt"), ce.other)
         table = None
@@ -1668,13 +1670,13 @@ def write_package(sh: Shared, rec: dict, stage: str, work: str, chosen: dict, de
     dest = os.path.join(sh.cfg.out, rec["package_id"].split("/", 1)[0], rec["package_id"].split("/", 1)[1])
     if os.path.exists(dest):
         shutil.rmtree(dest)
-    os.makedirs(dest)
-    shutil.copyfile(os.path.join(stage, "Statement.lean"), os.path.join(dest, "Statement.lean"))
+    FS.makedirs(dest)
+    FS.copyfile(os.path.join(stage, "Statement.lean"), os.path.join(dest, "Statement.lean"))
     model_rel = rec["statement"]["model_file"]
-    os.makedirs(os.path.dirname(os.path.join(dest, model_rel)), exist_ok=True)
-    shutil.copyfile(os.path.join(stage, model_rel), os.path.join(dest, model_rel))
+    FS.makedirs(os.path.dirname(os.path.join(dest, model_rel)), exist_ok=True)
+    FS.copyfile(os.path.join(stage, model_rel), os.path.join(dest, model_rel))
     ev = os.path.join(dest, "evidence")
-    os.makedirs(ev)
+    FS.makedirs(ev)
     if "wrapper" in chosen:
         with open(os.path.join(ev, "wrapper.nr"), "w", encoding="utf-8") as f:
             f.write(f"// appended to {rec['ids']['path']} (pinned commit {rec['ids']['commit']})\n"
@@ -1682,33 +1684,33 @@ def write_package(sh: Shared, rec: dict, stage: str, work: str, chosen: dict, de
     with open(os.path.join(ev, "acir.json"), "w", encoding="utf-8") as f:
         json.dump({"noir_version": decoded.get("noir_version"), "abi": decoded.get("abi"),
                    "functions": decoded.get("functions")}, f, sort_keys=True, separators=(",", ":"))
-    os.makedirs(os.path.join(ev, "witnesses"))
+    FS.makedirs(os.path.join(ev, "witnesses"))
     for k, w in enumerate(real[:4]):
         write_witness(os.path.join(ev, "witnesses", f"real_{k:03d}.txt"), w)
     for name in ("elab/reference.type.txt",):
         src = os.path.join(work, name)
         if os.path.exists(src):
-            shutil.copyfile(src, os.path.join(ev, os.path.basename(name)))
+            FS.copyfile(src, os.path.join(ev, os.path.basename(name)))
     if "counterexample_dir" in rec["evidence"]:
         src = rec["evidence"].pop("counterexample_dir")
-        os.makedirs(os.path.join(ev, "counterexample"))
+        FS.makedirs(os.path.join(ev, "counterexample"))
         for fn in ("w1.txt", "w2.txt", "bb_table.txt"):
             if os.path.exists(os.path.join(src, fn)):
-                shutil.copyfile(os.path.join(src, fn), os.path.join(ev, "counterexample", fn))
+                FS.copyfile(os.path.join(src, fn), os.path.join(ev, "counterexample", fn))
     triv = os.path.join(work, "triv")
     if os.path.isdir(triv):
-        os.makedirs(os.path.join(ev, "triv"))
+        FS.makedirs(os.path.join(ev, "triv"))
         for fn in sorted(os.listdir(triv)):
             if fn.endswith(".lean"):
-                shutil.copyfile(os.path.join(triv, fn), os.path.join(ev, "triv", fn))
+                FS.copyfile(os.path.join(triv, fn), os.path.join(ev, "triv", fn))
     P.write_json(os.path.join(dest, "problem.json"), rec)
 
 
 # ------------------------------------------------------------------------------------------ wave
 
 def run_wave(cfg: WaveConfig, log_every: int = 25) -> list[dict]:
-    os.makedirs(cfg.out, exist_ok=True)
-    os.makedirs(cfg.work, exist_ok=True)
+    FS.makedirs(cfg.out, exist_ok=True)
+    FS.makedirs(cfg.work, exist_ok=True)
     env = L.load_env(cfg.lean_env)
     tc = T.Toolchain(cfg.tools_root, cfg.home, cfg.scratch)
     sh = Shared(cfg, env, tc, P.sha256_file(cfg.ledger), generator_info())
@@ -1782,7 +1784,7 @@ def write_outputs(out: str, records: list[dict], dedup: list[dict]) -> None:
 
 
 def write_index(path: str, recs: list[dict]) -> None:
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    FS.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         for r in recs:
             f.write(json.dumps(r, sort_keys=True, ensure_ascii=False) + "\n")
@@ -1952,8 +1954,8 @@ def run_recover(cfg: WaveConfig, prior: list[str], item_ids: list[str], rel_base
     model (or an earlier record of this run) is listed in ``DEDUP.jsonl`` (``relation: same-model-as``).
     Records already in ``cfg.out/PROGRESS.jsonl`` (an interrupted run) are kept and not regenerated, except
     the items in ``redo`` (a targeted re-run: the new record is appended and replaces the kept one)."""
-    os.makedirs(cfg.out, exist_ok=True)
-    os.makedirs(cfg.work, exist_ok=True)
+    FS.makedirs(cfg.out, exist_ok=True)
+    FS.makedirs(cfg.work, exist_ok=True)
     sh = setup_shared(cfg)
     olds = prior_records(prior)
     rows = {r["item_id"]: r for r in select_rows(cfg.ledger)}
@@ -2104,8 +2106,8 @@ def run_decompose(cfg: WaveConfig, index_path: str, max_depth: int = 4) -> tuple
     record, is mapped to it (edge only); the others are instantiated with the same planner and gates
     (``instantiation.decomposition`` names their parents).  No compositional statement is made."""
     sh = setup_shared(cfg)
-    os.makedirs(cfg.out, exist_ok=True)
-    os.makedirs(cfg.work, exist_ok=True)
+    FS.makedirs(cfg.out, exist_ok=True)
+    FS.makedirs(cfg.work, exist_ok=True)
     with open(index_path, encoding="utf-8") as f:
         wave = [json.loads(x) for x in f if x.strip()]
     rows = {r["item_id"]: r for r in select_rows(cfg.ledger)}
@@ -2217,7 +2219,7 @@ def crosscheck_nargo_execute(cfg: WaveConfig, index_path: str, limit: int = 24) 
     rows = {r["item_id"]: r for r in select_rows(cfg.ledger)}
     out = []
     work = os.path.join(cfg.work, "crosscheck")
-    os.makedirs(work, exist_ok=True)
+    FS.makedirs(work, exist_ok=True)
     picked = [r for r in recs if r["status"] in P.PACKAGED_STATUSES and r["ids"]["repo"] == "noir-lang/noir"][:limit]
     picked += [r for r in recs if r["evidence"].get("plan") == "bin-main" and r["status"] != "COMPILE-FAIL"][:limit]
     cache: dict = {}
@@ -2237,7 +2239,7 @@ def crosscheck_nargo_execute(cfg: WaveConfig, index_path: str, limit: int = 24) 
                     res["result"] = "skipped: no repository Prover.toml"
                     out.append(res)
                     continue
-                shutil.copyfile(prover, os.path.join(d, "Prover.toml"))
+                FS.copyfile(prover, os.path.join(d, "Prover.toml"))
                 inputs = {"__prover_toml__": prover}
             else:
                 pkg = os.path.join(cfg.out, *rec["package_id"].split("/", 1))
@@ -2245,7 +2247,7 @@ def crosscheck_nargo_execute(cfg: WaveConfig, index_path: str, limit: int = 24) 
                 imports = rec["evidence"].get("std_imports", [])
                 body = re.sub(r"#\[export\]\nfn boole_det_\w+\(", "fn main(", wrapper)
                 body = re.sub(r"\) -> (.+) \{\n", r") -> pub \1 {\n", body, count=1)
-                os.makedirs(os.path.join(d, "src"))
+                FS.makedirs(os.path.join(d, "src"))
                 with open(os.path.join(d, "Nargo.toml"), "w", encoding="utf-8") as f:
                     f.write('[package]\nname = "xcheck"\ntype = "bin"\n\n[dependencies]\n')
                 with open(os.path.join(d, "src", "main.nr"), "w", encoding="utf-8") as f:

@@ -16,6 +16,8 @@ import hashlib
 import json
 import os
 
+from zk_registry.safe_fs import open
+from zk_registry import safe_fs as FS
 from zk_registry import gnark_det as D
 from zk_registry import package as P
 
@@ -41,7 +43,7 @@ def run_decompose(cfg: D.WaveConfig, index_path: str, max_depth: int = MAX_DEPTH
             known.setdefault(k, r)
     dcfg = dataclasses.replace(cfg, out=os.path.join(cfg.out, "decomposition"), work=cfg.work + "-decomp",
                                build=cfg.build + "-decomp", only=[])
-    os.makedirs(dcfg.out, exist_ok=True)
+    FS.makedirs(dcfg.out, exist_ok=True)
     records: list[dict] = []
     edges: list[dict] = []
     parents = [(r, 0) for r in wave if r["status"] == "TOO-LARGE"]

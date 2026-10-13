@@ -1,4 +1,4 @@
 #!/bin/sh
 # This is invoked only inside the already-hardened Comparator step.
 set -eu
-exec "$(dirname "$0")/gate-isolate" landlock "$@"
+exec "$(dirname "$0")/gate-isolate" inner-landlock "$@"

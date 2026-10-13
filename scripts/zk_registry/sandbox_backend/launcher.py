@@ -13,6 +13,7 @@ import subprocess
 import shutil
 import sys
 import uuid
+import time
 
 
 def digest(path):
@@ -98,15 +99,43 @@ def create_step(root, memory, pids):
     return step, init, payload
 
 
+def cleanup_step(step, groups, timeout=2.0):
+    """Wait for asynchronous cgroup.kill with a bound; never replace the payload verdict."""
+    errors = []
+    try:
+        if 'populated 1' in (step / 'cgroup.events').read_text():
+            (step / 'cgroup.kill').write_text('1')
+        deadline, delay = time.monotonic() + timeout, .001
+        while 'populated 1' in (step / 'cgroup.events').read_text():
+            if time.monotonic() >= deadline:
+                errors.append('population-timeout')
+                break
+            time.sleep(min(delay, max(0, deadline - time.monotonic())))
+            delay = min(.02, delay * 2)
+        if not errors:
+            for group in groups:
+                try:
+                    group.rmdir()
+                except OSError as error:
+                    errors.append('rmdir:' + group.name + ':' + str(error.errno))
+    except OSError as error:
+        errors.append('cleanup-io:' + str(error.errno))
+    return dict(complete=not errors, errors=errors)
+
+
 def execute(options, arguments):
     """Run one actual payload and preserve deterministic descendant/resource precedence."""
     root, paths = bundle(options.authority)
     sysctl = Path('/proc/sys/kernel/apparmor_restrict_unprivileged_userns')
     if sysctl.exists() and sysctl.read_text().strip() != '1':
         raise ValueError('apparmor-userns-restriction-disabled')
-    if not 1 <= options.pids <= 256 or not 16 * 1024 * 1024 <= options.memory <= 20000000000 - 32 * 1024**2:
+    if not 1 <= options.pids <= 1024 or not 16 * 1024 * 1024 <= options.memory <= 20000000000 - 32 * 1024**2:
         raise ValueError('step-limits-outside-node-envelope')
     readers, writers, environment, payload_command = landrun_arguments(arguments)
+    environment.update(GOMAXPROCS='4', CARGO_BUILD_JOBS='4', RAYON_NUM_THREADS='4', RUST_TEST_THREADS='4')
+    separator = arguments.index('--')
+    arguments = [*arguments[:separator], *sum((['--env', key + '=' + value] for key, value in
+                                              environment.items()), []), *arguments[separator:]]
     executable = shutil.which(payload_command[0], path=environment.get('PATH', '/usr/bin:/bin'))
     if executable is None:
         raise ValueError('executable-unavailable')
@@ -124,6 +153,7 @@ def execute(options, arguments):
     handles = []
     events_file = Path(options.status).with_suffix('.events.ndjson')
     report_fd = os.open(events_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    record = {}
     try:
         for file, mode in ((payload / 'cgroup.procs', os.O_WRONLY), (payload / 'cgroup.freeze', os.O_WRONLY),
                            (payload / 'cgroup.events', os.O_RDONLY), (payload / 'cgroup.procs', os.O_RDONLY),
@@ -172,17 +202,20 @@ def execute(options, arguments):
         handles.remove(report_fd)
         code = child.wait()
         observation = None
+        events = []
         counts = {'orphan': 0, 'frozen-member': 0}
         with events_file.open() as stream:
             for line in stream:
                 event = json.loads(line)
+                events.append(event)
                 if event['event'] == 'final':
                     observation = event
                 else:
                     counts[event['event']] += 1
         if observation is None:
             raise ValueError('pid-1-receipt-unavailable')
-        if (counts['orphan'] != observation['orphans_reaped']
+        if (counts['orphan'] != observation['orphan_events_recorded']
+                or counts['orphan'] != min(256, observation['orphans_reaped'])
                 or counts['frozen-member'] != observation['frozen_members']):
             raise ValueError('pid-1-event-integrity')
         if observation['oom_kill_events']:
@@ -192,13 +225,14 @@ def execute(options, arguments):
                 'INVALID', 'resource-cap')
         elif observation['orphans_reaped'] or observation['frozen_members']:
             verdict, reason = 'INVALID', 'owned-descendants-remained'
-        elif code == 125:
+        elif observation['setup_failed']:
             verdict, reason = 'ERROR', 'sandbox-unavailable'
         else:
             verdict, reason = 'PASS', None
         host_namespaces = {name: os.readlink('/proc/self/ns/' + name) for name in ('user', 'net', 'pid', 'mnt', 'ipc')}
         if (observation['landlock_abi'] < 4 or observation['apparmor_label'] != 'boole-gate-bwrap (unconfined)'
                 or observation['pid_1_dumpable'] != 0
+                or observation['cpu_affinity_count'] != 4
                 or observation['seccomp_mode'] != (0 if options.no_seccomp else 2)
                 or any(observation['namespaces'][name] == value for name, value in host_namespaces.items()
                        if name != 'net' or not options.no_net)
@@ -211,22 +245,29 @@ def execute(options, arguments):
             observation['outer_members_had_to_be_killed'] = True
             if verdict != 'ERROR':
                 verdict, reason = 'INVALID', 'owned-descendants-remained'
-        return dict(protocol=1, verdict=verdict, reason=reason, child_exit=code,
+        peak = payload / 'pids.peak'
+        if not peak.is_file():
+            raise ValueError('pids-peak-unavailable')
+        record.update(protocol=1, verdict=verdict, reason=reason, child_exit=observation['main_exit'],
                     assurance=options.mode, utc=datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
                     kernel=platform.release(), apparmor_userns_sysctl=sysctl.read_text().strip() if sysctl.exists() else None,
                     apparmor_profile_sha256=digest(paths['apparmor_profile']), seccomp_sha256=digest(paths['filter']),
                     cgroup_controllers=['memory', 'pids'], memory_max=options.memory,
                     whole_step_memory_max=options.memory + 32 * 1024**2, pids_max=options.pids,
                     descriptor_sha256=options.authority, observation=observation,
-                    pid_1_events_path=str(events_file), pid_1_events_sha256=digest(events_file))
+                    stage=options.stage,
+                    peak_tasks=int(peak.read_text()),
+                    pid_1_events_path=str(events_file), pid_1_events_sha256=digest(events_file),
+                    pid_1_events=events,
+                    pid_1_events_bytes=events_file.stat().st_size)
+        return record
     finally:
         for fd in handles:
-            os.close(fd)
-        # A step domain contains only this launcher's children, never an unrelated PID.
-        if 'populated 1' in (step / 'cgroup.events').read_text():
-            (step / 'cgroup.kill').write_text('1')
-        for group in (payload, init, step):
-            group.rmdir()
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        record['cleanup'] = cleanup_step(step, (payload, init, step))
 
 
 def main():
@@ -237,6 +278,7 @@ def main():
     parser.add_argument('--gate-status', dest='status', required=True)
     parser.add_argument('--gate-memory', dest='memory', type=int, default=11000 * 1024 * 1024)
     parser.add_argument('--gate-pids', dest='pids', type=int, default=128)
+    parser.add_argument('--gate-stage', dest='stage', default='native-run')
     parser.add_argument('--gate-role', dest='role', choices=('submission', 'reference'), default='submission')
     parser.add_argument('--gate-mode', dest='mode', choices=('production', 'test-fixture'), default='production')
     parser.add_argument('--gate-fixture-no-net', dest='no_net', action='store_true')
@@ -256,9 +298,11 @@ def main():
                       apparmor_userns_sysctl=sysctl.read_text().strip() if sysctl.exists() else None,
                       apparmor_profile_sha256=digest(profile) if profile.is_file() else None,
                       apparmor_profile_state='not-attested')
-    with Path(options.status).open('x') as stream:
+    fd = os.open(options.status, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    with os.fdopen(fd, 'w') as stream:
         json.dump(result, stream, sort_keys=True, indent=2)
         stream.write('\n')
+        stream.flush()
     return result.get('child_exit', 1) if result['verdict'] == 'PASS' else 125
 
 

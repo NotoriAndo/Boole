@@ -45,6 +45,8 @@ if __package__ in (None, ""):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     __package__ = "zk_registry"
 
+from zk_registry.safe_fs import open
+from zk_registry import safe_fs as FS
 from zk_registry import check as C                     # noqa: E402
 from zk_registry import det_search as DS               # noqa: E402
 from zk_registry import gates as G                     # noqa: E402
@@ -243,7 +245,7 @@ def go_env(cfg: WaveConfig, go_name: str) -> dict:
         "XDG_CACHE_HOME": os.path.join(s, "cache", "xdg"),
     }
     for d in ("HOME", "TMPDIR", "GOPATH", "GOMODCACHE", "GOCACHE"):
-        os.makedirs(env[d], exist_ok=True)
+        FS.makedirs(env[d], exist_ok=True)
     return env
 
 
@@ -309,8 +311,8 @@ def catalog_binary(cfg: WaveConfig) -> str:
         binary = os.path.join(cdir, "catalogx")
         if os.path.exists(binary):
             return binary
-        os.makedirs(os.path.join(cdir, "catalog"), exist_ok=True)
-        shutil.copyfile(os.path.join(TOOL_DIR, "catalog", "main.go"), os.path.join(cdir, "catalog", "main.go"))
+        FS.makedirs(os.path.join(cdir, "catalog"), exist_ok=True)
+        FS.copyfile(os.path.join(TOOL_DIR, "catalog", "main.go"), os.path.join(cdir, "catalog", "main.go"))
         name = min(cfg.go, key=lambda n: (not cfg.go[n].get("installed"), parse_version(cfg.go[n]["version"])))
         env = go_env(cfg, name)
         with open(os.path.join(cdir, "go.mod"), "w", encoding="utf-8") as f:
@@ -335,7 +337,7 @@ def prepare_catalog(cfg: WaveConfig, repo_id: str, targets: list[dict]) -> RepoB
     bdir = os.path.join(cfg.build, repo_dir_name(repo_id))
     rb = RepoBuild(repo_id, root, rc.get("module_dir", ""), module_path, gomod, go_req, tc, go_name, bdir)
     env = go_env(cfg, go_name)
-    os.makedirs(bdir, exist_ok=True)
+    FS.makedirs(bdir, exist_ok=True)
     mj = run_cmd(["go", "mod", "edit", "-json", os.path.join(mdir, "go.mod")], bdir, env)
     if mj.returncode != 0:
         raise RuntimeError("go mod edit -json failed: " + mj.stderr[-500:])
@@ -375,11 +377,11 @@ def prepare_harness(cfg: WaveConfig, rb: RepoBuild) -> None:
     bdir, mdir = rb.build_dir, os.path.join(rb.root, rb.module_dir)
     env = go_env(cfg, rb.go_name)
     for sub in ("harness", "wrappers"):
-        os.makedirs(os.path.join(bdir, sub), exist_ok=True)
-    shutil.copyfile(os.path.join(TOOL_DIR, "main.go"), os.path.join(bdir, "main.go"))
+        FS.makedirs(os.path.join(bdir, sub), exist_ok=True)
+    FS.copyfile(os.path.join(TOOL_DIR, "main.go"), os.path.join(bdir, "main.go"))
     for fn in sorted(os.listdir(os.path.join(TOOL_DIR, "harness"))):
         if fn.endswith(".go"):
-            shutil.copyfile(os.path.join(TOOL_DIR, "harness", fn), os.path.join(bdir, "harness", fn))
+            FS.copyfile(os.path.join(TOOL_DIR, "harness", fn), os.path.join(bdir, "harness", fn))
     req = [(r["Path"], r["Version"]) for r in rb.modinfo.get("Require") or []]
     gnark_req = next((v for m, v in req if m == "github.com/consensys/gnark"), "")
     lines = ["module boole.local/gnarkx", "", f"go {rb.go_required}", "", "require ("]
@@ -455,10 +457,10 @@ def _in_module_tree(cfg: WaveConfig, rb: RepoBuild) -> tuple[str, str]:
     rewritten to ``<module>/boolegnarkx``."""
     mcopy = os.path.join(rb.build_dir, "modcopy")
     if not os.path.isdir(mcopy):
-        shutil.copytree(os.path.join(rb.root, rb.module_dir), mcopy, ignore=shutil.ignore_patterns(".git"))
+        FS.copytree(os.path.join(rb.root, rb.module_dir), mcopy, ignore=shutil.ignore_patterns(".git"))
     tool = os.path.join(mcopy, "boolegnarkx")
-    os.makedirs(os.path.join(tool, "harness"), exist_ok=True)
-    os.makedirs(os.path.join(tool, "wrappers"), exist_ok=True)
+    FS.makedirs(os.path.join(tool, "harness"), exist_ok=True)
+    FS.makedirs(os.path.join(tool, "wrappers"), exist_ok=True)
     imp = f"{rb.module_path}/boolegnarkx"
     for rel in ["main.go"] + [os.path.join("harness", f) for f in sorted(os.listdir(os.path.join(TOOL_DIR, "harness")))
                               if f.endswith(".go")]:
@@ -755,7 +757,7 @@ def _process(sh: Shared, row: dict) -> dict:
     rec["evidence"]["curve_selection"] = plan.curve_why
     rec["instantiation"]["rule_order"] = list(dict.fromkeys(c.tier for c in cands))
     work = os.path.join(sh.cfg.work, hashlib.sha256(row["item_id"].encode()).hexdigest()[:20])
-    os.makedirs(work, exist_ok=True)
+    FS.makedirs(work, exist_ok=True)
     chosen = None
     tried: list[Cand] = []
     for tier in rec["instantiation"]["rule_order"]:
@@ -880,7 +882,7 @@ def lean_eval(sh: Shared, build: str, ns: str, model: GR.Model, files: list[tupl
 def g_fid_nonvac(sh: Shared, build: str, ns: str, model: GR.Model, real: list[list[int]], muts: list[dict],
                  input_free: bool, work: str) -> tuple[G.Gate, G.Gate]:
     wdir = os.path.join(work, "wit")
-    os.makedirs(wdir, exist_ok=True)
+    FS.makedirs(wdir, exist_ok=True)
     files = []
     for k, w in enumerate(real):
         p = os.path.join(wdir, f"real_{k:03d}.txt")
@@ -942,7 +944,7 @@ def g_fid_nonvac(sh: Shared, build: str, ns: str, model: GR.Model, real: list[li
 
 def g_triv(sh: Shared, build: str, ns: str, model: GR.Model, work: str) -> G.Gate:
     cfg = sh.cfg
-    os.makedirs(work, exist_ok=True)
+    FS.makedirs(work, exist_ok=True)
     emulated = bool(model.groups)
     # P2 first (the forms that close most statements), then P1; stop at the first file with a closing form
     files = [("Battery_P2", [(v, t) for v, ts in E.BATTERY_P2 for t in ts]),
@@ -1038,7 +1040,7 @@ def build_package(sh: Shared, rb: RepoBuild, rec: dict, row: dict, plan: I.Plan,
     stage = os.path.join(work, "pkg")
     shutil.rmtree(stage, ignore_errors=True)
     model_rel = GE.model_relpath(ns)
-    os.makedirs(os.path.dirname(os.path.join(stage, model_rel)), exist_ok=True)
+    FS.makedirs(os.path.dirname(os.path.join(stage, model_rel)), exist_ok=True)
     groups = model.group_wires()
     with open(os.path.join(stage, model_rel), "w", encoding="utf-8") as f:
         f.write(GE.emit_model(ns, meta, model.r, model.inputs, model.native_outputs, groups, model.wire_names))
@@ -1094,7 +1096,7 @@ def build_package(sh: Shared, rb: RepoBuild, rec: dict, row: dict, plan: I.Plan,
                     "note": "PASS means no counterexample was found by the cheap searches; DET truth is not established"}
     if ce is not None:
         cdir = os.path.join(work, "counterexample")
-        os.makedirs(cdir, exist_ok=True)
+        FS.makedirs(cdir, exist_ok=True)
         write_witness(os.path.join(cdir, "w1.txt"), ce.base)
         write_witness(os.path.join(cdir, "w2.txt"), ce.other)
         with sh.lean_slots:
@@ -1141,37 +1143,37 @@ def write_package(sh: Shared, rec: dict, stage: str, work: str, chosen: Cand, re
     dest = os.path.join(sh.cfg.out, *rec["package_id"].split("/", 1))
     if os.path.exists(dest):
         shutil.rmtree(dest)
-    os.makedirs(dest)
-    shutil.copyfile(os.path.join(stage, "Statement.lean"), os.path.join(dest, "Statement.lean"))
+    FS.makedirs(dest)
+    FS.copyfile(os.path.join(stage, "Statement.lean"), os.path.join(dest, "Statement.lean"))
     model_rel = rec["statement"]["model_file"]
-    os.makedirs(os.path.dirname(os.path.join(dest, model_rel)), exist_ok=True)
-    shutil.copyfile(os.path.join(stage, model_rel), os.path.join(dest, model_rel))
+    FS.makedirs(os.path.dirname(os.path.join(dest, model_rel)), exist_ok=True)
+    FS.copyfile(os.path.join(stage, model_rel), os.path.join(dest, model_rel))
     ev = os.path.join(dest, "evidence")
-    os.makedirs(ev)
+    FS.makedirs(ev)
     with open(os.path.join(ev, "wrapper.go"), "w", encoding="utf-8") as f:
         f.write(f"// wrapper compiled against {rec['ids']['repo']} at {rec['ids']['commit']}\n" + chosen.wrapper.source)
     res = dict(chosen.result)
     res.pop("samples", None)
     with open(os.path.join(ev, "harness_result.json"), "w", encoding="utf-8") as f:
         json.dump(res, f, sort_keys=True, separators=(",", ":"))
-    os.makedirs(os.path.join(ev, "witnesses"))
+    FS.makedirs(os.path.join(ev, "witnesses"))
     for k, w in enumerate(real[:4]):
         write_witness(os.path.join(ev, "witnesses", f"real_{k:03d}.txt"), w)
     src = os.path.join(work, "elab", "reference.type.txt")
     if os.path.exists(src):
-        shutil.copyfile(src, os.path.join(ev, "reference.type.txt"))
+        FS.copyfile(src, os.path.join(ev, "reference.type.txt"))
     if "counterexample_dir" in rec["evidence"]:
         cdir = rec["evidence"].pop("counterexample_dir")
-        os.makedirs(os.path.join(ev, "counterexample"))
+        FS.makedirs(os.path.join(ev, "counterexample"))
         for fn in ("w1.txt", "w2.txt"):
             if os.path.exists(os.path.join(cdir, fn)):
-                shutil.copyfile(os.path.join(cdir, fn), os.path.join(ev, "counterexample", fn))
+                FS.copyfile(os.path.join(cdir, fn), os.path.join(ev, "counterexample", fn))
     triv = os.path.join(work, "triv")
     if os.path.isdir(triv):
-        os.makedirs(os.path.join(ev, "triv"))
+        FS.makedirs(os.path.join(ev, "triv"))
         for fn in sorted(os.listdir(triv)):
             if fn.endswith(".lean"):
-                shutil.copyfile(os.path.join(triv, fn), os.path.join(ev, "triv", fn))
+                FS.copyfile(os.path.join(triv, fn), os.path.join(ev, "triv", fn))
     P.write_json(os.path.join(dest, "problem.json"), rec)
 
 
@@ -1192,7 +1194,7 @@ def size_repo(sh: Shared, rb: RepoBuild, rows: list[dict], why: str) -> None:
     env = go_env(cfg, rb.go_name)
     mcopy = os.path.join(rb.build_dir, "modcopy")
     if not os.path.isdir(mcopy):
-        shutil.copytree(os.path.join(rb.root, rb.module_dir), mcopy, ignore=shutil.ignore_patterns(".git"))
+        FS.copytree(os.path.join(rb.root, rb.module_dir), mcopy, ignore=shutil.ignore_patterns(".git"))
     cases, items = [], {}
     g = I.GoFile()
     g.imports.pop(I.HARNESS)
@@ -1218,7 +1220,7 @@ def size_repo(sh: Shared, rb: RepoBuild, rows: list[dict], why: str) -> None:
     if not cases:
         return
     tool = os.path.join(mcopy, "boolesize")
-    os.makedirs(tool, exist_ok=True)
+    FS.makedirs(tool, exist_ok=True)
     first_err = ""
     for old_api in (False, True):
         g.alias("os")
@@ -1345,8 +1347,8 @@ def setup_shared(cfg: WaveConfig, rows: list[dict]) -> Shared:
 
 
 def run_wave(cfg: WaveConfig, log_every: int = 25) -> list[dict]:
-    os.makedirs(cfg.out, exist_ok=True)
-    os.makedirs(cfg.work, exist_ok=True)
+    FS.makedirs(cfg.out, exist_ok=True)
+    FS.makedirs(cfg.work, exist_ok=True)
     rows = select_rows(cfg.ledger)
     if cfg.only:
         rows = [r for r in rows if r["item_id"] in set(cfg.only)]
@@ -1421,7 +1423,7 @@ def write_outputs(out: str, records: list[dict], dedup: list[dict]) -> None:
 
 
 def write_index(path: str, recs: list[dict]) -> None:
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    FS.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         for r in recs:
             f.write(json.dumps(r, sort_keys=True, ensure_ascii=False) + "\n")

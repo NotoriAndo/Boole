@@ -8,6 +8,7 @@ on:
       - scripts/setup_zk_registry_sandbox.sh
       - scripts/test_zk_registry_linux_sandbox.py
       - scripts/test_zk_registry_sandbox_hardening.py
+      - scripts/test_zk_registry_aa_fix.py
       - .github/workflows/acceptance-gate-linux.yml
   pull_request:
     paths:
@@ -15,6 +16,7 @@ on:
       - scripts/setup_zk_registry_sandbox.sh
       - scripts/test_zk_registry_linux_sandbox.py
       - scripts/test_zk_registry_sandbox_hardening.py
+      - scripts/test_zk_registry_aa_fix.py
       - .github/workflows/acceptance-gate-linux.yml
   workflow_dispatch:
 
@@ -41,6 +43,8 @@ jobs:
         run: |
           set -euo pipefail
           state="$RUNNER_TEMP/acceptance-tools"
+          sudo -n sysctl -w kernel.apparmor_restrict_unprivileged_userns=1
+          sysctl kernel.apparmor_restrict_unprivileged_userns
           bash scripts/setup_zk_registry_sandbox.sh "$state"
           mkdir -p "$state/work"
           printf 'synthetic non-secret control canary\n' > "$state/read-only-canary"
@@ -65,4 +69,6 @@ jobs:
             ZK_GATE_LANDRUN="$state/gate/launcher.py" ZK_GATE_WORK_ROOT="$state/work" \
             python3 -m unittest -v test_zk_registry_linux_sandbox.LinuxProductionControls \
             test_zk_registry_sandbox_hardening.LiveConfinement \
-            test_zk_registry_sandbox_hardening.OutcomePrecedence
+            test_zk_registry_sandbox_hardening.OutcomePrecedence \
+            test_zk_registry_aa_fix.NativeBoundaryOutcomes \
+            test_zk_registry_aa_fix.LiveReviewFixes

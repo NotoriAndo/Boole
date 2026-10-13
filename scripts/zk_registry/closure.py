@@ -5,7 +5,7 @@ from dataclasses import dataclass, replace
 import hashlib
 import json
 import os
-from pathlib import Path
+from .safe_fs import Path
 import platform
 import time
 
@@ -56,7 +56,7 @@ class Tools:
         for name in ('comparator', 'exporter', 'nanoda'):
             row = pins[name]
             binary = directory / row['path']
-            if not binary.is_file() or digest(binary) != row['sha256'] or not os.access(binary, os.X_OK):
+            if not binary.is_file() or digest(binary.resolve()) != row['sha256'] or not os.access(binary, os.X_OK):
                 raise ToolsUnavailable('kernels-unavailable')
             binaries[name] = str(binary.resolve())
         kernel_prefix = (directory / pins['kernel_prefix']).resolve()
@@ -70,7 +70,7 @@ class Tools:
 
 def resource_reason(result: L.RunResult) -> str | None:
     """Wall, memory and observation failures are availability errors, not mathematical verdicts."""
-    if result.timeout or result.memkill or result.killed_by or result.rc in (-9, -15, 124, 125, 137):
+    if result.timeout or result.memkill or result.killed_by or result.rc in (-9, -15, 124, 137):
         return 'resource-unavailable'
     return None
 
@@ -162,7 +162,12 @@ def compare_exports(challenge: str, solution: str, theorem: str, tools: Tools, s
         'COMPARATOR_NANODA': nanoda_binary or tools.nanoda,
     }
     if sandbox.mode == 'production':
+        if not sandbox.inner_executable or not Path(sandbox.inner_executable).is_file():
+            return dict(stage='comparator', verdict='ERROR', reason='sandbox-unavailable', assurance=sandbox.mode)
+        with (directory / 'inner-boundary.status').open('xb'):
+            pass
         env['COMPARATOR_LANDRUN'] = sandbox.inner_executable
+        env['COMPARATOR_BOUNDARY_STATUS'] = str(directory / 'inner-boundary.status')
     else:
         passthrough = Path(__file__).parent / 'data/development-landrun.sh'
         env['COMPARATOR_LANDRUN'] = str(passthrough)
@@ -187,9 +192,8 @@ def compare_exports(challenge: str, solution: str, theorem: str, tools: Tools, s
     stopped = boundary_failure(result)
     if stopped:
         return dict(record, verdict=stopped['verdict'], reason=stopped['reason'])
-    if ('BOOLE_SANDBOX_UNAVAILABLE:' in result.out
-            or 'Error while interacting with nanoda kernel' in result.out
-            or 'could not execute external process' in result.out):
+    inner_status = directory / 'inner-boundary.status'
+    if sandbox.mode == 'production' and (not inner_status.is_file() or inner_status.read_bytes()):
         return dict(record, verdict='ERROR', reason='sandbox-unavailable')
     lean_accepts = 'Lean default kernel accepts the solution' in result.out
     nanoda_accepts = 'nanoda kernel accepts the solution' in result.out

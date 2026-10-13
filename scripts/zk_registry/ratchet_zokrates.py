@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from .safe_fs import Path
 import argparse
 import copy
 import json
@@ -10,6 +10,8 @@ import os
 import re
 import shutil
 import tempfile
+
+from zk_registry import safe_fs as FS
 
 from . import ratchet as RT
 from . import ratchet_native as N
@@ -178,11 +180,11 @@ def tool_pin(tools, compiler, snapshot):
 def compile_program(text, relative_dir, snapshot, pin, out):
     """Compile a main program in a fresh isolated snapshot and return its native model and costs."""
     validate_snapshot(snapshot)
-    os.makedirs(out, exist_ok=True)
+    FS.makedirs(out, exist_ok=True)
     root = os.path.join(out, "source")
     if os.path.exists(root):
         raise RuntimeError("compile source directory exists; use a fresh output")
-    shutil.copytree(snapshot, root, ignore=shutil.ignore_patterns("MANIFEST.sha256"))
+    FS.copytree(snapshot, root, ignore=shutil.ignore_patterns("MANIFEST.sha256"))
     main = Path(root) / "repo" / relative_dir / "boole_ratchet_main.zok"
     if main.exists():
         raise RT.Reject("the snapshot reserves the candidate main path")
@@ -197,7 +199,7 @@ def compile_program(text, relative_dir, snapshot, pin, out):
     if style == "brace":
         cmd += ["-r", raw]
     tmp = os.path.join(out, "tmp")
-    os.makedirs(tmp, exist_ok=True)
+    FS.makedirs(tmp, exist_ok=True)
     env = dict(
         PATH="/usr/bin:/bin",
         HOME=out,
@@ -366,7 +368,7 @@ def build_problem(reg_dir, snapshot, out, tools, det, compiler, env=None):
 def _run_witness(result, values, tag):
     """Run the native solver on one flat typed vector and recheck any returned witness."""
     work = os.path.join(result["work"], tag)
-    os.makedirs(work, exist_ok=True)
+    FS.makedirs(work, exist_ok=True)
     if result["pin"]["style"] == "brace":
         w, error = ZW.compute_witness_modern(result["pin"], result["program"], result["abi_path"], values, work)
     else:

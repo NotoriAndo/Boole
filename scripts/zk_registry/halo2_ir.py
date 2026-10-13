@@ -25,6 +25,7 @@ The evaluator here (:func:`check`) is independent of the Lean emitter; agreement
 the fidelity evidence (gate G-FID), together with ``MockProver::verify`` verdicts on the same mutants.
 """
 from __future__ import annotations
+from zk_registry.safe_fs import open
 
 import hashlib
 import json

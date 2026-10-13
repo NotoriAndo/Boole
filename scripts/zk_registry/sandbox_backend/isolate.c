@@ -7,6 +7,8 @@
 #include <linux/securebits.h>
 #include <net/if.h>
 #include <signal.h>
+#include <sched.h>
+#include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,8 +29,23 @@
 #define FILE_RIGHTS ((1ULL << 0) | (1ULL << 1) | (1ULL << 2) | (1ULL << 14) | FS_IOCTL | FS_UNIX)
 #define READ_RIGHTS ((1ULL << 0) | (1ULL << 2) | (1ULL << 3) | FS_UNIX)
 extern char **environ;
+static int setup_fd = -1;
+
+static void event(int fd, const char *format, ...) {
+    char buffer[4096];
+    va_list arguments;
+    va_start(arguments, format);
+    int length = vsnprintf(buffer, sizeof(buffer), format, arguments);
+    va_end(arguments);
+    if (length < 0 || (size_t)length >= sizeof(buffer)
+            || write(fd, buffer, (size_t)length) != length) {
+        fprintf(stderr, "observer-event-write-failed\n");
+        exit(125); /* A missing final event is an outer structured availability failure. */
+    }
+}
 
 static void unavailable(const char *stage) {
+    if (setup_fd >= 0) event(setup_fd, "{\"setup_error\":\"%s\",\"errno\":%d}\n", stage, errno);
     fprintf(stderr, "BOOLE_SANDBOX_UNAVAILABLE:%s:%s\n", stage, strerror(errno));
     exit(125);
 }
@@ -169,6 +186,16 @@ static int init(int argc, char **argv) {
     unsigned long long bounding = strtoull(strstr(status, "CapBnd:") + 7, NULL, 16);
     if (prctl(PR_SET_DUMPABLE, 0, 0, 0, 0) < 0 || prctl(PR_GET_DUMPABLE, 0, 0, 0, 0) != 0)
         unavailable("private-observer-descriptors");
+    cpu_set_t available, selected;
+    CPU_ZERO(&selected);
+    if (sched_getaffinity(0, sizeof(available), &available) < 0) unavailable("cpu-affinity-read");
+    int cpu_count = 0;
+    for (int cpu = 0; cpu < CPU_SETSIZE && cpu_count < 4; ++cpu)
+        if (CPU_ISSET(cpu, &available)) { CPU_SET(cpu, &selected); ++cpu_count; }
+    if (cpu_count != 4 || sched_setaffinity(0, sizeof(selected), &selected) < 0)
+        unavailable("four-cpu-affinity");
+    int setup_pipe[2];
+    if (pipe2(setup_pipe, O_CLOEXEC | O_NONBLOCK) < 0) unavailable("setup-status-pipe");
     pid_t main_child = fork();
     if (main_child < 0) unavailable("main-fork");
     if (!main_child) {
@@ -176,10 +203,13 @@ static int init(int argc, char **argv) {
         snprintf(pid, sizeof(pid), "%d", getpid());
         write_control(fds[0], pid);
         if (prctl(PR_SET_PDEATHSIG, SIGKILL, 0, 0, 0) < 0) unavailable("child-parent-death");
-        if (syscall(SYS_close_range, 3u, ~0u, 0) < 0) unavailable("child-close-descriptors");
-        execvpe(argv[10], argv + 10, environ);
-        unavailable("main-exec");
+        if (dup3(setup_pipe[1], 3, O_CLOEXEC) < 0) unavailable("setup-status-descriptor");
+        setup_fd = 3;
+        if (syscall(SYS_close_range, 4u, ~0u, 0) < 0) unavailable("child-close-descriptors");
+        if (argc < 13 || strcmp(argv[11], "landlock")) unavailable("main-command-shape");
+        return landlock(argc - 12, argv + 12);
     }
+    close(setup_pipe[1]);
     int main_status = 0, orphan_count = 0, reaped_status;
     pid_t reaped;
     for (;;) {
@@ -188,14 +218,19 @@ static int init(int argc, char **argv) {
         if (reaped < 0) unavailable("main-wait");
         if (reaped == main_child) { main_status = reaped_status; break; }
         ++orphan_count;
-        dprintf(fds[7], "{\"event\":\"orphan\",\"pid\":%d}\n", reaped);
+        if (orphan_count <= 256) event(fds[7], "{\"event\":\"orphan\",\"pid\":%d}\n", reaped);
     }
     write_control(fds[1], "1");
-    struct timespec pause = {.tv_nsec = 1000000};
+    struct timespec pause = {.tv_nsec = 1000000}, started, now;
+    if (clock_gettime(CLOCK_MONOTONIC, &started) < 0) unavailable("freeze-clock");
     int frozen = 0;
-    for (int attempt = 0; attempt < 1000; ++attempt) {
+    for (;;) {
         if (counter(fds[2], "frozen ") == 1) { frozen = 1; break; }
+        if (clock_gettime(CLOCK_MONOTONIC, &now) < 0) unavailable("freeze-clock");
+        if ((now.tv_sec - started.tv_sec) * 1000000000LL + now.tv_nsec - started.tv_nsec >= 2000000000LL)
+            break;
         nanosleep(&pause, NULL);
+        if (pause.tv_nsec < 20000000) pause.tv_nsec = pause.tv_nsec * 2 < 20000000 ? pause.tv_nsec * 2 : 20000000;
     }
     if (!frozen) unavailable("cgroup-freeze");
     char members[16384];
@@ -205,13 +240,13 @@ static int init(int argc, char **argv) {
         long member = strtol(line, NULL, 10);
         if (member > 0) {
             ++remaining;
-            dprintf(fds[7], "{\"event\":\"frozen-member\",\"pid\":%ld}\n", member);
+            event(fds[7], "{\"event\":\"frozen-member\",\"pid\":%ld}\n", member);
         }
     }
     while ((reaped = waitpid(-1, &reaped_status, WNOHANG)) > 0)
         if (reaped != main_child) {
             ++orphan_count;
-            dprintf(fds[7], "{\"event\":\"orphan\",\"pid\":%d}\n", reaped);
+            if (orphan_count <= 256) event(fds[7], "{\"event\":\"orphan\",\"pid\":%d}\n", reaped);
         }
     long oom = counter(fds[4], "oom_kill "), pids = counter(fds[5], "max ");
     if (remaining) write_control(fds[6], "1");
@@ -219,17 +254,24 @@ static int init(int argc, char **argv) {
     while ((reaped = waitpid(-1, &reaped_status, 0)) > 0 || (reaped < 0 && errno == EINTR)) {
         if (reaped > 0 && reaped != main_child) {
             ++orphan_count;
-            dprintf(fds[7], "{\"event\":\"orphan\",\"pid\":%d}\n", reaped);
+            if (orphan_count <= 256) event(fds[7], "{\"event\":\"orphan\",\"pid\":%d}\n", reaped);
         }
     }
     int code = WIFEXITED(main_status) ? WEXITSTATUS(main_status) : 128 + WTERMSIG(main_status);
-    dprintf(fds[7], "{\"event\":\"final\",\"main_exit\":%d,\"orphans_reaped\":%d,\"frozen_members\":%d,"
+    char setup[512] = {0};
+    ssize_t setup_bytes = read(setup_pipe[0], setup, sizeof(setup) - 1);
+    if (setup_bytes < 0) unavailable("setup-status-read");
+    close(setup_pipe[0]);
+    event(fds[7], "{\"event\":\"final\",\"main_exit\":%d,\"orphans_reaped\":%d,\"frozen_members\":%d,"
+            "\"orphan_events_recorded\":%d,\"setup_failed\":%s,\"cpu_affinity_count\":%d,"
             "\"oom_kill_events\":%ld,\"pids_max_events\":%ld,\"seccomp_mode\":%d,\"pid_1_dumpable\":%d,"
             "\"apparmor_label\":\"%s\",\"loopback_up\":%s,\"landlock_abi\":%d,"
             "\"caps_effective\":%llu,\"caps_ambient\":%llu,\"caps_bounding\":%llu,"
             "\"namespaces\":{\"user\":\"%s\",\"net\":\"%s\",\"pid\":\"%s\","
             "\"mnt\":\"%s\",\"ipc\":\"%s\"}}\n",
-            code, orphan_count, remaining, oom, pids, seccomp, prctl(PR_GET_DUMPABLE, 0, 0, 0, 0), profile,
+            code, orphan_count, remaining, orphan_count < 256 ? orphan_count : 256,
+            setup_bytes ? "true" : "false", cpu_count, oom, pids, seccomp,
+            prctl(PR_GET_DUMPABLE, 0, 0, 0, 0), profile,
             loopback_up ? "true" : "false", abi(), effective, ambient, bounding,
             userns, netns, pidns, mountns, ipcns);
     close(fds[7]);
@@ -239,6 +281,15 @@ static int init(int argc, char **argv) {
 int main(int argc, char **argv) {
     if (argc == 2 && !strcmp(argv[1], "abi")) { printf("%d\n", abi()); return 0; }
     if (argc > 2 && !strcmp(argv[1], "landlock")) return landlock(argc - 2, argv + 2);
+    if (argc > 2 && !strcmp(argv[1], "inner-landlock")) {
+        const char *path = getenv("COMPARATOR_BOUNDARY_STATUS");
+        if (!path || path[0] != '/') unavailable("inner-status-path");
+        setup_fd = open(path, O_WRONLY | O_CREAT | O_APPEND | O_NOFOLLOW | O_CLOEXEC, 0600);
+        struct stat metadata;
+        if (setup_fd < 0 || fstat(setup_fd, &metadata) < 0 || !S_ISREG(metadata.st_mode))
+            unavailable("inner-status-open");
+        return landlock(argc - 2, argv + 2);
+    }
     if (argc > 2 && !strcmp(argv[1], "init")) return init(argc - 2, argv + 2);
     if (argc > 2 && !strcmp(argv[1], "network")) {
         int socket_fd = socket(AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC, 0);

@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import subprocess
 
+from zk_registry.safe_fs import open
 from . import witness as W
 from . import zokrates_r1cs as ZR
 from . import zokrates_toolchain as T

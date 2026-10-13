@@ -13,6 +13,7 @@ Wire layout of a circom R1CS (checked by :func:`main_io_wires`)::
     rest                       internal signals
 """
 from __future__ import annotations
+from zk_registry.safe_fs import open
 
 import os
 import re

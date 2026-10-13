@@ -6,9 +6,11 @@ import copy
 import json
 import os
 import re
-from pathlib import Path
+from .safe_fs import Path
 import shutil
 import tempfile
+
+from zk_registry import safe_fs as FS
 
 from . import halo2_ir as H
 from . import halo2_lean_emit as HE
@@ -191,9 +193,9 @@ def build_extract(problem, snapshot, overlay, build_dir, out, tools, samples=16,
     repo = os.path.join(build_dir, "repo")
     RA.sync_tree(snapshot, man, overlay, repo)
     pin = _native_tools(tools, problem["reference"]["build"])
-    os.makedirs(out, exist_ok=True)
+    FS.makedirs(out, exist_ok=True)
     tmp = os.path.join(out, "tmp")
-    os.makedirs(tmp, exist_ok=True)
+    FS.makedirs(tmp, exist_ok=True)
     env = dict(
         PATH=pin["bin"] + ":/usr/bin:/bin",
         RUSTC=os.path.join(pin["bin"], "rustc"),
@@ -203,7 +205,9 @@ def build_extract(problem, snapshot, overlay, build_dir, out, tools, samples=16,
         CARGO_HOME=os.path.join(tools, "cargo-home"),
         CARGO_TARGET_DIR=os.path.join(build_dir, "target"),
         CARGO_INCREMENTAL="0",
-        CARGO_BUILD_JOBS="2",
+        CARGO_BUILD_JOBS="4",
+        RAYON_NUM_THREADS="4",
+        RUST_TEST_THREADS="4",
         CARGO_TERM_COLOR="never",
         HOME=out,
         TMPDIR=tmp,
@@ -232,7 +236,7 @@ def build_extract(problem, snapshot, overlay, build_dir, out, tools, samples=16,
     if executable is None:
         raise RuntimeError("cargo did not report the target wrapper test binary")
     dump = os.path.join(out, "extraction")
-    os.makedirs(dump, exist_ok=True)
+    FS.makedirs(dump, exist_ok=True)
     env.update(BOOLE_H1_OUT=dump, BOOLE_H1_SAMPLES=str(samples), BOOLE_H1_SEED=str(seed), BOOLE_H1_MUTANTS="0")
     extract = L.run_submission([executable, target["test"], "--exact", "--test-threads=1"], env, out, 1800, 12288)
     RT.put(os.path.join(out, "run.log"), extract.out)
@@ -400,7 +404,7 @@ def build_problem(reg_dir, snapshot, out, tools, det, target, build, env=None, b
         + "; native DET model exactly reproduced"
     )
     Path(out, "reference").mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(source, Path(out, "reference/layout.ir.json"))
+    FS.copyfile(source, Path(out, "reference/layout.ir.json"))
     N.write_reference(problem, spec, reg_dir, out)
     return problem
 
