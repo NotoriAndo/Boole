@@ -1,0 +1,98 @@
+name: acceptance-gate-linux
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/zk_registry/**
+      - scripts/test_zk_registry_linux_sandbox.py
+      - .github/workflows/acceptance-gate-linux.yml
+  pull_request:
+    paths:
+      - scripts/zk_registry/**
+      - scripts/test_zk_registry_linux_sandbox.py
+      - .github/workflows/acceptance-gate-linux.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  production-controls:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      GOENV: "off"
+      GOTOOLCHAIN: local
+      CGO_ENABLED: "0"
+      GOMAXPROCS: "2"
+      GIT_CONFIG_GLOBAL: /dev/null
+      GIT_CONFIG_SYSTEM: /dev/null
+      GIT_CONFIG_NOSYSTEM: "1"
+      GIT_TERMINAL_PROMPT: "0"
+      GIT_CONFIG_COUNT: "3"
+      GIT_CONFIG_KEY_0: credential.helper
+      GIT_CONFIG_VALUE_0: ""
+      GIT_CONFIG_KEY_1: http.extraHeader
+      GIT_CONFIG_VALUE_1: ""
+      GIT_CONFIG_KEY_2: core.hooksPath
+      GIT_CONFIG_VALUE_2: /dev/null
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - name: Checkout CI controls without persistent credentials
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Select acceptance code, including the initial unmerged dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          gate_source="$GITHUB_WORKSPACE"
+          if [[ ! -f scripts/zk_registry/sandbox.py ]]; then
+            gate_source="$RUNNER_TEMP/acceptance-source"
+            dependency=2468d705d53e6ebf8bf0983b9039f7ee2bb80ace
+            git init "$gate_source"
+            git -C "$gate_source" fetch --depth=1 https://github.com/NotoriAndo/Boole.git "$dependency"
+            git -C "$gate_source" checkout --detach FETCH_HEAD
+            test "$(git -C "$gate_source" rev-parse HEAD)" = "$dependency"
+          fi
+          printf 'ZK_GATE_SOURCE_ROOT=%s\n' "$gate_source" >> "$GITHUB_ENV"
+
+      - name: Install digest-pinned Go and build pinned Landrun
+        shell: bash
+        run: |
+          set -euo pipefail
+          state="$RUNNER_TEMP/acceptance-tools"
+          mkdir -p "$state"
+          curl -q --fail --location --retry 2 --output "$state/go.tar.gz" \
+            https://go.dev/dl/go1.25.7.linux-amd64.tar.gz
+          printf '%s  %s\n' 12e6d6a191091ae27dc31f6efc630e3a3b8ba409baf3573d955b196fdf086005 \
+            "$state/go.tar.gz" | sha256sum --check
+          tar -xf "$state/go.tar.gz" -C "$state"
+          source="$state/landrun-source"
+          revision=811cfff51ceaf3d9843708aa6d22e9b84ccac8b4
+          git init "$source"
+          git -C "$source" fetch --depth=1 https://github.com/Zouuup/landrun.git "$revision"
+          git -C "$source" checkout --detach FETCH_HEAD
+          test "$(git -C "$source" rev-parse HEAD)" = "$revision"
+          export GOPATH="$state/gopath" GOCACHE="$state/gocache"
+          cd "$source"
+          "$state/go/bin/go" build -trimpath -buildvcs=false -o "$state/landrun" ./cmd/landrun
+          printf '%s  %s\n' 22469c3bc701535eaa4fe5c92747704d96c89de5c930da27988c2a537d5d6108 \
+            "$state/landrun" | sha256sum --check
+          printf 'ZK_GATE_LANDRUN=%s\n' "$state/landrun" >> "$GITHUB_ENV"
+          printf 'ZK_GATE_WORK_ROOT=%s\n' "$state/controls" >> "$GITHUB_ENV"
+
+      - name: Require the actual production ABI, without graceful degradation
+        run: |
+          python3 - <<'PY'
+          import ctypes
+          abi = ctypes.CDLL(None, use_errno=True).syscall(444, 0, 0, 1)
+          print(f"Landlock ABI: {abi}")
+          if abi < 9:
+              raise SystemExit("ERROR sandbox-unavailable: pinned Landrun requires ABI >=9")
+          PY
+
+      - name: Run real production-boundary and forbidden-policy controls
+        run: python3 scripts/test_zk_registry_linux_sandbox.py
