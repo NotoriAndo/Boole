@@ -16,6 +16,14 @@ import uuid
 _PENDING = {}
 
 
+def registered_command(command):
+    """Identify a boundary command allocated by this host process, not payload text."""
+    if '--gate-status' not in command:
+        return False
+    index = command.index('--gate-status') + 1
+    return index < len(command) and command[index] in _PENDING
+
+
 def clean_receipt(status):
     """Remove only the exact per-step receipt paths allocated by this process."""
     for file in (SafePath(status), SafePath(status).with_suffix('.events.ndjson'),
@@ -216,9 +224,13 @@ class Sandbox:
         stage = stage_kind(argv)
         data = json.loads((Path(__file__).parent / 'data/acceptance_tools_v2.json').read_text())
         pids = self.pids_max if self.pids_max is not None else data['sandbox']['parallelism']['pids_max'][stage]
+        requested = executable or (os.path.abspath(argv[0]) if '/' in argv[0] else None)
+        artifact = bool(requested and any(Path(requested).is_relative_to(Path(root)) for root in outputs
+                                         if root != '/dev/null'))
         command = [self.executable, '--gate-authority', self.authority, '--gate-cgroup', self.cgroup,
                    '--gate-status', status, '--gate-memory', str(self.memory_max), '--gate-pids', str(pids),
                    '--gate-stage', stage,
+                   '--gate-exec-origin', 'submission' if artifact else 'trusted',
                    '--gate-role', self.role, '--gate-mode', self.mode]
         if self.disabled_layer:
             command += ['--gate-fixture-no-' + self.disabled_layer]

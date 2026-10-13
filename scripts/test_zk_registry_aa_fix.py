@@ -213,6 +213,61 @@ class LiveReviewFixes(unittest.TestCase):
         result = self.execute('raise SystemExit(125)\n')
         self.assertEqual((result.rc, result.boundary['verdict']), (125, 'PASS'), result.boundary)
 
+    def test_cgroup_move_failure_is_structured(self):
+        """An injected pre-exec cgroup failure must not become a payload exit 125."""
+        import hashlib
+        import json
+        import shutil
+        root = Path(self.temp.name)
+        fixture = root / 'fixture-gate'
+        fixture.mkdir()
+        source = (Path(__file__).parent / 'zk_registry/sandbox_backend/isolate.c').read_text()
+        needle = 'write_control(fds[0], pid);'
+        self.assertEqual(source.count(needle), 1)
+        (root / 'injected.c').write_text(source.replace(needle,
+            'errno = EIO; unavailable("cgroup-move-injected");'))
+        build = subprocess.run(['/usr/bin/gcc', '-O2', '-static', str(root / 'injected.c'),
+                                '-o', str(fixture / 'gate-isolate')], capture_output=True, text=True)
+        self.assertEqual(build.returncode, 0, build.stderr)
+        installed = Path(self.boundary.executable).parent
+        for name in ('launcher.py', 'comparator-landrun', 'seccomp-' + platform.machine() + '.bpf'):
+            shutil.copy2(installed / name, fixture / name)
+        data = json.loads((installed / 'bundle.json').read_text())
+        data['sandbox']['architectures'][platform.machine()]['isolate_sha256'] = hashlib.sha256(
+            (fixture / 'gate-isolate').read_bytes()).hexdigest()
+        (fixture / 'bundle.json').write_text(json.dumps(data))
+        boundary = replace(self.boundary, executable=str(fixture / 'launcher.py'),
+                           authority=hashlib.sha256((fixture / 'bundle.json').read_bytes()).hexdigest())
+        (root / 'work').mkdir()
+        result = CR.runner(str(root / 'trusted-logs'), 20, sandbox=boundary,
+                           readable_paths=['/usr'], writable_paths=[str(root / 'work')])(
+            ['/usr/bin/true'], {'PATH': '/usr/bin:/bin'}, str(root), 20, 256)
+        self.assertEqual((result.boundary['verdict'], result.boundary['reason']),
+                         ('ERROR', 'sandbox-unavailable'), result.boundary)
+        self.assertTrue(result.boundary['observation']['setup_failed'])
+
+    def test_process_receipts_are_outside_submission_writable_roots(self):
+        """Submission code cannot remove or forge the host's copied process receipts."""
+        import json
+        root = Path(self.temp.name)
+        run = CR.runner(str(root / 'processes'), 20, sandbox=self.boundary,
+                        readable_paths=['/usr', str(root)], writable_paths=[str(root)])
+        result = run(['/usr/bin/python3', '-c', 'import os; print("payload")'],
+                     {'PATH': '/usr/bin:/bin'}, str(root), 20, 256)
+        self.assertEqual(result.boundary['verdict'], 'PASS')
+        logs = Path(getattr(run, 'log_directory', root / 'processes'))
+        self.assertFalse(logs.is_relative_to(root), logs)
+        before = {file.name: file.read_bytes() for file in logs.glob('*.json')}
+        attempted = run(['/usr/bin/python3', '-c', 'from pathlib import Path; '
+                        'Path(' + repr(str(logs / 'forged.json')) + ').write_text("forged")'],
+                        {'PATH': '/usr/bin:/bin'}, str(root), 20, 256)
+        self.assertNotEqual(attempted.rc, 0)
+        self.assertFalse((logs / 'forged.json').exists())
+        self.assertTrue(before)
+        for name, original in before.items():
+            self.assertEqual((logs / name).read_bytes(), original)
+            self.assertIn('boundary', json.loads(original))
+
     def test_orphan_flood_has_bounded_evidence(self):
         """Many fast orphan exits cannot exhaust the trusted runtime receipt directory."""
         result = self.execute('import os,time\nfor i in range(400):\n p=os.fork()\n if p==0:\n'
@@ -240,8 +295,73 @@ class LiveReviewFixes(unittest.TestCase):
                                    str(root / 'comparison'), 5, [])
         self.assertEqual((actual['verdict'], actual['reason']), ('ERROR', 'sandbox-unavailable'))
 
+    def comparator_control(self, code, inner=None):
+        """Run a trusted transport fixture through the real outer production boundary."""
+        from zk_registry import closure as D
+        root = Path(self.temp.name)
+        for name in ('Challenge.ndjson', 'Solution.ndjson'):
+            (root / name).write_text('sealed transport fixture, not a proof')
+        program = root / 'comparator-fixture'
+        program.write_text('#!/usr/bin/python3\n' + code)
+        program.chmod(0o755)
+        work = root / 'comparison'
+        work.mkdir()
+        if inner == 'broken':
+            fault = work / 'inner-runtime-broken'
+            fault.write_text('#!/missing-inner-interpreter\n')
+            fault.chmod(0o755)
+            boundary = replace(self.boundary, inner_executable=str(fault))
+        else:
+            boundary = self.boundary
+        tools = D.Tools(str(program), '/usr/bin/true', '/usr/bin/true', '/usr', boundary.executable)
+        return D.compare_exports(str(root / 'Challenge.ndjson'), str(root / 'Solution.ndjson'), 'X.goal',
+                                 tools, boundary, str(work), 10, [])
+
+    def test_comparator_runtime_inner_launch_failure_is_error(self):
+        """An existing inner launcher that fails at exec is ERROR, not kernel rejection."""
+        actual = self.comparator_control('import os,subprocess\ntry:\n'
+            ' subprocess.run([os.environ["COMPARATOR_LANDRUN"],"--","/usr/bin/true"],check=True)\n'
+            'except (OSError,subprocess.CalledProcessError):\n raise SystemExit(70)\n', inner='broken')
+        self.assertEqual((actual['verdict'], actual['reason']), ('ERROR', 'sandbox-unavailable'), actual)
+
+    def test_nanoda_launch_transport_signal_is_error(self):
+        """A structured kernel launch/transport exit code cannot become INVALID."""
+        actual = self.comparator_control('raise SystemExit(70)\n')
+        self.assertEqual((actual['verdict'], actual['reason']), ('ERROR', 'sandbox-unavailable'), actual)
+
+    def test_nanoda_runtime_missing_interpreter_is_error(self):
+        """The actual inner wrapper distinguishes a nanoda exec failure from rejection."""
+        actual = self.comparator_control('import os,subprocess\nfrom pathlib import Path\n'
+            'p=Path("nanoda-broken"); p.write_text("#!/missing-nanoda-interpreter\\n"); p.chmod(0o755)\n'
+            'r=subprocess.run([os.environ["COMPARATOR_LANDRUN"],"--ro","/usr","--",str(p.absolute())])\n'
+            'raise SystemExit(70 if r.returncode else 0)\n')
+        self.assertEqual((actual['verdict'], actual['reason']), ('ERROR', 'sandbox-unavailable'), actual)
+        self.assertEqual(actual['inner_signals'][0]['setup_error'], 'landlock-exec')
+
+    def test_missing_inner_success_marker_fails_closed(self):
+        """Kernel-looking output and an empty status file cannot manufacture acceptance."""
+        actual = self.comparator_control('print("Lean default kernel accepts the solution")\n'
+                                         'print("nanoda kernel accepts the solution")\n')
+        self.assertEqual((actual['verdict'], actual['reason']), ('ERROR', 'sandbox-unavailable'), actual)
+
+    def test_nanoda_child_cannot_write_status_directory(self):
+        """The kernel child cannot forge its parent's exec attestation through the status path."""
+        child = ('import os\nfrom pathlib import Path\ntry:\n'
+                 ' Path(os.environ["COMPARATOR_BOUNDARY_STATUS"]).write_text("forged")\n'
+                 'except PermissionError:\n print("STATUS-WRITE-DENIED")\n'
+                 'else:\n raise SystemExit(9)\n')
+        code = ('import os,subprocess\n'
+                'r=subprocess.run([os.environ["COMPARATOR_LANDRUN"],"--ro","/usr","--",'
+                '"/usr/bin/python3","-c",' + repr(child) + '])\n'
+                'if r.returncode: raise SystemExit(2)\n'
+                'print("Lean default kernel accepts the solution")\n'
+                'print("nanoda kernel accepts the solution")\n')
+        actual = self.comparator_control(code)
+        self.assertEqual(actual['verdict'], 'PASS', actual)
+        self.assertEqual(actual['inner_signals'], [dict(inner_exec='ok', exit=0)])
+
     def test_exec_setup_failure_is_structured(self):
-        """A missing interpreter is distinguished from a payload that chooses exit 125."""
+        """A submission artifact's missing interpreter is INVALID, not a node outage."""
         root = Path(self.temp.name)
         program = root / 'missing-interpreter'
         program.write_text('#!/no-such-interpreter\n')
@@ -249,8 +369,34 @@ class LiveReviewFixes(unittest.TestCase):
         result = CR.runner(str(root / 'logs'), 20, sandbox=self.boundary,
                            readable_paths=['/usr', str(root)], writable_paths=[str(root)])(
             [str(program)], {'PATH': '/usr/bin:/bin'}, str(root), 20, 256)
-        self.assertEqual((result.boundary['verdict'], result.boundary['reason']), ('ERROR', 'sandbox-unavailable'))
+        self.assertEqual((result.boundary['verdict'], result.boundary['reason']),
+                         ('INVALID', 'submission-exec-failed'), result.boundary)
         self.assertTrue(result.boundary['observation']['setup_failed'])
+
+    def test_trusted_tool_exec_failure_stays_error(self):
+        """Exec failure of a read-only trusted tool is still an availability ERROR."""
+        root = Path(self.temp.name)
+        program = root / 'trusted-missing-interpreter'
+        program.write_text('#!/no-such-interpreter\n')
+        program.chmod(0o755)
+        (root / 'work').mkdir()
+        result = CR.runner(str(root / 'logs'), 20, sandbox=self.boundary,
+                           readable_paths=['/usr', str(program)], writable_paths=[str(root / 'work')])(
+            [str(program)], {'PATH': '/usr/bin:/bin'}, str(root), 20, 256)
+        self.assertEqual((result.boundary['verdict'], result.boundary['reason']),
+                         ('ERROR', 'sandbox-unavailable'), result.boundary)
+
+    def test_submission_artifact_without_exec_permission_is_invalid(self):
+        """A bad submission-produced artifact cannot force a retryable node outage."""
+        root = Path(self.temp.name)
+        program = root / 'non-executable-artifact'
+        program.write_text('#!/usr/bin/true\n')
+        program.chmod(0o600)
+        result = CR.runner(str(root / 'logs'), 20, sandbox=self.boundary,
+                           readable_paths=['/usr', str(root)], writable_paths=[str(root)])(
+            [str(program)], {'PATH': '/usr/bin:/bin'}, str(root), 20, 256)
+        self.assertEqual((result.boundary['verdict'], result.boundary['reason']),
+                         ('INVALID', 'submission-exec-failed'), result.boundary)
 
     def test_three_cpu_node_fails_preflight(self):
         """A node unable to supply the declared four CPUs cannot qualify production."""

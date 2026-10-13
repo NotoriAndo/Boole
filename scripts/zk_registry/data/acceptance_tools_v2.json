@@ -7,7 +7,9 @@
     "declared_lean": "v4.34.0",
     "licence": "Apache-2.0",
     "patch": "comparator-d03acab-export-files.patch",
-    "toolchain_patch": "comparator-d03acab-lean4341.patch"
+    "toolchain_patch": "comparator-d03acab-lean4341.patch",
+    "transport_patch": "comparator-d03acab-transport.patch",
+    "exit_status": {"success": 0, "semantic_rejection": 2, "transport_failure": 70}
   },
   "exporter": {
     "repository": "https://github.com/leanprover/lean4export",
@@ -40,7 +42,7 @@
   "sandbox": {
     "version": 1,
     "launcher_path": "gate/launcher.py",
-    "launcher_sha256": "3d0fe9f6f1be0363976739c00a769900d53329b23204c5130343c181f4db9cae",
+    "launcher_sha256": "0c3a0c60dff496ea8215cca6b3b6e8c0750f76c82c1da9af5787cee40b83885f",
     "inner_launcher_sha256": "b7c04833bbc73cdc81a3d894670db4e6fea7be92b801f0c96892b76d577d102b",
     "bubblewrap_version": "0.9.0-1ubuntu0.3",
     "libseccomp_version": "2.5.5-1ubuntu3.1",
@@ -49,7 +51,7 @@
         "bubblewrap_deb_sha256": "2461f1beee9cb04c8942739fe1a2b37e7b7c2a3d518f0779dc75f9245baa3094",
         "libseccomp_dev_deb_sha256": "26421f22f2150986735b79ece61d811400debab7fa505b08b731ec5a7917e45f",
         "bwrap_sha256": "e318903862396f96de3df57264e0158682b952fd3fb53ac23d876413e7b30f71",
-        "isolate_sha256": "737c3ef87d7e1903e17f011268756736ec07d519571bb4ba61845b7c41b57d1d",
+        "isolate_sha256": "2fdbac2f850f323ef4ce5d0ce3460dbf630472da62911660145efb805fdfea8e",
         "filter_sha256": "64b66feba53e10dc4c98dcff2833311791faf7666e805e90110406ed5b9febf4",
         "apparmor_profile_sha256": "35613442bd82247d132b1102579edc5567d8047930d1b60fbb8bbba93c5abcd6"
       },
@@ -57,7 +59,7 @@
         "bubblewrap_deb_sha256": "dce3a2e5f0302eab717a64fe9c9411fe2d40469e2a7946e0f2ce1420a61025c3",
         "libseccomp_dev_deb_sha256": "e8ad51ab54d2b1f69117f152fb011901a8822c19410c1fe7b82d000436df77d0",
         "bwrap_sha256": "cd6b143283b464baf078ab09ca19dadc5bcc2423b833c4f9dd7e83f9ba1b640b",
-        "isolate_sha256": "5109ef285f7375118fd9147e4d982e5672369d90caa0e6decde90de736069ffb",
+        "isolate_sha256": "cd3af8298316d88f9d4dff274fbf9385815719c11ca763f2db22bc46490c5e76",
         "filter_sha256": "52a4950a953e6f0df53b7ec0a1f3f54f869f7c4a68a9e5e2a60273e75f74179b",
         "apparmor_profile_sha256": "35613442bd82247d132b1102579edc5567d8047930d1b60fbb8bbba93c5abcd6"
       }
@@ -100,7 +102,7 @@
       "kernel_prefix": "lean-4.34.1-linux",
       "comparator": {
         "path": "comparator/.lake/build/bin/comparator",
-        "sha256": "6622078ca4eb508ec3b6d6bbc1b6981709805cd55260c6489c94a0a04d6cd666"
+        "sha256": "3f4a5ec59981c56ab099557aba218e4b042097e7da3df4295ce838acc0b26bd5"
       },
       "exporter": {
         "path": "lean4export/.lake/build/bin/lean4export",
@@ -116,7 +118,7 @@
       "kernel_prefix": "lean-4.34.1-linux_aarch64",
       "comparator": {
         "path": "comparator/.lake/build/bin/comparator",
-        "sha256": "0f28148265646afec2851db1011cd96fd28ea61035f4c07ce33b5aea3f1e175e"
+        "sha256": "fe0a4234774b0f98b53239e4e06131d25ed2c38e057685298e8ee85c014ce295"
       },
       "exporter": {
         "path": "lean4export/.lake/build/bin/lean4export",

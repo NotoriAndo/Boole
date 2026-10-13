@@ -196,15 +196,21 @@ static int init(int argc, char **argv) {
         unavailable("four-cpu-affinity");
     int setup_pipe[2];
     if (pipe2(setup_pipe, O_CLOEXEC | O_NONBLOCK) < 0) unavailable("setup-status-pipe");
+    /* FD 3 becomes the setup channel: preserve a control handle before forking. */
+    if (fds[0] == 3) {
+        fds[0] = fcntl(fds[0], F_DUPFD_CLOEXEC, 4);
+        if (fds[0] < 0) unavailable("cgroup-descriptor-copy");
+    }
     pid_t main_child = fork();
     if (main_child < 0) unavailable("main-fork");
     if (!main_child) {
+        int copied = dup3(setup_pipe[1], 3, O_CLOEXEC);
+        setup_fd = copied < 0 ? setup_pipe[1] : 3;
+        if (copied < 0) unavailable("setup-status-descriptor");
         char pid[32];
         snprintf(pid, sizeof(pid), "%d", getpid());
         write_control(fds[0], pid);
         if (prctl(PR_SET_PDEATHSIG, SIGKILL, 0, 0, 0) < 0) unavailable("child-parent-death");
-        if (dup3(setup_pipe[1], 3, O_CLOEXEC) < 0) unavailable("setup-status-descriptor");
-        setup_fd = 3;
         if (syscall(SYS_close_range, 4u, ~0u, 0) < 0) unavailable("child-close-descriptors");
         if (argc < 13 || strcmp(argv[11], "landlock")) unavailable("main-command-shape");
         return landlock(argc - 12, argv + 12);
@@ -261,16 +267,17 @@ static int init(int argc, char **argv) {
     char setup[512] = {0};
     ssize_t setup_bytes = read(setup_pipe[0], setup, sizeof(setup) - 1);
     if (setup_bytes < 0) unavailable("setup-status-read");
+    setup[strcspn(setup, "\n")] = 0;
     close(setup_pipe[0]);
     event(fds[7], "{\"event\":\"final\",\"main_exit\":%d,\"orphans_reaped\":%d,\"frozen_members\":%d,"
-            "\"orphan_events_recorded\":%d,\"setup_failed\":%s,\"cpu_affinity_count\":%d,"
+            "\"orphan_events_recorded\":%d,\"setup_failed\":%s,\"setup\":%s,\"cpu_affinity_count\":%d,"
             "\"oom_kill_events\":%ld,\"pids_max_events\":%ld,\"seccomp_mode\":%d,\"pid_1_dumpable\":%d,"
             "\"apparmor_label\":\"%s\",\"loopback_up\":%s,\"landlock_abi\":%d,"
             "\"caps_effective\":%llu,\"caps_ambient\":%llu,\"caps_bounding\":%llu,"
             "\"namespaces\":{\"user\":\"%s\",\"net\":\"%s\",\"pid\":\"%s\","
             "\"mnt\":\"%s\",\"ipc\":\"%s\"}}\n",
             code, orphan_count, remaining, orphan_count < 256 ? orphan_count : 256,
-            setup_bytes ? "true" : "false", cpu_count, oom, pids, seccomp,
+            setup_bytes ? "true" : "false", setup_bytes ? setup : "null", cpu_count, oom, pids, seccomp,
             prctl(PR_GET_DUMPABLE, 0, 0, 0, 0), profile,
             loopback_up ? "true" : "false", abi(), effective, ambient, bounding,
             userns, netns, pidns, mountns, ipcns);
@@ -278,17 +285,51 @@ static int init(int argc, char **argv) {
     return code;
 }
 
+static int inner(int argc, char **argv) {
+    const char *path = getenv("COMPARATOR_BOUNDARY_STATUS");
+    if (!path || path[0] != '/') unavailable("inner-status-path");
+    int status_fd = open(path, O_WRONLY | O_APPEND | O_NOFOLLOW | O_CLOEXEC);
+    struct stat metadata;
+    if (status_fd < 0 || fstat(status_fd, &metadata) < 0 || !S_ISREG(metadata.st_mode))
+        unavailable("inner-status-open");
+    setup_fd = status_fd;
+    if (prctl(PR_SET_DUMPABLE, 0, 0, 0, 0) < 0) unavailable("inner-private-descriptors");
+    int channel[2];
+    if (pipe2(channel, O_CLOEXEC) < 0) unavailable("inner-status-pipe");
+    pid_t child = fork();
+    if (child < 0) unavailable("inner-fork");
+    if (!child) {
+        close(status_fd);
+        close(channel[0]);
+        setup_fd = channel[1];
+        if (prctl(PR_SET_PDEATHSIG, SIGKILL, 0, 0, 0) < 0) unavailable("inner-parent-death");
+        return landlock(argc, argv);
+    }
+    close(channel[1]);
+    char error[512] = {0};
+    ssize_t count;
+    do { count = read(channel[0], error, sizeof(error) - 1); } while (count < 0 && errno == EINTR);
+    if (count < 0) unavailable("inner-status-read");
+    close(channel[0]);
+    int status;
+    while (waitpid(child, &status, 0) < 0) if (errno != EINTR) unavailable("inner-wait");
+    int code = WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
+    if (count) {
+        error[strcspn(error, "\n")] = 0;
+        event(status_fd, "%s\n", error);
+    } else {
+        /* EOF on the CLOEXEC channel attests exec; the child cannot access this FD or path. */
+        event(status_fd, "{\"inner_exec\":\"ok\",\"exit\":%d}\n", code);
+    }
+    close(status_fd);
+    return code;
+}
+
 int main(int argc, char **argv) {
     if (argc == 2 && !strcmp(argv[1], "abi")) { printf("%d\n", abi()); return 0; }
     if (argc > 2 && !strcmp(argv[1], "landlock")) return landlock(argc - 2, argv + 2);
     if (argc > 2 && !strcmp(argv[1], "inner-landlock")) {
-        const char *path = getenv("COMPARATOR_BOUNDARY_STATUS");
-        if (!path || path[0] != '/') unavailable("inner-status-path");
-        setup_fd = open(path, O_WRONLY | O_CREAT | O_APPEND | O_NOFOLLOW | O_CLOEXEC, 0600);
-        struct stat metadata;
-        if (setup_fd < 0 || fstat(setup_fd, &metadata) < 0 || !S_ISREG(metadata.st_mode))
-            unavailable("inner-status-open");
-        return landlock(argc - 2, argv + 2);
+        return inner(argc - 2, argv + 2);
     }
     if (argc > 2 && !strcmp(argv[1], "init")) return init(argc - 2, argv + 2);
     if (argc > 2 && !strcmp(argv[1], "network")) {

@@ -16,6 +16,10 @@ import uuid
 import time
 
 
+class SubmissionExecFailed(ValueError):
+    """A work-root artifact is not executable; this is not a trusted-tool outage."""
+
+
 def digest(path):
     """Hash a small executed boundary component before every invocation."""
     value = hashlib.sha256()
@@ -138,6 +142,8 @@ def execute(options, arguments):
                                               environment.items()), []), *arguments[separator:]]
     executable = shutil.which(payload_command[0], path=environment.get('PATH', '/usr/bin:/bin'))
     if executable is None:
+        if options.exec_origin == 'submission':
+            raise SubmissionExecFailed('submitted-executable-unavailable')
         raise ValueError('executable-unavailable')
     executable = str(Path(executable).resolve())
     readers.append(executable)
@@ -226,7 +232,10 @@ def execute(options, arguments):
         elif observation['orphans_reaped'] or observation['frozen_members']:
             verdict, reason = 'INVALID', 'owned-descendants-remained'
         elif observation['setup_failed']:
-            verdict, reason = 'ERROR', 'sandbox-unavailable'
+            if options.exec_origin == 'submission' and observation.get('setup', {}).get('setup_error') == 'landlock-exec':
+                verdict, reason = 'INVALID', 'submission-exec-failed'
+            else:
+                verdict, reason = 'ERROR', 'sandbox-unavailable'
         else:
             verdict, reason = 'PASS', None
         host_namespaces = {name: os.readlink('/proc/self/ns/' + name) for name in ('user', 'net', 'pid', 'mnt', 'ipc')}
@@ -279,6 +288,7 @@ def main():
     parser.add_argument('--gate-memory', dest='memory', type=int, default=11000 * 1024 * 1024)
     parser.add_argument('--gate-pids', dest='pids', type=int, default=128)
     parser.add_argument('--gate-stage', dest='stage', default='native-run')
+    parser.add_argument('--gate-exec-origin', dest='exec_origin', choices=('trusted', 'submission'), default='trusted')
     parser.add_argument('--gate-role', dest='role', choices=('submission', 'reference'), default='submission')
     parser.add_argument('--gate-mode', dest='mode', choices=('production', 'test-fixture'), default='production')
     parser.add_argument('--gate-fixture-no-net', dest='no_net', action='store_true')
@@ -290,7 +300,9 @@ def main():
         result = execute(options, arguments)
     except Exception as ex:
         print('BOOLE_SANDBOX_UNAVAILABLE:' + type(ex).__name__ + ':' + str(ex), file=sys.stderr)
-        result = dict(protocol=1, verdict='ERROR', reason='sandbox-unavailable', assurance=options.mode,
+        verdict, reason = ('INVALID', 'submission-exec-failed') if isinstance(ex, SubmissionExecFailed) else (
+            'ERROR', 'sandbox-unavailable')
+        result = dict(protocol=1, verdict=verdict, reason=reason, assurance=options.mode,
                       detail=type(ex).__name__ + ':' + str(ex))
         sysctl = Path('/proc/sys/kernel/apparmor_restrict_unprivileged_userns')
         profile = Path('/etc/apparmor.d/boole-gate-bwrap')

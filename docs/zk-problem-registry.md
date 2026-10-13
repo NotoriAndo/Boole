@@ -47,11 +47,14 @@ The tracked tools descriptor, not an untracked overlay or environment override, 
 
 Linux nodes require Ubuntu's version/SHA256-pinned non-setuid `/usr/bin/bwrap`, the digest-pinned AppArmor profile
 `boole-gate-bwrap` granting `userns,`, Landlock ABI >=4, native seccomp, and an unprivileged systemd-delegated cgroup v2
-domain with both `memory` and `pids` controllers. Keep `kernel.apparmor_restrict_unprivileged_userns=1` when the kernel
+domain with both `memory` and `pids` controllers and the kernel's `pids.peak` observation file (checked at preflight).
+The work root must not be under any symlinked path. Keep `kernel.apparmor_restrict_unprivileged_userns=1` when the kernel
 provides it; never disable that restriction. Every receipt records kernel, ABI, BPF digest, profile hash/label,
 sysctl, namespace identities, caps and resource observations. Whole-step payload+init memory is limited to at most
 20GB; provision a node-wide parent cap for concurrent steps (the local validation VM uses at most 24GB total).
-At least four schedulable CPUs are mandatory: PID-1 selects exactly four before exec, and preflight fails with
+At least four schedulable CPUs are mandatory: PID-1 selects the first four CPUs in its affinity mask before exec,
+and concurrent stages share this fixed CPU set. Contention may slow stages but cannot change mathematical verdicts;
+wall-time interruption remains an availability ERROR. Preflight fails with
 ERROR on a smaller affinity set. Lean uses `-j4`, Go uses `GOMAXPROCS=4` and build `-p4`; Cargo, Rayon and test
 runners have explicit parallelism limits. Tracked PID caps are64 for compile/replay/export/Comparator and256 for
 native build/run, at least four times measured peaks from the20-item pilot and one build of each of six frameworks.
@@ -77,7 +80,12 @@ are cleaned per step after their bounded observations are retained in the guard 
 builds: ERROR `resource-unavailable`); OOM and wall/memory interruption take ERROR precedence. The compile-time
 detachment controls deliberately bypass the text stage as trusted fixtures to exercise the actual OS boundary.
 Setup/exec failure uses a CLOEXEC status pipe, not the payload's exit code125. Comparator's inner launcher reports
-setup failure through a dedicated status file, never by matching submission-controlled diagnostic text. Freeze
+an explicit exec-success marker or setup failure through a dedicated status directory outside the work root.
+The inner kernel cannot write that directory or inherit its writable descriptor. Patched Comparator exit status70
+means launch/transport failure (ERROR), status2 means semantic rejection; missing success attestation fails closed.
+CR process receipts are retained under the protected runtime receipt root, outside every submission-writable root.
+Exec failure of a submission-built artifact is INVALID `submission-exec-failed`; pinned tool exec failure stays ERROR.
+No outcome relies on matching submission-controlled diagnostic text. Freeze
 and asynchronous cgroup-kill waits are adaptive and bounded; cleanup failures are auxiliary observations, never
 an overwrite of a finished PASS/INVALID verdict. A missing/unwritable trusted receipt remains ERROR.
 

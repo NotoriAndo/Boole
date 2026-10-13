@@ -8,6 +8,7 @@ import os
 from .safe_fs import Path
 import platform
 import time
+import uuid
 
 from . import correctness_runtime as CR
 from . import lean_runner as L
@@ -161,27 +162,44 @@ def compare_exports(challenge: str, solution: str, theorem: str, tools: Tools, s
         'COMPARATOR_LEAN4EXPORT': tools.exporter,
         'COMPARATOR_NANODA': nanoda_binary or tools.nanoda,
     }
+    status_directory = None
     if sandbox.mode == 'production':
         if not sandbox.inner_executable or not Path(sandbox.inner_executable).is_file():
             return dict(stage='comparator', verdict='ERROR', reason='sandbox-unavailable', assurance=sandbox.mode)
-        with (directory / 'inner-boundary.status').open('xb'):
+        status_directory = Path('/run/user') / str(os.getuid()) / 'boole-gate-inner' / uuid.uuid4().hex
+        status_directory.mkdir(mode=0o700, parents=True)
+        inner_status = status_directory / 'inner-boundary.status'
+        with inner_status.open('xb'):
             pass
         env['COMPARATOR_LANDRUN'] = sandbox.inner_executable
-        env['COMPARATOR_BOUNDARY_STATUS'] = str(directory / 'inner-boundary.status')
+        env['COMPARATOR_BOUNDARY_STATUS'] = str(inner_status)
     else:
         passthrough = Path(__file__).parent / 'data/development-landrun.sh'
         env['COMPARATOR_LANDRUN'] = str(passthrough)
     command = [tools.comparator, str(config_path), '--exports', challenge, solution]
     command = sandbox.command(command, env,
                               [tools.kernel_prefix, tools.exporter, tools.nanoda, challenge, solution, str(directory)],
-                              [str(directory)])
+                              [str(directory), *([str(status_directory)] if status_directory else [])])
     run = CR.runner(str(directory / 'processes'), timeout)
     result = run(command, env, str(directory), timeout, 12000)
+    signals = None
+    if status_directory is not None:
+        try:
+            raw = inner_status.read_bytes()
+            if len(raw) <= 16384:
+                parsed = [json.loads(line) for line in raw.splitlines()]
+                if len(parsed) <= 32 and all(isinstance(row, dict) for row in parsed):
+                    signals = parsed
+        except (OSError, ValueError):
+            pass
+        finally:
+            inner_status.unlink(missing_ok=True)
+            status_directory.rmdir()
     (directory / 'comparator.stdout').write_text(result.out)
     record = dict(stage='comparator', assurance='test-fixture' if nanoda_binary else sandbox.mode,
                   seconds=result.secs, peak_rss_mb=result.peak_rss_mb, rc=result.rc,
                   solution_export_sha256=before[solution], comparator_lean=tools.comparator_version,
-                  boundary=result.boundary)
+                  boundary=result.boundary, inner_signals=signals)
     if any(digest(path) != value for path, value in before.items()):
         return dict(record, verdict='INVALID', reason='export-integrity')
     if resource_reason(result):
@@ -192,9 +210,13 @@ def compare_exports(challenge: str, solution: str, theorem: str, tools: Tools, s
     stopped = boundary_failure(result)
     if stopped:
         return dict(record, verdict=stopped['verdict'], reason=stopped['reason'])
-    inner_status = directory / 'inner-boundary.status'
-    if sandbox.mode == 'production' and (not inner_status.is_file() or inner_status.read_bytes()):
-        return dict(record, verdict='ERROR', reason='sandbox-unavailable')
+    if sandbox.mode == 'production':
+        # Patched Comparator: 2 is a semantic rejection before any kernel launch; 70 is transport/setup.
+        if result.rc == 70 or signals is None or any('setup_error' in row for row in signals):
+            return dict(record, verdict='ERROR', reason='sandbox-unavailable')
+        if result.rc != 2 and (not signals or any(row.get('inner_exec') != 'ok'
+                                                or row.get('exit', 128) >= 128 for row in signals)):
+            return dict(record, verdict='ERROR', reason='sandbox-unavailable')
     lean_accepts = 'Lean default kernel accepts the solution' in result.out
     nanoda_accepts = 'nanoda kernel accepts the solution' in result.out
     record.update(lean_accepts=lean_accepts, nanoda_accepts=nanoda_accepts)
