@@ -461,7 +461,8 @@ class StatementTests(unittest.TestCase):
     def test_open_problem_is_not_checkable(self) -> None:
         sol = os.path.join(self.tmp, "s", "Solution.lean")
         RT.put(sol, "theorem x : True := trivial\n")
-        rep = C.check(self.pdir, sol, fake_env(self.tmp))
+        env = fake_env(self.tmp)
+        rep = C.check(self.pdir, sol, env, policy_fixture=env.pins())
         self.assertEqual(rep["verdict"], "ERROR")
 
 
@@ -508,7 +509,8 @@ class ScenarioTests(unittest.TestCase):
         pkg, stmt = candidate_package(self.pdir, self.prob, "underconstrained", os.path.join(self.tmp, "uc"))
         sol = os.path.join(self.tmp, "uc-solver", "Solution.lean")
         RT.put(sol, stmt)
-        rep = C.check(pkg, sol, fake_env(self.tmp))
+        env = fake_env(self.tmp)
+        rep = C.check(pkg, sol, env, policy_fixture=env.pins())
         self.assertEqual((rep["verdict"], rep["compile"]), ("INVALID", "skipped"))
         self.assertTrue(any(x.startswith("sorry in proof") for x in rep["invalid"]))
 

@@ -138,7 +138,8 @@ class CheckEarlyPathTests(unittest.TestCase):
     def run_check(self, text: str, env=None, workdir=None) -> dict:
         path = os.path.join(self.sub_dir, "Statement.lean")
         Path(path).write_text(text, encoding="utf-8")
-        return C.check(self.pkg, path, env or fake_env(self.tmp), workdir=workdir)
+        selected = env or fake_env(self.tmp)
+        return C.check(self.pkg, path, selected, workdir=workdir, policy_fixture=selected.pins())
 
     def test_unchanged_statement_is_invalid_without_compiling(self) -> None:
         rep = self.run_check(self.stmt)

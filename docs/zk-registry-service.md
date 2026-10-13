@@ -73,13 +73,33 @@ Rejected matches carry stable reasons (`invalid-proof`, `proof-failed`, `candida
 `checker-unavailable`) and private detailed reports. A supplied PASS label or alternate checker configuration
 is never accepted as evidence. A checker error does not count as an accepted proof or as a discovered defect.
 
+Acceptance v2 requires the [full-closure two-kernel gate](zk-problem-registry.md#acceptance-gate-v2): production
+4.34.1 pins, pinned Linux Landrun, sealed-export integrity and Comparator Lean v4.34.1 plus nanoda. The worker never
+promotes a development/fixture PASS or a report missing two-kernel PASS. Missing sandbox/tools is ERROR; old v4.33.1
+packages give ERROR `environment-retired`. Their old stores remain metadata-readable but matched proof replay is
+retired under this judge. Linux execution evidence is outside Task Y; Linux kernel provisioning remains unavailable
+because the current checked binary profile is Darwin-only.
+Submission attributes use the fixed safe allowlist; code-defining/elaboration-registration commands remain forbidden.
+The current forbidden policy is v3 while historical v1/v2 metadata stays readable. The package's declared target name
+is used throughout. A tool-descriptor change does not silently rewrite or qualify an older root's reference bindings.
+
+New entries expose v2 manifest/reference/environment/tool digests bound in their immutable package snapshot.
+R's runtime candidate-specific Challenge is separate from its pinned catalog template. Public export includes only
+the allowed digests, not proofs or private migration diagnostics. Old catalogs and indexes are not re-pinned in place.
+
+Deterministic resource limits are INVALID `resource-cap`; wall/memory/observation limits are ERROR
+`resource-unavailable`. A matched ERROR records last-check evidence but leaves its commitment COMMITTED. The same
+bound reveal can retry before the original deadline without resetting the interval, winning or releasing its
+ordering barrier early. Deterministic matched rejection still consumes the commitment.
+
 Production checks execute in a clean-environment worker with explicit local tool/environment configuration,
 task-local scratch/cache paths, anonymous/config-disabled Git settings and no inherited credentials.
 Lean is sequential and uses the existing owned-PID guard (PID plus stable birth time across exec), normally
 12,000 MB and a single 1,800-second checker deadline. An explicit 20,000 MB setting is reserved for separately
 resource-scheduled production finals; C retains its package's stricter limits. This is a cooperative sampled
-guard, not an adversarial OS sandbox or certified exact peak-memory limit. Native source execution inherits
-the existing framework pipelines' limitations. Do not accept untrusted parties on a network with this CLI.
+guard, not the OS sandbox or a certified exact peak-memory bound. Landrun supplies the production code-execution
+boundary separately. Native output roots cannot write generated packages, Lean proof roots or sealed exports.
+Linux qualification and network activation are not supplied by this CLI.
 
 ## Event log and replay
 
@@ -92,7 +112,9 @@ evidence. An exclusive lock serializes writers. Filesystem/power-loss guarantees
 
 Package and submission bytes are immutable SHA256 objects, with manifests in the log. `replay` requires a new
 empty destination, copies/verifies only referenced objects, revalidates the initial catalog, recomputes intake
-binding and reruns **every matched verdict** with its own production checker. It must reproduce the event log
+binding and reruns **every deterministic matched verdict** with its own production checker. ERROR is availability
+evidence, not a mathematical decision: replay preserves it without recreating incidental resource exhaustion.
+It must reproduce the event log
 and final canonical state byte for byte. Verdicts cannot be trusted from hash chaining alone: a local owner can
 rewrite/re-hash an unauthenticated log, and only independent rechecking detects a forged acceptance.
 Latest-head/finality authentication, rollback detection against an independently held head, transport and
@@ -126,7 +148,10 @@ must still satisfy the existing checker integrity checks. Checker config binds `
 Native AIR tool locations may be supplied explicitly through `native_path` and task-local
 `native_environment` CARGO_HOME/RUSTUP_HOME; these are operator inputs, never solver-selected inputs.
 
-Offline service/guard tests are registered in `scripts/self-test.sh`. The opt-in
+Checker configuration additionally requires `acceptance_tools_root` with the exact tracked binary profile and
+pinned Landrun. No solver-selected checker/tool override is read. Without a supported profile production fails closed.
+
+Offline service/guard tests are registered in `scripts/self-test.sh` (`--zk-registry-only` runs all offline lanes). The opt-in
 `ZK_REGISTRY_SERVICE_LIVE_FIXTURES` JSON names existing private positive artifacts, checker config
 and task-local output root for actual accepted R/C, sorry/changed-statement rejection and independent replay.
 Such fixtures and their logs are never tracked or exported.

@@ -518,9 +518,8 @@ def _run(cmd: list[str], env: dict, cwd: str, timeout: float, log: str) -> tuple
     t0 = time.time()
     with open(log, "w", encoding="utf-8") as f:
         try:
-            r = subprocess.run(cmd, env=env, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                               timeout=timeout)
-            out, rc = r.stdout, r.returncode
+            r = L.run_submission(cmd, env, cwd, timeout, 12000)
+            out, rc = r.out, r.rc
         except subprocess.TimeoutExpired as ex:
             out, rc = (ex.stdout or "") if isinstance(ex.stdout, str) else "", -9
         f.write(out)

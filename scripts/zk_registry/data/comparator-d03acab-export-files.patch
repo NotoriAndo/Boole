@@ -1,0 +1,39 @@
+diff --git a/Main.lean b/Main.lean
+index 8560511..ef882d5 100644
+--- a/Main.lean
++++ b/Main.lean
+@@ -23,0 +24,2 @@ structure Context where
++  solutionExportFile : Option System.FilePath := none
++  maxExportedConstants : Nat := 1000000
+@@ -158,0 +161,9 @@ def runExternalKernel (kernelName : String) (kernelCommand : Array String)
++    let solutionPath ← match (← read).solutionExportFile with
++      | some pinnedPath => do
++        if (← IO.FS.readFile pinnedPath) != solutionExport then
++          throw <| .userError "export-integrity: solution export changed"
++        pure pinnedPath
++      | none => do
++        solutionHandle.putStr solutionExport
++        solutionHandle.flush
++        pure solutionPath
+@@ -170,3 +180,0 @@ def runExternalKernel (kernelName : String) (kernelCommand : Array String)
+-    solutionHandle.putStr solutionExport
+-    solutionHandle.flush
+-
+@@ -291,0 +300,2 @@ def verifyMatch (challengeExport : String) (solutionExport : String) :
++  if solution.constMap.size > (← read).maxExportedConstants then
++    throw <| .userError "resource-cap: exported constant count"
+@@ -327,0 +338,2 @@ structure Config where
++  solution_export_file? : Option String := none
++  max_exported_constants : Nat := 1000000
+@@ -364,0 +377,2 @@ def M.run (x : M α) (cfg : Config) : IO α := do
++    solutionExportFile := cfg.solution_export_file?.map System.FilePath.mk
++    maxExportedConstants := cfg.max_exported_constants
+@@ -374 +388,7 @@ def main (args : List String) : IO Unit := do
+-  Comparator.M.run Comparator.compareIt config
++  if let [_, "--exports", challengePath, solutionPath] := args then
++    let challengeExport ← IO.FS.readFile challengePath
++    let solutionExport ← IO.FS.readFile solutionPath
++    let config := { config with solution_export_file? := some solutionPath }
++    Comparator.M.run (Comparator.verifyMatch challengeExport solutionExport) config
++  else
++    Comparator.M.run Comparator.compareIt config

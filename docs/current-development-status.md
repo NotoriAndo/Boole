@@ -1,6 +1,6 @@
 # Boole — current development status
 
-Updated: 2026-10-11. This is the tracked entrypoint for current progress and the
+Updated: 2026-10-13. This is the tracked entrypoint for current progress and the
 ordered development roadmap. Edit it in place; execution evidence stays in its
 own result record. Local Master/Execution documents link here instead of owning
 a second current cursor. Work methods follow the
@@ -95,6 +95,18 @@ A measured census found no ZK code item with full machine-checked coverage.
 
 See the [problem registry](zk-problem-registry.md) for templates, gates, package
 format and limits. Nothing is issued, rewarded or activated; BF.7 remains HOLD.
+
+**Acceptance gate v2.** The registry judge now uses Lean 4.34.1, which includes the
+2026 kernel soundness fixes, and retires 4.33.1 packages. Submission code runs inside one
+Landrun sandbox; production mode refuses to run without it. A result is accepted only
+when the full dependency closure is accepted by both Comparator's Lean kernel and
+nanoda. Compiled-evaluator shortcuts such as `native_decide` stay banned; attributes are
+limited to a safe allowlist; commands that define elaboration code are rejected. On a
+macOS development run, 1,872 of 1,875 finished catalog templates passed unchanged. The
+production-mode re-validation of the whole catalog on Linux is the next step; macOS
+results are development evidence only. Contracts are in the
+[gate documentation](zk-problem-registry.md#acceptance-gate-v2) and the
+[service documentation](zk-registry-service.md#acceptance-and-lifecycle).
 
 **Previous priority: U1 prerequisites (September 27), now paused.** The first
 [metered tuple verifier candidate](u1-metered-tuple-verifier.md) connects a bounded

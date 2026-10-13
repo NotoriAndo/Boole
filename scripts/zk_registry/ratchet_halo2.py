@@ -213,7 +213,7 @@ def build_extract(problem, snapshot, overlay, build_dir, out, tools, samples=16,
     )
     target = problem["reference"]["target"]
     command = [os.path.join(pin["bin"], "cargo"), *problem["reference"]["build"]["command"]]
-    run = L.run_process(command, env, os.path.join(repo, target["workspace"]), 5400, 12288)
+    run = L.run_submission(command, env, os.path.join(repo, target["workspace"]), 5400, 12288)
     RT.put(os.path.join(out, "build.log"), run.out)
     if run.rc != 0:
         raise RT.Reject("pinned offline halo2 build failed: " + run.out[-700:])
@@ -234,7 +234,7 @@ def build_extract(problem, snapshot, overlay, build_dir, out, tools, samples=16,
     dump = os.path.join(out, "extraction")
     os.makedirs(dump, exist_ok=True)
     env.update(BOOLE_H1_OUT=dump, BOOLE_H1_SAMPLES=str(samples), BOOLE_H1_SEED=str(seed), BOOLE_H1_MUTANTS="0")
-    extract = L.run_process([executable, target["test"], "--exact", "--test-threads=1"], env, out, 1800, 12288)
+    extract = L.run_submission([executable, target["test"], "--exact", "--test-threads=1"], env, out, 1800, 12288)
     RT.put(os.path.join(out, "run.log"), extract.out)
     paths = sorted(Path(dump).rglob("sample_*.json"))
     if extract.rc != 0 or len(paths) != samples:

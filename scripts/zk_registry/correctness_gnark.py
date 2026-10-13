@@ -432,7 +432,8 @@ def checker_record(unit: dict, kind: str, files: list[dict], reference_type: str
                 theorem_fqn='MProof.' + unit['id'] + name + '.solution', lean_opts=LEAN_OPTIONS,
                 files=files, reference_type_sha256=reference_type,
                 replay_tool_sha256=P.sha256_file(G.REPLAY_TOOL), allowed_axioms=sorted(C.ALLOWED_AXIOMS),
-                forbidden_tokens=C.FORBIDDEN_LABELS, limits=copy.deepcopy(LIMITS))
+                forbidden_tokens=C.FORBIDDEN_LABELS, forbidden_version=C.FORBIDDEN_VERSION,
+                limits=copy.deepcopy(LIMITS))
 
 
 def check_solution(directory: str, proof: str, env: L.LeanEnv, work_root: str, timeout: int = 1800) -> dict:

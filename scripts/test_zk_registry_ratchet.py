@@ -584,7 +584,8 @@ class StatementTests(unittest.TestCase):
     def test_open_problem_is_not_checkable(self) -> None:
         sol = os.path.join(self.tmp, "Solution.lean")
         shutil.copyfile(str(FIX / "Solution.lean"), sol)
-        rep = C.check(self.pdir, sol, fake_env(self.tmp))
+        env = fake_env(self.tmp)
+        rep = C.check(self.pdir, sol, env, policy_fixture=env.pins())
         self.assertEqual(rep["verdict"], "ERROR")
         self.assertIn("has no Lean statement", rep["error"][0])
 
@@ -645,7 +646,8 @@ class ScenarioTests(unittest.TestCase):
         self.assertEqual(RT.det_screen(self.prob, model)["propagation"], "STUCK")      # the hint is free
         sol = os.path.join(self.tmp, "uc-solver", "Solution.lean")
         RT.put(sol, stmt)                                                                 # proof: `sorry`
-        rep = C.check(pkg, sol, fake_env(self.tmp))
+        env = fake_env(self.tmp)
+        rep = C.check(pkg, sol, env, policy_fixture=env.pins())
         self.assertEqual(rep["verdict"], "INVALID")
         self.assertEqual(rep["compile"], "skipped")
         self.assertTrue(any(x.startswith("sorry in proof") for x in rep["invalid"]))

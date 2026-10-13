@@ -400,7 +400,7 @@ def strip_artifact(art: str, out: str) -> str:
 
 
 def decode(tool: str, art: str, work: str) -> dict:
-    r = L.run_process([tool, "decode", art], tool_env(os.path.join(work, "home"), os.path.join(work, "tmp")), work,
+    r = L.run_submission([tool, "decode", art], tool_env(os.path.join(work, "home"), os.path.join(work, "tmp")), work,
                       1800, 16384)
     if r.rc != 0:
         raise RuntimeError(f"decoder failed: {r.out[-300:]}")
@@ -435,7 +435,7 @@ def compile_program(prob: dict, problem_dir: str, snapshot: str, tools: str, wor
     for e in sorted(os.listdir(deps)) if os.path.isdir(deps) else []:
         # the dependency trees are linked (read-only use); nargo's own lock file stays in the work directory
         os.symlink(os.path.join(deps, e), os.path.join(home, "nargo", e))
-    r = L.run_process([nargo] + NARGO_COMMAND, tool_env(home, os.path.join(work, "tmp")), crate, COMPILE_TIMEOUT,
+    r = L.run_submission([nargo] + NARGO_COMMAND, tool_env(home, os.path.join(work, "tmp")), crate, COMPILE_TIMEOUT,
                       COMPILE_RSS_MB)
     put(os.path.join(work, "nargo.log"), r.out[-20000:])
     art = os.path.join(crate, "export", ref["wrapper_name"] + ".json")
@@ -787,7 +787,7 @@ def run_executor(tool: str, program: str, vectors: list[dict], work: str, tag: s
     os.makedirs(work, exist_ok=True)
     inp, outp = os.path.join(work, tag + ".inputs.jsonl"), os.path.join(work, tag + ".results.jsonl")
     put(inp, "".join(json.dumps(v) + "\n" for v in vectors))
-    r = L.run_process([tool, "execute", program, inp, outp], tool_env(os.path.join(work, "home"),
+    r = L.run_submission([tool, "execute", program, inp, outp], tool_env(os.path.join(work, "home"),
                       os.path.join(work, "tmp")), work, 3600, 16384)
     if r.rc != 0 or not os.path.exists(outp):
         raise RuntimeError(f"executor failed: {r.out[-300:]}")

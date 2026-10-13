@@ -56,8 +56,9 @@ def terminate_owned(child, owned: dict, observe=processes, grace_seconds: float 
     return errors
 
 
-def install(log_directory: str, total_timeout: float | None = None) -> None:
-    """Install a bounded runner, retaining process evidence while using the unchanged checker core."""
+def runner(log_directory: str, total_timeout: float | None = None, *, sandbox=None,
+           readable_paths: list[str] | None = None, writable_paths: list[str] | None = None):
+    """Construct the existing whole-tree owned runner without changing process-wide state."""
     logs = Path(log_directory)
     logs.mkdir(parents=True, exist_ok=True)
     lock = threading.Lock()
@@ -66,6 +67,8 @@ def install(log_directory: str, total_timeout: float | None = None) -> None:
 
     def run_process(cmd, env, cwd, timeout, rss_limit_mb=None, watch=None, poll_s=0.25):
         nonlocal sequence
+        if sandbox is not None:
+            cmd = sandbox.command(cmd, env, readable_paths or [], writable_paths or [])
         with lock:
             sequence += 1
             label = str(os.getpid()) + '-' + str(sequence)
@@ -163,4 +166,10 @@ def install(log_directory: str, total_timeout: float | None = None) -> None:
                            state['reason'] in ('timeout', 'checker-deadline'), state['reason'] == 'rss-limit',
                            int(state['peak']), state['reason'])
 
-    L.run_process = run_process
+    run_process.submission_boundary = sandbox
+    return run_process
+
+
+def install(log_directory: str, total_timeout: float | None = None, **boundary) -> None:
+    """Install the bounded runner for existing single-worker production callers."""
+    L.run_process = runner(log_directory, total_timeout, **boundary)

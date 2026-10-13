@@ -1,4 +1,4 @@
-# ZK verification problem registry — production v1
+# ZK verification problem registry — acceptance v2
 
 Status: closed-local production tooling and a first wave of problem packages. No problem is issued on any
 network, no reward exists, and BF.7 remains HOLD. Protocol-authored problems only: Boole produces the Lean
@@ -29,6 +29,62 @@ checks. Hand-authoring problems does not scale, so production uses deterministic
   RISC-V model; standard primitives against FIPS / RFC / SEC / EIP) under the three-tier specification rule
   (T1 external standards, T2 published project specifications with statement review, T3 implementation-attached
   text not accepted).
+
+## Acceptance gate v2
+
+The production judge reads only `scripts/zk_registry/data/acceptance_environment_v2.json`: Lean v4.34.1,
+Mathlib `d13f23b723b8a846827a245b89c10fc7d3f11612` and exact manifest/package pins. Old roots and fixtures retain
+v4.33.1. An old package gives ERROR `environment-retired` before compilation; its earlier PASS is historical evidence.
+
+Every submission-code execution uses pinned Linux Landrun: native builds/extraction, generated model elaboration,
+submission compilation, olean inspection and closure export. Native output, Lean build and sealed-export write scopes
+are separate. Missing Landrun gives ERROR `sandbox-unavailable`. macOS passthrough is explicitly `dev-unsandboxed`,
+never production evidence. Linux sandbox execution evidence is outside Task Y. The checked kernel binary profile
+currently covers Darwin arm64 only; Linux provisioning remains unavailable, with no arbitrary-binary fallback.
+
+The v2 text stage additionally rejects `#eval`, `#exit`, `run_cmd`, `run_elab`, `run_meta`, `initialize`,
+`builtin_initialize`, `run_tac`, `elab`, `elab_rules`, `macro`, `macro_rules`, `syntax`,
+`simproc`, `dsimproc`, their `_decl` and `builtin_` forms, and every `register_*` / `declare_*` identifier.
+Attributes in both `@[...]` and `attribute [...]` must be on the allowlist: `simp`, `reducible`, `irreducible`,
+`semireducible`, `instance`, `ext`, `norm_cast`, `inline`, `specialize`, including local/scoped forms.
+All others are INVALID `forbidden-attribute`; this does not authorize custom elaboration handlers.
+`sorry`, `native_decide`,
+`Lean.ofReduceBool/Nat`, `Lean.trustCompiler`, `implemented_by`, `extern`, unsafe and generated
+`_native.native_decide.ax_*` axioms remain forbidden. New CG1 metadata records `forbidden_version: 3`;
+the immutable v1/v2 label sets remain readable. Live checking applies the current policy without editing historical
+package roots. The checker reads each validated package's declared theorem name; it never assumes `soundness`.
+
+After text/import identity and compilation/postchecking, export the target's full transitive type/value closure,
+including Init, Mathlib and all imports, once inside the boundary. Comparator's empty-environment Lean v4.34.1 kernel
+and its built-in `enable_nanoda` path both check that same sealed file/SHA256. Both must accept. Partial ZkReplay is
+diagnostic, never sufficient for production PASS. Exact commits, licences, the exporter toolchain-only 4.34.1 port
+and minimal Comparator sealed-file transport patch are tracked in `data/acceptance_tools_v2.json` and its patches.
+Comparator and its exporter dependency are aligned to the elaboration version by the recorded toolchain patch.
+
+Allowed axioms are `propext`, `Classical.choice`, `Quot.sound`. Future N2 axioms require exact name/type/declaring-module
+olean digests and PASS from the fixed tracked `measuring_stick_conformance_v2.json`. It is empty today. No submission
+file or environment override can introduce conformance PASS. Fixtures enter only explicit test-function arguments
+and are nonproduction. N2 cannot rescue the unconditionally forbidden N1 compiled-evaluator axioms.
+
+Re-pin into a separate root: `Acceptance.json` binds metadata, both tracked authorities and pristine
+`acceptance/Challenge.ndjson`. R pins a reference-as-candidate template and separately builds its actual
+candidate-specific Challenge under a trusted catalog-root binding. Original indexes/hashes stay read-only;
+floor/battery evidence is carried over, not rerun. A fixed 20-item timing pilot precedes scaling. Closed migration
+outcomes are PASS-UNCHANGED, PASS-AFTER-MECHANICAL-RENAME (listed), FAIL (reason), NOT-APPLICABLE. Qualification needs
+at least 99% PASS-UNCHANGED among every applicable item, not a completed prefix. FAIL packages leave the new catalog.
+The original development root is incomplete. Its 267 NOT-RUN and three resource-ERROR templates await the Linux
+production-mode catalog run; Task Y-fix does not repeat them on macOS or promote development evidence.
+
+Gate outcomes are PASS / FAIL / INVALID / ERROR. Kernel disagreement is INVALID `kernel-disagreement`; deterministic
+heartbeat/exported-constant exhaustion is INVALID `resource-cap`. Wall/memory/observation interruption is retryable
+ERROR `resource-unavailable`, not mathematical rejection. Time/RSS cover the owned process tree; sampled cooperative
+guards are not certified adversarial peak-memory bounds.
+
+Kernel-bug policy: recheck every accepted result under the fixed and independent kernels; mark failures stale and
+re-pose them; cancel unvested rewards only, with no vested clawback. The stale/re-pose/reward registry states belong
+to a later step, not this no-rewards gate upgrade. All offline registry lanes run through
+`scripts/self-test.sh --zk-registry-only`; installed-tool/artifact controls are opt-in. Use task-local temporary/cache
+paths and never write `~/.elan` or `~/.cache/mathlib`. Nothing is issued, rewarded or activated.
 
 ## Circom DET generator
 

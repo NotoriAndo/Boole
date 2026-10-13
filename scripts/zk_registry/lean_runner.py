@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 import os
+from contextlib import contextmanager
+from contextvars import ContextVar
 import signal
 import subprocess
 import threading
@@ -16,6 +18,17 @@ import time
 from dataclasses import dataclass, field
 
 SYSTEM_PATH = "/usr/bin:/bin:/usr/sbin:/sbin"
+_SANDBOX = ContextVar('zk_registry_sandbox', default=None)
+
+
+@contextmanager
+def sandbox_context(sandbox, readable: list[str], writable: list[str], runner=None):
+    """Apply one boundary to compile, replay-tool analysis and export commands in this context."""
+    token = _SANDBOX.set((sandbox, readable, writable, runner))
+    try:
+        yield
+    finally:
+        _SANDBOX.reset(token)
 
 
 @dataclass
@@ -83,14 +96,46 @@ def load_env(path: str) -> LeanEnv:
                    d["scratch"], d.get("extra", {}))
 
 
+def production_descriptor() -> dict:
+    """Read the one tracked production environment descriptor, not operator configuration."""
+    path = os.path.join(os.path.dirname(__file__), 'data', 'acceptance_environment_v2.json')
+    with open(path, encoding='utf-8') as stream:
+        return json.load(stream)
+
+
+def production_environment_reason(env: LeanEnv, descriptor: dict | None = None) -> str | None:
+    """Return the environment-stage reason; fixtures may be passed only as arguments."""
+    expected = production_descriptor() if descriptor is None else descriptor
+    if env.lean_version != expected['lean']:
+        return 'environment-retired'
+    pins = env.pins()
+    if any(pins[key] != expected[key] for key in ('mathlib', 'lake_manifest_sha256', 'packages')):
+        return 'environment-mismatch'
+    return None
+
+
+def load_production_env(path: str) -> LeanEnv:
+    """Load provisioned paths while taking production pins exclusively from tracked data."""
+    provisioned = load_env(path)
+    reason = production_environment_reason(provisioned)
+    if reason:
+        raise ValueError(reason)
+    expected = production_descriptor()
+    return LeanEnv(provisioned.toolchain, list(provisioned.lean_path), expected['lean'],
+                   dict(expected['packages']), expected['lake_manifest_sha256'], provisioned.scratch,
+                   dict(provisioned.extra))
+
+
 def process_env(env: LeanEnv, extra_lean_path: list[str] | tuple[str, ...] = ()) -> dict:
     tmp = os.path.join(env.scratch, "tmp")
     os.makedirs(tmp, exist_ok=True)
+    home = os.path.join(env.scratch, 'home')
+    os.makedirs(home, exist_ok=True)
     return {
         "PATH": f"{env.toolchain}/bin:{SYSTEM_PATH}",
         "LEAN_SYSROOT": env.toolchain,
         "LEAN_PATH": ":".join(list(extra_lean_path) + env.lean_path),
-        "HOME": os.environ.get("HOME", tmp),
+        "HOME": home,
         "TMPDIR": tmp,
         "ELAN_HOME": os.path.join(env.scratch, "elan-unused"),
         "XDG_CACHE_HOME": os.path.join(env.scratch, "xdg"),
@@ -108,6 +153,22 @@ class RunResult:
     memkill: bool = False
     peak_rss_mb: int = 0
     killed_by: str = ""                   # reason returned by the ``watch`` hook, if it stopped the run
+
+
+class ResourceUnavailable(RuntimeError):
+    """A native code-execution window ended without a deterministic candidate verdict."""
+
+
+def run_submission(cmd: list[str], env: dict, cwd: str, timeout: float, rss_limit_mb: int | None = None,
+                   watch=None, poll_s: float = 0.25) -> RunResult:
+    """Execute native submission code only through an installed, argument-provisioned boundary."""
+    from .sandbox import Sandbox, SandboxUnavailable
+    if not isinstance(getattr(run_process, 'submission_boundary', None), Sandbox):
+        raise SandboxUnavailable('sandbox-unavailable')
+    result = run_process(cmd, env, cwd, timeout, rss_limit_mb, watch, poll_s)
+    if result.timeout or result.memkill or result.killed_by:
+        raise ResourceUnavailable('resource-unavailable')
+    return result
 
 
 def run_process(cmd: list[str], env: dict, cwd: str, timeout: float, rss_limit_mb: int | None = None,
@@ -174,10 +235,19 @@ def run_lean(env: LeanEnv, args: list[str], cwd: str, timeout: float, extra_lean
              rss_limit_mb: int | None = None) -> RunResult:
     slots = _LIMITS["slots"]
     rss = rss_limit_mb or _LIMITS["rss_mb"]
+    task_env = process_env(env, extra_lean_path)
+    command = [env.lean] + args
+    context = _SANDBOX.get()
+    runner = run_process
+    if context is not None:
+        sandbox, readable, writable, guarded = context
+        runner = guarded or runner
+        command = sandbox.command(command, task_env, [env.toolchain, *env.lean_path, *readable],
+                                  [task_env['TMPDIR'], *writable])
     if slots is None:
-        return run_process([env.lean] + args, process_env(env, extra_lean_path), cwd, timeout, rss)
+        return runner(command, task_env, cwd, timeout, rss)
     with slots:
-        return run_process([env.lean] + args, process_env(env, extra_lean_path), cwd, timeout, rss)
+        return runner(command, task_env, cwd, timeout, rss)
 
 
 def parse_messages(out: str) -> list[dict]:

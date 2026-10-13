@@ -205,7 +205,7 @@ def compile_program(text, relative_dir, snapshot, pin, out):
         ZOKRATES_STDLIB=effective["stdlib"],
         ZOKRATES_HOME=effective["stdlib"],
     )
-    run = L.run_process(cmd, env, out, 300, 12288)
+    run = L.run_submission(cmd, env, out, 300, 12288)
     RT.put(os.path.join(out, "compile.log"), run.out)
     if run.rc != 0 or not os.path.isfile(raw):
         raise RT.Reject("ZoKrates compile failed: " + run.out[-500:])

@@ -461,7 +461,7 @@ def make_snapshot(repo_root: str, module_dir: str, dest: str, goroot: str, work:
     for rel, text in tool_texts(mpath).items():
         put(os.path.join(tdir, rel), text)
     env = go_env(goroot, work, os.path.join(work, "gocache"), online=True)
-    r = L.run_process(["go", "mod", "vendor"], env, mod_dst, BUILD_TIMEOUT, BUILD_RSS_MB)
+    r = L.run_submission(["go", "mod", "vendor"], env, mod_dst, BUILD_TIMEOUT, BUILD_RSS_MB)
     shutil.rmtree(tdir)
     if r.rc != 0:
         raise RuntimeError(f"go mod vendor failed: {r.out[-600:]}")
@@ -510,7 +510,7 @@ def build_tool(prob: dict, snapshot: str, tools: str, work: str, wrapper_text: s
     P.write_json(os.path.join(work, "overlay.json"), {"Replace": overlay})
     env = go_env(goroot, work, gocache or os.path.join(tools, "gocache"))
     binary = os.path.join(work, "gnarkx")
-    r = L.run_process(["go", "build", "-trimpath", "-overlay", os.path.join(work, "overlay.json"), "-o", binary,
+    r = L.run_submission(["go", "build", "-trimpath", "-overlay", os.path.join(work, "overlay.json"), "-o", binary,
                        "./" + TOOL_SUBDIR], env, root, BUILD_TIMEOUT, BUILD_RSS_MB)
     put(os.path.join(work, "build.log"), r.out[-20000:])
     out = {"build_secs": r.secs, "build_peak_rss_mb": r.peak_rss_mb}
@@ -525,7 +525,7 @@ def run_tool(binary: str, args: list[str], work: str) -> L.RunResult:
     env = {"PATH": "/usr/bin:/bin", "HOME": os.path.join(work, "home"), "TMPDIR": os.path.join(work, "tmp")}
     for k in ("HOME", "TMPDIR"):
         os.makedirs(env[k], exist_ok=True)
-    return L.run_process([binary] + args, env, work, RUN_TIMEOUT, RUN_RSS_MB)
+    return L.run_submission([binary] + args, env, work, RUN_TIMEOUT, RUN_RSS_MB)
 
 
 def compile_program(prob: dict, snapshot: str, tools: str, work: str, candidate_text: str | None = None,
