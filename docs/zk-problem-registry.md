@@ -61,7 +61,9 @@ sysctl, namespace identities, caps and resource observations. Whole-step payload
 | 9 | Pathname Unix-socket rights | Same mandatory layers |
 
 Seccomp kills non-native architectures, including amd64 i386/x32, and denies non-AF_UNIX socket creation, socketcall,
-ptrace, mount APIs, keyctl, bpf, perf_event_open, all three io_uring calls and userfaultfd. The pinned PID-1 shim logs
+ptrace and its pathless fd/memory-copy equivalents, mount APIs, keyctl, bpf, perf_event_open, all three io_uring calls
+and userfaultfd. The pinned PID-1 shim is non-dumpable and reads back that state before forking; its administrative
+FDs are closed in the payload before execution. It logs
 every reaped orphan and frozen payload-cgroup member at main exit. Any remaining/adopted descendant is INVALID
 `owned-descendants-remained`, not a silent cleanup. Mandatory pids exhaustion is INVALID `resource-cap` (reference
 builds: ERROR `resource-unavailable`); OOM and wall/memory interruption take ERROR precedence. The compile-time

@@ -2,12 +2,15 @@
 import os
 import platform
 import unittest
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from zk_registry.sandbox import Sandbox, SandboxUnavailable
 from zk_registry import correctness_runtime as CR
 from zk_registry import check as C
 from zk_registry import lean_runner as L
-from pathlib import Path
 import tempfile
 from dataclasses import replace
 import json
@@ -94,6 +97,44 @@ class OutcomePrecedence(unittest.TestCase):
             env = L.LeanEnv(str(root / 'alias'), [], 'v4.34.1', {}, '', str(root / 'scratch'))
             actual = L.process_env(env)
             self.assertEqual(actual['LEAN_SYSROOT'], str((root / 'real').resolve()))
+
+    def test_service_entrypoint_selects_the_hardened_pin(self):
+        """The real service route must not select the retired ABI9-only launcher."""
+        from unittest.mock import patch
+        from zk_registry import acceptance as A, service_check as SC
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'problem.json').write_text(json.dumps(dict(schema_version='route-fixture',
+                                                              env=dict(lean='v4.34.1'))))
+            (root / 'Solution.lean').write_text('-- unexecuted route fixture\n')
+            env = L.LeanEnv('/unused', [], 'v4.34.1', {}, '', str(root / 'scratch'))
+            with patch.object(SC.P, 'validate_problem', return_value=[]), \
+                 patch.object(SC.L, 'load_production_env', return_value=env), \
+                 patch.object(A, 'read', return_value={}), \
+                 patch('platform.machine', return_value='aarch64'), \
+                 patch.object(SC.Sandbox, 'production',
+                              side_effect=SandboxUnavailable('sandbox-unavailable')) as select:
+                result = SC.run(dict(lean_env='/unexecuted', acceptance_tools_root=str(root / 'tools')),
+                                temp, temp, str(root / 'work'))
+            self.assertEqual(result, dict(verdict='ERROR', reason='sandbox-unavailable'))
+            self.assertEqual(select.call_args.args, (str(root / 'tools/gate/launcher.py'),))
+
+    def test_service_delegates_before_starting_its_checker_child(self):
+        """A service parent and worker must not occupy the delegated domain root together."""
+        from unittest.mock import patch
+        from zk_registry import service_check as SC
+        with tempfile.TemporaryDirectory() as temp:
+            state = []
+            (Path(temp) / 'verdict.json').write_text(json.dumps(dict(verdict='ERROR', reason='sandbox-unavailable')))
+
+            def child(*args, **kwargs):
+                self.assertEqual(state, ['delegated'])
+                return L.RunResult(0, '', 0, False)
+
+            with patch.object(SC, 'delegated_cgroup', side_effect=lambda: state.append('delegated'), create=True), \
+                 patch.object(SC.CR, 'runner', return_value=child):
+                result = SC.ProductionVerifier({})(temp, temp, temp)
+            self.assertEqual(result['reason'], 'sandbox-unavailable')
 
 
 class LiveConfinement(unittest.TestCase):
@@ -188,6 +229,16 @@ class LiveConfinement(unittest.TestCase):
         result = self.run_probe(['memory-hog'], replace(self.boundary, memory_max=64 * 1024 * 1024))
         self.assertEqual((result.boundary['verdict'], result.boundary['reason']), ('ERROR', 'resource-unavailable'))
         self.assertGreater(result.boundary['observation']['oom_kill_events'], 0)
+
+    def test_observer_descriptors_and_memory_are_private(self):
+        """Pathless ptrace-class APIs cannot obtain the trusted PID-1's administrative handles."""
+        for kind in ('parent-fd', 'parent-read', 'parent-write'):
+            with self.subTest(kind=kind):
+                result = self.run_probe([kind])
+                self.assertEqual(result.rc, 0, result.out)
+                self.assertEqual(json.loads(result.out), dict(blocked=True, errno=1))
+                self.assertEqual(result.boundary['verdict'], 'PASS')
+                self.assertEqual(result.boundary['observation']['pid_1_dumpable'], 0)
 
     def test_outside_write_and_readonly_mount_canary_are_inaccessible(self):
         """A real canary exists outside the explicitly allowed input paths."""

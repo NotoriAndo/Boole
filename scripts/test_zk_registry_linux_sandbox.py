@@ -7,15 +7,15 @@ import errno
 import os
 from pathlib import Path
 import socket
-import subprocess
 import sys
 import tempfile
 import unittest
 
 sys.dont_write_bytecode = True
-source_root = Path(os.environ.get('ZK_GATE_SOURCE_ROOT', Path(__file__).resolve().parents[1]))
+source_root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(source_root / 'scripts'))
 from zk_registry import check as C
+from zk_registry import correctness_runtime as CR
 from zk_registry.sandbox import Sandbox, SandboxUnavailable
 
 
@@ -25,8 +25,8 @@ class LinuxProductionControls(unittest.TestCase):
         """Require the tracked binary and actual kernel support, never best-effort or passthrough."""
         cls.boundary = Sandbox.production(os.environ.get('ZK_GATE_LANDRUN'))
         abi = ctypes.CDLL(None, use_errno=True).syscall(444, 0, 0, 1)
-        if abi < 9:
-            raise RuntimeError('ERROR sandbox-unavailable: pinned Landrun requires Landlock ABI >=9')
+        if abi < 4:
+            raise RuntimeError('ERROR sandbox-unavailable: Landlock ABI >=4 is mandatory')
 
     def setUp(self):
         """Allocate only inside the caller's explicit work root."""
@@ -44,13 +44,14 @@ class LinuxProductionControls(unittest.TestCase):
         env = {'PATH': '/usr/bin:/bin', 'HOME': str(self.work), 'TMPDIR': str(self.work),
                'LANG': 'C.UTF-8', 'PYTHONDONTWRITEBYTECODE': '1'}
         argv = self.boundary.command([sys.executable, '-c', source], env, [], [str(self.work)])
-        return subprocess.run(argv, cwd=self.work, env=env, stdin=subprocess.DEVNULL,
-                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=10)
+        result = CR.runner(str(self.work / 'logs'), 10)(argv, env, str(self.work), 10, 256)
+        self.assertEqual(result.boundary['verdict'], 'PASS', result.boundary)
+        return result
 
     def test_valid_command_executes_in_production(self):
         result = self.run_code('print("production-control")')
-        self.assertEqual(result.returncode, 0, result.stdout)
-        self.assertEqual(result.stdout.strip(), 'production-control')
+        self.assertEqual(result.rc, 0, result.out)
+        self.assertEqual(result.out.strip(), 'production-control')
         self.assertEqual(self.boundary.mode, 'production')
 
     def test_inside_write_allowed_and_outside_write_denied(self):
@@ -60,8 +61,8 @@ class LinuxProductionControls(unittest.TestCase):
                   + 'try:\n Path(' + repr(str(outside)) + ').write_text("forbidden")\n'
                   + 'except OSError as e:\n print(e.errno)\n')
         result = self.run_code(source)
-        self.assertEqual(result.returncode, 0, result.stdout)
-        self.assertEqual(result.stdout.strip(), str(errno.EACCES))
+        self.assertEqual(result.rc, 0, result.out)
+        self.assertIn(int(result.out.strip()), (errno.EACCES, errno.ENOENT))
         self.assertEqual(inside.read_text(), 'allowed')
         self.assertFalse(outside.exists())
 
@@ -70,12 +71,12 @@ class LinuxProductionControls(unittest.TestCase):
             listener.bind(('127.0.0.1', 0))
             listener.listen(1)
             port = listener.getsockname()[1]
-            source = ('import socket\ns=socket.socket()\ntry:\n s.connect(("127.0.0.1",'
+            source = ('import socket\ntry:\n s=socket.socket()\n s.connect(("127.0.0.1",'
                       + str(port) + '))\n print("unexpected connection")\n'
                       + 'except OSError as e:\n print(e.errno)\n')
             result = self.run_code(source)
-        self.assertEqual(result.returncode, 0, result.stdout)
-        self.assertEqual(result.stdout.strip(), str(errno.EACCES))
+        self.assertEqual(result.rc, 0, result.out)
+        self.assertEqual(result.out.strip(), str(errno.EPERM))
 
     def test_missing_binary_and_protected_write_roots_fail_closed(self):
         with self.assertRaisesRegex(SandboxUnavailable, '^sandbox-unavailable$'):

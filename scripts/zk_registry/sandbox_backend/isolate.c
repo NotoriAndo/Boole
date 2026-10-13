@@ -167,6 +167,8 @@ static int init(int argc, char **argv) {
     unsigned long long effective = strtoull(strstr(status, "CapEff:") + 7, NULL, 16);
     unsigned long long ambient = strtoull(strstr(status, "CapAmb:") + 7, NULL, 16);
     unsigned long long bounding = strtoull(strstr(status, "CapBnd:") + 7, NULL, 16);
+    if (prctl(PR_SET_DUMPABLE, 0, 0, 0, 0) < 0 || prctl(PR_GET_DUMPABLE, 0, 0, 0, 0) != 0)
+        unavailable("private-observer-descriptors");
     pid_t main_child = fork();
     if (main_child < 0) unavailable("main-fork");
     if (!main_child) {
@@ -222,12 +224,12 @@ static int init(int argc, char **argv) {
     }
     int code = WIFEXITED(main_status) ? WEXITSTATUS(main_status) : 128 + WTERMSIG(main_status);
     dprintf(fds[7], "{\"event\":\"final\",\"main_exit\":%d,\"orphans_reaped\":%d,\"frozen_members\":%d,"
-            "\"oom_kill_events\":%ld,\"pids_max_events\":%ld,\"seccomp_mode\":%d,"
+            "\"oom_kill_events\":%ld,\"pids_max_events\":%ld,\"seccomp_mode\":%d,\"pid_1_dumpable\":%d,"
             "\"apparmor_label\":\"%s\",\"loopback_up\":%s,\"landlock_abi\":%d,"
             "\"caps_effective\":%llu,\"caps_ambient\":%llu,\"caps_bounding\":%llu,"
             "\"namespaces\":{\"user\":\"%s\",\"net\":\"%s\",\"pid\":\"%s\","
             "\"mnt\":\"%s\",\"ipc\":\"%s\"}}\n",
-            code, orphan_count, remaining, oom, pids, seccomp, profile,
+            code, orphan_count, remaining, oom, pids, seccomp, prctl(PR_GET_DUMPABLE, 0, 0, 0, 0), profile,
             loopback_up ? "true" : "false", abi(), effective, ambient, bounding,
             userns, netns, pidns, mountns, ipcns);
     close(fds[7]);

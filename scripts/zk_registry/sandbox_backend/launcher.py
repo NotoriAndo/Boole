@@ -198,6 +198,7 @@ def execute(options, arguments):
             verdict, reason = 'PASS', None
         host_namespaces = {name: os.readlink('/proc/self/ns/' + name) for name in ('user', 'net', 'pid', 'mnt', 'ipc')}
         if (observation['landlock_abi'] < 4 or observation['apparmor_label'] != 'boole-gate-bwrap (unconfined)'
+                or observation['pid_1_dumpable'] != 0
                 or observation['seccomp_mode'] != (0 if options.no_seccomp else 2)
                 or any(observation['namespaces'][name] == value for name, value in host_namespaces.items()
                        if name != 'net' or not options.no_net)

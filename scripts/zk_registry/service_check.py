@@ -19,7 +19,7 @@ from . import correctness_runtime as CR
 from . import lean_runner as L
 from . import package as P
 from . import closure as D
-from .sandbox import Sandbox, SandboxUnavailable
+from .sandbox import Sandbox, SandboxUnavailable, delegated_cgroup
 from . import ratchet as RT
 from .service import RegistryError, canonical, digest, read_json, safe_relative, RATCHET_KINDS, UNSUPPORTED_SPEC
 
@@ -35,6 +35,11 @@ class ProductionVerifier:
         self.config['rss_mb'] = rss
 
     def __call__(self, package_dir, submission_dir, work_dir):
+        """Delegate the trusted parent before launching its separately preflighted checker worker."""
+        try:
+            delegated_cgroup()
+        except (SandboxUnavailable, OSError, ValueError):
+            return dict(verdict='ERROR', reason='sandbox-unavailable')
         config_path = Path(work_dir) / 'checker-config.json'
         config_path.write_bytes(canonical(self.config) + b'\n')
         task_env = {
@@ -145,8 +150,7 @@ def run(config, package_dir, submission_dir, work_dir, *, sandbox=None, acceptan
         root = config.get('acceptance_tools_root')
         if sandbox is None:
             data = json.loads((Path(__file__).parent / 'data/acceptance_tools_v2.json').read_text())
-            import platform
-            relative = data['landrun']['paths'].get(platform.machine())
+            relative = data.get('sandbox', {}).get('launcher_path')
             binary = str(Path(root) / relative) if root and relative else None
             sandbox = Sandbox.production(binary)
         acceptance_tools = acceptance_tools or D.Tools.load(root or '')

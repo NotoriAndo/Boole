@@ -1,26 +1,23 @@
 # Linux acceptance-gate controls
 
-The `acceptance-gate-linux` workflow runs on `ubuntu-24.04` and builds Landrun
-`811cfff51ceaf3d9843708aa6d22e9b84ccac8b4` with digest-pinned Go 1.25.7. Its
-output must reproduce the tracked Linux amd64 binary digest. Public Git fetches
-use no user configuration, credential helper or persisted checkout credentials.
+The `ubuntu-24.04` workflow provisions the tracked hardened boundary using
+`scripts/setup_zk_registry_sandbox.sh`: SHA256-verified Ubuntu bubblewrap and
+libseccomp packages, a non-setuid pinned bwrap path, the digest-pinned AppArmor
+userns profile, native seccomp BPF and the pinned PID-1 observer. It does not
+change the AppArmor userns restriction, accept arbitrary tool hashes or use
+an untracked descriptor overlay. It requires Landlock ABI >=4, not ABI9.
 
-These five fast controls require no Lean or Mathlib installation. They exercise
-an actual production command, inside/outside filesystem writes, an own-loopback
-TCP connection, missing/protected boundary rejection, and the attribute allowlist
-and code-defining-command policy. They are not full proof or export checks and
-do not certify all network protocols or descendant lifetime containment.
+The cgroup-delegated control harness has 12GB MemoryMax and TasksMax512. Real
+production controls cover network protocols and independent layers, setsid and
+double-fork containment, pids and OOM precedence, scoped reads/writes, missing
+components, and the forbidden-command/attribute policy. Layer-disabled runs
+are explicitly test-fixture and cannot qualify production. No required live
+control silently skips when a mandatory layer is unavailable.
 
-The pinned Landrun requests Landlock ABI **9**. A runner exposing only the older
-Ubuntu kernel ABI fails closed with named `ERROR sandbox-unavailable`; the job
-does not skip the control, enable best-effort, reboot a shared runner or turn an
-availability error into a successful outcome. Therefore this workflow can be
-red on the stock hosted image until the required kernel support is available.
-Successful local validation on a qualifying Linux kernel does not qualify the
-stock hosted image. This CI job is not an overall production security approval.
-
-The branch starts from `origin/main`. Before acceptance gate v2 merges, the job
-uses public commit `2468d705d53e6ebf8bf0983b9039f7ee2bb80ace` as its explicit
-initial dependency. After `sandbox.py` is tracked in the checked-out revision,
-the controls test that revision, not the historical dependency. No CI run is
-started from the local Task Z experiment; the operator handles publication.
+These fast controls require neither Lean nor Mathlib. Full closure exports and
+both kernels are verified separately against the architecture-specific tracked
+tool profiles. A profile is a provisioning pin, not proof that the hosted runner
+has passed. The hosted run is **pending** until the orchestrator publishes the
+branch; local workflow execution does not claim a hosted result or activate a
+catalog. Task Z's CI commit was fetched locally and rebased onto the hardening
+branch; no public Git fetch fallback to historical gate code remains.

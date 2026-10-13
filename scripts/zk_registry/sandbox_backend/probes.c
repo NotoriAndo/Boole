@@ -12,6 +12,7 @@
 #include <sys/socket.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
+#include <sys/uio.h>
 #include <unistd.h>
 
 static int denied(void) {
@@ -81,6 +82,22 @@ static int uring(const char *address, int port) {
 
 int main(int argc, char **argv) {
     if (argc < 2) return 2;
+    if (!strcmp(argv[1], "parent-fd")) {
+        int parent = (int)syscall(SYS_pidfd_open, 1, 0);
+        if (parent < 0) return 2;
+        if (syscall(SYS_pidfd_getfd, parent, 0, 0) < 0) return denied();
+        puts("{\"blocked\":false}");
+        return 1;
+    }
+    if (!strcmp(argv[1], "parent-read") || !strcmp(argv[1], "parent-write")) {
+        char byte = 0;
+        struct iovec local = {.iov_base = &byte, .iov_len = 1};
+        struct iovec remote = {.iov_base = (void *)1, .iov_len = 1};
+        long number = !strcmp(argv[1], "parent-read") ? SYS_process_vm_readv : SYS_process_vm_writev;
+        if (syscall(number, 1, &local, 1, &remote, 1, 0) < 0) return denied();
+        puts("{\"blocked\":false}");
+        return 1;
+    }
     if (!strcmp(argv[1], "tcp") || !strcmp(argv[1], "udp") || !strcmp(argv[1], "raw"))
         return argc == 4 ? network(argv[1], argv[2], atoi(argv[3])) : 2;
     if (!strcmp(argv[1], "uring")) return argc == 4 ? uring(argv[2], atoi(argv[3])) : 2;

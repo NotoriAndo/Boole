@@ -21,7 +21,8 @@ int main(int argc, char **argv) {
     const char *denied[] = {
         "ptrace", "mount", "umount2", "keyctl", "add_key", "request_key", "bpf", "perf_event_open",
         "io_uring_setup", "io_uring_enter", "io_uring_register", "fsopen", "fsconfig", "fsmount",
-        "fspick", "open_tree", "move_mount", "userfaultfd", "socketcall", "setns", "unshare"
+        "fspick", "open_tree", "move_mount", "userfaultfd", "socketcall", "setns", "unshare",
+        "pidfd_getfd", "process_vm_readv", "process_vm_writev"
     };
     for (unsigned i = 0; i < sizeof(denied) / sizeof(denied[0]); ++i) {
         int number = seccomp_syscall_resolve_name(denied[i]);
