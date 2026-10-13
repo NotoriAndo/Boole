@@ -1,17 +1,18 @@
 """Full-closure exports and the pinned Comparator's built-in two-kernel path."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 import json
 import os
-from pathlib import Path
+from .safe_fs import Path
 import platform
 import time
+import uuid
 
 from . import correctness_runtime as CR
 from . import lean_runner as L
-from .sandbox import Sandbox
+from .sandbox import Sandbox, boundary_failure
 
 PRIMITIVES = [
     'Nat.add', 'Nat.sub', 'Nat.mul', 'Nat.pow', 'Nat.gcd', 'Nat.div', 'Nat.mod', 'Nat.beq', 'Nat.ble',
@@ -56,13 +57,13 @@ class Tools:
         for name in ('comparator', 'exporter', 'nanoda'):
             row = pins[name]
             binary = directory / row['path']
-            if not binary.is_file() or digest(binary) != row['sha256'] or not os.access(binary, os.X_OK):
+            if not binary.is_file() or digest(binary.resolve()) != row['sha256'] or not os.access(binary, os.X_OK):
                 raise ToolsUnavailable('kernels-unavailable')
-            binaries[name] = str(binary)
-        kernel_prefix = directory / pins['kernel_prefix']
+            binaries[name] = str(binary.resolve())
+        kernel_prefix = (directory / pins['kernel_prefix']).resolve()
         landrun = None
         if platform.system() == 'Linux':
-            row = data['landrun']['paths'].get(platform.machine())
+            row = data.get('sandbox', {}).get('launcher_path')
             landrun = str(directory / row) if row else None
         return cls(**binaries, kernel_prefix=str(kernel_prefix), landrun=landrun,
                    comparator_version=data['comparator']['lean'])
@@ -70,7 +71,7 @@ class Tools:
 
 def resource_reason(result: L.RunResult) -> str | None:
     """Wall, memory and observation failures are availability errors, not mathematical verdicts."""
-    if result.timeout or result.memkill or result.killed_by or result.rc in (-9, -15, 124, 125, 137):
+    if result.timeout or result.memkill or result.killed_by or result.rc in (-9, -15, 124, 137):
         return 'resource-unavailable'
     return None
 
@@ -81,6 +82,8 @@ def prepare_reference(env: L.LeanEnv, problem: dict, package: str, work: str, se
     from . import check as C
 
     started = time.monotonic()
+    if sandbox.mode == 'production' or sandbox.disabled_layer:
+        sandbox = replace(sandbox, role='reference')
     statement = Path(package, problem['checker']['statement_file']).read_text()
     compiled = C.compile_in_sandbox(env, problem, package, statement, work, timeout, sandbox)
     Path(work).mkdir(parents=True, exist_ok=True)
@@ -88,6 +91,8 @@ def prepare_reference(env: L.LeanEnv, problem: dict, package: str, work: str, se
         json.dump(compiled, stream, indent=2)
     if 'error' in compiled:
         return dict(verdict='ERROR', reason=compiled['error'], compiled=compiled)
+    if compiled.get('boundary') and compiled['boundary']['verdict'] != 'PASS':
+        return dict(verdict=compiled['boundary']['verdict'], reason=compiled['boundary']['reason'], compiled=compiled)
     if compiled.get('compile_timeout') or compiled.get('compile_memkill'):
         return dict(verdict='ERROR', reason='resource-unavailable', compiled=compiled)
     if compiled.get('compile_rc') != 0 or compiled.get('n_errors') or compiled.get('post') is None:
@@ -121,7 +126,10 @@ def export_module(env: L.LeanEnv, module: str, theorem: str, output: str, tools:
     run = CR.runner(str(target.parent / 'processes' / target.name), timeout)
     result = run(command, task_env, cwd, timeout, 12000)
     record = dict(stage='closure-export', assurance=sandbox.mode, seconds=result.secs,
-                  peak_rss_mb=result.peak_rss_mb, rc=result.rc)
+                  peak_rss_mb=result.peak_rss_mb, rc=result.rc, boundary=result.boundary)
+    stopped = boundary_failure(result)
+    if stopped:
+        return dict(record, verdict=stopped['verdict'], reason=stopped['reason'])
     reason = resource_reason(result)
     if reason:
         return dict(record, verdict='ERROR', reason=reason)
@@ -154,22 +162,61 @@ def compare_exports(challenge: str, solution: str, theorem: str, tools: Tools, s
         'COMPARATOR_LEAN4EXPORT': tools.exporter,
         'COMPARATOR_NANODA': nanoda_binary or tools.nanoda,
     }
+    status_directory = None
     if sandbox.mode == 'production':
-        env['COMPARATOR_LANDRUN'] = sandbox.executable
+        if not sandbox.inner_executable or not Path(sandbox.inner_executable).is_file():
+            return dict(stage='comparator', verdict='ERROR', reason='sandbox-unavailable', assurance=sandbox.mode)
+        status_directory = Path('/run/user') / str(os.getuid()) / 'boole-gate-inner' / uuid.uuid4().hex
+        status_directory.mkdir(mode=0o700, parents=True)
+        inner_status = status_directory / 'inner-boundary.status'
+        with inner_status.open('xb'):
+            pass
+        env['COMPARATOR_LANDRUN'] = sandbox.inner_executable
+        env['COMPARATOR_BOUNDARY_STATUS'] = str(inner_status)
     else:
         passthrough = Path(__file__).parent / 'data/development-landrun.sh'
         env['COMPARATOR_LANDRUN'] = str(passthrough)
     command = [tools.comparator, str(config_path), '--exports', challenge, solution]
+    command = sandbox.command(command, env,
+                              [tools.kernel_prefix, tools.exporter, tools.nanoda, challenge, solution, str(directory)],
+                              [str(directory), *([str(status_directory)] if status_directory else [])])
     run = CR.runner(str(directory / 'processes'), timeout)
     result = run(command, env, str(directory), timeout, 12000)
+    signals = None
+    if status_directory is not None:
+        try:
+            raw = inner_status.read_bytes()
+            if len(raw) <= 16384:
+                parsed = [json.loads(line) for line in raw.splitlines()]
+                if len(parsed) <= 32 and all(isinstance(row, dict) for row in parsed):
+                    signals = parsed
+        except (OSError, ValueError):
+            pass
+        finally:
+            inner_status.unlink(missing_ok=True)
+            status_directory.rmdir()
     (directory / 'comparator.stdout').write_text(result.out)
     record = dict(stage='comparator', assurance='test-fixture' if nanoda_binary else sandbox.mode,
                   seconds=result.secs, peak_rss_mb=result.peak_rss_mb, rc=result.rc,
-                  solution_export_sha256=before[solution], comparator_lean=tools.comparator_version)
+                  solution_export_sha256=before[solution], comparator_lean=tools.comparator_version,
+                  boundary=result.boundary, inner_signals=signals)
     if any(digest(path) != value for path, value in before.items()):
         return dict(record, verdict='INVALID', reason='export-integrity')
     if resource_reason(result):
+        stopped = boundary_failure(result)
+        if stopped:
+            return dict(record, verdict=stopped['verdict'], reason=stopped['reason'])
         return dict(record, verdict='ERROR', reason='resource-unavailable')
+    stopped = boundary_failure(result)
+    if stopped:
+        return dict(record, verdict=stopped['verdict'], reason=stopped['reason'])
+    if sandbox.mode == 'production':
+        # Patched Comparator: 2 is a semantic rejection before any kernel launch; 70 is transport/setup.
+        if result.rc == 70 or signals is None or any('setup_error' in row for row in signals):
+            return dict(record, verdict='ERROR', reason='sandbox-unavailable')
+        if result.rc != 2 and (not signals or any(row.get('inner_exec') != 'ok'
+                                                or row.get('exit', 128) >= 128 for row in signals)):
+            return dict(record, verdict='ERROR', reason='sandbox-unavailable')
     lean_accepts = 'Lean default kernel accepts the solution' in result.out
     nanoda_accepts = 'nanoda kernel accepts the solution' in result.out
     record.update(lean_accepts=lean_accepts, nanoda_accepts=nanoda_accepts)

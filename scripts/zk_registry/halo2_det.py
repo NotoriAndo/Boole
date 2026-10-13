@@ -43,6 +43,8 @@ if __package__ in (None, ""):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     __package__ = "zk_registry"
 
+from zk_registry.safe_fs import open
+from zk_registry import safe_fs as FS
 from zk_registry import air_ir as AIR                 # noqa: E402
 from zk_registry import air_lean as AL                # noqa: E402
 from zk_registry import air_search as AS              # noqa: E402
@@ -304,7 +306,7 @@ def prepare_adapter(sh: Shared, name: str) -> dict:
     tc = HH.Toolchain(ad.toolchain, ad.toolchain_reason)
     if not tc.available():
         raise HH.HarnessError(f"toolchain {ad.toolchain} is not installed")
-    os.makedirs(os.path.join(cfg.work, "logs"), exist_ok=True)
+    FS.makedirs(os.path.join(cfg.work, "logs"), exist_ok=True)
     log_path = os.path.join(cfg.work, "logs", f"build-{name}.log")
     if ad.kind == "vendored-bin":
         v = ad.vendor
@@ -321,7 +323,7 @@ def prepare_adapter(sh: Shared, name: str) -> dict:
         # start from the pinned manifest and lockfile (a previous run may have added the patch section)
         restore_manifest(root)
         dest_root = os.path.join(cfg.work, "patched")
-        os.makedirs(dest_root, exist_ok=True)
+        FS.makedirs(dest_root, exist_ok=True)
         info["instrument"] = HH.patch_registry_crate(root, ad.patch["crate"], ad.patch["version"], tc, cargo_env(cfg),
                                                      dest_root, ad.halo2_line)
         proofs = os.path.join(dest_root, f"{ad.patch['crate']}-{ad.patch['version']}")
@@ -553,7 +555,7 @@ def lean_eval(sh: Shared, build_dir: str, ns: str, summary: dict, files: list[tu
 def g_fid_nonvac(sh: Shared, build_dir: str, ns: str, summary: dict, model: H.Model, real: list, muts: list,
                  mp: dict, work: str) -> tuple[G.Gate, G.Gate]:
     wdir = os.path.join(work, "wit")
-    os.makedirs(wdir, exist_ok=True)
+    FS.makedirs(wdir, exist_ok=True)
     files = []
     for k, w in enumerate(real):
         p = os.path.join(wdir, f"real_{k:03d}.txt")
@@ -636,7 +638,7 @@ def search_context(model: H.Model) -> tuple[AS.Context, bool]:
 
 def g_triv(sh: Shared, build_dir: str, ns: str, summary: dict, work: str) -> G.Gate:
     cfg = sh.cfg
-    os.makedirs(work, exist_ok=True)
+    FS.makedirs(work, exist_ok=True)
     files = [("Battery_P2", [(v, t) for v, ts in E.BATTERY_P2 for t in ts]),
              ("Battery_P1", [(v, t) for v in E.BATTERY_VARIANTS for t in E.BATTERY_TACTICS])]
     results, runs = {}, []
@@ -714,7 +716,7 @@ def build_package(sh: Shared, rec: dict, row: dict, plan, build: dict, model: H.
     ns = P.lean_namespace(collection, dir_name)
     work = os.path.join(cfg.work, "items", collection, dir_name)
     shutil.rmtree(work, ignore_errors=True)
-    os.makedirs(work)
+    FS.makedirs(work)
     stage = os.path.join(work, "pkg")
     lmeta = {"repo_id": rec["ids"]["repo"], "target": row["symbol"], "generator": f"{sh.generator['name']} "
              f"v{sh.generator['version']}", "repo_url": row["repo"], "commit": row["commit"], "path": row["path"],
@@ -722,7 +724,7 @@ def build_package(sh: Shared, rec: dict, row: dict, plan, build: dict, model: H.
              "call": rec["instantiation"]["call"], "halo2_line": rec["env"]["halo2"],
              "ir_sha256": rec["circuit"]["halo2"]["ir_sha256"], "model_sha256": model.sha256()}
     model_rel = HE.model_relpath(ns)
-    os.makedirs(os.path.dirname(os.path.join(stage, model_rel)), exist_ok=True)
+    FS.makedirs(os.path.dirname(os.path.join(stage, model_rel)), exist_ok=True)
     text, summary = HE.emit_model(ns, lmeta, model)
     with open(os.path.join(stage, model_rel), "w", encoding="utf-8") as f:
         f.write(text)
@@ -773,7 +775,7 @@ def build_package(sh: Shared, rec: dict, row: dict, plan, build: dict, model: H.
                                 "established"}
     if ce is not None:
         cdir = os.path.join(work, "counterexample")
-        os.makedirs(cdir, exist_ok=True)
+        FS.makedirs(cdir, exist_ok=True)
         write_witness(os.path.join(cdir, "w1.txt"), ce.base)
         write_witness(os.path.join(cdir, "w2.txt"), ce.other)
         py_ok = (H.satisfies(model, ce.base) and H.satisfies(model, ce.other)
@@ -820,14 +822,14 @@ def write_package(sh: Shared, rec: dict, stage: str, work: str, plan, real: list
     dest = os.path.join(sh.cfg.out, *rec["package_id"].split("/", 1))
     if os.path.exists(dest):
         shutil.rmtree(dest)
-    os.makedirs(dest)
-    shutil.copyfile(os.path.join(stage, "Statement.lean"), os.path.join(dest, "Statement.lean"))
+    FS.makedirs(dest)
+    FS.copyfile(os.path.join(stage, "Statement.lean"), os.path.join(dest, "Statement.lean"))
     model_rel = rec["statement"]["model_file"]
-    os.makedirs(os.path.dirname(os.path.join(dest, model_rel)), exist_ok=True)
-    shutil.copyfile(os.path.join(stage, model_rel), os.path.join(dest, model_rel))
+    FS.makedirs(os.path.dirname(os.path.join(dest, model_rel)), exist_ok=True)
+    FS.copyfile(os.path.join(stage, model_rel), os.path.join(dest, model_rel))
     ev = os.path.join(dest, "evidence")
-    os.makedirs(os.path.join(ev, "witnesses"))
-    shutil.copyfile(ir_path, os.path.join(ev, "ir_sample_000.json"))
+    FS.makedirs(os.path.join(ev, "witnesses"))
+    FS.copyfile(ir_path, os.path.join(ev, "ir_sample_000.json"))
     for k, w in enumerate(real[:4]):
         write_witness(os.path.join(ev, "witnesses", f"real_{k:03d}.txt"), w)
     ad = T.ADAPTERS[plan.adapter]
@@ -837,27 +839,27 @@ def write_package(sh: Shared, rec: dict, stage: str, work: str, plan, real: list
                 f"scripts/zk_registry/halo2_harness/wrappers: {', '.join(sources)}\n")
     ref = os.path.join(work, "elab", "reference.type.txt")
     if os.path.exists(ref):
-        shutil.copyfile(ref, os.path.join(ev, "reference.type.txt"))
+        FS.copyfile(ref, os.path.join(ev, "reference.type.txt"))
     if "counterexample_dir" in rec["evidence"]:
         cdir = rec["evidence"].pop("counterexample_dir")
-        os.makedirs(os.path.join(ev, "counterexample"))
+        FS.makedirs(os.path.join(ev, "counterexample"))
         for fn in ("w1.txt", "w2.txt"):
             if os.path.exists(os.path.join(cdir, fn)):
-                shutil.copyfile(os.path.join(cdir, fn), os.path.join(ev, "counterexample", fn))
+                FS.copyfile(os.path.join(cdir, fn), os.path.join(ev, "counterexample", fn))
     triv = os.path.join(work, "triv")
     if os.path.isdir(triv):
-        os.makedirs(os.path.join(ev, "triv"))
+        FS.makedirs(os.path.join(ev, "triv"))
         for fn in sorted(os.listdir(triv)):
             if fn.endswith(".lean"):
-                shutil.copyfile(os.path.join(triv, fn), os.path.join(ev, "triv", fn))
+                FS.copyfile(os.path.join(triv, fn), os.path.join(ev, "triv", fn))
     P.write_json(os.path.join(dest, "problem.json"), rec)
 
 
 # ------------------------------------------------------------------------------------------ wave
 
 def run_wave(cfg: WaveConfig) -> list[dict]:
-    os.makedirs(cfg.out, exist_ok=True)
-    os.makedirs(cfg.work, exist_ok=True)
+    FS.makedirs(cfg.out, exist_ok=True)
+    FS.makedirs(cfg.work, exist_ok=True)
     env = L.load_env(cfg.lean_env)
     sh = Shared(cfg, env, P.sha256_file(cfg.ledger), generator_info())
     sh.lean_slots = threading.Semaphore(max(1, cfg.lean_jobs))
@@ -943,7 +945,7 @@ def append_jsonl(path: str, rec: dict) -> None:
 
 
 def write_index(path: str, recs: list[dict]) -> None:
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    FS.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         for r in recs:
             f.write(json.dumps(r, sort_keys=True, ensure_ascii=False) + "\n")
@@ -1004,7 +1006,7 @@ def run_rerun(cfg: WaveConfig, items: list[str]) -> list[dict]:
         if rec["status"] in P.PACKAGED_STATUSES:
             src = os.path.join(side, *rec["package_id"].split("/", 1))
             dst = os.path.join(main_out, *rec["package_id"].split("/", 1))
-            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            FS.makedirs(os.path.dirname(dst), exist_ok=True)
             shutil.move(src, dst)
         append_jsonl(os.path.join(main_out, "RERUN-MERGE.jsonl"),
                      {"item_id": iid, "before": prev["status"] if prev else None, "after": rec["status"],
@@ -1050,7 +1052,7 @@ def decompose(index_path: str, out_dir: str) -> dict:
                                         "same_source": c["ids"]["repo"] == r["ids"]["repo"] and
                                         c["ids"]["commit"] == r["ids"]["commit"] or
                                         (r["ids"]["repo"], c["ids"]["repo"]) in same_family} for c in kids]})
-    os.makedirs(out_dir, exist_ok=True)
+    FS.makedirs(out_dir, exist_ok=True)
     write_index(os.path.join(out_dir, "EDGES.jsonl"), edges)
     summary = {"parents": parents, "region_edges": len(edges),
                "mapped_to_wave_records": sum(1 for e in edges if e["children"]),

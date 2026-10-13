@@ -1,0 +1,46 @@
+diff --git a/Main.lean b/Main.lean
+--- a/Main.lean
++++ b/Main.lean
+@@ -203,6 +203,8 @@
+       }
+ 
+       let ret ← proc.wait
++      if ret == 125 || ret >= 128 then
++        return ← IO.Process.exit 70
+       if ret != 0 then
+         IO.println s!"{kernelName} kernel rejected the solution"
+         return some s!"{kernelName} exited with {ret}"
+@@ -211,7 +213,8 @@
+         return none
+     catch e => do
+       IO.println s!"Error while interacting with {kernelName} kernel"
+-      return some s!"Error while interacting with {kernelName} kernel: {e.toString}"
++      IO.eprintln e.toString
++      return ← IO.Process.exit 70
+ where
+   isNanodaKernel (kernelName : String) : Bool :=
+     -- TODO: get rid of this heuristic
+@@ -380,7 +383,7 @@
+ 
+ end Comparator
+ 
+-def main (args : List String) : IO Unit := do
++def runMain (args : List String) : IO Unit := do
+   let some (configPath : String) := args[0]?
+     | throw <| .userError "Expected config file path as first argument."
+   let content ← IO.FS.readFile configPath
+@@ -392,3 +395,14 @@
+     Comparator.M.run (Comparator.verifyMatch challengeExport solutionExport) config
+   else
+     Comparator.M.run Comparator.compareIt config
++
++/-- Structured process contract: success 0, semantic rejection 2, transport/launch 70. -/
++def main (args : List String) : IO UInt32 := do
++  try
++    runMain args
++    return 0
++  catch e =>
++    IO.eprintln e.toString
++    match e with
++    | .userError _ => return 2
++    | _ => return 70

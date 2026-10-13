@@ -10,8 +10,10 @@ import copy
 import hashlib
 import json
 import os
-from pathlib import Path
+from .safe_fs import Path, open
 import shutil
+
+from zk_registry import safe_fs as FS
 
 from . import check as C
 from . import gates as G
@@ -106,7 +108,7 @@ def write_candidate_package(problem: dict, problem_dir: str, candidate: dict, mo
         raise RuntimeError("reference model changed")
     dest = outp / meta["file"]
     dest.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(source, dest)
+    FS.copyfile(source, dest)
     RT.put(str(outp / E.model_relpath(cand_ns)), model_text)
     statement = statement_text(problem, candidate)
     RT.put(str(outp / "Statement.lean"), statement)
@@ -186,6 +188,17 @@ def run_check(framework, problem_dir, candidate_path, solution, out, tools, env,
         result = dict(verdict="REJECTED", reason=str(ex))
         P.write_json(os.path.join(out, "verdict.json"), result)
         return "REJECTED", result
+    except (L.BoundaryInvalid, L.ResourceUnavailable) as ex:
+        result = L.boundary_outcome(ex)
+        P.write_json(os.path.join(out, 'verdict.json'), result)
+        return result['verdict'], result
+    except ValueError as ex:
+        from .sandbox import SandboxUnavailable
+        if not isinstance(ex, SandboxUnavailable):
+            raise
+        result = L.boundary_outcome(ex)
+        P.write_json(os.path.join(out, 'verdict.json'), result)
+        return result['verdict'], result
     checked = C.check(
         report["package"], solution, env, None, RT.DET_PROOF_LIMITS["timeout_s"], False, os.path.join(out, "checker")
     )
@@ -244,7 +257,7 @@ def write_reference(problem: dict, spec: dict, reg_dir: str, out: str):
         raise RT.NotEligible("output-exists", "will not replace an existing issued problem")
     path = Path(out) / spec["model"]["file"]
     path.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(Path(reg_dir) / spec["model"]["file"], path)
+    FS.copyfile(Path(reg_dir) / spec["model"]["file"], path)
     P.write_json(os.path.join(out, "problem.json"), problem)
     errors = P.validate_problem(problem, out)
     if errors:

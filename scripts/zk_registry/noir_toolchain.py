@@ -25,6 +25,8 @@ import re
 import subprocess
 from dataclasses import dataclass, field
 
+from zk_registry.safe_fs import open
+from zk_registry import safe_fs as FS
 from . import lean_runner as L
 
 SYSTEM_PATH = "/usr/bin:/bin:/usr/sbin:/sbin"
@@ -105,20 +107,22 @@ class Toolchain:
 
     def env(self) -> dict:
         tmp = os.path.join(self.scratch, "tmp")
-        os.makedirs(tmp, exist_ok=True)
+        FS.makedirs(tmp, exist_ok=True)
         return {"PATH": SYSTEM_PATH, "HOME": self.home, "TMPDIR": tmp, "LANG": "C.UTF-8",
                 "PYTHONDONTWRITEBYTECODE": "1", "GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_GLOBAL": "/dev/null",
                 "GIT_CONFIG_NOSYSTEM": "1", "NO_COLOR": "1", "RUST_BACKTRACE": "0",
                 # nargo clones missing git dependencies itself: refuse every network protocol, so a compile
                 # only ever sees the dependencies fetched beforehand at their pins
-                "GIT_ALLOW_PROTOCOL": "file"}
+                "GIT_ALLOW_PROTOCOL": "file", "CARGO_BUILD_JOBS": "4", "RAYON_NUM_THREADS": "4",
+                "RUST_TEST_THREADS": "4"}
 
     def run_nargo(self, tag: str, args: list[str], cwd: str, timeout: float, rss_limit_mb: int | None = 12288,
                   watch=None) -> L.RunResult:
-        return L.run_process([self.nargo(tag)] + args, self.env(), cwd, timeout, rss_limit_mb, watch=watch)
+        return L.enforce_boundary(L.run_process([self.nargo(tag)] + args, self.env(), cwd, timeout,
+                                               rss_limit_mb, watch=watch))
 
     def run_tool(self, tag: str, args: list[str], cwd: str, timeout: float = 600) -> L.RunResult:
-        return L.run_process([self.acir_tool(tag)] + args, self.env(), cwd, timeout, 8192)
+        return L.enforce_boundary(L.run_process([self.acir_tool(tag)] + args, self.env(), cwd, timeout, 8192))
 
     def binary_info(self, tag: str) -> dict:
         from .package import sha256_file
@@ -221,7 +225,7 @@ def _git(args: list[str], cwd: str, timeout: float = 900) -> subprocess.Complete
 
 def fetch_tag(dest: str, url: str, tag: str, sparse: list[str] | None = None) -> str:
     """Shallow fetch of ``tag`` (a tag or branch name) into ``dest``; returns the commit."""
-    os.makedirs(dest, exist_ok=True)
+    FS.makedirs(dest, exist_ok=True)
     if os.path.exists(os.path.join(dest, ".git", ".boole-fetch-done")):
         return _git(["rev-parse", "HEAD"], dest).stdout.strip()
     _git(["init", "-q"], dest)

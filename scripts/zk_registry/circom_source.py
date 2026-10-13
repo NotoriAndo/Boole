@@ -7,6 +7,7 @@ compiler remains the authority: every instantiation found here is compiled, and 
 ``.sym`` / ``.r1cs`` are cross-checked against what the scanner reports.
 """
 from __future__ import annotations
+from zk_registry.safe_fs import open
 
 import json
 import os

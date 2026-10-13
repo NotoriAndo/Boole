@@ -72,6 +72,8 @@ if __package__ in (None, ""):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     __package__ = "zk_registry"
 
+from zk_registry.safe_fs import open
+from zk_registry import safe_fs as FS
 from zk_registry import check as C              # noqa: E402
 from zk_registry import lean_runner as L        # noqa: E402
 from zk_registry import mech_acir as M          # noqa: E402
@@ -385,7 +387,7 @@ def tool_paths(tools: str, prob: dict) -> tuple[str, str, str]:
 
 
 def tool_env(home: str, tmp: str) -> dict:
-    os.makedirs(tmp, exist_ok=True)
+    FS.makedirs(tmp, exist_ok=True)
     env = NT.Toolchain("", home, os.path.dirname(tmp)).env()
     env["TMPDIR"] = tmp
     return env
@@ -430,7 +432,7 @@ def compile_program(prob: dict, problem_dir: str, snapshot: str, tools: str, wor
         put(os.path.join(crate, "Nargo.toml"), STD_MANIFEST)
         put(os.path.join(crate, "src", "lib.nr"), text)
     home = os.path.join(work, "home")
-    os.makedirs(os.path.join(home, "nargo"))
+    FS.makedirs(os.path.join(home, "nargo"))
     deps = os.path.join(snapshot, "home", "nargo")
     for e in sorted(os.listdir(deps)) if os.path.isdir(deps) else []:
         # the dependency trees are linked (read-only use); nargo's own lock file stays in the work directory
@@ -542,7 +544,7 @@ def compile_candidate(prob: dict, problem_dir: str, cand_path: str, out: str, sn
         -> tuple[dict, dict]:
     """Source rules, compile, ABI and I/O, metric.  Returns (report, compile result); raises Reject."""
     RT.verify_snapshot(snapshot, prob["snapshot"]["manifest_sha256"])
-    os.makedirs(out, exist_ok=True)
+    FS.makedirs(out, exist_ok=True)
     text = admit_candidate(cand_path)
     rep: dict = {"problem": prob["package_id"], "candidate_file": os.path.abspath(cand_path), "started_utc": now(),
                  "source_sha256": sha(text.encode())}
@@ -682,8 +684,8 @@ def write_candidate_package(prob: dict, problem_dir: str, cand: dict, res: dict,
     stmt = statement_text(prob, cand, info["bb"])
     fresh_dir(pkg)
     m = prob["reference"]["model"]
-    os.makedirs(os.path.dirname(os.path.join(pkg, m["file"])), exist_ok=True)
-    shutil.copyfile(os.path.join(problem_dir, m["file"]), os.path.join(pkg, m["file"]))
+    FS.makedirs(os.path.dirname(os.path.join(pkg, m["file"])), exist_ok=True)
+    FS.copyfile(os.path.join(problem_dir, m["file"]), os.path.join(pkg, m["file"]))
     if P.sha256_file(os.path.join(pkg, m["file"])) != m["sha256"]:
         raise RuntimeError("reference model file changed")
     put(os.path.join(pkg, NE.model_relpath(cand_ns)), cmodel)
@@ -734,6 +736,15 @@ def run_check(problem_dir: str, cand_path: str, solution: str, out: str, tools: 
     except Reject as ex:
         rep.update(verdict="REJECTED", reason=str(ex))
         return "REJECTED", rep
+    except (L.BoundaryInvalid, L.ResourceUnavailable) as ex:
+        rep.update(L.boundary_outcome(ex))
+        return rep['verdict'], rep
+    except ValueError as ex:
+        from .sandbox import SandboxUnavailable
+        if not isinstance(ex, SandboxUnavailable):
+            raise
+        rep.update(L.boundary_outcome(ex))
+        return rep['verdict'], rep
     rep["candidate"] = cr["candidate"]
     if not os.path.isfile(solution):
         rep.update(verdict="ERROR", reason=f"no solution file {solution}")
@@ -784,7 +795,7 @@ HARNESS_ERRORS = ("input line:", "input:", "encode:")
 
 def run_executor(tool: str, program: str, vectors: list[dict], work: str, tag: str) -> list[dict]:
     """The pinned executor (``boole-acir-tool execute``, oracle calls answered with zeros) on every input object."""
-    os.makedirs(work, exist_ok=True)
+    FS.makedirs(work, exist_ok=True)
     inp, outp = os.path.join(work, tag + ".inputs.jsonl"), os.path.join(work, tag + ".results.jsonl")
     put(inp, "".join(json.dumps(v) + "\n" for v in vectors))
     r = L.run_submission([tool, "execute", program, inp, outp], tool_env(os.path.join(work, "home"),
@@ -999,10 +1010,10 @@ def build_problem(reg_dir: str, snapshot: str, out_dir: str, tools: str, det: di
     prob = problem_record(spec, layout, meas, det, snap, program, append, tool_sha, annotations)
     fresh_dir(out_dir)
     dst = os.path.join(out_dir, spec["model"]["file"])
-    os.makedirs(os.path.dirname(dst), exist_ok=True)
-    shutil.copyfile(os.path.join(reg_dir, spec["model"]["file"]), dst)
+    FS.makedirs(os.path.dirname(dst), exist_ok=True)
+    FS.copyfile(os.path.join(reg_dir, spec["model"]["file"]), dst)
     put(os.path.join(out_dir, "reference", "append.nr"), text)
-    shutil.copyfile(res["program"], os.path.join(out_dir, "reference", "program.json"))
+    FS.copyfile(res["program"], os.path.join(out_dir, "reference", "program.json"))
     errs = P.validate_problem(prob, out_dir)
     if errs:
         raise RuntimeError(f"ratchet problem does not validate: {errs[:5]}")

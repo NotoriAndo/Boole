@@ -1,0 +1,74 @@
+name: acceptance-gate-linux
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/zk_registry/**
+      - scripts/setup_zk_registry_sandbox.sh
+      - scripts/test_zk_registry_linux_sandbox.py
+      - scripts/test_zk_registry_sandbox_hardening.py
+      - scripts/test_zk_registry_aa_fix.py
+      - .github/workflows/acceptance-gate-linux.yml
+  pull_request:
+    paths:
+      - scripts/zk_registry/**
+      - scripts/setup_zk_registry_sandbox.sh
+      - scripts/test_zk_registry_linux_sandbox.py
+      - scripts/test_zk_registry_sandbox_hardening.py
+      - scripts/test_zk_registry_aa_fix.py
+      - .github/workflows/acceptance-gate-linux.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  production-controls:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      GIT_CONFIG_GLOBAL: /dev/null
+      GIT_CONFIG_NOSYSTEM: "1"
+      GIT_TERMINAL_PROMPT: "0"
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - name: Checkout controls without persistent credentials
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Build and require the pinned hardened boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          state="$RUNNER_TEMP/acceptance-tools"
+          sudo -n sysctl -w kernel.apparmor_restrict_unprivileged_userns=1
+          sysctl kernel.apparmor_restrict_unprivileged_userns
+          bash scripts/setup_zk_registry_sandbox.sh "$state"
+          mkdir -p "$state/work"
+          printf 'synthetic non-secret control canary\n' > "$state/read-only-canary"
+          chmod 444 "$state/read-only-canary"
+          printf 'ZK_GATE_STATE=%s\n' "$state" >> "$GITHUB_ENV"
+
+      - name: Run actual confinement and policy controls in a delegated cgroup
+        shell: bash
+        run: |
+          set -euo pipefail
+          state="$ZK_GATE_STATE"
+          vm_ip="$(ip -4 -o addr show scope global | awk 'NR==1 {split($4,a,"/"); print a[1]}')"
+          test -n "$vm_ip"
+          sudo -n systemd-run --uid="$(id -u)" --gid="$(id -g)" --wait --pipe --collect \
+            --working-directory="$GITHUB_WORKSPACE/scripts" \
+            -p Delegate=yes -p MemoryMax=12000000000 -p TasksMax=512 -p RuntimeMaxSec=180 \
+            env -i PATH=/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 \
+            HOME="$state/home" TMPDIR="$state/work" \
+            BOOLE_TEST_SANDBOX="$state/gate/launcher.py" BOOLE_TEST_PROBE="$state/control-probe" \
+            BOOLE_TEST_VM_IP="$vm_ip" BOOLE_TEST_CANARY="$state/read-only-canary" \
+            BOOLE_TEST_CONTROL_RECEIPTS="$state/receipts" \
+            ZK_GATE_LANDRUN="$state/gate/launcher.py" ZK_GATE_WORK_ROOT="$state/work" \
+            python3 -m unittest -v test_zk_registry_linux_sandbox.LinuxProductionControls \
+            test_zk_registry_sandbox_hardening.LiveConfinement \
+            test_zk_registry_sandbox_hardening.OutcomePrecedence \
+            test_zk_registry_aa_fix.NativeBoundaryOutcomes \
+            test_zk_registry_aa_fix.LiveReviewFixes

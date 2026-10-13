@@ -14,7 +14,8 @@ import fcntl
 import hashlib
 import json
 import os
-from pathlib import Path
+from zk_registry import safe_fs as FS
+from .safe_fs import Path
 import re
 import shutil
 import sys
@@ -696,7 +697,7 @@ class Registry:
                             raise RegistryError('public import digest differs')
                         target = dest / rel
                         target.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copyfile(source, target)
+                        FS.copyfile(source, target)
                         imports.append(dict(file='statements/' + folder + '/' + rel, sha256=row['sha256']))
                     public['imports'] = imports
                 entries.append(public)

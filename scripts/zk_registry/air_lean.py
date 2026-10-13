@@ -20,6 +20,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Sequence
 
+from zk_registry.safe_fs import open
+from zk_registry import safe_fs as FS
 from . import air_ir as IR
 from . import lean_emit as E
 

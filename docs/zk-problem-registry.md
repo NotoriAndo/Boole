@@ -36,11 +36,58 @@ The production judge reads only `scripts/zk_registry/data/acceptance_environment
 Mathlib `d13f23b723b8a846827a245b89c10fc7d3f11612` and exact manifest/package pins. Old roots and fixtures retain
 v4.33.1. An old package gives ERROR `environment-retired` before compilation; its earlier PASS is historical evidence.
 
-Every submission-code execution uses pinned Linux Landrun: native builds/extraction, generated model elaboration,
-submission compilation, olean inspection and closure export. Native output, Lean build and sealed-export write scopes
-are separate. Missing Landrun gives ERROR `sandbox-unavailable`. macOS passthrough is explicitly `dev-unsandboxed`,
-never production evidence. Linux sandbox execution evidence is outside Task Y. The checked kernel binary profile
-currently covers Darwin arm64 only; Linux provisioning remains unavailable, with no arbitrary-binary fallback.
+Every submission-code execution uses the pinned hardened Linux boundary: native builds/extraction, generated model
+elaboration, submission compilation, olean inspection, closure export and Comparator as a whole. Native output,
+Lean build and sealed-export write scopes are separate. Fresh user/network/PID/mount/IPC namespaces, strict Landlock
+and per-architecture seccomp apply together; the network namespace contains only a down loopback. Nested user
+namespaces are disabled and payload effective/ambient/bounding capabilities are zero. Comparator's compatible inner
+Landrun CLI inherits those layers, without best-effort fallback. Missing layers or a launcher failure at any stage
+give ERROR `sandbox-unavailable`. macOS passthrough is explicitly `dev-unsandboxed`, never production evidence.
+The tracked tools descriptor, not an untracked overlay or environment override, is the binary authority.
+
+Linux nodes require Ubuntu's version/SHA256-pinned non-setuid `/usr/bin/bwrap`, the digest-pinned AppArmor profile
+`boole-gate-bwrap` granting `userns,`, Landlock ABI >=4, native seccomp, and an unprivileged systemd-delegated cgroup v2
+domain with both `memory` and `pids` controllers and the kernel's `pids.peak` observation file (checked at preflight).
+The work root must not be under any symlinked path. Keep `kernel.apparmor_restrict_unprivileged_userns=1` when the kernel
+provides it; never disable that restriction. Every receipt records kernel, ABI, BPF digest, profile hash/label,
+sysctl, namespace identities, caps and resource observations. Whole-step payload+init memory is limited to at most
+20GB; provision a node-wide parent cap for concurrent steps (the local validation VM uses at most 24GB total).
+At least four schedulable CPUs are mandatory: PID-1 selects the first four CPUs in its affinity mask before exec,
+and concurrent stages share this fixed CPU set. Contention may slow stages but cannot change mathematical verdicts;
+wall-time interruption remains an availability ERROR. Preflight fails with
+ERROR on a smaller affinity set. Lean uses `-j4`, Go uses `GOMAXPROCS=4` and build `-p4`; Cargo, Rayon and test
+runners have explicit parallelism limits. Tracked PID caps are64 for compile/replay/export/Comparator and256 for
+native build/run, at least four times measured peaks from the20-item pilot and one build of each of six frameworks.
+Readers cannot expand their allowed roots through symlinks; caller-declared reader paths reject symlink components.
+Host stage I/O uses no-follow file and directory descriptors, including logs, replay, native IR, receipts and exports.
+
+| Landlock ABI | Applied features (cumulative) | Missing-feature confinement |
+| --- | --- | --- |
+| 4 (Ubuntu 24.04 LTS 6.8) | Filesystem rights through TRUNCATE; deny TCP bind/connect | Read-only bind mounts; fresh down network namespace; socket-family seccomp |
+| 5 | Device ioctl restriction | Same mandatory namespace/mount/seccomp layers |
+| 6–7 | Signal and abstract Unix-socket scopes | Same mandatory layers |
+| 8 | Thread-synchronized ruleset restriction | Same mandatory layers |
+| 9 | Pathname Unix-socket rights | Same mandatory layers |
+
+Seccomp kills non-native architectures, including amd64 i386/x32, and denies non-AF_UNIX socket creation, socketcall,
+ptrace and its pathless fd/memory-copy equivalents, mount APIs, keyctl, bpf, perf_event_open, all three io_uring calls
+and userfaultfd, `mount_setattr`, and `clone` with `CLONE_NEWUSER` (`clone3` is denied with ENOSYS so ordinary
+thread creation falls back safely). The pinned PID-1 shim is non-dumpable and reads back that state before forking;
+its administrative FDs are closed in the payload before execution. It counts every reaped orphan, retaining at
+most the first256 events, and records frozen payload-cgroup members at main exit; every write is checked. Receipts
+are cleaned per step after their bounded observations are retained in the guard log. Any remaining/adopted descendant is INVALID
+`owned-descendants-remained`, not a silent cleanup. Mandatory pids exhaustion is INVALID `resource-cap` (reference
+builds: ERROR `resource-unavailable`); OOM and wall/memory interruption take ERROR precedence. The compile-time
+detachment controls deliberately bypass the text stage as trusted fixtures to exercise the actual OS boundary.
+Setup/exec failure uses a CLOEXEC status pipe, not the payload's exit code125. Comparator's inner launcher reports
+an explicit exec-success marker or setup failure through a dedicated status directory outside the work root.
+The inner kernel cannot write that directory or inherit its writable descriptor. Patched Comparator exit status70
+means launch/transport failure (ERROR), status2 means semantic rejection; missing success attestation fails closed.
+CR process receipts are retained under the protected runtime receipt root, outside every submission-writable root.
+Exec failure of a submission-built artifact is INVALID `submission-exec-failed`; pinned tool exec failure stays ERROR.
+No outcome relies on matching submission-controlled diagnostic text. Freeze
+and asynchronous cgroup-kill waits are adaptive and bounded; cleanup failures are auxiliary observations, never
+an overwrite of a finished PASS/INVALID verdict. A missing/unwritable trusted receipt remains ERROR.
 
 The v2 text stage additionally rejects `#eval`, `#exit`, `run_cmd`, `run_elab`, `run_meta`, `initialize`,
 `builtin_initialize`, `run_tac`, `elab`, `elab_rules`, `macro`, `macro_rules`, `syntax`,

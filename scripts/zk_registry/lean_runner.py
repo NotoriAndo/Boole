@@ -6,6 +6,8 @@ toolchain's ``bin`` first), takes the sysroot from ``LEAN_SYSROOT`` and points `
 unused scratch directory, so no elan proxy can install a toolchain as a side effect.
 """
 from __future__ import annotations
+from zk_registry.safe_fs import open
+from zk_registry import safe_fs as FS
 
 import json
 import os
@@ -121,20 +123,21 @@ def load_production_env(path: str) -> LeanEnv:
     if reason:
         raise ValueError(reason)
     expected = production_descriptor()
-    return LeanEnv(provisioned.toolchain, list(provisioned.lean_path), expected['lean'],
+    return LeanEnv(os.path.realpath(provisioned.toolchain), [os.path.realpath(path) for path in provisioned.lean_path], expected['lean'],
                    dict(expected['packages']), expected['lake_manifest_sha256'], provisioned.scratch,
                    dict(provisioned.extra))
 
 
 def process_env(env: LeanEnv, extra_lean_path: list[str] | tuple[str, ...] = ()) -> dict:
     tmp = os.path.join(env.scratch, "tmp")
-    os.makedirs(tmp, exist_ok=True)
+    FS.makedirs(tmp, exist_ok=True)
     home = os.path.join(env.scratch, 'home')
-    os.makedirs(home, exist_ok=True)
+    FS.makedirs(home, exist_ok=True)
+    toolchain = os.path.realpath(env.toolchain)
     return {
-        "PATH": f"{env.toolchain}/bin:{SYSTEM_PATH}",
-        "LEAN_SYSROOT": env.toolchain,
-        "LEAN_PATH": ":".join(list(extra_lean_path) + env.lean_path),
+        "PATH": f"{toolchain}/bin:{SYSTEM_PATH}",
+        "LEAN_SYSROOT": toolchain,
+        "LEAN_PATH": ":".join(os.path.realpath(path) for path in [*extra_lean_path, *env.lean_path]),
         "HOME": home,
         "TMPDIR": tmp,
         "ELAN_HOME": os.path.join(env.scratch, "elan-unused"),
@@ -153,10 +156,35 @@ class RunResult:
     memkill: bool = False
     peak_rss_mb: int = 0
     killed_by: str = ""                   # reason returned by the ``watch`` hook, if it stopped the run
+    boundary: dict | None = None          # trusted production namespace/cgroup receipt
 
 
 class ResourceUnavailable(RuntimeError):
     """A native code-execution window ended without a deterministic candidate verdict."""
+
+
+class BoundaryInvalid(RuntimeError):
+    """A trusted boundary rejected the submission for a deterministic containment reason."""
+
+
+def boundary_outcome(error):
+    """Preserve a typed boundary exception as one closed gate outcome."""
+    return dict(verdict='INVALID' if isinstance(error, BoundaryInvalid) else 'ERROR', reason=str(error))
+
+
+def enforce_boundary(result):
+    """Translate trusted execution receipts without assigning meaning to payload exit codes."""
+    from .sandbox import SandboxUnavailable
+    if result.timeout or result.memkill or result.killed_by:
+        raise ResourceUnavailable('resource-unavailable')
+    if result.boundary and result.boundary.get('verdict') != 'PASS':
+        reason = result.boundary.get('reason', 'sandbox-unavailable')
+        if result.boundary.get('verdict') == 'INVALID':
+            raise BoundaryInvalid(reason)
+        if reason == 'resource-unavailable':
+            raise ResourceUnavailable(reason)
+        raise SandboxUnavailable(reason)
+    return result
 
 
 def run_submission(cmd: list[str], env: dict, cwd: str, timeout: float, rss_limit_mb: int | None = None,
@@ -165,10 +193,9 @@ def run_submission(cmd: list[str], env: dict, cwd: str, timeout: float, rss_limi
     from .sandbox import Sandbox, SandboxUnavailable
     if not isinstance(getattr(run_process, 'submission_boundary', None), Sandbox):
         raise SandboxUnavailable('sandbox-unavailable')
+    env = dict(env, GOMAXPROCS='4', CARGO_BUILD_JOBS='4', RAYON_NUM_THREADS='4', RUST_TEST_THREADS='4')
     result = run_process(cmd, env, cwd, timeout, rss_limit_mb, watch, poll_s)
-    if result.timeout or result.memkill or result.killed_by:
-        raise ResourceUnavailable('resource-unavailable')
-    return result
+    return enforce_boundary(result)
 
 
 def run_process(cmd: list[str], env: dict, cwd: str, timeout: float, rss_limit_mb: int | None = None,
@@ -236,13 +263,14 @@ def run_lean(env: LeanEnv, args: list[str], cwd: str, timeout: float, extra_lean
     slots = _LIMITS["slots"]
     rss = rss_limit_mb or _LIMITS["rss_mb"]
     task_env = process_env(env, extra_lean_path)
-    command = [env.lean] + args
+    command = [env.lean, '-j', '4'] + args
     context = _SANDBOX.get()
     runner = run_process
     if context is not None:
         sandbox, readable, writable, guarded = context
         runner = guarded or runner
-        command = sandbox.command(command, task_env, [env.toolchain, *env.lean_path, *readable],
+        command = sandbox.command(command, task_env, [os.path.realpath(env.toolchain),
+                                  *(os.path.realpath(path) for path in env.lean_path), *readable],
                                   [task_env['TMPDIR'], *writable])
     if slots is None:
         return runner(command, task_env, cwd, timeout, rss)
@@ -272,7 +300,7 @@ def compile_module(env: LeanEnv, src_root: str, rel_path: str, build_dir: str, o
     """Compile ``src_root/rel_path`` to ``build_dir`` (``.olean`` + ``.ilean``) with ``--json``."""
     stem = rel_path[:-len(".lean")]
     olean = os.path.join(build_dir, stem + ".olean")
-    os.makedirs(os.path.dirname(olean), exist_ok=True)
+    FS.makedirs(os.path.dirname(olean), exist_ok=True)
     args = opts + ["--json", "-R", src_root, "-o", olean, "-i", os.path.join(build_dir, stem + ".ilean"),
                    os.path.join(src_root, rel_path)]
     r = run_lean(env, args, src_root, timeout, extra_lean_path=[build_dir, *extra_lean_path])

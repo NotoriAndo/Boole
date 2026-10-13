@@ -13,6 +13,8 @@ import re
 import subprocess
 from dataclasses import dataclass
 
+from zk_registry.safe_fs import open
+from zk_registry import safe_fs as FS
 from . import r1cs as R
 
 STRATEGIES = ["zero", "one", "minus_one", "bit", "small", "byte", "u32", "u64", "field", "shared"]
@@ -165,7 +167,7 @@ class GeneratedWitness:
 
 def run_generator(node: str, wc_js: str, wasm: str, inputs: list[dict], workdir: str, timeout: float = 600,
                   tag: str = "gen") -> list[GeneratedWitness]:
-    os.makedirs(workdir, exist_ok=True)
+    FS.makedirs(workdir, exist_ok=True)
     inp = os.path.join(workdir, f"{tag}.inputs.jsonl")
     outp = os.path.join(workdir, f"{tag}.witnesses.jsonl")
     with open(inp, "w", encoding="utf-8") as f:

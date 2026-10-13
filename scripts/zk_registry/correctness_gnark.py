@@ -10,7 +10,8 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
-from pathlib import Path
+from zk_registry import safe_fs as FS
+from .safe_fs import Path
 import re
 
 from . import check as C

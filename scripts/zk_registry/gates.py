@@ -20,8 +20,11 @@ import os
 import re
 from dataclasses import dataclass, field
 
+from zk_registry import safe_fs as FS
+
 from . import lean_emit as E
 from . import lean_runner as L
+from .safe_fs import open
 
 FID_MIN_REAL = 10
 FID_MIN_MUTANTS = 10
@@ -93,7 +96,7 @@ def run_replay(env: L.LeanEnv, olean: str, fqn: str, out_file: str, opts: list[s
 
 def g_elab(env: L.LeanEnv, pkg_dir: str, build_dir: str, ns: str, work: str, timeout: float = 3600,
            theorem: str = E.STATEMENT_THEOREM) -> Gate:
-    os.makedirs(work, exist_ok=True)
+    FS.makedirs(work, exist_ok=True)
     rel = E.model_relpath(ns)
     r, msgs = L.compile_module(env, pkg_dir, rel, build_dir, E.LEAN_OPTIONS, timeout)
     detail = {"model_compile_secs": r.secs, "model_compile_rc": r.rc, "model_compile_peak_rss_mb": r.peak_rss_mb}
@@ -149,7 +152,7 @@ def g_fid_nonvac(env: L.LeanEnv, build_dir: str, ns: str, n_constraints: int, re
     them; Lean's ``decide (Preconditions w)`` must then agree with it on every witness, and every real
     witness must satisfy it."""
     wdir = os.path.join(work, "wit")
-    os.makedirs(wdir, exist_ok=True)
+    FS.makedirs(wdir, exist_ok=True)
     files = []
     for k, w in enumerate(real):
         p = os.path.join(wdir, f"real_{k:03d}.txt")
@@ -290,7 +293,7 @@ def g_triv(env: L.LeanEnv, build_dir: str, ns: str, n_constraints: int, work: st
            pre_lists=(), p2: bool = True, emit=None) -> Gate:
     """The P1 battery (one file per variant V0-V2) and, with ``p2``, the P2 file (V3-V4).  ``emit(forms)`` renders
     a battery file for other statement families (default: the circom statement)."""
-    os.makedirs(work, exist_ok=True)
+    FS.makedirs(work, exist_ok=True)
     results: dict[str, dict] = {}
     runs = []
     files = [(f"Battery_{v}", [(v, t) for t in E.BATTERY_TACTICS]) for v in E.BATTERY_VARIANTS]
@@ -309,7 +312,7 @@ def g_triv_p2(env: L.LeanEnv, build_dir: str, ns: str, n_constraints: int, work:
               file_wall: float = 900, single_wall: float = 180, rss_limit_mb: int = 16384,
               preconditions: bool = False, pre_lists=()) -> Gate:
     """The P2 file alone (re-run of packages whose P1 battery already ran)."""
-    os.makedirs(work, exist_ok=True)
+    FS.makedirs(work, exist_ok=True)
     res, run = _battery_file(env, build_dir, ns, n_constraints, work, "Battery_P2",
                              [(v, t) for v, ts in E.BATTERY_P2 for t in ts], heartbeats, file_wall, single_wall,
                              rss_limit_mb, preconditions, pre_lists)

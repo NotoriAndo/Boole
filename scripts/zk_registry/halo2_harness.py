@@ -15,6 +15,8 @@ the repository's pinned toolchain when installed).  Each writes ``sample_<k>.jso
 and, on request, MockProver verdicts on single-cell mutants (``mutants.out``).
 """
 from __future__ import annotations
+from zk_registry.safe_fs import open
+from zk_registry import safe_fs as FS
 
 import hashlib
 import json
@@ -73,7 +75,7 @@ def instrument_proofs(crate_dir: str, line: str) -> dict:
     with open(dev_rs, encoding="utf-8") as f:
         text = f.read()
     src = os.path.join(EXPORT_DIR, EXPORT_LINES[line])
-    shutil.copyfile(src, os.path.join(crate_dir, "src", "dev", "boole_export.rs"))
+    FS.copyfile(src, os.path.join(crate_dir, "src", "dev", "boole_export.rs"))
     if "pub mod boole_export;" not in text:
         if line == "zcash-0.3":
             if text.count(ZCASH_V03_DECL_ANCHOR) != 1 or text.count(ZCASH_V03_SIG_OLD) != 1:
@@ -123,8 +125,8 @@ def inject_wrappers(crate_dir: str, injections: list[Injection], driver_field: s
     for inj in injections:
         src = os.path.join(WRAPPER_DIR, inj.source)
         dest = os.path.join(crate_dir, inj.dest)
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
-        shutil.copyfile(src, dest)
+        FS.makedirs(os.path.dirname(dest), exist_ok=True)
+        FS.copyfile(src, dest)
         if driver_field and inj.source.endswith("boole_h1.rs"):
             with open(dest, encoding="utf-8") as f:
                 text = f.read()
@@ -158,7 +160,7 @@ def assemble_vendored(crate_dir: str, repo_root: str, cargo_toml_template: str, 
     Cargo.lock pins the versions of every dependency the crate shares with it."""
     if os.path.isdir(crate_dir):
         shutil.rmtree(crate_dir)
-    os.makedirs(os.path.join(crate_dir, "src"))
+    FS.makedirs(os.path.join(crate_dir, "src"))
     with open(os.path.join(WRAPPER_DIR, cargo_toml_template), encoding="utf-8") as f:
         text = f.read()
     for k, v in subst.items():
@@ -166,13 +168,13 @@ def assemble_vendored(crate_dir: str, repo_root: str, cargo_toml_template: str, 
     with open(os.path.join(crate_dir, "Cargo.toml"), "w", encoding="utf-8") as f:
         f.write(text)
     if lockfile:
-        shutil.copyfile(os.path.join(repo_root, lockfile), os.path.join(crate_dir, "Cargo.lock"))
+        FS.copyfile(os.path.join(repo_root, lockfile), os.path.join(crate_dir, "Cargo.lock"))
     done = []
     for src, dst in files:
         path = os.path.join(repo_root, src[5:]) if src.startswith("repo:") else os.path.join(WRAPPER_DIR, src)
         out = os.path.join(crate_dir, dst)
-        os.makedirs(os.path.dirname(out), exist_ok=True)
-        shutil.copyfile(path, out)
+        FS.makedirs(os.path.dirname(out), exist_ok=True)
+        FS.copyfile(path, out)
         if driver_field and src.endswith("boole_h1.rs"):
             with open(out, encoding="utf-8") as f:
                 text = f.read()
@@ -204,7 +206,7 @@ def patch_registry_crate(workspace: str, crate: str, version: str, tc: "Toolchai
     dest = os.path.join(dest_root, f"{crate}-{version}")
     if os.path.isdir(dest):
         shutil.rmtree(dest)
-    shutil.copytree(srcs[0], dest)
+    FS.copytree(srcs[0], dest)
     info = instrument_proofs(dest, line)
     cargo_toml = os.path.join(workspace, "Cargo.toml")
     with open(cargo_toml, encoding="utf-8") as f:

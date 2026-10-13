@@ -40,6 +40,8 @@ if __package__ in (None, ""):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     __package__ = "zk_registry"
 
+from zk_registry.safe_fs import open
+from zk_registry import safe_fs as FS
 from zk_registry import check as C                        # noqa: E402
 from zk_registry import det_search as DS                  # noqa: E402
 from zk_registry import gates as G                         # noqa: E402
@@ -246,7 +248,7 @@ def compile_candidate(pin: dict, style: str, src_path: str, src_text: str, workd
     """Compile the already-written ``src_path`` (the repository's own file for a bare ``main``, or a
     wrapper written next to it so its relative imports resolve); every output artifact goes to the
     isolated ``workdir``, never next to the source."""
-    os.makedirs(workdir, exist_ok=True)
+    FS.makedirs(workdir, exist_ok=True)
     out = os.path.join(workdir, "out")
     abi = os.path.join(workdir, "abi.json")
     if style == "brace":
@@ -287,7 +289,7 @@ def compute_real_witnesses(pin: dict, style: str, workdir: str, model, want: int
         if len(accepted) >= want:
             break
         wd = os.path.join(workdir, f"w{k}")
-        os.makedirs(wd, exist_ok=True)
+        FS.makedirs(wd, exist_ok=True)
         out_bin = os.path.join(workdir, "out")
         abi_path = os.path.join(workdir, "abi.json")
         if style == "brace":
@@ -470,7 +472,7 @@ def build_package(sh: Shared, rec: dict, row: dict, pin: dict, style: str, compi
     stage = os.path.join(work, "pkg")
     shutil.rmtree(stage, ignore_errors=True)
     model_rel = E.model_relpath(ns)
-    os.makedirs(os.path.dirname(os.path.join(stage, model_rel)), exist_ok=True)
+    FS.makedirs(os.path.dirname(os.path.join(stage, model_rel)), exist_ok=True)
     with open(os.path.join(stage, model_rel), "w", encoding="utf-8") as f:
         f.write(ZE.emit_model(ns, meta, model.r, model.outputs, model.inputs, model.wire_names))
     statement_text = E.emit_statement(ns, meta, preconditions=False)
@@ -519,7 +521,7 @@ def build_package(sh: Shared, rec: dict, row: dict, pin: dict, style: str, compi
                     "note": "PASS means no counterexample was found by the cheap searches; DET truth is not established"}
     if ce is not None:
         cdir = os.path.join(work, "counterexample")
-        os.makedirs(cdir, exist_ok=True)
+        FS.makedirs(cdir, exist_ok=True)
         write_w(os.path.join(cdir, "w1.txt"), ce.base)
         write_w(os.path.join(cdir, "w2.txt"), ce.other)
         with sh.lean_slots:
@@ -603,24 +605,24 @@ def write_package(sh: Shared, rec: dict, stage: str, work: str, real: list[list[
     dest = os.path.join(sh.cfg.out, *rec["package_id"].split("/", 1))
     if os.path.exists(dest):
         shutil.rmtree(dest)
-    os.makedirs(dest)
-    shutil.copyfile(os.path.join(stage, "Statement.lean"), os.path.join(dest, "Statement.lean"))
+    FS.makedirs(dest)
+    FS.copyfile(os.path.join(stage, "Statement.lean"), os.path.join(dest, "Statement.lean"))
     model_rel = rec["statement"]["model_file"]
-    os.makedirs(os.path.dirname(os.path.join(dest, model_rel)), exist_ok=True)
-    shutil.copyfile(os.path.join(stage, model_rel), os.path.join(dest, model_rel))
+    FS.makedirs(os.path.dirname(os.path.join(dest, model_rel)), exist_ok=True)
+    FS.copyfile(os.path.join(stage, model_rel), os.path.join(dest, model_rel))
     ev = os.path.join(dest, "evidence")
-    os.makedirs(ev)
+    FS.makedirs(ev)
     with open(os.path.join(ev, "wrapper.zok"), "w", encoding="utf-8") as f:
         f.write(rec["evidence"].pop("wrapper_source"))
-    os.makedirs(os.path.join(ev, "witnesses"))
+    FS.makedirs(os.path.join(ev, "witnesses"))
     for k, w in enumerate(real):
         Wmod.write_witness(os.path.join(ev, "witnesses", f"real_{k:03d}.txt"), w)
     if "counterexample_dir" in rec["evidence"]:
         cdir = rec["evidence"].pop("counterexample_dir")
-        os.makedirs(os.path.join(ev, "counterexample"))
+        FS.makedirs(os.path.join(ev, "counterexample"))
         for fn in ("w1.txt", "w2.txt"):
             if os.path.exists(os.path.join(cdir, fn)):
-                shutil.copyfile(os.path.join(cdir, fn), os.path.join(ev, "counterexample", fn))
+                FS.copyfile(os.path.join(cdir, fn), os.path.join(ev, "counterexample", fn))
     P.write_json(os.path.join(dest, "problem.json"), rec)
     errs = P.validate_problem(rec, dest)
     if errs:
@@ -647,7 +649,7 @@ def run_wave(cfg: WaveConfig) -> None:
     if cfg.only:
         only = set(cfg.only)
         canon = [r for r in canon if r["item_id"] in only]
-    os.makedirs(cfg.out, exist_ok=True)
+    FS.makedirs(cfg.out, exist_ok=True)
     gen = generator_info()
     sh = Shared(cfg, env, P.sha256_file(cfg.ledger), gen, lean_slots=threading.Semaphore(cfg.lean_jobs))
     log(sh, f"selection {len(rows)} rows, {len(canon)} distinct by content, {len(dup)} duplicates")
@@ -683,7 +685,7 @@ def write_outputs(out: str, records: list[dict], dedup_list: list[dict]) -> None
         by_repo.setdefault(r["ids"]["repo"], []).append(r)
     for repo_id, recs in by_repo.items():
         rd = os.path.join(out, repo_id.replace("/", "__"))
-        os.makedirs(rd, exist_ok=True)
+        FS.makedirs(rd, exist_ok=True)
         write_index(os.path.join(rd, "INDEX.jsonl"), sorted(recs, key=lambda r: r["package_id"]))
     with open(os.path.join(out, "DEDUP.jsonl"), "w", encoding="utf-8") as f:
         for d in sorted(dedup_list, key=lambda d: d["item_id"]):

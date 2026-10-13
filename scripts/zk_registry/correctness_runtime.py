@@ -9,11 +9,12 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import json
 import os
-from pathlib import Path
+from .safe_fs import Path
 import signal
 import subprocess
 import threading
 import time
+import uuid
 
 from . import lean_runner as L
 
@@ -60,16 +61,21 @@ def runner(log_directory: str, total_timeout: float | None = None, *, sandbox=No
            readable_paths: list[str] | None = None, writable_paths: list[str] | None = None):
     """Construct the existing whole-tree owned runner without changing process-wide state."""
     logs = Path(log_directory)
-    logs.mkdir(parents=True, exist_ok=True)
     lock = threading.Lock()
     sequence = 0
     deadline = time.monotonic() + total_timeout if total_timeout is not None else None
 
     def run_process(cmd, env, cwd, timeout, rss_limit_mb=None, watch=None, poll_s=0.25):
-        nonlocal sequence
+        nonlocal sequence, logs
         if sandbox is not None:
             cmd = sandbox.command(cmd, env, readable_paths or [], writable_paths or [])
+        from .sandbox import registered_command
         with lock:
+            if registered_command(cmd) and not getattr(run_process, 'trusted_logs', False):
+                logs = Path('/run/user') / str(os.getuid()) / 'boole-gate-receipts/processes' / uuid.uuid4().hex
+                run_process.trusted_logs = True
+            logs.mkdir(mode=0o700, parents=True, exist_ok=True)
+            run_process.log_directory = str(logs)
             sequence += 1
             label = str(os.getpid()) + '-' + str(sequence)
         started = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
@@ -155,18 +161,22 @@ def runner(log_directory: str, total_timeout: float | None = None, *, sandbox=No
         if not owned:
             state['reason'] = state['reason'] or 'unobserved-owned-root'
         code = 125 if state['reason'] and child.returncode == 0 else child.returncode
+        result = L.RunResult(code, output.decode('utf-8', 'replace'), round(time.monotonic() - epoch, 3),
+                             state['reason'] in ('timeout', 'checker-deadline'), state['reason'] == 'rss-limit',
+                             int(state['peak']), state['reason'])
+        from .sandbox import capture_result
+        result = capture_result(cmd, result)
         record = dict(argv=cmd, cwd=cwd, start_utc=started,
                       end_utc=datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
                       exit_code=code, child_exit_code=child.returncode, reason=state['reason'],
                       peak_rss_mb=state['peak'], rss_limit_mb=rss_limit_mb or 12000,
-                      owned_identities=owned, cleanup_observation_errors=state['errors'])
+                      owned_identities=owned, cleanup_observation_errors=state['errors'], boundary=result.boundary)
         with (logs / (label + '.json')).open('x') as stream:
             json.dump(record, stream, indent=2)
-        return L.RunResult(code, output.decode('utf-8', 'replace'), round(time.monotonic() - epoch, 3),
-                           state['reason'] in ('timeout', 'checker-deadline'), state['reason'] == 'rss-limit',
-                           int(state['peak']), state['reason'])
+        return result
 
     run_process.submission_boundary = sandbox
+    run_process.log_directory = str(logs)
     return run_process
 
 

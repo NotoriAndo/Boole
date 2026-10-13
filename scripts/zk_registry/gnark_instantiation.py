@@ -21,6 +21,7 @@ a counterexample there is not a finding).  The native field is the curve the pac
 with (BN254 when they name it or name none).
 """
 from __future__ import annotations
+from zk_registry.safe_fs import open
 
 import copy
 import hashlib

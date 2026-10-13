@@ -76,6 +76,9 @@ if __package__ in (None, ""):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     __package__ = "zk_registry"
 
+from zk_registry import safe_fs as FS
+from zk_registry.safe_fs import open
+
 from zk_registry import check as C              # noqa: E402
 from zk_registry import gnark_lean_emit as GE   # noqa: E402
 from zk_registry import gnark_r1cs as GR        # noqa: E402
@@ -414,11 +417,12 @@ def go_env(goroot: str, work: str, gocache: str, online: bool = False) -> dict:
            "TMPDIR": os.path.join(work, "tmp"), "GOPATH": os.path.join(work, "gopath"),
            "GOMODCACHE": os.path.join(work, "gomod"), "GOCACHE": gocache, "GOTOOLCHAIN": "local", "GOWORK": "off",
            "GOENV": "off", "GOTELEMETRY": "off", "CGO_ENABLED": "0", "GOFLAGS": "-mod=vendor", "GOPROXY": "off",
-           "GOSUMDB": "off", "GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"}
+           "GOSUMDB": "off", "GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1",
+           "GOMAXPROCS": "4"}
     if online:
         env.update(GOFLAGS="-mod=mod", GOPROXY="https://proxy.golang.org", GOSUMDB="sum.golang.org")
     for k in ("HOME", "TMPDIR", "GOPATH", "GOMODCACHE", "GOCACHE"):
-        os.makedirs(env[k], exist_ok=True)
+        FS.makedirs(env[k], exist_ok=True)
     return env
 
 
@@ -442,8 +446,8 @@ def _copy_module(src: str, dst: str) -> int:
             rel = os.path.relpath(os.path.join(root, nm), src)
             if (nm.endswith(".go") and not nm.endswith("_test.go")) or rel in ("go.mod", "go.sum"):
                 q = os.path.join(dst, rel)
-                os.makedirs(os.path.dirname(q), exist_ok=True)
-                shutil.copyfile(os.path.join(root, nm), q)
+                FS.makedirs(os.path.dirname(q), exist_ok=True)
+                FS.copyfile(os.path.join(root, nm), q)
                 n += 1
     return n
 
@@ -510,7 +514,7 @@ def build_tool(prob: dict, snapshot: str, tools: str, work: str, wrapper_text: s
     P.write_json(os.path.join(work, "overlay.json"), {"Replace": overlay})
     env = go_env(goroot, work, gocache or os.path.join(tools, "gocache"))
     binary = os.path.join(work, "gnarkx")
-    r = L.run_submission(["go", "build", "-trimpath", "-overlay", os.path.join(work, "overlay.json"), "-o", binary,
+    r = L.run_submission(["go", "build", "-p", "4", "-trimpath", "-overlay", os.path.join(work, "overlay.json"), "-o", binary,
                        "./" + TOOL_SUBDIR], env, root, BUILD_TIMEOUT, BUILD_RSS_MB)
     put(os.path.join(work, "build.log"), r.out[-20000:])
     out = {"build_secs": r.secs, "build_peak_rss_mb": r.peak_rss_mb}
@@ -524,7 +528,7 @@ def build_tool(prob: dict, snapshot: str, tools: str, work: str, wrapper_text: s
 def run_tool(binary: str, args: list[str], work: str) -> L.RunResult:
     env = {"PATH": "/usr/bin:/bin", "HOME": os.path.join(work, "home"), "TMPDIR": os.path.join(work, "tmp")}
     for k in ("HOME", "TMPDIR"):
-        os.makedirs(env[k], exist_ok=True)
+        FS.makedirs(env[k], exist_ok=True)
     return L.run_submission([binary] + args, env, work, RUN_TIMEOUT, RUN_RSS_MB)
 
 
@@ -717,7 +721,7 @@ def compile_candidate(prob: dict, cand_path: str, out: str, snapshot: str, tools
                       gocache: str | None = None) -> tuple[dict, dict]:
     """Source rules, build, compile, I/O, metric.  Returns (report, compile result); raises Reject."""
     RT.verify_snapshot(snapshot, prob["snapshot"]["manifest_sha256"])
-    os.makedirs(out, exist_ok=True)
+    FS.makedirs(out, exist_ok=True)
     text = admit_candidate(cand_path, prob, snapshot)
     rep: dict = {"problem": prob["package_id"], "candidate_file": os.path.abspath(cand_path), "started_utc": now(),
                  "source_sha256": sha(text.encode())}
@@ -855,8 +859,8 @@ def write_candidate_package(prob: dict, problem_dir: str, cand: dict, res: dict,
     cmodel = candidate_model(prob, res)
     fresh_dir(pkg)
     m = prob["reference"]["model"]
-    os.makedirs(os.path.dirname(os.path.join(pkg, m["file"])), exist_ok=True)
-    shutil.copyfile(os.path.join(problem_dir, m["file"]), os.path.join(pkg, m["file"]))
+    FS.makedirs(os.path.dirname(os.path.join(pkg, m["file"])), exist_ok=True)
+    FS.copyfile(os.path.join(problem_dir, m["file"]), os.path.join(pkg, m["file"]))
     if P.sha256_file(os.path.join(pkg, m["file"])) != m["sha256"]:
         raise RuntimeError("reference model file changed")
     put(os.path.join(pkg, E.model_relpath(cand_ns)), cmodel)
@@ -909,6 +913,15 @@ def run_check(problem_dir: str, cand_path: str, solution: str, out: str, tools: 
     except Reject as ex:
         rep.update(verdict="REJECTED", reason=str(ex))
         return "REJECTED", rep
+    except (L.BoundaryInvalid, L.ResourceUnavailable) as ex:
+        rep.update(L.boundary_outcome(ex))
+        return rep['verdict'], rep
+    except ValueError as ex:
+        from .sandbox import SandboxUnavailable
+        if not isinstance(ex, SandboxUnavailable):
+            raise
+        rep.update(L.boundary_outcome(ex))
+        return rep['verdict'], rep
     rep["candidate"] = cr["candidate"]
     if not os.path.isfile(solution):
         rep.update(verdict="ERROR", reason=f"no solution file {solution}")
@@ -1065,7 +1078,7 @@ def simulate(problem_dir: str, cand_path: str, out: str, n_random: int, tools: s
         raise RuntimeError(f"the reference does not rebuild to its model: {refc.get('error', 'R1CS digest differs')}")
     t0 = time.time()
     run = os.path.join(out, "run")
-    os.makedirs(run, exist_ok=True)
+    FS.makedirs(run, exist_ok=True)
     ra, a = run_simulate(refc["binary"], prob, n_random, run, "ref")
     rb, b = run_simulate(res["binary"], prob, n_random, run, "cand")
     sim = compare_runs(ra, a, rb, b, refc["model"], res["model"])
@@ -1158,8 +1171,8 @@ def build_problem(reg_dir: str, snapshot: str, out_dir: str, tools: str, det: di
     prob = problem_record(spec, layout, meas, det, snap, wrapper, pins, annotations)
     fresh_dir(out_dir)
     dst = os.path.join(out_dir, spec["model"]["file"])
-    os.makedirs(os.path.dirname(dst), exist_ok=True)
-    shutil.copyfile(os.path.join(reg_dir, spec["model"]["file"]), dst)
+    FS.makedirs(os.path.dirname(dst), exist_ok=True)
+    FS.copyfile(os.path.join(reg_dir, spec["model"]["file"]), dst)
     put(os.path.join(out_dir, "reference", "wrapper.go"), spec["wrapper"])
     errs = P.validate_problem(prob, out_dir)
     if errs:

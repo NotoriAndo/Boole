@@ -68,6 +68,9 @@ if __package__ in (None, ""):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     __package__ = "zk_registry"
 
+from zk_registry import safe_fs as FS
+from zk_registry.safe_fs import open
+
 from zk_registry import air_bus as AB           # noqa: E402
 from zk_registry import air_det as AD           # noqa: E402
 from zk_registry import air_ir as IR            # noqa: E402
@@ -390,7 +393,7 @@ def make_snapshot(tree: str, dest: str) -> str:
     and ``MANIFEST.sha256``; returns the manifest's sha256."""
     if os.path.exists(dest):
         raise RuntimeError(f"{dest} exists")
-    shutil.copytree(tree, os.path.join(dest, "repo"), symlinks=True,
+    FS.copytree(tree, os.path.join(dest, "repo"), symlinks=True,
                     ignore=lambda d, names: [n for n in names if d == tree and n in ("target", ".git")])
     links = {}
     for root, dirs, names in os.walk(os.path.join(dest, "repo")):
@@ -465,7 +468,7 @@ def sync_tree(snapshot: str, man: dict[str, str], overlay: dict[str, bytes], des
     """Make ``dest`` the snapshot's ``repo/`` plus the overlay: a file is (re)written only when its content differs
     (with a fresh modification time, so cargo rebuilds exactly the changed crates); files of earlier overlays that
     the snapshot does not have are removed."""
-    os.makedirs(dest, exist_ok=True)
+    FS.makedirs(dest, exist_ok=True)
     want = dict(man)
     for rel, data in overlay.items():
         want[rel] = sha(data)
@@ -476,7 +479,7 @@ def sync_tree(snapshot: str, man: dict[str, str], overlay: dict[str, bytes], des
             continue
         if os.path.lexists(p):
             raise RuntimeError(f"build tree {dest}: {rel} should be a symbolic link")
-        os.makedirs(os.path.dirname(p), exist_ok=True)
+        FS.makedirs(os.path.dirname(p), exist_ok=True)
         os.symlink(target, p)
     for rel, h in want.items():
         p = os.path.join(dest, rel)
@@ -484,12 +487,12 @@ def sync_tree(snapshot: str, man: dict[str, str], overlay: dict[str, bytes], des
             continue
         if os.path.islink(p) or os.path.isdir(p):
             raise RuntimeError(f"build tree {dest}: {rel} is not a regular file")
-        os.makedirs(os.path.dirname(p), exist_ok=True)
+        FS.makedirs(os.path.dirname(p), exist_ok=True)
         if rel in overlay:
             with open(p, "wb") as f:
                 f.write(overlay[rel])
         else:
-            shutil.copyfile(os.path.join(snapshot, "repo", rel), p)
+            FS.copyfile(os.path.join(snapshot, "repo", rel), p)
         written += 1
     for root, dirs, names in os.walk(dest):
         dirs[:] = [d for d in dirs if not (root == dest and d in ("target", ".git"))
@@ -509,7 +512,8 @@ def build_env(prob: dict, build_dir: str) -> dict:
                                                             "BOOLE_AIR_SEED", "BOOLE_AIR_NO_ROWS")}
     env.update(RUSTUP_TOOLCHAIN=prob["build"]["toolchain"], RUSTUP_AUTO_INSTALL="0",
                CARGO_TARGET_DIR=os.path.join(build_dir, "target"), CARGO_TERM_COLOR="never",
-               CARGO_NET_OFFLINE="true", GIT_TERMINAL_PROMPT="0")
+               CARGO_NET_OFFLINE="true", GIT_TERMINAL_PROMPT="0", CARGO_BUILD_JOBS="4",
+               RAYON_NUM_THREADS="4", RUST_TEST_THREADS="4")
     env.setdefault("CARGO_INCREMENTAL", "0")
     return env
 
@@ -535,7 +539,7 @@ def build(prob: dict, snapshot: str, man: dict[str, str], overlay: dict[str, byt
     t0 = time.time()
     sync = sync_tree(snapshot, man, overlay, repo)
     env = build_env(prob, build_dir)
-    os.makedirs(work, exist_ok=True)
+    FS.makedirs(work, exist_ok=True)
     rc, out = _run(prob["build"]["command"], env, repo, BUILD_TIMEOUT, os.path.join(work, "build.log"))
     rec = {"sync": sync, "rc": rc, "secs": round(time.time() - t0, 1)}
     if rc != 0:
@@ -695,7 +699,7 @@ def compile_candidate(prob: dict, problem_dir: str, cand_dir: str, out: str, sna
                       rows: bool = False) -> tuple[dict, dict]:
     """Source rules, build, extraction, admissibility and cost.  Returns (report, evaluation); raises Reject."""
     man = manifest_of(snapshot, prob["snapshot"]["manifest_sha256"])
-    os.makedirs(out, exist_ok=True)
+    FS.makedirs(out, exist_ok=True)
     overlay = overlay_of(prob, snapshot, cand_dir, man)
     rep: dict = {"problem": prob["package_id"], "candidate_dir": os.path.abspath(cand_dir), "started_utc": now(),
                  "overlay_sha256": overlay_digest(overlay), "files": sorted(overlay)}
@@ -810,8 +814,8 @@ def write_candidate_package(prob: dict, problem_dir: str, cand: dict, ev: dict, 
     stmt = statement_text(prob, cand)
     fresh_dir(pkg)
     m = prob["reference"]["model"]
-    os.makedirs(os.path.dirname(os.path.join(pkg, m["file"])), exist_ok=True)
-    shutil.copyfile(os.path.join(problem_dir, m["file"]), os.path.join(pkg, m["file"]))
+    FS.makedirs(os.path.dirname(os.path.join(pkg, m["file"])), exist_ok=True)
+    FS.copyfile(os.path.join(problem_dir, m["file"]), os.path.join(pkg, m["file"]))
     if P.sha256_file(os.path.join(pkg, m["file"])) != m["sha256"]:
         raise RuntimeError("reference model file changed")
     put(os.path.join(pkg, AL.model_relpath(cand_ns)), cmodel)
@@ -870,6 +874,15 @@ def run_check(problem_dir: str, cand_dir: str, solution: str, out: str, build_di
     except Reject as ex:
         rep.update(verdict="REJECTED", reason=str(ex))
         return "REJECTED", rep
+    except (L.BoundaryInvalid, L.ResourceUnavailable) as ex:
+        rep.update(L.boundary_outcome(ex))
+        return rep['verdict'], rep
+    except ValueError as ex:
+        from .sandbox import SandboxUnavailable
+        if not isinstance(ex, SandboxUnavailable):
+            raise
+        rep.update(L.boundary_outcome(ex))
+        return rep['verdict'], rep
     rep["candidate"] = cr["candidate"]
     if not os.path.isfile(solution):
         rep.update(verdict="ERROR", reason=f"no solution file {solution}")
@@ -1297,10 +1310,10 @@ def build_problem(reg_dir: str, det: dict | None, extraction: str, snapshot: str
     msgs = messages_record(summaries)
     fresh_dir(out_dir)
     dst = os.path.join(out_dir, spec["model"]["file"])
-    os.makedirs(os.path.dirname(dst), exist_ok=True)
-    shutil.copyfile(os.path.join(reg_dir, spec["model"]["file"]), dst)
-    os.makedirs(os.path.join(out_dir, "reference"))
-    shutil.copyfile(ir_path, os.path.join(out_dir, "reference", "air.ir.json"))
+    FS.makedirs(os.path.dirname(dst), exist_ok=True)
+    FS.copyfile(os.path.join(reg_dir, spec["model"]["file"]), dst)
+    FS.makedirs(os.path.join(out_dir, "reference"))
+    FS.copyfile(ir_path, os.path.join(out_dir, "reference", "air.ir.json"))
     P.write_json(os.path.join(out_dir, "reference", "machine.json"), machine_rows)
     P.write_json(os.path.join(out_dir, "reference", "messages.json"), msgs)
     machine = {"file": "reference/machine.json", "sha256": P.sha256_file(os.path.join(out_dir, "reference",

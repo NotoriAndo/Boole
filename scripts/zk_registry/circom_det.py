@@ -43,6 +43,8 @@ if __package__ in (None, ""):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     __package__ = "zk_registry"
 
+from zk_registry.safe_fs import open
+from zk_registry import safe_fs as FS
 from zk_registry import check as C                # noqa: E402
 from zk_registry import circom_source as cs       # noqa: E402
 from zk_registry import content as CT             # noqa: E402
@@ -151,7 +153,7 @@ def fetch_circom(version: str, asset: str, dest_dir: str) -> str:
     """Download a pinned circom release asset (anonymous request) and verify its published sha256."""
     rel = CIRCOM_RELEASES[version]
     want = rel["sha256"][asset]
-    os.makedirs(dest_dir, exist_ok=True)
+    FS.makedirs(dest_dir, exist_ok=True)
     dest = os.path.join(dest_dir, f"circom-{version}-{asset}")
     if not (os.path.exists(dest) and sha256_file(dest) == want):
         tmp = dest + ".part"
@@ -415,7 +417,7 @@ def compile_main(sh: Shared, workdir: str, include_rel: str, template: str, args
     """Compile ``template(args)`` as the main component (``tag_template``: the template's inputs carry known
     tags; it is compiled through the untagged wrapper of :func:`tags.wrapper_source`)."""
     compiler = compiler or sh.default_compiler()
-    os.makedirs(workdir, exist_ok=True)
+    FS.makedirs(workdir, exist_ok=True)
     prime, libs, _ = build_options(sh.cfg, rule_path or include_rel)
     nomain = main_free_copy(sh, include_rel)
     custom = uses_custom_templates_pragma(sh.files, include_rel)
@@ -781,7 +783,7 @@ def build_package(sh: Shared, t: cs.Template, rec: dict, size_cr: dict, dir_name
     stage = os.path.join(work, "pkg")
     shutil.rmtree(stage, ignore_errors=True)
     model_rel = E.model_relpath(ns)
-    os.makedirs(os.path.dirname(os.path.join(stage, model_rel)), exist_ok=True)
+    FS.makedirs(os.path.dirname(os.path.join(stage, model_rel)), exist_ok=True)
     with open(os.path.join(stage, model_rel), "w", encoding="utf-8") as f:
         f.write(E.emit_model(ns, meta, r, io.outputs, io.inputs, names, wpre))
     statement_text = E.emit_statement(ns, meta, preconditions=bool(wpre))
@@ -861,7 +863,7 @@ def build_package(sh: Shared, t: cs.Template, rec: dict, size_cr: dict, dir_name
                 "note": "PASS means no counterexample was found by the cheap searches; DET truth is not established"}
     if ce is not None:
         cdir = os.path.join(work, "counterexample")
-        os.makedirs(cdir, exist_ok=True)
+        FS.makedirs(cdir, exist_ok=True)
         W.write_witness(os.path.join(cdir, "w1.txt"), ce.base)
         W.write_witness(os.path.join(cdir, "w2.txt"), ce.other)
         verdicts, _ = (G.lean_verdicts(sh.env, build, ns, r.n_constraints,
@@ -950,29 +952,29 @@ def set_status(rec: dict, gates: dict, has_outputs: bool) -> None:
 def write_package(sh: Shared, rec: dict, stage: str, work: str, dir_name: str) -> None:
     dest = os.path.join(sh.cfg.out, dir_name)
     shutil.rmtree(dest, ignore_errors=True)
-    os.makedirs(dest)
-    shutil.copyfile(os.path.join(stage, "Statement.lean"), os.path.join(dest, "Statement.lean"))
+    FS.makedirs(dest)
+    FS.copyfile(os.path.join(stage, "Statement.lean"), os.path.join(dest, "Statement.lean"))
     model_rel = rec["statement"]["model_file"]
-    os.makedirs(os.path.dirname(os.path.join(dest, model_rel)), exist_ok=True)
-    shutil.copyfile(os.path.join(stage, model_rel), os.path.join(dest, model_rel))
+    FS.makedirs(os.path.dirname(os.path.join(dest, model_rel)), exist_ok=True)
+    FS.copyfile(os.path.join(stage, model_rel), os.path.join(dest, model_rel))
     ev = os.path.join(dest, "evidence")
-    os.makedirs(ev)
-    shutil.copyfile(os.path.join(work, "compile", "main.portable.circom"), os.path.join(ev, "main.circom"))
+    FS.makedirs(ev)
+    FS.copyfile(os.path.join(work, "compile", "main.portable.circom"), os.path.join(ev, "main.circom"))
     for name in ("elab/reference.type.txt",):
         src = os.path.join(work, name)
         if os.path.exists(src):
-            shutil.copyfile(src, os.path.join(ev, os.path.basename(name)))
+            FS.copyfile(src, os.path.join(ev, os.path.basename(name)))
     if "counterexample_dir" in rec["evidence"]:
         src = rec["evidence"].pop("counterexample_dir")
-        os.makedirs(os.path.join(ev, "counterexample"))
+        FS.makedirs(os.path.join(ev, "counterexample"))
         for fn in ("w1.txt", "w2.txt"):          # the witnesses only; the harness file names local paths
-            shutil.copyfile(os.path.join(src, fn), os.path.join(ev, "counterexample", fn))
+            FS.copyfile(os.path.join(src, fn), os.path.join(ev, "counterexample", fn))
     triv = os.path.join(work, "triv")
     if os.path.isdir(triv):
-        os.makedirs(os.path.join(ev, "triv"))
+        FS.makedirs(os.path.join(ev, "triv"))
         for fn in sorted(os.listdir(triv)):
             if fn.endswith(".lean"):
-                shutil.copyfile(os.path.join(triv, fn), os.path.join(ev, "triv", fn))
+                FS.copyfile(os.path.join(triv, fn), os.path.join(ev, "triv", fn))
     rec["evidence"].pop("work", None)
 
 
@@ -1056,8 +1058,8 @@ def run_waves(cfgs: list[WaveConfig], jobs: int) -> dict[str, list[dict]]:
     prepared = []
     for cfg in cfgs:
         sh, plans, missing = prepare(cfg)
-        os.makedirs(cfg.out, exist_ok=True)
-        os.makedirs(cfg.work, exist_ok=True)
+        FS.makedirs(cfg.out, exist_ok=True)
+        FS.makedirs(cfg.work, exist_ok=True)
         prepared.append((sh, plans, [scrub(sh, m) for m in missing]))
     results: dict[str, list[dict]] = {sh.cfg.out: list(missing) for sh, _, missing in prepared}
     total = sum(len(plans) for _, plans, _ in prepared)
@@ -1198,8 +1200,8 @@ def run_decompose(cfgs: list[WaveConfig], parents_file: str, existing_file: str,
     shs = {}
     for cfg in cfgs:
         sh, _, _ = prepare(cfg)
-        os.makedirs(cfg.out, exist_ok=True)
-        os.makedirs(cfg.work, exist_ok=True)
+        FS.makedirs(cfg.out, exist_ok=True)
+        FS.makedirs(cfg.work, exist_ok=True)
         shs[cfg.collection] = sh
     existing = {}
     with open(existing_file, encoding="utf-8") as f:
@@ -1316,8 +1318,8 @@ def run_detmod(cfgs: list[WaveConfig], parents_file: str, jobs: int) -> dict[str
     shs = {}
     for cfg in cfgs:
         sh, _, _ = prepare(cfg)
-        os.makedirs(cfg.out, exist_ok=True)
-        os.makedirs(cfg.work, exist_ok=True)
+        FS.makedirs(cfg.out, exist_ok=True)
+        FS.makedirs(cfg.work, exist_ok=True)
         shs[cfg.repo_id] = sh
     caches: dict[str, dict] = {k: {} for k in shs}
     jobs_list, dup = [], []
@@ -1429,8 +1431,8 @@ def battery_p2_one(env: L.LeanEnv, rec: dict, pkg: str, work: str, out: str, hea
     if new["status"] != rec["status"]:
         dest = os.path.join(out, rec["package_id"])
         shutil.rmtree(dest, ignore_errors=True)
-        shutil.copytree(pkg, dest)
-        shutil.copyfile(os.path.join(work, "triv", "Battery_P2.lean"),
+        FS.copytree(pkg, dest)
+        FS.copyfile(os.path.join(work, "triv", "Battery_P2.lean"),
                         os.path.join(dest, "evidence", "triv", "Battery_P2.lean"))
         P.write_json(os.path.join(dest, "problem.json"), new)
         row["record"] = new
@@ -1447,7 +1449,7 @@ def run_battery_p2(sources: list[tuple[str, str]], lean_env: str, work: str, out
                 rec = json.loads(line)
                 if rec["status"] == "OPEN":
                     todo.append((rec, os.path.join(root, rec["package_id"])))
-    os.makedirs(out, exist_ok=True)
+    FS.makedirs(out, exist_ok=True)
     rows = []
     with cf.ThreadPoolExecutor(max_workers=jobs) as ex:
         futs = {ex.submit(battery_p2_one, env, rec, pkg, os.path.join(work, rec["package_id"]), out): rec

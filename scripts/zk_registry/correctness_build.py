@@ -9,7 +9,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-from pathlib import Path
+from zk_registry import safe_fs as FS
+from .safe_fs import Path
 import shutil
 import time
 
@@ -60,7 +61,7 @@ def copy(source: Path, target: Path) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
         raise FileExistsError(target)
-    shutil.copyfile(source, target)
+    FS.copyfile(source, target)
 
 
 def prepare(unit: dict, registry: Path, spec_directory: Path, source_file: Path,

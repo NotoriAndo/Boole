@@ -37,6 +37,8 @@ if __package__ in (None, ""):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     __package__ = "zk_registry"
 
+from zk_registry.safe_fs import open
+from zk_registry import safe_fs as FS
 from zk_registry import air_bus as B              # noqa: E402
 from zk_registry import air_ir as IR              # noqa: E402
 from zk_registry import air_lean as AL            # noqa: E402
@@ -275,7 +277,7 @@ def mutants(air: IR.Air, bases: list[list[int]], n: int, seed: str, fixed: set[i
 # ------------------------------------------------------------------------------------------ Lean evaluation
 
 def lean_eval(env: L.LeanEnv, build: str, text: str, work: str, name: str, timeout: float = 3600) -> tuple[str, L.RunResult]:
-    os.makedirs(work, exist_ok=True)
+    FS.makedirs(work, exist_ok=True)
     src = os.path.join(work, f"{name}.lean")
     with open(src, "w", encoding="utf-8") as f:
         f.write(text)
@@ -319,7 +321,7 @@ def fid_nonvac(sh: Shared, air: IR.Air, layout: IR.Layout, roles: AL.Roles, summ
     muts = mutants(air, [w for _, w in chosen], FID_MUTANTS, seed, set(layout.fixed())) if chosen else []
     files = []
     wdir = os.path.join(work, "win")
-    os.makedirs(wdir, exist_ok=True)
+    FS.makedirs(wdir, exist_ok=True)
     # every real window the Python evaluator rejects is evaluated too (the model must reject it as well)
     rej_windows = [w for i, w in real if any(r["row"] == i for r in rejected)][:4]
     items = [("real", k, w) for k, (_, w) in enumerate(chosen)] + [("mut", k, w) for k, w in enumerate(muts)] + \
@@ -425,7 +427,7 @@ def kernel_verdicts(sh: Shared, air: IR.Air, layout: IR.Layout, ctx, summary: di
             claims.append((name, f"{'' if ok else '¬ '}{what} w_{tag}"))
             expect[name] = (tag, what, ok)
     text, ranges = AL.emit_kernel_checks(ns, summary, windows, claims)
-    os.makedirs(work, exist_ok=True)
+    FS.makedirs(work, exist_ok=True)
     src = os.path.join(work, "FidKernel.lean")
     with open(src, "w", encoding="utf-8") as f:
         f.write(text)
@@ -451,7 +453,7 @@ def kernel_verdicts(sh: Shared, air: IR.Air, layout: IR.Layout, ctx, summary: di
 
 def confirm_in_lean(sh: Shared, ns: str, summary: dict, build: str, w1: list[int], w2: list[int], work: str,
                     kernel: bool = False) -> dict:
-    os.makedirs(work, exist_ok=True)
+    FS.makedirs(work, exist_ok=True)
     if kernel:
         claims = [("pair_c1", "Constraints w_a"), ("pair_c2", "Constraints w_b"), ("pair_a1", "Assumptions w_a"),
                   ("pair_a2", "Assumptions w_b"), ("pair_fixed", "∀ i ∈ Fixed, w_a i = w_b i"),
@@ -517,14 +519,14 @@ def _process_air(sh: Shared, m: dict, rec: dict) -> dict:
     dname = rec["package_id"].split("/", 1)[1]
     work = os.path.join(cfg.work, dname)
     shutil.rmtree(work, ignore_errors=True)
-    os.makedirs(work)
+    FS.makedirs(work)
     ns = "ZkDet." + E.lean_ident(f"{cfg.collection}_{dname}")
     meta = {"zkvm_name": sh.bus.display, "release": cfg.release, "generator": f"{sh.generator['name']} v{sh.generator['version']}",
             "repo_url": cfg.repo_url, "extractor": sh.build.get("builder", "the zkVM's symbolic builders"),
             "ir_sha256": rec["air"]["ir_sha256"]}
     stage = os.path.join(work, "pkg")
     model_rel = AL.model_relpath(ns)
-    os.makedirs(os.path.dirname(os.path.join(stage, model_rel)), exist_ok=True)
+    FS.makedirs(os.path.dirname(os.path.join(stage, model_rel)), exist_ok=True)
     model_text, summary = AL.emit_model(ns, meta, air, layout, roles, sh.bus.tables)
     with open(os.path.join(stage, model_rel), "w", encoding="utf-8") as f:
         f.write(model_text)
@@ -679,28 +681,28 @@ def set_status(rec: dict, gates: dict, has_outputs: bool, homogeneous: bool = Tr
 def write_package(sh: Shared, rec: dict, stage: str, work: str, dname: str) -> None:
     dest = os.path.join(sh.cfg.out, dname)
     shutil.rmtree(dest, ignore_errors=True)
-    os.makedirs(dest)
-    shutil.copyfile(os.path.join(stage, "Statement.lean"), os.path.join(dest, "Statement.lean"))
+    FS.makedirs(dest)
+    FS.copyfile(os.path.join(stage, "Statement.lean"), os.path.join(dest, "Statement.lean"))
     model_rel = rec["statement"]["model_file"]
-    os.makedirs(os.path.dirname(os.path.join(dest, model_rel)), exist_ok=True)
-    shutil.copyfile(os.path.join(stage, model_rel), os.path.join(dest, model_rel))
+    FS.makedirs(os.path.dirname(os.path.join(dest, model_rel)), exist_ok=True)
+    FS.copyfile(os.path.join(stage, model_rel), os.path.join(dest, model_rel))
     ev = os.path.join(dest, "evidence")
-    os.makedirs(ev)
-    shutil.copyfile(os.path.join(sh.cfg.extract, "airs", f"{rec['ids']['air_index']}.json"), os.path.join(ev, "air.ir.json"))
+    FS.makedirs(ev)
+    FS.copyfile(os.path.join(sh.cfg.extract, "airs", f"{rec['ids']['air_index']}.json"), os.path.join(ev, "air.ir.json"))
     src = os.path.join(work, "elab", "reference.type.txt")
     if os.path.exists(src):
-        shutil.copyfile(src, os.path.join(ev, "reference.type.txt"))
+        FS.copyfile(src, os.path.join(ev, "reference.type.txt"))
     cdir = rec["evidence"].pop("counterexample_dir", None)
     if cdir:
-        os.makedirs(os.path.join(ev, "counterexample"))
+        FS.makedirs(os.path.join(ev, "counterexample"))
         for fn in ("w1.txt", "w2.txt"):
-            shutil.copyfile(os.path.join(cdir, fn), os.path.join(ev, "counterexample", fn))
+            FS.copyfile(os.path.join(cdir, fn), os.path.join(ev, "counterexample", fn))
     triv = os.path.join(work, "triv")
     if os.path.isdir(triv):
-        os.makedirs(os.path.join(ev, "triv"))
+        FS.makedirs(os.path.join(ev, "triv"))
         for fn in sorted(os.listdir(triv)):
             if fn.endswith(".lean"):
-                shutil.copyfile(os.path.join(triv, fn), os.path.join(ev, "triv", fn))
+                FS.copyfile(os.path.join(triv, fn), os.path.join(ev, "triv", fn))
 
 
 # ------------------------------------------------------------------------------------------ wave
@@ -760,8 +762,8 @@ def run_wave(cfg: WaveConfig, jobs: int | None = None) -> list[dict]:
     """Package every AIR of the extract (or the ``only`` subset: its records replace the same package ids of an
     existing index, the other records are kept)."""
     sh, manifest = prepare(cfg)
-    os.makedirs(cfg.out, exist_ok=True)
-    os.makedirs(cfg.work, exist_ok=True)
+    FS.makedirs(cfg.out, exist_ok=True)
+    FS.makedirs(cfg.work, exist_ok=True)
     kept: list[dict] = []
     index = os.path.join(cfg.out, "INDEX.jsonl")
     if cfg.only and os.path.exists(index):
@@ -941,8 +943,8 @@ def prepare_harness(zkvm: str, src: str) -> dict:
     ir_src = os.path.join(HARNESS_DIR, "common", "boole_air_ir.rs")
     if inst["mode"] == "module":
         d = os.path.join(src, inst["dir"])
-        shutil.copyfile(os.path.join(zdir, "main.rs"), os.path.join(d, f"{inst['module']}.rs"))
-        shutil.copyfile(ir_src, os.path.join(d, "boole_air_ir.rs"))
+        FS.copyfile(os.path.join(zdir, "main.rs"), os.path.join(d, f"{inst['module']}.rs"))
+        FS.copyfile(ir_src, os.path.join(d, "boole_air_ir.rs"))
         lib = os.path.join(src, inst["lib"])
         with open(lib, encoding="utf-8") as f:
             text = f.read()
@@ -954,13 +956,13 @@ def prepare_harness(zkvm: str, src: str) -> dict:
         return {"module": os.path.join(d, f"{inst['module']}.rs"), "harness_sha256": harness_sha256(zkvm)}
     crate = os.path.join(src, "boole-air-extract")
     shutil.rmtree(crate, ignore_errors=True)
-    os.makedirs(os.path.join(crate, "src"))
+    FS.makedirs(os.path.join(crate, "src"))
     for fn in os.listdir(zdir):
         if fn == "install.json":
             continue
         dst = os.path.join(crate, "Cargo.toml" if fn == "Cargo.toml.in" else os.path.join("src", fn))
-        shutil.copyfile(os.path.join(zdir, fn), dst)
-    shutil.copyfile(ir_src, os.path.join(crate, "src", "boole_air_ir.rs"))
+        FS.copyfile(os.path.join(zdir, fn), dst)
+    FS.copyfile(ir_src, os.path.join(crate, "src", "boole_air_ir.rs"))
     ws = os.path.join(src, "Cargo.toml")
     with open(ws, encoding="utf-8") as f:
         text = f.read()

@@ -20,6 +20,7 @@ The evaluator in this module shares no code with the Lean emitter; agreement of 
 the fidelity evidence of the Lean model (gate G-FID).
 """
 from __future__ import annotations
+from zk_registry.safe_fs import open
 
 import hashlib
 import json

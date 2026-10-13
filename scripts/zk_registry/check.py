@@ -47,10 +47,13 @@ if __package__ in (None, ""):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     __package__ = "zk_registry"
 
+from zk_registry import safe_fs as FS
+
 from zk_registry import gates as G            # noqa: E402
 from zk_registry import lean_runner as L      # noqa: E402
 from zk_registry import package as P          # noqa: E402
 from zk_registry.sandbox import Sandbox, SandboxUnavailable  # noqa: E402
+from zk_registry.safe_fs import open, copyfile  # noqa: E402
 
 ALLOWED_AXIOMS = {"propext", "Classical.choice", "Quot.sound"}
 FORBIDDEN_V1 = [
@@ -262,8 +265,11 @@ def compile_in_sandbox(env: L.LeanEnv, problem: dict, pkg_dir: str, text: str, w
         return {'error': reason}
     from zk_registry import correctness_runtime as CR
     guarded = CR.runner(os.path.join(workdir, 'processes'), timeout)
-    with L.sandbox_context(selected, [pkg_dir, workdir, os.path.dirname(G.REPLAY_TOOL)], [workdir], guarded):
-        result = _compile_and_postcheck(env, problem, pkg_dir, text, workdir, timeout)
+    try:
+        with L.sandbox_context(selected, [pkg_dir, workdir, os.path.dirname(G.REPLAY_TOOL)], [workdir], guarded):
+            result = _compile_and_postcheck(env, problem, pkg_dir, text, workdir, timeout)
+    except (OSError, SandboxUnavailable):
+        return dict(error='sandbox-unavailable', assurance=selected.mode)
     result['assurance'] = selected.mode
     return result
 
@@ -276,20 +282,29 @@ def _compile_and_postcheck(env: L.LeanEnv, problem: dict, pkg_dir: str, text: st
     opts = chk["lean_opts"]
     src_root = os.path.join(workdir, "src")
     build = os.path.join(workdir, "build")
-    os.makedirs(src_root, exist_ok=True)
+    FS.makedirs(src_root, exist_ok=True)
     res: dict = {"imports": []}
     for fr in chk["files"]:
         if fr["role"] != "import":
             continue
         dst = os.path.join(src_root, fr["path"])
-        os.makedirs(os.path.dirname(dst), exist_ok=True)
-        shutil.copyfile(os.path.join(pkg_dir, fr["path"]), dst)
+        FS.makedirs(os.path.dirname(dst), exist_ok=True)
+        copyfile(os.path.join(pkg_dir, fr["path"]), dst)
         if P.sha256_file(dst) != fr["sha256"]:
             res["error"] = f"pristine copy of {fr['path']} changed while copying"
             return res
         r, msgs = L.compile_module(env, src_root, fr["path"], build, opts, timeout)
         res["imports"].append({"path": fr["path"], "rc": r.rc, "secs": r.secs, "errors": len(L.errors(msgs)),
-                               "peak_rss_mb": r.peak_rss_mb})
+                               "peak_rss_mb": r.peak_rss_mb, "boundary": r.boundary})
+        from .sandbox import boundary_failure
+        stopped = boundary_failure(r)
+        if stopped:
+            res['boundary'] = stopped
+            if stopped['verdict'] == 'ERROR':
+                res['error'] = stopped['reason']
+            else:
+                res.update(compile_rc=r.rc, post=None)
+            return res
         if r.timeout or r.memkill or r.killed_by:
             res['error'] = 'resource-unavailable'
             return res
@@ -297,7 +312,7 @@ def _compile_and_postcheck(env: L.LeanEnv, problem: dict, pkg_dir: str, text: st
             res["error"] = f"pristine import {fr['path']} does not compile: " + "; ".join(L.fmt_msg(m) for m in L.errors(msgs)[:3])
             return res
     proof_dir = os.path.join(workdir, "proof")
-    os.makedirs(proof_dir, exist_ok=True)
+    FS.makedirs(proof_dir, exist_ok=True)
     src = os.path.join(proof_dir, "ProofMod.lean")
     with open(src, "w", encoding="utf-8") as f:
         f.write(text + ("" if text.endswith("\n") else "\n") + f"\n#print axioms {fqn}\n")
@@ -309,7 +324,7 @@ def _compile_and_postcheck(env: L.LeanEnv, problem: dict, pkg_dir: str, text: st
     errs = L.errors(msgs)
     res.update(compile_rc=r.rc, compile_secs=r.secs, compile_timeout=r.timeout, n_errors=len(errs),
                compile_memkill=r.memkill, compile_killed_by=r.killed_by, compile_peak_rss_mb=r.peak_rss_mb,
-               errors=[L.fmt_msg(m) for m in errs[:10]],
+               errors=[L.fmt_msg(m) for m in errs[:10]], boundary=r.boundary,
                sorry_warnings=sum(1 for m in msgs if m.get("severity") == "warning" and "sorry" in m.get("data", "")),
                printed_axioms=parse_printed_axioms(msgs, fqn))
     if r.rc != 0 or r.timeout or not os.path.exists(olean):
@@ -317,7 +332,7 @@ def _compile_and_postcheck(env: L.LeanEnv, problem: dict, pkg_dir: str, text: st
         return res
     rr, post = G.run_replay(env, olean, fqn, os.path.join(proof_dir, "replay.out"), opts, [build], timeout)
     post.update(rc=rr.rc, secs=rr.secs, timeout=rr.timeout, memkill=rr.memkill,
-                killed_by=rr.killed_by, peak_rss_mb=rr.peak_rss_mb, stdout=rr.out[-2000:])
+                killed_by=rr.killed_by, peak_rss_mb=rr.peak_rss_mb, stdout=rr.out[-2000:], boundary=rr.boundary)
     res["post"] = post
     return res
 
@@ -470,8 +485,13 @@ def check(pkg_dir: str, proof_path: str, env: L.LeanEnv, workdir: str | None = N
                 return _finish(rep)
         try:
             bindings = A.resolve(env, manifest, os.path.join(tmp + '-reference', 'build'), selected, remaining())
-        except A.BindingUnavailable:
-            error.append('resource-unavailable')
+        except A.BindingUnavailable as ex:
+            error.append(str(ex))
+            rep['reason'] = str(ex)
+            return _finish(rep)
+        except L.BoundaryInvalid as ex:
+            invalid.append(str(ex))
+            rep['reason'] = str(ex)
             return _finish(rep)
         policy = A.validate(manifest, bindings, conformance_fixture=conformance_fixture)
         rep['axiom_policy'] = policy
@@ -520,6 +540,14 @@ def apply_compile_result(r: dict, chk: dict, invalid: list[str], fail: list[str]
     if r.get('compile_memkill') or r.get('compile_killed_by'):
         error.append('resource-unavailable')
         return
+    post_resource = r.get('post') or {}
+    if post_resource.get('timeout') or post_resource.get('memkill') or post_resource.get('killed_by'):
+        error.append('resource-unavailable')
+        return
+    for boundary in (r.get('boundary'), post_resource.get('boundary')):
+        if boundary and boundary.get('verdict') != 'PASS':
+            (error if boundary['verdict'] == 'ERROR' else invalid).append(boundary['reason'])
+            return
     if any('maximum number of heartbeats' in text.lower() or 'maxheartbeats' in text.lower()
            for text in r.get('errors', [])):
         invalid.append('resource-cap')

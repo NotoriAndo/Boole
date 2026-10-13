@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from .safe_fs import Path
 import re
 import time
 
@@ -98,6 +98,12 @@ def resolve(env, manifest: list[dict], build: str, sandbox, timeout: float) -> d
                                [str(directory)], guard):
             run, post = G.run_replay(env, str(selected), row['name'], str(directory / 'replay.out'),
                                     [], [build], remaining)
+        from .sandbox import boundary_failure
+        stopped = boundary_failure(run)
+        if stopped:
+            if stopped['verdict'] == 'INVALID':
+                raise L.BoundaryInvalid(stopped['reason'])
+            raise BindingUnavailable(stopped['reason'])
         if D.resource_reason(run):
             raise BindingUnavailable('resource-unavailable')
         if run.rc != 0 or post.get('replay') != 'ok':

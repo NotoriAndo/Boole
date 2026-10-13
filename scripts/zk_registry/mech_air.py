@@ -55,6 +55,8 @@ import sys
 import time
 from dataclasses import dataclass, field
 
+from zk_registry.safe_fs import open
+from zk_registry import safe_fs as FS
 from . import air_bus as AB
 from . import air_ir as IR
 from . import air_lean as AL
@@ -1692,7 +1694,7 @@ def process(item: dict, out: str, lean_env: str | None, work_root: str, timeout:
         return rec
     pdir = os.path.join(out, "proofs", item["collection"], item["package_id"].split("/", 1)[1]
                         if item["family"] != "halo2" else item["package_id"])
-    os.makedirs(pdir, exist_ok=True)
+    FS.makedirs(pdir, exist_ok=True)
     sol = os.path.join(pdir, "Solution.lean")
     with open(sol, "w", encoding="utf-8") as f:
         f.write(text)
@@ -1755,7 +1757,7 @@ def run(packages: str, out: str, lean_env: str | None, work_root: str, jobs: int
         only: str = "", statuses=("OPEN",)) -> list[dict]:
     from concurrent.futures import ThreadPoolExecutor
     items = [it for it in collect(packages, statuses) if only in it["dir"]]
-    os.makedirs(out, exist_ok=True)
+    FS.makedirs(out, exist_ok=True)
     t0 = time.time()
     with ThreadPoolExecutor(max_workers=max(1, jobs)) as ex:
         futs = [ex.submit(process, it, out, lean_env, work_root, timeout) for it in items]

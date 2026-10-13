@@ -60,6 +60,8 @@ if __package__ in (None, ""):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     __package__ = "zk_registry"
 
+from zk_registry.safe_fs import open
+from zk_registry import safe_fs as FS
 from zk_registry import lean_emit as E   # noqa: E402
 
 VERSION = "1.0"
@@ -1280,7 +1282,7 @@ def solve(pkg_dir: str, out: str | None = None, rules=RULES) -> dict:
         text, stats = emit_solution(m, statement, res)
         rec["emit"] = stats
         if out:
-            os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+            FS.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
             with open(out, "w", encoding="utf-8") as f:
                 f.write(text)
     else:
@@ -1417,7 +1419,7 @@ def batch(items_path: str, out_dir: str, lean_env: str | None, jobs: int, check:
             print(f"{row['outcome']:16} {row.get('pool', '')} {it['package_id']} "
                   f"{row.get('check_secs', '')} {row.get('stuck_reason', '') or row.get('error_class', '')}", flush=True)
 
-    os.makedirs(out_dir, exist_ok=True)
+    FS.makedirs(out_dir, exist_ok=True)
     with ThreadPoolExecutor(max_workers=max(1, jobs)) as ex:
         list(ex.map(run, todo))
 
