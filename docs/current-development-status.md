@@ -1,6 +1,6 @@
 # Boole — current development status
 
-Updated: 2026-10-13. This is the tracked entrypoint for current progress and the
+Updated: 2026-10-18. This is the tracked entrypoint for current progress and the
 ordered development roadmap. Edit it in place; execution evidence stays in its
 own result record. Local Master/Execution documents link here instead of owning
 a second current cursor. Work methods follow the
@@ -69,15 +69,31 @@ A measured census found no ZK code item with full machine-checked coverage.
   Spec and correctness problems are registry kinds with a gnark generator
   ([#418](https://github.com/NotoriAndo/Boole/pull/418)): 334 open correctness
   properties (174 non-trivial after deduplication) and 42 open spec problems.
-  Beyond circuits, EVM and Rust libraries are not a supply source yet. An EVM
-  pilot over an existing Yul semantics proved 4 of 16 audited contracts. A fair
-  retest with realisable input domains, a shared lemma library and more memory
-  proved 2 of 6 arithmetic contracts, and most memory functions could not be
-  modeled because the semantics lacks hashing and world state. Rust cryptography
-  translated 2 of 20 sampled functions even with a matched Aeneas/Charon pair.
-  Where a model exists, the spec and statement gates work; the limit is the
-  bridge from real code to Lean. Circuit kinds remain the supply. A Solana sBPF
-  study modeled one pure function exactly and supports at most a narrow pilot.
+  Beyond circuits, the earlier EVM (Yul-level) and Rust source pilots stalled at
+  the bridge from real code to Lean: 4 of 16 and then 2 of 6 EVM contracts, and 2
+  of 20 Rust functions translated.
+- **Bridge decision B2 (October 13–18).** A preregistered test checked the whole
+  bytecode-level method: a ported semantics, generated basic-block verification
+  conditions (VCs), a generated composition and two-kernel acceptance.
+  - **EVM: GO.** A deployed price-decay contract (StairstepExponentialDecrease)
+    is proved end to end. All 303 VCs and a hypothesis-free refinement theorem
+    against its readable spec were accepted. In the hardened Linux production
+    sandbox, 473 of 473 scoped checks were accepted again and none rejected.
+  - **Mining conditions.** With one agent session and a four-hour cap, 6 of 6
+    sampled hard WETH9 VCs and 4 of 6 for two other contracts were proved.
+  - **WETH9** reached 343 of 379 VCs by maintainer work. Its unfinished tail sets
+    the production generator's requirements.
+  - **Two time-cap amendments** were decisive for the GO. Both were frozen before
+    the results they affect.
+  - **RISC-V: not evaluated.** Instruction-set conformance could not run; a
+    preregistered follow-up repairs it. A Rust field negation was proved end to
+    end at the RISC-V machine-code level.
+  - **What GO means.** The method works on deployed code. A production pipeline
+    does not exist yet, and bridge kinds are not in the first testnet catalog.
+    Circuit kinds remain the supply.
+
+  A Solana sBPF study modeled one pure function exactly and supports at most a
+  narrow pilot.
 - **Operator decisions (October 10).** The useful-work budget is sized to
   verified stock over 36 months plus measured inflow, replacing the earlier
   three-year 10,950-problem stock rule; defects found by correctness work follow
@@ -97,14 +113,19 @@ See the [problem registry](zk-problem-registry.md) for templates, gates, package
 format and limits. Nothing is issued, rewarded or activated; BF.7 remains HOLD.
 
 **Acceptance gate v2.** The registry judge now uses Lean 4.34.1, which includes the
-2026 kernel soundness fixes, and retires 4.33.1 packages. Submission code runs inside one
-Landrun sandbox; production mode refuses to run without it. A result is accepted only
+2026 kernel soundness fixes, and retires 4.33.1 packages. Submission code runs inside a
+sandbox (namespaces, seccomp, Landlock and cgroups, on two kernel lines since
+[#425](https://github.com/NotoriAndo/Boole/pull/425)); production mode refuses to run
+without it. A result is accepted only
 when the full dependency closure is accepted by both Comparator's Lean kernel and
 nanoda. Compiled-evaluator shortcuts such as `native_decide` stay banned; attributes are
-limited to a safe allowlist; commands that define elaboration code are rejected. On a
-macOS development run, 1,872 of 1,875 finished catalog templates passed unchanged. The
-production-mode re-validation of the whole catalog on Linux is the next step; macOS
-results are development evidence only. Contracts are in the
+limited to a safe allowlist; commands that define elaboration code are rejected.
+- In production mode on Linux, 99.55% of catalog templates passed unchanged before
+  the sandbox hardening.
+- Next, a frozen testnet catalog v1 is re-validated on the hardened gate.
+- macOS results remain development evidence only.
+
+Contracts are in the
 [gate documentation](zk-problem-registry.md#acceptance-gate-v2) and the
 [service documentation](zk-registry-service.md#acceptance-and-lifecycle).
 
