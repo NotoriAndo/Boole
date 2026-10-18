@@ -59,7 +59,7 @@ def capture_result(command, result):
         result.boundary = dict(verdict='ERROR', reason='sandbox-unavailable', assurance=mode,
                                capabilities_snapshot=capabilities)
     finally:
-        # CR.runner retains the complete structured observation in its per-step log.
+        # CR.runner copies this observation into the returned/aggregate step report.
         clean_receipt(status)
     return result
 
@@ -96,6 +96,34 @@ def delegated_cgroup():
 
 class SandboxUnavailable(ValueError):
     """The required pinned production boundary is unavailable."""
+
+
+class SandboxConfigurationError(SandboxUnavailable):
+    """A named invalid node/profile configuration, rejected before launching anything."""
+
+
+def validate_memory_profiles(descriptor, requested=None):
+    """Validate every production profile against the same pinned whole-node envelope."""
+    try:
+        policy = descriptor['sandbox']['memory_envelope']
+        node, reserve, minimum = (policy[k] for k in
+                                  ('node_max_bytes', 'supervisor_reserve_bytes', 'minimum_payload_bytes'))
+        if (any(type(x) is not int for x in (node, reserve, minimum))
+                or node != 20_000_000_000 or reserve != 32 * 1024 * 1024 or minimum != 16 * 1024 * 1024):
+            raise ValueError('invalid fixed envelope')
+        values = [profile['payload_memory_max_bytes'] for profile in descriptor['binary_profiles'].values()
+                  if profile.get('assurance') == 'production']
+        if requested is not None:
+            values.append(requested)
+        for value in values:
+            if type(value) is not int or value < minimum:
+                raise SandboxConfigurationError('sandbox-configuration:invalid-payload-memory')
+            if value > node - reserve:
+                raise SandboxConfigurationError('sandbox-configuration:payload-memory-exceeds-node-envelope')
+    except SandboxConfigurationError:
+        raise
+    except (KeyError, TypeError, ValueError):
+        raise SandboxConfigurationError('sandbox-configuration:invalid-memory-envelope') from None
 
 
 def stage_kind(argv):
@@ -147,13 +175,18 @@ class Sandbox:
             raise SandboxUnavailable('sandbox-unavailable')
         if hashlib.sha256(binary.read_bytes()).hexdigest() != expected:
             raise SandboxUnavailable('sandbox-unavailable')
+        validate_memory_profiles(descriptor)
+        profile = descriptor['binary_profiles'].get('Linux-' + platform.machine())
+        if profile is None or profile.get('assurance') != 'production':
+            raise SandboxUnavailable('sandbox-unavailable')
         try:
             data_path = Path(__file__).parent / 'data' / 'acceptance_tools_v2.json'
             authority = hashlib.sha256(data_path.read_bytes()).hexdigest()
             if json.loads(data_path.read_text()) != descriptor:
                 raise ValueError('production authority override')
             candidate = cls('production', str(binary.resolve()), authority, delegated_cgroup(),
-                            inner_executable=str(binary.resolve().parent / 'comparator-landrun'))
+                            inner_executable=str(binary.resolve().parent / 'comparator-landrun'),
+                            memory_max=profile['payload_memory_max_bytes'])
             probe = candidate.command(['/usr/bin/true'], {'PATH': '/usr/bin:/bin'}, ['/usr'], ['/dev/null'])
             from .lean_runner import RunResult
             process = subprocess.run(probe, env={'PATH': '/usr/bin:/bin'}, capture_output=True,
@@ -164,7 +197,9 @@ class Sandbox:
             if not result.boundary or result.boundary['verdict'] != 'PASS' or result.rc:
                 raise ValueError('capability preflight failed')
             return cls('production', candidate.executable, authority, candidate.cgroup, result.boundary,
-                       candidate.inner_executable)
+                       candidate.inner_executable, memory_max=candidate.memory_max)
+        except SandboxConfigurationError:
+            raise
         except (OSError, ValueError, KeyError, subprocess.SubprocessError):
             raise SandboxUnavailable('sandbox-unavailable') from None
 
@@ -184,6 +219,8 @@ class Sandbox:
         """Preserve a strict filesystem/network boundary, with no best-effort fallback."""
         if self.mode != 'production' and self.disabled_layer is None:
             return list(argv)
+        data = json.loads((Path(__file__).parent / 'data/acceptance_tools_v2.json').read_text())
+        validate_memory_profiles(data, self.memory_max)
         owner_home = Path(pwd.getpwuid(os.getuid()).pw_dir)
         receipts = Path('/run/user') / str(os.getuid()) / 'boole-gate-receipts'
         receipts.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -222,7 +259,6 @@ class Sandbox:
         status = str(receipts / (uuid.uuid4().hex + '.json'))
         _PENDING[status] = self.authority, self.capabilities, self.mode
         stage = stage_kind(argv)
-        data = json.loads((Path(__file__).parent / 'data/acceptance_tools_v2.json').read_text())
         pids = self.pids_max if self.pids_max is not None else data['sandbox']['parallelism']['pids_max'][stage]
         requested = executable or (os.path.abspath(argv[0]) if '/' in argv[0] else None)
         artifact = bool(requested and any(Path(requested).is_relative_to(Path(root)) for root in outputs

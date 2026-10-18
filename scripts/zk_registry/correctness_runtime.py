@@ -7,10 +7,14 @@ runner supplies stricter process observation and cleanup for the local C pipelin
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import errno
 import json
 import os
 from .safe_fs import Path
+from .safe_fs import directory_fd
+import re
 import signal
+import stat
 import subprocess
 import threading
 import time
@@ -57,12 +61,61 @@ def terminate_owned(child, owned: dict, observe=processes, grace_seconds: float 
     return errors
 
 
+def owner_is_dead(pid):
+    """Only ESRCH proves death; permission errors and reused/live PIDs retain their files."""
+    if type(pid) is not int or pid <= 1:
+        return False
+    try:
+        os.kill(pid, 0)
+    except OSError as ex:
+        return ex.errno == errno.ESRCH
+    return False
+
+
+def sweep_dead_receipts(root):
+    """Sweep only owned, flat runner directories with an identifiable dead owner."""
+    for directory in root.iterdir():
+        try:
+            entry = directory.lstat()
+            if not stat.S_ISDIR(entry.st_mode) or entry.st_uid != os.getuid():
+                continue
+            files = list(directory.iterdir())
+            if not files or any(not stat.S_ISREG(p.lstat().st_mode) or p.lstat().st_uid != os.getuid()
+                                for p in files):
+                continue
+            owner = directory / '.owner.json'
+            if owner in files:
+                pid = json.loads(owner.read_text()).get('pid')
+            else:
+                # Legacy protected directories encoded the owner in every CR receipt filename.
+                matches = [re.fullmatch(r'([1-9]\d*)-\d+\.json', p.name) for p in files]
+                if not all(matches) or len({m[1] for m in matches}) != 1:
+                    continue
+                pid = int(matches[0][1])
+            if not owner_is_dead(pid):
+                continue
+            for file in files:
+                if not owner_is_dead(pid):
+                    break
+                file.unlink()
+            else:
+                parent = directory_fd(root)
+                try:
+                    os.rmdir(directory.name, dir_fd=parent)
+                finally:
+                    os.close(parent)
+        except (OSError, ValueError, TypeError):
+            # An unknown or concurrently changed receipt is retained, never recursively removed.
+            continue
+
+
 def runner(log_directory: str, total_timeout: float | None = None, *, sandbox=None,
            readable_paths: list[str] | None = None, writable_paths: list[str] | None = None):
     """Construct the existing whole-tree owned runner without changing process-wide state."""
     logs = Path(log_directory)
     lock = threading.Lock()
     sequence = 0
+    step_reports = []
     deadline = time.monotonic() + total_timeout if total_timeout is not None else None
 
     def run_process(cmd, env, cwd, timeout, rss_limit_mb=None, watch=None, poll_s=0.25):
@@ -72,7 +125,13 @@ def runner(log_directory: str, total_timeout: float | None = None, *, sandbox=No
         from .sandbox import registered_command
         with lock:
             if registered_command(cmd) and not getattr(run_process, 'trusted_logs', False):
-                logs = Path('/run/user') / str(os.getuid()) / 'boole-gate-receipts/processes' / uuid.uuid4().hex
+                root = Path('/run/user') / str(os.getuid()) / 'boole-gate-receipts/processes'
+                root.mkdir(mode=0o700, parents=True, exist_ok=True)
+                sweep_dead_receipts(root)
+                logs = root / (str(os.getpid()) + '-' + uuid.uuid4().hex)
+                logs.mkdir(mode=0o700)
+                with (logs / '.owner.json').open('x') as stream:
+                    json.dump({'pid': os.getpid()}, stream)
                 run_process.trusted_logs = True
             logs.mkdir(mode=0o700, parents=True, exist_ok=True)
             run_process.log_directory = str(logs)
@@ -87,9 +146,8 @@ def runner(log_directory: str, total_timeout: float | None = None, *, sandbox=No
                               exit_code=124, child_exit_code=None, reason='checker-deadline',
                               peak_rss_mb=0, rss_limit_mb=rss_limit_mb or 12000,
                               owned_identities={}, cleanup_observation_errors=[], child_started=False)
-                with (logs / (label + '.json')).open('x') as stream:
-                    json.dump(record, stream, indent=2)
-                return L.RunResult(124, '', 0, True, False, 0, 'checker-deadline')
+                result = L.RunResult(124, '', 0, True, False, 0, 'checker-deadline')
+                return copy_step_report(label, record, result)
             timeout = min(timeout, remaining)
         child = subprocess.Popen(cmd, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
@@ -171,12 +229,23 @@ def runner(log_directory: str, total_timeout: float | None = None, *, sandbox=No
                       exit_code=code, child_exit_code=child.returncode, reason=state['reason'],
                       peak_rss_mb=state['peak'], rss_limit_mb=rss_limit_mb or 12000,
                       owned_identities=owned, cleanup_observation_errors=state['errors'], boundary=result.boundary)
-        with (logs / (label + '.json')).open('x') as stream:
+        return copy_step_report(label, record, result)
+
+    def copy_step_report(label, record, result):
+        """Keep the observation in the returned/aggregate report before removing its temporary copy."""
+        file = logs / (label + '.json')
+        with file.open('x') as stream:
             json.dump(record, stream, indent=2)
+        result.process_receipt = json.loads(file.read_text())
+        with lock:
+            step_reports.append(result.process_receipt)
+        if getattr(run_process, 'trusted_logs', False):
+            file.unlink()
         return result
 
     run_process.submission_boundary = sandbox
     run_process.log_directory = str(logs)
+    run_process.step_reports = step_reports
     return run_process
 
 

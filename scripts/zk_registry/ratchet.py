@@ -1061,7 +1061,9 @@ def elaborate(env: L.LeanEnv, pkg: str, modules: list[str], fqn: str, opts: list
     fresh_dir(work)
     guarded = CR.runner(os.path.join(work, 'processes'), timeout)
     with L.sandbox_context(selected, [pkg, work, os.path.dirname(G.REPLAY_TOOL)], [work], guarded):
-        return _elaborate(env, pkg, modules, fqn, opts, work, timeout)
+        result = _elaborate(env, pkg, modules, fqn, opts, work, timeout)
+    result['process_receipts'] = guarded.step_reports
+    return result
 
 
 def _elaborate(env: L.LeanEnv, pkg: str, modules: list[str], fqn: str, opts: list[str], work: str,

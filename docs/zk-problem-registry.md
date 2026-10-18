@@ -48,10 +48,17 @@ The tracked tools descriptor, not an untracked overlay or environment override, 
 Linux nodes require Ubuntu's version/SHA256-pinned non-setuid `/usr/bin/bwrap`, the digest-pinned AppArmor profile
 `boole-gate-bwrap` granting `userns,`, Landlock ABI >=4, native seccomp, and an unprivileged systemd-delegated cgroup v2
 domain with both `memory` and `pids` controllers and the kernel's `pids.peak` observation file (checked at preflight).
-The work root must not be under any symlinked path. Keep `kernel.apparmor_restrict_unprivileged_userns=1` when the kernel
+The work root must not be under any symlinked path and must pass a native exec probe. The probe itself runs only
+after namespaces, seccomp and Landlock are active; a writable-root file is never executed by the host preflight.
+A noexec root is a node ERROR.
+The node must expose `binfmt_misc` with no registered handlers; preflight rejects any handler, including disabled ones.
+Keep `kernel.apparmor_restrict_unprivileged_userns=1` when the kernel
 provides it; never disable that restriction. Every receipt records kernel, ABI, BPF digest, profile hash/label,
 sysctl, namespace identities, caps and resource observations. Whole-step payload+init memory is limited to at most
-20GB; provision a node-wide parent cap for concurrent steps (the local validation VM uses at most 24GB total).
+20GB; the supervisor reserves32MiB, so payload memory must be at most19,966,445,568bytes. The tracked envelope and
+every production profile are checked before any launch. An oversized payload raises the named configuration error
+`sandbox-configuration:payload-memory-exceeds-node-envelope`. Provision a node-wide parent cap for concurrent steps
+(the local validation VM uses at most24GB total).
 At least four schedulable CPUs are mandatory: PID-1 selects the first four CPUs in its affinity mask before exec,
 and concurrent stages share this fixed CPU set. Contention may slow stages but cannot change mathematical verdicts;
 wall-time interruption remains an availability ERROR. Preflight fails with
@@ -83,8 +90,16 @@ Setup/exec failure uses a CLOEXEC status pipe, not the payload's exit code125. C
 an explicit exec-success marker or setup failure through a dedicated status directory outside the work root.
 The inner kernel cannot write that directory or inherit its writable descriptor. Patched Comparator exit status70
 means launch/transport failure (ERROR), status2 means semantic rejection; missing success attestation fails closed.
-CR process receipts are retained under the protected runtime receipt root, outside every submission-writable root.
-Exec failure of a submission-built artifact is INVALID `submission-exec-failed`; pinned tool exec failure stays ERROR.
+CR process observations are copied into step reports before their temporary protected receipt files are removed.
+Each runner records its owner PID; sweeping removes only owned receipt directories whose owner PID is proven dead,
+retaining live, reused or unidentifiable owners. Submission content is classified before exec: missing/non-regular/
+non-executable files, invalid or foreign ELF headers and unpinned ELF/shebang interpreters are INVALID
+`submission-exec-failed`. The pinned script interpreters are `/bin/sh`, `/bin/bash` and `/usr/bin/python3`; ELF
+interpreters are `/lib/ld-linux-aarch64.so.1` and `/lib64/ld-linux-x86-64.so.2` on their respective architectures.
+After these checks pass, every exec errno is ERROR `sandbox-unavailable`; no ENOEXEC-to-shell retry is permitted.
+Pinned tool exec failures also stay ERROR. Only Comparator0 and2 can be production verdicts. Other codes and signals
+are ERROR `sandbox-unavailable`, or `resource-unavailable` when resource interruption/events are observed;70 and
+missing/failed inner markers remain transport ERRORs. Cleanup errors are reported separately from the compare result.
 No outcome relies on matching submission-controlled diagnostic text. Freeze
 and asynchronous cgroup-kill waits are adaptive and bounded; cleanup failures are auxiliary observations, never
 an overwrite of a finished PASS/INVALID verdict. A missing/unwritable trusted receipt remains ERROR.

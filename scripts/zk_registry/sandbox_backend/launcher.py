@@ -9,8 +9,11 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import subprocess
 import shutil
+import stat
+import struct
 import sys
 import uuid
 import time
@@ -18,6 +21,93 @@ import time
 
 class SubmissionExecFailed(ValueError):
     """A work-root artifact is not executable; this is not a trusted-tool outage."""
+
+
+ELF_INTERPRETERS = {'aarch64': {'/lib/ld-linux-aarch64.so.1'},
+                    'x86_64': {'/lib64/ld-linux-x86-64.so.2'}}
+SCRIPT_INTERPRETERS = {'/bin/sh', '/bin/bash', '/usr/bin/python3'}
+
+
+def open_submission(path):
+    """Hold no-follow directory FDs for every component of an untrusted input path."""
+    value = os.path.abspath(path)
+    if platform.system() == 'Darwin':
+        for alias in ('/tmp', '/var'):
+            if value == alias or value.startswith(alias + '/'):
+                value = '/private' + value
+    path = Path(value)
+    parent = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    try:
+        for component in path.parts[1:-1]:
+            child = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                            dir_fd=parent)
+            os.close(parent)
+            parent = child
+        metadata = os.stat(path.name, dir_fd=parent, follow_symlinks=False)
+        if not stat.S_ISREG(metadata.st_mode) or not metadata.st_mode & 0o111:
+            raise SubmissionExecFailed('submitted-executable-mode')
+        fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK, dir_fd=parent)
+        opened = os.fstat(fd)
+        if not stat.S_ISREG(opened.st_mode) or not opened.st_mode & 0o111:
+            os.close(fd)
+            raise SubmissionExecFailed('submitted-executable-mode')
+        return fd, opened
+    finally:
+        os.close(parent)
+
+
+def submission_executable(command, environment):
+    """Inspect content, not access(2)/exec errno, before executing a submission."""
+    raw = command[0]
+    if '/' in raw:
+        executable = Path(os.path.abspath(raw))
+    else:
+        executable = next((Path(root) / raw for root in environment.get('PATH', '/usr/bin:/bin').split(':')
+                           if (Path(root) / raw).exists()), Path(raw))
+    try:
+        fd, entry = open_submission(executable)
+    except FileNotFoundError:
+        raise SubmissionExecFailed('submitted-executable-missing') from None
+    with os.fdopen(fd, 'rb') as stream:
+        header = stream.read(4096)
+        if header.startswith(b'#!'):
+            line = header[2:].split(b'\n', 1)[0].strip(b' \t')
+            interpreter = re.split(br'[ \t]+', line, maxsplit=1)[0]
+            if interpreter.decode('utf-8', 'replace') not in SCRIPT_INTERPRETERS:
+                raise SubmissionExecFailed('submitted-shebang-interpreter')
+        else:
+            arch = platform.machine()
+            machine = {'aarch64': 183, 'arm64': 183, 'x86_64': 62}.get(arch)
+            if (len(header) < 64 or header[:4] != b'\x7fELF' or header[4:7] != b'\x02\x01\x01'
+                    or machine is None or struct.unpack_from('<H', header, 18)[0] != machine):
+                raise SubmissionExecFailed('submitted-elf-header')
+            offset = struct.unpack_from('<Q', header, 32)[0]
+            size, count = struct.unpack_from('<HH', header, 54)
+            if count and (size < 56 or count > 4096 or offset + size * count > entry.st_size):
+                raise SubmissionExecFailed('submitted-elf-program-headers')
+            for index in range(count):
+                stream.seek(offset + index * size)
+                segment = stream.read(56)
+                if struct.unpack_from('<I', segment)[0] != 3:  # PT_INTERP
+                    continue
+                start, length = struct.unpack_from('<Q', segment, 8)[0], struct.unpack_from('<Q', segment, 32)[0]
+                if not 1 <= length <= 4096 or start + length > entry.st_size:
+                    raise SubmissionExecFailed('submitted-elf-interpreter')
+                stream.seek(start)
+                value = stream.read(length)
+                if (not value.endswith(b'\0') or value[:-1].decode('utf-8', 'replace')
+                        not in ELF_INTERPRETERS.get(arch, set())):
+                    raise SubmissionExecFailed('submitted-elf-interpreter')
+    return str(executable)
+
+
+def execution_preflight(writers):
+    """Audit native exec configuration; writable-root probes run only inside the boundary."""
+    binfmt = Path('/proc/sys/fs/binfmt_misc')
+    if not (binfmt / 'status').is_file():
+        raise ValueError('binfmt-misc-unavailable')
+    if any(p.name not in {'register', 'status'} for p in binfmt.iterdir()):
+        raise ValueError('binfmt-misc-handlers-registered')
 
 
 def digest(path):
@@ -133,14 +223,17 @@ def execute(options, arguments):
     sysctl = Path('/proc/sys/kernel/apparmor_restrict_unprivileged_userns')
     if sysctl.exists() and sysctl.read_text().strip() != '1':
         raise ValueError('apparmor-userns-restriction-disabled')
-    if not 1 <= options.pids <= 1024 or not 16 * 1024 * 1024 <= options.memory <= 20000000000 - 32 * 1024**2:
+    if options.memory > 20000000000 - 32 * 1024**2:
+        raise ValueError('payload-memory-exceeds-node-envelope')
+    if not 1 <= options.pids <= 1024 or not 16 * 1024 * 1024 <= options.memory:
         raise ValueError('step-limits-outside-node-envelope')
     readers, writers, environment, payload_command = landrun_arguments(arguments)
     environment.update(GOMAXPROCS='4', CARGO_BUILD_JOBS='4', RAYON_NUM_THREADS='4', RUST_TEST_THREADS='4')
     separator = arguments.index('--')
     arguments = [*arguments[:separator], *sum((['--env', key + '=' + value] for key, value in
                                               environment.items()), []), *arguments[separator:]]
-    executable = shutil.which(payload_command[0], path=environment.get('PATH', '/usr/bin:/bin'))
+    executable = (submission_executable(payload_command, environment) if options.exec_origin == 'submission'
+                  else shutil.which(payload_command[0], path=environment.get('PATH', '/usr/bin:/bin')))
     if executable is None:
         if options.exec_origin == 'submission':
             raise SubmissionExecFailed('submitted-executable-unavailable')
@@ -155,6 +248,7 @@ def execute(options, arguments):
         directory = Path(output)
         if directory == Path('/') or root.is_relative_to(directory) or directory.is_relative_to(root):
             raise ValueError('boundary-write-exposure')
+    execution_preflight(writers)
     step, init, payload = create_step(Path(options.cgroup), options.memory, options.pids)
     handles = []
     events_file = Path(options.status).with_suffix('.events.ndjson')
@@ -193,7 +287,7 @@ def execute(options, arguments):
         for key, value in sorted(environment.items()):
             bwrap += ['--setenv', key, value]
         bwrap += [str(paths['isolate']), 'init', *map(str, handles[:8]), '0' if options.no_net else '1', '--',
-                  str(paths['isolate']), 'landlock', *arguments]
+                  str(paths['isolate']), 'landlock', '--exec-probes', *arguments]
         if not options.no_net:
             bwrap = [str(paths['bwrap']), '--unshare-user', '--unshare-net', '--unshare-pid', '--as-pid-1',
                      '--uid', '0', '--gid', '0',
@@ -232,10 +326,8 @@ def execute(options, arguments):
         elif observation['orphans_reaped'] or observation['frozen_members']:
             verdict, reason = 'INVALID', 'owned-descendants-remained'
         elif observation['setup_failed']:
-            if options.exec_origin == 'submission' and observation.get('setup', {}).get('setup_error') == 'landlock-exec':
-                verdict, reason = 'INVALID', 'submission-exec-failed'
-            else:
-                verdict, reason = 'ERROR', 'sandbox-unavailable'
+            # Content was classified above. Every later exec/setup errno is a node failure.
+            verdict, reason = 'ERROR', 'sandbox-unavailable'
         else:
             verdict, reason = 'PASS', None
         host_namespaces = {name: os.readlink('/proc/self/ns/' + name) for name in ('user', 'net', 'pid', 'mnt', 'ipc')}

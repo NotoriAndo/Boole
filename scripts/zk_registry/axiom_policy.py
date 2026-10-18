@@ -110,5 +110,6 @@ def resolve(env, manifest: list[dict], build: str, sandbox, timeout: float) -> d
             continue
         own = any(item.get('kind') == 'axiom' and item.get('name') == row['name'] for item in post.get('consts', []))
         bindings[row['name']] = dict(module=module, module_olean_sha256=D.digest(selected),
-                                    type_sha256=post.get('type_sha256'), declared_in_module=own)
+                                    type_sha256=post.get('type_sha256'), declared_in_module=own,
+                                    process_receipt=run.process_receipt)
     return bindings

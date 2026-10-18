@@ -257,16 +257,17 @@ class LiveReviewFixes(unittest.TestCase):
         self.assertEqual(result.boundary['verdict'], 'PASS')
         logs = Path(getattr(run, 'log_directory', root / 'processes'))
         self.assertFalse(logs.is_relative_to(root), logs)
-        before = {file.name: file.read_bytes() for file in logs.glob('*.json')}
+        before = json.dumps(result.process_receipt, sort_keys=True)
+        owner_before = (logs / '.owner.json').read_bytes()
+        self.assertEqual([p.name for p in logs.glob('*.json')], ['.owner.json'])
         attempted = run(['/usr/bin/python3', '-c', 'from pathlib import Path; '
                         'Path(' + repr(str(logs / 'forged.json')) + ').write_text("forged")'],
                         {'PATH': '/usr/bin:/bin'}, str(root), 20, 256)
         self.assertNotEqual(attempted.rc, 0)
         self.assertFalse((logs / 'forged.json').exists())
-        self.assertTrue(before)
-        for name, original in before.items():
-            self.assertEqual((logs / name).read_bytes(), original)
-            self.assertIn('boundary', json.loads(original))
+        self.assertEqual(json.dumps(result.process_receipt, sort_keys=True), before)
+        self.assertEqual((logs / '.owner.json').read_bytes(), owner_before)
+        self.assertEqual(result.process_receipt['boundary']['verdict'], 'PASS')
 
     def test_orphan_flood_has_bounded_evidence(self):
         """Many fast orphan exits cannot exhaust the trusted runtime receipt directory."""
@@ -371,7 +372,7 @@ class LiveReviewFixes(unittest.TestCase):
             [str(program)], {'PATH': '/usr/bin:/bin'}, str(root), 20, 256)
         self.assertEqual((result.boundary['verdict'], result.boundary['reason']),
                          ('INVALID', 'submission-exec-failed'), result.boundary)
-        self.assertTrue(result.boundary['observation']['setup_failed'])
+        self.assertIn('submitted-shebang-interpreter', result.boundary['detail'])
 
     def test_trusted_tool_exec_failure_stays_error(self):
         """Exec failure of a read-only trusted tool is still an availability ERROR."""

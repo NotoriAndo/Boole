@@ -269,8 +269,9 @@ def compile_in_sandbox(env: L.LeanEnv, problem: dict, pkg_dir: str, text: str, w
         with L.sandbox_context(selected, [pkg_dir, workdir, os.path.dirname(G.REPLAY_TOOL)], [workdir], guarded):
             result = _compile_and_postcheck(env, problem, pkg_dir, text, workdir, timeout)
     except (OSError, SandboxUnavailable):
-        return dict(error='sandbox-unavailable', assurance=selected.mode)
+        return dict(error='sandbox-unavailable', assurance=selected.mode, process_receipts=guarded.step_reports)
     result['assurance'] = selected.mode
+    result['process_receipts'] = guarded.step_reports
     return result
 
 
