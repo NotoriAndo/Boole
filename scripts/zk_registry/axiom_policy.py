@@ -94,7 +94,8 @@ def resolve(env, manifest: list[dict], build: str, sandbox, timeout: float) -> d
         directory.mkdir(parents=True, exist_ok=True)
         remaining = max(0.001, timeout - (time.monotonic() - started))
         guard = CR.runner(str(directory / 'processes'), remaining)
-        with L.sandbox_context(sandbox, [str(selected), build, *env.lean_path, str(Path(G.REPLAY_TOOL).parent)],
+        with CR.receipt_report(guard, directory), \
+                L.sandbox_context(sandbox, [str(selected), build, *env.lean_path, str(Path(G.REPLAY_TOOL).parent)],
                                [str(directory)], guard):
             run, post = G.run_replay(env, str(selected), row['name'], str(directory / 'replay.out'),
                                     [], [build], remaining)

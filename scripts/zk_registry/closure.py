@@ -213,7 +213,7 @@ def compare_exports(challenge: str, solution: str, theorem: str, tools: Tools, s
         # turn a crash, signal or unknown exit status into a semantic rejection.
         observation = (result.boundary or {}).get('observation') or {}
         resource_events = observation.get('oom_kill_events') or observation.get('pids_max_events')
-        guarded_resource_stop = result.timeout or result.memkill or result.killed_by in {'wall-time', 'memory-rss', 'checker-deadline'}
+        guarded_resource_stop = result.timeout or result.memkill or result.killed_by == 'checker-deadline'
         reason = ('resource-unavailable' if result.rc != 70 and (guarded_resource_stop or resource_events)
                   else 'sandbox-unavailable')
         return dict(record, verdict='ERROR', reason=reason)
@@ -238,6 +238,8 @@ def compare_exports(challenge: str, solution: str, theorem: str, tools: Tools, s
     record.update(lean_accepts=lean_accepts, nanoda_accepts=nanoda_accepts)
     if result.rc == 0 and lean_accepts and nanoda_accepts:
         return dict(record, verdict='PASS', reason=None)
+    if result.rc == 0:
+        return dict(record, verdict='ERROR', reason='sandbox-unavailable')
     if 'resource-cap:' in result.out:
         return dict(record, verdict='INVALID', reason='resource-cap')
     if lean_accepts != nanoda_accepts:

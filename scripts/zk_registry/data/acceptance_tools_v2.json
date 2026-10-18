@@ -46,7 +46,7 @@
   "sandbox": {
     "version": 1,
     "launcher_path": "gate/launcher.py",
-    "launcher_sha256": "e9bbd6b1bdebb6df2fd50d74cae186fc082a2c9a82f95930cb623f69e99c8283",
+    "launcher_sha256": "d7a4fbb51f656f1973529059b2e16b59e1d32790e7240490eef75c593c8391d3",
     "inner_launcher_sha256": "b7c04833bbc73cdc81a3d894670db4e6fea7be92b801f0c96892b76d577d102b",
     "bubblewrap_version": "0.9.0-1ubuntu0.3",
     "libseccomp_version": "2.5.5-1ubuntu3.1",
@@ -55,7 +55,7 @@
         "bubblewrap_deb_sha256": "2461f1beee9cb04c8942739fe1a2b37e7b7c2a3d518f0779dc75f9245baa3094",
         "libseccomp_dev_deb_sha256": "26421f22f2150986735b79ece61d811400debab7fa505b08b731ec5a7917e45f",
         "bwrap_sha256": "e318903862396f96de3df57264e0158682b952fd3fb53ac23d876413e7b30f71",
-        "isolate_sha256": "409a0f0a2a4633484222300a5c961beeb4a0cc2e5de1fb7096135e58052cb169",
+        "isolate_sha256": "f9cbc93ac5654d7dfc57a896771b8e051a1dafbe8ded8f5b58c5d97b9e193aa4",
         "filter_sha256": "64b66feba53e10dc4c98dcff2833311791faf7666e805e90110406ed5b9febf4",
         "apparmor_profile_sha256": "35613442bd82247d132b1102579edc5567d8047930d1b60fbb8bbba93c5abcd6"
       },
@@ -63,7 +63,7 @@
         "bubblewrap_deb_sha256": "dce3a2e5f0302eab717a64fe9c9411fe2d40469e2a7946e0f2ce1420a61025c3",
         "libseccomp_dev_deb_sha256": "e8ad51ab54d2b1f69117f152fb011901a8822c19410c1fe7b82d000436df77d0",
         "bwrap_sha256": "cd6b143283b464baf078ab09ca19dadc5bcc2423b833c4f9dd7e83f9ba1b640b",
-        "isolate_sha256": "ca7b63c6c1cbb3b5d7ed5f12d94be25ec73038a69d0836b362b00eaf5597e52f",
+        "isolate_sha256": "5c04387c0ff4b75ea38f63ed91ddec80ca227ddd62a88e6af796c44d2ea68a3c",
         "filter_sha256": "52a4950a953e6f0df53b7ec0a1f3f54f869f7c4a68a9e5e2a60273e75f74179b",
         "apparmor_profile_sha256": "35613442bd82247d132b1102579edc5567d8047930d1b60fbb8bbba93c5abcd6"
       }

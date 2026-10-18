@@ -227,6 +227,10 @@ class Sandbox:
         protected = (owner_home / '.elan', owner_home / '.cache/mathlib', receipts,
                      Path(self.executable).parent, Path(self.cgroup))
         outputs = sorted({os.path.abspath(path) for path in writable})
+        executable = shutil.which(argv[0], path=env.get('PATH', '/usr/bin:/bin'))
+        requested = executable or (os.path.abspath(argv[0]) if '/' in argv[0] else None)
+        artifact = bool(requested and any(Path(requested).is_relative_to(Path(root)) for root in outputs
+                                         if root != '/dev/null'))
         defaults = [str(Path(self.executable).parent), '/usr', '/lib', '/lib64',
                     '/etc/alternatives', '/dev/urandom']
         allowed = [Path(path) for path in [*readable, *defaults]
@@ -237,6 +241,8 @@ class Sandbox:
             except OSError:
                 raise SandboxUnavailable('sandbox-unavailable') from None
         for reader in readable:
+            if artifact and os.path.abspath(reader) == requested:
+                continue  # the pinned launcher classifies this submission path before any execution
             path = Path(reader).resolve()
             try:
                 reject_symlinks(reader)
@@ -250,8 +256,7 @@ class Sandbox:
             path = Path(output)
             if path == Path('/') or any(path.is_relative_to(root) or root.is_relative_to(path) for root in protected):
                 raise SandboxUnavailable('sandbox-unavailable')
-        executable = shutil.which(argv[0], path=env.get('PATH', '/usr/bin:/bin'))
-        if executable and not any(Path(executable).is_relative_to(Path(root)) for root in ('/usr', '/bin', '/sbin')):
+        if executable and not artifact and not any(Path(executable).is_relative_to(Path(root)) for root in ('/usr', '/bin', '/sbin')):
             try:
                 reject_symlinks(executable)
             except OSError:
@@ -260,9 +265,6 @@ class Sandbox:
         _PENDING[status] = self.authority, self.capabilities, self.mode
         stage = stage_kind(argv)
         pids = self.pids_max if self.pids_max is not None else data['sandbox']['parallelism']['pids_max'][stage]
-        requested = executable or (os.path.abspath(argv[0]) if '/' in argv[0] else None)
-        artifact = bool(requested and any(Path(requested).is_relative_to(Path(root)) for root in outputs
-                                         if root != '/dev/null'))
         command = [self.executable, '--gate-authority', self.authority, '--gate-cgroup', self.cgroup,
                    '--gate-status', status, '--gate-memory', str(self.memory_max), '--gate-pids', str(pids),
                    '--gate-stage', stage,

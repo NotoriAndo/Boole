@@ -10,6 +10,7 @@ on:
       - scripts/test_zk_registry_sandbox_hardening.py
       - scripts/test_zk_registry_aa_fix.py
       - scripts/test_zk_registry_aa_fix3.py
+      - scripts/test_zk_registry_aa_fix3b.py
       - .github/workflows/acceptance-gate-linux.yml
   pull_request:
     paths:
@@ -19,6 +20,7 @@ on:
       - scripts/test_zk_registry_sandbox_hardening.py
       - scripts/test_zk_registry_aa_fix.py
       - scripts/test_zk_registry_aa_fix3.py
+      - scripts/test_zk_registry_aa_fix3b.py
       - .github/workflows/acceptance-gate-linux.yml
   workflow_dispatch:
 
@@ -39,6 +41,23 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
+
+      - name: Clear binfmt handlers on the disposable runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          root=/proc/sys/fs/binfmt_misc
+          if ! test -f "$root/status"; then
+            sudo -n mount -t binfmt_misc binfmt_misc "$root"
+          fi
+          for entry in "$root"/*; do
+            case "${entry##*/}" in register|status) continue ;; esac
+            test -f "$entry" || continue
+            printf 'Removing disposable-runner binfmt handler: %s\n' "$entry"
+            cat "$entry"
+            printf '%s\n' -1 | sudo -n tee "$entry"
+          done
+          ls -la "$root"
 
       - name: Build and require the pinned hardened boundary
         shell: bash
@@ -82,4 +101,16 @@ jobs:
             test_zk_registry_aa_fix3.ExecContent test_zk_registry_aa_fix3.MemoryConfiguration \
             test_zk_registry_aa_fix3.LiveExec test_zk_registry_aa_fix3.LiveCompare \
             test_zk_registry_aa_fix3.ReceiptRetention test_zk_registry_aa_fix3.RegisteredBinfmt \
-            test_zk_registry_aa_fix3.LiveMemory
+            test_zk_registry_aa_fix3.LiveMemory \
+            test_zk_registry_aa_fix3b.FailureReceipts \
+            test_zk_registry_aa_fix3b.ContentClassification \
+            test_zk_registry_aa_fix3b.CIWiring \
+            test_zk_registry_aa_fix3b.KernelContent \
+            test_zk_registry_aa_fix3b.WriterRoots \
+            test_zk_registry_aa_fix3b.ComparatorContract \
+            test_zk_registry_aa_fix3b.ReceiptLifecycle \
+            test_zk_registry_aa_fix3b.ProductionContract \
+            test_zk_registry_aa_fix3b.NamedConfiguration \
+            test_zk_registry_aa_fix3b.LiveReview \
+            test_zk_registry_service.IntakeTests.test_receipt_emitting_production_verifier_replays_byte_identically \
+            test_zk_registry_service.IntakeTests.test_registry_never_serializes_verifier_receipts_into_events

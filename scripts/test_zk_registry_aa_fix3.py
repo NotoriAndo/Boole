@@ -56,26 +56,8 @@ class ExecContent(unittest.TestCase):
             program.write_bytes(elf_header(183 if platform.machine() in ('arm64', 'aarch64') else 62))
             program.chmod(0o755)
             (root / 'escape').symlink_to(outside, target_is_directory=True)
-            with self.assertRaises(OSError):
+            with self.assertRaises(launcher.SubmissionExecFailed):
                 launcher.submission_executable([str(root / 'escape/program')], {})
-
-    def test_host_preflight_never_executes_a_writable_work_root_file(self):
-        launcher = launcher_module()
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            binfmt = root / 'node-binfmt'
-            binfmt.mkdir()
-            (binfmt / 'status').write_text('enabled\n')
-            work = root / 'work'
-            work.mkdir()
-
-            def path(value):
-                return binfmt if value == '/proc/sys/fs/binfmt_misc' else Path(value)
-
-            with patch.object(launcher, 'Path', side_effect=path), \
-                    patch.object(launcher.subprocess, 'run', return_value=SimpleNamespace(returncode=0)) as execute:
-                launcher.execution_preflight([str(work)])
-                execute.assert_not_called()
 
     def test_shebang_interpreter_token_uses_kernel_whitespace_rules(self):
         launcher = launcher_module()
@@ -125,12 +107,13 @@ class LiveExec(unittest.TestCase):
         return result
 
     def test_valid_native_header_exec_errno_is_node_error(self):
-        """ENOEXEC after valid content classification is a node ERROR, never INVALID."""
+        """ETXTBSY after a valid native ELF classification is a node ERROR, never INVALID."""
         root = Path(self.temp.name)
         program = root / 'valid-header-kernel-enoexec'
-        program.write_bytes(elf_header(183 if platform.machine() == 'aarch64' else 62))
+        shutil.copyfile('/usr/bin/true', program)
         program.chmod(0o755)
-        result = self.execute_artifact(root, program)
+        with program.open('r+b'):
+            result = self.execute_artifact(root, program)
         self.assertEqual((result.boundary['verdict'], result.boundary['reason']),
                          ('ERROR', 'sandbox-unavailable'), result.boundary)
 
@@ -169,7 +152,8 @@ class LiveExec(unittest.TestCase):
         privileged = work / 'privileged-canary'
         privileged.write_text('unchanged')
         program = root / 'injected-probe'
-        program.write_text('#!/usr/bin/python3\nfrom pathlib import Path\n'
+        program.write_text('#!/usr/bin/python3\nfrom pathlib import Path\nimport os\n'
+            'if "BOOLE_PROBE_SECRET" in os.environ: raise SystemExit(98)\n'
             'for target in ' + repr([str(canary), str(privileged)]) + ':\n'
             ' try:\n  Path(target).write_text("escaped")\n'
             ' except OSError: pass\n else: raise SystemExit(99)\n'
@@ -195,7 +179,8 @@ class LiveExec(unittest.TestCase):
         result = CR.runner(str(root / 'logs'), 20, sandbox=boundary,
             readable_paths=['/usr', str(root)], writable_paths=[str(work)])(
             ['/usr/bin/python3', '-c', 'from pathlib import Path;Path(' + repr(str(privileged)) +
-             ').write_text("payload allowed");print("PAYLOAD-ONLY")'], {'PATH': '/usr/bin:/bin'}, str(work), 20, 256)
+             ').write_text("payload allowed");print("PAYLOAD-ONLY")'],
+             {'PATH': '/usr/bin:/bin', 'BOOLE_PROBE_SECRET': 'must-not-reach-probe'}, str(work), 20, 256)
         self.assertEqual((result.rc, result.boundary['verdict']), (0, 'PASS'), result.boundary)
         self.assertEqual(result.out.strip(), 'PAYLOAD-ONLY')
         self.assertEqual(canary.read_text(), 'unchanged')

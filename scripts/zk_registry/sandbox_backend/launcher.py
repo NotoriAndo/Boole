@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import errno
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -44,16 +45,45 @@ def open_submission(path):
             os.close(parent)
             parent = child
         metadata = os.stat(path.name, dir_fd=parent, follow_symlinks=False)
-        if not stat.S_ISREG(metadata.st_mode) or not metadata.st_mode & 0o111:
+        if not stat.S_ISREG(metadata.st_mode) or not submission_permissions(metadata):
             raise SubmissionExecFailed('submitted-executable-mode')
         fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK, dir_fd=parent)
         opened = os.fstat(fd)
-        if not stat.S_ISREG(opened.st_mode) or not opened.st_mode & 0o111:
+        if not stat.S_ISREG(opened.st_mode) or not submission_permissions(opened):
             os.close(fd)
             raise SubmissionExecFailed('submitted-executable-mode')
         return fd, opened
     finally:
         os.close(parent)
+
+
+def submission_permissions(entry):
+    """The payload maps these host credentials, without capability permission bypasses."""
+    shift = (6 if entry.st_uid == os.geteuid() else
+             3 if entry.st_gid in {os.getegid(), *os.getgroups()} else 0)
+    return ((entry.st_mode >> shift) & 5) == 5
+
+
+def elf_properties(stream, segment, entry):
+    """Mirror arm64's bounded GNU note/ordered-property checks before begin_new_exec."""
+    offset, size = struct.unpack_from('<Q', segment, 8)[0], struct.unpack_from('<Q', segment, 32)[0]
+    if not 16 <= size <= 1024 or offset + size > entry.st_size:
+        raise SubmissionExecFailed('submitted-elf-properties')
+    stream.seek(offset)
+    note = stream.read(size)
+    names, desc, kind = struct.unpack_from('<III', note)
+    if names != 4 or kind != 5 or note[12:16] != b'GNU\0' or desc > size - 16:
+        raise SubmissionExecFailed('submitted-elf-properties')
+    end, cursor, previous = 16 + desc, 16, -1
+    while cursor < end:
+        if end - cursor < 8:
+            raise SubmissionExecFailed('submitted-elf-properties')
+        kind, length = struct.unpack_from('<II', note, cursor)
+        cursor += 8
+        aligned = (length + 7) & ~7
+        if kind <= previous or aligned > end - cursor or (kind == 0xc0000000 and length != 4):
+            raise SubmissionExecFailed('submitted-elf-properties')
+        previous, cursor = kind, cursor + aligned
 
 
 def submission_executable(command, environment):
@@ -66,30 +96,46 @@ def submission_executable(command, environment):
                            if (Path(root) / raw).exists()), Path(raw))
     try:
         fd, entry = open_submission(executable)
-    except FileNotFoundError:
-        raise SubmissionExecFailed('submitted-executable-missing') from None
+    except OSError as ex:
+        if ex.errno not in {errno.ENOENT, errno.ELOOP, errno.ENOTDIR, errno.EACCES}:
+            raise
+        raise SubmissionExecFailed('submitted-executable-path') from None
     with os.fdopen(fd, 'rb') as stream:
         header = stream.read(4096)
         if header.startswith(b'#!'):
-            line = header[2:].split(b'\n', 1)[0].strip(b' \t')
-            interpreter = re.split(br'[ \t]+', line, maxsplit=1)[0]
+            buffer = header[:256].ljust(256, b'\0')
+            end = buffer.find(b'\n')
+            if end < 0:
+                end = 255
+                token = buffer[2:end].lstrip(b' \t')
+                if not token or not re.search(br'[ \t\0]', token):
+                    raise SubmissionExecFailed('submitted-shebang-truncated')
+            line = buffer[2:end].strip(b' \t')
+            interpreter = re.split(br'[ \t\0]+', line, maxsplit=1)[0]
             if interpreter.decode('utf-8', 'replace') not in SCRIPT_INTERPRETERS:
                 raise SubmissionExecFailed('submitted-shebang-interpreter')
         else:
-            arch = platform.machine()
+            arch = {'arm64': 'aarch64'}.get(platform.machine(), platform.machine())
             machine = {'aarch64': 183, 'arm64': 183, 'x86_64': 62}.get(arch)
             if (len(header) < 64 or header[:4] != b'\x7fELF' or header[4:7] != b'\x02\x01\x01'
                     or machine is None or struct.unpack_from('<H', header, 18)[0] != machine):
                 raise SubmissionExecFailed('submitted-elf-header')
             offset = struct.unpack_from('<Q', header, 32)[0]
             size, count = struct.unpack_from('<HH', header, 54)
-            if count and (size < 56 or count > 4096 or offset + size * count > entry.st_size):
+            if (struct.unpack_from('<H', header, 16)[0] not in (2, 3) or size != 56 or not count
+                    or size * count > min(65536, os.sysconf('SC_PAGE_SIZE'))
+                    or offset + size * count > entry.st_size):
                 raise SubmissionExecFailed('submitted-elf-program-headers')
+            properties, interpreted = None, False
             for index in range(count):
                 stream.seek(offset + index * size)
                 segment = stream.read(56)
-                if struct.unpack_from('<I', segment)[0] != 3:  # PT_INTERP
+                kind = struct.unpack_from('<I', segment)[0]
+                if kind == 0x6474e553:
+                    properties = segment
+                if kind != 3:  # PT_INTERP
                     continue
+                interpreted = True
                 start, length = struct.unpack_from('<Q', segment, 8)[0], struct.unpack_from('<Q', segment, 32)[0]
                 if not 1 <= length <= 4096 or start + length > entry.st_size:
                     raise SubmissionExecFailed('submitted-elf-interpreter')
@@ -98,10 +144,39 @@ def submission_executable(command, environment):
                 if (not value.endswith(b'\0') or value[:-1].decode('utf-8', 'replace')
                         not in ELF_INTERPRETERS.get(arch, set())):
                     raise SubmissionExecFailed('submitted-elf-interpreter')
+            if arch == 'aarch64' and properties is not None and not interpreted:
+                elf_properties(stream, properties, entry)
     return str(executable)
 
 
-def execution_preflight(writers):
+def prepare_writer_roots(writers):
+    """Restore altered owner access, reject that submission, and remove reserved probe debris."""
+    altered = False
+    for value in writers:
+        path = Path(value)
+        metadata = path.lstat()
+        if not stat.S_ISDIR(metadata.st_mode):
+            continue
+        if metadata.st_uid != os.geteuid():
+            raise ValueError('writer-root-owner')
+        if metadata.st_mode & 0o700 != 0o700:
+            os.chmod(path, stat.S_IMODE(metadata.st_mode) | 0o700, follow_symlinks=False)
+            altered = True
+        root = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        try:
+            for name in os.listdir(root):
+                if not re.fullmatch(r'\.boole-exec-probe-[0-9a-f]{16}', name):
+                    continue
+                entry = os.stat(name, dir_fd=root, follow_symlinks=False)
+                if stat.S_ISREG(entry.st_mode) and entry.st_uid == os.geteuid():
+                    os.unlink(name, dir_fd=root)
+        finally:
+            os.close(root)
+    if altered:
+        raise SubmissionExecFailed('submitted-writer-permissions')
+
+
+def execution_preflight():
     """Audit native exec configuration; writable-root probes run only inside the boundary."""
     binfmt = Path('/proc/sys/fs/binfmt_misc')
     if not (binfmt / 'status').is_file():
@@ -228,6 +303,11 @@ def execute(options, arguments):
     if not 1 <= options.pids <= 1024 or not 16 * 1024 * 1024 <= options.memory:
         raise ValueError('step-limits-outside-node-envelope')
     readers, writers, environment, payload_command = landrun_arguments(arguments)
+    for output in writers:
+        directory = Path(output)
+        if directory == Path('/') or root.is_relative_to(directory) or directory.is_relative_to(root):
+            raise ValueError('boundary-write-exposure')
+    prepare_writer_roots(writers)
     environment.update(GOMAXPROCS='4', CARGO_BUILD_JOBS='4', RAYON_NUM_THREADS='4', RUST_TEST_THREADS='4')
     separator = arguments.index('--')
     arguments = [*arguments[:separator], *sum((['--env', key + '=' + value] for key, value in
@@ -244,11 +324,7 @@ def execute(options, arguments):
     arguments = [*arguments[:separator + 1], executable, *payload_command[1:]]
     if any(Path(reader) in {Path('/'), Path('/proc'), Path('/sys'), Path('/dev')} for reader in readers):
         raise ValueError('boundary-read-exposure')
-    for output in writers:
-        directory = Path(output)
-        if directory == Path('/') or root.is_relative_to(directory) or directory.is_relative_to(root):
-            raise ValueError('boundary-write-exposure')
-    execution_preflight(writers)
+    execution_preflight()
     step, init, payload = create_step(Path(options.cgroup), options.memory, options.pids)
     handles = []
     events_file = Path(options.status).with_suffix('.events.ndjson')

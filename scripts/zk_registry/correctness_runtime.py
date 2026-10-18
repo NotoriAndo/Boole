@@ -7,7 +7,10 @@ runner supplies stricter process observation and cleanup for the local C pipelin
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from contextlib import contextmanager
 import errno
+import gzip
+import hashlib
 import json
 import os
 from .safe_fs import Path
@@ -72,6 +75,65 @@ def owner_is_dead(pid):
     return False
 
 
+def owner_record():
+    """Bind Linux ownership to a birth tick and PID namespace, never just a reused number."""
+    pid = os.getpid()
+    try:
+        fd = os.open('/proc/' + str(pid) + '/stat', os.O_RDONLY | os.O_CLOEXEC)
+        with os.fdopen(fd) as stream:
+            start = stream.read().rsplit(')', 1)[1].split()[19]
+        namespace = os.readlink('/proc/' + str(pid) + '/ns/pid')
+    except OSError:
+        start, namespace = None, None  # non-Linux fixtures cannot claim Linux birth evidence
+    return dict(pid=pid, start_time=start, pid_namespace=namespace)
+
+
+def archive_legacy_receipts(root, directory, files):
+    """Make legacy evidence recoverable and durable before any purge."""
+    archives = root / '.legacy-archives'
+    archives.mkdir(mode=0o700, exist_ok=True)
+    rows = []
+    for file in files:
+        before = file.lstat()
+        if before.st_size > 32 * 1024**2:
+            raise ValueError('legacy receipt too large; retained')
+        raw = file.read_bytes()
+        raw_sha = hashlib.sha256(raw).hexdigest()
+        name = raw_sha + '.json.gz'
+        archive = archives / name
+        if not archive.exists():
+            with archive.open('xb') as stream:
+                stream.write(gzip.compress(raw, mtime=0));stream.flush();os.fsync(stream.fileno())
+        compressed = archive.read_bytes()
+        if gzip.decompress(compressed) != raw:
+            raise ValueError('legacy archive round-trip failed')
+        after = file.lstat()
+        if (before.st_ino, before.st_size, before.st_mtime_ns) != (after.st_ino, after.st_size, after.st_mtime_ns):
+            raise ValueError('legacy receipt changed; retained')
+        rows.append(dict(original=str(file), raw_sha256=raw_sha, bytes=len(raw), mtime_ns=before.st_mtime_ns,
+                         archive=name, archive_sha256=hashlib.sha256(compressed).hexdigest(),
+                         recovery='gzip -dc ARCHIVE > ORIGINAL; verify raw_sha256'))
+    with (archives / (uuid.uuid4().hex + '.manifest.json')).open('x') as stream:
+        json.dump(dict(directory=str(directory), files=rows), stream, sort_keys=True)
+        stream.flush();os.fsync(stream.fileno())
+    fd = directory_fd(archives)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+@contextmanager
+def receipt_report(guard, directory):
+    """Persist consumed receipts even when a caller raises or skips a failed step."""
+    try:
+        yield
+    finally:
+        Path(directory).mkdir(parents=True, exist_ok=True)
+        (Path(directory) / 'process-receipts.json').write_text(
+            json.dumps(dict(process_receipts=guard.step_reports), sort_keys=True) + '\n')
+
+
 def sweep_dead_receipts(root):
     """Sweep only owned, flat runner directories with an identifiable dead owner."""
     for directory in root.iterdir():
@@ -94,6 +156,8 @@ def sweep_dead_receipts(root):
                 pid = int(matches[0][1])
             if not owner_is_dead(pid):
                 continue
+            if owner not in files:
+                archive_legacy_receipts(root, directory, files)
             for file in files:
                 if not owner_is_dead(pid):
                     break
@@ -104,7 +168,7 @@ def sweep_dead_receipts(root):
                     os.rmdir(directory.name, dir_fd=parent)
                 finally:
                     os.close(parent)
-        except (OSError, ValueError, TypeError):
+        except (OSError, ValueError, TypeError, EOFError):
             # An unknown or concurrently changed receipt is retained, never recursively removed.
             continue
 
@@ -115,10 +179,34 @@ def runner(log_directory: str, total_timeout: float | None = None, *, sandbox=No
     logs = Path(log_directory)
     lock = threading.Lock()
     sequence = 0
+    active = 0
     step_reports = []
     deadline = time.monotonic() + total_timeout if total_timeout is not None else None
 
     def run_process(cmd, env, cwd, timeout, rss_limit_mb=None, watch=None, poll_s=0.25):
+        nonlocal active
+        with lock:
+            active += 1
+        try:
+            return execute(cmd, env, cwd, timeout, rss_limit_mb, watch, poll_s)
+        finally:
+            with lock:
+                active -= 1
+                if not active and getattr(run_process, 'trusted_logs', False):
+                    try:
+                        owner = logs / '.owner.json'
+                        if list(logs.iterdir()) == [owner] and json.loads(owner.read_text()) == owner_record():
+                            owner.unlink()
+                            parent = directory_fd(logs.parent)
+                            try:
+                                os.rmdir(logs.name, dir_fd=parent)
+                            finally:
+                                os.close(parent)
+                            run_process.trusted_logs = False
+                    except (OSError, ValueError):
+                        pass  # unknown evidence is retained for the dead-owner sweep
+
+    def execute(cmd, env, cwd, timeout, rss_limit_mb=None, watch=None, poll_s=0.25):
         nonlocal sequence, logs
         if sandbox is not None:
             cmd = sandbox.command(cmd, env, readable_paths or [], writable_paths or [])
@@ -131,7 +219,7 @@ def runner(log_directory: str, total_timeout: float | None = None, *, sandbox=No
                 logs = root / (str(os.getpid()) + '-' + uuid.uuid4().hex)
                 logs.mkdir(mode=0o700)
                 with (logs / '.owner.json').open('x') as stream:
-                    json.dump({'pid': os.getpid()}, stream)
+                    json.dump(owner_record(), stream)
                 run_process.trusted_logs = True
             logs.mkdir(mode=0o700, parents=True, exist_ok=True)
             run_process.log_directory = str(logs)

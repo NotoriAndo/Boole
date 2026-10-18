@@ -196,7 +196,8 @@ static void exec_probe(const char *directory, int version, uint64_t fs) {
             if (syscall(__NR_landlock_restrict_self, readonly, 0) < 0) _exit(125);
             close(readonly);
             char *arguments[] = {program, NULL};
-            execve(program, arguments, environ);
+            char *empty_environment[] = {NULL};
+            execve(program, arguments, empty_environment);
             _exit(125);
         }
         if (child < 0) failed = 1;
@@ -210,7 +211,7 @@ static void exec_probe(const char *directory, int version, uint64_t fs) {
     if (unlinkat(root, name, 0) < 0) failed = 1;
     close(root);
     free(program);
-    if (failed) unavailable("work-root-exec-probe");
+    if (failed) { errno = EIO; unavailable("work-root-exec-probe"); }
 }
 
 static int landlock(int argc, char **argv) {

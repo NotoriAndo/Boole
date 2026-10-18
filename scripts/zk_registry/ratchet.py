@@ -1060,7 +1060,8 @@ def elaborate(env: L.LeanEnv, pkg: str, modules: list[str], fqn: str, opts: list
             return dict(status='ERROR', reason='sandbox-unavailable', errors=['sandbox-unavailable'])
     fresh_dir(work)
     guarded = CR.runner(os.path.join(work, 'processes'), timeout)
-    with L.sandbox_context(selected, [pkg, work, os.path.dirname(G.REPLAY_TOOL)], [work], guarded):
+    with CR.receipt_report(guarded, work), \
+            L.sandbox_context(selected, [pkg, work, os.path.dirname(G.REPLAY_TOOL)], [work], guarded):
         result = _elaborate(env, pkg, modules, fqn, opts, work, timeout)
     result['process_receipts'] = guarded.step_reports
     return result
