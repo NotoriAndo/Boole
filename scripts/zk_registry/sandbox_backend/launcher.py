@@ -319,6 +319,10 @@ def execute(options, arguments):
             raise SubmissionExecFailed('submitted-executable-unavailable')
         raise ValueError('executable-unavailable')
     executable = str(Path(executable).resolve())
+    if options.exec_origin != 'submission':
+        entry = Path(executable).stat()
+        if not stat.S_ISREG(entry.st_mode) or not submission_permissions(entry):
+            raise ValueError('trusted-executable-access')
     readers.append(executable)
     separator = arguments.index('--')
     arguments = [*arguments[:separator + 1], executable, *payload_command[1:]]

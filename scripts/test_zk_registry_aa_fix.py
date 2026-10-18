@@ -121,7 +121,8 @@ class NativeBoundaryOutcomes(unittest.TestCase):
     def test_ci_tightens_apparmor_before_setup(self):
         """Execute the authored setup block against a sysctl/install boundary fixture."""
         workflow = (Path(__file__).parents[1] / '.github/workflows/acceptance-gate-linux.yml').read_text()
-        block = workflow.split('        run: |\n', 1)[1].split('\n      - name:', 1)[0]
+        block = workflow.split('name: Build and require the pinned hardened boundary', 1)[1]
+        block = block.split('        run: |\n', 1)[1].split('\n      - name:', 1)[0]
         block = '\n'.join(line[10:] for line in block.splitlines())
         with tempfile.TemporaryDirectory() as temp:
             prefix = ('sudo() { printf "sudo-call:%s\\n" "$*"; }; '
@@ -258,15 +259,15 @@ class LiveReviewFixes(unittest.TestCase):
         logs = Path(getattr(run, 'log_directory', root / 'processes'))
         self.assertFalse(logs.is_relative_to(root), logs)
         before = json.dumps(result.process_receipt, sort_keys=True)
-        owner_before = (logs / '.owner.json').read_bytes()
-        self.assertEqual([p.name for p in logs.glob('*.json')], ['.owner.json'])
+        self.assertFalse(logs.exists(), 'completed runner leaves no empty owner directory')
         attempted = run(['/usr/bin/python3', '-c', 'from pathlib import Path; '
-                        'Path(' + repr(str(logs / 'forged.json')) + ').write_text("forged")'],
+                        'target=Path(' + repr(str(logs / 'forged.json')) + '); '
+                        'target.parent.mkdir(parents=True,exist_ok=True);target.write_text("forged")'],
                         {'PATH': '/usr/bin:/bin'}, str(root), 20, 256)
         self.assertNotEqual(attempted.rc, 0)
         self.assertFalse((logs / 'forged.json').exists())
         self.assertEqual(json.dumps(result.process_receipt, sort_keys=True), before)
-        self.assertEqual((logs / '.owner.json').read_bytes(), owner_before)
+        self.assertFalse(logs.exists())
         self.assertEqual(result.process_receipt['boundary']['verdict'], 'PASS')
 
     def test_orphan_flood_has_bounded_evidence(self):
