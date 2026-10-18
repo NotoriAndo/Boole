@@ -9,6 +9,15 @@ export HOME="$state/home" TMPDIR="$state/tmp"
 export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0
 export npm_config_userconfig=/dev/null PIP_CONFIG_FILE=/dev/null GOENV=off
 export PYTHONDONTWRITEBYTECODE=1
+if ! mountpoint -q /proc/sys/fs/binfmt_misc; then
+  sudo -n mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc
+fi
+python3 - <<'PY'
+from pathlib import Path
+root = Path('/proc/sys/fs/binfmt_misc')
+if not (root / 'status').is_file() or any(p.name not in {'register', 'status'} for p in root.iterdir()):
+    raise SystemExit('ERROR sandbox-unavailable: binfmt-misc-handlers-registered-or-unavailable')
+PY
 arch="$(uname -m)"
 case "$arch" in
   aarch64) compiler=/usr/bin/gcc ;;

@@ -48,10 +48,25 @@ The tracked tools descriptor, not an untracked overlay or environment override, 
 Linux nodes require Ubuntu's version/SHA256-pinned non-setuid `/usr/bin/bwrap`, the digest-pinned AppArmor profile
 `boole-gate-bwrap` granting `userns,`, Landlock ABI >=4, native seccomp, and an unprivileged systemd-delegated cgroup v2
 domain with both `memory` and `pids` controllers and the kernel's `pids.peak` observation file (checked at preflight).
-The work root must not be under any symlinked path. Keep `kernel.apparmor_restrict_unprivileged_userns=1` when the kernel
+Writable roots must not be under symlinked paths. A native exec probe runs on every directory passed with `--rwx`,
+including work, temporary and Comparator status directories. The probe itself runs only
+after namespaces, seccomp and Landlock are active; a writable-root file is never executed by the host preflight.
+A noexec root is a node ERROR. Before launch, altered owner permissions are restored and that submission is INVALID;
+the next launch also removes owned regular `.boole-exec-probe-<16 hex digits>` leftovers. The confined probe gets
+an empty environment and cannot write or supply verdict output.
+The node must expose `binfmt_misc` with no registered handlers; preflight rejects any handler, including disabled ones.
+Setup checks this requirement without clearing a real node's registrations. Node operators must stop/disable
+`systemd-binfmt` and `binfmt-support`, remove their configured entries, then unregister existing handlers by writing
+`-1` to each handler file under `/proc/sys/fs/binfmt_misc/` (excluding `status` and `register`). Disabling the global
+status alone leaves registrations and is insufficient. The disposable hosted CI runner logs and removes its handlers
+in an explicit step before setup.
+Keep `kernel.apparmor_restrict_unprivileged_userns=1` when the kernel
 provides it; never disable that restriction. Every receipt records kernel, ABI, BPF digest, profile hash/label,
 sysctl, namespace identities, caps and resource observations. Whole-step payload+init memory is limited to at most
-20GB; provision a node-wide parent cap for concurrent steps (the local validation VM uses at most 24GB total).
+20 GB; the supervisor reserves 32 MiB, so payload memory must be at most 19,966,445,568 bytes. The tracked envelope and
+every production profile are checked before any launch. An oversized payload raises the named configuration error
+`sandbox-configuration:payload-memory-exceeds-node-envelope`. Provision a node-wide parent cap for concurrent steps
+(the local validation VM uses at most 24 GB total).
 At least four schedulable CPUs are mandatory: PID-1 selects the first four CPUs in its affinity mask before exec,
 and concurrent stages share this fixed CPU set. Contention may slow stages but cannot change mathematical verdicts;
 wall-time interruption remains an availability ERROR. Preflight fails with
@@ -83,8 +98,22 @@ Setup/exec failure uses a CLOEXEC status pipe, not the payload's exit code125. C
 an explicit exec-success marker or setup failure through a dedicated status directory outside the work root.
 The inner kernel cannot write that directory or inherit its writable descriptor. Patched Comparator exit status70
 means launch/transport failure (ERROR), status2 means semantic rejection; missing success attestation fails closed.
-CR process receipts are retained under the protected runtime receipt root, outside every submission-writable root.
-Exec failure of a submission-built artifact is INVALID `submission-exec-failed`; pinned tool exec failure stays ERROR.
+CR process observations are copied into step reports before their temporary protected receipt files are removed.
+Each production runner records its owner PID, process start tick and PID namespace. Empty completed-runner directories
+are released; sweeping removes only owned receipt directories whose owner PID is proven dead,
+retaining live, reused or unidentifiable owners. Legacy receipts are archived and round-trip checked before purge.
+Process receipts stay in private reports, including failure paths, and never enter registry verdicts or events.
+If a submission changes its local report path into a symlink or makes it unwritable, consumed receipts are saved
+under the protected runtime receipt root instead, preserving the original boundary outcome.
+Submission content is classified before exec: missing/non-regular/
+non-executable files, invalid or foreign ELF headers and unpinned ELF/shebang interpreters are INVALID
+`submission-exec-failed`. The pinned script interpreters are `/bin/sh`, `/bin/bash` and `/usr/bin/python3`; ELF
+interpreters are `/lib/ld-linux-aarch64.so.1` and `/lib64/ld-linux-x86-64.so.2` on their respective architectures.
+After these checks pass, every exec errno is ERROR `sandbox-unavailable`; no ENOEXEC-to-shell retry is permitted.
+Pinned tool exec failures also stay ERROR. Only Comparator 0 and 2 can be production verdicts. Exit 0 without both
+kernel acceptance messages is ERROR `sandbox-unavailable`. Other codes and signals
+are ERROR `sandbox-unavailable`, or `resource-unavailable` when resource interruption/events are observed; 70 and
+missing/failed inner markers remain transport ERRORs. Cleanup errors are reported separately from the compare result.
 No outcome relies on matching submission-controlled diagnostic text. Freeze
 and asynchronous cgroup-kill waits are adaptive and bounded; cleanup failures are auxiliary observations, never
 an overwrite of a finished PASS/INVALID verdict. A missing/unwritable trusted receipt remains ERROR.

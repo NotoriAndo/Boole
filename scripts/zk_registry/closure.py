@@ -126,7 +126,8 @@ def export_module(env: L.LeanEnv, module: str, theorem: str, output: str, tools:
     run = CR.runner(str(target.parent / 'processes' / target.name), timeout)
     result = run(command, task_env, cwd, timeout, 12000)
     record = dict(stage='closure-export', assurance=sandbox.mode, seconds=result.secs,
-                  peak_rss_mb=result.peak_rss_mb, rc=result.rc, boundary=result.boundary)
+                  peak_rss_mb=result.peak_rss_mb, rc=result.rc, boundary=result.boundary,
+                  process_receipt=result.process_receipt)
     stopped = boundary_failure(result)
     if stopped:
         return dict(record, verdict=stopped['verdict'], reason=stopped['reason'])
@@ -183,6 +184,7 @@ def compare_exports(challenge: str, solution: str, theorem: str, tools: Tools, s
     run = CR.runner(str(directory / 'processes'), timeout)
     result = run(command, env, str(directory), timeout, 12000)
     signals = None
+    cleanup_errors = []
     if status_directory is not None:
         try:
             raw = inner_status.read_bytes()
@@ -193,15 +195,28 @@ def compare_exports(challenge: str, solution: str, theorem: str, tools: Tools, s
         except (OSError, ValueError):
             pass
         finally:
-            inner_status.unlink(missing_ok=True)
-            status_directory.rmdir()
+            for cleanup in (lambda: inner_status.unlink(missing_ok=True), status_directory.rmdir):
+                try:
+                    cleanup()
+                except Exception as ex:
+                    cleanup_errors.append(type(ex).__name__ + ': ' + str(ex)[:2048])
     (directory / 'comparator.stdout').write_text(result.out)
     record = dict(stage='comparator', assurance='test-fixture' if nanoda_binary else sandbox.mode,
                   seconds=result.secs, peak_rss_mb=result.peak_rss_mb, rc=result.rc,
                   solution_export_sha256=before[solution], comparator_lean=tools.comparator_version,
-                  boundary=result.boundary, inner_signals=signals)
+                  boundary=result.boundary, inner_signals=signals, process_receipt=result.process_receipt,
+                  cleanup_errors=cleanup_errors)
     if any(digest(path) != value for path, value in before.items()):
         return dict(record, verdict='INVALID', reason='export-integrity')
+    if sandbox.mode == 'production' and result.rc not in (0, 2):
+        # Only 0/2 are Comparator verdicts. Even plausible kernel output cannot
+        # turn a crash, signal or unknown exit status into a semantic rejection.
+        observation = (result.boundary or {}).get('observation') or {}
+        resource_events = observation.get('oom_kill_events') or observation.get('pids_max_events')
+        guarded_resource_stop = result.timeout or result.memkill or result.killed_by == 'checker-deadline'
+        reason = ('resource-unavailable' if result.rc != 70 and (guarded_resource_stop or resource_events)
+                  else 'sandbox-unavailable')
+        return dict(record, verdict='ERROR', reason=reason)
     if resource_reason(result):
         stopped = boundary_failure(result)
         if stopped:
@@ -214,14 +229,17 @@ def compare_exports(challenge: str, solution: str, theorem: str, tools: Tools, s
         # Patched Comparator: 2 is a semantic rejection before any kernel launch; 70 is transport/setup.
         if result.rc == 70 or signals is None or any('setup_error' in row for row in signals):
             return dict(record, verdict='ERROR', reason='sandbox-unavailable')
-        if result.rc != 2 and (not signals or any(row.get('inner_exec') != 'ok'
-                                                or row.get('exit', 128) >= 128 for row in signals)):
+        if (any(row.get('inner_exec') != 'ok' or type(row.get('exit')) is not int
+                or not 0 <= row['exit'] < 128 for row in signals)
+                or (result.rc != 2 and not signals)):
             return dict(record, verdict='ERROR', reason='sandbox-unavailable')
     lean_accepts = 'Lean default kernel accepts the solution' in result.out
     nanoda_accepts = 'nanoda kernel accepts the solution' in result.out
     record.update(lean_accepts=lean_accepts, nanoda_accepts=nanoda_accepts)
     if result.rc == 0 and lean_accepts and nanoda_accepts:
         return dict(record, verdict='PASS', reason=None)
+    if result.rc == 0:
+        return dict(record, verdict='ERROR', reason='sandbox-unavailable')
     if 'resource-cap:' in result.out:
         return dict(record, verdict='INVALID', reason='resource-cap')
     if lean_accepts != nanoda_accepts:

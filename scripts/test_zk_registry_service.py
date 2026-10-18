@@ -11,6 +11,7 @@ import tempfile
 import unittest
 import subprocess
 import shutil
+from unittest import mock
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -177,6 +178,48 @@ class IntakeTests(unittest.TestCase):
         rejecting = lambda *_: dict(verdict='INVALID', reason='invalid-proof')
         with self.assertRaisesRegex(S.RegistryError, 'replayed verdict differs'):
             self.registry.replay(str(Path(self.scratch.name) / 'disagreeing'), verifier=rejecting)
+
+    def test_receipt_emitting_production_verifier_replays_byte_identically(self):
+        from zk_registry import service_check as SC, lean_runner as L
+        receipts = []
+
+        def worker(*_):
+            def run(argv, env, work, timeout, rss):
+                receipt = dict(pid=100 + len(receipts), start_utc=str(len(receipts)))
+                receipts.append(receipt)
+                verdict = dict(self.verify(None, None, None), assurance='production',
+                               process_receipts=[receipt])
+                (Path(work) / 'verdict.json').write_bytes(S.canonical(verdict) + b'\n')
+                return L.RunResult(0, '', 0, 0, False, False)
+            return run
+
+        verifier = SC.ProductionVerifier({})
+        self.registry.verifier = verifier
+        with mock.patch.object(SC, 'delegated_cgroup'), mock.patch.object(SC.CR, 'runner', worker):
+            committed = self.commit()
+            self.registry.reveal(committed['sequence'], self.problem_id, 'alice',
+                                 str(self.submission), 'first', 2)
+            replica = self.registry.replay(str(Path(self.scratch.name) / 'receipt-replica'), verifier=verifier)
+        self.assertEqual(len(receipts), 2)
+        self.assertNotEqual(receipts[0], receipts[1])
+        self.assertEqual(replica.log.read_bytes(), self.registry.log.read_bytes())
+        self.assertEqual(S.canonical(replica.status()), S.canonical(self.registry.status()))
+        self.assertNotIn(b'process_receipts', self.registry.log.read_bytes())
+
+    def test_registry_never_serializes_verifier_receipts_into_events(self):
+        count=0
+        def emitting(*args):
+            nonlocal count
+            count+=1
+            return dict(self.verify(*args),process_receipts=[dict(pid=count,start_utc=str(count))])
+        self.registry.verifier=emitting
+        committed=self.commit()
+        self.registry.reveal(committed['sequence'],self.problem_id,'alice',str(self.submission),'first',2)
+        replica=self.registry.replay(str(Path(self.scratch.name)/'emitting-replica'),verifier=emitting)
+        self.assertEqual(replica.log.read_bytes(),self.registry.log.read_bytes())
+        self.assertEqual(S.canonical(replica.status()),S.canonical(self.registry.status()))
+        self.assertNotIn(b'process_receipts',self.registry.log.read_bytes())
+        self.assertTrue(list((self.root/'checks').glob('*/process-receipts.json')))
 
     def test_earliest_valid_commit_wins_even_when_later_reveal_arrives_first(self):
         early = self.commit()

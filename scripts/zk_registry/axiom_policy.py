@@ -94,7 +94,8 @@ def resolve(env, manifest: list[dict], build: str, sandbox, timeout: float) -> d
         directory.mkdir(parents=True, exist_ok=True)
         remaining = max(0.001, timeout - (time.monotonic() - started))
         guard = CR.runner(str(directory / 'processes'), remaining)
-        with L.sandbox_context(sandbox, [str(selected), build, *env.lean_path, str(Path(G.REPLAY_TOOL).parent)],
+        with CR.receipt_report(guard, directory), \
+                L.sandbox_context(sandbox, [str(selected), build, *env.lean_path, str(Path(G.REPLAY_TOOL).parent)],
                                [str(directory)], guard):
             run, post = G.run_replay(env, str(selected), row['name'], str(directory / 'replay.out'),
                                     [], [build], remaining)
@@ -110,5 +111,6 @@ def resolve(env, manifest: list[dict], build: str, sandbox, timeout: float) -> d
             continue
         own = any(item.get('kind') == 'axiom' and item.get('name') == row['name'] for item in post.get('consts', []))
         bindings[row['name']] = dict(module=module, module_olean_sha256=D.digest(selected),
-                                    type_sha256=post.get('type_sha256'), declared_in_module=own)
+                                    type_sha256=post.get('type_sha256'), declared_in_module=own,
+                                    process_receipt=run.process_receipt)
     return bindings

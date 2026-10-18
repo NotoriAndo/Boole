@@ -15,8 +15,10 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/prctl.h>
+#include <sys/random.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <sys/syscall.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -30,6 +32,39 @@
 #define READ_RIGHTS ((1ULL << 0) | (1ULL << 2) | (1ULL << 3) | FS_UNIX)
 extern char **environ;
 static int setup_fd = -1;
+
+/* execvpe silently retries ENOEXEC with /bin/sh. Preserve the actual exec errno. */
+static void exec_no_shell(char **argv) {
+    if (strchr(argv[0], '/')) {
+        execve(argv[0], argv, environ);
+        return;
+    }
+    const char *path = getenv("PATH");
+    char *copy = strdup(path ? path : "/usr/bin:/bin");
+    if (!copy) return;
+    int denied = 0;
+    char *remaining = copy;
+    char *directory;
+    while ((directory = strsep(&remaining, ":")) != NULL) {
+        char *candidate;
+        if (asprintf(&candidate, "%s/%s", *directory ? directory : ".", argv[0]) < 0) {
+            free(copy);
+            errno = ENOMEM;
+            return;
+        }
+        execve(candidate, argv, environ);
+        int error = errno;
+        free(candidate);
+        if (error == EACCES) denied = 1;
+        else if (error != ENOENT && error != ENOTDIR) {
+            free(copy);
+            errno = error;
+            return;
+        }
+    }
+    free(copy);
+    errno = denied ? EACCES : ENOENT;
+}
 
 static void event(int fd, const char *format, ...) {
     char buffer[4096];
@@ -103,6 +138,82 @@ static void rule(int ruleset, const char *path, uint64_t access) {
     close(fd);
 }
 
+/* This runs after namespaces/seccomp/Landlock and never executes a work-root file on the host. */
+static void exec_probe(const char *directory, int version, uint64_t fs) {
+    struct stat metadata;
+    if (lstat(directory, &metadata) < 0 || S_ISLNK(metadata.st_mode)) unavailable("work-root-exec-probe");
+    if (!S_ISDIR(metadata.st_mode)) return;
+    int root = open(directory, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    struct statvfs filesystem;
+    if (root < 0 || fstatvfs(root, &filesystem) < 0) unavailable("work-root-exec-probe");
+    if (filesystem.f_flag & ST_NOEXEC) {
+        errno = EACCES;
+        unavailable("work-root-exec-probe");
+    }
+    unsigned long long nonce;
+    if (getrandom(&nonce, sizeof(nonce), 0) != (ssize_t)sizeof(nonce)) unavailable("work-root-exec-probe");
+    char name[64];
+    snprintf(name, sizeof(name), ".boole-exec-probe-%016llx", nonce);
+    int output = openat(root, name, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0700);
+    if (output < 0) unavailable("work-root-exec-probe");
+    int input = open("/usr/bin/true", O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    int failed = input < 0 || fchmod(output, 0700) < 0;
+    char buffer[16384];
+    while (!failed) {
+        ssize_t count = read(input, buffer, sizeof(buffer));
+        if (count == 0) break;
+        if (count < 0) {
+            if (errno == EINTR) continue;
+            failed = 1;
+            break;
+        }
+        for (ssize_t offset = 0; offset < count;) {
+            ssize_t written = write(output, buffer + offset, (size_t)(count - offset));
+            if (written < 0 && errno == EINTR) continue;
+            if (written <= 0) { failed = 1; break; }
+            offset += written;
+        }
+    }
+    if (input >= 0) close(input);
+    if (close(output) < 0) failed = 1;
+    char *program = NULL;
+    if (!failed && asprintf(&program, "%s/%s", directory, name) < 0) failed = 1;
+    if (!failed) {
+        pid_t child = fork();
+        if (child == 0) {
+            /* A replaced probe cannot write trusted Comparator config/status either. */
+            if (setup_fd >= 0) close(setup_fd);
+            setup_fd = -1;
+            close(root);
+            int null = open("/dev/null", O_WRONLY | O_CLOEXEC);
+            if (null < 0 || dup2(null, STDOUT_FILENO) < 0 || dup2(null, STDERR_FILENO) < 0) _exit(125);
+            if (null > STDERR_FILENO) close(null);
+            struct { uint64_t fs, net, scoped; } attr = {
+                .fs = fs, .net = 3, .scoped = version >= 6 ? 3 : 0};
+            int readonly = (int)syscall(__NR_landlock_create_ruleset, &attr, version >= 6 ? 24 : 16, 0);
+            if (readonly < 0) _exit(125);
+            rule(readonly, "/", fs & READ_RIGHTS);
+            if (syscall(__NR_landlock_restrict_self, readonly, 0) < 0) _exit(125);
+            close(readonly);
+            char *arguments[] = {program, NULL};
+            char *empty_environment[] = {NULL};
+            execve(program, arguments, empty_environment);
+            _exit(125);
+        }
+        if (child < 0) failed = 1;
+        else {
+            int status = 0;
+            pid_t waited;
+            do { waited = waitpid(child, &status, 0); } while (waited < 0 && errno == EINTR);
+            if (waited != child || !WIFEXITED(status) || WEXITSTATUS(status) != 0) failed = 1;
+        }
+    }
+    if (unlinkat(root, name, 0) < 0) failed = 1;
+    close(root);
+    free(program);
+    if (failed) { errno = EIO; unavailable("work-root-exec-probe"); }
+}
+
 static int landlock(int argc, char **argv) {
     int version = abi();
     if (version < 4) unavailable("landlock-abi");
@@ -112,17 +223,26 @@ static int landlock(int argc, char **argv) {
     struct { uint64_t fs, net, scoped; } attr = {.fs = fs, .net = 3, .scoped = version >= 6 ? 3 : 0};
     int ruleset = (int)syscall(__NR_landlock_create_ruleset, &attr, version >= 6 ? 24 : 16, 0);
     if (ruleset < 0) unavailable("landlock-create");
+    const char **probe_roots = calloc((size_t)argc + 1, sizeof(char *));
+    if (!probe_roots) unavailable("work-root-exec-probe");
+    int probe_count = 0, enable_probes = 0;
     int index = 0;
     for (; index < argc; ++index) {
         if (!strcmp(argv[index], "--")) { ++index; break; }
+        if (!strcmp(argv[index], "--exec-probes")) { enable_probes = 1; continue; }
         if (!strcmp(argv[index], "--add-exec") || !strcmp(argv[index], "-add-exec")
                 || !strcmp(argv[index], "--ldd") || !strcmp(argv[index], "-ldd")
                 || !strcmp(argv[index], "--best-effort")) continue; /* Compatibility only; ABI >=4 stays mandatory. */
         if (index + 1 >= argc) unavailable("landlock-arguments");
         const char *flag = argv[index++], *value = argv[index];
         if (!strcmp(flag, "--ro") || !strcmp(flag, "--rox")) rule(ruleset, value, fs & READ_RIGHTS);
-        else if (!strcmp(flag, "--rw")) rule(ruleset, value, fs & (READ_RIGHTS | FILE_RIGHTS));
-        else if (!strcmp(flag, "--rwx")) rule(ruleset, value, fs);
+        else if (!strcmp(flag, "--rw")) {
+            rule(ruleset, value, fs & (READ_RIGHTS | FILE_RIGHTS));
+            probe_roots[probe_count++] = value;
+        } else if (!strcmp(flag, "--rwx")) {
+            rule(ruleset, value, fs);
+            probe_roots[probe_count++] = value;
+        }
         else if (!strcmp(flag, "--env")) {
             char *equal = strchr(value, '=');
             if (!equal || equal == value) unavailable("landlock-env");
@@ -137,7 +257,9 @@ static int landlock(int argc, char **argv) {
     if (syscall(__NR_landlock_restrict_self, ruleset, version >= 8 ? RESTRICT_TSYNC : 0) < 0)
         unavailable("landlock-restrict");
     close(ruleset);
-    execvpe(argv[index], argv + index, environ);
+    if (enable_probes) for (int probe = 0; probe < probe_count; ++probe) exec_probe(probe_roots[probe], version, fs);
+    free(probe_roots);
+    exec_no_shell(argv + index);
     unavailable("landlock-exec");
     return 125;
 }
@@ -342,7 +464,7 @@ int main(int argc, char **argv) {
         if (ioctl(socket_fd, SIOCGIFFLAGS, &request) < 0 || (request.ifr_flags & IFF_UP))
             unavailable("network-readback");
         close(socket_fd);
-        execvpe(argv[2], argv + 2, environ);
+        exec_no_shell(argv + 2);
         unavailable("inner-bwrap-exec");
     }
     if (argc > 4 && !strcmp(argv[1], "join") && !strcmp(argv[3], "--")) {
@@ -350,7 +472,7 @@ int main(int argc, char **argv) {
         snprintf(pid, sizeof(pid), "%d", getpid());
         write_control(atoi(argv[2]), pid);
         close(atoi(argv[2]));
-        execvpe(argv[4], argv + 4, environ);
+        exec_no_shell(argv + 4);
     }
     unavailable("launcher-mode");
     return 125;

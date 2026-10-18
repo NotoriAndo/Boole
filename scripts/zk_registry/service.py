@@ -548,7 +548,11 @@ class Registry:
                         raise RegistryError('checker returned an invalid verdict')
                     if problem['kind'] == 'R' and verdict['verdict'] == 'PASS' and not verdict.get('record'):
                         raise RegistryError('accepted ratchet lacks new record')
-                    return verdict
+                    if 'process_receipts' in verdict:
+                        (Path(work_dir) / 'process-receipts.json').write_bytes(canonical(dict(
+                            process_receipts=verdict['process_receipts'])) + b'\n')
+                    return {key: value for key, value in verdict.items()
+                            if key in ('verdict', 'reason', 'assurance', 'record', 'artifact')}
 
     def reveal(self, sequence, problem_id, solver_id, submission_dir, salt, logical_time):
         """Snapshot and recheck a bound reveal; wrong bindings never consume the intended commit."""

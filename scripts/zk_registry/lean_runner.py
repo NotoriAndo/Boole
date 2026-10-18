@@ -157,6 +157,7 @@ class RunResult:
     peak_rss_mb: int = 0
     killed_by: str = ""                   # reason returned by the ``watch`` hook, if it stopped the run
     boundary: dict | None = None          # trusted production namespace/cgroup receipt
+    process_receipt: dict | None = None   # copied host observation, independent of temporary receipt files
 
 
 class ResourceUnavailable(RuntimeError):

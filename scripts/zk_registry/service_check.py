@@ -75,7 +75,8 @@ class ProductionVerifier:
         verdict = read_json(Path(work_dir) / 'verdict.json')
         if verdict.get('verdict') == 'PASS' and verdict.get('assurance') != 'production':
             return dict(verdict='ERROR', reason='nonproduction-evidence')
-        return verdict
+        return {key: value for key, value in verdict.items()
+                if key in ('verdict', 'reason', 'assurance', 'record', 'artifact')}
 
 
 def resolve_snapshot(problem, config):
@@ -179,6 +180,7 @@ def run(config, package_dir, submission_dir, work_dir, *, sandbox=None, acceptan
         return guarded(cmd, env, cwd, timeout, min(rss, rss_limit_mb or rss), watch, poll_s)
 
     bounded.submission_boundary = sandbox
+    bounded.step_reports = guarded.step_reports
     L.run_process = bounded
     L.set_lean_limits(slots=1, rss_mb=rss)
     if schema == P.CORRECTNESS_GNARK_SCHEMA_VERSION:
@@ -218,6 +220,7 @@ def run(config, package_dir, submission_dir, work_dir, *, sandbox=None, acceptan
             verdict, report = N.run_check(module, package_dir, candidate, proof, out, tools, env, snapshot, build)
     else:
         return dict(verdict='REJECTED', reason='unsupported-kind')
+    report['process_receipts'] = guarded.step_reports
     (Path(work_dir) / 'production-report.json').write_bytes(canonical(report) + b'\n')
     proof_report = report.get('checker', report)
     if verdict == 'PASS' and proof_report.get('two_kernels', {}).get('verdict') != 'PASS':
@@ -246,6 +249,10 @@ def main():
     except (OSError, ValueError, KeyError, TypeError, RuntimeError, RT.Reject) as ex:
         (Path(args.work) / 'error.json').write_bytes(canonical(dict(type=type(ex).__name__, message=str(ex))) + b'\n')
         result = dict(verdict='ERROR', reason='checker-unavailable')
+    (Path(args.work) / 'process-receipts.json').write_bytes(canonical(dict(
+        process_receipts=getattr(L.run_process, 'step_reports', []))) + b'\n')
+    result = {key: value for key, value in result.items()
+              if key in ('verdict', 'reason', 'assurance', 'record', 'artifact')}
     (Path(args.work) / 'verdict.json').write_bytes(canonical(result) + b'\n')
     return 0
 
