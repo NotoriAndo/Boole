@@ -20,6 +20,7 @@ import signal
 import stat
 import subprocess
 import threading
+import tempfile
 import time
 import uuid
 
@@ -129,9 +130,30 @@ def receipt_report(guard, directory):
     try:
         yield
     finally:
-        Path(directory).mkdir(parents=True, exist_ok=True)
-        (Path(directory) / 'process-receipts.json').write_text(
-            json.dumps(dict(process_receipts=guard.step_reports), sort_keys=True) + '\n')
+        data = dict(process_receipts=guard.step_reports)
+        try:
+            Path(directory).mkdir(parents=True, exist_ok=True)
+            (Path(directory) / 'process-receipts.json').write_text(json.dumps(data, sort_keys=True) + '\n')
+        except OSError as ex:
+            # A payload may chmod its root or plant a report symlink. Neither may
+            # erase consumed evidence or replace the original boundary exception.
+            protected = failed_receipt_directory()
+            protected.mkdir(mode=0o700, parents=True, exist_ok=True)
+            metadata = protected.lstat()
+            if metadata.st_uid != os.getuid() or metadata.st_mode & 0o077:
+                raise PermissionError('private receipt directory ownership/mode')
+            target = protected / (uuid.uuid4().hex + '.json')
+            with target.open('x') as stream:
+                json.dump(dict(data, report_directory=str(directory), report_write_error=str(ex)), stream)
+                stream.flush();os.fsync(stream.fileno())
+            guard.failed_receipt_reports = [*getattr(guard, 'failed_receipt_reports', []), str(target)]
+
+
+def failed_receipt_directory():
+    """Production fallback is outside every allowed submission writer root."""
+    if os.uname().sysname != 'Linux':
+        return Path(tempfile.mkdtemp(prefix='boole-private-receipts-'))
+    return Path('/run/user') / str(os.getuid()) / 'boole-gate-receipts/failed-reports'
 
 
 def sweep_dead_receipts(root):

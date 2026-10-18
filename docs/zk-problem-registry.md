@@ -103,6 +103,8 @@ Each production runner records its owner PID, process start tick and PID namespa
 are released; sweeping removes only owned receipt directories whose owner PID is proven dead,
 retaining live, reused or unidentifiable owners. Legacy receipts are archived and round-trip checked before purge.
 Process receipts stay in private reports, including failure paths, and never enter registry verdicts or events.
+If a submission changes its local report path into a symlink or makes it unwritable, consumed receipts are saved
+under the protected runtime receipt root instead, preserving the original boundary outcome.
 Submission content is classified before exec: missing/non-regular/
 non-executable files, invalid or foreign ELF headers and unpinned ELF/shebang interpreters are INVALID
 `submission-exec-failed`. The pinned script interpreters are `/bin/sh`, `/bin/bash` and `/usr/bin/python3`; ELF

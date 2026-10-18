@@ -37,6 +37,27 @@ class FailureReceipts(unittest.TestCase):
             saved = json.loads((work / 'process-receipts.json').read_text())
             self.assertEqual(saved['process_receipts'], [receipt])
 
+    def test_tampered_report_path_cannot_lose_receipt_or_replace_boundary_failure(self):
+        receipt={'boundary':{'verdict':'INVALID','reason':'owned-descendants-remained'},'pid':123}
+        guard=lambda *args, **kwargs: None
+        guard.step_reports=[receipt]
+        env=SimpleNamespace(extra={'acceptance_sandbox':Sandbox.fixture()})
+        run=L.RunResult(0,'',0,False,boundary=receipt['boundary'],process_receipt=receipt)
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);work=root/'work';canary=root/'canary';canary.write_text('retain')
+            protected=root/'trusted-receipts'
+            def compile_step(*args):
+                (work/'process-receipts.json').symlink_to(canary)
+                return run,[]
+            with patch.object(CR,'runner',return_value=guard),patch.object(L,'compile_module',side_effect=compile_step), \
+                    patch.object(CR,'failed_receipt_directory',create=True,return_value=CR.Path(protected)):
+                with self.assertRaisesRegex(L.BoundaryInvalid,'owned-descendants-remained'):
+                    RT.elaborate(env,temp,['Model.lean'],'X.p',[],str(work))
+            self.assertEqual(canary.read_text(),'retain')
+            reports=list(protected.glob('*.json'))
+            self.assertEqual(len(reports),1)
+            self.assertEqual(json.loads(reports[0].read_text())['process_receipts'],[receipt])
+
     def test_axiom_probe_keeps_receipts_on_continue_and_boundary_exception(self):
         from zk_registry import axiom_policy as A, gates as G
         for boundary in [None, {'verdict':'INVALID','reason':'owned-descendants-remained'}]:
