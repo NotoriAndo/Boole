@@ -39,7 +39,7 @@ class CandidateIdentity(unittest.TestCase):
             D,
             "reference_identity",
             return_value=dict(verdict="ERROR", reason="export-record-limit"),
-        ):
+        ) as identity:
             result = RT._elaborate(
                 L.LeanEnv("/usr", [], "", {}, "", temp), temp, [], "Fixture.equiv", [], temp, 30
             )
