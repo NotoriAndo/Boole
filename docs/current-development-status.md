@@ -1,6 +1,6 @@
 # Boole — current development status
 
-Updated: 2026-10-18. This is the tracked entrypoint for current progress and the
+Updated: 2026-10-19. This is the tracked entrypoint for current progress and the
 ordered development roadmap. Edit it in place; execution evidence stays in its
 own result record. Local Master/Execution documents link here instead of owning
 a second current cursor. Work methods follow the
@@ -85,12 +85,30 @@ A measured census found no ZK code item with full machine-checked coverage.
     the production generator's requirements.
   - **Two time-cap amendments** were decisive for the GO. Both were frozen before
     the results they affect.
-  - **RISC-V: not evaluated.** Instruction-set conformance could not run; a
-    preregistered follow-up repairs it. A Rust field negation was proved end to
-    end at the RISC-V machine-code level.
+  - **RISC-V: not evaluated in B2.** Instruction-set conformance could not run.
+    A Rust field negation was proved end to end at the RISC-V machine-code level.
   - **What GO means.** The method works on deployed code. A production pipeline
     does not exist yet, and bridge kinds are not in the first testnet catalog.
     Circuit kinds remain the supply.
+- **RISC-V follow-ups (October 18–19).**
+  - **R1-bis: FAIL.** The first preregistered follow-up ran the 63 official
+    RV64UI/UM conformance tests. They showed that the RV64IM semantics lacked the
+    13 RV64 word operations (ADDW … REMUW), so RISC-V was NO-GO for that
+    semantics.
+  - **R3, a new preregistered test of the extended semantics: RISC-V GO.** The
+    13 operations were added, and three independent reviews of the protocol
+    preceded any result. Results:
+    - every one of the 2^32 instruction words decodes as before, except the two
+      new opcode spaces;
+    - all 72 instruction theorems equating the semantics to the official Sail
+      model were accepted by both kernels;
+    - all 63 official conformance tests passed;
+    - the earlier Rust proofs re-checked unchanged;
+    - in the Linux production sandbox, 36 of 36 scoped checks were accepted
+      again, including the hypothesis-free end-to-end theorem.
+
+    The GO holds for this extended semantics. Its decoder is checked
+    exhaustively and by conformance, not proved equal to Sail's.
 
   A Solana sBPF study modeled one pure function exactly and supports at most a
   narrow pilot.
@@ -114,15 +132,21 @@ format and limits. Nothing is issued, rewarded or activated; BF.7 remains HOLD.
 
 **Acceptance gate v2.** The registry judge now uses Lean 4.34.1, which includes the
 2026 kernel soundness fixes, and retires 4.33.1 packages. Submission code runs inside a
-sandbox (namespaces, seccomp, Landlock and cgroups, on two kernel lines since
-[#425](https://github.com/NotoriAndo/Boole/pull/425)); production mode refuses to run
-without it. A result is accepted only
+sandbox: namespaces, seccomp, Landlock and cgroups, on two kernel lines since
+[#425](https://github.com/NotoriAndo/Boole/pull/425). Its exec, exit-code, receipt and
+memory-envelope review items were closed in
+[#427](https://github.com/NotoriAndo/Boole/pull/427). Production mode refuses to run
+without the sandbox. A result is accepted only
 when the full dependency closure is accepted by both Comparator's Lean kernel and
 nanoda. Compiled-evaluator shortcuts such as `native_decide` stay banned; attributes are
 limited to a safe allowlist; commands that define elaboration code are rejected.
 - In production mode on Linux, 99.55% of catalog templates passed unchanged before
   the sandbox hardening.
-- Next, a frozen testnet catalog v1 is re-validated on the hardened gate.
+- **Testnet catalog v1 is frozen (October 18).** All 2,142 issuable circuit
+  templates were re-validated unchanged on the hardened gate: 1,968 ratchets and
+  174 correctness properties. The 81 earlier accepted proofs reproduced their
+  outcomes exactly. The catalog is frozen by digest and stays inactive: nothing
+  is issued.
 - macOS results remain development evidence only.
 
 Contracts are in the
