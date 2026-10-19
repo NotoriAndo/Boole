@@ -1,12 +1,12 @@
 """One fail-closed Landrun boundary for all commands that execute submission code."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import hashlib
 import json
 import os
 from pathlib import Path
-from .safe_fs import Path as SafePath, reject_symlinks
+from .safe_fs import Path as SafePath, reject_symlinks, submission_io
 import platform
 import pwd
 import subprocess
@@ -42,7 +42,7 @@ def capture_result(command, result):
     pending = _PENDING.pop(status, None)
     if pending is None:
         return result
-    authority, capabilities, mode = pending
+    authority, capabilities, mode, exposed, writers = pending
     if result.timeout or result.memkill or result.killed_by:
         result.boundary = dict(verdict='ERROR', reason='resource-unavailable', assurance=mode,
                                capabilities_snapshot=capabilities)
@@ -55,6 +55,8 @@ def capture_result(command, result):
         if record['verdict'] == 'PASS' and record['descriptor_sha256'] != authority:
             raise ValueError('boundary authority mismatch')
         result.boundary = record
+        if record.get('observation') and not record['observation'].get('setup_failed', True):
+            exposed.update(writers)
     except (OSError, ValueError, KeyError):
         result.boundary = dict(verdict='ERROR', reason='sandbox-unavailable', assurance=mode,
                                capabilities_snapshot=capabilities)
@@ -153,6 +155,7 @@ class Sandbox:
     pids_max: int | None = None
     role: str = 'submission'
     disabled_layer: str | None = None
+    exposed_writers: set[str] = field(default_factory=set, compare=False, repr=False)
 
     @classmethod
     def production(cls, landrun_path: str | None = None, system: str | None = None,
@@ -237,7 +240,8 @@ class Sandbox:
                    if Path(path).exists() and str(Path(path).resolve()) == os.path.abspath(path)]
         for raw in outputs:
             try:
-                reject_symlinks(raw)
+                with submission_io(self.exposed_writers):
+                    reject_symlinks(raw)
             except OSError:
                 raise SandboxUnavailable('sandbox-unavailable') from None
         for reader in readable:
@@ -245,7 +249,8 @@ class Sandbox:
                 continue  # the pinned launcher classifies this submission path before any execution
             path = Path(reader).resolve()
             try:
-                reject_symlinks(reader)
+                with submission_io(self.exposed_writers):
+                    reject_symlinks(reader)
             except OSError:
                 raise SandboxUnavailable('sandbox-unavailable') from None
             if not any(path == root or path.is_relative_to(root) for root in allowed):
@@ -262,7 +267,7 @@ class Sandbox:
             except OSError:
                 raise SandboxUnavailable('sandbox-unavailable') from None
         status = str(receipts / (uuid.uuid4().hex + '.json'))
-        _PENDING[status] = self.authority, self.capabilities, self.mode
+        _PENDING[status] = self.authority, self.capabilities, self.mode, self.exposed_writers, outputs
         stage = stage_kind(argv)
         pids = self.pids_max if self.pids_max is not None else data['sandbox']['parallelism']['pids_max'][stage]
         command = [self.executable, '--gate-authority', self.authority, '--gate-cgroup', self.cgroup,
@@ -272,6 +277,8 @@ class Sandbox:
                    '--gate-role', self.role, '--gate-mode', self.mode]
         if self.disabled_layer:
             command += ['--gate-fixture-no-' + self.disabled_layer]
+        for root in sorted(self.exposed_writers):
+            command += ['--gate-exposed-writer', root]
         command += ['--add-exec', '--ldd']
         for path in sorted({*readable, str(Path(self.executable).parent), '/usr', '/lib', '/lib64',
                             '/etc/alternatives', '/dev/urandom'}):

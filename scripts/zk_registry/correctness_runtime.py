@@ -14,7 +14,7 @@ import hashlib
 import json
 import os
 from .safe_fs import Path
-from .safe_fs import directory_fd
+from .safe_fs import directory_fd, submission_io
 import re
 import signal
 import stat
@@ -65,10 +65,30 @@ def terminate_owned(child, owned: dict, observe=processes, grace_seconds: float 
     return errors
 
 
-def owner_is_dead(pid):
-    """Only ESRCH proves death; permission errors and reused/live PIDs retain their files."""
-    if type(pid) is not int or pid <= 1:
+def owner_is_dead(owner):
+    """Prove death or PID reuse in the recorded namespace; unknown identity is retained."""
+    if not isinstance(owner, dict):
         return False
+    pid, start, namespace = owner.get('pid'), owner.get('start_time'), owner.get('pid_namespace')
+    if (type(pid) is not int or pid <= 1 or type(start) is not str or not start.isdecimal()
+            or type(namespace) is not str or not re.fullmatch(r'pid:\[\d+\]', namespace)):
+        return False
+    try:
+        if os.readlink('/proc/self/ns/pid') != namespace:
+            return False
+        current_namespace = os.readlink('/proc/' + str(pid) + '/ns/pid')
+        with open('/proc/' + str(pid) + '/stat') as stream:
+            current_start = stream.read().rsplit(')', 1)[1].split()[19]
+        return current_namespace == namespace and current_start != start
+    except (ValueError, IndexError):
+        return False
+    except OSError:
+        # ESRCH is meaningful only after establishing the same PID namespace.
+        try:
+            if os.readlink('/proc/self/ns/pid') != namespace:
+                return False
+        except OSError:
+            return False
     try:
         os.kill(pid, 0)
     except OSError as ex:
@@ -132,8 +152,9 @@ def receipt_report(guard, directory):
     finally:
         data = dict(process_receipts=guard.step_reports)
         try:
-            Path(directory).mkdir(parents=True, exist_ok=True)
-            (Path(directory) / 'process-receipts.json').write_text(json.dumps(data, sort_keys=True) + '\n')
+            with submission_io(None):
+                Path(directory).mkdir(parents=True, exist_ok=True)
+                (Path(directory) / 'process-receipts.json').write_text(json.dumps(data, sort_keys=True) + '\n')
         except OSError as ex:
             # A payload may chmod its root or plant a report symlink. Neither may
             # erase consumed evidence or replace the original boundary exception.
@@ -169,17 +190,12 @@ def sweep_dead_receipts(root):
                 continue
             owner = directory / '.owner.json'
             if owner in files:
-                pid = json.loads(owner.read_text()).get('pid')
+                pid = json.loads(owner.read_text())
             else:
-                # Legacy protected directories encoded the owner in every CR receipt filename.
-                matches = [re.fullmatch(r'([1-9]\d*)-\d+\.json', p.name) for p in files]
-                if not all(matches) or len({m[1] for m in matches}) != 1:
-                    continue
-                pid = int(matches[0][1])
+                # Filename-only legacy PIDs have no namespace/birth evidence; retain them.
+                continue
             if not owner_is_dead(pid):
                 continue
-            if owner not in files:
-                archive_legacy_receipts(root, directory, files)
             for file in files:
                 if not owner_is_dead(pid):
                     break

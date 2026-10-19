@@ -300,13 +300,17 @@ class ReceiptRetention(unittest.TestCase):
         child = os.fork()
         if child == 0:
             os._exit(0)
+        live_record = CR.owner_record()
+        with open('/proc/' + str(child) + '/stat') as stream:
+            child_start = stream.read().rsplit(')', 1)[1].split()[19]
+        dead_record = dict(live_record, pid=child, start_time=child_start)
         os.waitpid(child, 0)
         with tempfile.TemporaryDirectory() as temp:
             live = root / (Path(temp).name + '-live')
             dead = root / (Path(temp).name + '-dead')
-            for directory, pid in [(live, os.getpid()), (dead, child)]:
+            for directory, owner in [(live, live_record), (dead, dead_record)]:
                 directory.mkdir(mode=0o700)
-                (directory / '.owner.json').write_text(json.dumps({'pid': pid}))
+                (directory / '.owner.json').write_text(json.dumps(owner))
                 (directory / 'receipt.json').write_text('retained observation')
                 self.addCleanup(shutil.rmtree, directory, ignore_errors=True)
             stub = Mock(pid=900001, returncode=0)

@@ -29,7 +29,27 @@ ELF_INTERPRETERS = {'aarch64': {'/lib/ld-linux-aarch64.so.1'},
 SCRIPT_INTERPRETERS = {'/bin/sh', '/bin/bash', '/usr/bin/python3'}
 
 
-def open_submission(path):
+def directory_fd(path):
+    """Open node-owned ancestors without turning their failures into submission faults."""
+    value = os.path.abspath(path)
+    if platform.system() == 'Darwin':
+        for alias in ('/tmp', '/var'):
+            if value == alias or value.startswith(alias + '/'):
+                value = '/private' + value
+    parent = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    try:
+        for component in Path(value).parts[1:]:
+            child = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                            dir_fd=parent)
+            os.close(parent)
+            parent = child
+        return parent
+    except BaseException:
+        os.close(parent)
+        raise
+
+
+def open_submission(path, root_fd=None, relative=None):
     """Hold no-follow directory FDs for every component of an untrusted input path."""
     value = os.path.abspath(path)
     if platform.system() == 'Darwin':
@@ -37,9 +57,10 @@ def open_submission(path):
             if value == alias or value.startswith(alias + '/'):
                 value = '/private' + value
     path = Path(value)
-    parent = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    parent = os.dup(root_fd) if root_fd is not None else os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    components = relative.parts if relative is not None else path.parts[1:]
     try:
-        for component in path.parts[1:-1]:
+        for component in components[:-1]:
             child = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
                             dir_fd=parent)
             os.close(parent)
@@ -86,27 +107,40 @@ def elf_properties(stream, segment, entry):
         previous, cursor = kind, cursor + aligned
 
 
-def submission_executable(command, environment):
+def submission_executable(command, environment, writers=None):
     """Inspect content, not access(2)/exec errno, before executing a submission."""
     raw = command[0]
     if '/' in raw:
         executable = Path(os.path.abspath(raw))
     else:
-        executable = next((Path(root) / raw for root in environment.get('PATH', '/usr/bin:/bin').split(':')
-                           if (Path(root) / raw).exists()), Path(raw))
+        found = shutil.which(raw, path=environment.get('PATH', '/usr/bin:/bin'))
+        if found is None:
+            raise SubmissionExecFailed('submitted-executable-unavailable')
+        executable = Path(os.path.abspath(found))
+    root_fd, relative = None, None
+    if writers is not None:
+        roots = [Path(os.path.abspath(root)) for root in writers if executable.is_relative_to(Path(root))]
+        if not roots:
+            raise ValueError('submission-writer-root-unavailable')
+        root = max(roots, key=lambda path: len(path.parts))
+        root_fd = directory_fd(root)
+        relative = executable.relative_to(root)
     try:
-        fd, entry = open_submission(executable)
+        fd, entry = open_submission(executable, root_fd, relative)
     except OSError as ex:
         if ex.errno not in {errno.ENOENT, errno.ELOOP, errno.ENOTDIR, errno.EACCES}:
             raise
         raise SubmissionExecFailed('submitted-executable-path') from None
+    finally:
+        if root_fd is not None:
+            os.close(root_fd)
     with os.fdopen(fd, 'rb') as stream:
         header = stream.read(4096)
         if header.startswith(b'#!'):
             buffer = header[:256].ljust(256, b'\0')
             end = buffer.find(b'\n')
             if end < 0:
-                end = 255
+                end = 256
                 token = buffer[2:end].lstrip(b' \t')
                 if not token or not re.search(br'[ \t\0]', token):
                     raise SubmissionExecFailed('submitted-shebang-truncated')
@@ -123,7 +157,7 @@ def submission_executable(command, environment):
             offset = struct.unpack_from('<Q', header, 32)[0]
             size, count = struct.unpack_from('<HH', header, 54)
             if (struct.unpack_from('<H', header, 16)[0] not in (2, 3) or size != 56 or not count
-                    or size * count > min(65536, os.sysconf('SC_PAGE_SIZE'))
+                    or size * count > 4096
                     or offset + size * count > entry.st_size):
                 raise SubmissionExecFailed('submitted-elf-program-headers')
             properties, interpreted = None, False
@@ -149,29 +183,45 @@ def submission_executable(command, environment):
     return str(executable)
 
 
-def prepare_writer_roots(writers):
+def prepare_writer_roots(writers, exposed=()):
     """Restore altered owner access, reject that submission, and remove reserved probe debris."""
     altered = False
     for value in writers:
         path = Path(value)
-        metadata = path.lstat()
-        if not stat.S_ISDIR(metadata.st_mode):
-            continue
-        if metadata.st_uid != os.geteuid():
-            raise ValueError('writer-root-owner')
-        if metadata.st_mode & 0o700 != 0o700:
-            os.chmod(path, stat.S_IMODE(metadata.st_mode) | 0o700, follow_symlinks=False)
-            altered = True
-        root = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        if path == Path('/dev/null'):
+            continue  # fixed character-device sink used by the trusted capability preflight
+        known = any(path == Path(root) or path.is_relative_to(Path(root)) for root in exposed)
+        parent = directory_fd(path.parent)
         try:
-            for name in os.listdir(root):
-                if not re.fullmatch(r'\.boole-exec-probe-[0-9a-f]{16}', name):
-                    continue
-                entry = os.stat(name, dir_fd=root, follow_symlinks=False)
-                if stat.S_ISREG(entry.st_mode) and entry.st_uid == os.geteuid():
-                    os.unlink(name, dir_fd=root)
+            metadata = os.stat(path.name, dir_fd=parent, follow_symlinks=False)
+            if not stat.S_ISDIR(metadata.st_mode):
+                if known:
+                    raise SubmissionExecFailed('submitted-writer-path')
+                raise ValueError('unexposed-writer-path')
+            if metadata.st_uid != os.geteuid():
+                raise ValueError('writer-root-owner')
+            if metadata.st_mode & 0o700 != 0o700:
+                os.chmod(path.name, stat.S_IMODE(metadata.st_mode) | 0o700, dir_fd=parent, follow_symlinks=False)
+                if known:
+                    altered = True
+                else:
+                    raise ValueError('unexposed-writer-permissions')
+            root = os.open(path.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=parent)
+            try:
+                for name in os.listdir(root):
+                    if not re.fullmatch(r'\.boole-exec-probe-[0-9a-f]{16}', name):
+                        continue
+                    entry = os.stat(name, dir_fd=root, follow_symlinks=False)
+                    if stat.S_ISREG(entry.st_mode) and entry.st_uid == os.geteuid():
+                        os.unlink(name, dir_fd=root)
+            finally:
+                os.close(root)
+        except OSError as error:
+            if known and error.errno in {errno.EACCES, errno.ELOOP, errno.ENOTDIR, errno.ENOENT}:
+                raise SubmissionExecFailed('submitted-writer-path') from None
+            raise
         finally:
-            os.close(root)
+            os.close(parent)
     if altered:
         raise SubmissionExecFailed('submitted-writer-permissions')
 
@@ -240,7 +290,7 @@ def landrun_arguments(arguments):
         elif flag == '--ro':
             readers.append(str(Path(value).resolve()))
         else:
-            writers.append(str(Path(value).resolve()))
+            writers.append(os.path.abspath(value))
     if index >= len(arguments):
         raise ValueError('missing-command')
     return readers, writers, environment, arguments[index:]
@@ -307,12 +357,12 @@ def execute(options, arguments):
         directory = Path(output)
         if directory == Path('/') or root.is_relative_to(directory) or directory.is_relative_to(root):
             raise ValueError('boundary-write-exposure')
-    prepare_writer_roots(writers)
+    prepare_writer_roots(writers, getattr(options, 'exposed_writer', []))
     environment.update(GOMAXPROCS='4', CARGO_BUILD_JOBS='4', RAYON_NUM_THREADS='4', RUST_TEST_THREADS='4')
     separator = arguments.index('--')
     arguments = [*arguments[:separator], *sum((['--env', key + '=' + value] for key, value in
                                               environment.items()), []), *arguments[separator:]]
-    executable = (submission_executable(payload_command, environment) if options.exec_origin == 'submission'
+    executable = (submission_executable(payload_command, environment, writers) if options.exec_origin == 'submission'
                   else shutil.which(payload_command[0], path=environment.get('PATH', '/usr/bin:/bin')))
     if executable is None:
         if options.exec_origin == 'submission':
@@ -461,6 +511,7 @@ def main():
     parser.add_argument('--gate-pids', dest='pids', type=int, default=128)
     parser.add_argument('--gate-stage', dest='stage', default='native-run')
     parser.add_argument('--gate-exec-origin', dest='exec_origin', choices=('trusted', 'submission'), default='trusted')
+    parser.add_argument('--gate-exposed-writer', dest='exposed_writer', action='append', default=[])
     parser.add_argument('--gate-role', dest='role', choices=('submission', 'reference'), default='submission')
     parser.add_argument('--gate-mode', dest='mode', choices=('production', 'test-fixture'), default='production')
     parser.add_argument('--gate-fixture-no-net', dest='no_net', action='store_true')

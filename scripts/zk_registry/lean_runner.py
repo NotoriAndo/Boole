@@ -28,7 +28,8 @@ def sandbox_context(sandbox, readable: list[str], writable: list[str], runner=No
     """Apply one boundary to compile, replay-tool analysis and export commands in this context."""
     token = _SANDBOX.set((sandbox, readable, writable, runner))
     try:
-        yield
+        with FS.submission_io(sandbox.exposed_writers):
+            yield
     finally:
         _SANDBOX.reset(token)
 

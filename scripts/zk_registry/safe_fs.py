@@ -6,6 +6,67 @@ import os
 from pathlib import Path as StandardPath
 import shutil
 import stat
+from contextlib import contextmanager
+from contextvars import ContextVar
+from functools import wraps
+
+_WRITERS = ContextVar('submission_exposed_writers', default=None)
+
+
+@contextmanager
+def submission_io(exposed):
+    """Scope host I/O classification to roots actually exposed by earlier payloads."""
+    token = _WRITERS.set(exposed)
+    try:
+        yield
+    finally:
+        _WRITERS.reset(token)
+
+
+def guard_submission_io(function):
+    @wraps(function)
+    def guarded(*args, **kwargs):
+        with submission_io(set()):
+            return function(*args, **kwargs)
+    return guarded
+
+
+def set_submission_writers(exposed):
+    _WRITERS.set(exposed)
+
+
+def submission_error(path, error, exposed=None):
+    """Only content/path failures in a previously exposed tree belong to the submission."""
+    roots = _WRITERS.get() if exposed is None else exposed
+    value = StandardPath(absolute(path))
+    if error.errno not in {errno.EACCES, errno.EPERM, errno.ELOOP, errno.ENOTDIR, errno.ENOENT, errno.EINVAL}:
+        return
+    if not roots or not any(value == StandardPath(root) or value.is_relative_to(StandardPath(root)) for root in roots):
+        return
+    # Restore only an owned directory's access, without following any symlink, for trusted cleanup.
+    for root in roots:
+        if not (value == StandardPath(root) or value.is_relative_to(StandardPath(root))):
+            continue
+        parent = None
+        try:
+            target = StandardPath(absolute(root))
+            parent = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+            for component in target.parts[1:-1]:
+                child = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                                dir_fd=parent)
+                os.close(parent)
+                parent = child
+            metadata = os.stat(target.name, dir_fd=parent, follow_symlinks=False)
+            if stat.S_ISDIR(metadata.st_mode) and metadata.st_uid == os.geteuid():
+                os.chmod(target.name, stat.S_IMODE(metadata.st_mode) | 0o700,
+                         dir_fd=parent, follow_symlinks=False)
+        except OSError:
+            pass
+        finally:
+            if parent is not None:
+                os.close(parent)
+    from .lean_runner import BoundaryInvalid
+    raise BoundaryInvalid('submission-output-path') from None
 
 
 def absolute(path):
@@ -22,13 +83,22 @@ def directory_fd(path, create=False, mode=0o777):
     """Walk from an opened root using O_NOFOLLOW on every directory component."""
     fd = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
     try:
+        current = StandardPath('/')
         for part in StandardPath(absolute(path)).parts[1:]:
+            current /= part
             if create:
                 try:
                     os.mkdir(part, mode, dir_fd=fd)
                 except FileExistsError:
                     pass
-            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
+                except OSError as error:
+                    submission_error(current, error)
+                    raise
+            try:
+                child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
+            except OSError as error:
+                submission_error(current, error)
+                raise
             os.close(fd)
             fd = child
         return fd
@@ -51,11 +121,16 @@ def open(path, mode='r', buffering=-1, encoding=None, errors=None, newline=None)
         flags |= os.O_CREAT | os.O_APPEND
     try:
         fd = os.open(value.name, flags, 0o600, dir_fd=parent)
+    except OSError as error:
+        submission_error(value, error)
+        raise
     finally:
         os.close(parent)
     if not stat.S_ISREG(os.fstat(fd).st_mode):
         os.close(fd)
-        raise OSError(errno.EINVAL, 'host stage I/O requires a regular file', str(value))
+        error = OSError(errno.EINVAL, 'host stage I/O requires a regular file', str(value))
+        submission_error(value, error)
+        raise error
     return os.fdopen(fd, mode, buffering, encoding, errors, newline)
 
 
@@ -80,6 +155,9 @@ class Path(type(StandardPath())):
                     raise
             child = os.open(self.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
             os.close(child)
+        except OSError as error:
+            submission_error(self, error)
+            raise
         finally:
             os.close(parent)
 
@@ -91,6 +169,9 @@ class Path(type(StandardPath())):
             except FileNotFoundError:
                 if not missing_ok:
                     raise
+        except OSError as error:
+            submission_error(self, error)
+            raise
         finally:
             os.close(parent)
 
@@ -102,6 +183,9 @@ class Path(type(StandardPath())):
                 os.fchmod(fd, mode)
             finally:
                 os.close(fd)
+        except OSError as error:
+            submission_error(self, error)
+            raise
         finally:
             os.close(parent)
 
@@ -127,7 +211,12 @@ def copytree(source, destination, **options):
                 continue  # Preserve the link itself, never read its target on the host.
             reject_symlinks(path)
     options['copy_function'] = copyfile
-    return shutil.copytree(source, destination, **options)
+    try:
+        return shutil.copytree(source, destination, **options)
+    except OSError as error:
+        if error.filename and os.path.isabs(error.filename):
+            submission_error(error.filename, error)
+        raise
 
 
 def makedirs(path, mode=0o777, exist_ok=False):
@@ -143,5 +232,8 @@ def reject_symlinks(path):
         metadata = os.stat(value.name, dir_fd=parent, follow_symlinks=False)
         if stat.S_ISLNK(metadata.st_mode):
             raise OSError(errno.ELOOP, 'submission-controlled symlink', str(value))
+    except OSError as error:
+        submission_error(value, error)
+        raise
     finally:
         os.close(parent)
