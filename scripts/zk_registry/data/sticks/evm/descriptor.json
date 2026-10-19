@@ -1,0 +1,1966 @@
+{
+  "base_files": {
+    "base/expected.json": "7d7cd28c6a9b7ae11900ba1377087be51dd53d2b55ea8715f76f08031ae23c96",
+    "base/lake-manifest.json": "216eb41e3d0ca47c70fc5bce267633fdd19347b5579f828c43f2253da9554e0d",
+    "base/lakefile.toml": "1439d01151aec25f08a3ca9d5e55a5a576977ec54e4ccc00ab8869c4f4f298a8",
+    "base/lean-toolchain": "d5edba4e4b8faad9c1baeadb265716d20d03be4d1a2647dc5e35b0c0325bea7b"
+  },
+  "build": {
+    "flags": [
+      "-j1",
+      "--tstack=400000"
+    ],
+    "module_recipes": {
+      "ABI.Decode": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "ABI.Decode",
+        "source_label": "stick://evm/ABI/Decode.lean"
+      },
+      "ABI.Encode": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "ABI.Encode",
+        "source_label": "stick://evm/ABI/Encode.lean"
+      },
+      "ABI.Signature": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "ABI.Signature",
+        "source_label": "stick://evm/ABI/Signature.lean"
+      },
+      "ABI.Types": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "ABI.Types",
+        "source_label": "stick://evm/ABI/Types.lean"
+      },
+      "Benchmarks.WETH9.Bytecode": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Benchmarks.WETH9.Bytecode",
+        "source_label": "stick://evm/Benchmarks/WETH9/Bytecode.lean"
+      },
+      "Benchmarks.WETH9.Common": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Benchmarks.WETH9.Common",
+        "source_label": "stick://evm/Benchmarks/WETH9/Common.lean"
+      },
+      "Benchmarks.WETH9.Dispatch": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Benchmarks.WETH9.Dispatch",
+        "source_label": "stick://evm/Benchmarks/WETH9/Dispatch.lean"
+      },
+      "Benchmarks.WETH9.Routines": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Benchmarks.WETH9.Routines",
+        "source_label": "stick://evm/Benchmarks/WETH9/Routines.lean"
+      },
+      "Benchmarks.WETH9.ScalarStorage": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Benchmarks.WETH9.ScalarStorage",
+        "source_label": "stick://evm/Benchmarks/WETH9/ScalarStorage.lean"
+      },
+      "Benchmarks.WETH9.Selectors": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Benchmarks.WETH9.Selectors",
+        "source_label": "stick://evm/Benchmarks/WETH9/Selectors.lean"
+      },
+      "Benchmarks.WETH9.Spec": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Benchmarks.WETH9.Spec",
+        "source_label": "stick://evm/Benchmarks/WETH9/Spec.lean"
+      },
+      "Benchmarks.WETH9.StringLayout": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Benchmarks.WETH9.StringLayout",
+        "source_label": "stick://evm/Benchmarks/WETH9/StringLayout.lean"
+      },
+      "Benchmarks.WETH9.StringReturn": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Benchmarks.WETH9.StringReturn",
+        "source_label": "stick://evm/Benchmarks/WETH9/StringReturn.lean"
+      },
+      "Benchmarks.WETH9.StringReturnBound": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Benchmarks.WETH9.StringReturnBound",
+        "source_label": "stick://evm/Benchmarks/WETH9/StringReturnBound.lean"
+      },
+      "Benchmarks.WETH9.StringReturnLong": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Benchmarks.WETH9.StringReturnLong",
+        "source_label": "stick://evm/Benchmarks/WETH9/StringReturnLong.lean"
+      },
+      "Benchmarks.WETH9.StringReturnLong2": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Benchmarks.WETH9.StringReturnLong2",
+        "source_label": "stick://evm/Benchmarks/WETH9/StringReturnLong2.lean"
+      },
+      "Benchmarks.WETH9.StringReturnSymbol": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Benchmarks.WETH9.StringReturnSymbol",
+        "source_label": "stick://evm/Benchmarks/WETH9/StringReturnSymbol.lean"
+      },
+      "Benchmarks.WETH9.StringReturnSymbol2": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Benchmarks.WETH9.StringReturnSymbol2",
+        "source_label": "stick://evm/Benchmarks/WETH9/StringReturnSymbol2.lean"
+      },
+      "Conform.Exception": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Conform.Exception",
+        "source_label": "stick://evm/Conform/Exception.lean"
+      },
+      "Conform.Main": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Conform.Main",
+        "source_label": "stick://evm/Conform/Main.lean"
+      },
+      "Conform.Model": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Conform.Model",
+        "source_label": "stick://evm/Conform/Model.lean"
+      },
+      "Conform.TestParser": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Conform.TestParser",
+        "source_label": "stick://evm/Conform/TestParser.lean"
+      },
+      "Conform.TestRunner": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Conform.TestRunner",
+        "source_label": "stick://evm/Conform/TestRunner.lean"
+      },
+      "Conform.Wheels": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Conform.Wheels",
+        "source_label": "stick://evm/Conform/Wheels.lean"
+      },
+      "EVM.Lemmas": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "EVM.Lemmas",
+        "source_label": "stick://evm/EVM/Lemmas.lean"
+      },
+      "EVM.Types": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "EVM.Types",
+        "source_label": "stick://evm/EVM/Types.lean"
+      },
+      "Ethereum.BLAKE2_F": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.BLAKE2_F",
+        "source_label": "stick://evm/Ethereum/BLAKE2_F.lean"
+      },
+      "Ethereum.BN_ADD": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.BN_ADD",
+        "source_label": "stick://evm/Ethereum/BN_ADD.lean"
+      },
+      "Ethereum.BN_MUL": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.BN_MUL",
+        "source_label": "stick://evm/Ethereum/BN_MUL.lean"
+      },
+      "Ethereum.Data.Stack": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.Data.Stack",
+        "source_label": "stick://evm/Ethereum/Data/Stack.lean"
+      },
+      "Ethereum.EllipticCurves": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.EllipticCurves",
+        "source_label": "stick://evm/Ethereum/EllipticCurves.lean"
+      },
+      "Ethereum.Exception": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.Exception",
+        "source_label": "stick://evm/Ethereum/Exception.lean"
+      },
+      "Ethereum.FFI.ffi": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.FFI.ffi",
+        "source_label": "stick://evm/Ethereum/FFI/ffi.lean"
+      },
+      "Ethereum.Gas": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.Gas",
+        "source_label": "stick://evm/Ethereum/Gas.lean"
+      },
+      "Ethereum.GasConstants": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.GasConstants",
+        "source_label": "stick://evm/Ethereum/GasConstants.lean"
+      },
+      "Ethereum.Instr": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.Instr",
+        "source_label": "stick://evm/Ethereum/Instr.lean"
+      },
+      "Ethereum.MachineState": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.MachineState",
+        "source_label": "stick://evm/Ethereum/MachineState.lean"
+      },
+      "Ethereum.MachineStateOps": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.MachineStateOps",
+        "source_label": "stick://evm/Ethereum/MachineStateOps.lean"
+      },
+      "Ethereum.Maps.AccountMap": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.Maps.AccountMap",
+        "source_label": "stick://evm/Ethereum/Maps/AccountMap.lean"
+      },
+      "Ethereum.Maps.ByteMap": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.Maps.ByteMap",
+        "source_label": "stick://evm/Ethereum/Maps/ByteMap.lean"
+      },
+      "Ethereum.Maps.StorageMap": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.Maps.StorageMap",
+        "source_label": "stick://evm/Ethereum/Maps/StorageMap.lean"
+      },
+      "Ethereum.Operations": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.Operations",
+        "source_label": "stick://evm/Ethereum/Operations.lean"
+      },
+      "Ethereum.PerformIO": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.PerformIO",
+        "source_label": "stick://evm/Ethereum/PerformIO.lean"
+      },
+      "Ethereum.PointEval": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.PointEval",
+        "source_label": "stick://evm/Ethereum/PointEval.lean"
+      },
+      "Ethereum.PrecompileOutput": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.PrecompileOutput",
+        "source_label": "stick://evm/Ethereum/PrecompileOutput.lean"
+      },
+      "Ethereum.PrecompiledContracts": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.PrecompiledContracts",
+        "source_label": "stick://evm/Ethereum/PrecompiledContracts.lean"
+      },
+      "Ethereum.Pretty": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.Pretty",
+        "source_label": "stick://evm/Ethereum/Pretty.lean"
+      },
+      "Ethereum.PrimOps": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.PrimOps",
+        "source_label": "stick://evm/Ethereum/PrimOps.lean"
+      },
+      "Ethereum.RIP160": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.RIP160",
+        "source_label": "stick://evm/Ethereum/RIP160.lean"
+      },
+      "Ethereum.SHA256": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.SHA256",
+        "source_label": "stick://evm/Ethereum/SHA256.lean"
+      },
+      "Ethereum.SNARKV": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.SNARKV",
+        "source_label": "stick://evm/Ethereum/SNARKV.lean"
+      },
+      "Ethereum.Sat256": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.Sat256",
+        "source_label": "stick://evm/Ethereum/Sat256.lean"
+      },
+      "Ethereum.Semantics": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.Semantics",
+        "source_label": "stick://evm/Ethereum/Semantics.lean"
+      },
+      "Ethereum.SpongeHash.Keccak256": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.SpongeHash.Keccak256",
+        "source_label": "stick://evm/Ethereum/SpongeHash/Keccak256.lean"
+      },
+      "Ethereum.State": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.State",
+        "source_label": "stick://evm/Ethereum/State.lean"
+      },
+      "Ethereum.State.Account": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.State.Account",
+        "source_label": "stick://evm/Ethereum/State/Account.lean"
+      },
+      "Ethereum.State.AccountOps": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.State.AccountOps",
+        "source_label": "stick://evm/Ethereum/State/AccountOps.lean"
+      },
+      "Ethereum.State.Block": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.State.Block",
+        "source_label": "stick://evm/Ethereum/State/Block.lean"
+      },
+      "Ethereum.State.BlockHeader": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.State.BlockHeader",
+        "source_label": "stick://evm/Ethereum/State/BlockHeader.lean"
+      },
+      "Ethereum.State.ExecutionEnv": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.State.ExecutionEnv",
+        "source_label": "stick://evm/Ethereum/State/ExecutionEnv.lean"
+      },
+      "Ethereum.State.Substate": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.State.Substate",
+        "source_label": "stick://evm/Ethereum/State/Substate.lean"
+      },
+      "Ethereum.State.SubstateOps": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.State.SubstateOps",
+        "source_label": "stick://evm/Ethereum/State/SubstateOps.lean"
+      },
+      "Ethereum.State.Transaction": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.State.Transaction",
+        "source_label": "stick://evm/Ethereum/State/Transaction.lean"
+      },
+      "Ethereum.State.TransactionOps": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.State.TransactionOps",
+        "source_label": "stick://evm/Ethereum/State/TransactionOps.lean"
+      },
+      "Ethereum.State.TrieRoot": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.State.TrieRoot",
+        "source_label": "stick://evm/Ethereum/State/TrieRoot.lean"
+      },
+      "Ethereum.State.Withdrawal": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.State.Withdrawal",
+        "source_label": "stick://evm/Ethereum/State/Withdrawal.lean"
+      },
+      "Ethereum.StateOps": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.StateOps",
+        "source_label": "stick://evm/Ethereum/StateOps.lean"
+      },
+      "Ethereum.Theory.AccountLocality": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.Theory.AccountLocality",
+        "source_label": "stick://evm/Ethereum/Theory/AccountLocality.lean"
+      },
+      "Ethereum.Theory.GasLemmas": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.Theory.GasLemmas",
+        "source_label": "stick://evm/Ethereum/Theory/GasLemmas.lean"
+      },
+      "Ethereum.Theory.NoOutOfFuel": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.Theory.NoOutOfFuel",
+        "source_label": "stick://evm/Ethereum/Theory/NoOutOfFuel.lean"
+      },
+      "Ethereum.Theory.OpcodeLemmas": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.Theory.OpcodeLemmas",
+        "source_label": "stick://evm/Ethereum/Theory/OpcodeLemmas.lean"
+      },
+      "Ethereum.Theory.ProgressLemmas": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.Theory.ProgressLemmas",
+        "source_label": "stick://evm/Ethereum/Theory/ProgressLemmas.lean"
+      },
+      "Ethereum.Theory.ReturnDataBound": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.Theory.ReturnDataBound",
+        "source_label": "stick://evm/Ethereum/Theory/ReturnDataBound.lean"
+      },
+      "Ethereum.Theory.StaticStorage": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.Theory.StaticStorage",
+        "source_label": "stick://evm/Ethereum/Theory/StaticStorage.lean"
+      },
+      "Ethereum.UInt256": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.UInt256",
+        "source_label": "stick://evm/Ethereum/UInt256.lean"
+      },
+      "Ethereum.Wheels": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=false",
+          "{source}"
+        ],
+        "cwd": "EVMLean",
+        "module_name": "Ethereum.Wheels",
+        "source_label": "stick://evm/Ethereum/Wheels.lean"
+      },
+      "Reasoning.ABI": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Reasoning.ABI",
+        "source_label": "stick://evm/Reasoning/ABI.lean"
+      },
+      "Reasoning.Dispatch": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Reasoning.Dispatch",
+        "source_label": "stick://evm/Reasoning/Dispatch.lean"
+      },
+      "Reasoning.EVMWord": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Reasoning.EVMWord",
+        "source_label": "stick://evm/Reasoning/EVMWord.lean"
+      },
+      "Reasoning.HeapMemory": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Reasoning.HeapMemory",
+        "source_label": "stick://evm/Reasoning/HeapMemory.lean"
+      },
+      "Reasoning.Initcode": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Reasoning.Initcode",
+        "source_label": "stick://evm/Reasoning/Initcode.lean"
+      },
+      "Reasoning.JumpDest": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Reasoning.JumpDest",
+        "source_label": "stick://evm/Reasoning/JumpDest.lean"
+      },
+      "Reasoning.MemCascade": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Reasoning.MemCascade",
+        "source_label": "stick://evm/Reasoning/MemCascade.lean"
+      },
+      "Reasoning.Memory": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Reasoning.Memory",
+        "source_label": "stick://evm/Reasoning/Memory.lean"
+      },
+      "Reasoning.PackedStorage": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Reasoning.PackedStorage",
+        "source_label": "stick://evm/Reasoning/PackedStorage.lean"
+      },
+      "Reasoning.Reach": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Reasoning.Reach",
+        "source_label": "stick://evm/Reasoning/Reach.lean"
+      },
+      "Reasoning.Solc": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Reasoning.Solc",
+        "source_label": "stick://evm/Reasoning/Solc.lean"
+      },
+      "Reasoning.SolcRoutines": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Reasoning.SolcRoutines",
+        "source_label": "stick://evm/Reasoning/SolcRoutines.lean"
+      },
+      "Reasoning.SolmBody": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Reasoning.SolmBody",
+        "source_label": "stick://evm/Reasoning/SolmBody.lean"
+      },
+      "Reasoning.Stepping": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Reasoning.Stepping",
+        "source_label": "stick://evm/Reasoning/Stepping.lean"
+      },
+      "Reasoning.Storage": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Reasoning.Storage",
+        "source_label": "stick://evm/Reasoning/Storage.lean"
+      },
+      "Reasoning.WordArithmetic": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Reasoning.WordArithmetic",
+        "source_label": "stick://evm/Reasoning/WordArithmetic.lean"
+      },
+      "Solm.Refine": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Solm.Refine",
+        "source_label": "stick://evm/Solm/Refine.lean"
+      },
+      "Solm.Result": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Solm.Result",
+        "source_label": "stick://evm/Solm/Result.lean"
+      },
+      "Solm.Semantics": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Solm.Semantics",
+        "source_label": "stick://evm/Solm/Semantics.lean"
+      },
+      "Solm.Semantics.Calls": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Solm.Semantics.Calls",
+        "source_label": "stick://evm/Solm/Semantics/Calls.lean"
+      },
+      "Solm.Semantics.Dispatch": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Solm.Semantics.Dispatch",
+        "source_label": "stick://evm/Solm/Semantics/Dispatch.lean"
+      },
+      "Solm.Semantics.Eval": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Solm.Semantics.Eval",
+        "source_label": "stick://evm/Solm/Semantics/Eval.lean"
+      },
+      "Solm.Semantics.Exec": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Solm.Semantics.Exec",
+        "source_label": "stick://evm/Solm/Semantics/Exec.lean"
+      },
+      "Solm.Semantics.StorageOps": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Solm.Semantics.StorageOps",
+        "source_label": "stick://evm/Solm/Semantics/StorageOps.lean"
+      },
+      "Solm.Semantics.Types": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Solm.Semantics.Types",
+        "source_label": "stick://evm/Solm/Semantics/Types.lean"
+      },
+      "Solm.Semantics.ValueOps": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Solm.Semantics.ValueOps",
+        "source_label": "stick://evm/Solm/Semantics/ValueOps.lean"
+      },
+      "Solm.SolidityLayout": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Solm.SolidityLayout",
+        "source_label": "stick://evm/Solm/SolidityLayout.lean"
+      },
+      "Solm.SolidityStorage": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Solm.SolidityStorage",
+        "source_label": "stick://evm/Solm/SolidityStorage.lean"
+      },
+      "Solm.Storage": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Solm.Storage",
+        "source_label": "stick://evm/Solm/Storage.lean"
+      },
+      "Solm.Syntax": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Solm.Syntax",
+        "source_label": "stick://evm/Solm/Syntax.lean"
+      },
+      "Solm.Syntax.Basic": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Solm.Syntax.Basic",
+        "source_label": "stick://evm/Solm/Syntax/Basic.lean"
+      },
+      "Solm.Syntax.DecEq": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Solm.Syntax.DecEq",
+        "source_label": "stick://evm/Solm/Syntax/DecEq.lean"
+      },
+      "Solm.Value": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Solm.Value",
+        "source_label": "stick://evm/Solm/Value.lean"
+      },
+      "Solm.Value.Basic": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Solm.Value.Basic",
+        "source_label": "stick://evm/Solm/Value/Basic.lean"
+      },
+      "Solm.Value.DecEq": {
+        "arguments": [
+          "-j1",
+          "--tstack=65536",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "-DautoImplicit=true",
+          "{source}"
+        ],
+        "cwd": "EquiVM",
+        "module_name": "Solm.Value.DecEq",
+        "source_label": "stick://evm/Solm/Value/DecEq.lean"
+      }
+    },
+    "recipe_audit_sha256": "04b9625684eccb44b7afe1a5ce3b7c4068288fb1dbabe10a94ca078c5bf28a51",
+    "roots": [
+      "Ethereum.Data.Stack",
+      "Ethereum.UInt256",
+      "Ethereum.SpongeHash.Keccak256",
+      "Ethereum.Wheels",
+      "Ethereum.PerformIO",
+      "Ethereum.State.TrieRoot",
+      "Ethereum.PrecompileOutput",
+      "Ethereum.FFI.ffi",
+      "Ethereum.Maps.StorageMap",
+      "Ethereum.State.Account",
+      "Ethereum.Maps.ByteMap",
+      "Ethereum.Sat256",
+      "Ethereum.MachineState",
+      "Ethereum.Operations",
+      "Conform.Wheels",
+      "Ethereum.Pretty",
+      "Ethereum.State.AccountOps",
+      "Ethereum.Maps.AccountMap",
+      "Ethereum.State.BlockHeader",
+      "Ethereum.State.Substate",
+      "Ethereum.State.Transaction",
+      "Ethereum.Exception",
+      "Ethereum.State.Withdrawal",
+      "Ethereum.State.Block",
+      "Ethereum.State.ExecutionEnv",
+      "Ethereum.State",
+      "Ethereum.State.SubstateOps",
+      "Ethereum.MachineStateOps",
+      "Ethereum.GasConstants",
+      "Ethereum.StateOps",
+      "Ethereum.State.TransactionOps",
+      "Ethereum.Gas",
+      "Ethereum.Instr",
+      "Ethereum.EllipticCurves",
+      "Ethereum.SHA256",
+      "Ethereum.RIP160",
+      "Ethereum.BN_ADD",
+      "Ethereum.BN_MUL",
+      "Ethereum.SNARKV",
+      "Ethereum.BLAKE2_F",
+      "Ethereum.PointEval",
+      "Ethereum.PrecompiledContracts",
+      "Ethereum.PrimOps",
+      "Ethereum.Semantics",
+      "EVM.Types",
+      "ABI.Types",
+      "Solm.Syntax.Basic",
+      "Solm.Syntax.DecEq",
+      "Solm.Syntax",
+      "Solm.Value.Basic",
+      "Solm.Value.DecEq",
+      "Solm.Value",
+      "ABI.Decode",
+      "ABI.Encode",
+      "ABI.Signature",
+      "EVM.Lemmas",
+      "Solm.Result",
+      "Solm.Storage",
+      "Solm.SolidityLayout",
+      "Solm.Semantics.ValueOps",
+      "Solm.SolidityStorage",
+      "Solm.Semantics.Types",
+      "Solm.Semantics.Dispatch",
+      "Solm.Semantics.StorageOps",
+      "Solm.Semantics.Eval",
+      "Solm.Semantics.Calls",
+      "Solm.Semantics.Exec",
+      "Solm.Semantics",
+      "Solm.Refine",
+      "Benchmarks.WETH9.StringLayout",
+      "Benchmarks.WETH9.Spec",
+      "Reasoning.JumpDest",
+      "Benchmarks.WETH9.Bytecode",
+      "Reasoning.EVMWord",
+      "Reasoning.SolmBody",
+      "Benchmarks.WETH9.ScalarStorage",
+      "Ethereum.Theory.GasLemmas",
+      "Ethereum.Theory.NoOutOfFuel",
+      "Ethereum.Theory.ProgressLemmas",
+      "Ethereum.Theory.OpcodeLemmas",
+      "Reasoning.Stepping",
+      "Reasoning.Memory",
+      "Reasoning.ABI",
+      "Ethereum.Theory.ReturnDataBound",
+      "Reasoning.Reach",
+      "Reasoning.MemCascade",
+      "Reasoning.Solc",
+      "Ethereum.Theory.AccountLocality",
+      "Ethereum.Theory.StaticStorage",
+      "Reasoning.Storage",
+      "Reasoning.Dispatch",
+      "Benchmarks.WETH9.Common",
+      "Reasoning.PackedStorage",
+      "Reasoning.HeapMemory",
+      "Reasoning.Initcode",
+      "Reasoning.WordArithmetic",
+      "Reasoning.SolcRoutines",
+      "Benchmarks.WETH9.Selectors",
+      "Benchmarks.WETH9.Dispatch",
+      "Benchmarks.WETH9.Routines",
+      "Benchmarks.WETH9.StringReturn",
+      "Benchmarks.WETH9.StringReturnLong",
+      "Benchmarks.WETH9.StringReturnLong2",
+      "Benchmarks.WETH9.StringReturnSymbol",
+      "Benchmarks.WETH9.StringReturnSymbol2",
+      "Benchmarks.WETH9.StringReturnBound",
+      "Conform.Exception",
+      "Conform.Model",
+      "Conform.TestParser",
+      "Conform.TestRunner",
+      "Conform.Main"
+    ],
+    "source_packages": [
+      "EVMLean",
+      "EquiVM"
+    ],
+    "type_module": "StickTypeImports"
+  },
+  "definition": "Path-independent source identity; EVM definition digest is W1-derived",
+  "expected": "expected.json",
+  "expected_sha256": "c1d22651e21ee7975fbe49a096227072b5bc2572a9d593f160a93abece4b4e63",
+  "lean": "v4.34.1",
+  "name": "evm",
+  "patches": [
+    {
+      "changed_files": 18,
+      "path": "patches/01-EVMLean.patch",
+      "sha256": "f2f74e70bfd96654f240d3e0b1f912dd1739159278ddf130963c629b73a43b42"
+    },
+    {
+      "changed_files": 1180,
+      "path": "patches/02-EquiVM.patch",
+      "sha256": "5d5645fa8c1f60bc67ea0a9331c1cada90945b7958fc6461df848f53441ab86a"
+    }
+  ],
+  "rewrites": [
+    {
+      "files": "rewrites/native_decide-files.json",
+      "replacement": "decide",
+      "sha256": "0b7c95f061ad29212232dd8f5882fec40daffd3992f36bc83e15d39f965ad02a",
+      "token": "native_decide"
+    }
+  ],
+  "schema_version": 1,
+  "tracked_files": {
+    "canonical-types.json.gz": "78c6e55cf7e4e387198ed192cfc60c428e2ab6beab2624fa843470fc16f926bd",
+    "expected.json": "c1d22651e21ee7975fbe49a096227072b5bc2572a9d593f160a93abece4b4e63",
+    "notices/EVMLean.md": "1c70cff2adfdcb1f96cb55f6f1676d90539487a61d25af215fb61fd4bd7bef4d",
+    "notices/EquiVM.md": "f6f62b04a52bbcf11993deb833ea3645ee9409a459e5f0f533fa211d1ab47d76",
+    "rewrites/native_decide-files.json": "0b7c95f061ad29212232dd8f5882fec40daffd3992f36bc83e15d39f965ad02a"
+  },
+  "upstreams": [
+    {
+      "archive_sha256": "23b571cad3e3cdcda5933cc9dd16f41900cfad3c3c7d447ce032f60eb080ee89",
+      "archive_url": "https://codeload.github.com/lefterislazar/EVMLean/tar.gz/fd4f5e6d6d6b4a18eb73f5a71ae2df909ac2b542",
+      "commit": "fd4f5e6d6d6b4a18eb73f5a71ae2df909ac2b542",
+      "content_sha256": "15c7b77b899635d2f9bc47c785f394827e889ca4d6f460b50ac1be4de8b2b0c2",
+      "licence": "Apache-2.0",
+      "name": "EVMLean",
+      "notice": "notices/EVMLean.md",
+      "repository": "https://github.com/lefterislazar/EVMLean"
+    },
+    {
+      "archive_sha256": "f0711b84559905ff7eb3dc87ce886971b9496fb3a2f7ed4c9520d0196371c722",
+      "archive_url": "https://codeload.github.com/argotorg/EquiVM/tar.gz/952764ae6c1e097e5fcb5d05b767519c02c28bb4",
+      "commit": "952764ae6c1e097e5fcb5d05b767519c02c28bb4",
+      "content_sha256": "bfaee8d9131a8e0a7df57090cf6edf69a05079fb7b6c3d84bdb7b803141980b4",
+      "licence": "MIT",
+      "name": "EquiVM",
+      "notice": "notices/EquiVM.md",
+      "repository": "https://github.com/argotorg/EquiVM"
+    }
+  ]
+}

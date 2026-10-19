@@ -193,6 +193,11 @@ class IdentityTests(unittest.TestCase):
         from zk_registry import service
         self.assertRegex(service.source_info()['sources_sha256'], r'^[0-9a-f]{64}$')
         present -= set(service.SERVICE_SOURCES)
+        # Stick reconstruction produces no existing generator package content; its own identity binds
+        # the builder, compiler feeder, validation fixtures, descriptors and ordered patches.
+        from zk_registry import measuring_sticks
+        self.assertRegex(measuring_sticks.source_info()['sources_sha256'], r'^[0-9a-f]{64}$')
+        present -= set(measuring_sticks.source_files())
         self.assertEqual(present - listed - set(air_det.generator_files()) - set(noir_det.generator_files())
                          - set(gnark_det.generator_files()) - set(zokrates_det.generator_files())
                          - set(halo2_det.generator_files()) - set(mech_air.source_files()), set())

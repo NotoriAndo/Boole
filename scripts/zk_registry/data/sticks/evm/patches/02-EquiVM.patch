@@ -1,0 +1,2314 @@
+--- a/EquiVM/Benchmarks/WETH9/Bytecode.lean
++++ b/EquiVM/Benchmarks/WETH9/Bytecode.lean
+@@ -101,10 +101,2 @@
+-/-- The `JUMPDEST` set of `weth9Bytecode`, computed from the deployed runtime bytecode. -/
+-@[valid_jumps] theorem validJumps :
+-    Ethereum.EVM.D_J weth9Bytecode 0
+-      = #[
+-      ⟨100⟩, ⟨156⟩, ⟨164⟩, ⟨166⟩, ⟨178⟩, ⟨187⟩, ⟨221⟩, ⟨245⟩, ⟨290⟩, ⟨304⟩, ⟨316⟩, ⟨339⟩,
+-      ⟨361⟩, ⟨381⟩, ⟨393⟩, ⟨402⟩, ⟨420⟩, ⟨432⟩, ⟨455⟩, ⟨487⟩, ⟨499⟩, ⟨522⟩, ⟨529⟩, ⟨541⟩,
+-      ⟨550⟩, ⟨572⟩, ⟨584⟩, ⟨607⟩, ⟨623⟩, ⟨635⟩, ⟨644⟩, ⟨656⟩, ⟨679⟩, ⟨701⟩, ⟨713⟩, ⟨736⟩,
+-      ⟨760⟩, ⟨839⟩, ⟨930⟩, ⟨944⟩, ⟨973⟩, ⟨981⟩, ⟨1083⟩, ⟨1087⟩, ⟨1124⟩, ⟨1186⟩, ⟨1239⟩, ⟨1282⟩,
+-      ⟨1395⟩, ⟨1423⟩, ⟨1486⟩, ⟨1544⟩, ⟨1553⟩, ⟨1571⟩, ⟨1661⟩, ⟨1674⟩, ⟨1681⟩] := by
+-  decide
++-- B2: artifact-fact proof omitted from the model-only port. E2 must construct
++-- and admit its kernel-efficient replacement; no axiom or sorry is substituted.
+@@ -204,11 +196,1433 @@
+-/-- The `JUMPDEST` set of `weth9CreationBytecode`, computed from the optimized creation bytecode. -/
+-@[valid_jumps] theorem creationValidJumps :
+-    Ethereum.EVM.D_J weth9CreationBytecode 0
+-      = #[
+-      ⟨46⟩, ⟨90⟩, ⟨116⟩, ⟨122⟩, ⟨187⟩, ⟨205⟩, ⟨232⟩, ⟨244⟩, ⟨248⟩, ⟨254⟩, ⟨274⟩, ⟨277⟩,
+-      ⟨392⟩, ⟨448⟩, ⟨456⟩, ⟨458⟩, ⟨470⟩, ⟨479⟩, ⟨513⟩, ⟨537⟩, ⟨582⟩, ⟨596⟩, ⟨608⟩, ⟨631⟩,
+-      ⟨653⟩, ⟨673⟩, ⟨685⟩, ⟨694⟩, ⟨712⟩, ⟨724⟩, ⟨747⟩, ⟨779⟩, ⟨791⟩, ⟨814⟩, ⟨821⟩, ⟨833⟩,
+-      ⟨842⟩, ⟨864⟩, ⟨876⟩, ⟨899⟩, ⟨915⟩, ⟨927⟩, ⟨936⟩, ⟨948⟩, ⟨971⟩, ⟨993⟩, ⟨1005⟩, ⟨1028⟩,
+-      ⟨1052⟩, ⟨1131⟩, ⟨1222⟩, ⟨1236⟩, ⟨1265⟩, ⟨1273⟩, ⟨1375⟩, ⟨1379⟩, ⟨1416⟩, ⟨1478⟩, ⟨1531⟩, ⟨1574⟩,
+-      ⟨1687⟩, ⟨1715⟩, ⟨1778⟩, ⟨1836⟩, ⟨1845⟩, ⟨1863⟩, ⟨1953⟩, ⟨1966⟩, ⟨1973⟩] := by
+-  decide
++-- B2: creation JUMPDEST fact is likewise withheld until E2 admission.
++
++
++-- B2 port compilation certificate; separate E2 gate admission remains required.
++set_option maxHeartbeats 2000000
++namespace B2PortJumpCertificate
++theorem DJstep (c : ByteArray) (i : Nat) (r : Array UInt256) (op : Operation)
++    (h : c.get? i >>= parseInstr = some op) :
++    D_J_aux c i r = D_J_aux c (N i op) (if op = .JUMPDEST then r.push (UInt256.ofNat i) else r) := by
++  rw [D_J_aux, h]
++theorem DJstop (c : ByteArray) (i : Nat) (r : Array UInt256)
++    (h : c.get? i >>= parseInstr = none) : D_J_aux c i r = r := by
++  rw [D_J_aux, h]
++theorem DJchunk0 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 0 (r) = D_J_aux weth9Bytecode 37 (r) := by
++  calc
++    D_J_aux weth9Bytecode 0 (r) = D_J_aux weth9Bytecode 2 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 4 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 5 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 7 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 8 (r) := DJstep _ _ _ .CALLDATASIZE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 9 (r) := DJstep _ _ _ .LT (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 12 (r) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 13 (r) := DJstep _ _ _ .JUMPI (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 15 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 16 (r) := DJstep _ _ _ .CALLDATALOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 18 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 19 (r) := DJstep _ _ _ .SHR (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 20 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 25 (r) := DJstep _ _ _ .PUSH4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 26 (r) := DJstep _ _ _ .GT (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 29 (r) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 30 (r) := DJstep _ _ _ .JUMPI (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 31 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 36 (r) := DJstep _ _ _ .PUSH4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 37 (r) := DJstep _ _ _ .EQ (by decide +kernel)
++theorem DJchunk1 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 37 (r) = D_J_aux weth9Bytecode 81 (r) := by
++  calc
++    D_J_aux weth9Bytecode 37 (r) = D_J_aux weth9Bytecode 40 (r) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 41 (r) := DJstep _ _ _ .JUMPI (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 42 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 47 (r) := DJstep _ _ _ .PUSH4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 48 (r) := DJstep _ _ _ .EQ (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 51 (r) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 52 (r) := DJstep _ _ _ .JUMPI (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 53 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 58 (r) := DJstep _ _ _ .PUSH4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 59 (r) := DJstep _ _ _ .EQ (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 62 (r) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 63 (r) := DJstep _ _ _ .JUMPI (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 64 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 69 (r) := DJstep _ _ _ .PUSH4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 70 (r) := DJstep _ _ _ .EQ (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 73 (r) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 74 (r) := DJstep _ _ _ .JUMPI (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 75 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 80 (r) := DJstep _ _ _ .PUSH4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 81 (r) := DJstep _ _ _ .EQ (by decide +kernel)
++theorem DJchunk2 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 81 (r) = D_J_aux weth9Bytecode 123 ((r).push (UInt256.ofNat 100)) := by
++  calc
++    D_J_aux weth9Bytecode 81 (r) = D_J_aux weth9Bytecode 84 (r) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 85 (r) := DJstep _ _ _ .JUMPI (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 86 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 91 (r) := DJstep _ _ _ .PUSH4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 92 (r) := DJstep _ _ _ .EQ (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 95 (r) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 96 (r) := DJstep _ _ _ .JUMPI (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 99 (r) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 100 (r) := DJstep _ _ _ .JUMP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 101 ((r).push (UInt256.ofNat 100)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 102 ((r).push (UInt256.ofNat 100)) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 107 ((r).push (UInt256.ofNat 100)) := DJstep _ _ _ .PUSH4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 108 ((r).push (UInt256.ofNat 100)) := DJstep _ _ _ .EQ (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 111 ((r).push (UInt256.ofNat 100)) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 112 ((r).push (UInt256.ofNat 100)) := DJstep _ _ _ .JUMPI (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 113 ((r).push (UInt256.ofNat 100)) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 118 ((r).push (UInt256.ofNat 100)) := DJstep _ _ _ .PUSH4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 119 ((r).push (UInt256.ofNat 100)) := DJstep _ _ _ .EQ (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 122 ((r).push (UInt256.ofNat 100)) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 123 ((r).push (UInt256.ofNat 100)) := DJstep _ _ _ .JUMPI (by decide +kernel)
++theorem DJchunk3 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 123 (r) = D_J_aux weth9Bytecode 165 (((r).push (UInt256.ofNat 156)).push (UInt256.ofNat 164)) := by
++  calc
++    D_J_aux weth9Bytecode 123 (r) = D_J_aux weth9Bytecode 124 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 129 (r) := DJstep _ _ _ .PUSH4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 130 (r) := DJstep _ _ _ .EQ (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 133 (r) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 134 (r) := DJstep _ _ _ .JUMPI (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 135 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 140 (r) := DJstep _ _ _ .PUSH4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 141 (r) := DJstep _ _ _ .EQ (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 144 (r) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 145 (r) := DJstep _ _ _ .JUMPI (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 146 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 151 (r) := DJstep _ _ _ .PUSH4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 152 (r) := DJstep _ _ _ .EQ (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 155 (r) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 156 (r) := DJstep _ _ _ .JUMPI (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 157 ((r).push (UInt256.ofNat 156)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 160 ((r).push (UInt256.ofNat 156)) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 163 ((r).push (UInt256.ofNat 156)) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 164 ((r).push (UInt256.ofNat 156)) := DJstep _ _ _ .JUMP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 165 (((r).push (UInt256.ofNat 156)).push (UInt256.ofNat 164)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++theorem DJchunk4 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 165 (r) = D_J_aux weth9Bytecode 194 ((((r).push (UInt256.ofNat 166)).push (UInt256.ofNat 178)).push (UInt256.ofNat 187)) := by
++  calc
++    D_J_aux weth9Bytecode 165 (r) = D_J_aux weth9Bytecode 166 (r) := DJstep _ _ _ .STOP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 167 ((r).push (UInt256.ofNat 166)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 168 ((r).push (UInt256.ofNat 166)) := DJstep _ _ _ .CALLVALUE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 169 ((r).push (UInt256.ofNat 166)) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 170 ((r).push (UInt256.ofNat 166)) := DJstep _ _ _ .ISZERO (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 173 ((r).push (UInt256.ofNat 166)) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 174 ((r).push (UInt256.ofNat 166)) := DJstep _ _ _ .JUMPI (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 176 ((r).push (UInt256.ofNat 166)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 177 ((r).push (UInt256.ofNat 166)) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 178 ((r).push (UInt256.ofNat 166)) := DJstep _ _ _ .REVERT (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 179 (((r).push (UInt256.ofNat 166)).push (UInt256.ofNat 178)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 180 (((r).push (UInt256.ofNat 166)).push (UInt256.ofNat 178)) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 183 (((r).push (UInt256.ofNat 166)).push (UInt256.ofNat 178)) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 186 (((r).push (UInt256.ofNat 166)).push (UInt256.ofNat 178)) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 187 (((r).push (UInt256.ofNat 166)).push (UInt256.ofNat 178)) := DJstep _ _ _ .JUMP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 188 ((((r).push (UInt256.ofNat 166)).push (UInt256.ofNat 178)).push (UInt256.ofNat 187)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 190 ((((r).push (UInt256.ofNat 166)).push (UInt256.ofNat 178)).push (UInt256.ofNat 187)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 191 ((((r).push (UInt256.ofNat 166)).push (UInt256.ofNat 178)).push (UInt256.ofNat 187)) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 192 ((((r).push (UInt256.ofNat 166)).push (UInt256.ofNat 178)).push (UInt256.ofNat 187)) := DJstep _ _ _ .MLOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 194 ((((r).push (UInt256.ofNat 166)).push (UInt256.ofNat 178)).push (UInt256.ofNat 187)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++theorem DJchunk5 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 194 (r) = D_J_aux weth9Bytecode 214 (r) := by
++  calc
++    D_J_aux weth9Bytecode 194 (r) = D_J_aux weth9Bytecode 195 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 196 (r) := DJstep _ _ _ .DUP3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 197 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 198 (r) := DJstep _ _ _ .DUP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 199 (r) := DJstep _ _ _ .MLOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 200 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 201 (r) := DJstep _ _ _ .DUP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 202 (r) := DJstep _ _ _ .ADD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 203 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 204 (r) := DJstep _ _ _ .DUP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 205 (r) := DJstep _ _ _ .MLOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 206 (r) := DJstep _ _ _ .SWAP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 207 (r) := DJstep _ _ _ .SWAP3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 208 (r) := DJstep _ _ _ .DUP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 209 (r) := DJstep _ _ _ .SWAP3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 210 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 211 (r) := DJstep _ _ _ .DUP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 212 (r) := DJstep _ _ _ .ADD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 213 (r) := DJstep _ _ _ .SWAP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 214 (r) := DJstep _ _ _ .DUP6 (by decide +kernel)
++theorem DJchunk6 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 214 (r) = D_J_aux weth9Bytecode 237 ((r).push (UInt256.ofNat 221)) := by
++  calc
++    D_J_aux weth9Bytecode 214 (r) = D_J_aux weth9Bytecode 215 (r) := DJstep _ _ _ .ADD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 216 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 217 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 218 (r) := DJstep _ _ _ .DUP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 219 (r) := DJstep _ _ _ .DUP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 221 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 222 ((r).push (UInt256.ofNat 221)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 223 ((r).push (UInt256.ofNat 221)) := DJstep _ _ _ .DUP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 224 ((r).push (UInt256.ofNat 221)) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 225 ((r).push (UInt256.ofNat 221)) := DJstep _ _ _ .LT (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 226 ((r).push (UInt256.ofNat 221)) := DJstep _ _ _ .ISZERO (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 229 ((r).push (UInt256.ofNat 221)) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 230 ((r).push (UInt256.ofNat 221)) := DJstep _ _ _ .JUMPI (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 231 ((r).push (UInt256.ofNat 221)) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 232 ((r).push (UInt256.ofNat 221)) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 233 ((r).push (UInt256.ofNat 221)) := DJstep _ _ _ .ADD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 234 ((r).push (UInt256.ofNat 221)) := DJstep _ _ _ .MLOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 235 ((r).push (UInt256.ofNat 221)) := DJstep _ _ _ .DUP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 236 ((r).push (UInt256.ofNat 221)) := DJstep _ _ _ .DUP3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 237 ((r).push (UInt256.ofNat 221)) := DJstep _ _ _ .ADD (by decide +kernel)
++theorem DJchunk7 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 237 (r) = D_J_aux weth9Bytecode 261 ((r).push (UInt256.ofNat 245)) := by
++  calc
++    D_J_aux weth9Bytecode 237 (r) = D_J_aux weth9Bytecode 238 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 240 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 241 (r) := DJstep _ _ _ .ADD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 244 (r) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 245 (r) := DJstep _ _ _ .JUMP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 246 ((r).push (UInt256.ofNat 245)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 247 ((r).push (UInt256.ofNat 245)) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 248 ((r).push (UInt256.ofNat 245)) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 249 ((r).push (UInt256.ofNat 245)) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 250 ((r).push (UInt256.ofNat 245)) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 251 ((r).push (UInt256.ofNat 245)) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 252 ((r).push (UInt256.ofNat 245)) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 253 ((r).push (UInt256.ofNat 245)) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 254 ((r).push (UInt256.ofNat 245)) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 255 ((r).push (UInt256.ofNat 245)) := DJstep _ _ _ .ADD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 256 ((r).push (UInt256.ofNat 245)) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 258 ((r).push (UInt256.ofNat 245)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 259 ((r).push (UInt256.ofNat 245)) := DJstep _ _ _ .AND (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 260 ((r).push (UInt256.ofNat 245)) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 261 ((r).push (UInt256.ofNat 245)) := DJstep _ _ _ .ISZERO (by decide +kernel)
++theorem DJchunk8 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 261 (r) = D_J_aux weth9Bytecode 288 (r) := by
++  calc
++    D_J_aux weth9Bytecode 261 (r) = D_J_aux weth9Bytecode 264 (r) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 265 (r) := DJstep _ _ _ .JUMPI (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 266 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 267 (r) := DJstep _ _ _ .DUP3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 268 (r) := DJstep _ _ _ .SUB (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 269 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 270 (r) := DJstep _ _ _ .MLOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 272 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 273 (r) := DJstep _ _ _ .DUP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 275 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 276 (r) := DJstep _ _ _ .SUB (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 279 (r) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 280 (r) := DJstep _ _ _ .EXP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 281 (r) := DJstep _ _ _ .SUB (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 282 (r) := DJstep _ _ _ .NOT (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 283 (r) := DJstep _ _ _ .AND (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 284 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 285 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 287 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 288 (r) := DJstep _ _ _ .ADD (by decide +kernel)
++theorem DJchunk9 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 288 (r) = D_J_aux weth9Bytecode 311 (((r).push (UInt256.ofNat 290)).push (UInt256.ofNat 304)) := by
++  calc
++    D_J_aux weth9Bytecode 288 (r) = D_J_aux weth9Bytecode 289 (r) := DJstep _ _ _ .SWAP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 290 (r) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 291 ((r).push (UInt256.ofNat 290)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 292 ((r).push (UInt256.ofNat 290)) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 293 ((r).push (UInt256.ofNat 290)) := DJstep _ _ _ .SWAP3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 294 ((r).push (UInt256.ofNat 290)) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 295 ((r).push (UInt256.ofNat 290)) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 296 ((r).push (UInt256.ofNat 290)) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 298 ((r).push (UInt256.ofNat 290)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 299 ((r).push (UInt256.ofNat 290)) := DJstep _ _ _ .MLOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 300 ((r).push (UInt256.ofNat 290)) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 301 ((r).push (UInt256.ofNat 290)) := DJstep _ _ _ .SWAP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 302 ((r).push (UInt256.ofNat 290)) := DJstep _ _ _ .SUB (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 303 ((r).push (UInt256.ofNat 290)) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 304 ((r).push (UInt256.ofNat 290)) := DJstep _ _ _ .RETURN (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 305 (((r).push (UInt256.ofNat 290)).push (UInt256.ofNat 304)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 306 (((r).push (UInt256.ofNat 290)).push (UInt256.ofNat 304)) := DJstep _ _ _ .CALLVALUE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 307 (((r).push (UInt256.ofNat 290)).push (UInt256.ofNat 304)) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 308 (((r).push (UInt256.ofNat 290)).push (UInt256.ofNat 304)) := DJstep _ _ _ .ISZERO (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 311 (((r).push (UInt256.ofNat 290)).push (UInt256.ofNat 304)) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++theorem DJchunk10 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 311 (r) = D_J_aux weth9Bytecode 339 ((r).push (UInt256.ofNat 316)) := by
++  calc
++    D_J_aux weth9Bytecode 311 (r) = D_J_aux weth9Bytecode 312 (r) := DJstep _ _ _ .JUMPI (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 314 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 315 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 316 (r) := DJstep _ _ _ .REVERT (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 317 ((r).push (UInt256.ofNat 316)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 318 ((r).push (UInt256.ofNat 316)) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 321 ((r).push (UInt256.ofNat 316)) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 323 ((r).push (UInt256.ofNat 316)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 324 ((r).push (UInt256.ofNat 316)) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 325 ((r).push (UInt256.ofNat 316)) := DJstep _ _ _ .CALLDATASIZE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 326 ((r).push (UInt256.ofNat 316)) := DJstep _ _ _ .SUB (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 328 ((r).push (UInt256.ofNat 316)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 329 ((r).push (UInt256.ofNat 316)) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 330 ((r).push (UInt256.ofNat 316)) := DJstep _ _ _ .LT (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 331 ((r).push (UInt256.ofNat 316)) := DJstep _ _ _ .ISZERO (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 334 ((r).push (UInt256.ofNat 316)) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 335 ((r).push (UInt256.ofNat 316)) := DJstep _ _ _ .JUMPI (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 337 ((r).push (UInt256.ofNat 316)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 338 ((r).push (UInt256.ofNat 316)) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 339 ((r).push (UInt256.ofNat 316)) := DJstep _ _ _ .REVERT (by decide +kernel)
++theorem DJchunk11 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 339 (r) = D_J_aux weth9Bytecode 366 (((r).push (UInt256.ofNat 339)).push (UInt256.ofNat 361)) := by
++  calc
++    D_J_aux weth9Bytecode 339 (r) = D_J_aux weth9Bytecode 340 ((r).push (UInt256.ofNat 339)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 341 ((r).push (UInt256.ofNat 339)) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 343 ((r).push (UInt256.ofNat 339)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 345 ((r).push (UInt256.ofNat 339)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 347 ((r).push (UInt256.ofNat 339)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 348 ((r).push (UInt256.ofNat 339)) := DJstep _ _ _ .SHL (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 349 ((r).push (UInt256.ofNat 339)) := DJstep _ _ _ .SUB (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 350 ((r).push (UInt256.ofNat 339)) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 351 ((r).push (UInt256.ofNat 339)) := DJstep _ _ _ .CALLDATALOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 352 ((r).push (UInt256.ofNat 339)) := DJstep _ _ _ .AND (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 353 ((r).push (UInt256.ofNat 339)) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 355 ((r).push (UInt256.ofNat 339)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 356 ((r).push (UInt256.ofNat 339)) := DJstep _ _ _ .ADD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 357 ((r).push (UInt256.ofNat 339)) := DJstep _ _ _ .CALLDATALOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 360 ((r).push (UInt256.ofNat 339)) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 361 ((r).push (UInt256.ofNat 339)) := DJstep _ _ _ .JUMP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 362 (((r).push (UInt256.ofNat 339)).push (UInt256.ofNat 361)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 364 (((r).push (UInt256.ofNat 339)).push (UInt256.ofNat 361)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 365 (((r).push (UInt256.ofNat 339)).push (UInt256.ofNat 361)) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 366 (((r).push (UInt256.ofNat 339)).push (UInt256.ofNat 361)) := DJstep _ _ _ .MLOAD (by decide +kernel)
++theorem DJchunk12 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 366 (r) = D_J_aux weth9Bytecode 389 ((r).push (UInt256.ofNat 381)) := by
++  calc
++    D_J_aux weth9Bytecode 366 (r) = D_J_aux weth9Bytecode 367 (r) := DJstep _ _ _ .SWAP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 368 (r) := DJstep _ _ _ .ISZERO (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 369 (r) := DJstep _ _ _ .ISZERO (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 370 (r) := DJstep _ _ _ .DUP3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 371 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 372 (r) := DJstep _ _ _ .MLOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 373 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 374 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 375 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 376 (r) := DJstep _ _ _ .SUB (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 378 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 379 (r) := DJstep _ _ _ .ADD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 380 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 381 (r) := DJstep _ _ _ .RETURN (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 382 ((r).push (UInt256.ofNat 381)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 383 ((r).push (UInt256.ofNat 381)) := DJstep _ _ _ .CALLVALUE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 384 ((r).push (UInt256.ofNat 381)) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 385 ((r).push (UInt256.ofNat 381)) := DJstep _ _ _ .ISZERO (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 388 ((r).push (UInt256.ofNat 381)) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 389 ((r).push (UInt256.ofNat 381)) := DJstep _ _ _ .JUMPI (by decide +kernel)
++theorem DJchunk13 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 389 (r) = D_J_aux weth9Bytecode 415 (((r).push (UInt256.ofNat 393)).push (UInt256.ofNat 402)) := by
++  calc
++    D_J_aux weth9Bytecode 389 (r) = D_J_aux weth9Bytecode 391 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 392 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 393 (r) := DJstep _ _ _ .REVERT (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 394 ((r).push (UInt256.ofNat 393)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 395 ((r).push (UInt256.ofNat 393)) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 398 ((r).push (UInt256.ofNat 393)) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 401 ((r).push (UInt256.ofNat 393)) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 402 ((r).push (UInt256.ofNat 393)) := DJstep _ _ _ .JUMP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 403 (((r).push (UInt256.ofNat 393)).push (UInt256.ofNat 402)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 405 (((r).push (UInt256.ofNat 393)).push (UInt256.ofNat 402)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 406 (((r).push (UInt256.ofNat 393)).push (UInt256.ofNat 402)) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 407 (((r).push (UInt256.ofNat 393)).push (UInt256.ofNat 402)) := DJstep _ _ _ .MLOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 408 (((r).push (UInt256.ofNat 393)).push (UInt256.ofNat 402)) := DJstep _ _ _ .SWAP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 409 (((r).push (UInt256.ofNat 393)).push (UInt256.ofNat 402)) := DJstep _ _ _ .DUP3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 410 (((r).push (UInt256.ofNat 393)).push (UInt256.ofNat 402)) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 411 (((r).push (UInt256.ofNat 393)).push (UInt256.ofNat 402)) := DJstep _ _ _ .MLOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 412 (((r).push (UInt256.ofNat 393)).push (UInt256.ofNat 402)) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 413 (((r).push (UInt256.ofNat 393)).push (UInt256.ofNat 402)) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 414 (((r).push (UInt256.ofNat 393)).push (UInt256.ofNat 402)) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 415 (((r).push (UInt256.ofNat 393)).push (UInt256.ofNat 402)) := DJstep _ _ _ .SUB (by decide +kernel)
++theorem DJchunk14 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 415 (r) = D_J_aux weth9Bytecode 442 (((r).push (UInt256.ofNat 420)).push (UInt256.ofNat 432)) := by
++  calc
++    D_J_aux weth9Bytecode 415 (r) = D_J_aux weth9Bytecode 417 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 418 (r) := DJstep _ _ _ .ADD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 419 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 420 (r) := DJstep _ _ _ .RETURN (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 421 ((r).push (UInt256.ofNat 420)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 422 ((r).push (UInt256.ofNat 420)) := DJstep _ _ _ .CALLVALUE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 423 ((r).push (UInt256.ofNat 420)) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 424 ((r).push (UInt256.ofNat 420)) := DJstep _ _ _ .ISZERO (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 427 ((r).push (UInt256.ofNat 420)) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 428 ((r).push (UInt256.ofNat 420)) := DJstep _ _ _ .JUMPI (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 430 ((r).push (UInt256.ofNat 420)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 431 ((r).push (UInt256.ofNat 420)) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 432 ((r).push (UInt256.ofNat 420)) := DJstep _ _ _ .REVERT (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 433 (((r).push (UInt256.ofNat 420)).push (UInt256.ofNat 432)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 434 (((r).push (UInt256.ofNat 420)).push (UInt256.ofNat 432)) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 437 (((r).push (UInt256.ofNat 420)).push (UInt256.ofNat 432)) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 439 (((r).push (UInt256.ofNat 420)).push (UInt256.ofNat 432)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 440 (((r).push (UInt256.ofNat 420)).push (UInt256.ofNat 432)) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 441 (((r).push (UInt256.ofNat 420)).push (UInt256.ofNat 432)) := DJstep _ _ _ .CALLDATASIZE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 442 (((r).push (UInt256.ofNat 420)).push (UInt256.ofNat 432)) := DJstep _ _ _ .SUB (by decide +kernel)
++theorem DJchunk15 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 442 (r) = D_J_aux weth9Bytecode 469 ((r).push (UInt256.ofNat 455)) := by
++  calc
++    D_J_aux weth9Bytecode 442 (r) = D_J_aux weth9Bytecode 444 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 445 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 446 (r) := DJstep _ _ _ .LT (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 447 (r) := DJstep _ _ _ .ISZERO (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 450 (r) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 451 (r) := DJstep _ _ _ .JUMPI (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 453 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 454 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 455 (r) := DJstep _ _ _ .REVERT (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 456 ((r).push (UInt256.ofNat 455)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 457 ((r).push (UInt256.ofNat 455)) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 459 ((r).push (UInt256.ofNat 455)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 461 ((r).push (UInt256.ofNat 455)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 463 ((r).push (UInt256.ofNat 455)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 464 ((r).push (UInt256.ofNat 455)) := DJstep _ _ _ .SHL (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 465 ((r).push (UInt256.ofNat 455)) := DJstep _ _ _ .SUB (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 466 ((r).push (UInt256.ofNat 455)) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 467 ((r).push (UInt256.ofNat 455)) := DJstep _ _ _ .CALLDATALOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 468 ((r).push (UInt256.ofNat 455)) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 469 ((r).push (UInt256.ofNat 455)) := DJstep _ _ _ .AND (by decide +kernel)
++theorem DJchunk16 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 469 (r) = D_J_aux weth9Bytecode 495 ((r).push (UInt256.ofNat 487)) := by
++  calc
++    D_J_aux weth9Bytecode 469 (r) = D_J_aux weth9Bytecode 470 (r) := DJstep _ _ _ .SWAP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 472 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 473 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 474 (r) := DJstep _ _ _ .ADD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 475 (r) := DJstep _ _ _ .CALLDATALOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 476 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 477 (r) := DJstep _ _ _ .SWAP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 478 (r) := DJstep _ _ _ .AND (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 479 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 481 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 482 (r) := DJstep _ _ _ .ADD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 483 (r) := DJstep _ _ _ .CALLDATALOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 486 (r) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 487 (r) := DJstep _ _ _ .JUMP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 488 ((r).push (UInt256.ofNat 487)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 489 ((r).push (UInt256.ofNat 487)) := DJstep _ _ _ .CALLVALUE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 490 ((r).push (UInt256.ofNat 487)) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 491 ((r).push (UInt256.ofNat 487)) := DJstep _ _ _ .ISZERO (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 494 ((r).push (UInt256.ofNat 487)) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 495 ((r).push (UInt256.ofNat 487)) := DJstep _ _ _ .JUMPI (by decide +kernel)
++theorem DJchunk17 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 495 (r) = D_J_aux weth9Bytecode 523 (((r).push (UInt256.ofNat 499)).push (UInt256.ofNat 522)) := by
++  calc
++    D_J_aux weth9Bytecode 495 (r) = D_J_aux weth9Bytecode 497 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 498 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 499 (r) := DJstep _ _ _ .REVERT (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 500 ((r).push (UInt256.ofNat 499)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 501 ((r).push (UInt256.ofNat 499)) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 504 ((r).push (UInt256.ofNat 499)) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 506 ((r).push (UInt256.ofNat 499)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 507 ((r).push (UInt256.ofNat 499)) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 508 ((r).push (UInt256.ofNat 499)) := DJstep _ _ _ .CALLDATASIZE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 509 ((r).push (UInt256.ofNat 499)) := DJstep _ _ _ .SUB (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 511 ((r).push (UInt256.ofNat 499)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 512 ((r).push (UInt256.ofNat 499)) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 513 ((r).push (UInt256.ofNat 499)) := DJstep _ _ _ .LT (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 514 ((r).push (UInt256.ofNat 499)) := DJstep _ _ _ .ISZERO (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 517 ((r).push (UInt256.ofNat 499)) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 518 ((r).push (UInt256.ofNat 499)) := DJstep _ _ _ .JUMPI (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 520 ((r).push (UInt256.ofNat 499)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 521 ((r).push (UInt256.ofNat 499)) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 522 ((r).push (UInt256.ofNat 499)) := DJstep _ _ _ .REVERT (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 523 (((r).push (UInt256.ofNat 499)).push (UInt256.ofNat 522)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++theorem DJchunk18 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 523 (r) = D_J_aux weth9Bytecode 553 ((((r).push (UInt256.ofNat 529)).push (UInt256.ofNat 541)).push (UInt256.ofNat 550)) := by
++  calc
++    D_J_aux weth9Bytecode 523 (r) = D_J_aux weth9Bytecode 524 (r) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 525 (r) := DJstep _ _ _ .CALLDATALOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 528 (r) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 529 (r) := DJstep _ _ _ .JUMP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 530 ((r).push (UInt256.ofNat 529)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 531 ((r).push (UInt256.ofNat 529)) := DJstep _ _ _ .CALLVALUE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 532 ((r).push (UInt256.ofNat 529)) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 533 ((r).push (UInt256.ofNat 529)) := DJstep _ _ _ .ISZERO (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 536 ((r).push (UInt256.ofNat 529)) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 537 ((r).push (UInt256.ofNat 529)) := DJstep _ _ _ .JUMPI (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 539 ((r).push (UInt256.ofNat 529)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 540 ((r).push (UInt256.ofNat 529)) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 541 ((r).push (UInt256.ofNat 529)) := DJstep _ _ _ .REVERT (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 542 (((r).push (UInt256.ofNat 529)).push (UInt256.ofNat 541)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 543 (((r).push (UInt256.ofNat 529)).push (UInt256.ofNat 541)) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 546 (((r).push (UInt256.ofNat 529)).push (UInt256.ofNat 541)) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 549 (((r).push (UInt256.ofNat 529)).push (UInt256.ofNat 541)) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 550 (((r).push (UInt256.ofNat 529)).push (UInt256.ofNat 541)) := DJstep _ _ _ .JUMP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 551 ((((r).push (UInt256.ofNat 529)).push (UInt256.ofNat 541)).push (UInt256.ofNat 550)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 553 ((((r).push (UInt256.ofNat 529)).push (UInt256.ofNat 541)).push (UInt256.ofNat 550)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++theorem DJchunk19 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 553 (r) = D_J_aux weth9Bytecode 575 ((r).push (UInt256.ofNat 572)) := by
++  calc
++    D_J_aux weth9Bytecode 553 (r) = D_J_aux weth9Bytecode 554 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 555 (r) := DJstep _ _ _ .MLOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 557 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 558 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 559 (r) := DJstep _ _ _ .SWAP3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 560 (r) := DJstep _ _ _ .AND (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 561 (r) := DJstep _ _ _ .DUP3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 562 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 563 (r) := DJstep _ _ _ .MLOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 564 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 565 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 566 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 567 (r) := DJstep _ _ _ .SUB (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 569 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 570 (r) := DJstep _ _ _ .ADD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 571 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 572 (r) := DJstep _ _ _ .RETURN (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 573 ((r).push (UInt256.ofNat 572)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 574 ((r).push (UInt256.ofNat 572)) := DJstep _ _ _ .CALLVALUE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 575 ((r).push (UInt256.ofNat 572)) := DJstep _ _ _ .DUP1 (by decide +kernel)
++theorem DJchunk20 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 575 (r) = D_J_aux weth9Bytecode 605 ((r).push (UInt256.ofNat 584)) := by
++  calc
++    D_J_aux weth9Bytecode 575 (r) = D_J_aux weth9Bytecode 576 (r) := DJstep _ _ _ .ISZERO (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 579 (r) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 580 (r) := DJstep _ _ _ .JUMPI (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 582 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 583 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 584 (r) := DJstep _ _ _ .REVERT (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 585 ((r).push (UInt256.ofNat 584)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 586 ((r).push (UInt256.ofNat 584)) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 589 ((r).push (UInt256.ofNat 584)) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 591 ((r).push (UInt256.ofNat 584)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 592 ((r).push (UInt256.ofNat 584)) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 593 ((r).push (UInt256.ofNat 584)) := DJstep _ _ _ .CALLDATASIZE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 594 ((r).push (UInt256.ofNat 584)) := DJstep _ _ _ .SUB (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 596 ((r).push (UInt256.ofNat 584)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 597 ((r).push (UInt256.ofNat 584)) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 598 ((r).push (UInt256.ofNat 584)) := DJstep _ _ _ .LT (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 599 ((r).push (UInt256.ofNat 584)) := DJstep _ _ _ .ISZERO (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 602 ((r).push (UInt256.ofNat 584)) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 603 ((r).push (UInt256.ofNat 584)) := DJstep _ _ _ .JUMPI (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 605 ((r).push (UInt256.ofNat 584)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++theorem DJchunk21 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 605 (r) = D_J_aux weth9Bytecode 633 (((r).push (UInt256.ofNat 607)).push (UInt256.ofNat 623)) := by
++  calc
++    D_J_aux weth9Bytecode 605 (r) = D_J_aux weth9Bytecode 606 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 607 (r) := DJstep _ _ _ .REVERT (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 608 ((r).push (UInt256.ofNat 607)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 609 ((r).push (UInt256.ofNat 607)) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 610 ((r).push (UInt256.ofNat 607)) := DJstep _ _ _ .CALLDATALOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 612 ((r).push (UInt256.ofNat 607)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 614 ((r).push (UInt256.ofNat 607)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 616 ((r).push (UInt256.ofNat 607)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 617 ((r).push (UInt256.ofNat 607)) := DJstep _ _ _ .SHL (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 618 ((r).push (UInt256.ofNat 607)) := DJstep _ _ _ .SUB (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 619 ((r).push (UInt256.ofNat 607)) := DJstep _ _ _ .AND (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 622 ((r).push (UInt256.ofNat 607)) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 623 ((r).push (UInt256.ofNat 607)) := DJstep _ _ _ .JUMP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 624 (((r).push (UInt256.ofNat 607)).push (UInt256.ofNat 623)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 625 (((r).push (UInt256.ofNat 607)).push (UInt256.ofNat 623)) := DJstep _ _ _ .CALLVALUE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 626 (((r).push (UInt256.ofNat 607)).push (UInt256.ofNat 623)) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 627 (((r).push (UInt256.ofNat 607)).push (UInt256.ofNat 623)) := DJstep _ _ _ .ISZERO (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 630 (((r).push (UInt256.ofNat 607)).push (UInt256.ofNat 623)) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 631 (((r).push (UInt256.ofNat 607)).push (UInt256.ofNat 623)) := DJstep _ _ _ .JUMPI (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 633 (((r).push (UInt256.ofNat 607)).push (UInt256.ofNat 623)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++theorem DJchunk22 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 633 (r) = D_J_aux weth9Bytecode 663 ((((r).push (UInt256.ofNat 635)).push (UInt256.ofNat 644)).push (UInt256.ofNat 656)) := by
++  calc
++    D_J_aux weth9Bytecode 633 (r) = D_J_aux weth9Bytecode 634 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 635 (r) := DJstep _ _ _ .REVERT (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 636 ((r).push (UInt256.ofNat 635)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 637 ((r).push (UInt256.ofNat 635)) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 640 ((r).push (UInt256.ofNat 635)) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 643 ((r).push (UInt256.ofNat 635)) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 644 ((r).push (UInt256.ofNat 635)) := DJstep _ _ _ .JUMP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 645 (((r).push (UInt256.ofNat 635)).push (UInt256.ofNat 644)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 646 (((r).push (UInt256.ofNat 635)).push (UInt256.ofNat 644)) := DJstep _ _ _ .CALLVALUE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 647 (((r).push (UInt256.ofNat 635)).push (UInt256.ofNat 644)) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 648 (((r).push (UInt256.ofNat 635)).push (UInt256.ofNat 644)) := DJstep _ _ _ .ISZERO (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 651 (((r).push (UInt256.ofNat 635)).push (UInt256.ofNat 644)) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 652 (((r).push (UInt256.ofNat 635)).push (UInt256.ofNat 644)) := DJstep _ _ _ .JUMPI (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 654 (((r).push (UInt256.ofNat 635)).push (UInt256.ofNat 644)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 655 (((r).push (UInt256.ofNat 635)).push (UInt256.ofNat 644)) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 656 (((r).push (UInt256.ofNat 635)).push (UInt256.ofNat 644)) := DJstep _ _ _ .REVERT (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 657 ((((r).push (UInt256.ofNat 635)).push (UInt256.ofNat 644)).push (UInt256.ofNat 656)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 658 ((((r).push (UInt256.ofNat 635)).push (UInt256.ofNat 644)).push (UInt256.ofNat 656)) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 661 ((((r).push (UInt256.ofNat 635)).push (UInt256.ofNat 644)).push (UInt256.ofNat 656)) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 663 ((((r).push (UInt256.ofNat 635)).push (UInt256.ofNat 644)).push (UInt256.ofNat 656)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++theorem DJchunk23 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 663 (r) = D_J_aux weth9Bytecode 690 ((r).push (UInt256.ofNat 679)) := by
++  calc
++    D_J_aux weth9Bytecode 663 (r) = D_J_aux weth9Bytecode 664 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 665 (r) := DJstep _ _ _ .CALLDATASIZE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 666 (r) := DJstep _ _ _ .SUB (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 668 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 669 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 670 (r) := DJstep _ _ _ .LT (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 671 (r) := DJstep _ _ _ .ISZERO (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 674 (r) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 675 (r) := DJstep _ _ _ .JUMPI (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 677 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 678 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 679 (r) := DJstep _ _ _ .REVERT (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 680 ((r).push (UInt256.ofNat 679)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 681 ((r).push (UInt256.ofNat 679)) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 683 ((r).push (UInt256.ofNat 679)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 685 ((r).push (UInt256.ofNat 679)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 687 ((r).push (UInt256.ofNat 679)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 688 ((r).push (UInt256.ofNat 679)) := DJstep _ _ _ .SHL (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 689 ((r).push (UInt256.ofNat 679)) := DJstep _ _ _ .SUB (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 690 ((r).push (UInt256.ofNat 679)) := DJstep _ _ _ .DUP2 (by decide +kernel)
++theorem DJchunk24 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 690 (r) = D_J_aux weth9Bytecode 718 (((r).push (UInt256.ofNat 701)).push (UInt256.ofNat 713)) := by
++  calc
++    D_J_aux weth9Bytecode 690 (r) = D_J_aux weth9Bytecode 691 (r) := DJstep _ _ _ .CALLDATALOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 692 (r) := DJstep _ _ _ .AND (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 693 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 695 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 696 (r) := DJstep _ _ _ .ADD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 697 (r) := DJstep _ _ _ .CALLDATALOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 700 (r) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 701 (r) := DJstep _ _ _ .JUMP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 702 ((r).push (UInt256.ofNat 701)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 703 ((r).push (UInt256.ofNat 701)) := DJstep _ _ _ .CALLVALUE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 704 ((r).push (UInt256.ofNat 701)) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 705 ((r).push (UInt256.ofNat 701)) := DJstep _ _ _ .ISZERO (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 708 ((r).push (UInt256.ofNat 701)) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 709 ((r).push (UInt256.ofNat 701)) := DJstep _ _ _ .JUMPI (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 711 ((r).push (UInt256.ofNat 701)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 712 ((r).push (UInt256.ofNat 701)) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 713 ((r).push (UInt256.ofNat 701)) := DJstep _ _ _ .REVERT (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 714 (((r).push (UInt256.ofNat 701)).push (UInt256.ofNat 713)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 715 (((r).push (UInt256.ofNat 701)).push (UInt256.ofNat 713)) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 718 (((r).push (UInt256.ofNat 701)).push (UInt256.ofNat 713)) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++theorem DJchunk25 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 718 (r) = D_J_aux weth9Bytecode 746 ((r).push (UInt256.ofNat 736)) := by
++  calc
++    D_J_aux weth9Bytecode 718 (r) = D_J_aux weth9Bytecode 720 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 721 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 722 (r) := DJstep _ _ _ .CALLDATASIZE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 723 (r) := DJstep _ _ _ .SUB (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 725 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 726 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 727 (r) := DJstep _ _ _ .LT (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 728 (r) := DJstep _ _ _ .ISZERO (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 731 (r) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 732 (r) := DJstep _ _ _ .JUMPI (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 734 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 735 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 736 (r) := DJstep _ _ _ .REVERT (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 737 ((r).push (UInt256.ofNat 736)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 738 ((r).push (UInt256.ofNat 736)) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 740 ((r).push (UInt256.ofNat 736)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 742 ((r).push (UInt256.ofNat 736)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 744 ((r).push (UInt256.ofNat 736)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 745 ((r).push (UInt256.ofNat 736)) := DJstep _ _ _ .SHL (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 746 ((r).push (UInt256.ofNat 736)) := DJstep _ _ _ .SUB (by decide +kernel)
++theorem DJchunk26 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 746 (r) = D_J_aux weth9Bytecode 772 ((r).push (UInt256.ofNat 760)) := by
++  calc
++    D_J_aux weth9Bytecode 746 (r) = D_J_aux weth9Bytecode 747 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 748 (r) := DJstep _ _ _ .CALLDATALOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 749 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 750 (r) := DJstep _ _ _ .AND (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 751 (r) := DJstep _ _ _ .SWAP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 753 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 754 (r) := DJstep _ _ _ .ADD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 755 (r) := DJstep _ _ _ .CALLDATALOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 756 (r) := DJstep _ _ _ .AND (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 759 (r) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 760 (r) := DJstep _ _ _ .JUMP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 761 ((r).push (UInt256.ofNat 760)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 762 ((r).push (UInt256.ofNat 760)) := DJstep _ _ _ .CALLER (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 764 ((r).push (UInt256.ofNat 760)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 765 ((r).push (UInt256.ofNat 760)) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 766 ((r).push (UInt256.ofNat 760)) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 767 ((r).push (UInt256.ofNat 760)) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 769 ((r).push (UInt256.ofNat 760)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 771 ((r).push (UInt256.ofNat 760)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 772 ((r).push (UInt256.ofNat 760)) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++theorem DJchunk27 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 772 (r) = D_J_aux weth9Bytecode 793 (r) := by
++  calc
++    D_J_aux weth9Bytecode 772 (r) = D_J_aux weth9Bytecode 773 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 774 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 776 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 777 (r) := DJstep _ _ _ .SWAP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 778 (r) := DJstep _ _ _ .DUP3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 779 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 780 (r) := DJstep _ _ _ .KECCAK256 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 781 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 782 (r) := DJstep _ _ _ .SLOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 783 (r) := DJstep _ _ _ .CALLVALUE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 784 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 785 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 786 (r) := DJstep _ _ _ .ADD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 787 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 788 (r) := DJstep _ _ _ .SWAP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 789 (r) := DJstep _ _ _ .SSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 790 (r) := DJstep _ _ _ .DUP3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 791 (r) := DJstep _ _ _ .MLOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 792 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 793 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++theorem DJchunk28 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 793 (r) = D_J_aux weth9Bytecode 847 ((r).push (UInt256.ofNat 839)) := by
++  calc
++    D_J_aux weth9Bytecode 793 (r) = D_J_aux weth9Bytecode 794 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 795 (r) := DJstep _ _ _ .SWAP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 796 (r) := DJstep _ _ _ .MLOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 829 (r) := DJstep _ _ _ .PUSH32 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 830 (r) := DJstep _ _ _ .SWAP3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 831 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 832 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 833 (r) := DJstep _ _ _ .SUB (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 834 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 835 (r) := DJstep _ _ _ .SWAP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 836 (r) := DJstep _ _ _ .ADD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 837 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 838 (r) := DJstep _ _ _ .LOG2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 839 (r) := DJstep _ _ _ .JUMP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 840 ((r).push (UInt256.ofNat 839)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 842 ((r).push (UInt256.ofNat 839)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 843 ((r).push (UInt256.ofNat 839)) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 844 ((r).push (UInt256.ofNat 839)) := DJstep _ _ _ .SLOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 846 ((r).push (UInt256.ofNat 839)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 847 ((r).push (UInt256.ofNat 839)) := DJstep _ _ _ .DUP1 (by decide +kernel)
++theorem DJchunk29 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 847 (r) = D_J_aux weth9Bytecode 874 (r) := by
++  calc
++    D_J_aux weth9Bytecode 847 (r) = D_J_aux weth9Bytecode 848 (r) := DJstep _ _ _ .MLOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 850 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 852 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 854 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 855 (r) := DJstep _ _ _ .DUP6 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 856 (r) := DJstep _ _ _ .AND (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 857 (r) := DJstep _ _ _ .ISZERO (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 860 (r) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 861 (r) := DJstep _ _ _ .MUL (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 863 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 864 (r) := DJstep _ _ _ .NOT (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 865 (r) := DJstep _ _ _ .ADD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 866 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 867 (r) := DJstep _ _ _ .SWAP5 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 868 (r) := DJstep _ _ _ .AND (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 869 (r) := DJstep _ _ _ .SWAP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 870 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 871 (r) := DJstep _ _ _ .SWAP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 872 (r) := DJstep _ _ _ .DIV (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 874 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++theorem DJchunk30 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 874 (r) = D_J_aux weth9Bytecode 894 (r) := by
++  calc
++    D_J_aux weth9Bytecode 874 (r) = D_J_aux weth9Bytecode 875 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 876 (r) := DJstep _ _ _ .ADD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 877 (r) := DJstep _ _ _ .DUP5 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 878 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 879 (r) := DJstep _ _ _ .DIV (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 880 (r) := DJstep _ _ _ .DUP5 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 881 (r) := DJstep _ _ _ .MUL (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 882 (r) := DJstep _ _ _ .DUP3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 883 (r) := DJstep _ _ _ .ADD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 884 (r) := DJstep _ _ _ .DUP5 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 885 (r) := DJstep _ _ _ .ADD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 886 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 887 (r) := DJstep _ _ _ .SWAP3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 888 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 889 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 890 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 891 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 892 (r) := DJstep _ _ _ .SWAP3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 893 (r) := DJstep _ _ _ .SWAP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 894 (r) := DJstep _ _ _ .DUP4 (by decide +kernel)
++theorem DJchunk31 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 894 (r) = D_J_aux weth9Bytecode 921 (r) := by
++  calc
++    D_J_aux weth9Bytecode 894 (r) = D_J_aux weth9Bytecode 895 (r) := DJstep _ _ _ .ADD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 896 (r) := DJstep _ _ _ .DUP3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 897 (r) := DJstep _ _ _ .DUP3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 898 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 899 (r) := DJstep _ _ _ .ISZERO (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 902 (r) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 903 (r) := DJstep _ _ _ .JUMPI (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 904 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 906 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 907 (r) := DJstep _ _ _ .LT (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 910 (r) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 911 (r) := DJstep _ _ _ .JUMPI (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 914 (r) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 915 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 916 (r) := DJstep _ _ _ .DUP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 917 (r) := DJstep _ _ _ .SLOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 918 (r) := DJstep _ _ _ .DIV (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 919 (r) := DJstep _ _ _ .MUL (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 920 (r) := DJstep _ _ _ .DUP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 921 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++theorem DJchunk32 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 921 (r) = D_J_aux weth9Bytecode 947 (((r).push (UInt256.ofNat 930)).push (UInt256.ofNat 944)) := by
++  calc
++    D_J_aux weth9Bytecode 921 (r) = D_J_aux weth9Bytecode 922 (r) := DJstep _ _ _ .SWAP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 924 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 925 (r) := DJstep _ _ _ .ADD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 926 (r) := DJstep _ _ _ .SWAP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 929 (r) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 930 (r) := DJstep _ _ _ .JUMP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 931 ((r).push (UInt256.ofNat 930)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 932 ((r).push (UInt256.ofNat 930)) := DJstep _ _ _ .DUP3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 933 ((r).push (UInt256.ofNat 930)) := DJstep _ _ _ .ADD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 934 ((r).push (UInt256.ofNat 930)) := DJstep _ _ _ .SWAP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 935 ((r).push (UInt256.ofNat 930)) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 937 ((r).push (UInt256.ofNat 930)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 938 ((r).push (UInt256.ofNat 930)) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 940 ((r).push (UInt256.ofNat 930)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 942 ((r).push (UInt256.ofNat 930)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 943 ((r).push (UInt256.ofNat 930)) := DJstep _ _ _ .KECCAK256 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 944 ((r).push (UInt256.ofNat 930)) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 945 (((r).push (UInt256.ofNat 930)).push (UInt256.ofNat 944)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 946 (((r).push (UInt256.ofNat 930)).push (UInt256.ofNat 944)) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 947 (((r).push (UInt256.ofNat 930)).push (UInt256.ofNat 944)) := DJstep _ _ _ .SLOAD (by decide +kernel)
++theorem DJchunk33 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 947 (r) = D_J_aux weth9Bytecode 972 (r) := by
++  calc
++    D_J_aux weth9Bytecode 947 (r) = D_J_aux weth9Bytecode 948 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 949 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 950 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 952 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 953 (r) := DJstep _ _ _ .ADD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 954 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 956 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 957 (r) := DJstep _ _ _ .ADD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 958 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 959 (r) := DJstep _ _ _ .DUP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 960 (r) := DJstep _ _ _ .GT (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 963 (r) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 964 (r) := DJstep _ _ _ .JUMPI (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 965 (r) := DJstep _ _ _ .DUP3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 966 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 967 (r) := DJstep _ _ _ .SUB (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 969 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 970 (r) := DJstep _ _ _ .AND (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 971 (r) := DJstep _ _ _ .DUP3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 972 (r) := DJstep _ _ _ .ADD (by decide +kernel)
++theorem DJchunk34 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 972 (r) = D_J_aux weth9Bytecode 995 (((r).push (UInt256.ofNat 973)).push (UInt256.ofNat 981)) := by
++  calc
++    D_J_aux weth9Bytecode 972 (r) = D_J_aux weth9Bytecode 973 (r) := DJstep _ _ _ .SWAP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 974 ((r).push (UInt256.ofNat 973)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 975 ((r).push (UInt256.ofNat 973)) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 976 ((r).push (UInt256.ofNat 973)) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 977 ((r).push (UInt256.ofNat 973)) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 978 ((r).push (UInt256.ofNat 973)) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 979 ((r).push (UInt256.ofNat 973)) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 980 ((r).push (UInt256.ofNat 973)) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 981 ((r).push (UInt256.ofNat 973)) := DJstep _ _ _ .JUMP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 982 (((r).push (UInt256.ofNat 973)).push (UInt256.ofNat 981)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 983 (((r).push (UInt256.ofNat 973)).push (UInt256.ofNat 981)) := DJstep _ _ _ .CALLER (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 985 (((r).push (UInt256.ofNat 973)).push (UInt256.ofNat 981)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 986 (((r).push (UInt256.ofNat 973)).push (UInt256.ofNat 981)) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 987 (((r).push (UInt256.ofNat 973)).push (UInt256.ofNat 981)) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 988 (((r).push (UInt256.ofNat 973)).push (UInt256.ofNat 981)) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 990 (((r).push (UInt256.ofNat 973)).push (UInt256.ofNat 981)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 992 (((r).push (UInt256.ofNat 973)).push (UInt256.ofNat 981)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 993 (((r).push (UInt256.ofNat 973)).push (UInt256.ofNat 981)) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 994 (((r).push (UInt256.ofNat 973)).push (UInt256.ofNat 981)) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 995 (((r).push (UInt256.ofNat 973)).push (UInt256.ofNat 981)) := DJstep _ _ _ .MSTORE (by decide +kernel)
++theorem DJchunk35 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 995 (r) = D_J_aux weth9Bytecode 1019 (r) := by
++  calc
++    D_J_aux weth9Bytecode 995 (r) = D_J_aux weth9Bytecode 997 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 998 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 999 (r) := DJstep _ _ _ .DUP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1000 (r) := DJstep _ _ _ .KECCAK256 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1002 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1004 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1006 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1007 (r) := DJstep _ _ _ .SHL (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1008 (r) := DJstep _ _ _ .SUB (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1009 (r) := DJstep _ _ _ .DUP8 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1010 (r) := DJstep _ _ _ .AND (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1011 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1012 (r) := DJstep _ _ _ .DUP6 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1013 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1014 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1015 (r) := DJstep _ _ _ .DUP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1016 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1017 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1018 (r) := DJstep _ _ _ .DUP5 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1019 (r) := DJstep _ _ _ .KECCAK256 (by decide +kernel)
++theorem DJchunk36 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 1019 (r) = D_J_aux weth9Bytecode 1071 (r) := by
++  calc
++    D_J_aux weth9Bytecode 1019 (r) = D_J_aux weth9Bytecode 1020 (r) := DJstep _ _ _ .DUP7 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1021 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1022 (r) := DJstep _ _ _ .SSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1023 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1024 (r) := DJstep _ _ _ .MLOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1025 (r) := DJstep _ _ _ .DUP7 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1026 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1027 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1028 (r) := DJstep _ _ _ .SWAP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1029 (r) := DJstep _ _ _ .MLOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1030 (r) := DJstep _ _ _ .SWAP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1031 (r) := DJstep _ _ _ .SWAP5 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1032 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1033 (r) := DJstep _ _ _ .SWAP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1034 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1035 (r) := DJstep _ _ _ .SWAP3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1068 (r) := DJstep _ _ _ .PUSH32 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1069 (r) := DJstep _ _ _ .SWAP3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1070 (r) := DJstep _ _ _ .DUP3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1071 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++theorem DJchunk37 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 1071 (r) = D_J_aux weth9Bytecode 1095 (((r).push (UInt256.ofNat 1083)).push (UInt256.ofNat 1087)) := by
++  calc
++    D_J_aux weth9Bytecode 1071 (r) = D_J_aux weth9Bytecode 1072 (r) := DJstep _ _ _ .SUB (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1073 (r) := DJstep _ _ _ .ADD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1074 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1075 (r) := DJstep _ _ _ .LOG3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1076 (r) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1078 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1079 (r) := DJstep _ _ _ .SWAP3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1080 (r) := DJstep _ _ _ .SWAP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1081 (r) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1082 (r) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1083 (r) := DJstep _ _ _ .JUMP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1084 ((r).push (UInt256.ofNat 1083)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1085 ((r).push (UInt256.ofNat 1083)) := DJstep _ _ _ .SELFBALANCE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1086 ((r).push (UInt256.ofNat 1083)) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1087 ((r).push (UInt256.ofNat 1083)) := DJstep _ _ _ .JUMP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1088 (((r).push (UInt256.ofNat 1083)).push (UInt256.ofNat 1087)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1090 (((r).push (UInt256.ofNat 1083)).push (UInt256.ofNat 1087)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1092 (((r).push (UInt256.ofNat 1083)).push (UInt256.ofNat 1087)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1094 (((r).push (UInt256.ofNat 1083)).push (UInt256.ofNat 1087)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1095 (((r).push (UInt256.ofNat 1083)).push (UInt256.ofNat 1087)) := DJstep _ _ _ .SHL (by decide +kernel)
++theorem DJchunk38 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 1095 (r) = D_J_aux weth9Bytecode 1122 (r) := by
++  calc
++    D_J_aux weth9Bytecode 1095 (r) = D_J_aux weth9Bytecode 1096 (r) := DJstep _ _ _ .SUB (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1097 (r) := DJstep _ _ _ .DUP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1098 (r) := DJstep _ _ _ .AND (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1100 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1101 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1102 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1103 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1105 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1107 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1108 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1110 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1111 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1112 (r) := DJstep _ _ _ .KECCAK256 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1113 (r) := DJstep _ _ _ .SLOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1114 (r) := DJstep _ _ _ .DUP3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1115 (r) := DJstep _ _ _ .GT (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1116 (r) := DJstep _ _ _ .ISZERO (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1119 (r) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1120 (r) := DJstep _ _ _ .JUMPI (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1122 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++theorem DJchunk39 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 1122 (r) = D_J_aux weth9Bytecode 1149 ((r).push (UInt256.ofNat 1124)) := by
++  calc
++    D_J_aux weth9Bytecode 1122 (r) = D_J_aux weth9Bytecode 1123 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1124 (r) := DJstep _ _ _ .REVERT (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1125 ((r).push (UInt256.ofNat 1124)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1127 ((r).push (UInt256.ofNat 1124)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1129 ((r).push (UInt256.ofNat 1124)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1131 ((r).push (UInt256.ofNat 1124)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1132 ((r).push (UInt256.ofNat 1124)) := DJstep _ _ _ .SHL (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1133 ((r).push (UInt256.ofNat 1124)) := DJstep _ _ _ .SUB (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1134 ((r).push (UInt256.ofNat 1124)) := DJstep _ _ _ .DUP5 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1135 ((r).push (UInt256.ofNat 1124)) := DJstep _ _ _ .AND (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1136 ((r).push (UInt256.ofNat 1124)) := DJstep _ _ _ .CALLER (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1137 ((r).push (UInt256.ofNat 1124)) := DJstep _ _ _ .EQ (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1138 ((r).push (UInt256.ofNat 1124)) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1139 ((r).push (UInt256.ofNat 1124)) := DJstep _ _ _ .ISZERO (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1140 ((r).push (UInt256.ofNat 1124)) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1143 ((r).push (UInt256.ofNat 1124)) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1144 ((r).push (UInt256.ofNat 1124)) := DJstep _ _ _ .JUMPI (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1145 ((r).push (UInt256.ofNat 1124)) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1147 ((r).push (UInt256.ofNat 1124)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1149 ((r).push (UInt256.ofNat 1124)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++theorem DJchunk40 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 1149 (r) = D_J_aux weth9Bytecode 1174 (r) := by
++  calc
++    D_J_aux weth9Bytecode 1149 (r) = D_J_aux weth9Bytecode 1151 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1152 (r) := DJstep _ _ _ .SHL (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1153 (r) := DJstep _ _ _ .SUB (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1154 (r) := DJstep _ _ _ .DUP5 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1155 (r) := DJstep _ _ _ .AND (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1157 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1158 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1159 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1160 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1162 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1164 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1165 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1166 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1167 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1169 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1170 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1171 (r) := DJstep _ _ _ .DUP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1172 (r) := DJstep _ _ _ .KECCAK256 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1173 (r) := DJstep _ _ _ .CALLER (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1174 (r) := DJstep _ _ _ .DUP5 (by decide +kernel)
++theorem DJchunk41 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 1174 (r) = D_J_aux weth9Bytecode 1200 ((r).push (UInt256.ofNat 1186)) := by
++  calc
++    D_J_aux weth9Bytecode 1174 (r) = D_J_aux weth9Bytecode 1175 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1176 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1177 (r) := DJstep _ _ _ .SWAP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1178 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1179 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1180 (r) := DJstep _ _ _ .KECCAK256 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1181 (r) := DJstep _ _ _ .SLOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1183 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1184 (r) := DJstep _ _ _ .NOT (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1185 (r) := DJstep _ _ _ .EQ (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1186 (r) := DJstep _ _ _ .ISZERO (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1187 ((r).push (UInt256.ofNat 1186)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1188 ((r).push (UInt256.ofNat 1186)) := DJstep _ _ _ .ISZERO (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1191 ((r).push (UInt256.ofNat 1186)) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1192 ((r).push (UInt256.ofNat 1186)) := DJstep _ _ _ .JUMPI (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1194 ((r).push (UInt256.ofNat 1186)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1196 ((r).push (UInt256.ofNat 1186)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1198 ((r).push (UInt256.ofNat 1186)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1199 ((r).push (UInt256.ofNat 1186)) := DJstep _ _ _ .SHL (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1200 ((r).push (UInt256.ofNat 1186)) := DJstep _ _ _ .SUB (by decide +kernel)
++theorem DJchunk42 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 1200 (r) = D_J_aux weth9Bytecode 1224 (r) := by
++  calc
++    D_J_aux weth9Bytecode 1200 (r) = D_J_aux weth9Bytecode 1201 (r) := DJstep _ _ _ .DUP5 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1202 (r) := DJstep _ _ _ .AND (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1204 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1205 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1206 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1207 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1209 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1211 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1212 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1213 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1214 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1216 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1217 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1218 (r) := DJstep _ _ _ .DUP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1219 (r) := DJstep _ _ _ .KECCAK256 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1220 (r) := DJstep _ _ _ .CALLER (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1221 (r) := DJstep _ _ _ .DUP5 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1222 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1223 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1224 (r) := DJstep _ _ _ .SWAP2 (by decide +kernel)
++theorem DJchunk43 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 1224 (r) = D_J_aux weth9Bytecode 1250 ((r).push (UInt256.ofNat 1239)) := by
++  calc
++    D_J_aux weth9Bytecode 1224 (r) = D_J_aux weth9Bytecode 1225 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1226 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1227 (r) := DJstep _ _ _ .KECCAK256 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1228 (r) := DJstep _ _ _ .SLOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1229 (r) := DJstep _ _ _ .DUP3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1230 (r) := DJstep _ _ _ .GT (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1231 (r) := DJstep _ _ _ .ISZERO (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1234 (r) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1235 (r) := DJstep _ _ _ .JUMPI (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1237 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1238 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1239 (r) := DJstep _ _ _ .REVERT (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1240 ((r).push (UInt256.ofNat 1239)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1242 ((r).push (UInt256.ofNat 1239)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1244 ((r).push (UInt256.ofNat 1239)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1246 ((r).push (UInt256.ofNat 1239)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1247 ((r).push (UInt256.ofNat 1239)) := DJstep _ _ _ .SHL (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1248 ((r).push (UInt256.ofNat 1239)) := DJstep _ _ _ .SUB (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1249 ((r).push (UInt256.ofNat 1239)) := DJstep _ _ _ .DUP5 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1250 ((r).push (UInt256.ofNat 1239)) := DJstep _ _ _ .AND (by decide +kernel)
++theorem DJchunk44 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 1250 (r) = D_J_aux weth9Bytecode 1274 (r) := by
++  calc
++    D_J_aux weth9Bytecode 1250 (r) = D_J_aux weth9Bytecode 1252 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1253 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1254 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1255 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1257 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1259 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1260 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1261 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1262 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1264 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1265 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1266 (r) := DJstep _ _ _ .DUP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1267 (r) := DJstep _ _ _ .KECCAK256 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1268 (r) := DJstep _ _ _ .CALLER (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1269 (r) := DJstep _ _ _ .DUP5 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1270 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1271 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1272 (r) := DJstep _ _ _ .SWAP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1273 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1274 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++theorem DJchunk45 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 1274 (r) = D_J_aux weth9Bytecode 1298 ((r).push (UInt256.ofNat 1282)) := by
++  calc
++    D_J_aux weth9Bytecode 1274 (r) = D_J_aux weth9Bytecode 1275 (r) := DJstep _ _ _ .KECCAK256 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1276 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1277 (r) := DJstep _ _ _ .SLOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1278 (r) := DJstep _ _ _ .DUP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1279 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1280 (r) := DJstep _ _ _ .SUB (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1281 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1282 (r) := DJstep _ _ _ .SSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1283 ((r).push (UInt256.ofNat 1282)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1285 ((r).push (UInt256.ofNat 1282)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1287 ((r).push (UInt256.ofNat 1282)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1289 ((r).push (UInt256.ofNat 1282)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1290 ((r).push (UInt256.ofNat 1282)) := DJstep _ _ _ .SHL (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1291 ((r).push (UInt256.ofNat 1282)) := DJstep _ _ _ .SUB (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1292 ((r).push (UInt256.ofNat 1282)) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1293 ((r).push (UInt256.ofNat 1282)) := DJstep _ _ _ .DUP6 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1294 ((r).push (UInt256.ofNat 1282)) := DJstep _ _ _ .AND (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1296 ((r).push (UInt256.ofNat 1282)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1297 ((r).push (UInt256.ofNat 1282)) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1298 ((r).push (UInt256.ofNat 1282)) := DJstep _ _ _ .DUP2 (by decide +kernel)
++theorem DJchunk46 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 1298 (r) = D_J_aux weth9Bytecode 1321 (r) := by
++  calc
++    D_J_aux weth9Bytecode 1298 (r) = D_J_aux weth9Bytecode 1299 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1301 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1303 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1304 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1305 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1306 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1308 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1309 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1310 (r) := DJstep _ _ _ .DUP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1311 (r) := DJstep _ _ _ .KECCAK256 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1312 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1313 (r) := DJstep _ _ _ .SLOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1314 (r) := DJstep _ _ _ .DUP9 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1315 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1316 (r) := DJstep _ _ _ .SUB (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1317 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1318 (r) := DJstep _ _ _ .SSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1319 (r) := DJstep _ _ _ .SWAP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1320 (r) := DJstep _ _ _ .DUP8 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1321 (r) := DJstep _ _ _ .AND (by decide +kernel)
++theorem DJchunk47 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 1321 (r) = D_J_aux weth9Bytecode 1341 (r) := by
++  calc
++    D_J_aux weth9Bytecode 1321 (r) = D_J_aux weth9Bytecode 1322 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1323 (r) := DJstep _ _ _ .DUP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1324 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1325 (r) := DJstep _ _ _ .SWAP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1326 (r) := DJstep _ _ _ .DUP5 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1327 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1328 (r) := DJstep _ _ _ .KECCAK256 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1329 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1330 (r) := DJstep _ _ _ .SLOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1331 (r) := DJstep _ _ _ .DUP8 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1332 (r) := DJstep _ _ _ .ADD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1333 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1334 (r) := DJstep _ _ _ .SSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1335 (r) := DJstep _ _ _ .DUP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1336 (r) := DJstep _ _ _ .MLOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1337 (r) := DJstep _ _ _ .DUP7 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1338 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1339 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1340 (r) := DJstep _ _ _ .SWAP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1341 (r) := DJstep _ _ _ .MLOAD (by decide +kernel)
++theorem DJchunk48 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 1341 (r) = D_J_aux weth9Bytecode 1394 (r) := by
++  calc
++    D_J_aux weth9Bytecode 1341 (r) = D_J_aux weth9Bytecode 1342 (r) := DJstep _ _ _ .SWAP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1343 (r) := DJstep _ _ _ .SWAP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1376 (r) := DJstep _ _ _ .PUSH32 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1377 (r) := DJstep _ _ _ .SWAP3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1378 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1379 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1380 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1381 (r) := DJstep _ _ _ .SUB (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1382 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1383 (r) := DJstep _ _ _ .SWAP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1384 (r) := DJstep _ _ _ .ADD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1385 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1386 (r) := DJstep _ _ _ .LOG3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1387 (r) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1389 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1390 (r) := DJstep _ _ _ .SWAP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1391 (r) := DJstep _ _ _ .SWAP3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1392 (r) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1393 (r) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1394 (r) := DJstep _ _ _ .POP (by decide +kernel)
++theorem DJchunk49 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 1394 (r) = D_J_aux weth9Bytecode 1421 ((r).push (UInt256.ofNat 1395)) := by
++  calc
++    D_J_aux weth9Bytecode 1394 (r) = D_J_aux weth9Bytecode 1395 (r) := DJstep _ _ _ .JUMP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1396 ((r).push (UInt256.ofNat 1395)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1397 ((r).push (UInt256.ofNat 1395)) := DJstep _ _ _ .CALLER (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1399 ((r).push (UInt256.ofNat 1395)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1400 ((r).push (UInt256.ofNat 1395)) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1401 ((r).push (UInt256.ofNat 1395)) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1402 ((r).push (UInt256.ofNat 1395)) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1404 ((r).push (UInt256.ofNat 1395)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1406 ((r).push (UInt256.ofNat 1395)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1407 ((r).push (UInt256.ofNat 1395)) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1409 ((r).push (UInt256.ofNat 1395)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1410 ((r).push (UInt256.ofNat 1395)) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1411 ((r).push (UInt256.ofNat 1395)) := DJstep _ _ _ .KECCAK256 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1412 ((r).push (UInt256.ofNat 1395)) := DJstep _ _ _ .SLOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1413 ((r).push (UInt256.ofNat 1395)) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1414 ((r).push (UInt256.ofNat 1395)) := DJstep _ _ _ .GT (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1415 ((r).push (UInt256.ofNat 1395)) := DJstep _ _ _ .ISZERO (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1418 ((r).push (UInt256.ofNat 1395)) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1419 ((r).push (UInt256.ofNat 1395)) := DJstep _ _ _ .JUMPI (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1421 ((r).push (UInt256.ofNat 1395)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++theorem DJchunk50 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 1421 (r) = D_J_aux weth9Bytecode 1445 ((r).push (UInt256.ofNat 1423)) := by
++  calc
++    D_J_aux weth9Bytecode 1421 (r) = D_J_aux weth9Bytecode 1422 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1423 (r) := DJstep _ _ _ .REVERT (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1424 ((r).push (UInt256.ofNat 1423)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1425 ((r).push (UInt256.ofNat 1423)) := DJstep _ _ _ .CALLER (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1427 ((r).push (UInt256.ofNat 1423)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1428 ((r).push (UInt256.ofNat 1423)) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1429 ((r).push (UInt256.ofNat 1423)) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1430 ((r).push (UInt256.ofNat 1423)) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1432 ((r).push (UInt256.ofNat 1423)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1434 ((r).push (UInt256.ofNat 1423)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1435 ((r).push (UInt256.ofNat 1423)) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1437 ((r).push (UInt256.ofNat 1423)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1438 ((r).push (UInt256.ofNat 1423)) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1439 ((r).push (UInt256.ofNat 1423)) := DJstep _ _ _ .DUP3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1440 ((r).push (UInt256.ofNat 1423)) := DJstep _ _ _ .KECCAK256 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1441 ((r).push (UInt256.ofNat 1423)) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1442 ((r).push (UInt256.ofNat 1423)) := DJstep _ _ _ .SLOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1443 ((r).push (UInt256.ofNat 1423)) := DJstep _ _ _ .DUP6 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1444 ((r).push (UInt256.ofNat 1423)) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1445 ((r).push (UInt256.ofNat 1423)) := DJstep _ _ _ .SUB (by decide +kernel)
++theorem DJchunk51 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 1445 (r) = D_J_aux weth9Bytecode 1467 (r) := by
++  calc
++    D_J_aux weth9Bytecode 1445 (r) = D_J_aux weth9Bytecode 1446 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1447 (r) := DJstep _ _ _ .SSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1448 (r) := DJstep _ _ _ .MLOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1449 (r) := DJstep _ _ _ .DUP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1450 (r) := DJstep _ _ _ .ISZERO (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1453 (r) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1454 (r) := DJstep _ _ _ .MUL (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1455 (r) := DJstep _ _ _ .SWAP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1456 (r) := DJstep _ _ _ .DUP5 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1457 (r) := DJstep _ _ _ .SWAP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1458 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1459 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1460 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1461 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1462 (r) := DJstep _ _ _ .DUP6 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1463 (r) := DJstep _ _ _ .DUP9 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1464 (r) := DJstep _ _ _ .DUP9 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1465 (r) := DJstep _ _ _ .CALL (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1466 (r) := DJstep _ _ _ .SWAP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1467 (r) := DJstep _ _ _ .POP (by decide +kernel)
++theorem DJchunk52 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 1467 (r) = D_J_aux weth9Bytecode 1492 ((r).push (UInt256.ofNat 1486)) := by
++  calc
++    D_J_aux weth9Bytecode 1467 (r) = D_J_aux weth9Bytecode 1468 (r) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1469 (r) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1470 (r) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1471 (r) := DJstep _ _ _ .ISZERO (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1472 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1473 (r) := DJstep _ _ _ .ISZERO (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1476 (r) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1477 (r) := DJstep _ _ _ .JUMPI (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1478 (r) := DJstep _ _ _ .RETURNDATASIZE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1480 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1481 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1482 (r) := DJstep _ _ _ .RETURNDATACOPY (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1483 (r) := DJstep _ _ _ .RETURNDATASIZE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1485 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1486 (r) := DJstep _ _ _ .REVERT (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1487 ((r).push (UInt256.ofNat 1486)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1488 ((r).push (UInt256.ofNat 1486)) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1490 ((r).push (UInt256.ofNat 1486)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1491 ((r).push (UInt256.ofNat 1486)) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1492 ((r).push (UInt256.ofNat 1486)) := DJstep _ _ _ .MLOAD (by decide +kernel)
++theorem DJchunk53 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 1492 (r) = D_J_aux weth9Bytecode 1545 ((r).push (UInt256.ofNat 1544)) := by
++  calc
++    D_J_aux weth9Bytecode 1492 (r) = D_J_aux weth9Bytecode 1493 (r) := DJstep _ _ _ .DUP3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1494 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1495 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1496 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1497 (r) := DJstep _ _ _ .MLOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1498 (r) := DJstep _ _ _ .CALLER (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1499 (r) := DJstep _ _ _ .SWAP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1532 (r) := DJstep _ _ _ .PUSH32 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1533 (r) := DJstep _ _ _ .SWAP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1534 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1535 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1536 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1537 (r) := DJstep _ _ _ .SUB (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1539 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1540 (r) := DJstep _ _ _ .ADD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1541 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1542 (r) := DJstep _ _ _ .LOG2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1543 (r) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1544 (r) := DJstep _ _ _ .JUMP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1545 ((r).push (UInt256.ofNat 1544)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++theorem DJchunk54 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 1545 (r) = D_J_aux weth9Bytecode 1571 ((r).push (UInt256.ofNat 1553)) := by
++  calc
++    D_J_aux weth9Bytecode 1545 (r) = D_J_aux weth9Bytecode 1547 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1548 (r) := DJstep _ _ _ .SLOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1550 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1551 (r) := DJstep _ _ _ .AND (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1552 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1553 (r) := DJstep _ _ _ .JUMP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1554 ((r).push (UInt256.ofNat 1553)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1556 ((r).push (UInt256.ofNat 1553)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1558 ((r).push (UInt256.ofNat 1553)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1559 ((r).push (UInt256.ofNat 1553)) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1561 ((r).push (UInt256.ofNat 1553)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1562 ((r).push (UInt256.ofNat 1553)) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1563 ((r).push (UInt256.ofNat 1553)) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1564 ((r).push (UInt256.ofNat 1553)) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1566 ((r).push (UInt256.ofNat 1553)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1567 ((r).push (UInt256.ofNat 1553)) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1568 ((r).push (UInt256.ofNat 1553)) := DJstep _ _ _ .KECCAK256 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1569 ((r).push (UInt256.ofNat 1553)) := DJstep _ _ _ .SLOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1570 ((r).push (UInt256.ofNat 1553)) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1571 ((r).push (UInt256.ofNat 1553)) := DJstep _ _ _ .JUMP (by decide +kernel)
++theorem DJchunk55 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 1571 (r) = D_J_aux weth9Bytecode 1598 ((r).push (UInt256.ofNat 1571)) := by
++  calc
++    D_J_aux weth9Bytecode 1571 (r) = D_J_aux weth9Bytecode 1572 ((r).push (UInt256.ofNat 1571)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1574 ((r).push (UInt256.ofNat 1571)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1575 ((r).push (UInt256.ofNat 1571)) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1576 ((r).push (UInt256.ofNat 1571)) := DJstep _ _ _ .SLOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1578 ((r).push (UInt256.ofNat 1571)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1579 ((r).push (UInt256.ofNat 1571)) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1580 ((r).push (UInt256.ofNat 1571)) := DJstep _ _ _ .MLOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1582 ((r).push (UInt256.ofNat 1571)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1584 ((r).push (UInt256.ofNat 1571)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1585 ((r).push (UInt256.ofNat 1571)) := DJstep _ _ _ .DUP5 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1586 ((r).push (UInt256.ofNat 1571)) := DJstep _ _ _ .DUP7 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1587 ((r).push (UInt256.ofNat 1571)) := DJstep _ _ _ .AND (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1588 ((r).push (UInt256.ofNat 1571)) := DJstep _ _ _ .ISZERO (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1591 ((r).push (UInt256.ofNat 1571)) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1592 ((r).push (UInt256.ofNat 1571)) := DJstep _ _ _ .MUL (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1594 ((r).push (UInt256.ofNat 1571)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1595 ((r).push (UInt256.ofNat 1571)) := DJstep _ _ _ .NOT (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1596 ((r).push (UInt256.ofNat 1571)) := DJstep _ _ _ .ADD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1597 ((r).push (UInt256.ofNat 1571)) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1598 ((r).push (UInt256.ofNat 1571)) := DJstep _ _ _ .SWAP5 (by decide +kernel)
++theorem DJchunk56 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 1598 (r) = D_J_aux weth9Bytecode 1619 (r) := by
++  calc
++    D_J_aux weth9Bytecode 1598 (r) = D_J_aux weth9Bytecode 1599 (r) := DJstep _ _ _ .AND (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1600 (r) := DJstep _ _ _ .SWAP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1601 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1602 (r) := DJstep _ _ _ .SWAP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1603 (r) := DJstep _ _ _ .DIV (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1605 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1606 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1607 (r) := DJstep _ _ _ .ADD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1608 (r) := DJstep _ _ _ .DUP5 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1609 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1610 (r) := DJstep _ _ _ .DIV (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1611 (r) := DJstep _ _ _ .DUP5 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1612 (r) := DJstep _ _ _ .MUL (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1613 (r) := DJstep _ _ _ .DUP3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1614 (r) := DJstep _ _ _ .ADD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1615 (r) := DJstep _ _ _ .DUP5 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1616 (r) := DJstep _ _ _ .ADD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1617 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1618 (r) := DJstep _ _ _ .SWAP3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1619 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++theorem DJchunk57 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 1619 (r) = D_J_aux weth9Bytecode 1646 (r) := by
++  calc
++    D_J_aux weth9Bytecode 1619 (r) = D_J_aux weth9Bytecode 1620 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1621 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1622 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1623 (r) := DJstep _ _ _ .SWAP3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1624 (r) := DJstep _ _ _ .SWAP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1625 (r) := DJstep _ _ _ .DUP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1626 (r) := DJstep _ _ _ .ADD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1627 (r) := DJstep _ _ _ .DUP3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1628 (r) := DJstep _ _ _ .DUP3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1629 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1630 (r) := DJstep _ _ _ .ISZERO (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1633 (r) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1634 (r) := DJstep _ _ _ .JUMPI (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1635 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1637 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1638 (r) := DJstep _ _ _ .LT (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1641 (r) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1642 (r) := DJstep _ _ _ .JUMPI (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1645 (r) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1646 (r) := DJstep _ _ _ .DUP1 (by decide +kernel)
++theorem DJchunk58 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 1646 (r) = D_J_aux weth9Bytecode 1674 ((r).push (UInt256.ofNat 1661)) := by
++  calc
++    D_J_aux weth9Bytecode 1646 (r) = D_J_aux weth9Bytecode 1647 (r) := DJstep _ _ _ .DUP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1648 (r) := DJstep _ _ _ .SLOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1649 (r) := DJstep _ _ _ .DIV (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1650 (r) := DJstep _ _ _ .MUL (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1651 (r) := DJstep _ _ _ .DUP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1652 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1653 (r) := DJstep _ _ _ .SWAP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1655 (r) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1656 (r) := DJstep _ _ _ .ADD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1657 (r) := DJstep _ _ _ .SWAP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1660 (r) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1661 (r) := DJstep _ _ _ .JUMP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1662 ((r).push (UInt256.ofNat 1661)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1664 ((r).push (UInt256.ofNat 1661)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1667 ((r).push (UInt256.ofNat 1661)) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1668 ((r).push (UInt256.ofNat 1661)) := DJstep _ _ _ .CALLER (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1669 ((r).push (UInt256.ofNat 1661)) := DJstep _ _ _ .DUP5 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1670 ((r).push (UInt256.ofNat 1661)) := DJstep _ _ _ .DUP5 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1673 ((r).push (UInt256.ofNat 1661)) := DJstep _ _ _ .PUSH2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1674 ((r).push (UInt256.ofNat 1661)) := DJstep _ _ _ .JUMP (by decide +kernel)
++theorem DJchunk59 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 1674 (r) = D_J_aux weth9Bytecode 1698 (((r).push (UInt256.ofNat 1674)).push (UInt256.ofNat 1681)) := by
++  calc
++    D_J_aux weth9Bytecode 1674 (r) = D_J_aux weth9Bytecode 1675 ((r).push (UInt256.ofNat 1674)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1676 ((r).push (UInt256.ofNat 1674)) := DJstep _ _ _ .SWAP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1677 ((r).push (UInt256.ofNat 1674)) := DJstep _ _ _ .SWAP3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1678 ((r).push (UInt256.ofNat 1674)) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1679 ((r).push (UInt256.ofNat 1674)) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1680 ((r).push (UInt256.ofNat 1674)) := DJstep _ _ _ .POP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1681 ((r).push (UInt256.ofNat 1674)) := DJstep _ _ _ .JUMP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1682 (((r).push (UInt256.ofNat 1674)).push (UInt256.ofNat 1681)) := DJstep _ _ _ .JUMPDEST (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1684 (((r).push (UInt256.ofNat 1674)).push (UInt256.ofNat 1681)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1686 (((r).push (UInt256.ofNat 1674)).push (UInt256.ofNat 1681)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1687 (((r).push (UInt256.ofNat 1674)).push (UInt256.ofNat 1681)) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1688 (((r).push (UInt256.ofNat 1674)).push (UInt256.ofNat 1681)) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1689 (((r).push (UInt256.ofNat 1674)).push (UInt256.ofNat 1681)) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1691 (((r).push (UInt256.ofNat 1674)).push (UInt256.ofNat 1681)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1692 (((r).push (UInt256.ofNat 1674)).push (UInt256.ofNat 1681)) := DJstep _ _ _ .SWAP3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1693 (((r).push (UInt256.ofNat 1674)).push (UInt256.ofNat 1681)) := DJstep _ _ _ .DUP4 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1694 (((r).push (UInt256.ofNat 1674)).push (UInt256.ofNat 1681)) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1696 (((r).push (UInt256.ofNat 1674)).push (UInt256.ofNat 1681)) := DJstep _ _ _ .PUSH1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1697 (((r).push (UInt256.ofNat 1674)).push (UInt256.ofNat 1681)) := DJstep _ _ _ .DUP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1698 (((r).push (UInt256.ofNat 1674)).push (UInt256.ofNat 1681)) := DJstep _ _ _ .DUP5 (by decide +kernel)
++theorem DJchunk60 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 1698 (r) = D_J_aux weth9Bytecode 1724 (r) := by
++  calc
++    D_J_aux weth9Bytecode 1698 (r) = D_J_aux weth9Bytecode 1699 (r) := DJstep _ _ _ .KECCAK256 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1700 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1701 (r) := DJstep _ _ _ .SWAP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1702 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1703 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1704 (r) := DJstep _ _ _ .DUP3 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1705 (r) := DJstep _ _ _ .MSTORE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1706 (r) := DJstep _ _ _ .SWAP1 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1707 (r) := DJstep _ _ _ .KECCAK256 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1708 (r) := DJstep _ _ _ .SLOAD (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1709 (r) := DJstep _ _ _ .DUP2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1710 (r) := DJstep _ _ _ .JUMP (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1711 (r) := DJstep _ _ _ .INVALID (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1712 (r) := DJstep _ _ _ .LOG2 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1719 (r) := DJstep _ _ _ .PUSH6 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1720 (r) := DJstep _ _ _ .KECCAK256 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1721 (r) := DJstep _ _ _ .INVALID (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1722 (r) := DJstep _ _ _ .INVALID (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1723 (r) := DJstep _ _ _ .SDIV (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1724 (r) := DJstep _ _ _ .SHR (by decide +kernel)
++theorem DJchunk61 (r : Array UInt256) :
++    D_J_aux weth9Bytecode 1724 (r) = D_J_aux weth9Bytecode 1771 (r) := by
++  calc
++    D_J_aux weth9Bytecode 1724 (r) = D_J_aux weth9Bytecode 1735 (r) := DJstep _ _ _ .PUSH10 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1736 (r) := DJstep _ _ _ .SELFBALANCE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1737 (r) := DJstep _ _ _ .CALLVALUE (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1743 (r) := DJstep _ _ _ .PUSH5 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1754 (r) := DJstep _ _ _ .PUSH10 (by decide +kernel)
++    _ = D_J_aux weth9Bytecode 1771 (r) := DJstep _ _ _ .PUSH16 (by decide +kernel)
++theorem DJlast (r : Array UInt256) : D_J_aux weth9Bytecode 1771 (r) = r := DJstop _ _ _ (by decide +kernel)
++
++end B2PortJumpCertificate
++
++@[valid_jumps] theorem portRuntimeJumpTable : D_J weth9Bytecode 0 = #[UInt256.ofNat 100, UInt256.ofNat 156, UInt256.ofNat 164, UInt256.ofNat 166, UInt256.ofNat 178, UInt256.ofNat 187, UInt256.ofNat 221, UInt256.ofNat 245, UInt256.ofNat 290, UInt256.ofNat 304, UInt256.ofNat 316, UInt256.ofNat 339, UInt256.ofNat 361, UInt256.ofNat 381, UInt256.ofNat 393, UInt256.ofNat 402, UInt256.ofNat 420, UInt256.ofNat 432, UInt256.ofNat 455, UInt256.ofNat 487, UInt256.ofNat 499, UInt256.ofNat 522, UInt256.ofNat 529, UInt256.ofNat 541, UInt256.ofNat 550, UInt256.ofNat 572, UInt256.ofNat 584, UInt256.ofNat 607, UInt256.ofNat 623, UInt256.ofNat 635, UInt256.ofNat 644, UInt256.ofNat 656, UInt256.ofNat 679, UInt256.ofNat 701, UInt256.ofNat 713, UInt256.ofNat 736, UInt256.ofNat 760, UInt256.ofNat 839, UInt256.ofNat 930, UInt256.ofNat 944, UInt256.ofNat 973, UInt256.ofNat 981, UInt256.ofNat 1083, UInt256.ofNat 1087, UInt256.ofNat 1124, UInt256.ofNat 1186, UInt256.ofNat 1239, UInt256.ofNat 1282, UInt256.ofNat 1395, UInt256.ofNat 1423, UInt256.ofNat 1486, UInt256.ofNat 1544, UInt256.ofNat 1553, UInt256.ofNat 1571, UInt256.ofNat 1661, UInt256.ofNat 1674, UInt256.ofNat 1681] := by
++  change D_J_aux weth9Bytecode 0 #[] = #[UInt256.ofNat 100, UInt256.ofNat 156, UInt256.ofNat 164, UInt256.ofNat 166, UInt256.ofNat 178, UInt256.ofNat 187, UInt256.ofNat 221, UInt256.ofNat 245, UInt256.ofNat 290, UInt256.ofNat 304, UInt256.ofNat 316, UInt256.ofNat 339, UInt256.ofNat 361, UInt256.ofNat 381, UInt256.ofNat 393, UInt256.ofNat 402, UInt256.ofNat 420, UInt256.ofNat 432, UInt256.ofNat 455, UInt256.ofNat 487, UInt256.ofNat 499, UInt256.ofNat 522, UInt256.ofNat 529, UInt256.ofNat 541, UInt256.ofNat 550, UInt256.ofNat 572, UInt256.ofNat 584, UInt256.ofNat 607, UInt256.ofNat 623, UInt256.ofNat 635, UInt256.ofNat 644, UInt256.ofNat 656, UInt256.ofNat 679, UInt256.ofNat 701, UInt256.ofNat 713, UInt256.ofNat 736, UInt256.ofNat 760, UInt256.ofNat 839, UInt256.ofNat 930, UInt256.ofNat 944, UInt256.ofNat 973, UInt256.ofNat 981, UInt256.ofNat 1083, UInt256.ofNat 1087, UInt256.ofNat 1124, UInt256.ofNat 1186, UInt256.ofNat 1239, UInt256.ofNat 1282, UInt256.ofNat 1395, UInt256.ofNat 1423, UInt256.ofNat 1486, UInt256.ofNat 1544, UInt256.ofNat 1553, UInt256.ofNat 1571, UInt256.ofNat 1661, UInt256.ofNat 1674, UInt256.ofNat 1681]
++  rw [B2PortJumpCertificate.DJchunk0, B2PortJumpCertificate.DJchunk1, B2PortJumpCertificate.DJchunk2, B2PortJumpCertificate.DJchunk3, B2PortJumpCertificate.DJchunk4, B2PortJumpCertificate.DJchunk5, B2PortJumpCertificate.DJchunk6, B2PortJumpCertificate.DJchunk7, B2PortJumpCertificate.DJchunk8, B2PortJumpCertificate.DJchunk9, B2PortJumpCertificate.DJchunk10, B2PortJumpCertificate.DJchunk11, B2PortJumpCertificate.DJchunk12, B2PortJumpCertificate.DJchunk13, B2PortJumpCertificate.DJchunk14, B2PortJumpCertificate.DJchunk15, B2PortJumpCertificate.DJchunk16, B2PortJumpCertificate.DJchunk17, B2PortJumpCertificate.DJchunk18, B2PortJumpCertificate.DJchunk19, B2PortJumpCertificate.DJchunk20, B2PortJumpCertificate.DJchunk21, B2PortJumpCertificate.DJchunk22, B2PortJumpCertificate.DJchunk23, B2PortJumpCertificate.DJchunk24, B2PortJumpCertificate.DJchunk25, B2PortJumpCertificate.DJchunk26, B2PortJumpCertificate.DJchunk27, B2PortJumpCertificate.DJchunk28, B2PortJumpCertificate.DJchunk29, B2PortJumpCertificate.DJchunk30, B2PortJumpCertificate.DJchunk31, B2PortJumpCertificate.DJchunk32, B2PortJumpCertificate.DJchunk33, B2PortJumpCertificate.DJchunk34, B2PortJumpCertificate.DJchunk35, B2PortJumpCertificate.DJchunk36, B2PortJumpCertificate.DJchunk37, B2PortJumpCertificate.DJchunk38, B2PortJumpCertificate.DJchunk39, B2PortJumpCertificate.DJchunk40, B2PortJumpCertificate.DJchunk41, B2PortJumpCertificate.DJchunk42, B2PortJumpCertificate.DJchunk43, B2PortJumpCertificate.DJchunk44, B2PortJumpCertificate.DJchunk45, B2PortJumpCertificate.DJchunk46, B2PortJumpCertificate.DJchunk47, B2PortJumpCertificate.DJchunk48, B2PortJumpCertificate.DJchunk49, B2PortJumpCertificate.DJchunk50, B2PortJumpCertificate.DJchunk51, B2PortJumpCertificate.DJchunk52, B2PortJumpCertificate.DJchunk53, B2PortJumpCertificate.DJchunk54, B2PortJumpCertificate.DJchunk55, B2PortJumpCertificate.DJchunk56, B2PortJumpCertificate.DJchunk57, B2PortJumpCertificate.DJchunk58, B2PortJumpCertificate.DJchunk59, B2PortJumpCertificate.DJchunk60, B2PortJumpCertificate.DJchunk61, B2PortJumpCertificate.DJlast]
++  rfl
+--- a/EquiVM/Benchmarks/WETH9/Dispatch.lean
++++ b/EquiVM/Benchmarks/WETH9/Dispatch.lean
+@@ -93 +93 @@
+-  have h100 := RD.selectorSplitTakenAuto h19 weth9RootSplitWellFormed hb (by jump_dest) (by simp)
++  have h100 := RD.selectorSplitTakenAuto h19 weth9RootSplitWellFormed hb (by simp only [valid_jumps]; decide +kernel) (by simp)
+@@ -112 +112 @@
+-    (fun j hj => by omega) (by rw [hsw]; decide) (by jump_dest) (by decide) (by simp)
++    (fun j hj => by omega) (by rw [hsw]; decide) (by simp only [valid_jumps]; decide +kernel) (by decide) (by simp)
+@@ -126 +126 @@
+-    (by rw [hsw]; decide) (by jump_dest) (by decide) (by simp)
++    (by rw [hsw]; decide) (by simp only [valid_jumps]; decide +kernel) (by decide) (by simp)
+@@ -140 +140 @@
+-    (by rw [hsw]; decide) (by jump_dest) (by decide) (by simp)
++    (by rw [hsw]; decide) (by simp only [valid_jumps]; decide +kernel) (by decide) (by simp)
+@@ -154 +154 @@
+-    (by rw [hsw]; decide) (by jump_dest) (by decide) (by simp)
++    (by rw [hsw]; decide) (by simp only [valid_jumps]; decide +kernel) (by decide) (by simp)
+@@ -168 +168 @@
+-    (by rw [hsw]; decide) (by jump_dest) (by decide) (by simp)
++    (by rw [hsw]; decide) (by simp only [valid_jumps]; decide +kernel) (by decide) (by simp)
+@@ -182 +182 @@
+-    (by rw [hsw]; decide) (by jump_dest) (by decide) (by simp)
++    (by rw [hsw]; decide) (by simp only [valid_jumps]; decide +kernel) (by decide) (by simp)
+@@ -195 +195 @@
+-    (fun j hj => by omega) (by rw [hsw]; decide) (by jump_dest) (by decide) (by simp)
++    (fun j hj => by omega) (by rw [hsw]; decide) (by simp only [valid_jumps]; decide +kernel) (by decide) (by simp)
+@@ -209 +209 @@
+-    (by rw [hsw]; decide) (by jump_dest) (by decide) (by simp)
++    (by rw [hsw]; decide) (by simp only [valid_jumps]; decide +kernel) (by decide) (by simp)
+@@ -223 +223 @@
+-    (by rw [hsw]; decide) (by jump_dest) (by decide) (by simp)
++    (by rw [hsw]; decide) (by simp only [valid_jumps]; decide +kernel) (by decide) (by simp)
+@@ -237 +237 @@
+-    (by rw [hsw]; decide) (by jump_dest) (by decide) (by simp)
++    (by rw [hsw]; decide) (by simp only [valid_jumps]; decide +kernel) (by decide) (by simp)
+@@ -251 +251 @@
+-    (by rw [hsw]; decide) (by jump_dest) (by decide) (by simp)
++    (by rw [hsw]; decide) (by simp only [valid_jumps]; decide +kernel) (by decide) (by simp)
+--- a/EquiVM/Benchmarks/WETH9/Routines.lean
++++ b/EquiVM/Benchmarks/WETH9/Routines.lean
+@@ -17,0 +18,3 @@
++
++set_option backward.isDefEq.respectTransparency false
++attribute [local simp] Id.run Pure.pure
+@@ -49,2 +52,2 @@
+-      simpa [initState, Sat256.ofUInt256, Sat256.toUInt256] using hoog))
+-  · have hxi := Xi_success_of_X (g := g.toUInt256) (by
++      simpa [initState, Sat256.ofUInt256, Sat256.toUInt256, UInt256.toNat, Sat256.toNat] using hoog))
++  · have hxi := Xi_success_of_X (g := g.toUInt256) (σ := σ) (σ₀ := σ₀) (A := A) (I := I) (by
+@@ -52 +55 @@
+-      simpa [initState, Sat256.ofUInt256, Sat256.toUInt256] using hX)
++      simpa [initState, Sat256.ofUInt256, Sat256.toUInt256, UInt256.toNat, Sat256.toNat] using hX)
+@@ -57 +60 @@
+-      simpa [initState, Sat256.ofUInt256, Sat256.toUInt256] using hbody
++      simpa [initState, Sat256.ofUInt256, Sat256.toUInt256, UInt256.toNat, Sat256.toNat] using hbody
+@@ -79 +82 @@
+-    simpa [initState, Sat256.ofUInt256, Sat256.toUInt256] using hbody
++    simpa [initState, Sat256.ofUInt256, Sat256.toUInt256, UInt256.toNat, Sat256.toNat] using hbody
+@@ -99,2 +102,2 @@
+-      simpa [initState, Sat256.ofUInt256, Sat256.toUInt256] using hoog))
+-  · have hxi := Xi_revert_of_X (g := g.toUInt256) (by
++      simpa [initState, Sat256.ofUInt256, Sat256.toUInt256, UInt256.toNat, Sat256.toNat] using hoog))
++  · have hxi := Xi_revert_of_X (g := g.toUInt256) (σ := σ) (σ₀ := σ₀) (A := A) (I := I) (by
+@@ -102 +105 @@
+-      simpa [initState, Sat256.ofUInt256, Sat256.toUInt256] using hrev)
++      simpa [initState, Sat256.ofUInt256, Sat256.toUInt256, UInt256.toNat, Sat256.toNat] using hrev)
+@@ -107 +110 @@
+-      simpa [initState, Sat256.ofUInt256, Sat256.toUInt256] using hbody
++      simpa [initState, Sat256.ofUInt256, Sat256.toUInt256, UInt256.toNat, Sat256.toNat] using hbody
+@@ -124,2 +127,2 @@
+-      simpa [initState, Sat256.ofUInt256, Sat256.toUInt256] using hoog))
+-  · have hxi := Xi_revert_of_X (g := g.toUInt256) (by
++      simpa [initState, Sat256.ofUInt256, Sat256.toUInt256, UInt256.toNat, Sat256.toNat] using hoog))
++  · have hxi := Xi_revert_of_X (g := g.toUInt256) (σ := σ) (σ₀ := σ₀) (A := A) (I := I) (by
+@@ -127 +130 @@
+-      simpa [initState, Sat256.ofUInt256, Sat256.toUInt256] using hrev)
++      simpa [initState, Sat256.ofUInt256, Sat256.toUInt256, UInt256.toNat, Sat256.toNat] using hrev)
+--- a/EquiVM/Benchmarks/WETH9/StringReturn.lean
++++ b/EquiVM/Benchmarks/WETH9/StringReturn.lean
+@@ -133 +133 @@
+-tower with a zero gap `[0x60, 0x80)`.  `decide` cannot discharge these (free header); instead
++tower with a zero gap `[0x60, 0x80)`.  `native_decide` cannot discharge these (free header); instead
+@@ -187 +187 @@
+-    (by decide) (by decide) (by jump_dest) (by decide) (by decide)
++    (by decide) (by decide) (by simp only [valid_jumps]; decide +kernel) (by decide) (by decide)
+@@ -190 +190 @@
+-    |>.jump (by decide) (by jump_dest) (by simp)
++    |>.jump (by decide) (by simp only [valid_jumps]; decide +kernel) (by simp)
+@@ -243,2 +243,2 @@
+-    dup1, iszero, push2 ⟨973⟩, jumpiT (by decide) (by jump_dest),
+-    jumpdest, pop, pop, pop, pop, pop, dup2, jump (by jump_dest)]
++    dup1, iszero, push2 ⟨973⟩, jumpiT (by decide) (by simp only [valid_jumps]; decide +kernel),
++    jumpdest, pop, pop, pop, pop, pop, dup2, jump (by simp only [valid_jumps]; decide +kernel)]
+@@ -248 +248 @@
+-      (by decide) (by decide) (by evm_ov),
++      (by decide +kernel) (by decide +kernel) (by evm_ov),
+@@ -255 +255 @@
+-      (by decide) (by decide) (by evm_ov),
++      (by decide +kernel) (by decide +kernel) (by evm_ov),
+@@ -261 +261 @@
+-      (by decide) (by decide) (by evm_ov),
++      (by decide +kernel) (by decide +kernel) (by evm_ov),
+@@ -265 +265 @@
+-    jumpdest, dup4, dup2, lt, iszero, push2 ⟨245⟩, jumpiT (by decide) (by jump_dest),
++    jumpdest, dup4, dup2, lt, iszero, push2 ⟨245⟩, jumpiT (by decide) (by simp only [valid_jumps]; decide +kernel),
+@@ -267 +267 @@
+-    push1 ⟨31⟩, and, dup1, iszero, push2 ⟨290⟩, jumpiT (by decide) (by jump_dest),
++    push1 ⟨31⟩, and, dup1, iszero, push2 ⟨290⟩, jumpiT (by decide) (by simp only [valid_jumps]; decide +kernel),
+@@ -270 +270 @@
+-      (by decide) (by decide) (by evm_ov),
++      (by decide +kernel) (by decide +kernel) (by evm_ov),
+@@ -273 +273 @@
+-    raw ret 0 weth9EmptyStringAbi (by decide) mem_cost (by decide) (by evm_ov)]
++    raw ret 0 weth9EmptyStringAbi (by decide +kernel) mem_cost (by decide +kernel) (by evm_ov)]
+@@ -300,2 +300,2 @@
+-    swap2, push1 ⟨32⟩, add, swap2, push2 ⟨973⟩, jump (by jump_dest),
+-    jumpdest, pop, pop, pop, pop, pop, dup2, jump (by jump_dest)]
++    swap2, push1 ⟨32⟩, add, swap2, push2 ⟨973⟩, jump (by simp only [valid_jumps]; decide +kernel),
++    jumpdest, pop, pop, pop, pop, pop, dup2, jump (by simp only [valid_jumps]; decide +kernel)]
+@@ -543,2 +543,2 @@
+-    push1 ⟨32⟩, add, push2 ⟨221⟩, jump (by jump_dest),
+-    jumpdest, dup4, dup2, lt, iszero, push2 ⟨245⟩, jumpiT (weth9ShortLtExit hlt31) (by jump_dest)]
++    push1 ⟨32⟩, add, push2 ⟨221⟩, jump (by simp only [valid_jumps]; decide +kernel),
++    jumpdest, dup4, dup2, lt, iszero, push2 ⟨245⟩, jumpiT (weth9ShortLtExit hlt31) (by simp only [valid_jumps]; decide +kernel)]
+--- a/EquiVM/Benchmarks/WETH9/StringReturnLong.lean
++++ b/EquiVM/Benchmarks/WETH9/StringReturnLong.lean
+@@ -73 +73 @@
+-    dup1, push1 ⟨31⟩, lt, push2 ⟨930⟩, jumpiT hge31 (by jump_dest)]
++    dup1, push1 ⟨31⟩, lt, push2 ⟨930⟩, jumpiT hge31 (by simp only [valid_jumps]; decide +kernel)]
+@@ -127 +127 @@
+-    ⟨_, _, by simpa [weth9LongStorageWord, initState] using rd947₀⟩
++    ⟨_, _, by simpa [weth9LongStorageWord, initState, show (⟨944⟩ : UInt256) + ⟨1⟩ + ⟨1⟩ + ⟨1⟩ = ⟨947⟩ from by decide +kernel] using rd947₀⟩
+@@ -133 +133 @@
+-  exact ⟨_, _, rd960.jumpiT (by decide) hcontinue (by jump_dest) (by evm_ov)⟩
++  exact ⟨_, _, rd960.jumpiT (by decide) hcontinue (by simp only [valid_jumps]; decide +kernel) (by evm_ov)⟩
+@@ -155 +155 @@
+-    ⟨_, _, by simpa [weth9LongStorageWord, initState] using rd947₀⟩
++    ⟨_, _, by simpa [weth9LongStorageWord, initState, show (⟨944⟩ : UInt256) + ⟨1⟩ + ⟨1⟩ + ⟨1⟩ = ⟨947⟩ from by decide +kernel] using rd947₀⟩
+@@ -165 +165 @@
+-  exact ⟨_, _, rd980.jump (by decide) (by jump_dest) (by evm_ov)⟩
++  exact ⟨_, _, rd980.jump (by decide) (by simp only [valid_jumps]; decide +kernel) (by evm_ov)⟩
+--- a/EquiVM/Benchmarks/WETH9/StringReturnLong2.lean
++++ b/EquiVM/Benchmarks/WETH9/StringReturnLong2.lean
+@@ -596 +596 @@
+-    push1 ⟨32⟩, add, push2 ⟨221⟩, jump (by jump_dest)]
++    push1 ⟨32⟩, add, push2 ⟨221⟩, jump (by simp only [valid_jumps]; decide +kernel)]
+@@ -634 +634 @@
+-      jumpdest, dup4, dup2, lt, iszero, push2 ⟨245⟩, jumpiT hcond (by jump_dest)]
++      jumpdest, dup4, dup2, lt, iszero, push2 ⟨245⟩, jumpiT hcond (by simp only [valid_jumps]; decide +kernel)]
+@@ -652 +652 @@
+-    simpa using h0
++    simpa [show UInt256.ofNat 0 = (⟨0⟩ : UInt256) from by decide +kernel] using h0
+@@ -862 +862 @@
+-      jumpiT hcond (by jump_dest),
++      jumpiT hcond (by simp only [valid_jumps]; decide +kernel),
+--- a/EquiVM/Benchmarks/WETH9/StringReturnSymbol.lean
++++ b/EquiVM/Benchmarks/WETH9/StringReturnSymbol.lean
+@@ -48 +48 @@
+-    (by decide) (by decide) (by jump_dest) (by decide) (by decide)
++    (by decide) (by decide) (by simp only [valid_jumps]; decide +kernel) (by decide) (by decide)
+@@ -51 +51 @@
+-    |>.jump (by decide) (by jump_dest) (by simp)
++    |>.jump (by decide) (by simp only [valid_jumps]; decide +kernel) (by simp)
+@@ -79 +79 @@
+-    ⟨_, _, by simpa [solcSlotWord, solcSlotWord, initState] using h1576raw⟩
++    ⟨_, _, by simpa [solcSlotWord, initState, show (⟨1571⟩ : UInt256) + ⟨1⟩ + UInt256.ofNat 2 + ⟨1⟩ + ⟨1⟩ = ⟨1576⟩ from by decide +kernel] using h1576raw⟩
+@@ -113,2 +113,2 @@
+-    dup1, iszero, push2 ⟨973⟩, jumpiT (by decide) (by jump_dest),
+-    jumpdest, pop, pop, pop, pop, pop, dup2, jump (by jump_dest)]
++    dup1, iszero, push2 ⟨973⟩, jumpiT (by decide) (by simp only [valid_jumps]; decide +kernel),
++    jumpdest, pop, pop, pop, pop, pop, dup2, jump (by simp only [valid_jumps]; decide +kernel)]
+@@ -118 +118 @@
+-      (by decide) (by decide) (by evm_ov),
++      (by decide +kernel) (by decide +kernel) (by evm_ov),
+@@ -125 +125 @@
+-      (by decide) (by decide) (by evm_ov),
++      (by decide +kernel) (by decide +kernel) (by evm_ov),
+@@ -131 +131 @@
+-      (by decide) (by decide) (by evm_ov),
++      (by decide +kernel) (by decide +kernel) (by evm_ov),
+@@ -135 +135 @@
+-    jumpdest, dup4, dup2, lt, iszero, push2 ⟨245⟩, jumpiT (by decide) (by jump_dest),
++    jumpdest, dup4, dup2, lt, iszero, push2 ⟨245⟩, jumpiT (by decide) (by simp only [valid_jumps]; decide +kernel),
+@@ -137 +137 @@
+-    push1 ⟨31⟩, and, dup1, iszero, push2 ⟨290⟩, jumpiT (by decide) (by jump_dest),
++    push1 ⟨31⟩, and, dup1, iszero, push2 ⟨290⟩, jumpiT (by decide) (by simp only [valid_jumps]; decide +kernel),
+@@ -140 +140 @@
+-      (by decide) (by decide) (by evm_ov),
++      (by decide +kernel) (by decide +kernel) (by evm_ov),
+@@ -143 +143 @@
+-    raw ret 0 weth9EmptyStringAbi (by decide) mem_cost (by decide) (by evm_ov)]
++    raw ret 0 weth9EmptyStringAbi (by decide +kernel) mem_cost (by decide +kernel) (by evm_ov)]
+@@ -174,2 +174,2 @@
+-    swap2, push1 ⟨32⟩, add, swap2, push2 ⟨973⟩, jump (by jump_dest),
+-    jumpdest, pop, pop, pop, pop, pop, dup2, jump (by jump_dest)]
++    swap2, push1 ⟨32⟩, add, swap2, push2 ⟨973⟩, jump (by simp only [valid_jumps]; decide +kernel),
++    jumpdest, pop, pop, pop, pop, pop, dup2, jump (by simp only [valid_jumps]; decide +kernel)]
+@@ -238 +238 @@
+-    dup1, push1 ⟨31⟩, lt, push2 ⟨930⟩, jumpiT hge31 (by jump_dest)]
++    dup1, push1 ⟨31⟩, lt, push2 ⟨930⟩, jumpiT hge31 (by simp only [valid_jumps]; decide +kernel)]
+@@ -283 +283 @@
+-    ⟨_, _, by simpa [weth9LongStorageWord, initState] using rd947₀⟩
++    ⟨_, _, by simpa [weth9LongStorageWord, initState, show (⟨944⟩ : UInt256) + ⟨1⟩ + ⟨1⟩ + ⟨1⟩ = ⟨947⟩ from by decide +kernel] using rd947₀⟩
+@@ -289 +289 @@
+-  exact ⟨_, _, rd960.jumpiT (by decide) hcontinue (by jump_dest) (by evm_ov)⟩
++  exact ⟨_, _, rd960.jumpiT (by decide) hcontinue (by simp only [valid_jumps]; decide +kernel) (by evm_ov)⟩
+@@ -310 +310 @@
+-    ⟨_, _, by simpa [weth9LongStorageWord, initState] using rd947₀⟩
++    ⟨_, _, by simpa [weth9LongStorageWord, initState, show (⟨944⟩ : UInt256) + ⟨1⟩ + ⟨1⟩ + ⟨1⟩ = ⟨947⟩ from by decide +kernel] using rd947₀⟩
+@@ -320 +320 @@
+-  exact ⟨_, _, rd980.jump (by decide) (by jump_dest) (by evm_ov)⟩
++  exact ⟨_, _, rd980.jump (by decide) (by simp only [valid_jumps]; decide +kernel) (by evm_ov)⟩
+--- a/EquiVM/Benchmarks/WETH9/StringReturnSymbol2.lean
++++ b/EquiVM/Benchmarks/WETH9/StringReturnSymbol2.lean
+@@ -520 +520 @@
+-    push1 ⟨32⟩, add, push2 ⟨221⟩, jump (by jump_dest)]
++    push1 ⟨32⟩, add, push2 ⟨221⟩, jump (by simp only [valid_jumps]; decide +kernel)]
+@@ -558 +558 @@
+-      jumpdest, dup4, dup2, lt, iszero, push2 ⟨245⟩, jumpiT hcond (by jump_dest)]
++      jumpdest, dup4, dup2, lt, iszero, push2 ⟨245⟩, jumpiT hcond (by simp only [valid_jumps]; decide +kernel)]
+@@ -576 +576 @@
+-    simpa using h0
++    simpa [show UInt256.ofNat 0 = (⟨0⟩ : UInt256) from by decide +kernel] using h0
+@@ -779 +779 @@
+-      jumpiT hcond (by jump_dest),
++      jumpiT hcond (by simp only [valid_jumps]; decide +kernel),
+--- a/EquiVM/EVM/Lemmas.lean
++++ b/EquiVM/EVM/Lemmas.lean
+@@ -60,2 +60,2 @@
+-          simp [Ethereum.UInt256.size, Ethereum.UInt256.toNat]
+-        simpa [b, BE] using toBytes'_le (k := 32) ha
++          simpa [Ethereum.UInt256.size, Ethereum.UInt256.toNat] using val.val.isLt
++        simpa [b, BE, Ethereum.UInt256.toNat] using toBytes'_le (k := 32) ha
+--- a/EquiVM/EVM/Types.lean
++++ b/EquiVM/EVM/Types.lean
+@@ -34,2 +34,2 @@
+-          simp [Ethereum.UInt256.size, Ethereum.UInt256.toNat]
+-        simpa [b, BE] using Ethereum.toBytes'_le (k := 32) ha
++          simpa [Ethereum.UInt256.size, Ethereum.UInt256.toNat] using val.val.isLt
++        simpa [b, BE, Ethereum.UInt256.toNat] using Ethereum.toBytes'_le (k := 32) ha
+--- a/EquiVM/Misc/Template/Bytecode.lean
++++ b/EquiVM/Misc/Template/Bytecode.lean
+@@ -39,2 +39,2 @@
+--- Jump-destination facts. `decide` is the accepted mechanism here (deliberate; a scoped
+--- `first | decide | decide` fallback was tried and rejected).
++-- Jump-destination facts. `native_decide` is the accepted mechanism here (deliberate; a scoped
++-- `first | decide | native_decide` fallback was tried and rejected).
+--- a/EquiVM/Reasoning/ABI.lean
++++ b/EquiVM/Reasoning/ABI.lean
+@@ -11,0 +12,3 @@
++
++set_option backward.isDefEq.respectTransparency false
++attribute [local simp] Id.run
+@@ -1186 +1189,4 @@
+-  · simpa [decodeCalldataWithMode] using decodeCalldata_empty_ok (cd := cd) hsz4
++  · have htlen : cd.toList.length = cd.size := by
++      rw [byteArray_toList_eq, Array.length_toList]; rfl
++    simp [decodeCalldataWithMode, decodeCalldata, htlen, hsz4, decodeCalldata.decodeArgs,
++      solcTotalSizeDynamicGuard]
+@@ -1760 +1766,2 @@
+-  rw [show abiTupleHeadSize? [abiBytes32, .elem .address] = some 64 by decide]
++  rw [show abiTupleHeadSize? [abiBytes32, .elem .address] = some 64 by
++    simp [abiTupleHeadSize?, isDynamicABIType, staticABIEncodedSize?, abiBytes32]]
+@@ -1786 +1793,2 @@
+-  rw [show abiTupleHeadSize? [abiBytes32, .elem .address] = some 64 by decide]
++  rw [show abiTupleHeadSize? [abiBytes32, .elem .address] = some 64 by
++    simp [abiTupleHeadSize?, isDynamicABIType, staticABIEncodedSize?, abiBytes32]]
+@@ -1826 +1834,2 @@
+-  rw [show abiTupleHeadSize? [abiBytes32, .elem .address] = some 64 by decide]
++  rw [show abiTupleHeadSize? [abiBytes32, .elem .address] = some 64 by
++    simp [abiTupleHeadSize?, isDynamicABIType, staticABIEncodedSize?, abiBytes32]]
+@@ -2061 +2070 @@
+-    simpa [UInt256.toNat] using h
++    simpa [UInt256.toNat, UInt256.size] using h
+@@ -4412 +4421 @@
+-  · decide
++  · simp [abiTupleHeadSize?, isDynamicABIType, staticABIEncodedSize?]
+@@ -4786 +4795 @@
+-    List.drop_zero] using congrArg fromBytesBigEndian ht
++    List.drop_zero, Nat.add_zero, Nat.zero_add, Nat.sub_zero] using congrArg fromBytesBigEndian ht
+--- a/EquiVM/Reasoning/Dispatch.lean
++++ b/EquiVM/Reasoning/Dispatch.lean
+@@ -22,0 +23,3 @@
++
++set_option backward.isDefEq.respectTransparency false
++attribute [local simp] Id.run Pure.pure
+@@ -324,2 +327,2 @@
+-      simpa [initState, Sat256.ofUInt256, Sat256.toUInt256] using hoog))
+-  · have hxi := Xi_success_of_X (g := g.toUInt256) (by
++      simpa [initState, Sat256.ofUInt256, Sat256.toUInt256, UInt256.toNat, Sat256.toNat] using hoog))
++  · have hxi := Xi_success_of_X (g := g.toUInt256) (σ := σ) (σ₀ := σ₀) (A := A) (I := I) (by
+@@ -327 +330 @@
+-      simpa [initState, Sat256.ofUInt256, Sat256.toUInt256] using hX)
++      simpa [initState, Sat256.ofUInt256, Sat256.toUInt256, UInt256.toNat, Sat256.toNat] using hX)
+--- a/EquiVM/Reasoning/EVMWord.lean
++++ b/EquiVM/Reasoning/EVMWord.lean
+@@ -269,2 +268,0 @@
+-      change (0 ||| b) = b
+-      simp
+@@ -484 +482 @@
+-    simp [UInt256.size])]
++    simpa [UInt256.size] using old.val.isLt)]
+--- a/EquiVM/Reasoning/Immutables.lean
++++ b/EquiVM/Reasoning/Immutables.lean
+@@ -688 +688 @@
+-    discharge them with `decide` and then decode the template. -/
++    discharge them with `native_decide` and then decode the template. -/
+@@ -877 +877 @@
+-generated summaries (`Layout.decodeConcreteOfChecks`), it is discharged by `decide` on the
++generated summaries (`Layout.decodeConcreteOfChecks`), it is discharged by `native_decide` on the
+@@ -952 +952 @@
+-    avoids every patch site (a concrete check, discharged by `decide`). -/
++    avoids every patch site (a concrete check, discharged by `native_decide`). -/
+--- a/EquiVM/Reasoning/Memory.lean
++++ b/EquiVM/Reasoning/Memory.lean
+@@ -22,0 +23,3 @@
++set_option backward.isDefEq.respectTransparency false
++attribute [local simp] Id.run
++
+@@ -43 +46 @@
+-  | nil => simpa using fromBytes'_replicate_zero k
++  | nil => simpa [fromBytes'] using fromBytes'_replicate_zero k
+@@ -239 +242 @@
+-  decide
++  decide +kernel
+@@ -1225 +1228,2 @@
+-    apply BE_le; have := v.val.isLt; simp [UInt256.size, UInt256.toNat]
++    apply BE_le
++    simpa [UInt256.size, UInt256.toNat] using v.val.isLt
+@@ -2166 +2170 @@
+-  simpa using word_toBytesBE_toByteArray_size w
++  simpa [ByteArray.size] using word_toBytesBE_toByteArray_size w
+@@ -3090 +3094 @@
+-    exact Nat.mod_eq_of_lt (by simpa [aw'] using hsmall)
++    exact Nat.mod_eq_of_lt (by simpa [aw', UInt256.toNat, UInt256.size] using hsmall)
+@@ -3292 +3296 @@
+-    (by simpa using hmem)
++    (by simpa [UInt256.toNat, UInt256.size] using hmem)
+@@ -3461 +3465 @@
+-  simpa using word_toBytesBE_toByteArray_size w
++  simpa only [← ByteArray.size_data, List.data_toByteArray] using word_toBytesBE_toByteArray_size w
+--- a/EquiVM/Reasoning/PackedStorage.lean
++++ b/EquiVM/Reasoning/PackedStorage.lean
+@@ -15,0 +16,3 @@
++
++set_option backward.isDefEq.respectTransparency false
++attribute [local simp] Id.run Pure.pure
+@@ -82 +85 @@
+-  simpa [packedUInt48Loc, uint48Mask] using
++  simpa [packedUInt48Loc, packedUInt48Int, uint48Mask, UInt256.ofNat, UInt256.size] using
+@@ -92 +95 @@
+-  simpa [packedUInt48Loc, uint48Mask] using
++  simpa [packedUInt48Loc, packedUInt48Int, uint48Mask, UInt256.ofNat, UInt256.size] using
+@@ -102 +105 @@
+-  simpa [packedUInt48Loc, uint48Mask] using
++  simpa [packedUInt48Loc, packedUInt48Int, uint48Mask, UInt256.ofNat, UInt256.size] using
+@@ -112 +115 @@
+-  simpa [packedUInt48Loc, uint48Mask] using
++  simpa [packedUInt48Loc, packedUInt48Int, uint48Mask, UInt256.ofNat, UInt256.size] using
+@@ -126 +129 @@
+-    simpa using h.symm
++    convert h.symm using 1 <;> omega
+@@ -182 +185 @@
+-  simp only [valueToWord, wordOfInt_emod_uint48, bind, Option.bind]
++  simp only [valueToWord, wordOfInt_emod_uint48, bind, Option.bind, pure]
+@@ -207 +210 @@
+-    simpa [uint48Mask] using uint48Mask_clean data
++    simpa [uint48Mask, UInt256.ofNat, UInt256.size] using uint48Mask_clean data
+@@ -343 +346 @@
+-  simp only [valueToWord, wordOfInt_emod_uint48, bind, Option.bind]
++  simp only [valueToWord, wordOfInt_emod_uint48, bind, Option.bind, pure]
+@@ -375 +378 @@
+-    simpa [uint48Mask] using uint48Mask_clean data
++    simpa [uint48Mask, UInt256.ofNat, UInt256.size] using uint48Mask_clean data
+@@ -398 +401 @@
+-  simp only [valueToWord, Reasoning.Theory.wordOfInt_zero, bind, Option.bind]
++  simp only [valueToWord, Reasoning.Theory.wordOfInt_zero, bind, Option.bind, pure]
+@@ -697 +700 @@
+-  simp only [valueToWord, Reasoning.Theory.wordOfInt_zero, bind, Option.bind]
++  simp only [valueToWord, Reasoning.Theory.wordOfInt_zero, bind, Option.bind, pure]
+@@ -746 +749 @@
+-  simp only [valueToWord, Reasoning.Theory.wordOfInt_zero, bind, Option.bind]
++  simp only [valueToWord, Reasoning.Theory.wordOfInt_zero, bind, Option.bind, pure]
+@@ -796 +799 @@
+-  simp only [valueToWord, wordOfInt_emod_uint48, bind, Option.bind]
++  simp only [valueToWord, wordOfInt_emod_uint48, bind, Option.bind, pure]
+@@ -826 +829 @@
+-    simpa [uint48Mask] using uint48Mask_clean data
++    simpa [uint48Mask, UInt256.ofNat, UInt256.size] using uint48Mask_clean data
+@@ -849 +852 @@
+-  simp only [valueToWord, wordOfInt_emod_uint48, bind, Option.bind]
++  simp only [valueToWord, wordOfInt_emod_uint48, bind, Option.bind, pure]
+@@ -879 +882 @@
+-    simpa [uint48Mask] using uint48Mask_clean data
++    simpa [uint48Mask, UInt256.ofNat, UInt256.size] using uint48Mask_clean data
+@@ -991 +994 @@
+-  simp only [valueToWord, bind, Option.bind]
++  simp only [valueToWord, bind, Option.bind, pure]
+@@ -1057 +1060 @@
+-  simp only [valueToWord, bind, Option.bind]
++  simp only [valueToWord, bind, Option.bind, pure]
+--- a/EquiVM/Reasoning/Reach.lean
++++ b/EquiVM/Reasoning/Reach.lean
+@@ -36,0 +37,3 @@
++
++set_option backward.isDefEq.respectTransparency false
++attribute [local simp] Id.run
+@@ -1699,2 +1702,2 @@
+-      simpa only [memoryExpansionCost, memoryExpansionCost.μᵢ', haw, hstk,
+-        List.getElem!_cons_zero, M] using hmc
++      simpa [memoryExpansionCost, memoryExpansionCost.μᵢ', haw, hstk,
++        List.getElem!_cons_zero, M, UInt256.toNat, UInt256.size, Fin.val_ofNat] using hmc
+@@ -1747,2 +1750,2 @@
+-      simpa only [memoryExpansionCost, memoryExpansionCost.μᵢ', haw, hstk,
+-        List.getElem!_cons_zero, M] using hmc
++      simpa [memoryExpansionCost, memoryExpansionCost.μᵢ', haw, hstk,
++        List.getElem!_cons_zero, M, UInt256.toNat, UInt256.size, Fin.val_ofNat] using hmc
+@@ -1979,2 +1982,2 @@
+-      simpa only [memoryExpansionCost, memoryExpansionCost.μᵢ', haw, hstk,
+-        List.getElem!_cons_zero, M] using hmc
++      simpa [memoryExpansionCost, memoryExpansionCost.μᵢ', haw, hstk,
++        List.getElem!_cons_zero, M, UInt256.toNat, UInt256.size, Fin.val_ofNat] using hmc
+@@ -4876 +4879 @@
+-    simpa [initState, Sat256.ofUInt256, Sat256.toUInt256] using h)
++    simpa [initState, Sat256.ofUInt256, Sat256.toUInt256, UInt256.toNat, Sat256.toNat] using h)
+@@ -4885 +4888 @@
+-    simpa [initState, Sat256.ofUInt256, Sat256.toUInt256] using h)
++    simpa [initState, Sat256.ofUInt256, Sat256.toUInt256, UInt256.toNat, Sat256.toNat] using h)
+@@ -4896 +4899 @@
+-    simpa [initState, Sat256.ofUInt256, Sat256.toUInt256] using h)
++    simpa [initState, Sat256.ofUInt256, Sat256.toUInt256, UInt256.toNat, Sat256.toNat] using h)
+@@ -5290 +5293 @@
+-            -- with `decide` rather than `decide`.  `decode` kernel-reduces by scanning the
++            -- with `native_decide` rather than `decide`.  `decode` kernel-reduces by scanning the
+@@ -5292 +5295 @@
+-            -- opcode on large bytecode; `decide` compiles the check and runs it in
++            -- opcode on large bytecode; `native_decide` compiles the check and runs it in
+@@ -5294 +5297 @@
+-            -- compiler via `decide`, so the proofs depend on it pervasively already.
++            -- compiler via `native_decide`, so the proofs depend on it pervasively already.
+@@ -5569 +5572 @@
+-      (by simpa [Reasoning.Theory.initState, Sat256.ofUInt256, Sat256.toUInt256] using hoog))
++      (by simpa [Reasoning.Theory.initState, Sat256.ofUInt256, Sat256.toUInt256, UInt256.toNat, Sat256.toNat] using hoog))
+@@ -5571 +5574 @@
+-      (by simpa [Reasoning.Theory.initState, Sat256.ofUInt256, Sat256.toUInt256] using hinv))
++      (by simpa [Reasoning.Theory.initState, Sat256.ofUInt256, Sat256.toUInt256, UInt256.toNat, Sat256.toNat] using hinv))
+@@ -5740 +5743 @@
+-      simpa [initState, Sat256.ofUInt256, Sat256.toUInt256] using hOOG))
++      simpa [initState, Sat256.ofUInt256, Sat256.toUInt256, UInt256.toNat, Sat256.toNat] using hOOG))
+@@ -5743 +5746 @@
+-      simpa [initState, Sat256.ofUInt256, Sat256.toUInt256] using hX)
++      simpa [initState, Sat256.ofUInt256, Sat256.toUInt256, UInt256.toNat, Sat256.toNat] using hX)
+@@ -5758 +5761 @@
+-      simpa [initState, Sat256.ofUInt256, Sat256.toUInt256] using hoog))
++      simpa [initState, Sat256.ofUInt256, Sat256.toUInt256, UInt256.toNat, Sat256.toNat] using hoog))
+@@ -5762 +5765 @@
+-      simpa [initState, Sat256.ofUInt256, Sat256.toUInt256] using hX)
++      simpa [initState, Sat256.ofUInt256, Sat256.toUInt256, UInt256.toNat, Sat256.toNat] using hX)
+--- a/EquiVM/Reasoning/Solc.lean
++++ b/EquiVM/Reasoning/Solc.lean
+@@ -26,0 +27,3 @@
++
++set_option backward.isDefEq.respectTransparency false
++attribute [local simp] Id.run
+@@ -1446,0 +1450,4 @@
++@[local simp] private theorem solc_shift160_sub1_mask :
++    UInt256.sub (UInt256.shiftLeft (⟨1⟩ : UInt256) ⟨160⟩) ⟨1⟩ = solcAddrMask := by
++  decide +kernel
++
+@@ -1556 +1563 @@
+-  simpa [solcAddrMask] using
++  simpa [solcAddrMask, UInt256.ofNat] using
+@@ -1859 +1866 @@
+-    exact solcDecodeLenCheckOkUnsigned (by simpa using hsz36) hsize
++    exact solcDecodeLenCheckOkUnsigned (by simpa [UInt256.toNat, UInt256.size] using hsz36) hsize
+@@ -2037 +2044 @@
+-    exact solcDecodeLenCheckOkUnsigned (by simpa using hsz68) hsize
++    exact solcDecodeLenCheckOkUnsigned (by simpa [UInt256.toNat, UInt256.size] using hsz68) hsize
+@@ -3386 +3393 @@
+-  exact ⟨_, _, by simpa [solcSingleMappingStoreDebitOutPc] using rdOut⟩
++  exact ⟨_, _, by simpa [solcSingleMappingStoreDebitOutPc, solc_shift160_sub1_mask] using rdOut⟩
+@@ -3565 +3572 @@
+-  exact ⟨_, _, by simpa [solcSingleMappingStoreCreditOutPc] using rdOut⟩
++  exact ⟨_, _, by simpa [solcSingleMappingStoreCreditOutPc, solc_shift160_sub1_mask] using rdOut⟩
+@@ -3716 +3723 @@
+-    simpa [solcNestedMappingStoreInnerHashOutPc] using
++    simpa [solcNestedMappingStoreInnerHashOutPc, solc_shift160_sub1_mask] using
+@@ -6551 +6558 @@
+-      have hM : M aw ⟨64⟩ ⟨32⟩ = aw := by simpa [M] using hMload64Aw
++      have hM : M aw ⟨64⟩ ⟨32⟩ = aw := by simpa [M, UInt256.toNat, UInt256.size] using hMload64Aw
+@@ -6579 +6586 @@
+-      have hM : M aw ⟨128⟩ ⟨32⟩ = aw := by simpa [M] using hMload128Aw
++      have hM : M aw ⟨128⟩ ⟨32⟩ = aw := by simpa [M, UInt256.toNat, UInt256.size] using hMload128Aw
+@@ -6665 +6672 @@
+-      have hM : M aw ⟨64⟩ ⟨32⟩ = aw := by simpa [M] using hMload64Aw
++      have hM : M aw ⟨64⟩ ⟨32⟩ = aw := by simpa [M, UInt256.toNat, UInt256.size] using hMload64Aw
+@@ -8229 +8236 @@
+-    simp [EVM.twoPow, AccountAddress.size]
++    simpa [EVM.twoPow, AccountAddress.size, Fin.toNat] using a.isLt
+--- a/EquiVM/Reasoning/SolcRoutines.lean
++++ b/EquiVM/Reasoning/SolcRoutines.lean
+@@ -19,0 +20,3 @@
++
++set_option backward.isDefEq.respectTransparency false
++attribute [local simp] Id.run Pure.pure
+@@ -881 +884 @@
+-      usub_ofNat_word_toNat (c := (⟨4⟩ : UInt256)) (by simpa using hsz4) hsize,
++      usub_ofNat_word_toNat (c := (⟨4⟩ : UInt256)) (by simpa [UInt256.toNat, UInt256.size] using hsz4) hsize,
+@@ -1014 +1017 @@
+-      usub_ofNat_word_toNat (c := (⟨4⟩ : UInt256)) (by simpa using hsz4) hsize,
++      usub_ofNat_word_toNat (c := (⟨4⟩ : UInt256)) (by simpa [UInt256.toNat, UInt256.size] using hsz4) hsize,
+@@ -1464 +1467 @@
+-    (by decide) (by simpa only [u256_add_assoc] using hwf.d3) (by evm_ov)
++    (by decide) (by convert hwf.d3 using 1 <;> simp only [u256_add_assoc] <;> congr 4 <;> decide +kernel) (by evm_ov)
+@@ -1466,4 +1469,4 @@
+-    raw push1 ⟨229⟩ (by simpa only [u256_add_assoc] using hwf.d7) (by evm_ov),
+-    raw shl (by simpa only [u256_add_assoc] using hwf.d9) (by evm_ov),
+-    raw dup2 (by simpa only [u256_add_assoc] using hwf.d10) (by evm_ov)]
+-  have rdHeader := RD.mstoreWord rdStore0 (by simpa only [u256_add_assoc] using hwf.d11) (by evm_ov)
++    raw push1 ⟨229⟩ (by convert hwf.d7 using 1 <;> simp only [u256_add_assoc] <;> congr 4 <;> decide +kernel) (by evm_ov),
++    raw shl (by convert hwf.d9 using 1 <;> simp only [u256_add_assoc] <;> congr 4 <;> decide +kernel) (by evm_ov),
++    raw dup2 (by convert hwf.d10 using 1 <;> simp only [u256_add_assoc] <;> congr 4 <;> decide +kernel) (by evm_ov)]
++  have rdHeader := RD.mstoreWord rdStore0 (by convert hwf.d11 using 1 <;> simp only [u256_add_assoc] <;> congr 4 <;> decide +kernel) (by evm_ov)
+@@ -1471,11 +1474,11 @@
+-    raw push1 ⟨4⟩ (by simpa only [u256_add_assoc] using hwf.d12) (by evm_ov),
+-    raw add (by simpa only [u256_add_assoc] using hwf.d14) (by evm_ov),
+-    raw dup1 (by simpa only [u256_add_assoc] using hwf.d15) (by evm_ov),
+-    raw dup1 (by simpa only [u256_add_assoc] using hwf.d16) (by evm_ov),
+-    raw push1 ⟨32⟩ (by simpa only [u256_add_assoc] using hwf.d17) (by evm_ov),
+-    raw add (by simpa only [u256_add_assoc] using hwf.d19) (by evm_ov),
+-    raw dup3 (by simpa only [u256_add_assoc] using hwf.d20) (by evm_ov),
+-    raw dup2 (by simpa only [u256_add_assoc] using hwf.d21) (by evm_ov),
+-    raw sub (by simpa only [u256_add_assoc] using hwf.d22) (by evm_ov),
+-    raw dup3 (by simpa only [u256_add_assoc] using hwf.d23) (by evm_ov)]
+-  have rdLength := RD.mstoreWord rdStore1 (by simpa only [u256_add_assoc] using hwf.d24) (by evm_ov)
++    raw push1 ⟨4⟩ (by convert hwf.d12 using 1 <;> simp only [u256_add_assoc] <;> congr 4 <;> decide +kernel) (by evm_ov),
++    raw add (by convert hwf.d14 using 1 <;> simp only [u256_add_assoc] <;> congr 4 <;> decide +kernel) (by evm_ov),
++    raw dup1 (by convert hwf.d15 using 1 <;> simp only [u256_add_assoc] <;> congr 4 <;> decide +kernel) (by evm_ov),
++    raw dup1 (by convert hwf.d16 using 1 <;> simp only [u256_add_assoc] <;> congr 4 <;> decide +kernel) (by evm_ov),
++    raw push1 ⟨32⟩ (by convert hwf.d17 using 1 <;> simp only [u256_add_assoc] <;> congr 4 <;> decide +kernel) (by evm_ov),
++    raw add (by convert hwf.d19 using 1 <;> simp only [u256_add_assoc] <;> congr 4 <;> decide +kernel) (by evm_ov),
++    raw dup3 (by convert hwf.d20 using 1 <;> simp only [u256_add_assoc] <;> congr 4 <;> decide +kernel) (by evm_ov),
++    raw dup2 (by convert hwf.d21 using 1 <;> simp only [u256_add_assoc] <;> congr 4 <;> decide +kernel) (by evm_ov),
++    raw sub (by convert hwf.d22 using 1 <;> simp only [u256_add_assoc] <;> congr 4 <;> decide +kernel) (by evm_ov),
++    raw dup3 (by convert hwf.d23 using 1 <;> simp only [u256_add_assoc] <;> congr 4 <;> decide +kernel) (by evm_ov)]
++  have rdLength := RD.mstoreWord rdStore1 (by convert hwf.d24 using 1 <;> simp only [u256_add_assoc] <;> congr 4 <;> decide +kernel) (by evm_ov)
+@@ -1483,2 +1486,2 @@
+-    raw push1 len (by simpa only [u256_add_assoc] using hwf.d25) (by evm_ov),
+-    raw dup2 (by simpa only [u256_add_assoc] using hwf.d27) (by evm_ov)]
++    raw push1 len (by convert hwf.d25 using 1 <;> simp only [u256_add_assoc] <;> congr 4 <;> decide +kernel) (by evm_ov),
++    raw dup2 (by convert hwf.d27 using 1 <;> simp only [u256_add_assoc] <;> congr 4 <;> decide +kernel) (by evm_ov)]
+@@ -1486 +1489 @@
+-    RD.mstoreWord rdStore2 (by simpa only [u256_add_assoc] using hwf.d28) (by evm_ov)
++    RD.mstoreWord rdStore2 (by convert hwf.d28 using 1 <;> simp only [u256_add_assoc] <;> congr 4 <;> decide +kernel) (by evm_ov)
+@@ -1488,7 +1491,7 @@
+-    raw push1 ⟨32⟩ (by simpa only [u256_add_assoc] using hwf.d29) (by evm_ov),
+-    raw add (by simpa only [u256_add_assoc] using hwf.d31) (by evm_ov),
+-    raw dup1 (by simpa only [u256_add_assoc] using hwf.d32) (by evm_ov),
+-    raw push2 source (by simpa only [u256_add_assoc] using hwf.d33) (by evm_ov),
+-    raw push1 len (by simpa only [u256_add_assoc] using hwf.d36) (by evm_ov),
+-    raw swap2 (by simpa only [u256_add_assoc] using hwf.d38) (by evm_ov)]
+-  have rdEnd := RD.codecopyAny rdCopy (by simpa only [u256_add_assoc] using hwf.d39) (by evm_ov)
++    raw push1 ⟨32⟩ (by convert hwf.d29 using 1 <;> simp only [u256_add_assoc] <;> congr 4 <;> decide +kernel) (by evm_ov),
++    raw add (by convert hwf.d31 using 1 <;> simp only [u256_add_assoc] <;> congr 4 <;> decide +kernel) (by evm_ov),
++    raw dup1 (by convert hwf.d32 using 1 <;> simp only [u256_add_assoc] <;> congr 4 <;> decide +kernel) (by evm_ov),
++    raw push2 source (by convert hwf.d33 using 1 <;> simp only [u256_add_assoc] <;> congr 4 <;> decide +kernel) (by evm_ov),
++    raw push1 len (by convert hwf.d36 using 1 <;> simp only [u256_add_assoc] <;> congr 4 <;> decide +kernel) (by evm_ov),
++    raw swap2 (by convert hwf.d38 using 1 <;> simp only [u256_add_assoc] <;> congr 4 <;> decide +kernel) (by evm_ov)]
++  have rdEnd := RD.codecopyAny rdCopy (by convert hwf.d39 using 1 <;> simp only [u256_add_assoc] <;> congr 4 <;> decide +kernel) (by evm_ov)
+@@ -1496,6 +1499,6 @@
+-    raw push1 ⟨64⟩ (by simpa only [u256_add_assoc] using hwf.d40) (by evm_ov),
+-    raw add (by simpa only [u256_add_assoc] using hwf.d42) (by evm_ov),
+-    raw swap2 (by simpa only [u256_add_assoc] using hwf.d43) (by evm_ov),
+-    raw pop (by simpa only [u256_add_assoc] using hwf.d44) (by evm_ov),
+-    raw pop (by simpa only [u256_add_assoc] using hwf.d45) (by evm_ov),
+-    raw push1 ⟨64⟩ (by simpa only [u256_add_assoc] using hwf.d46) (by evm_ov)]
++    raw push1 ⟨64⟩ (by convert hwf.d40 using 1 <;> simp only [u256_add_assoc] <;> congr 4 <;> decide +kernel) (by evm_ov),
++    raw add (by convert hwf.d42 using 1 <;> simp only [u256_add_assoc] <;> congr 4 <;> decide +kernel) (by evm_ov),
++    raw swap2 (by convert hwf.d43 using 1 <;> simp only [u256_add_assoc] <;> congr 4 <;> decide +kernel) (by evm_ov),
++    raw pop (by convert hwf.d44 using 1 <;> simp only [u256_add_assoc] <;> congr 4 <;> decide +kernel) (by evm_ov),
++    raw pop (by convert hwf.d45 using 1 <;> simp only [u256_add_assoc] <;> congr 4 <;> decide +kernel) (by evm_ov),
++    raw push1 ⟨64⟩ (by convert hwf.d46 using 1 <;> simp only [u256_add_assoc] <;> congr 4 <;> decide +kernel) (by evm_ov)]
+@@ -1503 +1506 @@
+-    RD.mloadWord rdLoadFinal (by simpa only [u256_add_assoc] using hwf.d48) rfl (by evm_ov)
++    RD.mloadWord rdLoadFinal (by convert hwf.d48 using 1 <;> simp only [u256_add_assoc] <;> congr 4 <;> decide +kernel) rfl (by evm_ov)
+@@ -1505,5 +1508,5 @@
+-    raw dup1 (by simpa only [u256_add_assoc] using hwf.d49) (by evm_ov),
+-    raw swap2 (by simpa only [u256_add_assoc] using hwf.d50) (by evm_ov),
+-    raw sub (by simpa only [u256_add_assoc] using hwf.d51) (by evm_ov),
+-    raw swap1 (by simpa only [u256_add_assoc] using hwf.d52) (by evm_ov)]
+-  exact RD.revAny rdRev (by simpa only [u256_add_assoc] using hwf.d53) (by evm_ov)
++    raw dup1 (by convert hwf.d49 using 1 <;> simp only [u256_add_assoc] <;> congr 4 <;> decide +kernel) (by evm_ov),
++    raw swap2 (by convert hwf.d50 using 1 <;> simp only [u256_add_assoc] <;> congr 4 <;> decide +kernel) (by evm_ov),
++    raw sub (by convert hwf.d51 using 1 <;> simp only [u256_add_assoc] <;> congr 4 <;> decide +kernel) (by evm_ov),
++    raw swap1 (by convert hwf.d52 using 1 <;> simp only [u256_add_assoc] <;> congr 4 <;> decide +kernel) (by evm_ov)]
++  exact RD.revAny rdRev (by convert hwf.d53 using 1 <;> simp only [u256_add_assoc] <;> congr 4 <;> decide +kernel) (by evm_ov)
+--- a/EquiVM/Reasoning/SolmBody.lean
++++ b/EquiVM/Reasoning/SolmBody.lean
+@@ -180 +179,0 @@
+-  intro _hbad
+@@ -190 +189 @@
+-  omega
++  exact ⟨hnonneg, hlt⟩
+@@ -209 +208 @@
+-  simpa [TransitionDecl.toCallable, ExecTransitionBody, resumeAfterInternalCall] using
++  simpa [TransitionDecl.toCallable, ExecTransitionBody, resumeAfterInternalCall, collapseReturns] using
+@@ -1367 +1366,2 @@
+-    simpa [hword] using h
++    have hOne : (⟨1⟩ : UInt256).toNat = 1 := by rfl
++    simpa only [hword, hOne] using h
+--- a/EquiVM/Reasoning/Stepping.lean
++++ b/EquiVM/Reasoning/Stepping.lean
+@@ -27,0 +28,3 @@
++
++set_option backward.isDefEq.respectTransparency false
++attribute [local simp] Id.run
+@@ -215 +218 @@
+-  simpa [BEq.beq, ByteArray.instBEq] using h
++  simpa [BEq.beq, ByteArray.instBEq, ByteArray.beq] using h
+@@ -220 +223 @@
+-  exact eq_of_beq (by simpa [BEq.beq, ByteArray.instBEq] using h)
++  exact eq_of_beq (by simpa [BEq.beq, ByteArray.instBEq, ByteArray.beq] using h)
+@@ -2788 +2791 @@
+-    simpa [initState, Sat256.ofUInt256, Sat256.toUInt256] using h)
++    simpa [initState, Sat256.ofUInt256, Sat256.toUInt256, UInt256.toNat, Sat256.toNat] using h)
+--- a/EquiVM/Reasoning/Storage.lean
++++ b/EquiVM/Reasoning/Storage.lean
+@@ -30,0 +31,4 @@
++set_option backward.isDefEq.respectTransparency false
++set_option maxRecDepth 65536
++attribute [local simp] Id.run Pure.pure
++
+@@ -64 +68 @@
+-    (lt_of_lt_of_le a.isLt (show AccountAddress.size ≤ UInt256.size from by decide))).symm
++    (lt_of_lt_of_le a.isLt (show AccountAddress.size ≤ UInt256.size from by decide +kernel))).symm
+@@ -75 +79 @@
+-  rw [show solcAddrMask.toNat = 2 ^ 160 - 1 by decide]
++  rw [show solcAddrMask.toNat = 2 ^ 160 - 1 by decide +kernel]
+@@ -88 +92 @@
+-  exact Nat.mod_eq_of_lt (lt_of_lt_of_le w.val.isLt (by decide))
++  exact Nat.mod_eq_of_lt (lt_of_lt_of_le w.val.isLt (by decide +kernel))
+@@ -91 +95 @@
+-    keyValueToWord (.fixedBytes ⟨31, by decide⟩ (EVM.Word.toBytesBE w)) = w := by
++    keyValueToWord (.fixedBytes ⟨31, by decide +kernel⟩ (EVM.Word.toBytesBE w)) = w := by
+@@ -106,2 +110,2 @@
+-  { slot := slot, offset := 0, size := 32, hbound := by decide,
+-    type := .int (.uint ⟨256, by decide⟩) }
++  { slot := slot, offset := 0, size := 32, hbound := by decide +kernel,
++    type := .int (.uint ⟨256, by decide +kernel⟩) }
+@@ -166,2 +170,2 @@
+-  { slot := slot, offset := 0, size := 32, hbound := by decide,
+-    type := .bytes ⟨31, by decide⟩ }
++  { slot := slot, offset := 0, size := 32, hbound := by decide +kernel,
++    type := .bytes ⟨31, by decide +kernel⟩ }
+@@ -171 +175 @@
+-      .fixedBytes ⟨31, by decide⟩
++      .fixedBytes ⟨31, by decide +kernel⟩
+@@ -289,3 +293,3 @@
+-  have hflag : UInt256.land (⟨0⟩ : UInt256) ⟨1⟩ = ⟨0⟩ := by decide
+-  have hraw : UInt256.div (⟨0⟩ : UInt256) ⟨2⟩ = ⟨0⟩ := by decide
+-  have hmask : UInt256.land (⟨0⟩ : UInt256) ⟨127⟩ = ⟨0⟩ := by decide
++  have hflag : UInt256.land (⟨0⟩ : UInt256) ⟨1⟩ = ⟨0⟩ := by decide +kernel
++  have hraw : UInt256.div (⟨0⟩ : UInt256) ⟨2⟩ = ⟨0⟩ := by decide +kernel
++  have hmask : UInt256.land (⟨0⟩ : UInt256) ⟨127⟩ = ⟨0⟩ := by decide +kernel
+@@ -294 +298 @@
+-    decide
++    decide +kernel
+@@ -326 +330 @@
+-  simpa [show (⟨32⟩ : UInt256).toNat = 32 from by decide] using hlt
++  simpa [show (⟨32⟩ : UInt256).toNat = 32 from by decide +kernel] using hlt
+@@ -337 +341,2 @@
+-    simpa [uInt256_land_one_toNat] using h
++    rw [uInt256_land_one_toNat] at h
++    simpa [UInt256.toNat, UInt256.size] using h
+@@ -360 +365 @@
+-      exact Nat.mod_lt _ (by decide)
++      exact Nat.mod_lt _ (by decide +kernel)
+@@ -372 +377,2 @@
+-    simpa [uInt256_land_one_toNat] using h
++    rw [uInt256_land_one_toNat] at h
++    simpa [UInt256.toNat, UInt256.size] using h
+@@ -393 +399 @@
+-  { slot := slot, offset := 0, size := 20, hbound := by decide, type := .address }
++  { slot := slot, offset := 0, size := 20, hbound := by decide +kernel, type := .address }
+@@ -416 +422 @@
+-    decide
++    decide +kernel
+@@ -535 +541 @@
+-  { slot := slot, offset := 0, size := 1, hbound := by decide, type := .bool }
++  { slot := slot, offset := 0, size := 1, hbound := by decide +kernel, type := .bool }
+@@ -550 +556 @@
+-  rw [fromBytes'_take_wordLE_land_mask (n := 1) _ (by decide)]
++  rw [fromBytes'_take_wordLE_land_mask (n := 1) _ (by decide +kernel)]
+@@ -601 +607 @@
+-    decide
++    decide +kernel
+@@ -658 +664 @@
+-        UInt256.ofNat (2 ^ 256 - 2 ^ 168) := by decide
++        UInt256.ofNat (2 ^ 256 - 2 ^ 168) := by decide +kernel
+@@ -666,2 +672,2 @@
+-  rw [show (⟨256⟩ : UInt256).toNat = 2 ^ 8 by decide]
+-  rw [show (⟨1⟩ : UInt256).toNat = 1 by decide]
++  rw [show (⟨256⟩ : UInt256).toNat = 2 ^ 8 by decide +kernel]
++  rw [show (⟨1⟩ : UInt256).toNat = 1 by decide +kernel]
+@@ -721 +727 @@
+-    rw [fromBytes'_take_wordLE_land_mask _ 1 (by decide)]
++    rw [fromBytes'_take_wordLE_land_mask _ 1 (by decide +kernel)]
+@@ -759 +765 @@
+-    decide
++    decide +kernel
+@@ -806 +812 @@
+-        decide]
++        decide +kernel]
+@@ -829 +835 @@
+-        decide]
++        decide +kernel]
+@@ -841 +847 @@
+-      decide
++      decide +kernel
+@@ -853 +859,2 @@
+-    simpa [setBoolOffset0Word, hiszero] using storageLocStore_bool_true_offset0 evm slot
++    have hz : UInt256.isZero (⟨0⟩ : UInt256) = ⟨1⟩ := by decide +kernel
++    convert (storageLocStore_bool_true_offset0 evm slot) using 1 <;> simp [setBoolOffset0Word, hiszero, hz]
+@@ -999,0 +1007,3 @@
++  have hdefault : (default : Account).storage.getD slot defaultValue = defaultValue := by
++    change (∅ : Storage).getD slot defaultValue = defaultValue
++    simp
+@@ -1006 +1016 @@
+-    simpa [Std.ExtTreeMap.getD_eq_getD_getElem?] using hstorage
++    simpa only [hdefault, Std.ExtTreeMap.getD_eq_getD_getElem?, ← Std.ExtTreeMap.get?_eq_getElem?] using hstorage
+@@ -1117 +1127,2 @@
+-      simp [solidityDataWordsForwardFrom]
++      rw [Nat.add_right_comm fuel 1 tail]
++      simp only [solidityDataWordsForwardFrom]
+@@ -1122 +1133 @@
+-      simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using ih
++      simpa only [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using ih
+@@ -1197 +1208 @@
+-  rw [show UInt256.ofNat 0 = ({ val := 0 } : UInt256) by decide]
++  rw [show UInt256.ofNat 0 = ({ val := 0 } : UInt256) by decide +kernel]
+@@ -1218 +1229 @@
+-  rw [show UInt256.ofNat 0 = ({ val := 0 } : UInt256) by decide]
++  rw [show UInt256.ofNat 0 = ({ val := 0 } : UInt256) by decide +kernel]
+@@ -1242 +1253 @@
+-  rw [show UInt256.ofNat 0 = ({ val := 0 } : UInt256) by decide]
++  rw [show UInt256.ofNat 0 = ({ val := 0 } : UInt256) by decide +kernel]
+@@ -1723 +1734 @@
+-  ⟨rfl, by simpa [initState] using hAccounts⟩
++  ⟨rfl, by simpa [Reasoning.Theory.initState] using hAccounts⟩
+@@ -1862 +1873 @@
+-    valueToWord (.fixedBytes ⟨31, by decide⟩ (EVM.Word.toBytesBE word)) = some word := by
++    valueToWord (.fixedBytes ⟨31, by decide +kernel⟩ (EVM.Word.toBytesBE word)) = some word := by
+@@ -1924,2 +1935,2 @@
+-      { slot := slot, offset := 0, size := 1, hbound := by decide,
+-        type := .int (.uint ⟨8, by decide⟩) }
++      { slot := slot, offset := 0, size := 1, hbound := by decide +kernel,
++        type := .int (.uint ⟨8, by decide +kernel⟩) }
+@@ -1932 +1943 @@
+-  simp only [valueToWord, wordOfInt_ofNat_toNat, bind, Option.bind]
++  simp only [valueToWord, wordOfInt_ofNat_toNat, bind, Option.bind, pure]
+@@ -1938 +1949 @@
+-  rw [fromBytes'_append, fromBytes'_take_wordLE_land_mask value 1 (by decide),
++  rw [fromBytes'_append, fromBytes'_take_wordLE_land_mask value 1 (by decide +kernel),
+@@ -1942 +1953 @@
+-  rw [show 256 = 2 ^ 8 by decide, Nat.mul_comm (2 ^ 8)]
++  rw [show 256 = 2 ^ 8 by decide +kernel, Nat.mul_comm (2 ^ 8)]
+@@ -1964 +1975 @@
+-    dsimp only at hv
++    try dsimp only at hv
+@@ -1977 +1988 @@
+-    dsimp only at hw
++    try dsimp only at hw
+@@ -2128 +2139,2 @@
+-      simpa using eq_of_beq hzero
++      have hd : (default : UInt256) = ⟨0⟩ := by decide +kernel
++      simpa only [hd] using eq_of_beq hzero
+--- a/EquiVM/Reasoning/WordArithmetic.lean
++++ b/EquiVM/Reasoning/WordArithmetic.lean
+@@ -18,0 +19,3 @@
++
++set_option backward.isDefEq.respectTransparency false
++attribute [local simp] Id.run Pure.pure
+@@ -346 +349 @@
+-  simpa using h
++  simpa [UInt256.ofNat, UInt256.toNat, UInt256.size, EVM.twoPow, AccountAddress.size] using h
+@@ -471 +474 @@
+-  rw [usub_toNat (by simpa using Nat.succ_le_of_lt hpos)]
++  rw [usub_toNat (by simpa [UInt256.ofNat, UInt256.toNat, UInt256.size, EVM.twoPow, AccountAddress.size] using Nat.succ_le_of_lt hpos)]
+@@ -527 +530 @@
+-    simpa [EVM.addressModulus] using solcAddrMask_result_canonical w
++    simpa [UInt256.ofNat, UInt256.toNat, UInt256.size, EVM.twoPow, AccountAddress.size, EVM.addressModulus] using solcAddrMask_result_canonical w
+@@ -1345 +1348 @@
+-      simpa using h
++      simpa [UInt256.ofNat, UInt256.toNat, UInt256.size, EVM.twoPow, AccountAddress.size] using h
+@@ -1496 +1499 @@
+-        simpa using h
++        simpa [UInt256.ofNat, UInt256.toNat, UInt256.size, EVM.twoPow, AccountAddress.size] using h
+@@ -1526 +1529 @@
+-    exact False.elim (h (by simpa using hslt0))
++    exact False.elim (h (by simpa [UInt256.ofNat, UInt256.toNat, UInt256.size, EVM.twoPow, AccountAddress.size] using hslt0))
+@@ -1555 +1558 @@
+-          simpa using hzero
++          simpa [UInt256.ofNat, UInt256.toNat, UInt256.size, EVM.twoPow, AccountAddress.size] using hzero
+@@ -1558 +1561 @@
+-      exact False.elim (h (by simpa using hsgt0))
++      exact False.elim (h (by simpa [UInt256.ofNat, UInt256.toNat, UInt256.size, EVM.twoPow, AccountAddress.size] using hsgt0))
+@@ -1570 +1573 @@
+-    exact False.elim (h (by simpa using hsgt0))
++    exact False.elim (h (by simpa [UInt256.ofNat, UInt256.toNat, UInt256.size, EVM.twoPow, AccountAddress.size] using hsgt0))
+@@ -2198 +2201,2 @@
+-    simpa [uadd_toNat] using hnat
++    rw [uadd_toNat] at hnat
++    simpa [UInt256.ofNat, UInt256.toNat, UInt256.size] using hnat
+@@ -2311 +2315 @@
+-  simpa [u256_ofNat_toNat] using
++  simpa [UInt256.ofNat, UInt256.toNat, UInt256.size, EVM.twoPow, AccountAddress.size, u256_ofNat_toNat] using
+@@ -2329 +2333 @@
+-  simpa [u256_ofNat_toNat] using
++  convert
+@@ -2336 +2340,5 @@
+-        omega))
++        omega)) using 1
++  all_goals
++    simp only [u256_ofNat_toNat,
++      show UInt256.ofNat 4 = (⟨4⟩ : UInt256) from by decide +kernel]
++    try rfl
+@@ -2353 +2361 @@
+-    simpa [u256_ofNat_toNat, Nat.add_assoc] using
++    simpa [UInt256.ofNat, UInt256.toNat, UInt256.size, EVM.twoPow, AccountAddress.size, u256_ofNat_toNat, Nat.add_assoc] using
+@@ -3133 +3141 @@
+-    (head := (⟨4⟩ : UInt256)) (need := (⟨32⟩ : UInt256)) (by simpa using hsz36) hsize
++    (head := (⟨4⟩ : UInt256)) (need := (⟨32⟩ : UInt256)) (by simpa [UInt256.ofNat, UInt256.toNat, UInt256.size, EVM.twoPow, AccountAddress.size] using hsz36) hsize
+@@ -3139 +3147 @@
+-    (head := (⟨4⟩ : UInt256)) (need := (⟨64⟩ : UInt256)) (by simpa using hsz68) hsize
++    (head := (⟨4⟩ : UInt256)) (need := (⟨64⟩ : UInt256)) (by simpa [UInt256.ofNat, UInt256.toNat, UInt256.size, EVM.twoPow, AccountAddress.size] using hsz68) hsize
+@@ -3145 +3153 @@
+-    (head := (⟨4⟩ : UInt256)) (need := (⟨96⟩ : UInt256)) (by simpa using hsz100) hsize
++    (head := (⟨4⟩ : UInt256)) (need := (⟨96⟩ : UInt256)) (by simpa [UInt256.ofNat, UInt256.toNat, UInt256.size, EVM.twoPow, AccountAddress.size] using hsz100) hsize
+@@ -3163 +3171,2 @@
+-    simpa [Nat.mod_eq_of_lt hlandLt'] using htoNat
++    norm_num [UInt256.size] at htoNat hlandLt ⊢
++    simpa only [Nat.mod_eq_of_lt hlandLt] using htoNat
+@@ -3355 +3364 @@
+-    simpa [EVM.addressModulus] using h
++    simpa [UInt256.ofNat, UInt256.toNat, UInt256.size, EVM.twoPow, AccountAddress.size, EVM.addressModulus] using h
+@@ -3380 +3389 @@
+-    simpa [UInt256.size] using Nat.or_lt_two_pow (n := 256) a.val.isLt b.val.isLt
++    simpa [UInt256.ofNat, UInt256.toNat, UInt256.size, EVM.twoPow, AccountAddress.size, UInt256.size] using Nat.or_lt_two_pow (n := 256) a.val.isLt b.val.isLt
+@@ -3443 +3452 @@
+-      simpa [Fin.shiftRight_val, Nat.shiftRight_eq_div_pow] using hval
++      simpa [UInt256.ofNat, UInt256.toNat, UInt256.size, EVM.twoPow, AccountAddress.size, Fin.shiftRight_val, Nat.shiftRight_eq_div_pow] using hval
+@@ -3475 +3484 @@
+-    exact False.elim (hmax (by simpa using hslt0))
++    exact False.elim (hmax (by simpa [UInt256.ofNat, UInt256.toNat, UInt256.size, EVM.twoPow, AccountAddress.size] using hslt0))

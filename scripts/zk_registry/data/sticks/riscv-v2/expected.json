@@ -1,0 +1,1194 @@
+{
+  "definition_digest": "c5b8b3b5c02602eb85805996dd1fb8f64a98e521f1c277668f8cdc9da71068f4",
+  "definition_paths": [
+    "Sail/Sail.lean",
+    "Sail/Sail/Attr.lean",
+    "Sail/Sail/BitVec.lean",
+    "Sail/Sail/IntRange.lean",
+    "Sail/Sail/Sail.lean",
+    "riscv-zkvm/MainRun.lean",
+    "riscv-zkvm/RiscvZkvm/Interpreter/Cli.lean",
+    "riscv-zkvm/RiscvZkvm/Interpreter/Decode.lean",
+    "riscv-zkvm/RiscvZkvm/Interpreter/DecodeTests.lean",
+    "riscv-zkvm/RiscvZkvm/Interpreter/Elf.lean",
+    "riscv-zkvm/RiscvZkvm/Interpreter/Run.lean",
+    "riscv-zkvm/RiscvZkvm/Interpreter/State.lean",
+    "riscv-zkvm/RiscvZkvm/Rv64/Basic.lean",
+    "riscv-zkvm/RiscvZkvm/Rv64/Bytes.lean",
+    "riscv-zkvm/RiscvZkvm/Rv64/Execution.lean",
+    "riscv-zkvm/RiscvZkvm/Rv64/Instructions.lean",
+    "riscv-zkvm/RiscvZkvm/Rv64/Logic/BranchRelaxation.lean",
+    "riscv-zkvm/RiscvZkvm/Rv64/Logic/ByteOps.lean",
+    "riscv-zkvm/RiscvZkvm/Rv64/Logic/CPSSpec.lean",
+    "riscv-zkvm/RiscvZkvm/Rv64/Logic/CodeReqExtents.lean",
+    "riscv-zkvm/RiscvZkvm/Rv64/Logic/ControlFlow.lean",
+    "riscv-zkvm/RiscvZkvm/Rv64/Logic/LaResolve.lean",
+    "riscv-zkvm/RiscvZkvm/Rv64/Logic/MemRegion.lean",
+    "riscv-zkvm/RiscvZkvm/Rv64/Logic/MemRegionWriteWide.lean",
+    "riscv-zkvm/RiscvZkvm/Rv64/Logic/MemSat.lean",
+    "riscv-zkvm/RiscvZkvm/Rv64/Logic/SepLogic.lean",
+    "riscv-zkvm/RiscvZkvm/Rv64/Logic/Tactics/RunBlock.lean",
+    "riscv-zkvm/RiscvZkvm/Rv64/Logic/Tactics/SpecDb.lean",
+    "riscv-zkvm/RiscvZkvm/Rv64/Logic/Tactics/WP.lean",
+    "riscv-zkvm/RiscvZkvm/Rv64/Logic/Tactics/XPerm.lean",
+    "riscv-zkvm/RiscvZkvm/Rv64/Logic/WP/CFG.lean",
+    "riscv-zkvm/RiscvZkvm/Rv64/Logic/WP/Call.lean",
+    "riscv-zkvm/RiscvZkvm/Rv64/Logic/WP/Core.lean",
+    "riscv-zkvm/RiscvZkvm/Rv64/Logic/WP/Examples.lean",
+    "riscv-zkvm/RiscvZkvm/Rv64/Logic/WP/GeneratedCFG.lean",
+    "riscv-zkvm/RiscvZkvm/Rv64/Logic/WP/Loop.lean",
+    "riscv-zkvm/RiscvZkvm/Rv64/Program.lean",
+    "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/InstrMap.lean",
+    "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/RunInv.lean",
+    "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/StateRel.lean",
+    "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/StepRun.lean",
+    "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/StepSim.lean",
+    "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/VmemConstruction.lean",
+    "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/VmemReduction.lean",
+    "riscv-zkvm/RiscvZkvm/Rv64/Word.lean",
+    "riscv-zkvm/RiscvZkvm/Rv64/ZiskAccel.lean",
+    "riscv-zkvm/RiscvZkvm/Sail.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/AddrChecks.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/AextTypes.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Arith.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/ArithInternal.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Arithmetic.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/BaseInsts.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/BaseTypes.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Callbacks.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Callbacks0.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/CfiTypes.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Classify.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Common.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Common0.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/CsrEnd.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/DecBits.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/DecodeExt.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Defs.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/DeviceTree.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Eq.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Errors.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/ExtRegs.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Extensions.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/FakeReal.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/FdextRegs.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Fetch.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/FetchRvfi.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Flen.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/FloatClassify.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Flow.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/FregType.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Ge.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/GeQuiet.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Gt.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/GtQuiet.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/HexBits.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/HexBitsSigned.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Inf.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/InstsBegin.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/InstsEnd.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/InterruptRegs.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/IsaVersion.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Le.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/LeQuiet.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Lt.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/LtQuiet.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Main.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Mapping.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Mem.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/MemAddrtype.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/MemMetadata.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/MemTypeUtils.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/MemUtils.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/MextInsts.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/MextTypes.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Model.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Nan.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Ne.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Normal.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Option.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/PcAccess.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/PhysMemInterface.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Platform.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/PlatformConfig.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/PmTypes.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/PmUtils.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Pma.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/PmpControl.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/PmpRegs.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Prelude.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/RangeUtil.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/ReadWriteV1.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/RegType.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Regs.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Result.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/RiscvExtras.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Rounding.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/RvfiDii.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/RvfiDiiV1.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/RvfiDiiV2.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Sign.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/SimpleInterruptGenerator.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Smcntrpmf.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Specialization.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/SplitAccessUtils.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/StateenAccessChecks.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/StateenRegs.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Step.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/StepCommon.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/StepExt.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/String.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/SysControl.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/SysExceptions.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/SysRegs.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Types.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/TypesExt.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/ValidateConfig.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Vector.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/VextControl.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/VextRegs.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Vlen.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Vmem.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/VmemPte.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/VmemPtw.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/VmemTlb.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/VmemTypes.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/VmemUtils.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/VregType.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Xlen.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/Zero.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/ZicbomTypes.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/ZicbopTypes.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/ZicfilpInsts.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/ZicfilpRegs.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/ZicsrInsts.lean",
+    "riscv-zkvm/RiscvZkvm/Sail/ZicsrTypes.lean",
+    "riscv-zkvm/scripts/AxiomSweep.lean"
+  ],
+  "source_digest": "95eac4f0457e522bf59a855e6981adcf9f60efbf239e176e28b3cd3c15ebba94",
+  "source_files": [
+    {
+      "path": "Sail/.gitignore",
+      "sha256": "402cd9adbd7d9cba72ad6335679b567edac021cb855d6cffb6e8bc0df9e8e532"
+    },
+    {
+      "path": "Sail/Sail.lean",
+      "sha256": "24b92934ac9f5508446f2f5ce415b8f90522c3057d24f9063f93a0e46c69f973"
+    },
+    {
+      "path": "Sail/Sail/Attr.lean",
+      "sha256": "890c8435c6a7e13f07f20b746c88639baf075c6b21808d921f3bec4fda76211e"
+    },
+    {
+      "path": "Sail/Sail/BitVec.lean",
+      "sha256": "34c6424c6aa606206deaefa27867358a9df749fe3f53fe8b6f50cac64c601ed4"
+    },
+    {
+      "path": "Sail/Sail/IntRange.lean",
+      "sha256": "405efd008ef4811b8dc664ccb982d5d2838a53423875f131450aad139846e4a9"
+    },
+    {
+      "path": "Sail/Sail/Sail.lean",
+      "sha256": "133c78084dadadd19171ec91f411a52347846c8551ae30034c3e8939794f6327"
+    },
+    {
+      "path": "Sail/lake-manifest.json",
+      "sha256": "780fab5f74659e502ba85faf8e4e23b305c4d3e5d5c2682a79dfea1d3063ea89"
+    },
+    {
+      "path": "Sail/lakefile.toml",
+      "sha256": "b53e5770af9fb6c2e3c96a903ab74abed19862ff3b6883268fc6126312a3f9fa"
+    },
+    {
+      "path": "Sail/lean-toolchain",
+      "sha256": "85b71aa934e019c03eac6ec5ed97526956b4dff51b54c5d558fca8a5b34703e6"
+    },
+    {
+      "path": "riscv-zkvm/.github/workflows/build.yml",
+      "sha256": "1cf25f7aefe72a3a8dd58d34d6c440c87d44086bdd6dd3554cb76136a3f224c0"
+    },
+    {
+      "path": "riscv-zkvm/.github/workflows/release-oleans.yml",
+      "sha256": "062f808e8596bf978c5d089096ad3e6f10a0837c2578bdcd23f23fadd63c6b0a"
+    },
+    {
+      "path": "riscv-zkvm/.github/workflows/validate-model.yml",
+      "sha256": "f8a0fcc21230c9c82d3b2faf1eb265a6a3d563a14613185dc73aa18cc94d7a24"
+    },
+    {
+      "path": "riscv-zkvm/.gitignore",
+      "sha256": "5160cb886a81889841e2b0acfd0023d160a1365c23ea1051b325464142b75bbb"
+    },
+    {
+      "path": "riscv-zkvm/AGENTS.md",
+      "sha256": "218ed7dc63778c3cd0c38e8d4fa4c22b44e432e49f554ad38b4ee886c4830e89"
+    },
+    {
+      "path": "riscv-zkvm/CHANGELOG.md",
+      "sha256": "9ae222d80587e75daea8d134ad4201356f75d9406c6f70effd2de2cc42e35ae5"
+    },
+    {
+      "path": "riscv-zkvm/LICENSE",
+      "sha256": "044042876187d589b189c63ddcc67c6681a540f2f4ddae2303d2d4a28839e2c4"
+    },
+    {
+      "path": "riscv-zkvm/MainRun.lean",
+      "sha256": "222acc3f65e9f04be7f83bbd04dce470dcb7c823c1c649f67a22a7b7c38fa700"
+    },
+    {
+      "path": "riscv-zkvm/README.md",
+      "sha256": "6b50f8ea1e349f98e9b792b5f1ecde7d2af38d8765202465507675dd44a7e130"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Interpreter.lean",
+      "sha256": "eab7485d7f76dc6d1a5c753985719b1ed6af63199cabd4c774b4fd239782db02"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Interpreter/Cli.lean",
+      "sha256": "146506321b799e84510641992b8cdf93d07983ae84859bcb794062f27873e485"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Interpreter/Decode.lean",
+      "sha256": "8f2cae75c99f9c7e04d6f6cf629145aa21889c4aaaa5db05b67a5813a5a59d2d"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Interpreter/DecodeTests.lean",
+      "sha256": "499c46f75a465397b2f0cc2ce07a54a037ba34d513b4c8e527b7731996894012"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Interpreter/Elf.lean",
+      "sha256": "f4736e6bb7a3c3aaa4a174e970dec71ed8e70b5c70feb83101d134719ca89593"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Interpreter/Run.lean",
+      "sha256": "3b4cdb11d18732c1902905fec2318b3031b6befc25139bd433ebded7f4956b46"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Interpreter/State.lean",
+      "sha256": "aab3799a3a4f7d897d48b5840325b8092a95e384e90efae594e6c4c891615958"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64.lean",
+      "sha256": "189a73e1a1a3a245f6d87f0076ba83ac1d44940ddf04649807319e07082a6035"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Basic.lean",
+      "sha256": "8c6d7904dea9381ff74b33f3fbc370a47e07625e2a08cd777ca6cbc9a24e1e94"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Bytes.lean",
+      "sha256": "44975f2c03e54bdee21e8ba370e31101e85e07d04d9e6227a5f6bde69e73a8b4"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/CoreTactics.lean",
+      "sha256": "b5706f0e5fff7d75a461477820e97f9da4ba56300cf7d80a32887700ec49f5f0"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Execution.lean",
+      "sha256": "297a3bc8480039390f59bae47e86aa9ef36a38960fc27212e0d05a33eeb0ade3"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Instructions.lean",
+      "sha256": "a22ac4f45fc55200730979fde336fdd949788cc3f372eab9e112df2faadba5f4"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/LICENSE-MIT",
+      "sha256": "59e20153953235cf816d3e2b2c3acc1166ba2f3f8bacb99ac0bde53287fb9e7a"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic.lean",
+      "sha256": "cfbfc5fae31d202249cce0ef5ec907f66e058d87734b9e2db0b4ef3b60458dcb"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/AddrNorm.lean",
+      "sha256": "cd2427ae1378f41208d4368306a2d4293b8e630bb57c985bef0aea5bf60064b7"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/AddrNormAttr.lean",
+      "sha256": "0a0768da949080348c4e1001182740919cd90ebc8cbece693f951338d8511625"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/BitAux.lean",
+      "sha256": "bb57d4d1176798e3829fe86ac6b8779c0083d0bafb82b62397088cbda659a210"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/BranchRelaxation.lean",
+      "sha256": "a0bd68d9701dc142b05e5ee0a522b8879988856ef8057064a184875642dcba5a"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/ByteAlg.lean",
+      "sha256": "361246fc6d08b5117f8ff03ab870635c18cc773b531873470a997f2dd4653f9e"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/ByteAlgAttr.lean",
+      "sha256": "8f8d0a0c5bce7cf4af0a6b0efb0f58c907bd51d67055431ec132f5ca8f748f11"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/ByteOps.lean",
+      "sha256": "b8750ee05cde36c25bb6e7569fd78ed5357de02ed2e5b2c7b057760102312b4b"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/CPSCall.lean",
+      "sha256": "1c5078a11db73ba91d93aa703502929e5664da3f7ebbea25d1e599335d64482e"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/CPSSpec.lean",
+      "sha256": "fae77bc789af65256614b308e90f6a01def979faaf7014aec77959adcfbacfdf"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/CodeReqExtents.lean",
+      "sha256": "f21c1dbec6e9fda243e8c3622088f79c5345adafdf3917426c06dea0da7814d4"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/ControlFlow.lean",
+      "sha256": "1099f7de23fc17f2f8e457a3540a82ffbf54a795b741e9d53b9b1eb8f3c1fbe7"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/GenericSpecs.lean",
+      "sha256": "4a33807ef1d076a2420335a7a7202e93cf03b6a70e5a2c9aff87574817d7dde9"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/HalfwordOps.lean",
+      "sha256": "b9262a387599f0972e02350858a9473ec42eee378535dd21fa7cbe55f750340f"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/HintSpecs.lean",
+      "sha256": "08b289deec92777bcd2ecf5e1973dd856d4651d28870531652a35b68f9b2e75d"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/InstructionSpecs.lean",
+      "sha256": "8da4fc4515740202d220cf4260e9b90668aace653fcf0ffb7df5996237a19df2"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/LaResolve.lean",
+      "sha256": "f7e340d6587f495ce6340de91bff43bbe0dfdb042a3f0b403c2e18899d4978d1"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/MemRegion.lean",
+      "sha256": "4fdb0ed4cee46b21b7b3b291fabd9f5d01cc47c81369345289ada2d8af08b3e8"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/MemRegionStore.lean",
+      "sha256": "cd1a436e94fb33ec3eb33ab972f15f6aed5a9d5b11f5a4603e0ad3f589095f5f"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/MemRegionStoreWide.lean",
+      "sha256": "0a492348526745a311b3cc495da5ea3dafccde3398241be53aaa096d3d795c63"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/MemRegionWrite.lean",
+      "sha256": "36834b1ce51af196c839010e5a2f7a98c0c4d5e09ffb71b080a4096e769f44a1"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/MemRegionWriteWide.lean",
+      "sha256": "4e42b3c8eadaf59fc0bf894491742f0822f19c313fcfcc1a03f71f2883f95aea"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/MemSat.lean",
+      "sha256": "5d64017820a8f7b4a93ce1a78083e5240a8d73c66f59ad10086941ff33d85f4f"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/RegOps.lean",
+      "sha256": "9772c2385aa21b970590ba4a603638827c2f0f279c5579600faff6cf660d5db2"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/RegOpsAttr.lean",
+      "sha256": "ec2c02002daee0ccf75cc1495473743cfea35e3ab0ba048b2b07be669a0f6755"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/RemuNat.lean",
+      "sha256": "259063204cf7877fdae513b434088eb53920406604c0c739984a56eef6d65aa2"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/SepLogic.lean",
+      "sha256": "525cc39dbce1cee6e535baf6c1880a7596729324db1330acb84942f411d66038"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/SignExtendSimproc.lean",
+      "sha256": "b110480d179302061d755696a704324e7564251d46cff2dd278bfe9272f49340"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/Support.lean",
+      "sha256": "69ef62c20ece71d571be99a02828d8295003204dc20db8ab7cb69fab735270f0"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/SyscallSpecs.lean",
+      "sha256": "5ac4d2c231471c9ce382698fdb0020896dcc7ccff2616e42aeb52b4886067001"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/Tactics/DropPure.lean",
+      "sha256": "0362ce803e5374534e933ebabf2c2ce4038fc8d97eb585bb473a880463835447"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/Tactics/ExtractPure.lean",
+      "sha256": "ba5025746f73baab4a1a09959feaf6239a9e23bc4093fb47742b5c706603d50d"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/Tactics/PerfTrace.lean",
+      "sha256": "3286293a9caf130bbc18221dd0f4f499b42e37f5a3a4106c73c0e8c3789a3ccc"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/Tactics/RunBlock.lean",
+      "sha256": "ad00f7ab4e8179b1f79748657dd06aedb4143dfa2e3be3b87fb99a31ea3f5353"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/Tactics/SeqFrame.lean",
+      "sha256": "abe4c72e738bb29092ba6b12b7ad79dedc117007a9d1f7825c7805a6635bdf75"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/Tactics/SpecDb.lean",
+      "sha256": "aba593bc24c78e58f4725178ef10fd20623d44d5d180ee15347472220cb18c85"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/Tactics/SymStep.lean",
+      "sha256": "bc58229e2e41dd9b566e3cb425237b8300c1825a5c8ef7d9ab4c3adbdbd62ffc"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/Tactics/WP.lean",
+      "sha256": "6f8a781dade57c97fa4eff9eb824d2852548cf3828ec0c6b343d20df7deeda82"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/Tactics/WPAttr.lean",
+      "sha256": "26c80db72fc33105d8c621a07e487851769f2b734a70826838ff803705f651a6"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/Tactics/XCancel.lean",
+      "sha256": "41307878969cda58dd60b016c314b7e4e999e2f106fc399015deaa82a02cee88"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/Tactics/XCancelStruct.lean",
+      "sha256": "6ee486800f77bcf42d939527aca84bfcd65df533e1ad5809a93de5920322cc68"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/Tactics/XPerm.lean",
+      "sha256": "42edf4a595dac11770e88c34355f315f80cf4f28e5a90f2e99f93e1f3509b715"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/Tactics/XPermCert.lean",
+      "sha256": "4daf4f5f695bd9a6f6e61df9abedc4bb763aec216505463bcec8466e584aa037"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/Tactics/XPermChunked.lean",
+      "sha256": "61393785f8d5c7f051e92a28045de9d8595827d49d627f0b2ecbd74b997aa401"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/Tactics/XPermPartial.lean",
+      "sha256": "c13407cb278701feb62b3d33510c244a1fe546dd65034d85e656e2b6ce490a4d"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/Tactics/XPermPure.lean",
+      "sha256": "226c68015e9fc614144cccc06d81492a406382bace1e8a0bbc46b1af0c910606"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/Tactics/XSimp.lean",
+      "sha256": "6374718c7acfb2ed506eb6761661fc8cc730250b7497d44f2c2e6ee0ebb4508c"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/WP/CFG.lean",
+      "sha256": "4519f318fcca5d73e918bb05855a94761d816d8a554d28f7f232e3c26c5d5ee8"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/WP/Call.lean",
+      "sha256": "f51956808800fd15f9e4ce16fb39105e4bccc3ec2ef2ab49d81665f282fc1275"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/WP/Core.lean",
+      "sha256": "747cc20ee3c446e44700eb9d76a8bf7d5720e3b42667d192044c87cda47cfe0c"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/WP/Examples.lean",
+      "sha256": "f0b834a34a05cf4e7f313ac94a07f20a4d0ea84e1985e7b20567b70b9d6d9d84"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/WP/GeneratedCFG.lean",
+      "sha256": "1dcb574a468edb85d413a6e3b0edbefbb6386f8d557c803331438ab71737600a"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/WP/Loop.lean",
+      "sha256": "6d3482f898e41f70399451daa117bd9fef6d84f55cf62edcb1799e5806d9d33a"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Logic/WordOps.lean",
+      "sha256": "23d42383205988752695b36a2b703045bf771700f9e0316d8fb40ec1a537658a"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Program.lean",
+      "sha256": "c75e1946190b84f5697a1bc7170ce98aa32f1214ded48c897792f3fc67ba9977"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv.lean",
+      "sha256": "d49c56c55e27cea430433773534fb3e1efeafa6999f3d7778df8a38cac417d48"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/ALUProofs.lean",
+      "sha256": "dab7c57a120116d7e397e2516d35eab2cd04ac6baf8d7d35720cea12bec67419"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/BranchProofs.lean",
+      "sha256": "963693d527cb250436b4efd5ce5c8cc3ba045516226e483162488585fe007551"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/ImmProofs.lean",
+      "sha256": "74dd206c84dea5e263fc427bfc160aa4efbbf2d69afe0b8ac6e1019f53f0dd89"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/InstrMap.lean",
+      "sha256": "f03665eb591ce55d3352672069f4d89bb93b906ab596ef17c2ecc8c4042d5c6f"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/MExtProofs.lean",
+      "sha256": "cfb3f672da119009d34c38e1f3dac2516dd64580b5ca465b553c8883fabada1a"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/MemMonad.lean",
+      "sha256": "c9e28a7c958f8462ae9abf7fa85151e1eea57f1cdcc223aef8d9426f99ab0ba0"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/MemProofs.lean",
+      "sha256": "272f7b9424e9c07ae90ab6d74052e42382aaca404ec63cb430f4940eb84d081d"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/MemReduce.lean",
+      "sha256": "799b397604780705b0c4735121c86a17aee1b327df3ae27678abbbe88cf417cb"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/MonadLemmas.lean",
+      "sha256": "6cb6102c0d6a16659576910f8d411bf99c4b91def52364bba16bf85e07facbb0"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/RunInv.lean",
+      "sha256": "8ff5d71ada1767cdcf5ebcaa7814f8f425593cd486b76c41f2248f9bf955545e"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/SailStepAttr.lean",
+      "sha256": "b1ebf92b762d4d5f587ee32cb1f795a37abb886272c5292b7c59754d3439dbcf"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/ShiftProofs.lean",
+      "sha256": "421edf45ff33c83064e16b9b3d540141a440820d68adbff55e5778645a14c955"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/StateRel.lean",
+      "sha256": "6568831214625f9703e3185548ea2455eca989c04b1b2eca72c638c90f68f765"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/StepProofs.lean",
+      "sha256": "487bc7f77325f93962a670b6e9c5e332e451967cf9e0d22e20ff17fc07f274bf"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/StepRun.lean",
+      "sha256": "a786eea09b497e937c18d4db829d649b6686ab98b66b77a38b9d2e5f307592f0"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/StepSim.lean",
+      "sha256": "cb7e5c955e319be93adecf0b8d12f53a211a93446ada59d0a3afbd9ffc2220d4"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/Support.lean",
+      "sha256": "6b086709c23391b00ba72a6a1b514f5a4993152ea9cffdb1eda69f7aaee8d1ae"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/VmemConstruction.lean",
+      "sha256": "e4ae26a24b9d867d305f489067b3acdfe57d41551534b181c25037acd9dcd8f1"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/VmemPresent.lean",
+      "sha256": "5cc9f714067e830eda814efe4512f354ba9486ce7ce21089631f5ba488272b54"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/VmemReduction.lean",
+      "sha256": "b469e2949cefdaa18904986d286a89d428fb4dece9f2af9e796366afb5235ab6"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/VmemReductionLoads.lean",
+      "sha256": "e2c392173d2027770cb7fa70086f3199c89110090169627f222840a0e7fe5a4b"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/VmemReductionN.lean",
+      "sha256": "f9eaaa9fb444b7219cc62eaebc935e3cbd847bd9393e77bfa9205548909f86fb"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/VmemReductionStores.lean",
+      "sha256": "ca3933ab906dfb698919ee8ca46d1bd0c9d02b385964e1b2fda7ebc78ab40a17"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/VmemWriteReduction.lean",
+      "sha256": "018c44e165bf2e1c7c63967b166bab188c2818eb02a121fe73b22718ae7f42c8"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/Word.lean",
+      "sha256": "548da82615fafd40cfe25c24f5825d8a41e7640ee8b1d66054b544a011904283"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Rv64/ZiskAccel.lean",
+      "sha256": "7d461320ee604589572c83ecdbde9b89c71f90ab8f0763af5eb29bff22c7d087"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail.lean",
+      "sha256": "9b310be456ce06432f08407f15258ffb365fc33948a665ef3845d4a0630d6883"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/AddrChecks.lean",
+      "sha256": "9dcd248f7f3fcb13e296c8c1958275a9d94a3284e44757b281d419f761ffa4ad"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/AextTypes.lean",
+      "sha256": "1169f12d250c3cbcaf36e8644fdd90092de5541454f181f326381d6427754fec"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Arith.lean",
+      "sha256": "752947c160bb32ecf2097659f8b84f3484114faac27d777ee89c2699ddbcbd58"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/ArithInternal.lean",
+      "sha256": "5edf945e4ebd88e1b3a27dd3dbdddd8aa4c7b5cbb278bc50ec07bcc74a4bfa85"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Arithmetic.lean",
+      "sha256": "89a3907aa392872b62ac843f96272b9787f4c1d396b2858aed0cdd137166f81b"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/BaseInsts.lean",
+      "sha256": "407565e4e4eb63ca1f6aca6e9cbda4f59721952cd60c50420f39e7f8fb4d23d9"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/BaseTypes.lean",
+      "sha256": "60630aa7eedd2c5c6843ff29125ad90589dc2d30d64046023cd1ba93f6623a91"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Callbacks.lean",
+      "sha256": "d6eac4c88cf4b42425a5f7525f50cf85da487de6761512bc1930a37315c527d0"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Callbacks0.lean",
+      "sha256": "f7977b8b1d76886a808acd255678f884734e027dd8a64639ff2d7b1e550812f7"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/CfiTypes.lean",
+      "sha256": "5f70bdf5d09ff4269483b3beff06755aaaba28aa59075e44e5162491d98a275e"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Classify.lean",
+      "sha256": "c811b297f39d87ff8d772f0c5a6af9be0a1c4a47b02ce4e1a7c4642461542259"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Common.lean",
+      "sha256": "8c6ffc23374ef9974fba05a64188fb5deda79e39271a59c9e91c83a0d1270708"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Common0.lean",
+      "sha256": "bf69f46913ac4ff610cccd64e9f78370f260dff730e1b15f63b5e5a4922de531"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/CsrEnd.lean",
+      "sha256": "b867782eaa9eb164afc370db9402bf1ba7a3430c6a5c7e279418e714a3b74f1a"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/DecBits.lean",
+      "sha256": "7297613a4dd1685d044ccdbb7062c812e6f1e05c86e7f2566d7d48acd5b7a7c0"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/DecodeExt.lean",
+      "sha256": "bcf025e4a13f46d8e8c7ba8ac21c5d7574fc874d2dec41a198591f8f5181523c"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Defs.lean",
+      "sha256": "ad87af774cd27d88a41bb5d0fdfafe845d948202bc2f1e367dfc66c8c668a1ad"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/DeviceTree.lean",
+      "sha256": "65715fd3fef4824b5b63bc52213c037ad59929c3804571b95b68c7609115166f"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Eq.lean",
+      "sha256": "907669c8586da592bced4f46d639fb8e8733f8966fe036f0e49420b75b044004"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Errors.lean",
+      "sha256": "19cb052f5883bd56963bf7cee64682b27a0b7fa903edc3064f194077dcc1209e"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/ExtRegs.lean",
+      "sha256": "dddcb1ac12aa6f937076c89fb64d0ed588c3c3b44c59ef5d024cefdd2f36c08f"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Extensions.lean",
+      "sha256": "e0dca03c6883229e7f5123b8cb1c8301fb56136599f07524a345fd5f74fd2148"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/FakeReal.lean",
+      "sha256": "8fcd2b943d0c4e86f06194a32b24ffbcab0cfc02124804f27212e29e0ca6cba7"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/FdextRegs.lean",
+      "sha256": "d9e1f7a51d90be7850e580ea2b2b3bf140472acac62858fd9aff96f9d41e28e7"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Fetch.lean",
+      "sha256": "21a369fe5b13aab43a6d20385a770bbb7b90469f8455b6c272f62080188186b6"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/FetchRvfi.lean",
+      "sha256": "eca8851533baf63a70f0f5d638d9447a8a34dcf23f8d2fa761331d56239bfbfe"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Flen.lean",
+      "sha256": "9f08944b95ab6967c1a6e9166b055053289951fce84ef98c3cfa326f27f40359"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/FloatClassify.lean",
+      "sha256": "1d1f0f15d44c9692fd801791a280e4e5c24a8e0511277b87d5a72bed546c2b2e"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Flow.lean",
+      "sha256": "9b881b0e1b14f4c06be18d83fef6c28f3109775c58340cc1262a7334564c0887"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/FregType.lean",
+      "sha256": "918595cbed9cab7b29c26de2af9bf0bdcf513a9544dae074a08584cfc976d17a"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Ge.lean",
+      "sha256": "9398955259a9d026f246c22ac7191b6ecec2ae51fd3b969d01e457e701557d62"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/GeQuiet.lean",
+      "sha256": "275798382032e0213a6ac888df5bd6d8ece09dce1ff1c9bf9a34e6f1ff860fb4"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Gt.lean",
+      "sha256": "80091bce57e0db4b4f2e7600048159daed312762af9479c5f3f79f09569914a9"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/GtQuiet.lean",
+      "sha256": "8b24aceb5b9c2bbed72f709bfdb47d132933c9fb657550089e4634cc22469783"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/HexBits.lean",
+      "sha256": "8efbfa31e672d09e08b8dc057c133ed15615e5fe561df95dd342fe57956877e3"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/HexBitsSigned.lean",
+      "sha256": "c71fc368c84c7a4d5f984034db30cd1346affd0757ba966d0b2656a7aff7781d"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Inf.lean",
+      "sha256": "78cae217a75defbdcaeb7895769a968da83ab3cea3390cc2a67a95d8fcb1d6c8"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/InstsBegin.lean",
+      "sha256": "582b720d74da63205e18003fdd68adbf882f55f41b65e1b6d4315dc202d96ebc"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/InstsEnd.lean",
+      "sha256": "5a7a916b5d766a8d7ac28abb2f57b7bd88eaafa6d20992ca7ca6da4b8f7a6790"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/InterruptRegs.lean",
+      "sha256": "fb7992d3b78a4556cec197c25d54677b8fc0de8b7bfd08a62b65d05bb5e8562e"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/IsaVersion.lean",
+      "sha256": "84bf5f12ac611c0c3fe3a95081a5ecdcc28dd8c1cd79c44511c517ba29370302"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Le.lean",
+      "sha256": "d4e99ba035cfc81be8cf6907ea0c0d5f165b9d467a554ca89f750a12b28d1d35"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/LeQuiet.lean",
+      "sha256": "bd4925236405cd27550b9a57f4490303cd7d88e55c827aa2e59de85b732b3b60"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Lt.lean",
+      "sha256": "27b581b0c0574e272663935b89f047d07398f5c738b2f6e2ff0245d6f983dde3"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/LtQuiet.lean",
+      "sha256": "1b43f701d49436c346e19d6656be929b11eb0dcb2c985b679021d8a9d354881c"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Main.lean",
+      "sha256": "6a5975b10541e884bd921af30633c555e403fca99a37fb74a1af28f1294e71a7"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Mapping.lean",
+      "sha256": "91b0416628305fbc12bef85e7e6b35c97914102e9632ade51635a72beefb9555"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Mem.lean",
+      "sha256": "89df5bd484afa66c4e96265a7d8d96c323054a0eac5e2511c7a65c055964193d"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/MemAddrtype.lean",
+      "sha256": "7a44c9bd76bf022dc6e2e5ec0a798b3f54ace7766e0463009732ce407dc0b086"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/MemMetadata.lean",
+      "sha256": "39510556c451cee937499b750c9f1c9f2e0e846681ea3b4b773777828f4cd058"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/MemTypeUtils.lean",
+      "sha256": "5ddb4c45243dc4f28b0e1ae819106dd843b1d4e55b354731932566c407d4585e"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/MemUtils.lean",
+      "sha256": "58ef641c5bc4fdc9e038ef2462c97323aba6e3d54af463a8656ec15a46eb95ab"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/MextInsts.lean",
+      "sha256": "e20fd71c6777f78474fb2621af18bbf420c256dc7b9d9796063554e3420ccd10"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/MextTypes.lean",
+      "sha256": "2fa91ea1c09b6bfc5682c1d9d43f3ffa26a194eb3482757254285cbbb3023d81"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Model.lean",
+      "sha256": "b8c55f9755f5f2371365c3b106886a4d29f67339957e86da2a3167398ef2e41d"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Nan.lean",
+      "sha256": "aa5558bb5594b703a3d5c3cd6184e5a87033a2fa7173614cdc28db96bf666e25"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Ne.lean",
+      "sha256": "f17f484b9ee58f10d5ff48abeb026b1632fb51de707cdd1075efe89f51b95905"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Normal.lean",
+      "sha256": "8c8e6196c193b31a8dbd8b4b511b97b5be4e4443ae51dec6bf87e6acd43e58f1"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Option.lean",
+      "sha256": "18538b802c6d78f888b4e6daaaf0375a7a4c9d95bd8fb6784aacb7cf4929a134"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/PcAccess.lean",
+      "sha256": "46578346103ee9833adc2dce116cb23e815ddfcabd85378e02fd8f3dadb1f7e7"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/PhysMemInterface.lean",
+      "sha256": "880c8a8e1fa22b3605d5e8bfadeea744004641fe32739b8730dd0eb3f85fc0a8"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Platform.lean",
+      "sha256": "298886c2e23bb30616727695dbef27d9b6a0e4e9688a859a7e82192bc0c67e87"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/PlatformConfig.lean",
+      "sha256": "c9158b5c39f0c8b6042cfac4c8871563f3325fcab1b7157885d5576072a2d129"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/PmTypes.lean",
+      "sha256": "03de955bb79d6c9eb1d36ced0435c3c50ea067d461cd0742fb8573cb2e963f45"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/PmUtils.lean",
+      "sha256": "1790b0b6616901f2167b5049f1e0a2f3f8935742e384d4ea5ee696aaded759cc"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Pma.lean",
+      "sha256": "bedfc2b1be8a974df8f5d04401c5d20e66488eda3fe1fce7d5a66dfa83c3d9db"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/PmpControl.lean",
+      "sha256": "dd6ef28d0e3e2c72f4aa659007c04484a4c48da882f118bb9dd865e8c52488d7"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/PmpRegs.lean",
+      "sha256": "f7b2b5fad1d6aa66226adf5f8bc74b74943d3a82dc6fad173703a670d5bd9892"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Prelude.lean",
+      "sha256": "661a5e7649eaf293516ad7af1fed96d86bd3482bf7ee86825f0f32b63b097415"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/RangeUtil.lean",
+      "sha256": "98f6629f9d4f18dcca665940bc95b3b7f15601be533e7dc5f0b26f54155eabe6"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/ReadWriteV1.lean",
+      "sha256": "6b66a2db158476da4cc6254707b6e98a21331e0fd1570b8673ad97e0199113f2"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/RegType.lean",
+      "sha256": "2aa8f9e9d9bb95d1670fb1eee2d5271842580861e079b162f71a24a0b1756fdb"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Regs.lean",
+      "sha256": "fc074d6502b5495daddc65aa7dcf901363ddeeaa5a48a51092f5b08159429685"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Result.lean",
+      "sha256": "bc4fbd8f242ab4331c52c8b3911dbdbafa1d33c1185190ba08ab0d88a0762e0a"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/RiscvExtras.lean",
+      "sha256": "5f2c342b7350c57ef0a5982b155efeeb65a47e1eedcf2040d156f9765e291609"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Rounding.lean",
+      "sha256": "708091ccd2a98c9be5197047646f2b5f00a6c2dedce4647d3d7abfc11fa185e1"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/RvfiDii.lean",
+      "sha256": "fee721585101ade2b7dc23906e3c9b78f9b787fa0d511ebc30a6c73e367e4eec"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/RvfiDiiV1.lean",
+      "sha256": "93121d5513a9510f6cb53c8a1d589e367082c716ac252a726ff3a2f41c4813db"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/RvfiDiiV2.lean",
+      "sha256": "b1d91e587b8450cd167d2504c7c2b966e7d63cf3057eea6854d43c6e9b6dc2c9"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Sign.lean",
+      "sha256": "6c00b4dafcf44dbf166ee267fbe6b68a1140b32ec0ceef311ecbc890113d1e82"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/SimpleInterruptGenerator.lean",
+      "sha256": "682a7776a514c12334134cd055e62bf0c5c127bfcb31c2234afc10081ba6e78a"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Smcntrpmf.lean",
+      "sha256": "d965e9699149c9095a5f0beec0daeb8908f1ef272d7eb0314d01fb29de3c1751"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Specialization.lean",
+      "sha256": "47348d9288b3a202bd3a68959cd1d05d3882b707dcd30b87210b0abaf24c1cb9"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/SplitAccessUtils.lean",
+      "sha256": "0a04cfc96bca53503be1d525e83074061d2ee0f9d65c19d92c2912e1511557ea"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/StateenAccessChecks.lean",
+      "sha256": "f392a716473fd5a71c98e88cd054ab94dea19569fd567f8ca11f91b41d6dfbcb"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/StateenRegs.lean",
+      "sha256": "d9f71170be63d7d6a99c3e9ddc8e50fdf30c3c53975c928ef476fa55395abfd0"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Step.lean",
+      "sha256": "c90bc4866ae734bd3f0475e64e4835526ef0946a15d3b785aad8611ca84f0edb"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/StepCommon.lean",
+      "sha256": "cb166acd808c326a9853da70bb50c455cb657fc8f3b04e403ee44b9433415ac5"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/StepExt.lean",
+      "sha256": "a1cd5aa88c3646777c6e4d0dd3b763379ddc53220ba27399288375c11081468e"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/String.lean",
+      "sha256": "ef7a19548659aacd7137a3f202544c7c153afc3f06d2a343be29438a1d5255a6"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/SysControl.lean",
+      "sha256": "b774a312cf09a56f8c7091350f05432dd1aa0164de1b60b48bf68e72a1bbff0a"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/SysExceptions.lean",
+      "sha256": "fa9b8314d10f8a579ddf6ff0a0c2521a04a70ea41bdc63bc4dc6abd3652afea5"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/SysRegs.lean",
+      "sha256": "fd6efb5f1cdc0381ac2efe1ecb1af6104744453e55ac4a6dc957cb3481486094"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Types.lean",
+      "sha256": "d36228cfba6a23dcddfa502aa11301cbb8028dee716a7161cdba7fd50e14d590"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/TypesExt.lean",
+      "sha256": "483d48d3aadd780b411aa42fd0fb3e829d3f4dc7e4b4b140d140f25a349696f4"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/ValidateConfig.lean",
+      "sha256": "57cbc9e57c605cf8150c9145940a19f12728627ae9dc1b999c65d00227617cb2"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Vector.lean",
+      "sha256": "d1be9565f1ce569a0b838cce2c00927c219e5f8fc51c105086773e88367df427"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/VextControl.lean",
+      "sha256": "3496af103287945ec663db6910a1cb39586df51decc1d6e91f3a5c174f5db8bb"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/VextRegs.lean",
+      "sha256": "6397751d30fd3972ced5000fbf4c8248cee84b6615a0ca6844bb2e7c7d2d1add"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Vlen.lean",
+      "sha256": "09b52e149e951f072999b342d68bdc868357a05110045bd98a4c1f826ad7609d"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Vmem.lean",
+      "sha256": "43ad120822608d3db77b35c4d69bb962b9d826b7c5d78ddbc130f321630c37a1"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/VmemPte.lean",
+      "sha256": "dbde9be40abec210f301096016baa870be2e6821b19df2481f05fe15f8db92de"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/VmemPtw.lean",
+      "sha256": "04982b2efe303c6b44e77f25541b6ad436e875fd7a63f7d65f2681ada2d32650"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/VmemTlb.lean",
+      "sha256": "0ff6483adf6d19affd42b4e10ddca6ddee6bc46ca9a3ad6857ef0c58db5ea49f"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/VmemTypes.lean",
+      "sha256": "30ad7a2885f1b92a83c778dc85ee2f46f93df7383f75a9171214998fbadb84db"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/VmemUtils.lean",
+      "sha256": "f887e745e40e98e9d08dc1dae1fa4b99ca71a43ba94e4515369cdda3729366f6"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/VregType.lean",
+      "sha256": "fcd3c713465523aec760ea503f5e055080567cb489bef4a18506e3c6002b70e6"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Xlen.lean",
+      "sha256": "4e54686eb53cbba5c71519a0a6065b518d7feb5c189acf41d89e42e3326a54a8"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/Zero.lean",
+      "sha256": "f6e665a5f9fe11ac271fe4a06f46707934c15f4e5d53f91d78ac275f90db28d3"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/ZicbomTypes.lean",
+      "sha256": "31811988b1a9df076ae73960ddca298a49b39b495ef5cfe44395697c0d8dcb32"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/ZicbopTypes.lean",
+      "sha256": "73776c2f4ed1ac398265b57220e7b9996c79e0ac43ce36c22af624e79f4b5e82"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/ZicfilpInsts.lean",
+      "sha256": "b205d2d77d09e67525db4291aec0c64f32d65e9f4015d06c5232d937f0b72ea0"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/ZicfilpRegs.lean",
+      "sha256": "8a93744cfd9e1a82193fbc6bbbb88b2d802d1c8293fe620826edb70390a9b766"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/ZicsrInsts.lean",
+      "sha256": "eccd00d97669a3e89cb51b95901de0fa673462d28caeac4a990e5dee03d4544d"
+    },
+    {
+      "path": "riscv-zkvm/RiscvZkvm/Sail/ZicsrTypes.lean",
+      "sha256": "68e34702c538349af68bf79db161e29b02f07fbe60c298acea7ec18e07102bac"
+    },
+    {
+      "path": "riscv-zkvm/docs/agents/wp-framework.md",
+      "sha256": "b6906579ea2bfbbb92b1ce435093bfc589d13822d9bda0253f08c427cb773962"
+    },
+    {
+      "path": "riscv-zkvm/docs/interpreter-roadmap.md",
+      "sha256": "0d727ddd99f338d81dc2391d64903ca46990c9cf686d315e074c81fec1fcb748"
+    },
+    {
+      "path": "riscv-zkvm/docs/maintenance.md",
+      "sha256": "e0c05c0231408b9f7ceefd16236f3d5860c031fb655cf52cf1fbe047190b64b6"
+    },
+    {
+      "path": "riscv-zkvm/docs/refresh-review.md",
+      "sha256": "f1aba7ffa2a2df89f3e70a47dc4bf3db51fa69d2b74f27f493a2a3689341eea5"
+    },
+    {
+      "path": "riscv-zkvm/docs/structural-cancel-baseline.md",
+      "sha256": "f743fc3b22ac4c3d0368a8d575d0aebef437bbea51cf1dc389251a2466ba584f"
+    },
+    {
+      "path": "riscv-zkvm/docs/structural-cancel-design.md",
+      "sha256": "8cdda35f290f4879dedd717273514e0534d4c1611aacf0c297fb9adb7a124b3b"
+    },
+    {
+      "path": "riscv-zkvm/docs/tactics.md",
+      "sha256": "9390b10bc791c01c75c94237f041c0060d2e2bbd4d920a44d196d9b2e7fe3f5a"
+    },
+    {
+      "path": "riscv-zkvm/docs/validation.md",
+      "sha256": "03fb04febdf266c7b5dd47a0f568c69ceb68f2c26daff938926ef8e8e6aa695f"
+    },
+    {
+      "path": "riscv-zkvm/lake-manifest.json",
+      "sha256": "22486744d083276bf187a30370867101a1f61012940ff76951741264ac300961"
+    },
+    {
+      "path": "riscv-zkvm/lakefile.toml",
+      "sha256": "b1a8baa62c4582161864b0d23ceb770719d8bc4ac08d37666f22cba4316a3073"
+    },
+    {
+      "path": "riscv-zkvm/lean-toolchain",
+      "sha256": "302cd63c54178885b89e669f33b38f12f4dd7ae7e5cac537b3203e3768d8fb2b"
+    },
+    {
+      "path": "riscv-zkvm/sail-import/PROVENANCE.toml",
+      "sha256": "0903212b71afb6d8bc718e8b2025f94c025e6d57c5fe27019a4d8f86110f01fa"
+    },
+    {
+      "path": "riscv-zkvm/sail-import/rv64d_v256_e64.json",
+      "sha256": "a3b545eb174247f5552a27dbb60f32c4ee95af85bdc8ea92ce0661254fbff674"
+    },
+    {
+      "path": "riscv-zkvm/scripts/AxiomSweep.lean",
+      "sha256": "3294ed648e9a5fd374a18d690f99198dd98f2fde65d3f6fd50fd057293f47449"
+    },
+    {
+      "path": "riscv-zkvm/scripts/check-axioms.sh",
+      "sha256": "75cd8fae7848594013620cf07afb69c606115d58040249157274588058f2bbdd"
+    },
+    {
+      "path": "riscv-zkvm/scripts/check-forbidden-tactics.sh",
+      "sha256": "9c4bd60052dd45efe51847fd377947f187dcd7a7db34734bfab975f36dbc5ad8"
+    },
+    {
+      "path": "riscv-zkvm/scripts/check-model-pin.sh",
+      "sha256": "dfd85009c866dad79cacad98fb0ca008a60294d6169f98d312f2e8098ca78440"
+    },
+    {
+      "path": "riscv-zkvm/scripts/check-no-warnings.sh",
+      "sha256": "6bca472e7730939563a09ad35f5b8fd546a655e12c111582389bd95f540b1070"
+    },
+    {
+      "path": "riscv-zkvm/scripts/check-relocation-logic.sh",
+      "sha256": "8085174fe8269d46a1579110a590eb1cecb80d41f997e4e91979e4f23d452dba"
+    },
+    {
+      "path": "riscv-zkvm/scripts/check-relocation.sh",
+      "sha256": "18e1c236f98c722965c8e028946eea9a6d412d5513f2f16e665235f9cfa256c2"
+    },
+    {
+      "path": "riscv-zkvm/scripts/check-unimported.py",
+      "sha256": "82ad36131c82ba867fc17b9c692ebf8714915df1928c659a5dd107e88f4ac40a"
+    },
+    {
+      "path": "riscv-zkvm/scripts/make-test-elf.py",
+      "sha256": "05c40a8b6da1ec9d2ec2bc4aa3ed7f8fabbcc84db582d74f783c663897815399"
+    },
+    {
+      "path": "riscv-zkvm/scripts/regen-model.sh",
+      "sha256": "06b36f0e567390acb06eb3bb4e3b3629ff883ac26e5dd4ee6d589b8b8cbfa0b1"
+    },
+    {
+      "path": "riscv-zkvm/scripts/run-interpreter-tests.sh",
+      "sha256": "e20a30f7ca5a8215cdd0706a49fc0b2cdd9eb5e9518281352f13e4266666c49d"
+    },
+    {
+      "path": "riscv-zkvm/scripts/validate-lean-emulator.sh",
+      "sha256": "d6b7e7957312ceeca72d8d3af85c0091728625f91a05a68dcd757cbd31260e40"
+    }
+  ],
+  "types_file": "canonical-types.json.gz",
+  "types_file_sha256": "1c110a3a56310615d531b61346a2ce830207c1104ca625f4f7de946135ba62d1",
+  "types_sha256": "2713d60c047f93d8c5c71aeb63e78f27fa8c0ae17b604fb9db7604ca49ae302b"
+}

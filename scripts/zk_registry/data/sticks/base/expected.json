@@ -1,0 +1,101 @@
+{
+  "bootstrap_tool_inventory": {
+    "root": ".lake/packages/mathlib/.lake/build/lib/lean",
+    "subdirectory": "Cache",
+    "without_tools": {
+      "count": 42650,
+      "sha256": "45dacf3d5c08b118a4d31ed223caf2d4aef64b095b6c24d3c63aa72b2cc4b68e"
+    }
+  },
+  "compiler_archives": {
+    "Darwin-arm64": {
+      "content_sha256": "a6e23d2bfd9f65fdfc78050cd09cc8e7fcd465d39e7df974587a6cea0f810d4b",
+      "sha256": "65f22a4f047738ec742667b3247e836a86ebf06eabc12655c3dee00637e37866",
+      "url": "https://github.com/leanprover/lean4/releases/download/v4.34.1/lean-4.34.1-darwin_aarch64.tar.zst"
+    },
+    "Linux-aarch64": {
+      "content_sha256": "afa3f7ae9040444a8b16719ba5a40966cb85e9ddc88514ffcced9644e9c3f134",
+      "sha256": "fdb974c2cdb4627e090d5d4007b913e09d13c4868720fb5594e22808b3de9e37",
+      "url": "https://github.com/leanprover/lean4/releases/download/v4.34.1/lean-4.34.1-linux_aarch64.tar.zst"
+    }
+  },
+  "lean": "v4.34.1",
+  "library_inventories": {
+    ".lake/packages/Cli/.lake/build/lib/lean": {
+      "count": 0,
+      "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    },
+    ".lake/packages/LeanSearchClient/.lake/build/lib/lean": {
+      "count": 20,
+      "sha256": "2f9236648184bf6d2ecfa9e06cb64058ce5d02ffba08d2949a8a4170bf7976cc"
+    },
+    ".lake/packages/Qq/.lake/build/lib/lean": {
+      "count": 70,
+      "sha256": "d85849915f14aceb71f2ac350a66671c567d1ca22c639a3653bb0acf4934baa7"
+    },
+    ".lake/packages/aesop/.lake/build/lib/lean": {
+      "count": 660,
+      "sha256": "35b394cf9c2dc5d41e5ec12d7bab02e9d84d4a3833a12018b9f865e27e974c1d"
+    },
+    ".lake/packages/batteries/.lake/build/lib/lean": {
+      "count": 960,
+      "sha256": "6a47f02c05823f3a4f97e50198ac86ab064c315c1ae3f3cc99158a2b445f93df"
+    },
+    ".lake/packages/importGraph/.lake/build/lib/lean": {
+      "count": 50,
+      "sha256": "5170c98fde2f18bd9b54a626f6f0a31008a61e6e8af52c56703d43bfdaa35ae9"
+    },
+    ".lake/packages/mathlib/.lake/build/lib/lean": {
+      "count": 42668,
+      "sha256": "359d712e9fa63c324776b6e34d3cccc0439dc2bc58a39a7e0676947b90bcb7e9"
+    },
+    ".lake/packages/plausible/.lake/build/lib/lean": {
+      "count": 65,
+      "sha256": "f5d58a41f215e9fe1d67c79ff5efc1f106cbe72877fe13891b768befc340b19c"
+    },
+    ".lake/packages/proofwidgets/.lake/build/lib/lean": {
+      "count": 65,
+      "sha256": "3724bbb0f7ad839151eb9fc3dfc1e2cd5a85a67cd0656b6d6383f99129116b0d"
+    }
+  },
+  "packages": {
+    "Cli": "e92c9f15fdfacc8536f31cfb3b7ad26c3c8cd204",
+    "LeanSearchClient": "ddf04cf3949fa556442341e87d47f9f6e6074707",
+    "Qq": "6a489d9af5d0c47e5b259e2e8bcdfc1811b5a259",
+    "aesop": "355695d523e41d0554926416cba2a2b3544fbbc9",
+    "batteries": "f2effa3d803fda822b1f97b806c47cf2adfbcbc2",
+    "importGraph": "e928b72544873815af278d38681b31c0293588e3",
+    "mathlib": "d13f23b723b8a846827a245b89c10fc7d3f11612",
+    "plausible": "118aa17ee84656b8bd727fef7c458ee8c833385c",
+    "proofwidgets": "106ff4fafc74ef4ac99d81dbf3ab399118f497a5"
+  },
+  "schema_version": 1,
+  "toolchain_profiles": {
+    "Darwin-arm64": {
+      "count": 17711,
+      "sha256": "868c49739d880df4cce9c9b3b5c618d825f0975a9898969e1d9da9bccaf13347"
+    },
+    "Linux-aarch64": {
+      "count": 17737,
+      "sha256": "6116aedb2446f5a0da8a46ff17ee2ecfcc2fe3b0a3373736d561b4abd0628555"
+    }
+  },
+  "toolchain_symlinks": {
+    "Darwin-arm64": {},
+    "Linux-aarch64": {
+      "lean-v4.34.1/lib/libLLVM-22.so": "libLLVM.so.22.1",
+      "lean-v4.34.1/lib/libLLVM.so": "libLLVM.so.22.1",
+      "lean-v4.34.1/lib/libatomic.so": "libatomic.so.1.2.0",
+      "lean-v4.34.1/lib/libatomic.so.1": "libatomic.so.1.2.0",
+      "lean-v4.34.1/lib/libc++.so.1": "libc++.so.1.0",
+      "lean-v4.34.1/lib/libc++abi.so": "libc++abi.so.1",
+      "lean-v4.34.1/lib/libc++abi.so.1": "libc++abi.so.1.0",
+      "lean-v4.34.1/lib/libclang-cpp.so": "libclang-cpp.so.22.1",
+      "lean-v4.34.1/lib/libgcc_s.so": "libgcc_s.so.1",
+      "lean-v4.34.1/lib/libunwind.so": "libunwind.so.1",
+      "lean-v4.34.1/lib/libunwind.so.1": "libunwind.so.1.0",
+      "lean-v4.34.1/lib/libz.so": "libz.so.1.2.11",
+      "lean-v4.34.1/lib/libz.so.1": "libz.so.1.2.11"
+    }
+  }
+}

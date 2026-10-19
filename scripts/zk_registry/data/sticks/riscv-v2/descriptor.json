@@ -1,0 +1,2894 @@
+{
+  "base_files": {
+    "base/expected.json": "7d7cd28c6a9b7ae11900ba1377087be51dd53d2b55ea8715f76f08031ae23c96",
+    "base/lake-manifest.json": "216eb41e3d0ca47c70fc5bce267633fdd19347b5579f828c43f2253da9554e0d",
+    "base/lakefile.toml": "1439d01151aec25f08a3ca9d5e55a5a576977ec54e4ccc00ab8869c4f4f298a8",
+    "base/lean-toolchain": "d5edba4e4b8faad9c1baeadb265716d20d03be4d1a2647dc5e35b0c0325bea7b"
+  },
+  "build": {
+    "flags": [
+      "-j1",
+      "--tstack=400000"
+    ],
+    "module_recipes": {
+      "RiscvZkvm.Interpreter": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm",
+        "module_name": "Interpreter",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Interpreter.lean"
+      },
+      "RiscvZkvm.Interpreter.Cli": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Interpreter",
+        "module_name": "Cli",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Interpreter/Cli.lean"
+      },
+      "RiscvZkvm.Interpreter.Decode": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Interpreter",
+        "module_name": "Decode",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Interpreter/Decode.lean"
+      },
+      "RiscvZkvm.Interpreter.DecodeTests": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Interpreter",
+        "module_name": "DecodeTests",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Interpreter/DecodeTests.lean"
+      },
+      "RiscvZkvm.Interpreter.Elf": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Interpreter.Elf",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Interpreter/Elf.lean"
+      },
+      "RiscvZkvm.Interpreter.Run": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Interpreter",
+        "module_name": "Run",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Interpreter/Run.lean"
+      },
+      "RiscvZkvm.Interpreter.State": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Interpreter",
+        "module_name": "State",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Interpreter/State.lean"
+      },
+      "RiscvZkvm.Rv64": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm",
+        "module_name": "Rv64",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64.lean"
+      },
+      "RiscvZkvm.Rv64.Basic": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64",
+        "module_name": "Basic",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Basic.lean"
+      },
+      "RiscvZkvm.Rv64.Bytes": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Rv64.Bytes",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Bytes.lean"
+      },
+      "RiscvZkvm.Rv64.CoreTactics": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Rv64.CoreTactics",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/CoreTactics.lean"
+      },
+      "RiscvZkvm.Rv64.Execution": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64",
+        "module_name": "Execution",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Execution.lean"
+      },
+      "RiscvZkvm.Rv64.Instructions": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64",
+        "module_name": "Instructions",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Instructions.lean"
+      },
+      "RiscvZkvm.Rv64.Logic": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64",
+        "module_name": "Logic",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.AddrNorm": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic",
+        "module_name": "AddrNorm",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/AddrNorm.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.AddrNormAttr": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Rv64.Logic.AddrNormAttr",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/AddrNormAttr.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.BitAux": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic",
+        "module_name": "BitAux",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/BitAux.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.BranchRelaxation": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic",
+        "module_name": "BranchRelaxation",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/BranchRelaxation.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.ByteAlg": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic",
+        "module_name": "ByteAlg",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/ByteAlg.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.ByteAlgAttr": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Rv64.Logic.ByteAlgAttr",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/ByteAlgAttr.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.ByteOps": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic",
+        "module_name": "ByteOps",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/ByteOps.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.CPSCall": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic",
+        "module_name": "CPSCall",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/CPSCall.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.CPSSpec": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic",
+        "module_name": "CPSSpec",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/CPSSpec.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.CodeReqExtents": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic",
+        "module_name": "CodeReqExtents",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/CodeReqExtents.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.ControlFlow": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic",
+        "module_name": "ControlFlow",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/ControlFlow.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.GenericSpecs": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic",
+        "module_name": "GenericSpecs",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/GenericSpecs.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.HalfwordOps": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic",
+        "module_name": "HalfwordOps",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/HalfwordOps.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.HintSpecs": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic",
+        "module_name": "HintSpecs",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/HintSpecs.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.InstructionSpecs": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic",
+        "module_name": "InstructionSpecs",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/InstructionSpecs.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.LaResolve": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic",
+        "module_name": "LaResolve",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/LaResolve.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.MemRegion": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic",
+        "module_name": "MemRegion",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/MemRegion.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.MemRegionStore": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic",
+        "module_name": "MemRegionStore",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/MemRegionStore.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.MemRegionStoreWide": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic",
+        "module_name": "MemRegionStoreWide",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/MemRegionStoreWide.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.MemRegionWrite": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic",
+        "module_name": "MemRegionWrite",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/MemRegionWrite.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.MemRegionWriteWide": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic",
+        "module_name": "MemRegionWriteWide",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/MemRegionWriteWide.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.MemSat": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic",
+        "module_name": "MemSat",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/MemSat.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.RegOps": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic",
+        "module_name": "RegOps",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/RegOps.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.RegOpsAttr": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Rv64.Logic.RegOpsAttr",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/RegOpsAttr.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.RemuNat": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic",
+        "module_name": "RemuNat",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/RemuNat.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.SepLogic": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic",
+        "module_name": "SepLogic",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/SepLogic.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.SignExtendSimproc": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic",
+        "module_name": "SignExtendSimproc",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/SignExtendSimproc.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.Support": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Rv64.Logic.Support",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/Support.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.SyscallSpecs": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic",
+        "module_name": "SyscallSpecs",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/SyscallSpecs.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.Tactics.DropPure": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic/Tactics",
+        "module_name": "DropPure",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/Tactics/DropPure.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.Tactics.ExtractPure": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic/Tactics",
+        "module_name": "ExtractPure",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/Tactics/ExtractPure.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.Tactics.PerfTrace": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Rv64.Logic.Tactics.PerfTrace",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/Tactics/PerfTrace.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.Tactics.RunBlock": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic/Tactics",
+        "module_name": "RunBlock",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/Tactics/RunBlock.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.Tactics.SeqFrame": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic/Tactics",
+        "module_name": "SeqFrame",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/Tactics/SeqFrame.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.Tactics.SpecDb": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Rv64.Logic.Tactics.SpecDb",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/Tactics/SpecDb.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.Tactics.SymStep": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic/Tactics",
+        "module_name": "SymStep",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/Tactics/SymStep.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.Tactics.WP": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic/Tactics",
+        "module_name": "WP",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/Tactics/WP.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.Tactics.WPAttr": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Rv64.Logic.Tactics.WPAttr",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/Tactics/WPAttr.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.Tactics.XCancel": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic/Tactics",
+        "module_name": "XCancel",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/Tactics/XCancel.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.Tactics.XCancelStruct": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic/Tactics",
+        "module_name": "XCancelStruct",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/Tactics/XCancelStruct.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.Tactics.XPerm": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic/Tactics",
+        "module_name": "XPerm",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/Tactics/XPerm.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.Tactics.XPermCert": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic/Tactics",
+        "module_name": "XPermCert",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/Tactics/XPermCert.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.Tactics.XPermChunked": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic/Tactics",
+        "module_name": "XPermChunked",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/Tactics/XPermChunked.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.Tactics.XPermPartial": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Rv64.Logic.Tactics.XPermPartial",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/Tactics/XPermPartial.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.Tactics.XPermPure": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic/Tactics",
+        "module_name": "XPermPure",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/Tactics/XPermPure.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.Tactics.XSimp": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic/Tactics",
+        "module_name": "XSimp",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/Tactics/XSimp.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.WP.CFG": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic/WP",
+        "module_name": "CFG",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/WP/CFG.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.WP.Call": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic/WP",
+        "module_name": "Call",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/WP/Call.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.WP.Core": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic/WP",
+        "module_name": "Core",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/WP/Core.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.WP.Examples": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic/WP",
+        "module_name": "Examples",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/WP/Examples.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.WP.GeneratedCFG": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic/WP",
+        "module_name": "GeneratedCFG",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/WP/GeneratedCFG.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.WP.Loop": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic/WP",
+        "module_name": "Loop",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/WP/Loop.lean"
+      },
+      "RiscvZkvm.Rv64.Logic.WordOps": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/Logic",
+        "module_name": "WordOps",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Logic/WordOps.lean"
+      },
+      "RiscvZkvm.Rv64.Program": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64",
+        "module_name": "Program",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Program.lean"
+      },
+      "RiscvZkvm.Rv64.SailEquiv": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64",
+        "module_name": "SailEquiv",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/SailEquiv.lean"
+      },
+      "RiscvZkvm.Rv64.SailEquiv.ALUProofs": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Rv64.SailEquiv.ALUProofs",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/SailEquiv/ALUProofs.lean"
+      },
+      "RiscvZkvm.Rv64.SailEquiv.BranchProofs": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv",
+        "module_name": "BranchProofs",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/SailEquiv/BranchProofs.lean"
+      },
+      "RiscvZkvm.Rv64.SailEquiv.ImmProofs": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv",
+        "module_name": "ImmProofs",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/SailEquiv/ImmProofs.lean"
+      },
+      "RiscvZkvm.Rv64.SailEquiv.InstrMap": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv",
+        "module_name": "InstrMap",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/SailEquiv/InstrMap.lean"
+      },
+      "RiscvZkvm.Rv64.SailEquiv.MExtProofs": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv",
+        "module_name": "MExtProofs",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/SailEquiv/MExtProofs.lean"
+      },
+      "RiscvZkvm.Rv64.SailEquiv.MemMonad": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv",
+        "module_name": "MemMonad",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/SailEquiv/MemMonad.lean"
+      },
+      "RiscvZkvm.Rv64.SailEquiv.MemProofs": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv",
+        "module_name": "MemProofs",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/SailEquiv/MemProofs.lean"
+      },
+      "RiscvZkvm.Rv64.SailEquiv.MemReduce": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv",
+        "module_name": "MemReduce",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/SailEquiv/MemReduce.lean"
+      },
+      "RiscvZkvm.Rv64.SailEquiv.MonadLemmas": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv",
+        "module_name": "MonadLemmas",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/SailEquiv/MonadLemmas.lean"
+      },
+      "RiscvZkvm.Rv64.SailEquiv.RunInv": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv",
+        "module_name": "RunInv",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/SailEquiv/RunInv.lean"
+      },
+      "RiscvZkvm.Rv64.SailEquiv.SailStepAttr": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Rv64.SailEquiv.SailStepAttr",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/SailEquiv/SailStepAttr.lean"
+      },
+      "RiscvZkvm.Rv64.SailEquiv.ShiftProofs": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv",
+        "module_name": "ShiftProofs",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/SailEquiv/ShiftProofs.lean"
+      },
+      "RiscvZkvm.Rv64.SailEquiv.StateRel": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv",
+        "module_name": "StateRel",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/SailEquiv/StateRel.lean"
+      },
+      "RiscvZkvm.Rv64.SailEquiv.StepProofs": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv",
+        "module_name": "StepProofs",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/SailEquiv/StepProofs.lean"
+      },
+      "RiscvZkvm.Rv64.SailEquiv.StepRun": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv",
+        "module_name": "StepRun",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/SailEquiv/StepRun.lean"
+      },
+      "RiscvZkvm.Rv64.SailEquiv.StepSim": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv",
+        "module_name": "StepSim",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/SailEquiv/StepSim.lean"
+      },
+      "RiscvZkvm.Rv64.SailEquiv.Support": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Rv64.SailEquiv.Support",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/SailEquiv/Support.lean"
+      },
+      "RiscvZkvm.Rv64.SailEquiv.VmemConstruction": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv",
+        "module_name": "VmemConstruction",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/SailEquiv/VmemConstruction.lean"
+      },
+      "RiscvZkvm.Rv64.SailEquiv.VmemPresent": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv",
+        "module_name": "VmemPresent",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/SailEquiv/VmemPresent.lean"
+      },
+      "RiscvZkvm.Rv64.SailEquiv.VmemReduction": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv",
+        "module_name": "VmemReduction",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/SailEquiv/VmemReduction.lean"
+      },
+      "RiscvZkvm.Rv64.SailEquiv.VmemReductionLoads": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv",
+        "module_name": "VmemReductionLoads",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/SailEquiv/VmemReductionLoads.lean"
+      },
+      "RiscvZkvm.Rv64.SailEquiv.VmemReductionN": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv",
+        "module_name": "VmemReductionN",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/SailEquiv/VmemReductionN.lean"
+      },
+      "RiscvZkvm.Rv64.SailEquiv.VmemReductionStores": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv",
+        "module_name": "VmemReductionStores",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/SailEquiv/VmemReductionStores.lean"
+      },
+      "RiscvZkvm.Rv64.SailEquiv.VmemWriteReduction": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64/SailEquiv",
+        "module_name": "VmemWriteReduction",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/SailEquiv/VmemWriteReduction.lean"
+      },
+      "RiscvZkvm.Rv64.Word": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Rv64.Word",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/Word.lean"
+      },
+      "RiscvZkvm.Rv64.ZiskAccel": {
+        "arguments": [
+          "-j1",
+          "--tstack=400000",
+          "-o",
+          "{olean}",
+          "-i",
+          "{ilean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm/RiscvZkvm/Rv64",
+        "module_name": "ZiskAccel",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Rv64/ZiskAccel.lean"
+      },
+      "RiscvZkvm.Sail": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail.lean"
+      },
+      "RiscvZkvm.Sail.AddrChecks": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.AddrChecks",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/AddrChecks.lean"
+      },
+      "RiscvZkvm.Sail.AextTypes": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.AextTypes",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/AextTypes.lean"
+      },
+      "RiscvZkvm.Sail.Arith": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.Arith",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/Arith.lean"
+      },
+      "RiscvZkvm.Sail.Arithmetic": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.Arithmetic",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/Arithmetic.lean"
+      },
+      "RiscvZkvm.Sail.BaseInsts": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.BaseInsts",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/BaseInsts.lean"
+      },
+      "RiscvZkvm.Sail.Callbacks": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.Callbacks",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/Callbacks.lean"
+      },
+      "RiscvZkvm.Sail.Callbacks0": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.Callbacks0",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/Callbacks0.lean"
+      },
+      "RiscvZkvm.Sail.CfiTypes": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.CfiTypes",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/CfiTypes.lean"
+      },
+      "RiscvZkvm.Sail.Common": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.Common",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/Common.lean"
+      },
+      "RiscvZkvm.Sail.Common0": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.Common0",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/Common0.lean"
+      },
+      "RiscvZkvm.Sail.DecodeExt": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.DecodeExt",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/DecodeExt.lean"
+      },
+      "RiscvZkvm.Sail.Defs": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.Defs",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/Defs.lean"
+      },
+      "RiscvZkvm.Sail.Errors": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.Errors",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/Errors.lean"
+      },
+      "RiscvZkvm.Sail.ExtRegs": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.ExtRegs",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/ExtRegs.lean"
+      },
+      "RiscvZkvm.Sail.FakeReal": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.FakeReal",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/FakeReal.lean"
+      },
+      "RiscvZkvm.Sail.FdextRegs": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.FdextRegs",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/FdextRegs.lean"
+      },
+      "RiscvZkvm.Sail.Fetch": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.Fetch",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/Fetch.lean"
+      },
+      "RiscvZkvm.Sail.FetchRvfi": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.FetchRvfi",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/FetchRvfi.lean"
+      },
+      "RiscvZkvm.Sail.Flen": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.Flen",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/Flen.lean"
+      },
+      "RiscvZkvm.Sail.Flow": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.Flow",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/Flow.lean"
+      },
+      "RiscvZkvm.Sail.FregType": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.FregType",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/FregType.lean"
+      },
+      "RiscvZkvm.Sail.HexBits": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.HexBits",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/HexBits.lean"
+      },
+      "RiscvZkvm.Sail.HexBitsSigned": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.HexBitsSigned",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/HexBitsSigned.lean"
+      },
+      "RiscvZkvm.Sail.InstsBegin": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.InstsBegin",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/InstsBegin.lean"
+      },
+      "RiscvZkvm.Sail.InstsEnd": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.InstsEnd",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/InstsEnd.lean"
+      },
+      "RiscvZkvm.Sail.InterruptRegs": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.InterruptRegs",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/InterruptRegs.lean"
+      },
+      "RiscvZkvm.Sail.IsaVersion": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.IsaVersion",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/IsaVersion.lean"
+      },
+      "RiscvZkvm.Sail.Main": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.Main",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/Main.lean"
+      },
+      "RiscvZkvm.Sail.Mapping": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.Mapping",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/Mapping.lean"
+      },
+      "RiscvZkvm.Sail.Mem": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.Mem",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/Mem.lean"
+      },
+      "RiscvZkvm.Sail.MemAddrtype": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.MemAddrtype",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/MemAddrtype.lean"
+      },
+      "RiscvZkvm.Sail.MemMetadata": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.MemMetadata",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/MemMetadata.lean"
+      },
+      "RiscvZkvm.Sail.MemTypeUtils": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.MemTypeUtils",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/MemTypeUtils.lean"
+      },
+      "RiscvZkvm.Sail.MemUtils": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.MemUtils",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/MemUtils.lean"
+      },
+      "RiscvZkvm.Sail.MextInsts": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.MextInsts",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/MextInsts.lean"
+      },
+      "RiscvZkvm.Sail.Model": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.Model",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/Model.lean"
+      },
+      "RiscvZkvm.Sail.PcAccess": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.PcAccess",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/PcAccess.lean"
+      },
+      "RiscvZkvm.Sail.PhysMemInterface": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.PhysMemInterface",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/PhysMemInterface.lean"
+      },
+      "RiscvZkvm.Sail.Platform": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.Platform",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/Platform.lean"
+      },
+      "RiscvZkvm.Sail.PlatformConfig": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.PlatformConfig",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/PlatformConfig.lean"
+      },
+      "RiscvZkvm.Sail.PmTypes": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.PmTypes",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/PmTypes.lean"
+      },
+      "RiscvZkvm.Sail.PmUtils": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.PmUtils",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/PmUtils.lean"
+      },
+      "RiscvZkvm.Sail.Pma": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.Pma",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/Pma.lean"
+      },
+      "RiscvZkvm.Sail.PmpControl": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.PmpControl",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/PmpControl.lean"
+      },
+      "RiscvZkvm.Sail.PmpRegs": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.PmpRegs",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/PmpRegs.lean"
+      },
+      "RiscvZkvm.Sail.Prelude": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.Prelude",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/Prelude.lean"
+      },
+      "RiscvZkvm.Sail.RangeUtil": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.RangeUtil",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/RangeUtil.lean"
+      },
+      "RiscvZkvm.Sail.ReadWriteV1": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.ReadWriteV1",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/ReadWriteV1.lean"
+      },
+      "RiscvZkvm.Sail.RegType": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.RegType",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/RegType.lean"
+      },
+      "RiscvZkvm.Sail.Regs": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.Regs",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/Regs.lean"
+      },
+      "RiscvZkvm.Sail.RiscvExtras": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.RiscvExtras",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/RiscvExtras.lean"
+      },
+      "RiscvZkvm.Sail.RvfiDii": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.RvfiDii",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/RvfiDii.lean"
+      },
+      "RiscvZkvm.Sail.SimpleInterruptGenerator": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.SimpleInterruptGenerator",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/SimpleInterruptGenerator.lean"
+      },
+      "RiscvZkvm.Sail.Smcntrpmf": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.Smcntrpmf",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/Smcntrpmf.lean"
+      },
+      "RiscvZkvm.Sail.Specialization": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.Specialization",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/Specialization.lean"
+      },
+      "RiscvZkvm.Sail.SplitAccessUtils": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.SplitAccessUtils",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/SplitAccessUtils.lean"
+      },
+      "RiscvZkvm.Sail.StateenAccessChecks": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.StateenAccessChecks",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/StateenAccessChecks.lean"
+      },
+      "RiscvZkvm.Sail.StateenRegs": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.StateenRegs",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/StateenRegs.lean"
+      },
+      "RiscvZkvm.Sail.Step": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.Step",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/Step.lean"
+      },
+      "RiscvZkvm.Sail.StepCommon": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.StepCommon",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/StepCommon.lean"
+      },
+      "RiscvZkvm.Sail.StepExt": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.StepExt",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/StepExt.lean"
+      },
+      "RiscvZkvm.Sail.SysControl": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.SysControl",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/SysControl.lean"
+      },
+      "RiscvZkvm.Sail.SysExceptions": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.SysExceptions",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/SysExceptions.lean"
+      },
+      "RiscvZkvm.Sail.SysRegs": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.SysRegs",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/SysRegs.lean"
+      },
+      "RiscvZkvm.Sail.Types": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.Types",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/Types.lean"
+      },
+      "RiscvZkvm.Sail.TypesExt": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.TypesExt",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/TypesExt.lean"
+      },
+      "RiscvZkvm.Sail.ValidateConfig": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.ValidateConfig",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/ValidateConfig.lean"
+      },
+      "RiscvZkvm.Sail.Vector": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.Vector",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/Vector.lean"
+      },
+      "RiscvZkvm.Sail.VextRegs": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.VextRegs",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/VextRegs.lean"
+      },
+      "RiscvZkvm.Sail.Vlen": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.Vlen",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/Vlen.lean"
+      },
+      "RiscvZkvm.Sail.Vmem": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.Vmem",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/Vmem.lean"
+      },
+      "RiscvZkvm.Sail.VmemPte": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.VmemPte",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/VmemPte.lean"
+      },
+      "RiscvZkvm.Sail.VmemPtw": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.VmemPtw",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/VmemPtw.lean"
+      },
+      "RiscvZkvm.Sail.VmemTlb": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.VmemTlb",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/VmemTlb.lean"
+      },
+      "RiscvZkvm.Sail.VmemTypes": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.VmemTypes",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/VmemTypes.lean"
+      },
+      "RiscvZkvm.Sail.VmemUtils": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.VmemUtils",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/VmemUtils.lean"
+      },
+      "RiscvZkvm.Sail.Xlen": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.Xlen",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/Xlen.lean"
+      },
+      "RiscvZkvm.Sail.ZicfilpInsts": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.ZicfilpInsts",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/ZicfilpInsts.lean"
+      },
+      "RiscvZkvm.Sail.ZicfilpRegs": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.ZicfilpRegs",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/ZicfilpRegs.lean"
+      },
+      "RiscvZkvm.Sail.ZicsrInsts": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "riscv-zkvm",
+        "module_name": "RiscvZkvm.Sail.ZicsrInsts",
+        "source_label": "stick://riscv-v2/RiscvZkvm/Sail/ZicsrInsts.lean"
+      },
+      "Sail": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "Sail",
+        "module_name": "Sail",
+        "source_label": "stick://riscv-v2/Sail.lean"
+      },
+      "Sail.Attr": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "Sail",
+        "module_name": "Sail.Attr",
+        "source_label": "stick://riscv-v2/Sail/Attr.lean"
+      },
+      "Sail.BitVec": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "Sail",
+        "module_name": "Sail.BitVec",
+        "source_label": "stick://riscv-v2/Sail/BitVec.lean"
+      },
+      "Sail.IntRange": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "Sail",
+        "module_name": "Sail.IntRange",
+        "source_label": "stick://riscv-v2/Sail/IntRange.lean"
+      },
+      "Sail.Sail": {
+        "arguments": [
+          "-j4",
+          "--tstack=400000",
+          "--json",
+          "-R",
+          "{package_root}",
+          "-o",
+          "{olean}",
+          "{source}"
+        ],
+        "cwd": "Sail",
+        "module_name": "Sail.Sail",
+        "source_label": "stick://riscv-v2/Sail/Sail.lean"
+      }
+    },
+    "recipe_audit_sha256": "6da9d3090850458cb9e7ab950965dffb3c7d3ca509ea2764d71765fd299cac55",
+    "roots": [
+      "Sail.BitVec",
+      "Sail.IntRange",
+      "Sail.Attr",
+      "Sail.Sail",
+      "Sail",
+      "RiscvZkvm.Sail.Defs",
+      "RiscvZkvm.Sail.Specialization",
+      "RiscvZkvm.Sail.FakeReal",
+      "RiscvZkvm.Sail.RiscvExtras",
+      "RiscvZkvm.Sail.Flow",
+      "RiscvZkvm.Sail.Vector",
+      "RiscvZkvm.Sail.Common",
+      "RiscvZkvm.Sail.Prelude",
+      "RiscvZkvm.Sail.Xlen",
+      "RiscvZkvm.Sail.Mapping",
+      "RiscvZkvm.Sail.HexBits",
+      "RiscvZkvm.Sail.HexBitsSigned",
+      "RiscvZkvm.Sail.Errors",
+      "RiscvZkvm.Sail.PmTypes",
+      "RiscvZkvm.Sail.Flen",
+      "RiscvZkvm.Sail.Vlen",
+      "RiscvZkvm.Sail.PlatformConfig",
+      "RiscvZkvm.Sail.MemAddrtype",
+      "RiscvZkvm.Sail.TypesExt",
+      "RiscvZkvm.Sail.Types",
+      "RiscvZkvm.Sail.Arith",
+      "RiscvZkvm.Sail.Callbacks",
+      "RiscvZkvm.Sail.RegType",
+      "RiscvZkvm.Sail.Regs",
+      "RiscvZkvm.Sail.SysRegs",
+      "RiscvZkvm.Sail.InterruptRegs",
+      "RiscvZkvm.Sail.IsaVersion",
+      "RiscvZkvm.Sail.Common0",
+      "RiscvZkvm.Sail.PcAccess",
+      "RiscvZkvm.Sail.SysExceptions",
+      "RiscvZkvm.Sail.PmpRegs",
+      "RiscvZkvm.Sail.VmemTypes",
+      "RiscvZkvm.Sail.MemTypeUtils",
+      "RiscvZkvm.Sail.PmpControl",
+      "RiscvZkvm.Sail.StateenRegs",
+      "RiscvZkvm.Sail.VextRegs",
+      "RiscvZkvm.Sail.ZicfilpRegs",
+      "RiscvZkvm.Sail.StateenAccessChecks",
+      "RiscvZkvm.Sail.SysControl",
+      "RiscvZkvm.Sail.Smcntrpmf",
+      "RiscvZkvm.Sail.SimpleInterruptGenerator",
+      "RiscvZkvm.Sail.Platform",
+      "RiscvZkvm.Sail.RangeUtil",
+      "RiscvZkvm.Sail.MemUtils",
+      "RiscvZkvm.Sail.SplitAccessUtils",
+      "RiscvZkvm.Sail.Pma",
+      "RiscvZkvm.Sail.VmemPte",
+      "RiscvZkvm.Sail.VmemTlb",
+      "RiscvZkvm.Sail.RvfiDii",
+      "RiscvZkvm.Sail.ExtRegs",
+      "RiscvZkvm.Sail.AddrChecks",
+      "RiscvZkvm.Sail.Callbacks0",
+      "RiscvZkvm.Sail.InstsBegin",
+      "RiscvZkvm.Sail.CfiTypes",
+      "RiscvZkvm.Sail.ZicfilpInsts",
+      "RiscvZkvm.Sail.Arithmetic",
+      "RiscvZkvm.Sail.PmUtils",
+      "RiscvZkvm.Sail.AextTypes",
+      "RiscvZkvm.Sail.MemMetadata",
+      "RiscvZkvm.Sail.ReadWriteV1",
+      "RiscvZkvm.Sail.PhysMemInterface",
+      "RiscvZkvm.Sail.Mem",
+      "RiscvZkvm.Sail.VmemPtw",
+      "RiscvZkvm.Sail.Vmem",
+      "RiscvZkvm.Sail.VmemUtils",
+      "RiscvZkvm.Sail.BaseInsts",
+      "RiscvZkvm.Sail.MextInsts",
+      "RiscvZkvm.Sail.FregType",
+      "RiscvZkvm.Sail.FdextRegs",
+      "RiscvZkvm.Sail.ZicsrInsts",
+      "RiscvZkvm.Sail.InstsEnd",
+      "RiscvZkvm.Sail.StepCommon",
+      "RiscvZkvm.Sail.StepExt",
+      "RiscvZkvm.Sail.DecodeExt",
+      "RiscvZkvm.Sail.FetchRvfi",
+      "RiscvZkvm.Sail.Fetch",
+      "RiscvZkvm.Sail.Step",
+      "RiscvZkvm.Sail.ValidateConfig",
+      "RiscvZkvm.Sail.Model",
+      "RiscvZkvm.Sail.Main",
+      "RiscvZkvm.Sail",
+      "RiscvZkvm.Rv64.Word",
+      "RiscvZkvm.Rv64.Basic",
+      "RiscvZkvm.Rv64.ZiskAccel",
+      "RiscvZkvm.Rv64.Instructions",
+      "RiscvZkvm.Rv64.Execution",
+      "RiscvZkvm.Rv64.Program",
+      "RiscvZkvm.Rv64.Bytes",
+      "RiscvZkvm.Rv64",
+      "RiscvZkvm.Rv64.SailEquiv.StateRel",
+      "RiscvZkvm.Rv64.SailEquiv.InstrMap",
+      "RiscvZkvm.Rv64.SailEquiv.MonadLemmas",
+      "RiscvZkvm.Rv64.SailEquiv.ALUProofs",
+      "RiscvZkvm.Rv64.SailEquiv.ShiftProofs",
+      "RiscvZkvm.Rv64.SailEquiv.ImmProofs",
+      "RiscvZkvm.Rv64.SailEquiv.BranchProofs",
+      "RiscvZkvm.Rv64.SailEquiv.MemProofs",
+      "RiscvZkvm.Rv64.SailEquiv.SailStepAttr",
+      "RiscvZkvm.Rv64.SailEquiv.VmemReduction",
+      "RiscvZkvm.Rv64.SailEquiv.VmemReductionN",
+      "RiscvZkvm.Rv64.SailEquiv.VmemReductionLoads",
+      "RiscvZkvm.Rv64.SailEquiv.VmemPresent",
+      "RiscvZkvm.Rv64.SailEquiv.VmemWriteReduction",
+      "RiscvZkvm.Rv64.CoreTactics",
+      "RiscvZkvm.Rv64.SailEquiv.Support",
+      "RiscvZkvm.Rv64.SailEquiv.MemReduce",
+      "RiscvZkvm.Rv64.SailEquiv.VmemReductionStores",
+      "RiscvZkvm.Rv64.SailEquiv.VmemConstruction",
+      "RiscvZkvm.Rv64.SailEquiv.MExtProofs",
+      "RiscvZkvm.Rv64.SailEquiv.StepSim",
+      "RiscvZkvm.Rv64.SailEquiv.StepProofs",
+      "RiscvZkvm.Rv64.SailEquiv.RunInv",
+      "RiscvZkvm.Rv64.SailEquiv.StepRun",
+      "RiscvZkvm.Rv64.SailEquiv.MemMonad",
+      "RiscvZkvm.Rv64.SailEquiv",
+      "RiscvZkvm.Rv64.Logic.Support",
+      "RiscvZkvm.Rv64.Logic.SepLogic",
+      "RiscvZkvm.Rv64.Logic.CPSSpec",
+      "RiscvZkvm.Rv64.Logic.WP.Core",
+      "RiscvZkvm.Rv64.Logic.WP.Loop",
+      "RiscvZkvm.Rv64.Logic.WP.CFG",
+      "RiscvZkvm.Rv64.Logic.GenericSpecs",
+      "RiscvZkvm.Rv64.Logic.Tactics.PerfTrace",
+      "RiscvZkvm.Rv64.Logic.Tactics.XPerm",
+      "RiscvZkvm.Rv64.Logic.Tactics.XSimp",
+      "RiscvZkvm.Rv64.Logic.WP.Call",
+      "RiscvZkvm.Rv64.Logic.CPSCall",
+      "RiscvZkvm.Rv64.Logic.InstructionSpecs",
+      "RiscvZkvm.Rv64.Logic.ByteOps",
+      "RiscvZkvm.Rv64.Logic.HalfwordOps",
+      "RiscvZkvm.Rv64.Logic.WordOps",
+      "RiscvZkvm.Rv64.Logic.Tactics.SpecDb",
+      "RiscvZkvm.Rv64.Logic.SyscallSpecs",
+      "RiscvZkvm.Rv64.Logic.HintSpecs",
+      "RiscvZkvm.Rv64.Logic.MemRegion",
+      "RiscvZkvm.Rv64.Logic.MemRegionWrite",
+      "RiscvZkvm.Rv64.Logic.MemRegionWriteWide",
+      "RiscvZkvm.Rv64.Logic.MemRegionStore",
+      "RiscvZkvm.Rv64.Logic.MemRegionStoreWide",
+      "RiscvZkvm.Rv64.Logic.MemSat",
+      "RiscvZkvm.Rv64.Logic.CodeReqExtents",
+      "RiscvZkvm.Rv64.Logic.ControlFlow",
+      "RiscvZkvm.Rv64.Logic.LaResolve",
+      "RiscvZkvm.Rv64.Logic.BranchRelaxation",
+      "RiscvZkvm.Rv64.Logic.RegOpsAttr",
+      "RiscvZkvm.Rv64.Logic.RegOps",
+      "RiscvZkvm.Rv64.Logic.AddrNormAttr",
+      "RiscvZkvm.Rv64.Logic.AddrNorm",
+      "RiscvZkvm.Rv64.Logic.ByteAlgAttr",
+      "RiscvZkvm.Rv64.Logic.ByteAlg",
+      "RiscvZkvm.Rv64.Logic.BitAux",
+      "RiscvZkvm.Rv64.Logic.RemuNat",
+      "RiscvZkvm.Rv64.Logic.SignExtendSimproc",
+      "RiscvZkvm.Rv64.Logic.WP.GeneratedCFG",
+      "RiscvZkvm.Rv64.Logic.Tactics.WPAttr",
+      "RiscvZkvm.Rv64.Logic.Tactics.XCancel",
+      "RiscvZkvm.Rv64.Logic.Tactics.SeqFrame",
+      "RiscvZkvm.Rv64.Logic.Tactics.RunBlock",
+      "RiscvZkvm.Rv64.Logic.Tactics.ExtractPure",
+      "RiscvZkvm.Rv64.Logic.Tactics.XPermPure",
+      "RiscvZkvm.Rv64.Logic.Tactics.WP",
+      "RiscvZkvm.Rv64.Logic.WP.Examples",
+      "RiscvZkvm.Rv64.Logic.Tactics.SymStep",
+      "RiscvZkvm.Rv64.Logic.Tactics.DropPure",
+      "RiscvZkvm.Rv64.Logic.Tactics.XPermPartial",
+      "RiscvZkvm.Rv64.Logic.Tactics.XPermChunked",
+      "RiscvZkvm.Rv64.Logic.Tactics.XPermCert",
+      "RiscvZkvm.Rv64.Logic.Tactics.XCancelStruct",
+      "RiscvZkvm.Rv64.Logic",
+      "RiscvZkvm.Interpreter.Decode",
+      "RiscvZkvm.Interpreter.Elf",
+      "RiscvZkvm.Interpreter.State",
+      "RiscvZkvm.Interpreter.Run",
+      "RiscvZkvm.Interpreter.Cli",
+      "RiscvZkvm.Interpreter",
+      "RiscvZkvm.Interpreter.DecodeTests"
+    ],
+    "source_packages": [
+      "Sail",
+      "riscv-zkvm"
+    ],
+    "type_module": "StickTypeImports"
+  },
+  "definition": "Final RISC-V definition closure",
+  "expected": "expected.json",
+  "expected_sha256": "fb36e3109f885d18e58662eaf84f46a38d2d7b32ce91401cb58bfe219ceec1ee",
+  "lean": "v4.34.1",
+  "name": "riscv-v2",
+  "patches": [
+    {
+      "changed_files": 1,
+      "path": "patches/01-Sail.patch",
+      "sha256": "c8ea5bd6eb6c062e4807066cc0070e381a202a7250e1cedb0ad6894f29051560"
+    },
+    {
+      "changed_files": 58,
+      "path": "patches/02-riscv-zkvm.patch",
+      "sha256": "212b8a5716272d8df63086f6a26dbb4b6048822479cef7e00e243da325bf3034"
+    }
+  ],
+  "rewrites": [
+    {
+      "files": "rewrites/assert-files.json",
+      "replacement": "sailAssert",
+      "sha256": "8b14a38e7e3c0894d4f9a20cc13fd16e14a7456e5f4847b5e23bbb66e4ad99ff",
+      "token": "assert"
+    }
+  ],
+  "schema_version": 1,
+  "tracked_files": {
+    "canonical-types.json.gz": "1c110a3a56310615d531b61346a2ce830207c1104ca625f4f7de946135ba62d1",
+    "expected.json": "fb36e3109f885d18e58662eaf84f46a38d2d7b32ce91401cb58bfe219ceec1ee",
+    "notices/Sail.md": "e02b205b88bb919e6976358b66d3251ef40a38c7d9726bb664da0943b80fecce",
+    "notices/riscv-zkvm.md": "d94621929c19fecd85a9808c1540d90c7e2872f8b79eaad750ac9ad6983d7c86",
+    "rewrites/assert-files.json": "8b14a38e7e3c0894d4f9a20cc13fd16e14a7456e5f4847b5e23bbb66e4ad99ff"
+  },
+  "upstreams": [
+    {
+      "archive_sha256": "ae288dffd3c9ffa8642b2ac0e6cecfa763d369faf308bf8259f8f3f7e7aff453",
+      "archive_url": "https://codeload.github.com/dhsorens/lean-sail/tar.gz/8d57a8b537f1a4e7cdf558c3d87a79f453bf3817",
+      "commit": "8d57a8b537f1a4e7cdf558c3d87a79f453bf3817",
+      "content_sha256": "8cd5b96dbe3292ce9e1ebea5070a2c52127e2637cf5adc68b1b01ac46646d7f8",
+      "licence": "NO-LICENSE-FILE",
+      "name": "Sail",
+      "notice": "notices/Sail.md",
+      "repository": "https://github.com/dhsorens/lean-sail"
+    },
+    {
+      "archive_sha256": "f35e0fd5bda39da257e5a9fa2d20aba8801ef59ccd9f7a07ea6eccdf71e14dea",
+      "archive_url": "https://codeload.github.com/Verified-zkEVM/riscv-zkvm/tar.gz/93ab6ef3a13b4c733c057e441eef2caca74bfb8e",
+      "commit": "93ab6ef3a13b4c733c057e441eef2caca74bfb8e",
+      "content_sha256": "6447593561107378890f47340e7e51d2184e217ed5bd38e5ba17fa1207d60a96",
+      "licence": "BSD-2-Clause",
+      "name": "riscv-zkvm",
+      "notice": "notices/riscv-zkvm.md",
+      "repository": "https://github.com/Verified-zkEVM/riscv-zkvm"
+    }
+  ]
+}
