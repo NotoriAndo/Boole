@@ -1,6 +1,6 @@
 # Boole — current development status
 
-Updated: 2026-10-19. This is the tracked entrypoint for current progress and the
+Updated: 2026-10-20. This is the tracked entrypoint for current progress and the
 ordered development roadmap. Edit it in place; execution evidence stays in its
 own result record. Local Master/Execution documents link here instead of owning
 a second current cursor. Work methods follow the
@@ -147,6 +147,23 @@ limited to a safe allowlist; commands that define elaboration code are rejected.
   174 correctness properties. The 81 earlier accepted proofs reproduced their
   outcomes exactly. The catalog is frozen by digest and stays inactive: nothing
   is issued.
+- **Gate follow-ups before submission intake (October 19).**
+  - [#430](https://github.com/NotoriAndo/Boole/pull/430) keeps failure attribution
+    strict. A node or trusted-tool failure is ERROR, never a submission rejection,
+    including failures in the solution export and in lookups before an export
+    starts. Output symlinks planted by a submission are INVALID. Linux CI runs the
+    export attribution controls.
+  - [#431](https://github.com/NotoriAndo/Boole/pull/431) tracks the EVM and RISC-V
+    measuring sticks as public environments. They are fetched by digest, patched
+    and rebuilt with pinned tools, and carry path-independent identities. A clean
+    bootstrap from public sources reproduced both.
+  - [#432](https://github.com/NotoriAndo/Boole/pull/432) adds
+    `statement_closure_sha256`, an identity that binds a statement to the
+    definitions it uses, so same-name statements with different definitions are
+    told apart. It is computed only from trusted Challenges. Solutions and ratchet
+    candidate Challenges are excluded, so the identity step cannot turn
+    submission content into an error. An opt-in kernel-checked non-vacuity measurement (G-NONVAC-K) changes
+    no required stage and no frozen outcome.
 - macOS results remain development evidence only.
 
 Contracts are in the
