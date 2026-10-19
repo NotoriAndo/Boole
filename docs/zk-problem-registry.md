@@ -90,8 +90,8 @@ and userfaultfd, `mount_setattr`, and `clone` with `CLONE_NEWUSER` (`clone3` is 
 thread creation falls back safely). The pinned PID-1 shim is non-dumpable and reads back that state before forking;
 its administrative FDs are closed in the payload before execution. It counts every reaped orphan, retaining at
 most the first256 events, and records frozen payload-cgroup members at main exit; every write is checked. Receipts
-are cleaned per step after their bounded observations are retained in the guard log. Any remaining/adopted descendant is INVALID
-`owned-descendants-remained`, not a silent cleanup. Mandatory pids exhaustion is INVALID `resource-cap` (reference
+are cleaned per step after their bounded observations are retained in the guard log. A remaining/adopted submission descendant is INVALID
+`owned-descendants-remained`; a trusted reference descendant instead gives ERROR `sandbox-unavailable`. Mandatory pids exhaustion is INVALID `resource-cap` (reference
 builds: ERROR `resource-unavailable`); OOM and wall/memory interruption take ERROR precedence. The compile-time
 detachment controls deliberately bypass the text stage as trusted fixtures to exercise the actual OS boundary.
 Setup/exec failure uses a CLOEXEC status pipe, not the payload's exit code125. Comparator's inner launcher reports
