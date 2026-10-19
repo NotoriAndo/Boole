@@ -185,13 +185,17 @@ All ten package schemas accept `statement_closure_sha256` alongside the existing
 New serialized metadata uses `null` until a gate-owned export supplies the digest. Historical records without the
 field remain readable. This supplements existing source, export and acceptance pins; it does not replace them.
 `catalog_v2.repin_package` derives the field from the verified challenge export. The checker independently rebuilds
-that export and rejects an advertised closure mismatch before checking a solution.
-Successful DET, C and ratchet candidate generation exports the compiled reference and propagates its closure identity
+that export and reports a trusted advertised closure mismatch as ERROR before checking a solution.
+Successful DET and C generation export the compiled reference and propagate its closure identity
 to package metadata and candidate reports. Provision pinned tools with `extra.acceptance_tools_root` in the Lean
 environment descriptor (or an in-process `acceptance_tools` object); missing tools cannot produce a successful
 identity-bearing generation. Registry entries authenticate Acceptance-bound Challenge bytes before deriving identity,
 and public catalogs retain that field. Raw OPEN drafts and newly advanced abstract ratchet requests have no compiled
-candidate theorem yet and retain null; their eventual candidate receives its own identity. Historical frozen catalog
+candidate theorem yet and retain null. Ratchet candidate elaboration and checking also record null with
+`candidate-derived-identity-not-required`: these Challenges depend on submission content. Their supplementary
+identity computation is skipped, so parser limits or time spent in that worker cannot replace the core verdict.
+Only the six ratchet schemas in CANDIDATE status receive this treatment, after package validation. Any advertised
+candidate closure is ignored; required compilation/postchecking, exports and both kernels still run. Historical frozen catalog
 files remain unchanged; any catalog-wide identity table is a separate measurement artifact.
 
 `statement_identity.py` defines `boole-statement-closure/v1`: SHA256 of canonical, sorted-key UTF-8 JSON containing
@@ -205,9 +209,12 @@ for mathematical or definitional equivalence. It neither proves correctness nor 
 
 The trusted parser accepts only the pinned export format, validates supported records and semantic references
 (including unreachable expression records), rejects duplicate/dangling semantic records, and runs with a bounded clock, memory and record/line-size limits.
-Identity is computed only for the trusted Challenge, never the Solution. Its 3,000,000-record limit bounds
+Identity is computed for immutable catalog/generation Challenges and the optional kernel-witness Challenge,
+never the Solution or ratchet candidate-derived Challenges. Its 3,000,000-record limit bounds
 trusted parser memory and time; a proof-heavy accepted Solution may exceed that size without invoking this parser.
-Missing, malformed, resource-limited or unavailable Challenge identity computation is ERROR, never a submission rejection.
+Missing, malformed, resource-limited or unavailable identity on an immutable Challenge is ERROR, never INVALID.
+Generation and checking can use different top module names; module-private declarations can therefore change
+their closure digests. Such a trusted digest disagreement is ERROR, not a submission rejection.
 The reference export retains its own full stage timeout after reference compilation; identity shares that export budget.
 The isolated worker uses Python `-I` and a trusted working directory.
 The Comparator and both kernels remain the mathematical acceptance authority.

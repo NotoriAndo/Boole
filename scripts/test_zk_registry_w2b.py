@@ -17,8 +17,8 @@ from zk_registry.sandbox import Sandbox
 
 class ChallengeOnlyIdentity(unittest.TestCase):
     def test_accepted_solution_above_parser_record_cap_reaches_comparator(self):
-        # Pilot 0015 has 4,045,979 records. The worker refusal models its real
-        # MAX_RECORDS failure; the trusted Comparator accepts this export.
+        # A proof-heavy accepted export can exceed the supplementary parser cap.
+        # Model its refusal independently from the authoritative Comparator.
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             env = L.LeanEnv("/usr", [], "v4.34.1", {}, "", str(root))
@@ -105,22 +105,18 @@ class ReferenceAndSerialization(unittest.TestCase):
         self.assertEqual(obj, original)
 
     def test_free_true_premise_is_not_an_authenticated_stage(self):
-        from zk_registry import gates as G, kernel_nonvac as K
+        from zk_registry import gates as G
 
-        compiled = L.RunResult(0, "", 0, False)
-        with tempfile.TemporaryDirectory() as temp, patch.object(
-            L, "compile_module", return_value=(compiled, [])
-        ), patch.object(
-            D,
-            "export_module",
-            return_value=dict(verdict="PASS", path="export", statement_closure_sha256="a" * 64),
-        ), patch.object(
-            D, "compare_exports", return_value=dict(verdict="PASS", reason=None)
-        ):
-            with self.assertRaises(TypeError):
-                G.g_nonvac_k(
-                    None, [], "", ["True"], str(Path(temp) / "unit"), None, Sandbox.fixture()
+        forged = {"kind": "C", "property": "soundness", "premises": ["True"]}
+        for problem in [{"kind": "ratchet", "premises": ["True"]}, forged]:
+            with self.subTest(problem=problem), tempfile.TemporaryDirectory() as temp, patch.object(
+                L, "compile_module"
+            ) as compile:
+                result = G.g_nonvac_k(
+                    None, temp, problem, str(Path(temp) / "unit"), None, Sandbox.fixture()
                 )
+                self.assertEqual(result["status"], "UNKNOWN")
+                compile.assert_not_called()
 
 
 class ReferenceIdentityPropagation(unittest.TestCase):
@@ -175,7 +171,9 @@ class ReferenceIdentityPropagation(unittest.TestCase):
                 schema_version=P.CORRECTNESS_GNARK_SCHEMA_VERSION,
                 status="OPEN",
                 package_id="contract",
-                statement={"text": "theorem PublicClosureFixture.same : payload = payload := by sorry"},
+                statement={
+                    "text": "theorem PublicClosureFixture.same : payload = payload := by sorry"
+                },
                 checker={"theorem_fqn": "PublicClosureFixture.same"},
             )
             root = fixtures / label
@@ -258,8 +256,8 @@ class CheckerIdentityWiring(unittest.TestCase):
                     self.assertNotIn("statement-closure-mismatch", result["invalid"])
                 else:
                     compile.assert_not_called()
-                    self.assertEqual(result["verdict"], "INVALID")
-                    self.assertIn("statement-closure-mismatch", result["invalid"])
+                    self.assertEqual(result["verdict"], "ERROR")
+                    self.assertIn("statement-closure-mismatch", result["error"])
 
     def test_challenge_identity_failure_is_error(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -335,7 +333,7 @@ class FullCheckerRegression(unittest.TestCase):
             def semantic(export, *args, **kwargs):
                 calls.append(Path(export).name)
                 if Path(export).name == "Solution.ndjson":
-                    # Accepted pilot 0015: 4,045,979 records > parser MAX_RECORDS.
+                    # Model a supplementary parser refusing an otherwise accepted export.
                     return dict(verdict="ERROR", reason="statement-identity-unavailable")
                 return dict(
                     verdict="PASS",
@@ -464,7 +462,8 @@ class CompiledReferencePropagation(unittest.TestCase):
             env = L.LeanEnv("/usr", [], "", {}, "", temp)
             rt = RT._elaborate(env, temp, [], "Fixture.equiv", [], str(Path(temp) / "ratchet"), 10)
             cb = CB.reference({"id": "Fixture"}, "soundness", Path(temp), Path(temp), env, 10)
-        self.assertEqual(rt["statement_closure_sha256"], "a" * 64)
+        self.assertIsNone(rt["statement_closure_sha256"])
+        self.assertEqual(rt["statement_closure_reason"], "candidate-derived-identity-not-required")
         self.assertEqual(cb["statement_closure_sha256"], "a" * 64)
 
     def test_real_export_fixture_hashes_are_pinned(self):
@@ -476,7 +475,8 @@ class CompiledReferencePropagation(unittest.TestCase):
             "changed": "2a4a5b42b27665d913ab70097de9f7589e53d29a91b01a5b2e2b2857cfb04097",
         }
         records = [
-            I.identity(root / label / "Challenge.ndjson", "PublicClosureFixture.same") for label in expected
+            I.identity(root / label / "Challenge.ndjson", "PublicClosureFixture.same")
+            for label in expected
         ]
         self.assertEqual(records[0]["root_type_sha256"], records[1]["root_type_sha256"])
         for record, label in zip(records, expected):

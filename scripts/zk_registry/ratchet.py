@@ -1094,12 +1094,11 @@ def _elaborate(env: L.LeanEnv, pkg: str, modules: list[str], fqn: str, opts: lis
     if not ok:
         return dict(d, status="FAIL", errors=[f"replay record unexpected: {rr.out[-300:]}"])
     put(os.path.join(work, "reference.type.txt"), post["type_str"])
-    from . import closure as D
-    identity = D.reference_identity(env, 'Statement', fqn, pkg, [build], timeout)
-    d['statement_identity'] = identity
-    if identity['verdict'] != 'PASS':
-        return dict(d, status='ERROR', errors=[identity['reason']])
-    return dict(d, status="PASS", statement_closure_sha256=identity['statement_closure_sha256'],
+    # This is a candidate-only path. Supplementary identity must not consume its
+    # verdict budget: even a demoted parser timeout could starve the real checks.
+    d['statement_identity'] = dict(status='NOT-REQUIRED', reason='candidate-derived-identity-not-required')
+    return dict(d, status="PASS", statement_closure_sha256=None,
+                statement_closure_reason='candidate-derived-identity-not-required',
                 reference_type_sha256=post["type_sha256"],
                 total_secs=round(sum(s["secs"] for s in d["steps"]), 2),
                 peak_rss_mb=max(s["peak_rss_mb"] for s in d["steps"]))

@@ -164,7 +164,7 @@ def reference_identity(env: L.LeanEnv, module: str, theorem: str, cwd: str,
 def prepare_reference(env: L.LeanEnv, problem: dict, package: str, work: str, sealed: str,
                       tools: Tools, sandbox: Sandbox, timeout: float, axioms: list[str]) -> dict:
     """Build and seal a pristine Challenge before compiling any solution code."""
-    from . import check as C
+    from . import check as C, package as P
 
     started = time.monotonic()
     if sandbox.mode == 'production' or sandbox.disabled_layer:
@@ -189,7 +189,10 @@ def prepare_reference(env: L.LeanEnv, problem: dict, package: str, work: str, se
         return dict(verdict='ERROR', reason='challenge-build-unavailable', compiled=compiled)
     result = export_module(env, 'ProofMod', problem['checker']['theorem_fqn'], sealed, tools, sandbox,
                            str(Path(work) / 'proof'), [str(Path(work) / 'proof'), str(Path(work) / 'build')],
-                           timeout, axioms, identity=True)
+                           timeout, axioms, identity=not P.candidate_derived(problem))
+    if P.candidate_derived(problem):
+        result.update(statement_closure_sha256=None,
+                      statement_closure_reason="candidate-derived-identity-not-required")
     result['reference_type_sha256'] = post.get('type_sha256')
     result['compile_seconds'] = compiled.get('compile_secs', 0)
     result['pristine_compile_seconds'] = (sum(row['secs'] for row in compiled.get('imports', []))
