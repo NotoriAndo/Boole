@@ -8,11 +8,13 @@ import os
 from .safe_fs import Path
 from . import safe_fs as FS
 import platform
+import sys
 import time
 import uuid
 
 from . import correctness_runtime as CR
 from . import lean_runner as L
+from .statement_identity import VERSION as IDENTITY_VERSION
 from .sandbox import Sandbox, boundary_failure
 from .sandbox import SandboxUnavailable
 
@@ -95,11 +97,74 @@ def trusted_directory(path, exposure: dict) -> None:
         raise SandboxUnavailable('sandbox-unavailable') from None
 
 
+def statement_identity(export: str, theorem: str, work: str, timeout: float, *, task_env=None, cwd=None, expected_sha256=None) -> dict:
+    """Parse sealed export bytes in a bounded trusted worker; availability never becomes INVALID."""
+    if timeout <= 0:
+        return dict(verdict='ERROR', reason='resource-unavailable')
+    try:
+        directory = Path(work)
+        directory.mkdir(parents=True, exist_ok=True)
+        task_env = task_env or dict(PATH=L.SYSTEM_PATH, HOME=str(directory), TMPDIR=str(directory), LANG='C.UTF-8')
+        run = CR.runner(str(directory / 'processes'), timeout)
+        result = run([sys.executable, '-I', '-B', str(Path(__file__).with_name('statement_identity.py')),
+                      str(Path(export).absolute()), theorem, '--timeout', str(timeout)],
+                     task_env, cwd or str(directory), timeout, 19000)
+    except (OSError, ValueError):
+        return dict(verdict='ERROR', reason='statement-identity-unavailable')
+    record = dict(seconds=result.secs, peak_rss_mb=result.peak_rss_mb, rc=result.rc,
+                  process_receipt=result.process_receipt)
+    if resource_reason(result):
+        return dict(record, verdict='ERROR', reason='resource-unavailable')
+    try:
+        semantic = json.loads(result.out) if result.rc == 0 else {}
+        if not isinstance(semantic, dict):
+            raise ValueError('invalid worker response')
+        if semantic.get('export_sha256') != (expected_sha256 or digest(export)):
+            raise ValueError('export changed')
+        value = semantic['statement_closure_sha256']
+        if not isinstance(value, str) or len(value) != 64 or any(c not in '0123456789abcdef' for c in value):
+            raise ValueError('invalid semantic identity')
+        if semantic.get('statement_closure_version') != IDENTITY_VERSION:
+            raise ValueError('unknown semantic identity version')
+    except (OSError, ValueError, KeyError, TypeError):
+        return dict(record, verdict='ERROR', reason='statement-identity-unavailable')
+    return dict(record, verdict='PASS', reason=None, **semantic)
+
+
+@FS.guard_trusted_io
+def reference_identity(env: L.LeanEnv, module: str, theorem: str, cwd: str,
+                       lean_path: list[str], timeout: float) -> dict:
+    """Bind a compiled reference using explicitly provisioned, pinned export tools.
+
+    Temporary sealed exports live outside every compilation writer root. The returned
+    identity binds bytes, never an environment path or an unelaborated statement string.
+    """
+    import tempfile
+
+    tools = env.extra.get('acceptance_tools')
+    try:
+        if not isinstance(tools, Tools):
+            root = env.extra.get('acceptance_tools_root')
+            if not root:
+                return dict(verdict='ERROR', reason='kernels-unavailable')
+            tools = Tools.load(root)
+        sandbox = L.current_sandbox() or env.extra.get('acceptance_sandbox') or Sandbox.production(tools.landrun)
+        with tempfile.TemporaryDirectory(prefix='boole-reference-') as temporary:
+            record = export_module(env, module, theorem, str(Path(temporary) / 'Challenge.ndjson'),
+                                   tools, sandbox, cwd, lean_path, timeout, [],
+                                   exposure=sandbox.exposed_writers, identity=True)
+        if record['verdict'] != 'PASS':
+            return dict(verdict='ERROR', reason=record['reason'])
+        return dict(verdict='PASS', statement_closure_sha256=record['statement_closure_sha256'])
+    except (OSError, ValueError, KeyError, TypeError):
+        return dict(verdict='ERROR', reason='statement-identity-unavailable')
+
+
 @FS.guard_trusted_io
 def prepare_reference(env: L.LeanEnv, problem: dict, package: str, work: str, sealed: str,
                       tools: Tools, sandbox: Sandbox, timeout: float, axioms: list[str]) -> dict:
     """Build and seal a pristine Challenge before compiling any solution code."""
-    from . import check as C
+    from . import check as C, package as P
 
     started = time.monotonic()
     if sandbox.mode == 'production' or sandbox.disabled_layer:
@@ -124,7 +189,10 @@ def prepare_reference(env: L.LeanEnv, problem: dict, package: str, work: str, se
         return dict(verdict='ERROR', reason='challenge-build-unavailable', compiled=compiled)
     result = export_module(env, 'ProofMod', problem['checker']['theorem_fqn'], sealed, tools, sandbox,
                            str(Path(work) / 'proof'), [str(Path(work) / 'proof'), str(Path(work) / 'build')],
-                           timeout, axioms)
+                           timeout, axioms, identity=not P.candidate_derived(problem))
+    if P.candidate_derived(problem):
+        result.update(statement_closure_sha256=None,
+                      statement_closure_reason="candidate-derived-identity-not-required")
     result['reference_type_sha256'] = post.get('type_sha256')
     result['compile_seconds'] = compiled.get('compile_secs', 0)
     result['pristine_compile_seconds'] = (sum(row['secs'] for row in compiled.get('imports', []))
@@ -136,15 +204,20 @@ def prepare_reference(env: L.LeanEnv, problem: dict, package: str, work: str, se
 @FS.guard_trusted_io
 def export_module(env: L.LeanEnv, module: str, theorem: str, output: str, tools: Tools, sandbox: Sandbox,
                   cwd: str, extra_lean_path: list[str], timeout: float, axioms: list[str], *,
-                  exposure: dict | None = None) -> dict:
+                  exposure: dict | None = None, identity: bool = False) -> dict:
     """Export the target's transitive type/value closure, including primitive and import dependencies."""
     prior = dict(exposure or {})
     if sandbox.mode == 'production' or sandbox.disabled_layer:
         sandbox = replace(sandbox, role='reference')
     target = Path(output)
+    started = time.monotonic()
+    if timeout <= 0:
+        return dict(stage='closure-export', verdict='ERROR', reason='resource-unavailable')
     try:
         trusted_directory(target.parent, prior)
         trusted_directory(target.parent / 'processes', prior)
+        if identity:
+            trusted_directory(target.parent / (target.name + '-identity'), prior)
     except SandboxUnavailable:
         return dict(stage='closure-export', verdict='ERROR', reason='sandbox-unavailable', assurance=sandbox.mode)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -169,8 +242,22 @@ def export_module(env: L.LeanEnv, module: str, theorem: str, output: str, tools:
     with target.open('x', encoding='utf-8') as stream:
         stream.write(result.out)
     target.chmod(0o444)
-    return dict(record, verdict='PASS', reason=None, path=str(target), sha256=digest(target),
-                bytes=target.stat().st_size, roots=roots)
+    exported_sha = digest(target)
+    exported = dict(record, verdict='PASS', reason=None, path=str(target), sha256=exported_sha,
+                    bytes=target.stat().st_size, roots=roots, theorem=theorem)
+    if not identity:
+        return exported
+    remaining = timeout - (time.monotonic() - started)
+    if remaining <= 0:
+        return dict(record, verdict='ERROR', reason='resource-unavailable')
+    semantic = statement_identity(str(target), theorem, str(target.parent / (target.name + '-identity')),
+                                  remaining, expected_sha256=exported_sha)
+    record['identity_worker'] = semantic
+    exported['identity_worker'] = semantic
+    if semantic['verdict'] != 'PASS':
+        return dict(record, verdict='ERROR', reason=semantic['reason'])
+    return dict(exported,
+                **{k: semantic[k] for k in ('statement_closure_sha256', 'statement_closure_version')})
 
 
 @FS.guard_trusted_io

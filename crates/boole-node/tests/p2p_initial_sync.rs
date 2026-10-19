@@ -828,12 +828,53 @@ fn sync_shorter_heavier_chain_wins_by_work_not_height() {
     assert_eq!(final_blocks.lines().collect::<Vec<_>>(), shorter);
 }
 
-/// B's current head `c`, read from its highest block (avoids assuming the
-/// `/status` payload shape).
+/// Read one atomic head snapshot; height can shrink between HTTP requests.
 fn b_head_c(b: &Boot) -> String {
-    let h = height(b.addr).saturating_sub(1);
-    http_get_json(b.addr, &format!("/block/{h}"))["block"]["c"]
+    http_get_json(b.addr, "/head")["c"]
         .as_str()
         .expect("head block c")
         .to_string()
+}
+
+#[test]
+fn head_read_survives_a_shortening_reorg_between_http_requests() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("HTTP listener");
+    let addr = listener.local_addr().expect("HTTP address");
+    let server = thread::spawn(move || -> anyhow::Result<()> {
+        for _ in 0..2 {
+            let (mut stream, _) = listener.accept()?;
+            let mut request = Vec::new();
+            while !request.ends_with(b"\r\n\r\n") {
+                let mut byte = [0];
+                stream.read_exact(&mut byte)?;
+                request.push(byte[0]);
+            }
+            let request = String::from_utf8(request)?;
+            let (status, body, done) = if request.starts_with("GET /head ") {
+                (200, json!({"height": 3, "c": "shorter-tip"}), true)
+            } else if request.starts_with("GET /status ") {
+                (200, json!({"height": 4}), false)
+            } else {
+                // The old height's last block disappeared during the reorg.
+                (404, json!({"error": "unknown block"}), true)
+            };
+            let body = body.to_string();
+            write!(stream, "HTTP/1.1 {status} Response\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len())?;
+            if done {
+                break;
+            }
+        }
+        Ok(())
+    });
+    let node = Boot {
+        addr,
+        dir: PathBuf::new(),
+        shutdown: Arc::new(Notify::new()),
+        handle: server,
+    };
+    assert_eq!(b_head_c(&node), "shorter-tip");
+    node.handle
+        .join()
+        .expect("HTTP server joins")
+        .expect("HTTP server");
 }

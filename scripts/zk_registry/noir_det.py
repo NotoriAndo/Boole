@@ -1584,6 +1584,7 @@ def build_package(sh: Shared, rec: dict, t: I.Target, chosen: dict, work: str) -
     rec["gates"] = gates
     set_status(rec, gates, bool(flat.outputs))
     ref = elab.detail["reference_type_sha256"] if elab.status == "PASS" else "0" * 64
+    rec["statement_closure_sha256"] = elab.detail.get("statement_closure_sha256")
     rec["checker"] = {"statement_file": "Statement.lean", "theorem": NE.STATEMENT_THEOREM, "theorem_fqn": fqn,
                       "lean_opts": list(NE.LEAN_OPTIONS),
                       "files": [{"path": "Statement.lean", "role": "statement",

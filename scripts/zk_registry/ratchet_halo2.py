@@ -356,6 +356,7 @@ def build_problem(reg_dir, snapshot, out, tools, det, target, build, env=None, b
     ref["compiler"] = {k: ref["compiler"][k] for k in ("version", "binary_sha256", "source")}
     problem = dict(
         schema_version=SCHEMA_VERSION,
+        statement_closure_sha256=None,
         kind="ratchet",
         family="halo2",
         package_id="ratchet/" + spec["registry_package_id"],

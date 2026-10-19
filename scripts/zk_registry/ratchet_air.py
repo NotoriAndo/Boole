@@ -805,6 +805,7 @@ def candidate_problem(prob: dict, cand: dict, files: list[dict], stmt: str, type
                         "lean_opts": prob["reference"]["lean_opts"], "files": files,
                         "reference_type_sha256": type_sha, "replay_tool_sha256": P.sha256_file(G.REPLAY_TOOL),
                         "allowed_axioms": sorted(C.ALLOWED_AXIOMS), "forbidden_tokens": C.FORBIDDEN_LABELS})
+    out["statement_closure_sha256"] = None
     return out
 
 
@@ -830,6 +831,7 @@ def package_candidate(prob: dict, problem_dir: str, rep: dict, ev: dict, out: st
     pkg = os.path.join(out, "pkg")
     stmt, files = write_candidate_package(prob, problem_dir, cand, ev, pkg)
     rep["statement_sha256"] = files[0]["sha256"]
+    rep["statement_closure_sha256"] = None
     if env is not None:
         base, _, _ = namespaces(prob)
         el = RT.elaborate(env, pkg, [f["path"] for f in files[1:]], base + ".equiv", prob["reference"]["lean_opts"],
@@ -839,6 +841,7 @@ def package_candidate(prob: dict, problem_dir: str, rep: dict, ev: dict, out: st
             raise RuntimeError(f"statement does not elaborate: {el.get('errors')}")
         cprob = candidate_problem(prob, cand, files, stmt, el["reference_type_sha256"],
                                   statement_assumptions(prob, ev["iface"], ev["bus"]))
+        rep["statement_closure_sha256"] = cprob["statement_closure_sha256"] = el["statement_closure_sha256"]
         errs = P.validate_problem(cprob, pkg)
         if errs:
             raise RuntimeError(f"checker package does not validate: {errs[:5]}")
@@ -1243,6 +1246,7 @@ def problem_record(spec: dict, ref_air: IR.Air, ir_sha: str, machine: dict, mess
     env = {k: spec["env"][k] for k in ("lean", "mathlib", "lake_manifest_sha256", "packages") if k in spec["env"]}
     lay = IR.Layout.of(ref_air)
     rec = {
+        "statement_closure_sha256": None,
         "schema_version": SCHEMA_VERSION, "kind": "ratchet", "family": "air", "package_id": pid, "status": "OPEN",
         "reference": {
             "registry_package_id": spec["registry_package_id"], "zkvm": spec["zkvm"], "release": spec["release"],

@@ -95,7 +95,7 @@ GENERATOR_SOURCES = ["__init__.py", "r1cs.py", "circom_source.py", "circom_eval.
                      "witness.py", "witness_runner.js", "det_search.py", "tags.py", "content.py", "decompose.py",
                      "package.py", "jsonschema_lite.py", "lean_runner.py", "gates.py", "check.py", "circom_det.py",
                      "circom_detmod.py", "lean/ZkReplay.lean", "schema/problem.schema.json",
-                     "acceptance.py", "axiom_policy.py", "closure.py", "sandbox.py", "correctness_runtime.py", "safe_fs.py",
+                     "acceptance.py", "axiom_policy.py", "closure.py", "statement_identity.py", "sandbox.py", "correctness_runtime.py", "safe_fs.py",
                      "sandbox_backend/launcher.py", "sandbox_backend/isolate.c", "sandbox_backend/filter.c",
                      "sandbox_backend/probes.c", "sandbox_backend/comparator-landrun", "sandbox_backend/apparmor-bwrap",
                      "data/acceptance_environment_v2.json", "data/acceptance_tools_v2.json",
@@ -162,6 +162,15 @@ def load_schema(version: str = SCHEMA_VERSION) -> dict:
     }.get(version, SCHEMA_PATH)
     with open(path, encoding="utf-8") as f:
         return json.load(f)
+
+
+
+def candidate_derived(problem: dict) -> bool:
+    """Select only the validated ratchet candidate schemas, never a general opt-out."""
+    return problem.get('status') == 'CANDIDATE' and problem.get('schema_version') in (
+        RATCHET_SCHEMA_VERSION, RATCHET_NOIR_SCHEMA_VERSION, RATCHET_GNARK_SCHEMA_VERSION,
+        RATCHET_AIR_SCHEMA_VERSION, RATCHET_ZOKRATES_SCHEMA_VERSION, RATCHET_HALO2_SCHEMA_VERSION,
+    )
 
 
 def has_statement(problem: dict) -> bool:
@@ -818,6 +827,9 @@ def validate_ratchet_noir(problem: dict, pkg_dir: str | None = None, schema: dic
 
 
 def write_json(path: str, obj) -> None:
+    if isinstance(obj, dict) and isinstance(obj.get("schema_version"), str) and obj["schema_version"].startswith("zk-registry-") and "problem/" in obj["schema_version"]:
+        obj = dict(obj)
+        obj.setdefault("statement_closure_sha256", None)
     FS.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(obj, f, indent=1, sort_keys=True, ensure_ascii=False)

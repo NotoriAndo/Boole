@@ -802,6 +802,7 @@ def problem_record(spec: dict, measured: dict, det: dict, snapshot: dict, annota
     env = {k: spec["env"][k] for k in ("lean", "mathlib", "lake_manifest_sha256", "packages") if k in spec["env"]}
     env.update(circom=spec["compiler"]["version"], circom_binary_sha256=spec["compiler"]["binary_sha256"])
     rec = {
+        "statement_closure_sha256": None,
         "schema_version": P.RATCHET_SCHEMA_VERSION, "kind": "ratchet", "package_id": pid, "status": "OPEN",
         "reference": {
             "registry_package_id": spec["registry_package_id"], "repo": spec["repo"], "repo_url": spec["repo_url"],
@@ -1093,7 +1094,12 @@ def _elaborate(env: L.LeanEnv, pkg: str, modules: list[str], fqn: str, opts: lis
     if not ok:
         return dict(d, status="FAIL", errors=[f"replay record unexpected: {rr.out[-300:]}"])
     put(os.path.join(work, "reference.type.txt"), post["type_str"])
-    return dict(d, status="PASS", reference_type_sha256=post["type_sha256"],
+    # This is a candidate-only path. Supplementary identity must not consume its
+    # verdict budget: even a demoted parser timeout could starve the real checks.
+    d['statement_identity'] = dict(status='NOT-REQUIRED', reason='candidate-derived-identity-not-required')
+    return dict(d, status="PASS", statement_closure_sha256=None,
+                statement_closure_reason='candidate-derived-identity-not-required',
+                reference_type_sha256=post["type_sha256"],
                 total_secs=round(sum(s["secs"] for s in d["steps"]), 2),
                 peak_rss_mb=max(s["peak_rss_mb"] for s in d["steps"]))
 
@@ -1121,6 +1127,7 @@ def candidate_problem(prob: dict, cand: dict, files: list[dict], stmt: str, type
                         "lean_opts": prob["reference"]["lean_opts"], "files": files,
                         "reference_type_sha256": type_sha, "replay_tool_sha256": P.sha256_file(G.REPLAY_TOOL),
                         "allowed_axioms": sorted(C.ALLOWED_AXIOMS), "forbidden_tokens": C.FORBIDDEN_LABELS})
+    out["statement_closure_sha256"] = None
     return out
 
 
@@ -1156,6 +1163,7 @@ def run_candidate(problem_dir: str, cand_path: str, out: str, compilers: dict, s
     pkg = os.path.join(out, "pkg")
     stmt, files = write_candidate_package(prob, problem_dir, cand, res, pkg)
     rep["statement_sha256"] = files[0]["sha256"]
+    rep["statement_closure_sha256"] = None
     if env is not None:
         base, _, _ = namespaces(prob)
         el = elaborate(env, pkg, [f["path"] for f in files[1:]], base + ".equiv", prob["reference"]["lean_opts"],
@@ -1164,6 +1172,7 @@ def run_candidate(problem_dir: str, cand_path: str, out: str, compilers: dict, s
         if el["status"] != "PASS":
             raise RuntimeError(f"statement does not elaborate: {el.get('errors')}")
         cprob = candidate_problem(prob, cand, files, stmt, el["reference_type_sha256"])
+        rep["statement_closure_sha256"] = cprob["statement_closure_sha256"] = el["statement_closure_sha256"]
         errs = P.validate_problem(cprob, pkg)
         if errs:
             raise RuntimeError(f"checker package does not validate: {errs[:5]}")

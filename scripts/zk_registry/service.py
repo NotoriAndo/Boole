@@ -117,6 +117,7 @@ def catalog_entry(problem: dict, directory: str) -> dict | None:
         return None
     entry = dict(id=problem['package_id'], kind=kind, framework=framework, status=status,
                 statement_sha256=hashlib.sha256(request_statement(problem)).hexdigest(),
+                statement_closure_sha256=problem.get('statement_closure_sha256'),
                 statement=request_statement(problem).decode('utf-8'),
                 record=copy.deepcopy(problem.get('record')), spec=copy.deepcopy(problem.get('spec')),
                 submittable=kind != 'S', unavailable_reason=UNSUPPORTED_SPEC if kind == 'S' else None,
@@ -128,7 +129,34 @@ def catalog_entry(problem: dict, directory: str) -> dict | None:
         raise RegistryError('invalid acceptance binding: ' + str(ex)) from ex
     if binding is not None:
         entry['acceptance'] = A.public(binding)
+        entry['statement_closure_sha256'] = bound_statement_identity(problem, directory, binding, framework)
     return entry
+
+
+def bound_statement_identity(problem: dict, directory: str, binding, framework: str) -> str:
+    """Hash the authenticated reference export; request text alone is not a Lean type."""
+    import tempfile
+    from . import closure as D
+
+    theorem = problem.get('checker', {}).get('theorem_fqn')
+    if not theorem:
+        from . import ratchet, ratchet_air, ratchet_gnark, ratchet_noir, ratchet_native
+        adapter = {'circom': ratchet, 'gnark': ratchet_gnark, 'zkvm-air': ratchet_air,
+                   'noir': ratchet_noir, 'halo2': ratchet_native, 'zokrates': ratchet_native}.get(framework)
+        if adapter is None:
+            raise RegistryError('reference theorem unavailable')
+        theorem = adapter.namespaces(problem)[0] + '.equiv'
+    export = binding.manifest['challenge_export']
+    with tempfile.TemporaryDirectory(prefix='boole-catalog-identity-') as temporary:
+        semantic = D.statement_identity(str(Path(directory) / export['path']), theorem, temporary, 1800,
+                                        expected_sha256=export['sha256'])
+    if semantic['verdict'] != 'PASS':
+        raise RegistryError('reference identity unavailable: ' + semantic['reason'])
+    value = semantic['statement_closure_sha256']
+    advertised = problem.get('statement_closure_sha256')
+    if advertised is not None and advertised != value:
+        raise RegistryError('statement-closure-mismatch')
+    return value
 
 
 def build_catalog(directories: list[str]) -> dict:
@@ -456,6 +484,8 @@ class Registry:
                 statement['record'] = record
                 next_problem['statement'] = (canonical(statement) + b'\n').decode('utf-8')
                 next_problem['statement_sha256'] = hashlib.sha256(next_problem['statement'].encode()).hexdigest()
+                # The next abstract request has no candidate-specific compiled theorem yet.
+                next_problem['statement_closure_sha256'] = None
                 state['problems'][next_id] = next_problem
 
     @staticmethod

@@ -34,6 +34,12 @@ def sandbox_context(sandbox, readable: list[str], writable: list[str], runner=No
         _SANDBOX.reset(token)
 
 
+def current_sandbox():
+    """Return the active boundary, including its accumulated writer exposure."""
+    active = _SANDBOX.get()
+    return active[0] if active is not None else None
+
+
 @dataclass
 class LeanEnv:
     toolchain: str

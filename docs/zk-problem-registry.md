@@ -179,6 +179,68 @@ to a later step, not this no-rewards gate upgrade. All offline registry lanes ru
 `scripts/self-test.sh --zk-registry-only`; installed-tool/artifact controls are opt-in. Use task-local temporary/cache
 paths and never write `~/.elan` or `~/.cache/mathlib`. Nothing is issued, rewarded or activated.
 
+## Semantic statement identity and optional kernel witness stage
+
+All ten package schemas accept `statement_closure_sha256` alongside the existing statement-byte identity.
+New serialized metadata uses `null` until a gate-owned export supplies the digest. Historical records without the
+field remain readable. This supplements existing source, export and acceptance pins; it does not replace them.
+`catalog_v2.repin_package` derives the field from the verified challenge export. The checker independently rebuilds
+that export and reports a trusted advertised closure mismatch as ERROR before checking a solution.
+Successful DET and C generation export the compiled reference and propagate its closure identity
+to package metadata and candidate reports. Provision pinned tools with `extra.acceptance_tools_root` in the Lean
+environment descriptor (or an in-process `acceptance_tools` object); missing tools cannot produce a successful
+identity-bearing generation. Registry entries authenticate Acceptance-bound Challenge bytes before deriving identity,
+and public catalogs retain that field. Raw OPEN drafts and newly advanced abstract ratchet requests have no compiled
+candidate theorem yet and retain null. Ratchet candidate elaboration and checking also record null with
+`candidate-derived-identity-not-required`: these Challenges depend on submission content. Their supplementary
+identity computation is skipped, so parser limits or time spent in that worker cannot replace the core verdict.
+Only the six ratchet schemas in CANDIDATE status receive this treatment, after package validation. Any advertised
+candidate closure is ignored; required compilation/postchecking, exports and both kernels still run. Historical frozen catalog
+files remain unchanged; any catalog-wide identity table is a separate measurement artifact.
+
+`statement_identity.py` defines `boole-statement-closure/v1`: SHA256 of canonical, sorted-key UTF-8 JSON containing
+canonical expression-DAG hashes for the theorem type and its transitive constant closure. Definition and opaque
+values are included; theorem dependencies contribute their types, without their proof bodies. Mutual inductives,
+constructors, recursors and implicit literal dependencies are included. Names retain their structured components;
+expression interning IDs, binder names and universe-parameter spelling are normalized. The target theorem's name,
+source locations, host paths and transport receipts are absent. Thus a same-name definition change changes identity,
+while a byte-identical rebuild stays identical. This is syntactic semantic-closure identity, not a decision procedure
+for mathematical or definitional equivalence. It neither proves correctness nor establishes premise satisfiability.
+
+The trusted parser accepts only the pinned export format, validates supported records and semantic references
+(including unreachable expression records), rejects duplicate/dangling semantic records, and runs with a bounded clock, memory and record/line-size limits.
+Identity is computed for immutable catalog/generation Challenges and the optional kernel-witness Challenge,
+never the Solution or ratchet candidate-derived Challenges. Its 3,000,000-record limit bounds
+trusted parser memory and time; a proof-heavy accepted Solution may exceed that size without invoking this parser.
+Missing, malformed, resource-limited or unavailable identity on an immutable Challenge is ERROR, never INVALID.
+Generation and checking can use different top module names; module-private declarations can therefore change
+their closure digests. Such a trusted digest disagreement is ERROR, not a submission rejection.
+The reference export retains its own full stage timeout after reference compilation; identity shares that export budget.
+The isolated worker uses Python `-I` and a trusted working directory.
+The Comparator and both kernels remain the mathematical acceptance authority.
+
+`gates.g_nonvac_k` is an opt-in **G-NONVAC-K** stage. It proves a conjunction of every premise for one concrete,
+authentic witness with kernel `decide`, then exports and checks the theorem through the two-kernel acceptance gate.
+There is no `#eval` or `native_decide` proof shortcut. Source preparation, theorem construction, exports and both
+kernels share one N4 clock (at most 30 minutes); the owned compile guard is at most 19000 MiB. Arbitrary
+measuring-stick axioms are unsupported. PASS certifies that particular joint witness, FAIL means the attempted
+proof was not constructed or admitted, and UNKNOWN reports unavailable evidence or resources. FAIL and UNKNOWN
+are not claims of vacuity.
+
+`kernel_nonvac.c_plan` and `run_c` adapt C soundness/completeness packages: verify the recorded actual solver
+assignment, source/evidence/witness hashes and field/wire bounds; regenerate the exact bindings, contract and
+constraint decider; then prove all antecedents on that same assignment and its bound input. Completeness also proves
+constraints, assumptions and input binding for the same witness. No output-equality conclusion is assumed. Other
+families need an authentic witness adapter before they can receive coverage. The public `gates.g_nonvac_k` entry accepts only authenticated C packages through `run_c`, not arbitrary premises.
+The lower-level `run` API requires
+its caller to authenticate all supplied premises and witness provenance; it is not a package validator.
+
+The frozen catalog is measured separately, without rewriting v1 outcomes or making this stage mandatory. Host runs
+are `dev-unsandboxed`; they are not Linux production evidence. Report supported and unsupported items, budgets,
+construction/acceptance costs and every FAIL/UNKNOWN. A shorter measurement allocation exhausted before 30 minutes
+is UNKNOWN at that allocation, not evidence that N4 itself was exceeded. Adoption as a required stage is a later
+decision. The existing G-NONVAC evaluation and its historical outcomes remain unchanged.
+
 ## Circom DET generator
 
 Code: `scripts/zk_registry/` (driver `circom_det.py`, generator 1.3). Pipeline: a pinned, digest-checked circom

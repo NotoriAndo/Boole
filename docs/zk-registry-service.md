@@ -25,6 +25,18 @@ imports. It never exports the event log, object store, proof/candidate submissio
 private gate evidence, or a raw package directory. Export is explicit, local and no-overwrite.
 Do not place a private store on a public file server: it contains submissions, salts and rejected inputs.
 
+
+Identity cost is additional to kernel verification. Each full catalog pass authenticates the bound exports and
+launches an identity worker for every Acceptance-bound entry. A reference measurement for 2,142 entries recorded
+about 1,761 seconds of total worker wall time per pass; elapsed time also depends on storage and concurrency.
+Catalog building, store creation and replay revalidation can each incur this cost; there is no persistent identity
+cache or constant-time replay claim.
+
+Pre-W2 stores are not replayable by this version: revalidating their catalog adds `statement_closure_sha256` to
+entries, so the stored catalog no longer matches byte-for-byte. Preserve old stores and use their pinned older
+implementation for historical audits. Start a fresh store with the current catalog for new work; this version
+does not migrate old event logs or transfer in-flight commits/reveals. No frozen catalog outcome is rewritten.
+
 ## Commit–reveal and ordering
 
 A submission is a directory of regular files. Its digest binds a sorted manifest of relative names,

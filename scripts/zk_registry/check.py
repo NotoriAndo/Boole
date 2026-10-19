@@ -483,6 +483,15 @@ def check(pkg_dir: str, proof_path: str, env: L.LeanEnv, workdir: str | None = N
         if reference['verdict'] != 'PASS':
             error.append(reference['reason'])
             return _finish(rep)
+        rep['statement_closure_sha256'] = reference.get('statement_closure_sha256')
+        candidate_identity = P.candidate_derived(problem)
+        if candidate_identity:
+            rep['statement_closure_sha256'] = None
+            rep['statement_closure_reason'] = 'candidate-derived-identity-not-required'
+        advertised = problem.get('statement_closure_sha256')
+        if not candidate_identity and advertised is not None and advertised != reference.get('statement_closure_sha256'):
+            error.append('statement-closure-mismatch')
+            return _finish(rep)
         if acceptance:
             if acceptance['challenge_export']['sha256'] != reference['sha256']:
                 invalid.append('challenge-export-mismatch')

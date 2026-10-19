@@ -237,6 +237,25 @@ def validate_interface(unit: dict) -> None:
         raise ValueError('Reduce must retain the approved output-limb conclusions')
 
 
+
+# Ordered contract premises, shared by proposition generation and kernel witnesses.
+CONTRACT_PREMISES = {
+    'soundness': (('model', 'Constraints', 'w'), ('binding', 'Assumptions', 'w'),
+                  ('binding', 'CanonicalInputs', 'w'), ('binding', 'SpecDomain', 'w')),
+    'completeness': (('binding', 'CanonicalData', 'data'), ('binding', 'AcceptedData', 'data'),
+                     ('model', 'Constraints', 'w'), ('binding', 'Assumptions', 'w'),
+                     ('binding', 'BindInputs', 'w data')),
+}
+
+
+def contract_premises(unit: dict, kind: str, w='w', data='data', *, qualified=True) -> list[str]:
+    """Instantiate every contract antecedent without including its conclusion."""
+    owners = {'model': unit['model_module'].rsplit('.', 1)[0], 'binding': unit['id']}
+    arguments = {'w': w, 'data': data, 'w data': w + ' ' + data}
+    return [(owners[owner] + '.' if qualified else '') + predicate + ' ' + arguments[args]
+            for owner, predicate, args in CONTRACT_PREMISES[kind]]
+
+
 def render_modules(unit: dict) -> dict[str, str]:
     """Generate pure bindings, proposition-only statements and a separate concrete evaluator."""
     validate_interface(unit)
@@ -308,18 +327,20 @@ def BindInputs (w : Fin nWires → F) (data : InputData) : Prop := binds w data 
                     'def OutputLimbsBounded (w : Fin nWires → F) : Prop := outputLimbsBounded w = true\n')
         bound_conclusion = ' ∧ OutputLimbsBounded w'
     binding += f'\nend {ident}\n'
+    soundness = contract_premises(unit, 'soundness', qualified=False)
+    completeness = contract_premises(unit, 'completeness', qualified=False)
     propositions = f"""import Bindings
 
 namespace {ident}
 open {namespace}
 
 def Soundness : Prop := ∀ w : Fin nWires → F,
-  Constraints w → Assumptions w → CanonicalInputs w → SpecDomain w →
+  {" → ".join(soundness)} →
   outputValues w = specResult (dataOf w){bound_conclusion}
 
 def Completeness : Prop := ∀ data : InputData,
-  CanonicalData data → AcceptedData data →
-  ∃ w : Fin nWires → F, Constraints w ∧ Assumptions w ∧ BindInputs w data ∧
+  {" → ".join(completeness[:2])} →
+  ∃ w : Fin nWires → F, {" ∧ ".join(completeness[2:])} ∧
     outputValues w = specResult data{bound_conclusion}
 
 end {ident}

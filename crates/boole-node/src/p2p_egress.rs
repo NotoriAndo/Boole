@@ -455,7 +455,6 @@ mod tests {
             let mut conn = TcpTransport::conn_from_stream(stream).expect("peer conn");
             let hello = transport.recv_frame(&mut conn).expect("client Hello");
             assert!(peer_identity.matches(&hello));
-            thread::sleep(Duration::from_millis(60));
             transport
                 .send_frame(
                     &mut conn,
@@ -496,6 +495,9 @@ mod tests {
             Some((boole_p2p::MAX_FRAME_BYTES, deadline)),
         )
         .expect("Hello completes within shared deadline");
+        // Check the shared deadline directly; a pre-Hello sleep can overshoot
+        // on hosts that coalesce timers and hide the property under test.
+        assert_eq!(validated.deadline, deadline);
         let result = validated.transport.recv_frame_counted_until(
             &mut validated.conn,
             boole_p2p::MAX_FRAME_BYTES,

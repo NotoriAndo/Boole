@@ -44,7 +44,7 @@ def make_package(root: str, status: str = "OPEN") -> tuple[str, dict]:
     passed = {"status": "PASS"}
     rec = {
         "schema_version": P.SCHEMA_VERSION, "package_id": "toy-v1/toy.Toy", "property": dict(P.DET_PROPERTY),
-        "status": status, "status_reason": "fixture",
+        "status": status, "status_reason": "fixture", "statement_closure_sha256": None,
         "ids": {"ledger_item_id": "toy/repo:toy.circom#Toy", "repo": "toy/repo", "repo_url": "https://example.invalid/t",
                 "release": "v1", "commit": "0" * 40, "path": "toy.circom", "template": "Toy", "template_line": 6,
                 "source_sha256": H},
@@ -198,6 +198,9 @@ class IdentityTests(unittest.TestCase):
         from zk_registry import measuring_sticks
         self.assertRegex(measuring_sticks.source_info()['sources_sha256'], r'^[0-9a-f]{64}$')
         present -= set(measuring_sticks.source_files())
+        # Optional witness measurements do not change generator package content.
+        self.assertNotIn('kernel_nonvac.py', listed)
+        present -= {'kernel_nonvac.py'}
         self.assertEqual(present - listed - set(air_det.generator_files()) - set(noir_det.generator_files())
                          - set(gnark_det.generator_files()) - set(zokrates_det.generator_files())
                          - set(halo2_det.generator_files()) - set(mech_air.source_files()), set())

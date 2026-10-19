@@ -26,6 +26,21 @@ def repin_package(source: str, destination: str, reference: dict, *, old_referen
         raise ValueError('invalid original package: ' + '; '.join(errors[:3]))
     old_metadata = D.digest(old / 'problem.json')
     old_env = copy.deepcopy(problem['env'])
+    theorem = reference.get('theorem') or problem.get('checker', {}).get('theorem_fqn')
+    if not theorem:
+        raise ValueError('reference theorem required')
+    expected_theorem = problem.get('checker', {}).get('theorem_fqn')
+    if expected_theorem and theorem != expected_theorem:
+        raise ValueError('reference theorem differs')
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix='boole-repin-') as identity_work:
+        semantic = D.statement_identity(reference['path'], theorem, identity_work, 1800,
+                                        expected_sha256=reference['sha256'])
+    if semantic['verdict'] != 'PASS':
+        raise ValueError(semantic['reason'])
+    if semantic['export_sha256'] != reference['sha256']:
+        raise ValueError('reference export changed')
+    problem['statement_closure_sha256'] = semantic['statement_closure_sha256']
     pins = L.production_descriptor()
     new.mkdir(parents=True)
     for row in S.file_manifest(str(old), package=True):
