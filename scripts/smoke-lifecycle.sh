@@ -48,8 +48,9 @@ smoke_register_child() {
 smoke_stop_and_wait() {
   local smoke_pid="$1"
   kill -TERM "$smoke_pid" >/dev/null 2>&1 || true
-  local smoke_tick
-  for smoke_tick in {1..100}; do
+  # Bound elapsed time, including sleep and process-start overhead.
+  local smoke_deadline=$((SECONDS + 5))
+  while (( SECONDS < smoke_deadline )); do
     if ! kill -0 "$smoke_pid" >/dev/null 2>&1; then
       wait "$smoke_pid"
       return $?
