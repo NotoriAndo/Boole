@@ -64,22 +64,29 @@ class RevealErrors(unittest.TestCase):
 
 
 class WriterClassification(unittest.TestCase):
+    @staticmethod
+    def inspect(launcher, work, program, exposed=()):
+        options = SimpleNamespace(authority='fixture', memory=16 * 1024**2, pids=16,
+                                  exec_origin='submission', exposed_writer=exposed)
+        with patch.object(launcher, 'bundle', return_value=(work.parent / 'authority', {})):
+            launcher.execute(options, ['--rwx', str(work), '--', str(program)])
+
     def test_walk_distinguishes_node_ancestors_from_submission_children(self):
         launcher = launcher_module()
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp).resolve()
-            work = root / 'work'
-            work.mkdir()
+            node = root / 'node'
+            work = node / 'work'
+            work.mkdir(parents=True)
             program = work / 'program'
             program.write_bytes(b'#!/bin/sh\n')
             program.chmod(0o755)
-            (root / 'node-alias').symlink_to(work, target_is_directory=True)
+            (root / 'node-alias').symlink_to(node, target_is_directory=True)
             (work / 'alias').symlink_to(work, target_is_directory=True)
             with self.assertRaises(OSError):
-                launcher.submission_executable([str(root / 'node-alias/program')], {},
-                                               [str(root / 'node-alias')])
+                self.inspect(launcher, root / 'node-alias/work', root / 'node-alias/work/program')
             with self.assertRaises(launcher.SubmissionExecFailed):
-                launcher.submission_executable([str(work / 'alias/program')], {}, [str(work)])
+                self.inspect(launcher, work, work / 'alias/program')
 
     def test_altered_root_is_invalid_only_after_exposure(self):
         launcher = launcher_module()
@@ -87,11 +94,11 @@ class WriterClassification(unittest.TestCase):
             work = Path(temp)
             work.chmod(0o500)
             with self.assertRaises(ValueError) as result:
-                launcher.prepare_writer_roots([str(work)], exposed=[])
+                self.inspect(launcher, work, work / 'program')
             self.assertNotIsInstance(result.exception, launcher.SubmissionExecFailed)
             work.chmod(0o500)
             with self.assertRaises(launcher.SubmissionExecFailed):
-                launcher.prepare_writer_roots([str(work)], exposed=[str(work)])
+                self.inspect(launcher, work, work / 'program', exposed={str(work): (work.stat().st_dev, work.stat().st_ino)})
 
     def test_path_search_skips_non_executable_first_match(self):
         launcher = launcher_module()
@@ -127,7 +134,7 @@ class HostOutput(unittest.TestCase):
             work.mkdir()
             work.chmod(0o500)
             try:
-                with FS.submission_io({str(work)}):
+                with getattr(FS, 'submission_io', lambda roots: nullcontext())({str(work)}):
                     with self.assertRaisesRegex(L.BoundaryInvalid, 'submission-output-path'):
                         FS.makedirs(work / 'home', exist_ok=True)
                 self.assertEqual(work.stat().st_mode & 0o700, 0o700)
@@ -143,7 +150,7 @@ class HostOutput(unittest.TestCase):
             canary.write_text('retain')
             (work / 'process-receipts.json').symlink_to(canary)
             guard = SimpleNamespace(step_reports=[{'boundary': {'verdict': 'INVALID'}}])
-            with FS.submission_io({str(work)}), \
+            with getattr(FS, 'submission_io', lambda roots: nullcontext())({str(work)}), \
                     patch.object(CR, 'failed_receipt_directory', return_value=CR.Path(root / 'private')):
                 with self.assertRaisesRegex(L.BoundaryInvalid, '^original-failure$'):
                     with CR.receipt_report(guard, str(work)):
@@ -210,7 +217,8 @@ class LiveOutputs(unittest.TestCase):
         work.mkdir()
         run = CR.runner(str(root / 'logs'), 20, sandbox=self.boundary,
                         readable_paths=['/usr', str(root)], writable_paths=[str(work)])
-        exposed = run(['/usr/bin/true'], {'PATH': '/usr/bin:/bin'}, str(work), 20, 256)
+        with patch.object(L, 'run_process', run):
+            exposed = L.run_submission(['/bin/sh', '-c', 'true'], {'PATH': '/usr/bin:/bin'}, str(work), 20, 256)
         self.assertEqual(exposed.boundary['verdict'], 'PASS')
         node.chmod(0o300)
         try:
@@ -229,8 +237,9 @@ class LiveOutputs(unittest.TestCase):
         receipts = []
 
         def harness(*args):
-            result = run(['/bin/sh', '-c', 'printf \'{"status":"ok"}\' > harness.json; chmod 0300 .'],
-                         {'PATH': '/usr/bin:/bin'}, str(work), 20, 256)
+            with patch.object(L, 'run_process', run):
+                result = L.run_submission(['/bin/sh', '-c', 'printf \'{"status":"ok"}\' > harness.json; chmod 0300 .'],
+                                          {'PATH': '/usr/bin:/bin'}, str(work), 20, 256)
             self.assertEqual((result.rc, result.boundary['verdict']), (0, 'PASS'))
             receipts.append(result.process_receipt)
             return result

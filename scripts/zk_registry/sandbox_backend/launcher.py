@@ -190,37 +190,43 @@ def prepare_writer_roots(writers, exposed=()):
         path = Path(value)
         if path == Path('/dev/null'):
             continue  # fixed character-device sink used by the trusted capability preflight
-        known = any(path == Path(root) or path.is_relative_to(Path(root)) for root in exposed)
         parent = directory_fd(path.parent)
+        held = None
         try:
-            metadata = os.stat(path.name, dir_fd=parent, follow_symlinks=False)
-            if not stat.S_ISDIR(metadata.st_mode):
-                if known:
-                    raise SubmissionExecFailed('submitted-writer-path')
-                raise ValueError('unexposed-writer-path')
+            # Lookup in the node-owned parent is always a node failure, even for a previously exposed root.
+            held = os.open(path.name, getattr(os, 'O_PATH', os.O_RDONLY) | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                           dir_fd=parent)
+            metadata = os.fstat(held)
+            known = isinstance(exposed, dict) and tuple(exposed.get(str(path), ())) == (metadata.st_dev, metadata.st_ino)
             if metadata.st_uid != os.geteuid():
                 raise ValueError('writer-root-owner')
             if metadata.st_mode & 0o700 != 0o700:
-                os.chmod(path.name, stat.S_IMODE(metadata.st_mode) | 0o700, dir_fd=parent, follow_symlinks=False)
+                if hasattr(os, 'O_PATH'):
+                    os.chmod('/proc/self/fd/' + str(held), stat.S_IMODE(metadata.st_mode) | 0o700)
+                else:
+                    os.fchmod(held, stat.S_IMODE(metadata.st_mode) | 0o700)
                 if known:
                     altered = True
                 else:
                     raise ValueError('unexposed-writer-permissions')
-            root = os.open(path.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=parent)
+            root = os.open('.', os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC, dir_fd=held)
             try:
                 for name in os.listdir(root):
                     if not re.fullmatch(r'\.boole-exec-probe-[0-9a-f]{16}', name):
                         continue
-                    entry = os.stat(name, dir_fd=root, follow_symlinks=False)
-                    if stat.S_ISREG(entry.st_mode) and entry.st_uid == os.geteuid():
-                        os.unlink(name, dir_fd=root)
+                    try:
+                        entry = os.stat(name, dir_fd=root, follow_symlinks=False)
+                        if stat.S_ISREG(entry.st_mode) and entry.st_uid == os.geteuid():
+                            os.unlink(name, dir_fd=root)
+                    except OSError as error:
+                        if known and error.errno in {errno.EACCES, errno.ELOOP, errno.ENOTDIR}:
+                            raise SubmissionExecFailed('submitted-writer-path') from None
+                        raise
             finally:
                 os.close(root)
-        except OSError as error:
-            if known and error.errno in {errno.EACCES, errno.ELOOP, errno.ENOTDIR, errno.ENOENT}:
-                raise SubmissionExecFailed('submitted-writer-path') from None
-            raise
         finally:
+            if held is not None:
+                os.close(held)
             os.close(parent)
     if altered:
         raise SubmissionExecFailed('submitted-writer-permissions')
@@ -357,7 +363,16 @@ def execute(options, arguments):
         directory = Path(output)
         if directory == Path('/') or root.is_relative_to(directory) or directory.is_relative_to(root):
             raise ValueError('boundary-write-exposure')
-    prepare_writer_roots(writers, getattr(options, 'exposed_writer', []))
+    raw_exposed = getattr(options, 'exposed_writer', [])
+    exposed = dict(raw_exposed) if isinstance(raw_exposed, dict) else {}
+    if not isinstance(raw_exposed, dict):
+        for raw in raw_exposed:
+            row = json.loads(raw)
+            if (not isinstance(row, list) or len(row) != 3 or not isinstance(row[0], str)
+                    or any(type(x) is not int or x < 0 for x in row[1:])):
+                raise ValueError('invalid-exposure-identity')
+            exposed[row[0]] = tuple(row[1:])
+    prepare_writer_roots(writers, exposed)
     environment.update(GOMAXPROCS='4', CARGO_BUILD_JOBS='4', RAYON_NUM_THREADS='4', RUST_TEST_THREADS='4')
     separator = arguments.index('--')
     arguments = [*arguments[:separator], *sum((['--env', key + '=' + value] for key, value in
@@ -454,7 +469,8 @@ def execute(options, arguments):
             verdict, reason = ('ERROR', 'resource-unavailable') if options.role == 'reference' else (
                 'INVALID', 'resource-cap')
         elif observation['orphans_reaped'] or observation['frozen_members']:
-            verdict, reason = 'INVALID', 'owned-descendants-remained'
+            verdict, reason = ('ERROR', 'sandbox-unavailable') if options.role == 'reference' else (
+                'INVALID', 'owned-descendants-remained')
         elif observation['setup_failed']:
             # Content was classified above. Every later exec/setup errno is a node failure.
             verdict, reason = 'ERROR', 'sandbox-unavailable'
@@ -475,7 +491,8 @@ def execute(options, arguments):
             (step / 'cgroup.kill').write_text('1')
             observation['outer_members_had_to_be_killed'] = True
             if verdict != 'ERROR':
-                verdict, reason = 'INVALID', 'owned-descendants-remained'
+                verdict, reason = ('ERROR', 'sandbox-unavailable') if options.role == 'reference' else (
+                    'INVALID', 'owned-descendants-remained')
         peak = payload / 'pids.peak'
         if not peak.is_file():
             raise ValueError('pids-peak-unavailable')

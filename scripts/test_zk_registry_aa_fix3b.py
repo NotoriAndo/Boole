@@ -127,7 +127,8 @@ class CIWiring(unittest.TestCase):
         self.assertIn('tee "$entry"', clearing)
         self.assertIn('cat "$entry"', clearing)
         outside = workflow.replace(clearing, '')
-        self.assertNotIn('/proc/sys/fs/binfmt_misc', outside)
+        self.assertNotRegex(outside, r'/proc/sys/fs/binfmt|update-binfmts|systemctl[^\n]*(?:binfmt|qemu)')
+        self.assertNotRegex(clearing, r'\bdd\b|update-binfmts|\bsystemctl\b')
         # Permit only the audited unregister command inside the guarded step.
         writes = [line.strip() for line in clearing.splitlines() if 'tee ' in line or '>' in line]
         self.assertEqual(writes, ["printf '%s\\n' -1 | sudo -n tee \"$entry\""])
@@ -175,7 +176,7 @@ class WriterRoots(unittest.TestCase):
             root.mkdir(mode=0o700)
             root.chmod(0o500)
             with self.assertRaises(launcher.SubmissionExecFailed):
-                launcher.prepare_writer_roots([str(root)], exposed=[str(root)])
+                launcher.prepare_writer_roots([str(root)], exposed={str(root): (root.stat().st_dev, root.stat().st_ino)})
             self.assertEqual(root.stat().st_mode & 0o700, 0o700)
             launcher.prepare_writer_roots([str(root)])
 
@@ -330,7 +331,8 @@ class LiveReview(unittest.TestCase):
 
     def test_altered_writer_root_invalid_then_next_launch_healthy(self):
         root=Path(self.temp.name);work=root/'work';work.mkdir()
-        exposed=self.run_work(root,work,Path('/usr/bin/true'))
+        program=work/'program';shutil.copyfile('/usr/bin/true',program);program.chmod(0o755)
+        exposed=self.run_work(root,work,program)
         self.assertEqual(exposed.boundary['verdict'],'PASS')
         work.chmod(0o500)
         first=self.run_work(root,work,Path('/usr/bin/true'))

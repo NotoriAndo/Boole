@@ -422,9 +422,10 @@ class LiveReviewFixes(unittest.TestCase):
         canary.write_text('unchanged')
         source = ('import os\nfor name in ("compile.log", "replay.out"):\n'
                   ' os.symlink(' + repr(str(canary)) + ', ' + repr(str(work / 'proof')) + '+"/"+name)\n')
-        result = CR.runner(str(root / 'payload-logs'), 20, sandbox=self.boundary,
-                           readable_paths=['/usr', str(root)], writable_paths=[str(work)])(
-            ['/usr/bin/python3', '-c', source], {'PATH': '/usr/bin:/bin'}, str(work), 20, 256)
+        guard = CR.runner(str(root / 'payload-logs'), 20, sandbox=self.boundary,
+                          readable_paths=['/usr', str(root)], writable_paths=[str(work)])
+        with patch.object(L, 'run_process', guard):
+            result = L.run_submission(['/usr/bin/python3', '-c', source], {'PATH': '/usr/bin:/bin'}, str(work), 20, 256)
         self.assertEqual(result.boundary['verdict'], 'PASS', result.boundary)
         pins = L.production_descriptor()
         env = L.LeanEnv('/unexecuted', [], pins['lean'], pins['packages'], pins['lake_manifest_sha256'],

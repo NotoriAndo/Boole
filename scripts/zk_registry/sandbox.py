@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from contextlib import contextmanager
+from contextvars import ContextVar
 import hashlib
 import json
 import os
 from pathlib import Path
-from .safe_fs import Path as SafePath, reject_symlinks, submission_io
+from .safe_fs import Path as SafePath, reject_symlinks, submission_io, root_identity, absolute
 import platform
 import pwd
 import subprocess
@@ -14,6 +16,16 @@ import shutil
 import uuid
 
 _PENDING = {}
+_SUBMISSION_CODE = ContextVar('submission_controlled_code', default=False)
+
+
+@contextmanager
+def submission_code():
+    token = _SUBMISSION_CODE.set(True)
+    try:
+        yield
+    finally:
+        _SUBMISSION_CODE.reset(token)
 
 
 def registered_command(command):
@@ -155,7 +167,11 @@ class Sandbox:
     pids_max: int | None = None
     role: str = 'submission'
     disabled_layer: str | None = None
-    exposed_writers: set[str] = field(default_factory=set, compare=False, repr=False)
+    exposed_writers: dict[str, tuple[int, int]] = field(default_factory=dict, compare=False, repr=False)
+
+    def __post_init__(self):
+        # replace() must never share mutable attribution state; trusted roles inherit none.
+        object.__setattr__(self, 'exposed_writers', dict(self.exposed_writers) if self.role == 'submission' else {})
 
     @classmethod
     def production(cls, landrun_path: str | None = None, system: str | None = None,
@@ -218,7 +234,8 @@ class Sandbox:
         """Allow argument-injected fast fixtures on any test platform."""
         return cls('test-fixture')
 
-    def command(self, argv: list[str], env: dict, readable: list[str], writable: list[str]) -> list[str]:
+    def command(self, argv: list[str], env: dict, readable: list[str], writable: list[str], *,
+                submission_controlled: bool | None = None) -> list[str]:
         """Preserve a strict filesystem/network boundary, with no best-effort fallback."""
         if self.mode != 'production' and self.disabled_layer is None:
             return list(argv)
@@ -234,6 +251,14 @@ class Sandbox:
         requested = executable or (os.path.abspath(argv[0]) if '/' in argv[0] else None)
         artifact = bool(requested and any(Path(requested).is_relative_to(Path(root)) for root in outputs
                                          if root != '/dev/null'))
+        controlled = self.role == 'submission' and (artifact or (
+            _SUBMISSION_CODE.get() if submission_controlled is None else submission_controlled))
+        identities = {}
+        if controlled:
+            try:
+                identities = {absolute(path): root_identity(path) for path in outputs if path != '/dev/null'}
+            except OSError:
+                raise SandboxUnavailable('sandbox-unavailable') from None
         defaults = [str(Path(self.executable).parent), '/usr', '/lib', '/lib64',
                     '/etc/alternatives', '/dev/urandom']
         allowed = [Path(path) for path in [*readable, *defaults]
@@ -267,7 +292,7 @@ class Sandbox:
             except OSError:
                 raise SandboxUnavailable('sandbox-unavailable') from None
         status = str(receipts / (uuid.uuid4().hex + '.json'))
-        _PENDING[status] = self.authority, self.capabilities, self.mode, self.exposed_writers, outputs
+        _PENDING[status] = self.authority, self.capabilities, self.mode, self.exposed_writers, identities
         stage = stage_kind(argv)
         pids = self.pids_max if self.pids_max is not None else data['sandbox']['parallelism']['pids_max'][stage]
         command = [self.executable, '--gate-authority', self.authority, '--gate-cgroup', self.cgroup,
@@ -277,8 +302,8 @@ class Sandbox:
                    '--gate-role', self.role, '--gate-mode', self.mode]
         if self.disabled_layer:
             command += ['--gate-fixture-no-' + self.disabled_layer]
-        for root in sorted(self.exposed_writers):
-            command += ['--gate-exposed-writer', root]
+        for root, identity in sorted(self.exposed_writers.items()):
+            command += ['--gate-exposed-writer', json.dumps([root, *identity], separators=(',', ':'))]
         command += ['--add-exec', '--ldd']
         for path in sorted({*readable, str(Path(self.executable).parent), '/usr', '/lib', '/lib64',
                             '/etc/alternatives', '/dev/urandom'}):

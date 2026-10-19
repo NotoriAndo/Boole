@@ -46,7 +46,7 @@
   "sandbox": {
     "version": 1,
     "launcher_path": "gate/launcher.py",
-    "launcher_sha256": "3c6be3c17c17ac5e0951c075ce7253178c80cc3c8b0e557409d93741a5be8983",
+    "launcher_sha256": "5e71ce7f3c84f8b3d02f6b71484ab1d19c9361fd3a5f26412947b90e1aa13908",
     "inner_launcher_sha256": "b7c04833bbc73cdc81a3d894670db4e6fea7be92b801f0c96892b76d577d102b",
     "bubblewrap_version": "0.9.0-1ubuntu0.3",
     "libseccomp_version": "2.5.5-1ubuntu3.1",

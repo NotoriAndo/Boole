@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from .safe_fs import Path
+from . import safe_fs as FS
 import platform
 import time
 import uuid
@@ -76,6 +77,7 @@ def resource_reason(result: L.RunResult) -> str | None:
     return None
 
 
+@FS.guard_trusted_io
 def prepare_reference(env: L.LeanEnv, problem: dict, package: str, work: str, sealed: str,
                       tools: Tools, sandbox: Sandbox, timeout: float, axioms: list[str]) -> dict:
     """Build and seal a pristine Challenge before compiling any solution code."""
@@ -113,9 +115,12 @@ def prepare_reference(env: L.LeanEnv, problem: dict, package: str, work: str, se
     return result
 
 
+@FS.guard_trusted_io
 def export_module(env: L.LeanEnv, module: str, theorem: str, output: str, tools: Tools, sandbox: Sandbox,
                   cwd: str, extra_lean_path: list[str], timeout: float, axioms: list[str]) -> dict:
     """Export the target's transitive type/value closure, including primitive and import dependencies."""
+    if sandbox.mode == 'production' or sandbox.disabled_layer:
+        sandbox = replace(sandbox, role='reference')
     target = Path(output)
     target.parent.mkdir(parents=True, exist_ok=True)
     task_env = L.process_env(env, extra_lean_path)
@@ -143,10 +148,13 @@ def export_module(env: L.LeanEnv, module: str, theorem: str, output: str, tools:
                 bytes=target.stat().st_size, roots=roots)
 
 
+@FS.guard_trusted_io
 def compare_exports(challenge: str, solution: str, theorem: str, tools: Tools, sandbox: Sandbox,
                     work: str, timeout: float, axioms: list[str], max_constants: int = 1000000,
                     nanoda_binary: str | None = None) -> dict:
     """Run Comparator once; both its empty Lean kernel and built-in nanoda consume the sealed solution."""
+    if sandbox.mode == 'production' or sandbox.disabled_layer:
+        sandbox = replace(sandbox, role='reference')
     directory = Path(work)
     directory.mkdir(parents=True, exist_ok=True)
     before = {path: digest(path) for path in (challenge, solution)}

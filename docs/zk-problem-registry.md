@@ -113,10 +113,16 @@ interpreters are `/lib/ld-linux-aarch64.so.1` and `/lib64/ld-linux-x86-64.so.2` 
 ELF program headers have a fixed 4,096-byte limit on every node (at most 73 56-byte entries), even when the node's
 kernel accepts larger headers because it has larger pages. The 256-byte shebang buffer follows the kernel's token
 termination rule, including byte 255. Content walks begin at the matching writable root: failures in node ancestors
-remain ERROR. Root permission changes are INVALID only after an earlier payload exposed that root. Host reads of
+and failures looking up that root in its node-owned parent remain ERROR (including readable, non-searchable parents).
+Root permissions are inspected with `fstat` after opening the root. A permission change is INVALID only when its
+device/inode identity matches a root previously exposed to submission-controlled code with write access. Native
+submission execution and solution compilation declare that intent; ordinary trusted tools do not. Reference,
+exporter and Comparator stages use independent trusted contexts, and Comparator status-read failures remain ERROR
+`sandbox-unavailable`. Host reads of
 previously exposed output trees classify submission-created symlinks and removed access as INVALID, without following
 their targets. Receipt sweeps compare PID, birth tick and PID namespace; an unrecognized namespace or a legacy
 receipt without that identity is retained.
+Host EPERM and absent output files retain their availability/absence handling; neither alone proves submission tampering.
 After these checks pass, every exec errno is ERROR `sandbox-unavailable`; no ENOEXEC-to-shell retry is permitted.
 Pinned tool exec failures also stay ERROR. Only Comparator 0 and 2 can be production verdicts. Exit 0 without both
 kernel acceptance messages is ERROR `sandbox-unavailable`. Other codes and signals

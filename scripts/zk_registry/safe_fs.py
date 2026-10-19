@@ -16,7 +16,7 @@ _WRITERS = ContextVar('submission_exposed_writers', default=None)
 @contextmanager
 def submission_io(exposed):
     """Scope host I/O classification to roots actually exposed by earlier payloads."""
-    token = _WRITERS.set(exposed)
+    token = _WRITERS.set(exposure_records(exposed))
     try:
         yield
     finally:
@@ -31,21 +31,96 @@ def guard_submission_io(function):
     return guarded
 
 
+def guard_trusted_io(function):
+    @wraps(function)
+    def guarded(*args, **kwargs):
+        with submission_io(None):
+            return function(*args, **kwargs)
+    return guarded
+
+
 def set_submission_writers(exposed):
-    _WRITERS.set(exposed)
+    _WRITERS.set(exposure_records(exposed))
+
+
+def root_identity(path):
+    """A root lookup failure belongs to its node-owned parent, never to the submission."""
+    value = StandardPath(absolute(path))
+    parent = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    try:
+        for part in value.parts[1:-1]:
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=parent)
+            os.close(parent)
+            parent = child
+        fd = os.open(value.name, getattr(os, 'O_PATH', os.O_RDONLY) | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                     dir_fd=parent)
+        try:
+            metadata = os.fstat(fd)
+            return metadata.st_dev, metadata.st_ino
+        finally:
+            os.close(fd)
+    finally:
+        os.close(parent)
+
+
+def exposure_records(exposed):
+    if exposed is None or isinstance(exposed, dict):
+        return exposed
+    records = {}
+    for root in exposed:
+        try:
+            records[absolute(root)] = root_identity(root)
+        except OSError:
+            pass
+    return records
+
+
+def restore_root(fd, metadata):
+    """The kernel-owned fd path denotes the held inode, never a submission-controlled link."""
+    if metadata.st_uid != os.geteuid():
+        return
+    try:
+        mode = stat.S_IMODE(metadata.st_mode) | 0o700
+        if hasattr(os, 'O_PATH'):
+            os.chmod('/proc/self/fd/' + str(fd), mode)
+        else:
+            os.fchmod(fd, mode)
+    except OSError:
+        pass
+
+
+def open_directory_child(parent, part, path):
+    roots = _WRITERS.get() or {}
+    expected = roots.get(str(path))
+    if expected is None:
+        return os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=parent)
+    # O_PATH bypasses R's own access mode, but still requires search on its parent.
+    held = os.open(part, getattr(os, 'O_PATH', os.O_RDONLY) | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                   dir_fd=parent)
+    try:
+        metadata = os.fstat(held)
+        if ((metadata.st_dev, metadata.st_ino) == tuple(expected) and metadata.st_uid == os.geteuid()
+                and metadata.st_mode & 0o700 != 0o700):
+            restore_root(held, metadata)
+            from .lean_runner import BoundaryInvalid
+            raise BoundaryInvalid('submission-output-path')
+        return os.open('.', os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC, dir_fd=held)
+    finally:
+        os.close(held)
 
 
 def submission_error(path, error, exposed=None):
     """Only content/path failures in a previously exposed tree belong to the submission."""
-    roots = _WRITERS.get() if exposed is None else exposed
+    roots = _WRITERS.get() if exposed is None else exposure_records(exposed)
     value = StandardPath(absolute(path))
-    if error.errno not in {errno.EACCES, errno.EPERM, errno.ELOOP, errno.ENOTDIR, errno.ENOENT, errno.EINVAL}:
+    if error.errno not in {errno.EACCES, errno.ELOOP, errno.ENOTDIR, errno.EINVAL}:
         return
-    if not roots or not any(value == StandardPath(root) or value.is_relative_to(StandardPath(root)) for root in roots):
+    if not roots:
         return
     # Restore only an owned directory's access, without following any symlink, for trusted cleanup.
-    for root in roots:
-        if not (value == StandardPath(root) or value.is_relative_to(StandardPath(root))):
+    matched = False
+    for root, expected in tuple(roots.items()):
+        if value == StandardPath(root) or not value.is_relative_to(StandardPath(root)):
             continue
         parent = None
         try:
@@ -56,17 +131,23 @@ def submission_error(path, error, exposed=None):
                                 dir_fd=parent)
                 os.close(parent)
                 parent = child
-            metadata = os.stat(target.name, dir_fd=parent, follow_symlinks=False)
-            if stat.S_ISDIR(metadata.st_mode) and metadata.st_uid == os.geteuid():
-                os.chmod(target.name, stat.S_IMODE(metadata.st_mode) | 0o700,
-                         dir_fd=parent, follow_symlinks=False)
+            held = os.open(target.name, getattr(os, 'O_PATH', os.O_RDONLY) | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                           dir_fd=parent)
+            try:
+                metadata = os.fstat(held)
+                if (metadata.st_dev, metadata.st_ino) == tuple(expected) and metadata.st_uid == os.geteuid():
+                    matched = True
+                    restore_root(held, metadata)
+            finally:
+                os.close(held)
         except OSError:
             pass
         finally:
             if parent is not None:
                 os.close(parent)
-    from .lean_runner import BoundaryInvalid
-    raise BoundaryInvalid('submission-output-path') from None
+    if matched:
+        from .lean_runner import BoundaryInvalid
+        raise BoundaryInvalid('submission-output-path') from None
 
 
 def absolute(path):
@@ -95,7 +176,7 @@ def directory_fd(path, create=False, mode=0o777):
                     submission_error(current, error)
                     raise
             try:
-                child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
+                child = open_directory_child(fd, part, current)
             except OSError as error:
                 submission_error(current, error)
                 raise
@@ -153,7 +234,7 @@ class Path(type(StandardPath())):
             except FileExistsError:
                 if not exist_ok:
                     raise
-            child = os.open(self.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+            child = open_directory_child(parent, self.name, StandardPath(absolute(self)))
             os.close(child)
         except OSError as error:
             submission_error(self, error)
