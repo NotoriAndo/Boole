@@ -430,10 +430,10 @@ class LiveReviewFixes(unittest.TestCase):
         env = L.LeanEnv('/unexecuted', [], pins['lean'], pins['packages'], pins['lake_manifest_sha256'],
                         str(root / 'scratch'))
         problem = dict(checker=dict(theorem_fqn='X.goal', lean_opts=[], files=[]))
-        with patch.object(L, 'run_lean', return_value=result):
-            actual = C.compile_in_sandbox(env, problem, str(root), 'theorem goal : True := by trivial',
-                                          str(work), 5, self.boundary)
-        self.assertEqual(actual['error'], 'sandbox-unavailable')
+        with patch.object(L, 'run_lean', return_value=result), \
+                self.assertRaisesRegex(L.BoundaryInvalid, '^submission-output-path$'):
+            C.compile_in_sandbox(env, problem, str(root), 'theorem goal : True := by trivial',
+                                 str(work), 5, self.boundary)
         with self.assertRaises(OSError):
             G.parse_replay(str(work / 'proof/replay.out'))
         self.assertEqual(canary.read_text(), 'unchanged')
