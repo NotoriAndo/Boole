@@ -225,7 +225,7 @@ class KernelStageBoundaries(unittest.TestCase):
                 ["w = 0"],
                 str(Path(t) / "unit"),
                 None,
-                Sandbox.development(),
+                Sandbox.fixture(),
                 timeout=10,
             )
         self.assertEqual((r["status"], r["reason"]), ("UNKNOWN", "N4-resource-limit"))
