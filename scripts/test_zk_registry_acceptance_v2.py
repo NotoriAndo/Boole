@@ -221,15 +221,18 @@ class CatalogBindingTests(unittest.TestCase):
             source, problem = offline_problem(directory)
             old_metadata = D.digest(Path(source, 'problem.json'))
             export = Path(directory, 'Challenge.ndjson')
-            export.write_text('synthetic pure metadata fixture\n')
+            from test_statement_identity import fixture
+            from zk_registry.statement_identity import identity
+            export.write_text(''.join(json.dumps(x)+'\n' for x in fixture()))
             reference = dict(verdict='PASS', path=str(export), sha256=D.digest(export),
-                             reference_type_sha256='ab' * 32, assurance='test-fixture')
+                             reference_type_sha256='ab' * 32, assurance='test-fixture', theorem='goal')
             dest = Path(directory, 'new-root/package')
             row = V.repin_package(source, str(dest), reference, old_reference_type_sha256='ab' * 32)
             self.assertEqual(D.digest(Path(source, 'problem.json')), old_metadata)
             self.assertEqual(row['migration']['floor'], 'carried over, not rerun')
             self.assertEqual(row['migration']['battery'], 'carried over, not rerun')
             changed = json.loads((dest / 'problem.json').read_text())
+            self.assertEqual(changed['statement_closure_sha256'], identity(export, 'goal')['statement_closure_sha256'])
             self.assertEqual(P.validate_problem(changed, str(dest)), [])
             self.assertEqual(changed['env']['lean'], 'v4.34.1')
             binding = A.read(str(dest), changed, required=True)

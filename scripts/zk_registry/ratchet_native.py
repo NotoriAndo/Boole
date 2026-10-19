@@ -147,6 +147,7 @@ def run_candidate(
     pkg = os.path.join(out, "pkg")
     statement, files = write_candidate_package(problem, problem_dir, candidate, model_text, pkg)
     report["statement_sha256"] = RT.sha(statement.encode())
+    report["statement_closure_sha256"] = None
     if env is not None:
         base, _, _ = namespaces(problem)
         elab = RT.elaborate(
@@ -161,6 +162,7 @@ def run_candidate(
         if elab["status"] != "PASS":
             raise RuntimeError("candidate statement did not elaborate: " + str(elab.get("errors")))
         checker_problem = candidate_problem(problem, candidate, files, statement, elab["reference_type_sha256"])
+        report["statement_closure_sha256"] = checker_problem["statement_closure_sha256"] = elab["statement_closure_sha256"]
         errors = P.validate_problem(checker_problem, pkg)
         if errors:
             raise RuntimeError("invalid checker package: " + "; ".join(errors[:5]))

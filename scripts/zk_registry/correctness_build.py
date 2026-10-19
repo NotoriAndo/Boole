@@ -181,7 +181,12 @@ def reference(unit: dict, kind: str, stage: Path, build: Path, env: L.LeanEnv, t
             or replay['target']['kind'] != 'theorem' or 'sorryAx' not in replay['axioms']
             or set(replay['axioms']) - C.ALLOWED_AXIOMS - {'sorryAx'}):
         raise RuntimeError('Reference kernel/type recording failed')
-    return dict(reference_type_sha256=replay['type_sha256'], theorem_fqn=fqn, replay='ok',
+    from . import closure as D
+    identity = D.reference_identity(env, kind + '-reference', fqn, str(stage), [str(build)], timeout)
+    if identity['verdict'] != 'PASS':
+        raise RuntimeError('Reference identity unavailable: ' + identity['reason'])
+    return dict(statement_closure_sha256=identity['statement_closure_sha256'],
+                reference_type_sha256=replay['type_sha256'], theorem_fqn=fqn, replay='ok',
                 hole='reference-only', source_sha256=P.sha256_file(str(path)))
 
 
@@ -257,7 +262,7 @@ def battery(unit: dict, kind: str, stage: Path, build: Path, type_sha: str,
 
 def package_property(unit: dict, kind: str, spec: dict, stage: Path, destination: Path,
                      selected: dict, evaluation: dict, floor: dict, type_sha: str,
-                     env: L.LeanEnv, created_utc: str) -> dict:
+                     env: L.LeanEnv, created_utc: str, *, statement_closure_sha256: str) -> dict:
     """Write a self-contained C package only after all qualification gates pass."""
     destination.mkdir(parents=True, exist_ok=False)
     template = CG.theorem_template(unit, kind)
@@ -296,6 +301,7 @@ def package_property(unit: dict, kind: str, spec: dict, stage: Path, destination
     bound_floor = dict(floor, file='evidence/battery.json',
                        sha256=P.sha256_file(str(destination / 'evidence/battery.json')))
     record = CG.make_record(unit, spec, kind, files, type_sha, nv, bound_floor, env.pins(), created_utc)
+    record["statement_closure_sha256"] = statement_closure_sha256
     errors = P.validate_problem(record, str(destination))
     if errors:
         raise ValueError('Generated C package failed validation: ' + '; '.join(errors[:8]))
@@ -337,7 +343,8 @@ def generate_unit(registry: str, parameters: dict, spec_directory: str, source_f
             continue
         destination = Path(output) / (ident + '.' + kind)
         record = package_property(unit, kind, spec, stage, destination, selected, evaluation, floor,
-                                  ref['reference_type_sha256'], env, created_utc)
+                                  ref['reference_type_sha256'], env, created_utc,
+                                  statement_closure_sha256=ref['statement_closure_sha256'])
         properties.append(dict(kind=kind, status=status, directory=str(destination), package_id=record['package_id'],
                                trivial=record['trivial'], original_model_sha256=unit['model_sha256']))
     result = dict(unit=unit, imports=records, evaluation=evaluation, properties=properties, proof_attempts=0)

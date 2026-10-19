@@ -7,6 +7,7 @@
                "binding_sha256", "spec", "nonvacuity", "battery", "trivial", "statement", "checker", "files",
                "env", "generator", "created_utc"],
   "properties": {
+    "statement_closure_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$", "description": "Gate-owned semantic statement closure identity; null until compiled and bound."},
     "schema_version": {"const": "zk-registry-correctness-gnark-problem/v1"},
     "kind": {"const": "C"}, "family": {"const": "gnark"},
     "package_id": {"type": "string", "pattern": "^C/gnark/[0-9a-f]{64}$"},

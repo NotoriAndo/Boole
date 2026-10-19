@@ -850,6 +850,7 @@ def candidate_problem(prob: dict, cand: dict, files: list[dict], stmt: str, type
                         "lean_opts": prob["reference"]["lean_opts"], "files": files,
                         "reference_type_sha256": type_sha, "replay_tool_sha256": P.sha256_file(G.REPLAY_TOOL),
                         "allowed_axioms": sorted(C.ALLOWED_AXIOMS), "forbidden_tokens": C.FORBIDDEN_LABELS})
+    out["statement_closure_sha256"] = None
     return out
 
 
@@ -883,6 +884,7 @@ def run_candidate(problem_dir: str, cand_path: str, out: str, tools: str, snapsh
     pkg = os.path.join(out, "pkg")
     stmt, files = write_candidate_package(prob, problem_dir, cand, res, pkg)
     rep["statement_sha256"] = files[0]["sha256"]
+    rep["statement_closure_sha256"] = None
     if env is not None:
         base, _, _ = namespaces(prob)
         el = RT.elaborate(env, pkg, [f["path"] for f in files[1:]], base + ".equiv", prob["reference"]["lean_opts"],
@@ -891,6 +893,7 @@ def run_candidate(problem_dir: str, cand_path: str, out: str, tools: str, snapsh
         if el["status"] != "PASS":
             raise RuntimeError(f"statement does not elaborate: {el.get('errors')}")
         cprob = candidate_problem(prob, cand, files, stmt, el["reference_type_sha256"])
+        rep["statement_closure_sha256"] = cprob["statement_closure_sha256"] = el["statement_closure_sha256"]
         errs = P.validate_problem(cprob, pkg)
         if errs:
             raise RuntimeError(f"checker package does not validate: {errs[:5]}")
@@ -1103,6 +1106,7 @@ def problem_record(spec: dict, layout: dict, meas: dict, det: dict, snapshot: di
     env.update(go=pins["go"], go_sha256=pins["go_sha256"], go_compile=pins["go_compile"],
                go_compile_sha256=pins["go_compile_sha256"], gnark=spec["gnark_version"] or "")
     rec = {
+        "statement_closure_sha256": None,
         "schema_version": P.RATCHET_GNARK_SCHEMA_VERSION, "kind": "ratchet", "family": "gnark", "package_id": pid,
         "status": "OPEN",
         "reference": {

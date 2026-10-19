@@ -899,6 +899,7 @@ def build_package(sh: Shared, t: cs.Template, rec: dict, size_cr: dict, dir_name
         ref = elab.detail["reference_type_sha256"]
     else:
         ref = "0" * 64
+    rec["statement_closure_sha256"] = elab.detail.get("statement_closure_sha256")
     rec["checker"] = {"statement_file": "Statement.lean", "theorem": E.STATEMENT_THEOREM, "theorem_fqn": fqn,
                       "lean_opts": list(E.LEAN_OPTIONS),
                       "files": [{"path": "Statement.lean", "role": "statement",

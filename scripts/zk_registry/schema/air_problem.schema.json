@@ -7,6 +7,7 @@
   "required": ["schema_version", "package_id", "property", "status", "status_reason", "ids", "spec", "coverage", "env", "generator"],
   "additionalProperties": false,
   "properties": {
+    "statement_closure_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$", "description": "Gate-owned semantic statement closure identity; null until compiled and bound."},
     "schema_version": {"const": "zk-registry-air-problem/v1"},
     "package_id": {"type": "string", "pattern": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$"},
     "property": {

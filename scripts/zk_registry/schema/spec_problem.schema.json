@@ -7,6 +7,7 @@
   "required": ["schema_version", "kind", "package_id", "status", "family", "standard", "parameters",
                "reference", "mutants", "protocol", "files", "public_challenge", "generator", "created_utc"],
   "properties": {
+    "statement_closure_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$", "description": "Gate-owned semantic statement closure identity; null until compiled and bound."},
     "schema_version": {"const": "zk-registry-spec-problem/v1"},
     "kind": {"const": "S"},
     "package_id": {"type": "string", "pattern": "^S/[a-zA-Z0-9_-]+/[0-9a-f]{64}$"},

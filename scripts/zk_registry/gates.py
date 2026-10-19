@@ -126,6 +126,13 @@ def g_elab(env: L.LeanEnv, pkg_dir: str, build_dir: str, ns: str, work: str, tim
     with open(os.path.join(work, "reference.type.txt"), "w", encoding="utf-8") as f:
         f.write(post["type_str"])
     detail["reference_type_sha256"] = post["type_sha256"]
+    from . import closure as D
+    identity = D.reference_identity(env, 'Statement', fqn, pkg_dir, [build_dir], timeout)
+    detail['statement_identity'] = identity
+    if identity['verdict'] != 'PASS':
+        detail['errors'] = [identity['reason']]
+        return Gate('G-ELAB', 'ERROR', detail)
+    detail['statement_closure_sha256'] = identity['statement_closure_sha256']
     return Gate("G-ELAB", "PASS", detail)
 
 
@@ -324,3 +331,9 @@ def write_json(path: str, obj) -> None:
     with open(path, "w", encoding="utf-8") as f:
         json.dump(obj, f, indent=1, sort_keys=True)
         f.write("\n")
+
+
+def g_nonvac_k(env, package, problem, work, tools, sandbox, *, timeout=1800):
+    """Opt-in kernel witness stage; existing G-NONVAC and catalog outcomes stay unchanged."""
+    from .kernel_nonvac import run_c
+    return run_c(env, package, problem, work, tools, sandbox, timeout=timeout)

@@ -329,6 +329,7 @@ def build_problem(reg_dir, snapshot, out, tools, det, compiler, env=None):
     )
     problem = dict(
         schema_version=SCHEMA_VERSION,
+        statement_closure_sha256=None,
         kind="ratchet",
         family="zokrates",
         package_id="ratchet/" + spec["registry_package_id"],

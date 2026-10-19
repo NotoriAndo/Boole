@@ -631,6 +631,7 @@ def build(sh, t: cs.Template, parent: dict, dir_name: str, work: str) -> dict:
                                 f"model with a common sub-component function, equal inputs and different outputs "
                                 f"(confirmed in Python and Lean); {NOT_A_FINDING}")
     ref = elab.detail["reference_type_sha256"] if elab.status == "PASS" else "0" * 64
+    rec["statement_closure_sha256"] = elab.detail.get("statement_closure_sha256")
     rec["checker"] = {"statement_file": "Statement.lean", "theorem": THEOREM, "theorem_fqn": fqn,
                       "lean_opts": list(E.LEAN_OPTIONS),
                       "files": [{"path": "Statement.lean", "role": "statement",
