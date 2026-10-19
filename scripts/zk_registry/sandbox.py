@@ -8,7 +8,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
-from .safe_fs import Path as SafePath, reject_symlinks, submission_io, root_identity, absolute
+from .safe_fs import Path as SafePath, reject_symlinks, submission_io, root_identity, absolute, directory_fd, submission_error
 import platform
 import pwd
 import subprocess
@@ -235,10 +235,13 @@ class Sandbox:
         return cls('test-fixture')
 
     def command(self, argv: list[str], env: dict, readable: list[str], writable: list[str], *,
-                submission_controlled: bool | None = None) -> list[str]:
+                submission_controlled: bool | None = None, prior_exposure: dict | None = None) -> list[str]:
         """Preserve a strict filesystem/network boundary, with no best-effort fallback."""
         if self.mode != 'production' and self.disabled_layer is None:
             return list(argv)
+        # Read attribution can survive a trusted tool transition; only controlled payloads
+        # can add exposure, through the original writer map stored in _PENDING.
+        read_exposure = dict(self.exposed_writers if prior_exposure is None else prior_exposure)
         data = json.loads((Path(__file__).parent / 'data/acceptance_tools_v2.json').read_text())
         validate_memory_profiles(data, self.memory_max)
         owner_home = Path(pwd.getpwuid(os.getuid()).pw_dir)
@@ -265,17 +268,28 @@ class Sandbox:
                    if Path(path).exists() and str(Path(path).resolve()) == os.path.abspath(path)]
         for raw in outputs:
             try:
-                with submission_io(self.exposed_writers):
+                with submission_io(read_exposure):
                     reject_symlinks(raw)
             except OSError:
                 raise SandboxUnavailable('sandbox-unavailable') from None
         for reader in readable:
             if artifact and os.path.abspath(reader) == requested:
                 continue  # the pinned launcher classifies this submission path before any execution
-            path = Path(reader).resolve()
             try:
-                with submission_io(self.exposed_writers):
+                with submission_io(read_exposure):
                     reject_symlinks(reader)
+                    if Path(reader).is_dir():
+                        held = directory_fd(reader)
+                        try:
+                            try:
+                                probe = os.open('.', os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC, dir_fd=held)
+                            except OSError as error:
+                                submission_error(reader, error)
+                                raise
+                            os.close(probe)
+                        finally:
+                            os.close(held)
+                path = Path(reader).resolve()
             except OSError:
                 raise SandboxUnavailable('sandbox-unavailable') from None
             if not any(path == root or path.is_relative_to(root) for root in allowed):
@@ -302,7 +316,7 @@ class Sandbox:
                    '--gate-role', self.role, '--gate-mode', self.mode]
         if self.disabled_layer:
             command += ['--gate-fixture-no-' + self.disabled_layer]
-        for root, identity in sorted(self.exposed_writers.items()):
+        for root, identity in sorted(read_exposure.items()):
             command += ['--gate-exposed-writer', json.dumps([root, *identity], separators=(',', ':'))]
         command += ['--add-exec', '--ldd']
         for path in sorted({*readable, str(Path(self.executable).parent), '/usr', '/lib', '/lib64',

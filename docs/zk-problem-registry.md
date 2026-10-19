@@ -91,8 +91,9 @@ thread creation falls back safely). The pinned PID-1 shim is non-dumpable and re
 its administrative FDs are closed in the payload before execution. It counts every reaped orphan, retaining at
 most the first256 events, and records frozen payload-cgroup members at main exit; every write is checked. Receipts
 are cleaned per step after their bounded observations are retained in the guard log. A remaining/adopted submission descendant is INVALID
-`owned-descendants-remained`; a trusted reference descendant instead gives ERROR `sandbox-unavailable`. Mandatory pids exhaustion is INVALID `resource-cap` (reference
-builds: ERROR `resource-unavailable`); OOM and wall/memory interruption take ERROR precedence. The compile-time
+`owned-descendants-remained`; descendants of trusted reference builds, exporters and Comparator instead give ERROR
+`sandbox-unavailable`. Mandatory pids exhaustion is INVALID `resource-cap` (those trusted roles: ERROR
+`resource-unavailable`); OOM and wall/memory interruption take ERROR precedence. The compile-time
 detachment controls deliberately bypass the text stage as trusted fixtures to exercise the actual OS boundary.
 Setup/exec failure uses a CLOEXEC status pipe, not the payload's exit code125. Comparator's inner launcher reports
 an explicit exec-success marker or setup failure through a dedicated status directory outside the work root.
@@ -116,8 +117,10 @@ termination rule, including byte 255. Content walks begin at the matching writab
 and failures looking up that root in its node-owned parent remain ERROR (including readable, non-searchable parents).
 Root permissions are inspected with `fstat` after opening the root. A permission change is INVALID only when its
 device/inode identity matches a root previously exposed to submission-controlled code with write access. Native
-submission execution and solution compilation declare that intent; ordinary trusted tools do not. Reference,
-exporter and Comparator stages use independent trusted contexts, and Comparator status-read failures remain ERROR
+submission execution and solution compilation declare that intent; ordinary trusted tools do not. The solution
+exporter explicitly receives a snapshot of prior submission exposure for its reads; it cannot add exposure.
+Pristine challenge exports and Comparator use trusted contexts; sealed/Comparator directories matching an exposed
+root identity are configuration errors. Comparator status-read failures remain ERROR
 `sandbox-unavailable`. Host reads of
 previously exposed output trees classify submission-created symlinks and removed access as INVALID, without following
 their targets. Receipt sweeps compare PID, birth tick and PID namespace; an unrecognized namespace or a legacy

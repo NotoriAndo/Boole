@@ -118,6 +118,10 @@ class ContentClassification(unittest.TestCase):
 
 
 class CIWiring(unittest.TestCase):
+    """Text-match regression guard, not a shell parser; indirect/obfuscated cleanup can evade it.
+
+    Check-only setup and production preflight remain the behavioural authority.
+    """
     def test_disposable_runner_clears_binfmt_before_check_only_setup(self):
         workflow = (Path(__file__).resolve().parents[1] / '.github/workflows/acceptance-gate-linux.yml').read_text()
         self.assertLess(workflow.index('name: Clear binfmt handlers on the disposable runner'),

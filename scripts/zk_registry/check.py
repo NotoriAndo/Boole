@@ -516,7 +516,7 @@ def check(pkg_dir: str, proof_path: str, env: L.LeanEnv, workdir: str | None = N
         exported = D.export_module(env, 'ProofMod', chk['theorem_fqn'], os.path.join(sealed, 'Solution.ndjson'),
                                    tools, selected, os.path.join(tmp, 'proof'),
                                    [os.path.join(tmp, 'proof'), os.path.join(tmp, 'build')],
-                                   remaining(), allowed)
+                                   remaining(), allowed, exposure=selected.exposed_writers)
         rep['solution_export'] = exported
         if exported['verdict'] != 'PASS':
             error.append(exported['reason'])
