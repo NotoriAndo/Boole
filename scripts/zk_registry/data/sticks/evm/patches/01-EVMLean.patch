@@ -1,0 +1,1329 @@
+--- a/EVMLean/Conform/Main.lean
++++ b/EVMLean/Conform/Main.lean
+@@ -7 +7 @@
+-                         (result : Batteries.RBMap String Ethereum.Conform.TestResult compare) : IO Bool := do
++                         (result : RBTree.RBMap String Ethereum.Conform.TestResult compare) : IO Bool := do
+@@ -12 +12 @@
+-private def success (result : Batteries.RBMap String Ethereum.Conform.TestResult compare) : Array String × Array String :=
++private def success (result : RBTree.RBMap String Ethereum.Conform.TestResult compare) : Array String × Array String :=
+--- a/EVMLean/Conform/Model.lean
++++ b/EVMLean/Conform/Model.lean
+@@ -90 +90 @@
+-abbrev TestMap := Batteries.RBMap String TestEntry compare
++abbrev TestMap := RBTree.RBMap String TestEntry compare
+--- a/EVMLean/Conform/Wheels.lean
++++ b/EVMLean/Conform/Wheels.lean
+@@ -34 +34 @@
+-  (self : Json) (α β : Type) [Ord α] [FromJson α] [FromJson β] : Except String (Batteries.RBMap α β compare) := do
++  (self : Json) (α β : Type) [Ord α] [FromJson α] [FromJson β] : Except String (RBTree.RBMap α β compare) := do
+@@ -36 +36 @@
+-  let mut result : Batteries.RBMap α β compare := ∅
++  let mut result : RBTree.RBMap α β compare := ∅
+@@ -110,2 +110,2 @@
+-def Batteries.RBMap.partition {α β : Type} {cmp : α → α → Ordering}
+-  (t : Batteries.RBMap α β cmp) (p : α → β → Bool) : Batteries.RBMap α β cmp × Batteries.RBMap α β cmp :=
++def RBTree.RBMap.partition {α β : Type} {cmp : α → α → Ordering}
++  (t : RBTree.RBMap α β cmp) (p : α → β → Bool) : RBTree.RBMap α β cmp × RBTree.RBMap α β cmp :=
+--- a/EVMLean/Ethereum/Gas.lean
++++ b/EVMLean/Ethereum/Gas.lean
+@@ -178,0 +179 @@
++set_option backward.isDefEq.respectTransparency false in
+--- a/EVMLean/Ethereum/Maps/ByteMap.lean
++++ b/EVMLean/Ethereum/Maps/ByteMap.lean
+@@ -28 +28 @@
+-abbrev ByteMap := Batteries.RBMap UInt256 UInt8 compare
++abbrev ByteMap := RBTree.RBMap UInt256 UInt8 compare
+--- a/EVMLean/Ethereum/PerformIO.lean
++++ b/EVMLean/Ethereum/PerformIO.lean
+@@ -7 +7 @@
+-def totallySafePerformIO {τ} [Inhabited τ] (io : IO τ) : τ := Inhabited.default
++opaque totallySafePerformIO {τ} [Inhabited τ] (io : IO τ) : τ := Inhabited.default
+--- a/EVMLean/Ethereum/Semantics.lean
++++ b/EVMLean/Ethereum/Semantics.lean
+@@ -40,0 +41,2 @@
++
++set_option backward.isDefEq.respectTransparency false
+@@ -288 +290 @@
+-      simpa [Iₑ, I] using hDepth.2.1
++      exact hDepth.2.1
+@@ -1082 +1084 @@
+-open Batteries (RBMap RBSet)
++open RBTree (RBMap RBSet)
+@@ -1131 +1133 @@
+-      |>.union <| Batteries.RBSet.ofList (accessList.map Prod.fst) compare
++      |>.union <| RBTree.RBSet.ofList (accessList.map Prod.fst) compare
+@@ -1139 +1141 @@
+-    { A0 with accessedAccounts := AStarₐ, accessedStorageKeys := Batteries.RBSet.ofList AStar_K Substate.storageKeysCmp}
++    { A0 with accessedAccounts := AStarₐ, accessedStorageKeys := RBTree.RBSet.ofList AStar_K Substate.storageKeysCmp}
+--- a/EVMLean/Ethereum/State/Account.lean
++++ b/EVMLean/Ethereum/State/Account.lean
+@@ -14,2 +14,2 @@
+-def π : Batteries.RBSet AccountAddress compare :=
+-  Batteries.RBSet.ofList ((List.range 11).tail.map (Fin.ofNat _)) compare
++def π : RBTree.RBSet AccountAddress compare :=
++  RBTree.RBSet.ofList ((List.range 11).tail.map (Fin.ofNat _)) compare
+--- a/EVMLean/Ethereum/State/Substate.lean
++++ b/EVMLean/Ethereum/State/Substate.lean
+@@ -51,2 +51,2 @@
+-  selfDestructSet     : Batteries.RBSet AccountAddress compare
+-  touchedAccounts     : Batteries.RBSet AccountAddress compare
++  selfDestructSet     : RBTree.RBSet AccountAddress compare
++  touchedAccounts     : RBTree.RBSet AccountAddress compare
+@@ -54,2 +54,2 @@
+-  accessedAccounts    : Batteries.RBSet AccountAddress compare
+-  accessedStorageKeys : Batteries.RBSet (AccountAddress × UInt256) Substate.storageKeysCmp
++  accessedAccounts    : RBTree.RBSet AccountAddress compare
++  accessedStorageKeys : RBTree.RBSet (AccountAddress × UInt256) Substate.storageKeysCmp
+@@ -57 +57 @@
+-  createdAccounts     : Batteries.RBSet AccountAddress compare
++  createdAccounts     : RBTree.RBSet AccountAddress compare
+--- a/EVMLean/Ethereum/State/Transaction.lean
++++ b/EVMLean/Ethereum/State/Transaction.lean
+@@ -11 +11 @@
+-open Batteries (RBMap RBSet)
++open RBTree (RBMap RBSet)
+--- a/EVMLean/Ethereum/Theory/AccountLocality.lean
++++ b/EVMLean/Ethereum/Theory/AccountLocality.lean
+@@ -2,0 +3 @@
++import Ethereum.Theory.GasLemmas
+@@ -18,0 +20,5 @@
++
++set_option backward.isDefEq.respectTransparency false
++set_option maxRecDepth 65536
++set_option maxHeartbeats 4000000
++attribute [local simp] Id.run Pure.pure
+@@ -230 +236 @@
+-  | unchanged {σ σ'}:
++  | unchanged {σ σ' : AccountMap}:
+@@ -234 +240 @@
+-  | init_dead {σ σ'}:
++  | init_dead {σ σ' : AccountMap}:
+@@ -238 +244 @@
+-  | call_prelude {σ r s v z}:
++  | call_prelude {σ : AccountMap} {r s : AccountAddress} {v : UInt256} {z : Bool}:
+@@ -241 +247 @@
+-  | create_prelude {σ a s v z}:
++  | create_prelude {σ : AccountMap} {a s : AccountAddress} {v : UInt256} {z : Bool}:
+@@ -276,0 +283,14 @@
++universe u
++
++@[local simp] private lemma b2_step_option_matcher
++    (motive : Option Account → Sort u) (x : Option Account)
++    (hnone : Unit → motive none) (hsome : (a : Account) → motive (some a)) :
++    step.match_27 motive x hnone hsome = Option.casesOn x (hnone ()) hsome := by
++  cases x <;> rfl
++
++@[local simp] private lemma b2_sendEth_option_matcher
++    (motive : Option Account → Sort u) (x : Option Account)
++    (hnone : Unit → motive none) (hsome : (a : Account) → motive (some a)) :
++    sendEth.match_1 motive x hnone hsome = Option.casesOn x (hnone ()) hsome := by
++  cases x <;> rfl
++
+@@ -278 +298 @@
+-    ∀ (xs : List α) (s : Batteries.RBNode.Stream α),
++    ∀ (xs : List α) (s : RBTree.RBNode.Stream α),
+@@ -281,2 +301,2 @@
+-          (xs.forM (m := StateT (Batteries.RBNode.Stream α) Option) fun a s => do
+-            let (b, s) ← Batteries.RBNode.Stream.next? s
++          (xs.forM (m := StateT (RBTree.RBNode.Stream α) Option) fun a s => do
++            let (b, s) ← RBTree.RBNode.Stream.next? s
+@@ -284 +304 @@
+-       | some (_, Batteries.RBNode.Stream.nil) => true
++       | some (_, RBTree.RBNode.Stream.nil) => true
+@@ -290 +310 @@
+-      cases s <;> simp [Batteries.RBNode.Stream.toList] at h ⊢
++      cases s <;> simp [RBTree.RBNode.Stream.toList, StateT.pure, StateT.run] at h ⊢
+@@ -294 +314 @@
+-      | nil => simp [Batteries.RBNode.Stream.toList] at h
++      | nil => simp [RBTree.RBNode.Stream.toList] at h
+@@ -296 +316 @@
+-          simp [Batteries.RBNode.Stream.toList, Batteries.RBNode.Stream.next?] at h ⊢
++          simp [RBTree.RBNode.Stream.toList, RBTree.RBNode.Stream.next?] at h ⊢
+@@ -299,7 +319,7 @@
+-          have htailStream : (Batteries.RBNode.toStream r tail).toList = xs := by
+-            rw [Batteries.RBNode.toStream_toList']
+-            simpa [Batteries.RBNode.foldr_cons, Batteries.RBNode.Stream.toList] using htail
+-          simp only [StateT.run, BEq.rfl, cond_true, Option.bind_some]
+-          exact ih (Batteries.RBNode.toStream r tail) htailStream
+-
+-private lemma rbNode_all₂_self {α} [BEq α] [ReflBEq α] (t : Batteries.RBNode α) :
++          have htailStream : (RBTree.RBNode.toStream r tail).toList = xs := by
++            rw [RBTree.RBNode.toStream_toList']
++            simpa [RBTree.RBNode.foldr_cons, RBTree.RBNode.Stream.toList] using htail
++          simpa [StateT.run, BEq.rfl, cond_true, Option.bind_some, RBTree.RBNode.Stream.next?] using
++            ih (RBTree.RBNode.toStream r tail) htailStream
++
++private lemma rbNode_all₂_self {α} [BEq α] [ReflBEq α] (t : RBTree.RBNode α) :
+@@ -307,2 +327,2 @@
+-  unfold Batteries.RBNode.all₂
+-  rw [Batteries.RBNode.forM_eq_forM_toList]
++  unfold RBTree.RBNode.all₂
++  rw [RBTree.RBNode.forM_eq_forM_toList]
+@@ -312 +332 @@
+-    (t : Batteries.RBSet α cmp) : t.all₂ (· == ·) t = true := by
++    (t : RBTree.RBSet α cmp) : t.all₂ (· == ·) t = true := by
+@@ -316 +336 @@
+-    ReflBEq (Batteries.RBSet α cmp) where
++    ReflBEq (RBTree.RBSet α cmp) where
+@@ -322 +342 @@
+-    ReflBEq (Batteries.RBMap α β cmp) where
++    ReflBEq (RBTree.RBMap α β cmp) where
+@@ -328 +348 @@
+-    ((∅ : Batteries.RBMap α β cmp) == ∅) = true := by
++    ((∅ : RBTree.RBMap α β cmp) == ∅) = true := by
+@@ -453 +473 @@
+-  have hltVal : e.val < 1024 := by simpa using hlt
++  have hltVal : e.val < 1024 := by simpa [Fin.lt_def] using hlt
+@@ -1271 +1291 @@
+-                    simpa using hpre
++                    simpa [target, UInt256.ofNat] using hpre
+@@ -1312 +1332 @@
+-                    simpa using hpre
++                    simpa [target, UInt256.ofNat] using hpre
+@@ -1510 +1530 @@
+-                    simpa using hpre
++                    simpa [target, UInt256.ofNat] using hpre
+@@ -1551 +1571 @@
+-                    simpa using hpre
++                    simpa [target, UInt256.ofNat] using hpre
+@@ -2371,0 +2392,71 @@
++  classical
++  by_cases h1 : pc = 1
++  · subst pc
++    unfold Θ sendEth
++    delta Θ.match_3
++    simp only [Id.run, Fin.ext_iff, AccountAddress.size]
++    simp
++    try rfl
++  by_cases h2 : pc = 2
++  · subst pc
++    unfold Θ sendEth
++    delta Θ.match_3
++    simp only [Id.run, Fin.ext_iff, AccountAddress.size]
++    simp
++    try rfl
++  by_cases h3 : pc = 3
++  · subst pc
++    unfold Θ sendEth
++    delta Θ.match_3
++    simp only [Id.run, Fin.ext_iff, AccountAddress.size]
++    simp
++    try rfl
++  by_cases h4 : pc = 4
++  · subst pc
++    unfold Θ sendEth
++    delta Θ.match_3
++    simp only [Id.run, Fin.ext_iff, AccountAddress.size]
++    simp
++    try rfl
++  by_cases h5 : pc = 5
++  · subst pc
++    unfold Θ sendEth
++    delta Θ.match_3
++    simp only [Id.run, Fin.ext_iff, AccountAddress.size]
++    simp
++    try rfl
++  by_cases h6 : pc = 6
++  · subst pc
++    unfold Θ sendEth
++    delta Θ.match_3
++    simp only [Id.run, Fin.ext_iff, AccountAddress.size]
++    simp
++    try rfl
++  by_cases h7 : pc = 7
++  · subst pc
++    unfold Θ sendEth
++    delta Θ.match_3
++    simp only [Id.run, Fin.ext_iff, AccountAddress.size]
++    simp
++    try rfl
++  by_cases h8 : pc = 8
++  · subst pc
++    unfold Θ sendEth
++    delta Θ.match_3
++    simp only [Id.run, Fin.ext_iff, AccountAddress.size]
++    simp
++    try rfl
++  by_cases h9 : pc = 9
++  · subst pc
++    unfold Θ sendEth
++    delta Θ.match_3
++    simp only [Id.run, Fin.ext_iff, AccountAddress.size]
++    simp
++    try rfl
++  by_cases h10 : pc = 10
++  · subst pc
++    unfold Θ sendEth
++    delta Θ.match_3
++    simp only [Id.run, Fin.ext_iff, AccountAddress.size]
++    simp
++    try rfl
+@@ -2373,2 +2464,3 @@
+-  simp
+-  rfl
++  delta Θ.match_3
++  simp [h1, h2, h3, h4, h5, h6, h7, h8, h9, h10]
++  try rfl
+@@ -2558 +2650 @@
+-                · simpa [sendEth] using hXiAcc
++                · simpa [sendEth, Std.ExtTreeMap.get?_eq_getElem?, step.match_27, sendEth.match_1] using hXiAcc
+@@ -2584 +2676 @@
+-                · exact hXi acc (by simpa [← ha] using hacc_ne_a)
++                · exact hXi acc (by intro h; exact hacc_ne_a (h.trans ha))
+@@ -2588,8 +2680,15 @@
+-              · simp [sendEthCreate]
+-                split <;> rename_i hs
+-                · apply account_changes_consistent_trans
+-                  · simpa [hs, ← ha] using hXiAcc
+-                  · exact account_changes_consistent_insert_ne acc _ σStarStar _ (by simpa [← ha] using hacc_ne_a)
+-                · apply account_changes_consistent_trans
+-                  · simpa [hs, ← ha] using hXiAcc
+-                  · exact account_changes_consistent_insert_ne acc _ σStarStar _ (by simpa [← ha] using hacc_ne_a)
++              · simp only [ha] at hXiAcc ⊢
++                simp [sendEthCreate]
++                cases hs : Std.ExtTreeMap.get? σ s <;> simp only [hs, Option.rec]
++                · apply account_changes_consistent_trans (σ' := σStarStar)
++                  · set_option backward.isDefEq.respectTransparency true in
++                      simpa only [hs, ha, step.match_27, sendEth.match_1, Option.rec] using hXiAcc
++                  · simpa only [ha] using
++                      (account_changes_consistent_insert_ne acc a σStarStar
++                        { (σStarStar.getD a default) with code := returnedData } hacc_ne_a)
++                · apply account_changes_consistent_trans (σ' := σStarStar)
++                  · set_option backward.isDefEq.respectTransparency true in
++                      simpa only [hs, ha, step.match_27, sendEth.match_1, Option.rec] using hXiAcc
++                  · simpa only [ha] using
++                      (account_changes_consistent_insert_ne acc a σStarStar
++                        { (σStarStar.getD a default) with code := returnedData } hacc_ne_a)
+@@ -2659 +2758 @@
+-                                hstorage_bne, hstorage_ne_default] using hXi))
++                                hstorage_bne, hstorage_ne_default, Substate.addAccessedAccount, step.match_27, sendEth.match_1] using hXi))
+@@ -2716 +2815 @@
+-                · simpa [sendEth] using hXiAcc
++                · simpa [sendEth, Std.ExtTreeMap.get?_eq_getElem?, step.match_27, sendEth.match_1] using hXiAcc
+@@ -2740 +2839 @@
+-                · exact hXi (by simpa [← ha] using hacc_ne_a)
++                · exact hXi (by intro h; exact hacc_ne_a (h.trans ha))
+@@ -2764,8 +2863,15 @@
+-              · simp [sendEthCreate]
+-                split <;> rename_i hs
+-                · apply account_changes_consistent_trans
+-                  · simpa [hs, ← ha] using hXiAcc
+-                  · exact account_changes_consistent_insert_ne acc _ σStarStar _ (by simpa [← ha] using hacc_ne_a)
+-                · apply account_changes_consistent_trans
+-                  · simpa [hs, ← ha] using hXiAcc
+-                  · exact account_changes_consistent_insert_ne acc _ σStarStar _ (by simpa [← ha] using hacc_ne_a)
++              · simp only [ha] at hXiAcc ⊢
++                simp [sendEthCreate]
++                cases hs : Std.ExtTreeMap.get? σ s <;> simp only [hs, Option.rec]
++                · apply account_changes_consistent_trans (σ' := σStarStar)
++                  · set_option backward.isDefEq.respectTransparency true in
++                      simpa only [hs, ha, step.match_27, sendEth.match_1, Option.rec] using hXiAcc
++                  · simpa only [ha] using
++                      (account_changes_consistent_insert_ne acc a σStarStar
++                        { (σStarStar.getD a default) with code := returnedData } hacc_ne_a)
++                · apply account_changes_consistent_trans (σ' := σStarStar)
++                  · set_option backward.isDefEq.respectTransparency true in
++                      simpa only [hs, ha, step.match_27, sendEth.match_1, Option.rec] using hXiAcc
++                  · simpa only [ha] using
++                      (account_changes_consistent_insert_ne acc a σStarStar
++                        { (σStarStar.getD a default) with code := returnedData } hacc_ne_a)
+@@ -2833 +2939 @@
+-                                hstorage_bne, hstorage_ne_default] using hXi))
++                                hstorage_bne, hstorage_ne_default, Substate.addAccessedAccount, step.match_27, sendEth.match_1] using hXi))
+--- a/EVMLean/Ethereum/Theory/GasLemmas.lean
++++ b/EVMLean/Ethereum/Theory/GasLemmas.lean
+@@ -12,0 +13,6 @@
++
++set_option backward.isDefEq.respectTransparency false
++set_option backward.synthInstance.canonInstances false
++set_option backward.isDefEq.lazyProjDelta false
++set_option backward.isDefEq.lazyWhnfCore false
++attribute [local instance] Classical.propDecidable
+@@ -27,0 +34 @@
++  classical
+@@ -31,0 +39 @@
++  classical
+@@ -36,0 +45 @@
++  classical
+@@ -40,0 +50,15 @@
++lemma Ccallgas_formula (t r : AccountAddress) (val g : UInt256) (σ : AccountMap)
++    (μ : MachineState) (A : Substate) :
++    Ccallgas t r val g σ μ A =
++      if val.val = 0 then Cgascap t r val g σ μ A
++      else Cgascap t r val g σ μ A + GasConstants.Gcallstipend := by
++  delta Ccallgas Ccallgas.match_1
++  cases val with
++  | mk value =>
++    dsimp only
++    split
++    · rename_i h
++      subst value
++      rfl
++    · rfl
++
+@@ -42,0 +67 @@
++  classical
+@@ -45 +70,2 @@
+-    unfold Ccall Ccallgas Cextra Cxfer Cnew Caccess
++    rw [Ccallgas_formula]
++    unfold Ccall Cextra Cxfer Cnew Caccess
+@@ -47,4 +73 @@
+-    split
+-    · split <;> omega
+-    · rename_i hneq
+-      exact False.elim (hneq rfl)
++    split <;> omega
+@@ -57 +80,2 @@
+-    unfold Ccall Ccallgas Cextra Cxfer Cnew Caccess
++    rw [Ccallgas_formula]
++    unfold Ccall Cextra Cxfer Cnew Caccess
+@@ -62,0 +87 @@
++  classical
+@@ -68,0 +94 @@
++  classical
+@@ -78,0 +105 @@
++  classical
+@@ -106,0 +134 @@
++  classical
+@@ -129,0 +158 @@
++  classical
+@@ -135,0 +165 @@
++  classical
+@@ -143,0 +174 @@
++  classical
+@@ -147,0 +179 @@
++  classical
+@@ -153,0 +186 @@
++  classical
+@@ -179,0 +213 @@
++  classical
+@@ -186,0 +221 @@
++  classical
+@@ -193,0 +229 @@
++  classical
+@@ -197,0 +234 @@
++  classical
+@@ -202,0 +240 @@
++  classical
+@@ -341,0 +380 @@
++  classical
+@@ -357,0 +397 @@
++  classical
+@@ -373,0 +414 @@
++  classical
+@@ -390,0 +432 @@
++  classical
+@@ -409,0 +452 @@
++  classical
+@@ -428,0 +472 @@
++  classical
+@@ -448,0 +493 @@
++  classical
+@@ -464,0 +510 @@
++  classical
+@@ -480,0 +527 @@
++  classical
+@@ -496,0 +544 @@
++  classical
+@@ -516,0 +565 @@
++  classical
+@@ -536,0 +586 @@
++  classical
+@@ -552,0 +603 @@
++  classical
+@@ -566,0 +618 @@
++  classical
+@@ -584,0 +637 @@
++  classical
+@@ -600,0 +654 @@
++  classical
+@@ -618,0 +673 @@
++  classical
+@@ -634,0 +690 @@
++  classical
+@@ -649,0 +706 @@
++  classical
+@@ -664,0 +722 @@
++  classical
+@@ -679,0 +738 @@
++  classical
+@@ -694,0 +754 @@
++  classical
+@@ -714,0 +775 @@
++  classical
+@@ -745,0 +807 @@
++  classical
+@@ -769,3 +831,3 @@
+-  · rw [if_pos (by simpa [evmState₁] using hjump)] at h
+-    contradiction
+-  rw [if_neg (by simpa [evmState₁] using hjump)] at h
++  · rw [if_pos (by simpa [evmState₁, State.subtractGas] using hjump)] at h
++    contradiction
++  rw [if_neg (by simpa [evmState₁, State.subtractGas] using hjump)] at h
+@@ -776,3 +838,3 @@
+-  · rw [if_pos (by simpa [evmState₁] using hjumpi)] at h
+-    contradiction
+-  rw [if_neg (by simpa [evmState₁] using hjumpi)] at h
++  · rw [if_pos (by simpa [evmState₁, State.subtractGas] using hjumpi)] at h
++    contradiction
++  rw [if_neg (by simpa [evmState₁, State.subtractGas] using hjumpi)] at h
+@@ -784,3 +846,3 @@
+-  · rw [if_pos (by simpa [evmState₁] using hreturndata)] at h
+-    contradiction
+-  rw [if_neg (by simpa [evmState₁] using hreturndata)] at h
++  · rw [if_pos (by simpa [evmState₁, State.subtractGas] using hreturndata)] at h
++    contradiction
++  rw [if_neg (by simpa [evmState₁, State.subtractGas] using hreturndata)] at h
+@@ -789,3 +851,3 @@
+-  · rw [if_pos (by simpa [evmState₁] using hoverflow)] at h
+-    contradiction
+-  rw [if_neg (by simpa [evmState₁] using hoverflow)] at h
++  · rw [if_pos (by simpa [evmState₁, State.subtractGas] using hoverflow)] at h
++    contradiction
++  rw [if_neg (by simpa [evmState₁, State.subtractGas] using hoverflow)] at h
+@@ -797,3 +859,3 @@
+-  · rw [if_pos (by simpa [evmState₁] using hstatic)] at h
+-    contradiction
+-  rw [if_neg (by simpa [evmState₁] using hstatic)] at h
++  · rw [if_pos (by simpa [evmState₁, State.subtractGas] using hstatic)] at h
++    contradiction
++  rw [if_neg (by simpa [evmState₁, State.subtractGas] using hstatic)] at h
+@@ -803,3 +865,3 @@
+-  · rw [if_pos (by simpa [evmState₁] using hsstore)] at h
+-    contradiction
+-  rw [if_neg (by simpa [evmState₁] using hsstore)] at h
++  · rw [if_pos (by simpa [evmState₁, State.subtractGas] using hsstore)] at h
++    contradiction
++  rw [if_neg (by simpa [evmState₁, State.subtractGas] using hsstore)] at h
+@@ -808,3 +870,3 @@
+-  · rw [if_pos (by simpa [evmState₁] using hcreate)] at h
+-    contradiction
+-  rw [if_neg (by simpa [evmState₁] using hcreate)] at h
++  · rw [if_pos (by simpa [evmState₁, State.subtractGas] using hcreate)] at h
++    contradiction
++  rw [if_neg (by simpa [evmState₁, State.subtractGas] using hcreate)] at h
+@@ -820,0 +883 @@
++  classical
+@@ -844,3 +907,3 @@
+-  · rw [if_pos (by simpa [evmState₁] using hjump)] at h
+-    contradiction
+-  rw [if_neg (by simpa [evmState₁] using hjump)] at h
++  · rw [if_pos (by simpa [evmState₁, State.subtractGas] using hjump)] at h
++    contradiction
++  rw [if_neg (by simpa [evmState₁, State.subtractGas] using hjump)] at h
+@@ -851,3 +914,3 @@
+-  · rw [if_pos (by simpa [evmState₁] using hjumpi)] at h
+-    contradiction
+-  rw [if_neg (by simpa [evmState₁] using hjumpi)] at h
++  · rw [if_pos (by simpa [evmState₁, State.subtractGas] using hjumpi)] at h
++    contradiction
++  rw [if_neg (by simpa [evmState₁, State.subtractGas] using hjumpi)] at h
+@@ -859,3 +922,3 @@
+-  · rw [if_pos (by simpa [evmState₁] using hreturndata)] at h
+-    contradiction
+-  rw [if_neg (by simpa [evmState₁] using hreturndata)] at h
++  · rw [if_pos (by simpa [evmState₁, State.subtractGas] using hreturndata)] at h
++    contradiction
++  rw [if_neg (by simpa [evmState₁, State.subtractGas] using hreturndata)] at h
+@@ -864,3 +927,3 @@
+-  · rw [if_pos (by simpa [evmState₁] using hoverflow)] at h
+-    contradiction
+-  rw [if_neg (by simpa [evmState₁] using hoverflow)] at h
++  · rw [if_pos (by simpa [evmState₁, State.subtractGas] using hoverflow)] at h
++    contradiction
++  rw [if_neg (by simpa [evmState₁, State.subtractGas] using hoverflow)] at h
+@@ -872,3 +935,3 @@
+-  · rw [if_pos (by simpa [evmState₁] using hstatic)] at h
+-    contradiction
+-  rw [if_neg (by simpa [evmState₁] using hstatic)] at h
++  · rw [if_pos (by simpa [evmState₁, State.subtractGas] using hstatic)] at h
++    contradiction
++  rw [if_neg (by simpa [evmState₁, State.subtractGas] using hstatic)] at h
+@@ -878,3 +941,3 @@
+-  · rw [if_pos (by simpa [evmState₁] using hsstore)] at h
+-    contradiction
+-  rw [if_neg (by simpa [evmState₁] using hsstore)] at h
++  · rw [if_pos (by simpa [evmState₁, State.subtractGas] using hsstore)] at h
++    contradiction
++  rw [if_neg (by simpa [evmState₁, State.subtractGas] using hsstore)] at h
+@@ -883,3 +946,3 @@
+-  · rw [if_pos (by simpa [evmState₁] using hcreate)] at h
+-    contradiction
+-  rw [if_neg (by simpa [evmState₁] using hcreate)] at h
++  · rw [if_pos (by simpa [evmState₁, State.subtractGas] using hcreate)] at h
++    contradiction
++  rw [if_neg (by simpa [evmState₁, State.subtractGas] using hcreate)] at h
+@@ -896,0 +960 @@
++  classical
+@@ -920,3 +984,3 @@
+-  · rw [if_pos (by simpa [evmState₁] using hjump)] at h
+-    contradiction
+-  rw [if_neg (by simpa [evmState₁] using hjump)] at h
++  · rw [if_pos (by simpa [evmState₁, State.subtractGas] using hjump)] at h
++    contradiction
++  rw [if_neg (by simpa [evmState₁, State.subtractGas] using hjump)] at h
+@@ -927,3 +991,3 @@
+-  · rw [if_pos (by simpa [evmState₁] using hjumpi)] at h
+-    contradiction
+-  rw [if_neg (by simpa [evmState₁] using hjumpi)] at h
++  · rw [if_pos (by simpa [evmState₁, State.subtractGas] using hjumpi)] at h
++    contradiction
++  rw [if_neg (by simpa [evmState₁, State.subtractGas] using hjumpi)] at h
+@@ -935,3 +999,3 @@
+-  · rw [if_pos (by simpa [evmState₁] using hreturndata)] at h
+-    contradiction
+-  rw [if_neg (by simpa [evmState₁] using hreturndata)] at h
++  · rw [if_pos (by simpa [evmState₁, State.subtractGas] using hreturndata)] at h
++    contradiction
++  rw [if_neg (by simpa [evmState₁, State.subtractGas] using hreturndata)] at h
+@@ -940,3 +1004,3 @@
+-  · rw [if_pos (by simpa [evmState₁] using hoverflow)] at h
+-    contradiction
+-  rw [if_neg (by simpa [evmState₁] using hoverflow)] at h
++  · rw [if_pos (by simpa [evmState₁, State.subtractGas] using hoverflow)] at h
++    contradiction
++  rw [if_neg (by simpa [evmState₁, State.subtractGas] using hoverflow)] at h
+@@ -948,3 +1012,3 @@
+-  · rw [if_pos (by simpa [evmState₁] using hstatic)] at h
+-    contradiction
+-  rw [if_neg (by simpa [evmState₁] using hstatic)] at h
++  · rw [if_pos (by simpa [evmState₁, State.subtractGas] using hstatic)] at h
++    contradiction
++  rw [if_neg (by simpa [evmState₁, State.subtractGas] using hstatic)] at h
+@@ -954,3 +1018,3 @@
+-  · rw [if_pos (by simpa [evmState₁] using hsstore)] at h
+-    contradiction
+-  rw [if_neg (by simpa [evmState₁] using hsstore)] at h
++  · rw [if_pos (by simpa [evmState₁, State.subtractGas] using hsstore)] at h
++    contradiction
++  rw [if_neg (by simpa [evmState₁, State.subtractGas] using hsstore)] at h
+@@ -959,3 +1023,3 @@
+-  · rw [if_pos (by simpa [evmState₁] using hcreate)] at h
+-    contradiction
+-  rw [if_neg (by simpa [evmState₁] using hcreate)] at h
++  · rw [if_pos (by simpa [evmState₁, State.subtractGas] using hcreate)] at h
++    contradiction
++  rw [if_neg (by simpa [evmState₁, State.subtractGas] using hcreate)] at h
+@@ -970,0 +1035 @@
++  classical
+@@ -994,3 +1059,3 @@
+-  · rw [if_pos (by simpa [evmState₁] using hjump)] at h
+-    contradiction
+-  rw [if_neg (by simpa [evmState₁] using hjump)] at h
++  · rw [if_pos (by simpa [evmState₁, State.subtractGas] using hjump)] at h
++    contradiction
++  rw [if_neg (by simpa [evmState₁, State.subtractGas] using hjump)] at h
+@@ -1001,3 +1066,3 @@
+-  · rw [if_pos (by simpa [evmState₁] using hjumpi)] at h
+-    contradiction
+-  rw [if_neg (by simpa [evmState₁] using hjumpi)] at h
++  · rw [if_pos (by simpa [evmState₁, State.subtractGas] using hjumpi)] at h
++    contradiction
++  rw [if_neg (by simpa [evmState₁, State.subtractGas] using hjumpi)] at h
+@@ -1009,3 +1074,3 @@
+-  · rw [if_pos (by simpa [evmState₁] using hreturndata)] at h
+-    contradiction
+-  rw [if_neg (by simpa [evmState₁] using hreturndata)] at h
++  · rw [if_pos (by simpa [evmState₁, State.subtractGas] using hreturndata)] at h
++    contradiction
++  rw [if_neg (by simpa [evmState₁, State.subtractGas] using hreturndata)] at h
+@@ -1014,3 +1079,3 @@
+-  · rw [if_pos (by simpa [evmState₁] using hoverflow)] at h
+-    contradiction
+-  rw [if_neg (by simpa [evmState₁] using hoverflow)] at h
++  · rw [if_pos (by simpa [evmState₁, State.subtractGas] using hoverflow)] at h
++    contradiction
++  rw [if_neg (by simpa [evmState₁, State.subtractGas] using hoverflow)] at h
+@@ -1022,3 +1087,3 @@
+-  · rw [if_pos (by simpa [evmState₁] using hstatic)] at h
+-    contradiction
+-  rw [if_neg (by simpa [evmState₁] using hstatic)] at h
++  · rw [if_pos (by simpa [evmState₁, State.subtractGas] using hstatic)] at h
++    contradiction
++  rw [if_neg (by simpa [evmState₁, State.subtractGas] using hstatic)] at h
+@@ -1028,3 +1093,3 @@
+-  · rw [if_pos (by simpa [evmState₁] using hsstore)] at h
+-    contradiction
+-  rw [if_neg (by simpa [evmState₁] using hsstore)] at h
++  · rw [if_pos (by simpa [evmState₁, State.subtractGas] using hsstore)] at h
++    contradiction
++  rw [if_neg (by simpa [evmState₁, State.subtractGas] using hsstore)] at h
+@@ -1033,3 +1098,3 @@
+-  · rw [if_pos (by simpa [evmState₁] using hcreate)] at h
+-    contradiction
+-  rw [if_neg (by simpa [evmState₁] using hcreate)] at h
++  · rw [if_pos (by simpa [evmState₁, State.subtractGas] using hcreate)] at h
++    contradiction
++  rw [if_neg (by simpa [evmState₁, State.subtractGas] using hcreate)] at h
+@@ -1045,0 +1111 @@
++  classical
+@@ -1101,0 +1168 @@
++  classical
+@@ -1125 +1192 @@
+-              simpa using hstepLe
++              simpa [ExecutionResultGas] using hstepLe
+@@ -1127 +1194 @@
+-              simpa using hstepLe
++              simpa [ExecutionResultGas] using hstepLe
+@@ -1137,0 +1205 @@
++  classical
+@@ -1155,0 +1224 @@
++  classical
+@@ -1162,0 +1232 @@
++  classical
+@@ -1170,0 +1241 @@
++  classical
+@@ -1178,0 +1250 @@
++  classical
+@@ -1185,0 +1258 @@
++  classical
+@@ -1221,0 +1295 @@
++  classical
+@@ -1233,0 +1308 @@
++  classical
+@@ -1245,0 +1321 @@
++  classical
+@@ -1256,0 +1333 @@
++  classical
+@@ -1267,0 +1345 @@
++  classical
+@@ -1287,0 +1366 @@
++  classical
+@@ -1316,0 +1396 @@
++  classical
+@@ -1336,0 +1417 @@
++  classical
+@@ -1349,0 +1431 @@
++      delta Θ.match_3
+@@ -1351 +1433 @@
+-      exact precompile_dispatch_gas_le p _ g A _
++      simpa only [precompile_dispatch_match_eq_if] using precompile_dispatch_gas_le p _ g A _
+@@ -1362,0 +1445 @@
++  classical
+@@ -1481,0 +1565 @@
++  classical
+@@ -1523 +1607 @@
+-              simpa [sExec, C', Ccallgas, Cgascap, h0, h1, h2] using hbase
++              simpa [sExec, C', Ccallgas_formula, Cgascap, h0, h1, h2] using hbase
+@@ -1560 +1644 @@
+-              simpa [sExec, C', Ccallgas, Cgascap, h0, h1, h2,
++              simpa [sExec, C', Ccallgas_formula, Cgascap, h0, h1, h2,
+@@ -1599 +1683 @@
+-              simpa [sExec, C', Ccallgas, Cgascap, h0, h1,
++              simpa [sExec, C', Ccallgas_formula, Cgascap, h0, h1,
+@@ -1638 +1722 @@
+-              simpa [sExec, C', Ccallgas, Cgascap, h0, h1] using hbase
++              simpa [sExec, C', Ccallgas_formula, Cgascap, h0, h1] using hbase
+@@ -1656,0 +1741 @@
++  classical
+@@ -1664,0 +1750 @@
++  classical
+@@ -1753,0 +1840 @@
++  classical
+--- a/EVMLean/Ethereum/Theory/NoOutOfFuel.lean
++++ b/EVMLean/Ethereum/Theory/NoOutOfFuel.lean
+@@ -5,0 +6,7 @@
++
++set_option backward.isDefEq.respectTransparency false
++set_option backward.synthInstance.canonInstances false
++set_option backward.isDefEq.lazyProjDelta false
++set_option backward.isDefEq.lazyWhnfCore false
++attribute [local instance] Classical.propDecidable
++attribute [local simp] Id.run
+@@ -14,0 +22 @@
++    classical
+@@ -159,0 +168 @@
++  classical
+@@ -166,0 +176 @@
++  classical
+@@ -173,0 +184 @@
++  classical
+@@ -180,0 +192 @@
++  classical
+@@ -187,0 +200 @@
++  classical
+@@ -194,0 +208 @@
++  classical
+@@ -201,0 +216 @@
++  classical
+@@ -209,0 +225 @@
++  classical
+@@ -261,0 +278 @@
++    classical
+@@ -275,0 +293 @@
++  classical
+--- a/EVMLean/Ethereum/Theory/OpcodeLemmas.lean
++++ b/EVMLean/Ethereum/Theory/OpcodeLemmas.lean
+@@ -9,0 +10,3 @@
++
++set_option backward.isDefEq.respectTransparency false
++attribute [local simp] Id.run
+@@ -4797 +4800 @@
+-                        simpa using hDepth_lt
++                        exact hDepth_lt
+@@ -4813 +4816 @@
+-                        simpa using hDepth_lt
++                        exact hDepth_lt
+@@ -4834 +4837 @@
+-                      exact hDepth_expanded ⟨h.1, by simpa using h.2.1, h.2.2⟩
++                      exact hDepth_expanded ⟨h.1, h.2.1, h.2.2⟩
+@@ -5112 +5115 @@
+-                        simpa using hDepth_lt
++                        exact hDepth_lt
+@@ -5128 +5131 @@
+-                        simpa using hDepth_lt
++                        exact hDepth_lt
+@@ -5149 +5152 @@
+-                      exact hDepth_expanded ⟨h.1, by simpa using h.2.1, h.2.2⟩
++                      exact hDepth_expanded ⟨h.1, h.2.1, h.2.2⟩
+@@ -5312 +5315 @@
+-                  rw [← Batteries.RBSet.contains_iff]
++                  rw [← RBTree.RBSet.contains_iff]
+@@ -5336 +5339 @@
+-                  rw [← Batteries.RBSet.contains_iff]
++                  rw [← RBTree.RBSet.contains_iff]
+--- a/EVMLean/Ethereum/Theory/ReturnDataBound.lean
++++ b/EVMLean/Ethereum/Theory/ReturnDataBound.lean
+@@ -7,0 +8,6 @@
++
++set_option backward.isDefEq.respectTransparency false
++set_option backward.synthInstance.canonInstances false
++set_option backward.isDefEq.lazyProjDelta false
++set_option backward.isDefEq.lazyWhnfCore false
++attribute [local simp] State.subtractGas
+@@ -2354 +2360,2 @@
+-            simpa only [Nat.mul_zero, Nat.zero_mul, Nat.zero_add, Nat.add_zero, Nat.zero_div]
++            simpa only [Nat.mul_zero, Nat.zero_mul, Nat.zero_add, Nat.add_zero, Nat.zero_div,
++              Sat256.ofUInt256, Sat256.toNat]
+@@ -2398 +2405,2 @@
+-            simpa only [Nat.mul_zero, Nat.zero_mul, Nat.zero_add, Nat.add_zero, Nat.zero_div]
++            simpa only [Nat.mul_zero, Nat.zero_mul, Nat.zero_add, Nat.add_zero, Nat.zero_div,
++              Sat256.ofUInt256, Sat256.toNat]
+@@ -2526 +2534 @@
+-  let AStar := A.addAccessedAccount a
++  let AStar0 := A.addAccessedAccount a
+@@ -2528 +2536 @@
+-  let collision : ByteArray × Batteries.RBSet AccountAddress compare :=
++  let collision : ByteArray × RBTree.RBSet AccountAddress compare :=
+@@ -2536 +2544 @@
+-  let AStar := { AStar with createdAccounts := createdAccountsStar }
++  let AStar := { AStar0 with createdAccounts := createdAccountsStar }
+@@ -2548,0 +2557,2 @@
++  have hle := Lambda_Xi_tuple_match_output_size_le_maxReturnDataSizeByGas a
++    σ σStar σ₀ g A AStar exEnv
+@@ -2551,5 +2561,22 @@
+-  exact (by
+-    simpa only [n, lₐ, a, AStar, existentAccount, collision, initCode, createdAccountsStar,
+-      newAccount, σStar, exEnv] using
+-      (Lambda_Xi_tuple_match_output_size_le_maxReturnDataSizeByGas a
+-        σ σStar σ₀ g A AStar exEnv))
++  cases hxi : Ξ σStar σ₀ g AStar exEnv with
++  | error err =>
++      rw [hxi] at hle
++      simp only [n, lₐ, a, AStar0, AStar, existentAccount, collision, initCode,
++        createdAccountsStar, newAccount, σStar, exEnv] at hxi
++      simpa [n, lₐ, a, AStar0, AStar, existentAccount, collision, initCode,
++        createdAccountsStar, newAccount, σStar, exEnv, hxi, Id.run] using hle
++  | ok result =>
++      cases result with
++      | revert gas out =>
++          rw [hxi] at hle
++          simp only [n, lₐ, a, AStar0, AStar, existentAccount, collision, initCode,
++            createdAccountsStar, newAccount, σStar, exEnv] at hxi
++          simpa [n, lₐ, a, AStar0, AStar, existentAccount, collision, initCode,
++            createdAccountsStar, newAccount, σStar, exEnv, hxi, Id.run] using hle
++      | success payload out =>
++          rcases payload with ⟨accounts, gas, substate⟩
++          rw [hxi] at hle
++          simp only [n, lₐ, a, AStar0, AStar, existentAccount, collision, initCode,
++            createdAccountsStar, newAccount, σStar, exEnv] at hxi
++          simpa [n, lₐ, a, AStar0, AStar, existentAccount, collision, initCode,
++            createdAccountsStar, newAccount, σStar, exEnv, hxi, Id.run] using hle
+@@ -2708,3 +2735,17 @@
+-  exact (by
+-    simpa only [σ'₁, σ₁, I] using
+-      (Xi_tuple_match_output_size_le_maxReturnDataSizeByGas σ₁ σ₀ g A I))
++  have hle := Xi_tuple_match_output_size_le_maxReturnDataSizeByGas σ₁ σ₀ g A I
++  cases hxi : Ξ σ₁ σ₀ g A I with
++  | error err =>
++      rw [hxi] at hle
++      simp only [σ'₁, σ₁, I] at hxi
++      simpa [σ'₁, σ₁, I, hxi, Id.run] using hle
++  | ok result =>
++      cases result with
++      | revert gas out =>
++          rw [hxi] at hle
++          simp only [σ'₁, σ₁, I] at hxi
++          simpa [σ'₁, σ₁, I, hxi, Id.run] using hle
++      | success payload out =>
++          rcases payload with ⟨accounts, gas, substate⟩
++          rw [hxi] at hle
++          simp only [σ'₁, σ₁, I] at hxi
++          simpa [σ'₁, σ₁, I, hxi, Id.run] using hle
+@@ -3309,0 +3351,91 @@
++  classical
++  by_cases h1 : pc = 1
++  · subst pc
++    unfold Θ thetaValueTransferAccountMap
++    delta Θ.match_3
++    simp only [Id.run]
++    unfold precompileDispatchResult
++    delta precompileDispatchResult.match_1
++    simp only [Fin.ext_iff, AccountAddress.size]
++    rfl
++  by_cases h2 : pc = 2
++  · subst pc
++    unfold Θ thetaValueTransferAccountMap
++    delta Θ.match_3
++    simp only [Id.run]
++    unfold precompileDispatchResult
++    delta precompileDispatchResult.match_1
++    simp only [Fin.ext_iff, AccountAddress.size]
++    rfl
++  by_cases h3 : pc = 3
++  · subst pc
++    unfold Θ thetaValueTransferAccountMap
++    delta Θ.match_3
++    simp only [Id.run]
++    unfold precompileDispatchResult
++    delta precompileDispatchResult.match_1
++    simp only [Fin.ext_iff, AccountAddress.size]
++    rfl
++  by_cases h4 : pc = 4
++  · subst pc
++    unfold Θ thetaValueTransferAccountMap
++    delta Θ.match_3
++    simp only [Id.run]
++    unfold precompileDispatchResult
++    delta precompileDispatchResult.match_1
++    simp only [Fin.ext_iff, AccountAddress.size]
++    rfl
++  by_cases h5 : pc = 5
++  · subst pc
++    unfold Θ thetaValueTransferAccountMap
++    delta Θ.match_3
++    simp only [Id.run]
++    unfold precompileDispatchResult
++    delta precompileDispatchResult.match_1
++    simp only [Fin.ext_iff, AccountAddress.size]
++    rfl
++  by_cases h6 : pc = 6
++  · subst pc
++    unfold Θ thetaValueTransferAccountMap
++    delta Θ.match_3
++    simp only [Id.run]
++    unfold precompileDispatchResult
++    delta precompileDispatchResult.match_1
++    simp only [Fin.ext_iff, AccountAddress.size]
++    rfl
++  by_cases h7 : pc = 7
++  · subst pc
++    unfold Θ thetaValueTransferAccountMap
++    delta Θ.match_3
++    simp only [Id.run]
++    unfold precompileDispatchResult
++    delta precompileDispatchResult.match_1
++    simp only [Fin.ext_iff, AccountAddress.size]
++    rfl
++  by_cases h8 : pc = 8
++  · subst pc
++    unfold Θ thetaValueTransferAccountMap
++    delta Θ.match_3
++    simp only [Id.run]
++    unfold precompileDispatchResult
++    delta precompileDispatchResult.match_1
++    simp only [Fin.ext_iff, AccountAddress.size]
++    rfl
++  by_cases h9 : pc = 9
++  · subst pc
++    unfold Θ thetaValueTransferAccountMap
++    delta Θ.match_3
++    simp only [Id.run]
++    unfold precompileDispatchResult
++    delta precompileDispatchResult.match_1
++    simp only [Fin.ext_iff, AccountAddress.size]
++    rfl
++  by_cases h10 : pc = 10
++  · subst pc
++    unfold Θ thetaValueTransferAccountMap
++    delta Θ.match_3
++    simp only [Id.run]
++    unfold precompileDispatchResult
++    delta precompileDispatchResult.match_1
++    simp only [Fin.ext_iff, AccountAddress.size]
++    rfl
+@@ -3311,2 +3443,5 @@
+-  simp
+-  rfl
++  delta Θ.match_3
++  simp only [Id.run]
++  unfold precompileDispatchResult
++  delta precompileDispatchResult.match_1
++  simp [h1, h2, h3, h4, h5, h6, h7, h8, h9, h10]
+--- a/EVMLean/Ethereum/Theory/StaticStorage.lean
++++ b/EVMLean/Ethereum/Theory/StaticStorage.lean
+@@ -5,0 +6,4 @@
++
++set_option backward.isDefEq.respectTransparency false
++set_option maxRecDepth 65536
++attribute [local simp] Id.run Pure.pure
+@@ -35,0 +40 @@
++  classical
+@@ -42,0 +48 @@
++  classical
+@@ -64,0 +71 @@
++  classical
+@@ -72,0 +80 @@
++  classical
+@@ -79,0 +88 @@
++  classical
+@@ -89,0 +99 @@
++  classical
+@@ -123,0 +134 @@
++  classical
+@@ -136,0 +148 @@
++  classical
+@@ -168,0 +181 @@
++  classical
+@@ -179,0 +193 @@
++  classical
+@@ -182 +196 @@
+-  · simp [hz]
++  · rw [if_pos hz]
+@@ -211,2 +225,3 @@
+-    simpa [σ₁] using accountStorageStateEq_trans hσ₁
+-      (accountStorageStateEq_debit_if_present σ₁ s v)
++    convert (accountStorageStateEq_trans hσ₁
++      (accountStorageStateEq_debit_if_present σ₁ s v)) using 1
++
+@@ -217,0 +233 @@
++  classical
+@@ -220 +236 @@
+-  · simp [hz]
++  · rw [if_pos hz]
+@@ -247,2 +263,3 @@
+-    simpa [σ₁] using accountCodeStateEq_trans hσ₁
+-      (accountCodeStateEq_debit_if_present σ₁ s v)
++    convert (accountCodeStateEq_trans hσ₁
++      (accountCodeStateEq_debit_if_present σ₁ s v)) using 1
++
+@@ -253,0 +271 @@
++  classical
+@@ -260,0 +279 @@
++  classical
+@@ -269,0 +289 @@
++  classical
+@@ -278,0 +299 @@
++  classical
+@@ -284,0 +306 @@
++  classical
+@@ -290,0 +313 @@
++  classical
+@@ -296,0 +320 @@
++  classical
+@@ -302,0 +327 @@
++  classical
+@@ -330,0 +356 @@
++  classical
+@@ -340,0 +367 @@
++  classical
+@@ -350,0 +378 @@
++  classical
+@@ -360,0 +389 @@
++  classical
+@@ -370,0 +400 @@
++  classical
+@@ -407,0 +438 @@
++  classical
+@@ -454,0 +486,71 @@
++  classical
++  by_cases h1 : pc = 1
++  · subst pc
++    unfold Θ sendEth
++    delta Θ.match_3
++    simp only [Id.run, Fin.ext_iff, AccountAddress.size]
++    simp [step.match_27, sendEth.match_1, Option.rec]
++    try rfl
++  by_cases h2 : pc = 2
++  · subst pc
++    unfold Θ sendEth
++    delta Θ.match_3
++    simp only [Id.run, Fin.ext_iff, AccountAddress.size]
++    simp [step.match_27, sendEth.match_1, Option.rec]
++    try rfl
++  by_cases h3 : pc = 3
++  · subst pc
++    unfold Θ sendEth
++    delta Θ.match_3
++    simp only [Id.run, Fin.ext_iff, AccountAddress.size]
++    simp [step.match_27, sendEth.match_1, Option.rec]
++    try rfl
++  by_cases h4 : pc = 4
++  · subst pc
++    unfold Θ sendEth
++    delta Θ.match_3
++    simp only [Id.run, Fin.ext_iff, AccountAddress.size]
++    simp [step.match_27, sendEth.match_1, Option.rec]
++    try rfl
++  by_cases h5 : pc = 5
++  · subst pc
++    unfold Θ sendEth
++    delta Θ.match_3
++    simp only [Id.run, Fin.ext_iff, AccountAddress.size]
++    simp [step.match_27, sendEth.match_1, Option.rec]
++    try rfl
++  by_cases h6 : pc = 6
++  · subst pc
++    unfold Θ sendEth
++    delta Θ.match_3
++    simp only [Id.run, Fin.ext_iff, AccountAddress.size]
++    simp [step.match_27, sendEth.match_1, Option.rec]
++    try rfl
++  by_cases h7 : pc = 7
++  · subst pc
++    unfold Θ sendEth
++    delta Θ.match_3
++    simp only [Id.run, Fin.ext_iff, AccountAddress.size]
++    simp [step.match_27, sendEth.match_1, Option.rec]
++    try rfl
++  by_cases h8 : pc = 8
++  · subst pc
++    unfold Θ sendEth
++    delta Θ.match_3
++    simp only [Id.run, Fin.ext_iff, AccountAddress.size]
++    simp [step.match_27, sendEth.match_1, Option.rec]
++    try rfl
++  by_cases h9 : pc = 9
++  · subst pc
++    unfold Θ sendEth
++    delta Θ.match_3
++    simp only [Id.run, Fin.ext_iff, AccountAddress.size]
++    simp [step.match_27, sendEth.match_1, Option.rec]
++    try rfl
++  by_cases h10 : pc = 10
++  · subst pc
++    unfold Θ sendEth
++    delta Θ.match_3
++    simp only [Id.run, Fin.ext_iff, AccountAddress.size]
++    simp [step.match_27, sendEth.match_1, Option.rec]
++    try rfl
+@@ -456,2 +558,3 @@
+-  simp
+-  rfl
++  delta Θ.match_3
++  simp [h1, h2, h3, h4, h5, h6, h7, h8, h9, h10, step.match_27, sendEth.match_1, Option.rec]
++  try rfl
+@@ -469,0 +573 @@
++  classical
+@@ -496,0 +601 @@
++  classical
+@@ -523,0 +629 @@
++  classical
+@@ -557,0 +664 @@
++  classical
+@@ -562,0 +670 @@
++  classical
+@@ -567,0 +676 @@
++  classical
+@@ -572,0 +682 @@
++  classical
+@@ -585,0 +696 @@
++  classical
+@@ -590,0 +702 @@
++  classical
+@@ -595,0 +708 @@
++  classical
+@@ -600,0 +714 @@
++  classical
+@@ -609,0 +724 @@
++  classical
+@@ -677,0 +793 @@
++  classical
+@@ -687,0 +804 @@
++  classical
+@@ -701,0 +819 @@
++  classical
+@@ -761,0 +880 @@
++  classical
+@@ -771,0 +891 @@
++  classical
+@@ -781,0 +902 @@
++  classical
+@@ -791,0 +913 @@
++  classical
+@@ -800,0 +923 @@
++  classical
+@@ -809,0 +933 @@
++  classical
+@@ -819,0 +944 @@
++  classical
+@@ -830,0 +956 @@
++  classical
+@@ -840,0 +967 @@
++  classical
+@@ -849,0 +977 @@
++  classical
+@@ -859,0 +988 @@
++  classical
+@@ -869,0 +999 @@
++  classical
+@@ -880,0 +1011 @@
++  classical
+@@ -891,0 +1023 @@
++  classical
+@@ -900,0 +1033 @@
++  classical
+@@ -905,0 +1039 @@
++  classical
+@@ -910,0 +1045 @@
++  classical
+@@ -916,0 +1052 @@
++  classical
+@@ -929,0 +1066 @@
++  classical
+@@ -942 +1079,4 @@
+-  have hltVal : e.val < 1024 := by simpa using hlt
++  classical
++  have hltVal : e.val < 1024 := by
++    set_option backward.isDefEq.respectTransparency true in
++      simpa [Fin.lt_def] using hlt
+@@ -953,0 +1094 @@
++  classical
+@@ -996,0 +1138 @@
++  classical
+@@ -1017,0 +1160 @@
++  classical
+@@ -1026,0 +1170 @@
++  classical
+@@ -1071,0 +1216 @@
++  classical
+@@ -1089,0 +1235 @@
++  classical
+@@ -1097,0 +1244 @@
++  classical
+@@ -1105,0 +1253 @@
++  classical
+@@ -1123,0 +1272 @@
++  classical
+@@ -1142,0 +1292 @@
++  classical
+@@ -1206,0 +1357 @@
++  classical
+@@ -1268,0 +1420 @@
++  classical
+@@ -1299,0 +1452 @@
++  classical
+@@ -1401,0 +1555 @@
++  classical
+@@ -1488,0 +1643 @@
++  classical
+@@ -1524,0 +1680 @@
++  classical
+@@ -1556,0 +1713 @@
++  classical
+@@ -1597,0 +1755 @@
++  classical
+@@ -1628,0 +1787 @@
++  classical
+@@ -1693,0 +1853 @@
++  classical
+@@ -1751,0 +1912 @@
++  classical
+@@ -1790,0 +1952 @@
++  classical
+@@ -1843,0 +2006 @@
++  classical
+@@ -1890,0 +2054 @@
++  classical
+@@ -1942,0 +2107 @@
++  classical
+@@ -1988,0 +2154 @@
++  classical
+@@ -2023,0 +2190 @@
++  classical
+@@ -2039,0 +2207 @@
++  classical
+@@ -2110,0 +2279 @@
++  classical
+@@ -2174,0 +2344 @@
++  classical
+@@ -2236,0 +2407 @@
++  classical
+@@ -2267,0 +2439 @@
++  classical
+@@ -2369,0 +2542 @@
++  classical
+@@ -2456,0 +2630 @@
++  classical
+@@ -2492,0 +2667 @@
++  classical
+@@ -2524,0 +2700 @@
++  classical
+@@ -2565,0 +2742 @@
++  classical
+@@ -2596,0 +2774 @@
++  classical
+@@ -2661,0 +2840 @@
++  classical
+@@ -2720,0 +2900 @@
++  classical
+@@ -2773,0 +2954 @@
++  classical
+@@ -2820,0 +3002 @@
++  classical
+@@ -2872,0 +3055 @@
++  classical
+@@ -2918,0 +3102 @@
++  classical
+@@ -2944,0 +3129 @@
++  classical
+@@ -3020,0 +3206 @@
++  classical
+@@ -3031,0 +3218 @@
++  classical
+@@ -3082,0 +3270 @@
++  classical
+@@ -3093,0 +3282 @@
++  classical
+@@ -3140,0 +3330 @@
++  classical
+--- a/EVMLean/Ethereum/UInt256.lean
++++ b/EVMLean/Ethereum/UInt256.lean
+@@ -12,0 +13,7 @@
++
++-- B2: restore the previous projection spelling with the same power operation.
++def Monoid.toPow.{u} (M : Type u) (s : Monoid M) : Pow M Nat :=
++  @NPow.toPow M s.toNPow
++
++theorem Monoid.toPow_compat.{u} (M : Type u) (s : Monoid M) :
++    Monoid.toPow M s = @NPow.toPow M s.toNPow := rfl
+@@ -212,0 +220,6 @@
++-- B2: source-level names for helpers eliminated by the newer trivial-match compiler.
++def decLt._aux_1 (a b : UInt256) : Decidable (a < b) := decLt a b
++
++def decLt.match_3.{u_1} (motive : UInt256 → UInt256 → Sort u_1)
++    (a b : UInt256) (h : ∀ (a b : UInt256), motive a b) : motive a b := h a b
++
+--- a/EVMLean/Ethereum/Wheels.lean
++++ b/EVMLean/Ethereum/Wheels.lean
+@@ -53 +53 @@
+-          simp [UInt256.size, UInt256.toNat]
++          simpa [UInt256.size, UInt256.toNat] using val.val.isLt
+@@ -83 +83,7 @@
+-  simp [Id.run, AccountAddress.size, UInt256.size]
++  simp only [Fin.val_ofNat]
++  have ha := a.isLt
++  have hwide : a.val < UInt256.size := by
++    unfold AccountAddress.size at ha
++    unfold UInt256.size
++    omega
++  simp [Id.run, Nat.mod_eq_of_lt hwide, Nat.mod_eq_of_lt ha]
+@@ -99 +105 @@
+-          simp [AccountAddress.size]
++          simpa [AccountAddress.size] using a.isLt
+@@ -278 +284 @@
+-  | 𝔹 : (b : ByteArray) → (h : b.size < 2^64) → 𝕋_safe
++  | 𝔹 : (b : ByteArray) → (h : b.size < (@HPow.hPow Nat Nat Nat (@instHPow Nat Nat (Monoid.toPow Nat Nat.instMonoid)) 2 64)) → 𝕋_safe
+@@ -410 +416 @@
+-private def R_b_safe (x : ByteArray) (_ : x.size < 2^64) : ByteArray :=
++private def R_b_safe (x : ByteArray) (_ : x.size < (@HPow.hPow Nat Nat Nat (@instHPow Nat Nat (Monoid.toPow Nat Nat.instMonoid)) 2 64)) : ByteArray :=

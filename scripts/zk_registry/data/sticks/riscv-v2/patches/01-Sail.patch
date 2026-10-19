@@ -1,0 +1,5 @@
+--- a/Sail/Sail/Sail.lean
++++ b/Sail/Sail/Sail.lean
+@@ -553 +553 @@
+-def assert (p : Bool) (s : String) : PreSailM RegisterType c ue Unit :=
++def sailAssert (p : Bool) (s : String) : PreSailM RegisterType c ue Unit :=

@@ -1574,3 +1574,31 @@ Known pilot proofs remain regression fixtures; this tool establishes no novel pa
 - Pilot statements and proofs were produced by agents of one model family; independence of statement authorship
   from solving is not established.
 - Content-identical copies across repositories must be deduplicated by content hash before packaging.
+
+## Measuring sticks
+
+[Tracked descriptors](../scripts/zk_registry/data/sticks/README.md) reconstruct EVM and RISC-V stick v2 from
+public archives, deterministic rewrites and residual patches. Public identity is the source tree digest,
+definition digest and canonical type list with its digest. Lean stores source labels in some linter metadata,
+so historical olean digests are label-dependent and remain optional private profiles.
+
+`bash scripts/setup_measuring_stick.sh <evm|riscv-v2> <new-directory>` uses neutral source labels and checks all
+source bytes, definitions and canonical types. Public builds start with empty build outputs and compile every
+root; source-only and private-profile checks are labelled separately. A content-verified existing base supports
+`--offline`; public bootstrap uses isolated homes, ELAN_HOME and caches. Supported platforms are Darwin arm64
+and Linux aarch64; x86_64 fails closed. See the descriptor README for prerequisites, limits and resume behavior.
+
+EVM combines EVMLean (Apache-2.0) and EquiVM (MIT). Its 2,145 canonical types are frozen. The W1-derived definition
+digest `12b01e249765de5cefdda41966123a479d533fcc8a0ff93d39d46ede39cbb83c` equals its complete source digest.
+The port changes native_decide to decide across 1,180 files. Recorded opaque conversions preserve types and
+limit reduction; deleted jump facts need separate E2 admission. Type comparison and proof admission are separate.
+
+RISC-V stick v2 includes 13 RV64 word operations and JALR v2. Its 72 sail_equiv types and definition digest
+`c5b8b3b5c02602eb85805996dd1fb8f64a98e521f1c277668f8cdc9da71068f4` are frozen. The Sail extraction is unchanged
+except B2's mechanical sailAssert rename and the fixed-platform definitions. Its own halt convention is t0 = 0
+ECALL; the RAM override and a7 = 93/a0 = 0 exit adapter are test-only. stepExec/writtenAddrs are unproved and JALR
+target alignment is unchecked. R3 covers 63 official ELFs under its test parameters; CSR-environment behavior
+and other unmodelled platform cases need separate validation. A general decode-to-Sail equivalence proof is open.
+Notices retain BSD-2-Clause/MIT provenance and explicitly record lean-sail's missing licence file.
+
+No reconstruction activates a template or changes frozen B2, R1-bis, R3 or catalog v1 outcomes.

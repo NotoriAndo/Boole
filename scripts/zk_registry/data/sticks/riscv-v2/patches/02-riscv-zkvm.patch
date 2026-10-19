@@ -1,0 +1,777 @@
+--- a/riscv-zkvm/RiscvZkvm/Interpreter/Decode.lean
++++ b/riscv-zkvm/RiscvZkvm/Interpreter/Decode.lean
+@@ -123 +123,6 @@
+-  | 0x1b => if funct3 == 0 then some (.ADDIW rd rs1 (immI w)) else none
++  | 0x1b => if funct3 == 0 then some (.ADDIW rd rs1 (immI w)) else
++    match funct7, funct3 with
++    | 0x00, 1 => some (.SLLIW rd rs1 (w.extractLsb' 20 5))
++    | 0x00, 5 => some (.SRLIW rd rs1 (w.extractLsb' 20 5))
++    | 0x20, 5 => some (.SRAIW rd rs1 (w.extractLsb' 20 5))
++    | _, _ => none
+@@ -125 +130,13 @@
+-  | 0x3b => none
++  | 0x3b =>
++    match funct7, funct3 with
++    | 0x00, 0 => some (.ADDW rd rs1 rs2)
++    | 0x20, 0 => some (.SUBW rd rs1 rs2)
++    | 0x00, 1 => some (.SLLW rd rs1 rs2)
++    | 0x00, 5 => some (.SRLW rd rs1 rs2)
++    | 0x20, 5 => some (.SRAW rd rs1 rs2)
++    | 0x01, 0 => some (.MULW rd rs1 rs2)
++    | 0x01, 4 => some (.DIVW rd rs1 rs2)
++    | 0x01, 5 => some (.DIVUW rd rs1 rs2)
++    | 0x01, 6 => some (.REMW rd rs1 rs2)
++    | 0x01, 7 => some (.REMUW rd rs1 rs2)
++    | _, _ => none
+--- a/riscv-zkvm/RiscvZkvm/Interpreter/DecodeTests.lean
++++ b/riscv-zkvm/RiscvZkvm/Interpreter/DecodeTests.lean
+@@ -59,4 +59,4 @@
+-#guard d 0x00B5063B == none   -- addw a2, a0, a1
+-#guard d 0x40B5063B == none   -- subw a2, a0, a1
+-#guard d 0x0015151B == none   -- slliw a0, a0, 1
+-#guard d 0x02B5063B == none   -- mulw a2, a0, a1
++#guard d 0x00B5063B == some (.ADDW .x12 .x10 .x11)   -- addw a2, a0, a1
++#guard d 0x40B5063B == some (.SUBW .x12 .x10 .x11)   -- subw a2, a0, a1
++#guard d 0x0015151B == some (.SLLIW .x10 .x10 1)   -- slliw a0, a0, 1
++#guard d 0x02B5063B == some (.MULW .x12 .x10 .x11)   -- mulw a2, a0, a1
+@@ -72,0 +73,39 @@
++
++-- R3 frozen decoder vectors.
++#guard d 0x00C5873B == some (.ADDW .x14 .x11 .x12)
++#guard d 0x0006971B == some (.SLLIW .x14 .x13 0)
++#guard d 0x00C5973B == some (.SLLW .x14 .x11 .x12)
++#guard d 0x4006D71B == some (.SRAIW .x14 .x13 0)
++#guard d 0x40C5D73B == some (.SRAW .x14 .x11 .x12)
++#guard d 0x0006D71B == some (.SRLIW .x14 .x13 0)
++#guard d 0x00C5D73B == some (.SRLW .x14 .x11 .x12)
++#guard d 0x40C5873B == some (.SUBW .x14 .x11 .x12)
++#guard d 0x02C5D73B == some (.DIVUW .x14 .x11 .x12)
++#guard d 0x02C5C73B == some (.DIVW .x14 .x11 .x12)
++#guard d 0x02C5873B == some (.MULW .x14 .x11 .x12)
++#guard d 0x02C5F73B == some (.REMUW .x14 .x11 .x12)
++#guard d 0x02C5E73B == some (.REMW .x14 .x11 .x12)
++#guard d 0x003100BB == some (.ADDW .x1 .x2 .x3)
++#guard d 0x403100BB == some (.SUBW .x1 .x2 .x3)
++#guard d 0x003110BB == some (.SLLW .x1 .x2 .x3)
++#guard d 0x003150BB == some (.SRLW .x1 .x2 .x3)
++#guard d 0x403150BB == some (.SRAW .x1 .x2 .x3)
++#guard d 0x0031109B == some (.SLLIW .x1 .x2 3)
++#guard d 0x0031509B == some (.SRLIW .x1 .x2 3)
++#guard d 0x4031509B == some (.SRAIW .x1 .x2 3)
++#guard d 0x023100BB == some (.MULW .x1 .x2 .x3)
++#guard d 0x023140BB == some (.DIVW .x1 .x2 .x3)
++#guard d 0x023150BB == some (.DIVUW .x1 .x2 .x3)
++#guard d 0x023160BB == some (.REMW .x1 .x2 .x3)
++#guard d 0x023170BB == some (.REMUW .x1 .x2 .x3)
++#guard d 0x0231109B == none
++#guard d 0x0231509B == none
++#guard d 0x4231509B == none
++#guard d 0x023110BB == none
++#guard d 0x023120BB == none
++#guard d 0x023130BB == none
++#guard d 0x00B5063B == some (.ADDW .x12 .x10 .x11)
++#guard d 0x40B5063B == some (.SUBW .x12 .x10 .x11)
++#guard d 0x0015151B == some (.SLLIW .x10 .x10 1)
++#guard d 0x02B5063B == some (.MULW .x12 .x10 .x11)
++
+--- a/riscv-zkvm/RiscvZkvm/Rv64/Basic.lean
++++ b/riscv-zkvm/RiscvZkvm/Rv64/Basic.lean
+@@ -238,0 +239,15 @@
++
++  -- R3 RV64I/RV64M word operations, appended after all v1 constructors.
++  | ADDW (rd rs1 rs2 : Reg)
++  | SUBW (rd rs1 rs2 : Reg)
++  | SLLW (rd rs1 rs2 : Reg)
++  | SRLW (rd rs1 rs2 : Reg)
++  | SRAW (rd rs1 rs2 : Reg)
++  | SLLIW (rd rs1 : Reg) (shamt : BitVec 5)
++  | SRLIW (rd rs1 : Reg) (shamt : BitVec 5)
++  | SRAIW (rd rs1 : Reg) (shamt : BitVec 5)
++  | MULW (rd rs1 rs2 : Reg)
++  | DIVW (rd rs1 rs2 : Reg)
++  | DIVUW (rd rs1 rs2 : Reg)
++  | REMW (rd rs1 rs2 : Reg)
++  | REMUW (rd rs1 rs2 : Reg)
+--- a/riscv-zkvm/RiscvZkvm/Rv64/Execution.lean
++++ b/riscv-zkvm/RiscvZkvm/Rv64/Execution.lean
+@@ -202,0 +203,26 @@
++  | .ADDW rd rs1 rs2 =>
++      (s.setReg rd (rv64w_add (s.getReg rs1) (s.getReg rs2))).setPC (s.pc + 4)
++  | .SUBW rd rs1 rs2 =>
++      (s.setReg rd (rv64w_sub (s.getReg rs1) (s.getReg rs2))).setPC (s.pc + 4)
++  | .SLLW rd rs1 rs2 =>
++      (s.setReg rd (rv64w_sll (s.getReg rs1) (s.getReg rs2))).setPC (s.pc + 4)
++  | .SRLW rd rs1 rs2 =>
++      (s.setReg rd (rv64w_srl (s.getReg rs1) (s.getReg rs2))).setPC (s.pc + 4)
++  | .SRAW rd rs1 rs2 =>
++      (s.setReg rd (rv64w_sra (s.getReg rs1) (s.getReg rs2))).setPC (s.pc + 4)
++  | .SLLIW rd rs1 shamt =>
++      (s.setReg rd (rv64w_slli (s.getReg rs1) shamt)).setPC (s.pc + 4)
++  | .SRLIW rd rs1 shamt =>
++      (s.setReg rd (rv64w_srli (s.getReg rs1) shamt)).setPC (s.pc + 4)
++  | .SRAIW rd rs1 shamt =>
++      (s.setReg rd (rv64w_srai (s.getReg rs1) shamt)).setPC (s.pc + 4)
++  | .MULW rd rs1 rs2 =>
++      (s.setReg rd (rv64w_mul (s.getReg rs1) (s.getReg rs2))).setPC (s.pc + 4)
++  | .DIVW rd rs1 rs2 =>
++      (s.setReg rd (rv64w_div false (s.getReg rs1) (s.getReg rs2))).setPC (s.pc + 4)
++  | .DIVUW rd rs1 rs2 =>
++      (s.setReg rd (rv64w_div true (s.getReg rs1) (s.getReg rs2))).setPC (s.pc + 4)
++  | .REMW rd rs1 rs2 =>
++      (s.setReg rd (rv64w_rem false (s.getReg rs1) (s.getReg rs2))).setPC (s.pc + 4)
++  | .REMUW rd rs1 rs2 =>
++      (s.setReg rd (rv64w_rem true (s.getReg rs1) (s.getReg rs2))).setPC (s.pc + 4)
+--- a/riscv-zkvm/RiscvZkvm/Rv64/Instructions.lean
++++ b/riscv-zkvm/RiscvZkvm/Rv64/Instructions.lean
+@@ -168,0 +169,32 @@
++-- R3 word operations: truncate operands to 32 bits and sign-extend every result.
++def rv64w_low (x : Word) : BitVec 32 := x.extractLsb' 0 32
++
++def rv64w_add (x y : Word) : Word := ((rv64w_low x) + (rv64w_low y)).signExtend 64
++def rv64w_sub (x y : Word) : Word := ((rv64w_low x) - (rv64w_low y)).signExtend 64
++def rv64w_sll (x y : Word) : Word :=
++  ((rv64w_low x) <<< ((rv64w_low y).extractLsb' 0 5).toNat).signExtend 64
++def rv64w_srl (x y : Word) : Word :=
++  ((rv64w_low x) >>> ((rv64w_low y).extractLsb' 0 5).toNat).signExtend 64
++def rv64w_sra (x y : Word) : Word :=
++  (BitVec.sshiftRight (rv64w_low x) ((rv64w_low y).extractLsb' 0 5).toNat).signExtend 64
++def rv64w_slli (x : Word) (sh : BitVec 5) : Word := ((rv64w_low x) <<< sh.toNat).signExtend 64
++def rv64w_srli (x : Word) (sh : BitVec 5) : Word := ((rv64w_low x) >>> sh.toNat).signExtend 64
++def rv64w_srai (x : Word) (sh : BitVec 5) : Word :=
++  (BitVec.sshiftRight (rv64w_low x) sh.toNat).signExtend 64
++
++def rv64w_mul (x y : Word) : Word :=
++  (BitVec.ofInt 32 ((rv64w_low x).toInt * (rv64w_low y).toInt)).signExtend 64
++
++def rv64w_div (isUnsigned : Bool) (x y : Word) : Word :=
++  let a : Int := if isUnsigned then (rv64w_low x).toNat else (rv64w_low x).toInt
++  let b : Int := if isUnsigned then (rv64w_low y).toNat else (rv64w_low y).toInt
++  let q : Int := if b == 0 then -1 else Int.tdiv a b
++  let q : Int := if !isUnsigned && decide (q ≥ (2 : Int)^31) then -((2 : Int)^31) else q
++  (BitVec.ofInt 32 q).signExtend 64
++
++def rv64w_rem (isUnsigned : Bool) (x y : Word) : Word :=
++  let a : Int := if isUnsigned then (rv64w_low x).toNat else (rv64w_low x).toInt
++  let b : Int := if isUnsigned then (rv64w_low y).toNat else (rv64w_low y).toInt
++  let r : Int := if b == 0 then a else Int.tmod a b
++  (BitVec.ofInt 32 r).signExtend 64
++
+@@ -283,0 +316,26 @@
++    | .ADDW rd rs1 rs2 =>
++        s.setReg rd (rv64w_add (s.getReg rs1) (s.getReg rs2))
++    | .SUBW rd rs1 rs2 =>
++        s.setReg rd (rv64w_sub (s.getReg rs1) (s.getReg rs2))
++    | .SLLW rd rs1 rs2 =>
++        s.setReg rd (rv64w_sll (s.getReg rs1) (s.getReg rs2))
++    | .SRLW rd rs1 rs2 =>
++        s.setReg rd (rv64w_srl (s.getReg rs1) (s.getReg rs2))
++    | .SRAW rd rs1 rs2 =>
++        s.setReg rd (rv64w_sra (s.getReg rs1) (s.getReg rs2))
++    | .SLLIW rd rs1 shamt =>
++        s.setReg rd (rv64w_slli (s.getReg rs1) shamt)
++    | .SRLIW rd rs1 shamt =>
++        s.setReg rd (rv64w_srli (s.getReg rs1) shamt)
++    | .SRAIW rd rs1 shamt =>
++        s.setReg rd (rv64w_srai (s.getReg rs1) shamt)
++    | .MULW rd rs1 rs2 =>
++        s.setReg rd (rv64w_mul (s.getReg rs1) (s.getReg rs2))
++    | .DIVW rd rs1 rs2 =>
++        s.setReg rd (rv64w_div false (s.getReg rs1) (s.getReg rs2))
++    | .DIVUW rd rs1 rs2 =>
++        s.setReg rd (rv64w_div true (s.getReg rs1) (s.getReg rs2))
++    | .REMW rd rs1 rs2 =>
++        s.setReg rd (rv64w_rem false (s.getReg rs1) (s.getReg rs2))
++    | .REMUW rd rs1 rs2 =>
++        s.setReg rd (rv64w_rem true (s.getReg rs1) (s.getReg rs2))
+--- a/riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/ALUProofs.lean
++++ b/riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/ALUProofs.lean
+@@ -448,0 +449,315 @@
++
++-- Kernel-only 32-bit counterpart of the existing generic truncation bridge.
++theorem r3_to_bits_truncate32_eq_ofInt {x : Int} :
++    to_bits_truncate (l := 32) x = BitVec.ofInt 32 x := by
++  simp [to_bits_truncate, get_slice_int]
++  apply BitVec.eq_of_toNat_eq
++  simp [BitVec.toNat_ofInt]
++  omega
++
++theorem r3_int_pow31 : (2 : Int) ^ (31 : Int) = 2147483648 := by
++  decide
++
++-- R3 proofs; source headers are the phase0/canonical-type frozen statements.
++theorem addw_sail_equiv (sRv : MachineState) (sSail : SailState)
++    (hrel : StateRel sRv sSail)
++    (h_nextpc : sSail.regs.get? Register.nextPC = some (sRv.pc + 4)) (rd rs1 rs2 : Reg) :
++    ∃ sSail',
++      runSail (execute_RTYPEW (regToRegidx rs2) (regToRegidx rs1) (regToRegidx rd) ropw.ADDW) sSail
++        = some (RETIRE_SUCCESS, sSail') ∧
++      StateRel (execInstrBr sRv (.ADDW rd rs1 rs2)) sSail' ∧
++      sSail'.regs.get? Register.nextPC = some (sRv.pc + 4) ∧
++      PlatformFrame sSail sSail' := by
++  set_option maxRecDepth 10000 in
++    unfold execute_RTYPEW
++    simp only [runSail_bind, runSail_rX_bits_of_stateRel hrel, runSail_pure,
++      r3_to_bits_truncate32_eq_ofInt]
++    simp only [runSail_wX_bits_of_reg]
++    exact ⟨_, rfl, ⟨
++      fun r => by
++        simp [execInstrBr, MachineState.setPC]
++        exact reg_agree_after_insert sSail sRv hrel rd _ r,
++      fun a ha => by simpa [execInstrBr, MachineState.setPC, MachineState.getMem]
++                   using hrel.mem_agree a ha⟩,
++      by simp [h_nextpc], platformFrame_sailStateWithReg _ _ _⟩
++
++theorem subw_sail_equiv (sRv : MachineState) (sSail : SailState)
++    (hrel : StateRel sRv sSail)
++    (h_nextpc : sSail.regs.get? Register.nextPC = some (sRv.pc + 4)) (rd rs1 rs2 : Reg) :
++    ∃ sSail',
++      runSail (execute_RTYPEW (regToRegidx rs2) (regToRegidx rs1) (regToRegidx rd) ropw.SUBW) sSail
++        = some (RETIRE_SUCCESS, sSail') ∧
++      StateRel (execInstrBr sRv (.SUBW rd rs1 rs2)) sSail' ∧
++      sSail'.regs.get? Register.nextPC = some (sRv.pc + 4) ∧
++      PlatformFrame sSail sSail' := by
++  set_option maxRecDepth 10000 in
++    unfold execute_RTYPEW
++    simp only [runSail_bind, runSail_rX_bits_of_stateRel hrel, runSail_pure,
++      r3_to_bits_truncate32_eq_ofInt]
++    simp only [runSail_wX_bits_of_reg]
++    exact ⟨_, rfl, ⟨
++      fun r => by
++        simp [execInstrBr, MachineState.setPC]
++        exact reg_agree_after_insert sSail sRv hrel rd _ r,
++      fun a ha => by simpa [execInstrBr, MachineState.setPC, MachineState.getMem]
++                   using hrel.mem_agree a ha⟩,
++      by simp [h_nextpc], platformFrame_sailStateWithReg _ _ _⟩
++
++theorem sllw_sail_equiv (sRv : MachineState) (sSail : SailState)
++    (hrel : StateRel sRv sSail)
++    (h_nextpc : sSail.regs.get? Register.nextPC = some (sRv.pc + 4)) (rd rs1 rs2 : Reg) :
++    ∃ sSail',
++      runSail (execute_RTYPEW (regToRegidx rs2) (regToRegidx rs1) (regToRegidx rd) ropw.SLLW) sSail
++        = some (RETIRE_SUCCESS, sSail') ∧
++      StateRel (execInstrBr sRv (.SLLW rd rs1 rs2)) sSail' ∧
++      sSail'.regs.get? Register.nextPC = some (sRv.pc + 4) ∧
++      PlatformFrame sSail sSail' := by
++  set_option maxRecDepth 10000 in
++    unfold execute_RTYPEW
++    simp only [runSail_bind, runSail_rX_bits_of_stateRel hrel, runSail_pure,
++      r3_to_bits_truncate32_eq_ofInt]
++    simp only [runSail_wX_bits_of_reg]
++    exact ⟨_, rfl, ⟨
++      fun r => by
++        simp [execInstrBr, MachineState.setPC]
++        exact reg_agree_after_insert sSail sRv hrel rd _ r,
++      fun a ha => by simpa [execInstrBr, MachineState.setPC, MachineState.getMem]
++                   using hrel.mem_agree a ha⟩,
++      by simp [h_nextpc], platformFrame_sailStateWithReg _ _ _⟩
++
++theorem srlw_sail_equiv (sRv : MachineState) (sSail : SailState)
++    (hrel : StateRel sRv sSail)
++    (h_nextpc : sSail.regs.get? Register.nextPC = some (sRv.pc + 4)) (rd rs1 rs2 : Reg) :
++    ∃ sSail',
++      runSail (execute_RTYPEW (regToRegidx rs2) (regToRegidx rs1) (regToRegidx rd) ropw.SRLW) sSail
++        = some (RETIRE_SUCCESS, sSail') ∧
++      StateRel (execInstrBr sRv (.SRLW rd rs1 rs2)) sSail' ∧
++      sSail'.regs.get? Register.nextPC = some (sRv.pc + 4) ∧
++      PlatformFrame sSail sSail' := by
++  set_option maxRecDepth 10000 in
++    unfold execute_RTYPEW
++    simp only [runSail_bind, runSail_rX_bits_of_stateRel hrel, runSail_pure,
++      r3_to_bits_truncate32_eq_ofInt]
++    simp only [runSail_wX_bits_of_reg]
++    exact ⟨_, rfl, ⟨
++      fun r => by
++        simp [execInstrBr, MachineState.setPC]
++        exact reg_agree_after_insert sSail sRv hrel rd _ r,
++      fun a ha => by simpa [execInstrBr, MachineState.setPC, MachineState.getMem]
++                   using hrel.mem_agree a ha⟩,
++      by simp [h_nextpc], platformFrame_sailStateWithReg _ _ _⟩
++
++theorem sraw_sail_equiv (sRv : MachineState) (sSail : SailState)
++    (hrel : StateRel sRv sSail)
++    (h_nextpc : sSail.regs.get? Register.nextPC = some (sRv.pc + 4)) (rd rs1 rs2 : Reg) :
++    ∃ sSail',
++      runSail (execute_RTYPEW (regToRegidx rs2) (regToRegidx rs1) (regToRegidx rd) ropw.SRAW) sSail
++        = some (RETIRE_SUCCESS, sSail') ∧
++      StateRel (execInstrBr sRv (.SRAW rd rs1 rs2)) sSail' ∧
++      sSail'.regs.get? Register.nextPC = some (sRv.pc + 4) ∧
++      PlatformFrame sSail sSail' := by
++  set_option maxRecDepth 10000 in
++    unfold execute_RTYPEW
++    simp only [runSail_bind, runSail_rX_bits_of_stateRel hrel, runSail_pure,
++      r3_to_bits_truncate32_eq_ofInt]
++    simp only [runSail_wX_bits_of_reg]
++    exact ⟨_, rfl, ⟨
++      fun r => by
++        simp [execInstrBr, MachineState.setPC]
++        exact reg_agree_after_insert sSail sRv hrel rd _ r,
++      fun a ha => by simpa [execInstrBr, MachineState.setPC, MachineState.getMem]
++                   using hrel.mem_agree a ha⟩,
++      by simp [h_nextpc], platformFrame_sailStateWithReg _ _ _⟩
++
++theorem slliw_sail_equiv (sRv : MachineState) (sSail : SailState)
++    (hrel : StateRel sRv sSail)
++    (h_nextpc : sSail.regs.get? Register.nextPC = some (sRv.pc + 4)) (rd rs1 : Reg) (shamt : BitVec 5) :
++    ∃ sSail',
++      runSail (execute_SHIFTIWOP shamt (regToRegidx rs1) (regToRegidx rd) sopw.SLLIW) sSail
++        = some (RETIRE_SUCCESS, sSail') ∧
++      StateRel (execInstrBr sRv (.SLLIW rd rs1 shamt)) sSail' ∧
++      sSail'.regs.get? Register.nextPC = some (sRv.pc + 4) ∧
++      PlatformFrame sSail sSail' := by
++  set_option maxRecDepth 10000 in
++    unfold execute_SHIFTIWOP
++    simp only [runSail_bind, runSail_rX_bits_of_stateRel hrel, runSail_pure,
++      r3_to_bits_truncate32_eq_ofInt]
++    simp only [runSail_wX_bits_of_reg]
++    exact ⟨_, rfl, ⟨
++      fun r => by
++        simp [execInstrBr, MachineState.setPC]
++        exact reg_agree_after_insert sSail sRv hrel rd _ r,
++      fun a ha => by simpa [execInstrBr, MachineState.setPC, MachineState.getMem]
++                   using hrel.mem_agree a ha⟩,
++      by simp [h_nextpc], platformFrame_sailStateWithReg _ _ _⟩
++
++theorem srliw_sail_equiv (sRv : MachineState) (sSail : SailState)
++    (hrel : StateRel sRv sSail)
++    (h_nextpc : sSail.regs.get? Register.nextPC = some (sRv.pc + 4)) (rd rs1 : Reg) (shamt : BitVec 5) :
++    ∃ sSail',
++      runSail (execute_SHIFTIWOP shamt (regToRegidx rs1) (regToRegidx rd) sopw.SRLIW) sSail
++        = some (RETIRE_SUCCESS, sSail') ∧
++      StateRel (execInstrBr sRv (.SRLIW rd rs1 shamt)) sSail' ∧
++      sSail'.regs.get? Register.nextPC = some (sRv.pc + 4) ∧
++      PlatformFrame sSail sSail' := by
++  set_option maxRecDepth 10000 in
++    unfold execute_SHIFTIWOP
++    simp only [runSail_bind, runSail_rX_bits_of_stateRel hrel, runSail_pure,
++      r3_to_bits_truncate32_eq_ofInt]
++    simp only [runSail_wX_bits_of_reg]
++    exact ⟨_, rfl, ⟨
++      fun r => by
++        simp [execInstrBr, MachineState.setPC]
++        exact reg_agree_after_insert sSail sRv hrel rd _ r,
++      fun a ha => by simpa [execInstrBr, MachineState.setPC, MachineState.getMem]
++                   using hrel.mem_agree a ha⟩,
++      by simp [h_nextpc], platformFrame_sailStateWithReg _ _ _⟩
++
++theorem sraiw_sail_equiv (sRv : MachineState) (sSail : SailState)
++    (hrel : StateRel sRv sSail)
++    (h_nextpc : sSail.regs.get? Register.nextPC = some (sRv.pc + 4)) (rd rs1 : Reg) (shamt : BitVec 5) :
++    ∃ sSail',
++      runSail (execute_SHIFTIWOP shamt (regToRegidx rs1) (regToRegidx rd) sopw.SRAIW) sSail
++        = some (RETIRE_SUCCESS, sSail') ∧
++      StateRel (execInstrBr sRv (.SRAIW rd rs1 shamt)) sSail' ∧
++      sSail'.regs.get? Register.nextPC = some (sRv.pc + 4) ∧
++      PlatformFrame sSail sSail' := by
++  set_option maxRecDepth 10000 in
++    unfold execute_SHIFTIWOP
++    simp only [runSail_bind, runSail_rX_bits_of_stateRel hrel, runSail_pure,
++      r3_to_bits_truncate32_eq_ofInt]
++    simp only [runSail_wX_bits_of_reg]
++    exact ⟨_, rfl, ⟨
++      fun r => by
++        simp [execInstrBr, MachineState.setPC]
++        exact reg_agree_after_insert sSail sRv hrel rd _ r,
++      fun a ha => by simpa [execInstrBr, MachineState.setPC, MachineState.getMem]
++                   using hrel.mem_agree a ha⟩,
++      by simp [h_nextpc], platformFrame_sailStateWithReg _ _ _⟩
++
++theorem mulw_sail_equiv (sRv : MachineState) (sSail : SailState)
++    (hrel : StateRel sRv sSail)
++    (h_nextpc : sSail.regs.get? Register.nextPC = some (sRv.pc + 4)) (rd rs1 rs2 : Reg) :
++    ∃ sSail',
++      runSail (execute_MULW (regToRegidx rs2) (regToRegidx rs1) (regToRegidx rd)) sSail
++        = some (RETIRE_SUCCESS, sSail') ∧
++      StateRel (execInstrBr sRv (.MULW rd rs1 rs2)) sSail' ∧
++      sSail'.regs.get? Register.nextPC = some (sRv.pc + 4) ∧
++      PlatformFrame sSail sSail' := by
++  set_option maxRecDepth 10000 in
++    unfold execute_MULW
++    simp only [runSail_bind, runSail_rX_bits_of_stateRel hrel, runSail_pure,
++      r3_to_bits_truncate32_eq_ofInt]
++    simp only [runSail_wX_bits_of_reg]
++    exact ⟨_, rfl, ⟨
++      fun r => by
++        simp [execInstrBr, MachineState.setPC]
++        exact reg_agree_after_insert sSail sRv hrel rd _ r,
++      fun a ha => by simpa [execInstrBr, MachineState.setPC, MachineState.getMem]
++                   using hrel.mem_agree a ha⟩,
++      by simp [h_nextpc], platformFrame_sailStateWithReg _ _ _⟩
++
++theorem divw_sail_equiv (sRv : MachineState) (sSail : SailState)
++    (hrel : StateRel sRv sSail)
++    (h_nextpc : sSail.regs.get? Register.nextPC = some (sRv.pc + 4)) (rd rs1 rs2 : Reg) :
++    ∃ sSail',
++      runSail (execute_DIVW (regToRegidx rs2) (regToRegidx rs1) (regToRegidx rd) false) sSail
++        = some (RETIRE_SUCCESS, sSail') ∧
++      StateRel (execInstrBr sRv (.DIVW rd rs1 rs2)) sSail' ∧
++      sSail'.regs.get? Register.nextPC = some (sRv.pc + 4) ∧
++      PlatformFrame sSail sSail' := by
++  set_option maxRecDepth 10000 in
++    unfold execute_DIVW
++    simp only [runSail_bind, runSail_rX_bits_of_stateRel hrel, runSail_pure,
++      r3_to_bits_truncate32_eq_ofInt]
++    simp only [runSail_wX_bits_of_reg]
++    exact ⟨_, rfl, ⟨
++      fun r => by
++        simp only [execInstrBr, MachineState.getReg_setPC]
++        simpa [r3_int_pow31, rv64w_div, rv64w_rem, rv64w_low, sign_extend,
++          Sail.BitVec.signExtend, Sail.BitVec.extractLsb, BitVec.toNatInt,
++          Sail.Functions.not] using
++          (reg_agree_after_insert sSail sRv hrel rd
++            (rv64w_div false (sRv.getReg rs1) (sRv.getReg rs2)) r),
++      fun a ha => by simpa [execInstrBr, MachineState.setPC, MachineState.getMem]
++                   using hrel.mem_agree a ha⟩,
++      by simp [h_nextpc], platformFrame_sailStateWithReg _ _ _⟩
++
++theorem divuw_sail_equiv (sRv : MachineState) (sSail : SailState)
++    (hrel : StateRel sRv sSail)
++    (h_nextpc : sSail.regs.get? Register.nextPC = some (sRv.pc + 4)) (rd rs1 rs2 : Reg) :
++    ∃ sSail',
++      runSail (execute_DIVW (regToRegidx rs2) (regToRegidx rs1) (regToRegidx rd) true) sSail
++        = some (RETIRE_SUCCESS, sSail') ∧
++      StateRel (execInstrBr sRv (.DIVUW rd rs1 rs2)) sSail' ∧
++      sSail'.regs.get? Register.nextPC = some (sRv.pc + 4) ∧
++      PlatformFrame sSail sSail' := by
++  set_option maxRecDepth 10000 in
++    unfold execute_DIVW
++    simp only [runSail_bind, runSail_rX_bits_of_stateRel hrel, runSail_pure,
++      r3_to_bits_truncate32_eq_ofInt]
++    simp only [runSail_wX_bits_of_reg]
++    exact ⟨_, rfl, ⟨
++      fun r => by
++        simp only [execInstrBr, MachineState.getReg_setPC]
++        simpa [rv64w_div, rv64w_rem, rv64w_low, sign_extend,
++          Sail.BitVec.signExtend, Sail.BitVec.extractLsb, BitVec.toNatInt,
++          Sail.Functions.not] using
++          (reg_agree_after_insert sSail sRv hrel rd
++            (rv64w_div true (sRv.getReg rs1) (sRv.getReg rs2)) r),
++      fun a ha => by simpa [execInstrBr, MachineState.setPC, MachineState.getMem]
++                   using hrel.mem_agree a ha⟩,
++      by simp [h_nextpc], platformFrame_sailStateWithReg _ _ _⟩
++
++theorem remw_sail_equiv (sRv : MachineState) (sSail : SailState)
++    (hrel : StateRel sRv sSail)
++    (h_nextpc : sSail.regs.get? Register.nextPC = some (sRv.pc + 4)) (rd rs1 rs2 : Reg) :
++    ∃ sSail',
++      runSail (execute_REMW (regToRegidx rs2) (regToRegidx rs1) (regToRegidx rd) false) sSail
++        = some (RETIRE_SUCCESS, sSail') ∧
++      StateRel (execInstrBr sRv (.REMW rd rs1 rs2)) sSail' ∧
++      sSail'.regs.get? Register.nextPC = some (sRv.pc + 4) ∧
++      PlatformFrame sSail sSail' := by
++  set_option maxRecDepth 10000 in
++    unfold execute_REMW
++    simp only [runSail_bind, runSail_rX_bits_of_stateRel hrel, runSail_pure,
++      r3_to_bits_truncate32_eq_ofInt]
++    simp only [runSail_wX_bits_of_reg]
++    exact ⟨_, rfl, ⟨
++      fun r => by
++        simp only [execInstrBr, MachineState.getReg_setPC]
++        simpa [rv64w_div, rv64w_rem, rv64w_low, sign_extend,
++          Sail.BitVec.signExtend, Sail.BitVec.extractLsb, BitVec.toNatInt,
++          Sail.Functions.not] using
++          (reg_agree_after_insert sSail sRv hrel rd
++            (rv64w_rem false (sRv.getReg rs1) (sRv.getReg rs2)) r),
++      fun a ha => by simpa [execInstrBr, MachineState.setPC, MachineState.getMem]
++                   using hrel.mem_agree a ha⟩,
++      by simp [h_nextpc], platformFrame_sailStateWithReg _ _ _⟩
++
++theorem remuw_sail_equiv (sRv : MachineState) (sSail : SailState)
++    (hrel : StateRel sRv sSail)
++    (h_nextpc : sSail.regs.get? Register.nextPC = some (sRv.pc + 4)) (rd rs1 rs2 : Reg) :
++    ∃ sSail',
++      runSail (execute_REMW (regToRegidx rs2) (regToRegidx rs1) (regToRegidx rd) true) sSail
++        = some (RETIRE_SUCCESS, sSail') ∧
++      StateRel (execInstrBr sRv (.REMUW rd rs1 rs2)) sSail' ∧
++      sSail'.regs.get? Register.nextPC = some (sRv.pc + 4) ∧
++      PlatformFrame sSail sSail' := by
++  set_option maxRecDepth 10000 in
++    unfold execute_REMW
++    simp only [runSail_bind, runSail_rX_bits_of_stateRel hrel, runSail_pure,
++      r3_to_bits_truncate32_eq_ofInt]
++    simp only [runSail_wX_bits_of_reg]
++    exact ⟨_, rfl, ⟨
++      fun r => by
++        simp only [execInstrBr, MachineState.getReg_setPC]
++        simpa [rv64w_div, rv64w_rem, rv64w_low, sign_extend,
++          Sail.BitVec.signExtend, Sail.BitVec.extractLsb, BitVec.toNatInt,
++          Sail.Functions.not] using
++          (reg_agree_after_insert sSail sRv hrel rd
++            (rv64w_rem true (sRv.getReg rs1) (sRv.getReg rs2)) r),
++      fun a ha => by simpa [execInstrBr, MachineState.setPC, MachineState.getMem]
++                   using hrel.mem_agree a ha⟩,
++      by simp [h_nextpc], platformFrame_sailStateWithReg _ _ _⟩
++
+--- a/riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/BranchProofs.lean
++++ b/riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/BranchProofs.lean
+@@ -353,0 +354,76 @@
++/-- R1-bis: isolate the successful ELP prefix as a typed equality. -/
++theorem rb1_execute_JALR_after_elp (s s_mid : SailState)
++    (rd rs1 : Reg) (offset : BitVec 12)
++    (h : update_elp_state (regToRegidx rs1) s = .ok () s_mid) :
++    runSail (execute_JALR offset (regToRegidx rs1) (regToRegidx rd)) s =
++    runSail (do
++        let link_address ← do (get_next_pc ())
++        let target ← do (pure ((← (rX_bits (regToRegidx rs1))) + (sign_extend (m := 64) offset)))
++        match (← (jump_to (BitVec.update target 0 0#1))) with
++        | .Retire_Success () =>
++          (do
++            (wX_bits (regToRegidx rd) link_address)
++            (pure RETIRE_SUCCESS))
++        | failure => (pure failure)
++    ) s_mid := by
++  unfold execute_JALR
++  exact runSail_ok_bind _ _ _ _ h
++
++/-- R1-bis: compose two already evaluated monadic stages without rewriting under bind. -/
++theorem rb1_runSail_bind_ok {m : SailM α} {f : α → SailM β}
++    {s s' s'' : SailState} {a : α} {b : β}
++    (hm : runSail m s = some (a, s'))
++    (hf : runSail (f a) s' = some (b, s'')) :
++    runSail (m >>= f) s = some (b, s'') := by
++  rw [runSail_bind, hm]
++  exact hf
++
++/-- R1-bis: prove the instruction tail independently of the ELP prefix. -/
++theorem rb1_jalr_after_elp (sRv : MachineState) (s_mid : SailState)
++    (rd rs1 : Reg) (offset : BitVec 12)
++    (hrel_mid : StateRel sRv s_mid)
++    (h_nextpc_mid : s_mid.regs.get? Register.nextPC = some (sRv.pc + 4))
++    (h_misa_mid : ∃ v, s_mid.regs.get? Register.misa = some v)
++    (h_align : ((sRv.getReg rs1 + signExtend12 offset) &&& ~~~1#64) &&& 3 = 0) :
++    ∃ sSail', runSail (do
++        let link_address ← do (get_next_pc ())
++        let target ← do (pure ((← (rX_bits (regToRegidx rs1))) + (sign_extend (m := 64) offset)))
++        match (← (jump_to (BitVec.update target 0 0#1))) with
++        | .Retire_Success () =>
++          (do
++            (wX_bits (regToRegidx rd) link_address)
++            (pure RETIRE_SUCCESS))
++        | failure => (pure failure)
++    ) s_mid = some (RETIRE_SUCCESS, sSail') ∧
++      StateRel (execInstrBr sRv (.JALR rd rs1 offset)) sSail' ∧
++      sSail'.regs.get? Register.nextPC = some (execInstrBr sRv (.JALR rd rs1 offset)).pc ∧
++      PlatformFrame s_mid sSail' := by
++  obtain ⟨misa_val, h_misa_mid⟩ := h_misa_mid
++  let target := (sRv.getReg rs1 + signExtend12 offset) &&& ~~~1#64
++  let s_jump := { s_mid with regs := s_mid.regs.insert Register.nextPC target }
++  let s_final := sailStateWithReg s_jump rd (sRv.pc + 4)
++  have h_target : runSail
++      (pure (sRv.getReg rs1 + sign_extend (m := 64) offset) : SailM (BitVec 64)) s_mid =
++      some (sRv.getReg rs1 + signExtend12 offset, s_mid) := by
++    simpa only [sign_extend_12_eq] using
++      (runSail_pure (a := sRv.getReg rs1 + sign_extend (m := 64) offset) (s := s_mid))
++  have h_jump : runSail
++      (jump_to (Sail.BitVec.update (sRv.getReg rs1 + signExtend12 offset) 0 (0 : BitVec 1))) s_mid =
++      some (RETIRE_SUCCESS, s_jump) := by
++    rw [jalr_mask_equiv]
++    exact runSail_jump_to misa_val h_align h_misa_mid
++  refine ⟨s_final, ?_, ⟨?_, ?_⟩, ?_, ?_⟩
++  · refine rb1_runSail_bind_ok (runSail_get_next_pc h_nextpc_mid) ?_
++    refine rb1_runSail_bind_ok (runSail_rX_bits_of_stateRel hrel_mid rs1) ?_
++    refine rb1_runSail_bind_ok h_target ?_
++    refine rb1_runSail_bind_ok h_jump ?_
++    exact rb1_runSail_bind_ok (runSail_wX_bits_of_reg s_jump rd (sRv.pc + 4)) runSail_pure
++  · intro r
++    simp [s_final, s_jump, target, execInstrBr, MachineState.setPC]
++    exact reg_agree_after_insert _ _ (stateRel_nextPC hrel_mid _) rd _ r
++  · intro a ha
++    simpa [s_final, s_jump, target, execInstrBr, MachineState.setPC, MachineState.getMem]
++      using hrel_mid.mem_agree a ha
++  · simp [s_final, s_jump, target, execInstrBr, MachineState.setPC, Std.ExtDHashMap.get?_insert_self]
++  · exact (platformFrame_insert_nextPC _ _).trans (platformFrame_sailStateWithReg _ _ _)
++
+@@ -371,23 +447,5 @@
+-  obtain ⟨misa_val, h_misa_mid⟩ := h_misa_mid
+-  unfold execute_JALR
+-  rw [runSail_ok_bind _ sSail s_mid _ h_elp_ok]
+-  simp only [runSail_bind, runSail_pure,
+-    runSail_get_next_pc h_nextpc_mid,
+-    runSail_rX_bits_of_stateRel hrel_mid,
+-    sign_extend_12_eq]
+-  -- Rewrite BitVec.update to &&& ~~~1 before applying jump_to
+-  simp only [show @Sail.BitVec.update (m := 64) (sRv.getReg rs1 + signExtend12 offset) 0 0#1 =
+-    (sRv.getReg rs1 + signExtend12 offset) &&& ~~~1#64 from jalr_mask_equiv _]
+-  rw [runSail_jump_to misa_val h_align h_misa_mid]
+-  simp only [RETIRE_SUCCESS, runSail_bind, runSail_pure]
+-  simp only [runSail_wX_bits_of_reg]
+-  refine ⟨_, rfl, ⟨?_, ?_⟩, ?_, ?_⟩
+-  · intro r
+-    simp [execInstrBr, MachineState.setPC]
+-    exact reg_agree_after_insert _ _ (stateRel_nextPC hrel_mid _) rd _ r
+-  · intro a ha
+-    simpa [execInstrBr, MachineState.setPC, MachineState.getMem]
+-      using hrel_mid.mem_agree a ha
+-  · simp [execInstrBr, MachineState.setPC, Std.ExtDHashMap.get?_insert_self]
+-  · exact h_frame_mid.trans
+-      ((platformFrame_insert_nextPC _ _).trans (platformFrame_sailStateWithReg _ _ _))
++  obtain ⟨s_final, h_exec, h_rel, h_next, h_frame⟩ :=
++    rb1_jalr_after_elp sRv s_mid rd rs1 offset hrel_mid h_nextpc_mid h_misa_mid h_align
++  exact ⟨s_final,
++    (rb1_execute_JALR_after_elp sSail s_mid rd rs1 offset h_elp_ok).trans h_exec,
++    h_rel, h_next, h_frame_mid.trans h_frame⟩
+--- a/riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/InstrMap.lean
++++ b/riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/InstrMap.lean
+@@ -168,0 +169,13 @@
++  | .ADDW rd rs1 rs2 => some <| instruction.RTYPEW (regToRegidx rs2, regToRegidx rs1, regToRegidx rd, ropw.ADDW)
++  | .SUBW rd rs1 rs2 => some <| instruction.RTYPEW (regToRegidx rs2, regToRegidx rs1, regToRegidx rd, ropw.SUBW)
++  | .SLLW rd rs1 rs2 => some <| instruction.RTYPEW (regToRegidx rs2, regToRegidx rs1, regToRegidx rd, ropw.SLLW)
++  | .SRLW rd rs1 rs2 => some <| instruction.RTYPEW (regToRegidx rs2, regToRegidx rs1, regToRegidx rd, ropw.SRLW)
++  | .SRAW rd rs1 rs2 => some <| instruction.RTYPEW (regToRegidx rs2, regToRegidx rs1, regToRegidx rd, ropw.SRAW)
++  | .SLLIW rd rs1 sh => some <| instruction.SHIFTIWOP (sh, regToRegidx rs1, regToRegidx rd, sopw.SLLIW)
++  | .SRLIW rd rs1 sh => some <| instruction.SHIFTIWOP (sh, regToRegidx rs1, regToRegidx rd, sopw.SRLIW)
++  | .SRAIW rd rs1 sh => some <| instruction.SHIFTIWOP (sh, regToRegidx rs1, regToRegidx rd, sopw.SRAIW)
++  | .MULW rd rs1 rs2 => some <| instruction.MULW (regToRegidx rs2, regToRegidx rs1, regToRegidx rd)
++  | .DIVW rd rs1 rs2 => some <| instruction.DIVW (regToRegidx rs2, regToRegidx rs1, regToRegidx rd, false)
++  | .DIVUW rd rs1 rs2 => some <| instruction.DIVW (regToRegidx rs2, regToRegidx rs1, regToRegidx rd, true)
++  | .REMW rd rs1 rs2 => some <| instruction.REMW (regToRegidx rs2, regToRegidx rs1, regToRegidx rd, false)
++  | .REMUW rd rs1 rs2 => some <| instruction.REMW (regToRegidx rs2, regToRegidx rs1, regToRegidx rd, true)
+@@ -270,0 +284,12 @@
++def rtypeWToInstr? (rs2 rs1 rd : regidx) : ropw → Option Instr
++  | ropw.ADDW => return .ADDW (← regidxToReg? rd) (← regidxToReg? rs1) (← regidxToReg? rs2)
++  | ropw.SUBW => return .SUBW (← regidxToReg? rd) (← regidxToReg? rs1) (← regidxToReg? rs2)
++  | ropw.SLLW => return .SLLW (← regidxToReg? rd) (← regidxToReg? rs1) (← regidxToReg? rs2)
++  | ropw.SRLW => return .SRLW (← regidxToReg? rd) (← regidxToReg? rs1) (← regidxToReg? rs2)
++  | ropw.SRAW => return .SRAW (← regidxToReg? rd) (← regidxToReg? rs1) (← regidxToReg? rs2)
++
++def shiftIWToInstr? (shamt : BitVec 5) (rs1 rd : regidx) : sopw → Option Instr
++  | sopw.SLLIW => return .SLLIW (← regidxToReg? rd) (← regidxToReg? rs1) shamt
++  | sopw.SRLIW => return .SRLIW (← regidxToReg? rd) (← regidxToReg? rs1) shamt
++  | sopw.SRAIW => return .SRAIW (← regidxToReg? rd) (← regidxToReg? rs1) shamt
++
+@@ -289,0 +315,9 @@
++  | instruction.RTYPEW (rs2, rs1, rd, op) => rtypeWToInstr? rs2 rs1 rd op
++  | instruction.SHIFTIWOP (sh, rs1, rd, op) => shiftIWToInstr? sh rs1 rd op
++  | instruction.MULW (rs2, rs1, rd) => return .MULW (← regidxToReg? rd) (← regidxToReg? rs1) (← regidxToReg? rs2)
++  | instruction.DIVW (rs2, rs1, rd, u) =>
++      if u then return .DIVUW (← regidxToReg? rd) (← regidxToReg? rs1) (← regidxToReg? rs2)
++      else return .DIVW (← regidxToReg? rd) (← regidxToReg? rs1) (← regidxToReg? rs2)
++  | instruction.REMW (rs2, rs1, rd, u) =>
++      if u then return .REMUW (← regidxToReg? rd) (← regidxToReg? rs1) (← regidxToReg? rs2)
++      else return .REMW (← regidxToReg? rd) (← regidxToReg? rs1) (← regidxToReg? rs2)
+@@ -298 +332 @@
+-    simp [fromSailInstr?, rtypeToInstr?, itypeToInstr?, shiftIToInstr?,
++    simp [fromSailInstr?, rtypeWToInstr?, shiftIWToInstr?, rtypeToInstr?, itypeToInstr?, shiftIToInstr?,
+--- a/riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/MemMonad.lean
++++ b/riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/MemMonad.lean
+@@ -135 +135 @@
+-      Sail.assert, PreSail.assert, if_true,
++      Sail.sailAssert, PreSail.sailAssert, if_true,
+--- a/riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/MonadLemmas.lean
++++ b/riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/MonadLemmas.lean
+@@ -803 +803 @@
+-    assert, PreSail.assert,
++    sailAssert, PreSail.sailAssert,
+--- a/riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/StepSim.lean
++++ b/riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/StepSim.lean
+@@ -310,0 +311,13 @@
++  | ADDW _ _ _ => sim_step addw_sail_equiv
++  | SUBW _ _ _ => sim_step subw_sail_equiv
++  | SLLW _ _ _ => sim_step sllw_sail_equiv
++  | SRLW _ _ _ => sim_step srlw_sail_equiv
++  | SRAW _ _ _ => sim_step sraw_sail_equiv
++  | SLLIW _ _ _ => sim_step slliw_sail_equiv
++  | SRLIW _ _ _ => sim_step srliw_sail_equiv
++  | SRAIW _ _ _ => sim_step sraiw_sail_equiv
++  | MULW _ _ _ => sim_step mulw_sail_equiv
++  | DIVW _ _ _ => sim_step divw_sail_equiv
++  | DIVUW _ _ _ => sim_step divuw_sail_equiv
++  | REMW _ _ _ => sim_step remw_sail_equiv
++  | REMUW _ _ _ => sim_step remuw_sail_equiv
+@@ -585,0 +599,14 @@
++  | ADDW _ _ _ => exact step_execute_sail_sim_of_uncond sRv sSail hrelpc.toStateRel h_nextpc _ _ h (by simp [Instr.simulableUncond])
++  | SUBW _ _ _ => exact step_execute_sail_sim_of_uncond sRv sSail hrelpc.toStateRel h_nextpc _ _ h (by simp [Instr.simulableUncond])
++  | SLLW _ _ _ => exact step_execute_sail_sim_of_uncond sRv sSail hrelpc.toStateRel h_nextpc _ _ h (by simp [Instr.simulableUncond])
++  | SRLW _ _ _ => exact step_execute_sail_sim_of_uncond sRv sSail hrelpc.toStateRel h_nextpc _ _ h (by simp [Instr.simulableUncond])
++  | SRAW _ _ _ => exact step_execute_sail_sim_of_uncond sRv sSail hrelpc.toStateRel h_nextpc _ _ h (by simp [Instr.simulableUncond])
++  | SLLIW _ _ _ => exact step_execute_sail_sim_of_uncond sRv sSail hrelpc.toStateRel h_nextpc _ _ h (by simp [Instr.simulableUncond])
++  | SRLIW _ _ _ => exact step_execute_sail_sim_of_uncond sRv sSail hrelpc.toStateRel h_nextpc _ _ h (by simp [Instr.simulableUncond])
++  | SRAIW _ _ _ => exact step_execute_sail_sim_of_uncond sRv sSail hrelpc.toStateRel h_nextpc _ _ h (by simp [Instr.simulableUncond])
++  | MULW _ _ _ => exact step_execute_sail_sim_of_uncond sRv sSail hrelpc.toStateRel h_nextpc _ _ h (by simp [Instr.simulableUncond])
++  | DIVW _ _ _ => exact step_execute_sail_sim_of_uncond sRv sSail hrelpc.toStateRel h_nextpc _ _ h (by simp [Instr.simulableUncond])
++  | DIVUW _ _ _ => exact step_execute_sail_sim_of_uncond sRv sSail hrelpc.toStateRel h_nextpc _ _ h (by simp [Instr.simulableUncond])
++  | REMW _ _ _ => exact step_execute_sail_sim_of_uncond sRv sSail hrelpc.toStateRel h_nextpc _ _ h (by simp [Instr.simulableUncond])
++  | REMUW _ _ _ => exact step_execute_sail_sim_of_uncond sRv sSail hrelpc.toStateRel h_nextpc _ _ h (by simp [Instr.simulableUncond])
++
+--- a/riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/VmemReduction.lean
++++ b/riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/VmemReduction.lean
+@@ -290 +290 @@
+-    Sail.assert, PreSail.assert]
++    Sail.sailAssert, PreSail.sailAssert]
+@@ -637 +637 @@
+-    Sail.assert, PreSail.assert, if_true,
++    Sail.sailAssert, PreSail.sailAssert, if_true,
+@@ -1102 +1102 @@
+-    simp +decide only [soff, runSail_bind, runSail_pure, PreSail.assert, if_true]
++    simp +decide only [soff, runSail_bind, runSail_pure, PreSail.sailAssert, if_true]
+--- a/riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/VmemReductionLoads.lean
++++ b/riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/VmemReductionLoads.lean
+@@ -179 +179 @@
+-    simp +decide only [soff, runSail_bind, runSail_pure, PreSail.assert, if_true]
++    simp +decide only [soff, runSail_bind, runSail_pure, PreSail.sailAssert, if_true]
+@@ -278 +278 @@
+-    simp +decide only [soff, runSail_bind, runSail_pure, PreSail.assert, if_true]
++    simp +decide only [soff, runSail_bind, runSail_pure, PreSail.sailAssert, if_true]
+@@ -369 +369 @@
+-    simp +decide only [soff, runSail_bind, runSail_pure, PreSail.assert, if_true]
++    simp +decide only [soff, runSail_bind, runSail_pure, PreSail.sailAssert, if_true]
+@@ -455 +455 @@
+-    simp +decide only [soff, runSail_bind, runSail_pure, PreSail.assert, if_true]
++    simp +decide only [soff, runSail_bind, runSail_pure, PreSail.sailAssert, if_true]
+@@ -540 +540 @@
+-    simp +decide only [soff, runSail_bind, runSail_pure, PreSail.assert, if_true]
++    simp +decide only [soff, runSail_bind, runSail_pure, PreSail.sailAssert, if_true]
+@@ -621 +621 @@
+-    simp +decide only [soff, runSail_bind, runSail_pure, PreSail.assert, if_true]
++    simp +decide only [soff, runSail_bind, runSail_pure, PreSail.sailAssert, if_true]
+--- a/riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/VmemReductionStores.lean
++++ b/riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/VmemReductionStores.lean
+@@ -215 +215 @@
+-    simp +decide only [soff, runSail_bind, runSail_pure, PreSail.assert, if_true]
++    simp +decide only [soff, runSail_bind, runSail_pure, PreSail.sailAssert, if_true]
+@@ -411 +411 @@
+-    simp +decide only [soff, runSail_bind, runSail_pure, PreSail.assert, if_true]
++    simp +decide only [soff, runSail_bind, runSail_pure, PreSail.sailAssert, if_true]
+@@ -664 +664 @@
+-    simp +decide only [soff, runSail_bind, runSail_pure, PreSail.assert, if_true]
++    simp +decide only [soff, runSail_bind, runSail_pure, PreSail.sailAssert, if_true]
+@@ -764 +764 @@
+-    simp +decide only [soff, runSail_bind, runSail_pure, PreSail.assert, if_true]
++    simp +decide only [soff, runSail_bind, runSail_pure, PreSail.sailAssert, if_true]
+--- a/riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/VmemWriteReduction.lean
++++ b/riscv-zkvm/RiscvZkvm/Rv64/SailEquiv/VmemWriteReduction.lean
+@@ -150 +150 @@
+-    Sail.assert, PreSail.assert]
++    Sail.sailAssert, PreSail.sailAssert]
+@@ -341 +341 @@
+-    Sail.assert, PreSail.assert, if_true,
++    Sail.sailAssert, PreSail.sailAssert, if_true,
+@@ -389 +389 @@
+-    Sail.assert, PreSail.assert, if_true,
++    Sail.sailAssert, PreSail.sailAssert, if_true,
+@@ -497 +497 @@
+-    Sail.assert, PreSail.assert, if_true,
++    Sail.sailAssert, PreSail.sailAssert, if_true,
+--- a/riscv-zkvm/RiscvZkvm/Sail/Mem.lean
++++ b/riscv-zkvm/RiscvZkvm/Sail/Mem.lean
+@@ -416 +416 @@
+-        sailAssert true "loop dummy sailAssert"
++        sailAssert true "loop dummy assert"
+@@ -507 +507 @@
+-        sailAssert true "loop dummy sailAssert"
++        sailAssert true "loop dummy assert"
+@@ -544 +544 @@
+-        sailAssert true "loop dummy sailAssert"
++        sailAssert true "loop dummy assert"
+--- a/riscv-zkvm/RiscvZkvm/Sail/RiscvExtras.lean
++++ b/riscv-zkvm/RiscvZkvm/Sail/RiscvExtras.lean
+@@ -30 +30 @@
+-axiom plat_term_write {α} : α → SailM Unit
++def plat_term_write {α} (_ : α) : SailM Unit := pure ()
+@@ -34,2 +34,2 @@
+-axiom load_reservation : Arch.pa → Nat → SailM Unit
+-axiom match_reservation : Arch.pa → Bool
++def load_reservation (_ : Arch.pa) (_ : Nat) : SailM Unit := pure ()
++def match_reservation (_ : Arch.pa) : Bool := false
+@@ -40 +40 @@
+-axiom sys_enable_experimental_extensions : Unit → Bool
++def sys_enable_experimental_extensions (_ : Unit) : Bool := false
