@@ -28,7 +28,8 @@ def sandbox_context(sandbox, readable: list[str], writable: list[str], runner=No
     """Apply one boundary to compile, replay-tool analysis and export commands in this context."""
     token = _SANDBOX.set((sandbox, readable, writable, runner))
     try:
-        yield
+        with FS.submission_io(sandbox.exposed_writers):
+            yield
     finally:
         _SANDBOX.reset(token)
 
@@ -191,11 +192,12 @@ def enforce_boundary(result):
 def run_submission(cmd: list[str], env: dict, cwd: str, timeout: float, rss_limit_mb: int | None = None,
                    watch=None, poll_s: float = 0.25) -> RunResult:
     """Execute native submission code only through an installed, argument-provisioned boundary."""
-    from .sandbox import Sandbox, SandboxUnavailable
+    from .sandbox import Sandbox, SandboxUnavailable, submission_code
     if not isinstance(getattr(run_process, 'submission_boundary', None), Sandbox):
         raise SandboxUnavailable('sandbox-unavailable')
     env = dict(env, GOMAXPROCS='4', CARGO_BUILD_JOBS='4', RAYON_NUM_THREADS='4', RUST_TEST_THREADS='4')
-    result = run_process(cmd, env, cwd, timeout, rss_limit_mb, watch, poll_s)
+    with submission_code():
+        result = run_process(cmd, env, cwd, timeout, rss_limit_mb, watch, poll_s)
     return enforce_boundary(result)
 
 
@@ -260,7 +262,7 @@ def set_lean_limits(slots: int | None = None, rss_mb: int | None = None) -> None
 
 
 def run_lean(env: LeanEnv, args: list[str], cwd: str, timeout: float, extra_lean_path=(),
-             rss_limit_mb: int | None = None) -> RunResult:
+             rss_limit_mb: int | None = None, *, submission_controlled: bool = False) -> RunResult:
     slots = _LIMITS["slots"]
     rss = rss_limit_mb or _LIMITS["rss_mb"]
     task_env = process_env(env, extra_lean_path)
@@ -272,7 +274,7 @@ def run_lean(env: LeanEnv, args: list[str], cwd: str, timeout: float, extra_lean
         runner = guarded or runner
         command = sandbox.command(command, task_env, [os.path.realpath(env.toolchain),
                                   *(os.path.realpath(path) for path in env.lean_path), *readable],
-                                  [task_env['TMPDIR'], *writable])
+                                  [task_env['TMPDIR'], *writable], submission_controlled=submission_controlled)
     if slots is None:
         return runner(command, task_env, cwd, timeout, rss)
     with slots:

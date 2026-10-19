@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from .safe_fs import Path
+from . import safe_fs as FS
 import platform
 import time
 import uuid
@@ -13,6 +14,7 @@ import uuid
 from . import correctness_runtime as CR
 from . import lean_runner as L
 from .sandbox import Sandbox, boundary_failure
+from .sandbox import SandboxUnavailable
 
 PRIMITIVES = [
     'Nat.add', 'Nat.sub', 'Nat.mul', 'Nat.pow', 'Nat.gcd', 'Nat.div', 'Nat.mod', 'Nat.beq', 'Nat.ble',
@@ -76,6 +78,24 @@ def resource_reason(result: L.RunResult) -> str | None:
     return None
 
 
+def trusted_directory(path, exposure: dict) -> None:
+    """A trusted directory must never alias an exposed root; configuration faults are ERROR."""
+    try:
+        value = Path(path)
+        # Missing children inherit their nearest existing parent's containment check.
+        while not value.exists():
+            parent = value.parent
+            if parent == value:
+                raise OSError('trusted directory unavailable')
+            value = parent
+        identity = FS.root_identity(value)
+        if identity in exposure.values():
+            raise SandboxUnavailable('sandbox-unavailable')
+    except OSError:
+        raise SandboxUnavailable('sandbox-unavailable') from None
+
+
+@FS.guard_trusted_io
 def prepare_reference(env: L.LeanEnv, problem: dict, package: str, work: str, sealed: str,
                       tools: Tools, sandbox: Sandbox, timeout: float, axioms: list[str]) -> dict:
     """Build and seal a pristine Challenge before compiling any solution code."""
@@ -113,16 +133,26 @@ def prepare_reference(env: L.LeanEnv, problem: dict, package: str, work: str, se
     return result
 
 
+@FS.guard_trusted_io
 def export_module(env: L.LeanEnv, module: str, theorem: str, output: str, tools: Tools, sandbox: Sandbox,
-                  cwd: str, extra_lean_path: list[str], timeout: float, axioms: list[str]) -> dict:
+                  cwd: str, extra_lean_path: list[str], timeout: float, axioms: list[str], *,
+                  exposure: dict | None = None) -> dict:
     """Export the target's transitive type/value closure, including primitive and import dependencies."""
+    prior = dict(exposure or {})
+    if sandbox.mode == 'production' or sandbox.disabled_layer:
+        sandbox = replace(sandbox, role='reference')
     target = Path(output)
+    try:
+        trusted_directory(target.parent, prior)
+        trusted_directory(target.parent / 'processes', prior)
+    except SandboxUnavailable:
+        return dict(stage='closure-export', verdict='ERROR', reason='sandbox-unavailable', assurance=sandbox.mode)
     target.parent.mkdir(parents=True, exist_ok=True)
     task_env = L.process_env(env, extra_lean_path)
     roots = list(dict.fromkeys([theorem, *axioms, *PRIMITIVES, *QUOTIENTS]))
     argv = [tools.exporter, module, '--', *roots]
     command = sandbox.command(argv, task_env, [env.toolchain, *env.lean_path, *extra_lean_path, cwd],
-                              [task_env['TMPDIR']])
+                              [task_env['TMPDIR']], prior_exposure=prior)
     run = CR.runner(str(target.parent / 'processes' / target.name), timeout)
     result = run(command, task_env, cwd, timeout, 12000)
     record = dict(stage='closure-export', assurance=sandbox.mode, seconds=result.secs,
@@ -143,10 +173,20 @@ def export_module(env: L.LeanEnv, module: str, theorem: str, output: str, tools:
                 bytes=target.stat().st_size, roots=roots)
 
 
+@FS.guard_trusted_io
 def compare_exports(challenge: str, solution: str, theorem: str, tools: Tools, sandbox: Sandbox,
                     work: str, timeout: float, axioms: list[str], max_constants: int = 1000000,
                     nanoda_binary: str | None = None) -> dict:
     """Run Comparator once; both its empty Lean kernel and built-in nanoda consume the sealed solution."""
+    prior = dict(sandbox.exposed_writers)
+    try:
+        for path in (work, Path(work) / 'tmp', Path(work) / 'processes',
+                     Path(challenge).parent, Path(solution).parent):
+            trusted_directory(path, prior)
+    except SandboxUnavailable:
+        return dict(stage='comparator', verdict='ERROR', reason='sandbox-unavailable', assurance=sandbox.mode)
+    if sandbox.mode == 'production' or sandbox.disabled_layer:
+        sandbox = replace(sandbox, role='reference')
     directory = Path(work)
     directory.mkdir(parents=True, exist_ok=True)
     before = {path: digest(path) for path in (challenge, solution)}
@@ -168,6 +208,7 @@ def compare_exports(challenge: str, solution: str, theorem: str, tools: Tools, s
         if not sandbox.inner_executable or not Path(sandbox.inner_executable).is_file():
             return dict(stage='comparator', verdict='ERROR', reason='sandbox-unavailable', assurance=sandbox.mode)
         status_directory = Path('/run/user') / str(os.getuid()) / 'boole-gate-inner' / uuid.uuid4().hex
+        trusted_directory(status_directory, prior)
         status_directory.mkdir(mode=0o700, parents=True)
         inner_status = status_directory / 'inner-boundary.status'
         with inner_status.open('xb'):

@@ -90,18 +90,20 @@ and userfaultfd, `mount_setattr`, and `clone` with `CLONE_NEWUSER` (`clone3` is 
 thread creation falls back safely). The pinned PID-1 shim is non-dumpable and reads back that state before forking;
 its administrative FDs are closed in the payload before execution. It counts every reaped orphan, retaining at
 most the first256 events, and records frozen payload-cgroup members at main exit; every write is checked. Receipts
-are cleaned per step after their bounded observations are retained in the guard log. Any remaining/adopted descendant is INVALID
-`owned-descendants-remained`, not a silent cleanup. Mandatory pids exhaustion is INVALID `resource-cap` (reference
-builds: ERROR `resource-unavailable`); OOM and wall/memory interruption take ERROR precedence. The compile-time
+are cleaned per step after their bounded observations are retained in the guard log. A remaining/adopted submission descendant is INVALID
+`owned-descendants-remained`; descendants of trusted reference builds, exporters and Comparator instead give ERROR
+`sandbox-unavailable`. Mandatory pids exhaustion is INVALID `resource-cap` (those trusted roles: ERROR
+`resource-unavailable`); OOM and wall/memory interruption take ERROR precedence. The compile-time
 detachment controls deliberately bypass the text stage as trusted fixtures to exercise the actual OS boundary.
 Setup/exec failure uses a CLOEXEC status pipe, not the payload's exit code125. Comparator's inner launcher reports
 an explicit exec-success marker or setup failure through a dedicated status directory outside the work root.
-The inner kernel cannot write that directory or inherit its writable descriptor. Patched Comparator exit status70
-means launch/transport failure (ERROR), status2 means semantic rejection; missing success attestation fails closed.
+The inner kernel cannot write that directory or inherit its writable descriptor. Patched Comparator exit status 70
+means launch/transport failure (ERROR), status 2 means semantic rejection; missing success attestation fails closed.
 CR process observations are copied into step reports before their temporary protected receipt files are removed.
 Each production runner records its owner PID, process start tick and PID namespace. Empty completed-runner directories
 are released; sweeping removes only owned receipt directories whose owner PID is proven dead,
-retaining live, reused or unidentifiable owners. Legacy receipts are archived and round-trip checked before purge.
+retaining live or unidentifiable owners. A reused PID proves the old owner dead only in the recorded PID namespace;
+legacy receipts without a complete identity stay retained. Archived legacy exports remain byte-identically recoverable.
 Process receipts stay in private reports, including failure paths, and never enter registry verdicts or events.
 If a submission changes its local report path into a symlink or makes it unwritable, consumed receipts are saved
 under the protected runtime receipt root instead, preserving the original boundary outcome.
@@ -109,6 +111,21 @@ Submission content is classified before exec: missing/non-regular/
 non-executable files, invalid or foreign ELF headers and unpinned ELF/shebang interpreters are INVALID
 `submission-exec-failed`. The pinned script interpreters are `/bin/sh`, `/bin/bash` and `/usr/bin/python3`; ELF
 interpreters are `/lib/ld-linux-aarch64.so.1` and `/lib64/ld-linux-x86-64.so.2` on their respective architectures.
+ELF program headers have a fixed 4,096-byte limit on every node (at most 73 56-byte entries), even when the node's
+kernel accepts larger headers because it has larger pages. The 256-byte shebang buffer follows the kernel's token
+termination rule, including byte 255. Content walks begin at the matching writable root: failures in node ancestors
+and failures looking up that root in its node-owned parent remain ERROR (including readable, non-searchable parents).
+Root permissions are inspected with `fstat` after opening the root. A permission change is INVALID only when its
+device/inode identity matches a root previously exposed to submission-controlled code with write access. Native
+submission execution and solution compilation declare that intent; ordinary trusted tools do not. The solution
+exporter explicitly receives a snapshot of prior submission exposure for its reads; it cannot add exposure.
+Pristine challenge exports and Comparator use trusted contexts; sealed/Comparator directories matching an exposed
+root identity are configuration errors. Comparator status-read failures remain ERROR
+`sandbox-unavailable`. Host reads of
+previously exposed output trees classify submission-created symlinks and removed access as INVALID, without following
+their targets. Receipt sweeps compare PID, birth tick and PID namespace; an unrecognized namespace or a legacy
+receipt without that identity is retained.
+Host EPERM and absent output files retain their availability/absence handling; neither alone proves submission tampering.
 After these checks pass, every exec errno is ERROR `sandbox-unavailable`; no ENOEXEC-to-shell retry is permitted.
 Pinned tool exec failures also stay ERROR. Only Comparator 0 and 2 can be production verdicts. Exit 0 without both
 kernel acceptance messages is ERROR `sandbox-unavailable`. Other codes and signals

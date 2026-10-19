@@ -7,6 +7,7 @@ import struct
 import shutil
 import errno
 import tempfile
+import platform
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch, Mock
@@ -18,7 +19,8 @@ from zk_registry import closure as D
 from zk_registry import check as C
 from zk_registry.sandbox import SandboxUnavailable
 from zk_registry.sandbox import Sandbox
-from test_zk_registry_aa_fix3 import launcher_module, LiveExec, retain_control
+import test_zk_registry_aa_fix3 as fix3
+from test_zk_registry_aa_fix3 import launcher_module, retain_control
 
 
 class FailureReceipts(unittest.TestCase):
@@ -116,13 +118,24 @@ class ContentClassification(unittest.TestCase):
 
 
 class CIWiring(unittest.TestCase):
+    """Text-match regression guard, not a shell parser; indirect/obfuscated cleanup can evade it.
+
+    Check-only setup and production preflight remain the behavioural authority.
+    """
     def test_disposable_runner_clears_binfmt_before_check_only_setup(self):
         workflow = (Path(__file__).resolve().parents[1] / '.github/workflows/acceptance-gate-linux.yml').read_text()
         self.assertLess(workflow.index('name: Clear binfmt handlers on the disposable runner'),
                         workflow.index('name: Build and require the pinned hardened boundary'))
         clearing = workflow.split('name: Clear binfmt handlers on the disposable runner', 1)[1].split('\n      - name:', 1)[0]
+        self.assertIn("if: runner.environment == 'github-hosted'", clearing)
         self.assertIn('tee "$entry"', clearing)
         self.assertIn('cat "$entry"', clearing)
+        outside = workflow.replace(clearing, '')
+        self.assertNotRegex(outside, r'/proc/sys/fs/binfmt|update-binfmts|systemctl[^\n]*(?:binfmt|qemu)')
+        self.assertNotRegex(clearing, r'\bdd\b|update-binfmts|\bsystemctl\b')
+        # Permit only the audited unregister command inside the guarded step.
+        writes = [line.strip() for line in clearing.splitlines() if 'tee ' in line or '>' in line]
+        self.assertEqual(writes, ["printf '%s\\n' -1 | sudo -n tee \"$entry\""])
         setup = (Path(__file__).parent / 'setup_zk_registry_sandbox.sh').read_text()
         self.assertNotIn('tee /proc/sys/fs/binfmt_misc/status', setup)
 
@@ -167,7 +180,7 @@ class WriterRoots(unittest.TestCase):
             root.mkdir(mode=0o700)
             root.chmod(0o500)
             with self.assertRaises(launcher.SubmissionExecFailed):
-                launcher.prepare_writer_roots([str(root)])
+                launcher.prepare_writer_roots([str(root)], exposed={str(root): (root.stat().st_dev, root.stat().st_ino)})
             self.assertEqual(root.stat().st_mode & 0o700, 0o700)
             launcher.prepare_writer_roots([str(root)])
 
@@ -202,13 +215,14 @@ class ComparatorContract(unittest.TestCase):
 
 
 class ReceiptLifecycle(unittest.TestCase):
-    def test_legacy_receipts_are_archived_before_purge(self):
+    def test_legacy_receipts_are_recoverable_and_retained_without_identity(self):
         import gzip, hashlib
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             dead = root / 'legacy';dead.mkdir()
             raw = b'{"retained":"legacy evidence"}\n'
             (dead / '99999-1.json').write_bytes(raw)
+            CR.archive_legacy_receipts(CR.Path(root), CR.Path(dead), [CR.Path(dead / '99999-1.json')])
             with patch.object(CR, 'owner_is_dead', return_value=True):
                 CR.sweep_dead_receipts(CR.Path(root))
             manifests = list(root.glob('.legacy-archives/*.manifest.json'))
@@ -216,7 +230,7 @@ class ReceiptLifecycle(unittest.TestCase):
             receipt = json.loads(manifests[0].read_text())['files'][0]
             self.assertEqual(gzip.decompress((root / '.legacy-archives' / receipt['archive']).read_bytes()), raw)
             self.assertEqual(receipt['raw_sha256'], hashlib.sha256(raw).hexdigest())
-            self.assertFalse(dead.exists())
+            self.assertEqual((dead / '99999-1.json').read_bytes(), raw)
 
     def test_completed_runner_releases_empty_owned_directory(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -276,8 +290,9 @@ class ProductionContract(unittest.TestCase):
             self.assertEqual(S.read_json(root/'process-receipts.json')['process_receipts'],[receipt])
 
 
+@unittest.skipUnless(platform.system() == 'Linux', 'Linux production boundary required')
 class LiveReview(unittest.TestCase):
-    setUp=LiveExec.setUp
+    setUp=fix3.LiveExec.setUp
 
     def run_work(self,root,work,program):
         result=CR.runner(str(root/'logs'),20,sandbox=self.boundary,
@@ -319,7 +334,11 @@ class LiveReview(unittest.TestCase):
         retain_control(self,dict(inside_writer=observations,outside_writer=trusted_observations))
 
     def test_altered_writer_root_invalid_then_next_launch_healthy(self):
-        root=Path(self.temp.name);work=root/'work';work.mkdir();work.chmod(0o500)
+        root=Path(self.temp.name);work=root/'work';work.mkdir()
+        program=work/'program';shutil.copyfile('/usr/bin/true',program);program.chmod(0o755)
+        exposed=self.run_work(root,work,program)
+        self.assertEqual(exposed.boundary['verdict'],'PASS')
+        work.chmod(0o500)
         first=self.run_work(root,work,Path('/usr/bin/true'))
         self.assertEqual((first.boundary['verdict'],first.boundary['reason']),('INVALID','submission-exec-failed'))
         self.assertEqual(work.stat().st_mode & 0o700,0o700)

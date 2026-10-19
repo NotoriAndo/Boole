@@ -11,6 +11,9 @@ on:
       - scripts/test_zk_registry_aa_fix.py
       - scripts/test_zk_registry_aa_fix3.py
       - scripts/test_zk_registry_aa_fix3b.py
+      - scripts/test_zk_registry_w6.py
+      - scripts/test_zk_registry_w6b.py
+      - scripts/test_zk_registry_w6c.py
       - .github/workflows/acceptance-gate-linux.yml
   pull_request:
     paths:
@@ -21,6 +24,9 @@ on:
       - scripts/test_zk_registry_aa_fix.py
       - scripts/test_zk_registry_aa_fix3.py
       - scripts/test_zk_registry_aa_fix3b.py
+      - scripts/test_zk_registry_w6.py
+      - scripts/test_zk_registry_w6b.py
+      - scripts/test_zk_registry_w6c.py
       - .github/workflows/acceptance-gate-linux.yml
   workflow_dispatch:
 
@@ -43,6 +49,7 @@ jobs:
           persist-credentials: false
 
       - name: Clear binfmt handlers on the disposable runner
+        if: runner.environment == 'github-hosted'
         shell: bash
         run: |
           set -euo pipefail
@@ -112,5 +119,8 @@ jobs:
             test_zk_registry_aa_fix3b.ProductionContract \
             test_zk_registry_aa_fix3b.NamedConfiguration \
             test_zk_registry_aa_fix3b.LiveReview \
+            test_zk_registry_w6 \
+            test_zk_registry_w6b \
+            test_zk_registry_w6c \
             test_zk_registry_service.IntakeTests.test_receipt_emitting_production_verifier_replays_byte_identically \
             test_zk_registry_service.IntakeTests.test_registry_never_serializes_verifier_receipts_into_events

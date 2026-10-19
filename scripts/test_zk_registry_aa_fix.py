@@ -422,18 +422,19 @@ class LiveReviewFixes(unittest.TestCase):
         canary.write_text('unchanged')
         source = ('import os\nfor name in ("compile.log", "replay.out"):\n'
                   ' os.symlink(' + repr(str(canary)) + ', ' + repr(str(work / 'proof')) + '+"/"+name)\n')
-        result = CR.runner(str(root / 'payload-logs'), 20, sandbox=self.boundary,
-                           readable_paths=['/usr', str(root)], writable_paths=[str(work)])(
-            ['/usr/bin/python3', '-c', source], {'PATH': '/usr/bin:/bin'}, str(work), 20, 256)
+        guard = CR.runner(str(root / 'payload-logs'), 20, sandbox=self.boundary,
+                          readable_paths=['/usr', str(root)], writable_paths=[str(work)])
+        with patch.object(L, 'run_process', guard):
+            result = L.run_submission(['/usr/bin/python3', '-c', source], {'PATH': '/usr/bin:/bin'}, str(work), 20, 256)
         self.assertEqual(result.boundary['verdict'], 'PASS', result.boundary)
         pins = L.production_descriptor()
         env = L.LeanEnv('/unexecuted', [], pins['lean'], pins['packages'], pins['lake_manifest_sha256'],
                         str(root / 'scratch'))
         problem = dict(checker=dict(theorem_fqn='X.goal', lean_opts=[], files=[]))
-        with patch.object(L, 'run_lean', return_value=result):
-            actual = C.compile_in_sandbox(env, problem, str(root), 'theorem goal : True := by trivial',
-                                          str(work), 5, self.boundary)
-        self.assertEqual(actual['error'], 'sandbox-unavailable')
+        with patch.object(L, 'run_lean', return_value=result), \
+                self.assertRaisesRegex(L.BoundaryInvalid, '^submission-output-path$'):
+            C.compile_in_sandbox(env, problem, str(root), 'theorem goal : True := by trivial',
+                                 str(work), 5, self.boundary)
         with self.assertRaises(OSError):
             G.parse_replay(str(work / 'proof/replay.out'))
         self.assertEqual(canary.read_text(), 'unchanged')

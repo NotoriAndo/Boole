@@ -123,6 +123,7 @@ def ratchet_artifact(problem, report):
     return artifact
 
 
+@FS.guard_submission_io
 def run(config, package_dir, submission_dir, work_dir, *, sandbox=None, acceptance_tools=None):
     """Execute existing final pipeline/core, never a reimplementation of admissibility or proof checks."""
     problem = read_json(Path(package_dir) / 'problem.json')
@@ -147,7 +148,10 @@ def run(config, package_dir, submission_dir, work_dir, *, sandbox=None, acceptan
     from . import acceptance as A
     try:
         env.extra['acceptance_root'] = A.read(package_dir, problem, required=True)
-    except (OSError, ValueError, KeyError, TypeError) as ex:
+    except OSError as ex:
+        (Path(work_dir) / 'error.json').write_bytes(canonical(dict(type=type(ex).__name__, message=str(ex))) + b'\n')
+        return dict(verdict='ERROR', reason='acceptance-unavailable')
+    except (ValueError, KeyError, TypeError) as ex:
         return dict(verdict='ERROR', reason=str(ex))
     try:
         root = config.get('acceptance_tools_root')
@@ -162,6 +166,7 @@ def run(config, package_dir, submission_dir, work_dir, *, sandbox=None, acceptan
     except D.ToolsUnavailable:
         return dict(verdict='ERROR', reason='kernels-unavailable')
     env.extra['acceptance_sandbox'] = sandbox
+    FS.set_submission_writers(sandbox.exposed_writers)
     env.extra['acceptance_tools'] = acceptance_tools
     rss = config.get('rss_mb', 12000)
     writable = [str(Path(work_dir) / name) for name in ('native-build', 'native-cache', 'tmp')]

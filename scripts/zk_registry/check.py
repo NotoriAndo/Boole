@@ -320,7 +320,8 @@ def _compile_and_postcheck(env: L.LeanEnv, problem: dict, pkg_dir: str, text: st
     with open(src, "w", encoding="utf-8") as f:
         f.write(text + ("" if text.endswith("\n") else "\n") + f"\n#print axioms {fqn}\n")
     olean = os.path.join(proof_dir, "ProofMod.olean")
-    r = L.run_lean(env, opts + ["--json", "-R", proof_dir, "-o", olean, src], proof_dir, timeout, extra_lean_path=[build])
+    r = L.run_lean(env, opts + ["--json", "-R", proof_dir, "-o", olean, src], proof_dir, timeout,
+                   extra_lean_path=[build], submission_controlled=True)
     with open(os.path.join(proof_dir, "compile.log"), "w", encoding="utf-8") as f:
         f.write(r.out)
     msgs = L.parse_messages(r.out)
@@ -515,7 +516,7 @@ def check(pkg_dir: str, proof_path: str, env: L.LeanEnv, workdir: str | None = N
         exported = D.export_module(env, 'ProofMod', chk['theorem_fqn'], os.path.join(sealed, 'Solution.ndjson'),
                                    tools, selected, os.path.join(tmp, 'proof'),
                                    [os.path.join(tmp, 'proof'), os.path.join(tmp, 'build')],
-                                   remaining(), allowed)
+                                   remaining(), allowed, exposure=selected.exposed_writers)
         rep['solution_export'] = exported
         if exported['verdict'] != 'PASS':
             error.append(exported['reason'])

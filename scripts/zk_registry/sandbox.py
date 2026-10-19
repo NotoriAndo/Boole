@@ -1,12 +1,14 @@
 """One fail-closed Landrun boundary for all commands that execute submission code."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from contextlib import contextmanager
+from contextvars import ContextVar
 import hashlib
 import json
 import os
 from pathlib import Path
-from .safe_fs import Path as SafePath, reject_symlinks
+from .safe_fs import Path as SafePath, reject_symlinks, submission_io, root_identity, absolute, directory_fd, submission_error
 import platform
 import pwd
 import subprocess
@@ -14,6 +16,16 @@ import shutil
 import uuid
 
 _PENDING = {}
+_SUBMISSION_CODE = ContextVar('submission_controlled_code', default=False)
+
+
+@contextmanager
+def submission_code():
+    token = _SUBMISSION_CODE.set(True)
+    try:
+        yield
+    finally:
+        _SUBMISSION_CODE.reset(token)
 
 
 def registered_command(command):
@@ -42,7 +54,7 @@ def capture_result(command, result):
     pending = _PENDING.pop(status, None)
     if pending is None:
         return result
-    authority, capabilities, mode = pending
+    authority, capabilities, mode, exposed, writers = pending
     if result.timeout or result.memkill or result.killed_by:
         result.boundary = dict(verdict='ERROR', reason='resource-unavailable', assurance=mode,
                                capabilities_snapshot=capabilities)
@@ -55,6 +67,8 @@ def capture_result(command, result):
         if record['verdict'] == 'PASS' and record['descriptor_sha256'] != authority:
             raise ValueError('boundary authority mismatch')
         result.boundary = record
+        if record.get('observation') and not record['observation'].get('setup_failed', True):
+            exposed.update(writers)
     except (OSError, ValueError, KeyError):
         result.boundary = dict(verdict='ERROR', reason='sandbox-unavailable', assurance=mode,
                                capabilities_snapshot=capabilities)
@@ -153,6 +167,11 @@ class Sandbox:
     pids_max: int | None = None
     role: str = 'submission'
     disabled_layer: str | None = None
+    exposed_writers: dict[str, tuple[int, int]] = field(default_factory=dict, compare=False, repr=False)
+
+    def __post_init__(self):
+        # replace() must never share mutable attribution state; trusted roles inherit none.
+        object.__setattr__(self, 'exposed_writers', dict(self.exposed_writers) if self.role == 'submission' else {})
 
     @classmethod
     def production(cls, landrun_path: str | None = None, system: str | None = None,
@@ -215,10 +234,14 @@ class Sandbox:
         """Allow argument-injected fast fixtures on any test platform."""
         return cls('test-fixture')
 
-    def command(self, argv: list[str], env: dict, readable: list[str], writable: list[str]) -> list[str]:
+    def command(self, argv: list[str], env: dict, readable: list[str], writable: list[str], *,
+                submission_controlled: bool | None = None, prior_exposure: dict | None = None) -> list[str]:
         """Preserve a strict filesystem/network boundary, with no best-effort fallback."""
         if self.mode != 'production' and self.disabled_layer is None:
             return list(argv)
+        # Read attribution can survive a trusted tool transition; only controlled payloads
+        # can add exposure, through the original writer map stored in _PENDING.
+        read_exposure = dict(self.exposed_writers if prior_exposure is None else prior_exposure)
         data = json.loads((Path(__file__).parent / 'data/acceptance_tools_v2.json').read_text())
         validate_memory_profiles(data, self.memory_max)
         owner_home = Path(pwd.getpwuid(os.getuid()).pw_dir)
@@ -231,21 +254,48 @@ class Sandbox:
         requested = executable or (os.path.abspath(argv[0]) if '/' in argv[0] else None)
         artifact = bool(requested and any(Path(requested).is_relative_to(Path(root)) for root in outputs
                                          if root != '/dev/null'))
+        controlled = self.role == 'submission' and (artifact or (
+            _SUBMISSION_CODE.get() if submission_controlled is None else submission_controlled))
+        identities = {}
+        if controlled:
+            try:
+                identities = {absolute(path): root_identity(path) for path in outputs if path != '/dev/null'}
+            except OSError:
+                raise SandboxUnavailable('sandbox-unavailable') from None
         defaults = [str(Path(self.executable).parent), '/usr', '/lib', '/lib64',
                     '/etc/alternatives', '/dev/urandom']
-        allowed = [Path(path) for path in [*readable, *defaults]
-                   if Path(path).exists() and str(Path(path).resolve()) == os.path.abspath(path)]
+        allowed = []
+        for raw in [*readable, *defaults]:
+            try:
+                if Path(raw).exists() and str(Path(raw).resolve()) == os.path.abspath(raw):
+                    allowed.append(Path(raw))
+            except OSError as error:
+                submission_error(raw, error, read_exposure)
+                raise SandboxUnavailable('sandbox-unavailable') from None
         for raw in outputs:
             try:
-                reject_symlinks(raw)
+                with submission_io(read_exposure):
+                    reject_symlinks(raw)
             except OSError:
                 raise SandboxUnavailable('sandbox-unavailable') from None
         for reader in readable:
             if artifact and os.path.abspath(reader) == requested:
                 continue  # the pinned launcher classifies this submission path before any execution
-            path = Path(reader).resolve()
             try:
-                reject_symlinks(reader)
+                with submission_io(read_exposure):
+                    reject_symlinks(reader)
+                    if Path(reader).is_dir():
+                        held = directory_fd(reader)
+                        try:
+                            try:
+                                probe = os.open('.', os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC, dir_fd=held)
+                            except OSError as error:
+                                submission_error(reader, error)
+                                raise
+                            os.close(probe)
+                        finally:
+                            os.close(held)
+                path = Path(reader).resolve()
             except OSError:
                 raise SandboxUnavailable('sandbox-unavailable') from None
             if not any(path == root or path.is_relative_to(root) for root in allowed):
@@ -262,7 +312,7 @@ class Sandbox:
             except OSError:
                 raise SandboxUnavailable('sandbox-unavailable') from None
         status = str(receipts / (uuid.uuid4().hex + '.json'))
-        _PENDING[status] = self.authority, self.capabilities, self.mode
+        _PENDING[status] = self.authority, self.capabilities, self.mode, self.exposed_writers, identities
         stage = stage_kind(argv)
         pids = self.pids_max if self.pids_max is not None else data['sandbox']['parallelism']['pids_max'][stage]
         command = [self.executable, '--gate-authority', self.authority, '--gate-cgroup', self.cgroup,
@@ -272,6 +322,8 @@ class Sandbox:
                    '--gate-role', self.role, '--gate-mode', self.mode]
         if self.disabled_layer:
             command += ['--gate-fixture-no-' + self.disabled_layer]
+        for root, identity in sorted(read_exposure.items()):
+            command += ['--gate-exposed-writer', json.dumps([root, *identity], separators=(',', ':'))]
         command += ['--add-exec', '--ldd']
         for path in sorted({*readable, str(Path(self.executable).parent), '/usr', '/lib', '/lib64',
                             '/etc/alternatives', '/dev/urandom'}):
