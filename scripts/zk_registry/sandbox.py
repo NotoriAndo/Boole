@@ -264,8 +264,14 @@ class Sandbox:
                 raise SandboxUnavailable('sandbox-unavailable') from None
         defaults = [str(Path(self.executable).parent), '/usr', '/lib', '/lib64',
                     '/etc/alternatives', '/dev/urandom']
-        allowed = [Path(path) for path in [*readable, *defaults]
-                   if Path(path).exists() and str(Path(path).resolve()) == os.path.abspath(path)]
+        allowed = []
+        for raw in [*readable, *defaults]:
+            try:
+                if Path(raw).exists() and str(Path(raw).resolve()) == os.path.abspath(raw):
+                    allowed.append(Path(raw))
+            except OSError as error:
+                submission_error(raw, error, read_exposure)
+                raise SandboxUnavailable('sandbox-unavailable') from None
         for raw in outputs:
             try:
                 with submission_io(read_exposure):

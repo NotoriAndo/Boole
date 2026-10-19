@@ -1,5 +1,6 @@
 """Solution reads retain prior submission attribution while sealed tools stay trusted."""
 import inspect
+import errno
 from contextlib import contextmanager
 import platform
 import os
@@ -51,6 +52,16 @@ class ExportAttribution(unittest.TestCase):
             (work/'build').rename(work/'real-build');(work/'build').symlink_to(work/'real-build')
             with self.assertRaises(SandboxUnavailable):self.export(root,work,boundary,exposed=False)
 
+    def test_readable_lookup_permission_failure_keeps_prior_attribution(self):
+        with self.fixture() as (root,work,boundary,run,finish):
+            self.expose(root,work,boundary,run)
+            original=Path.exists
+            def exists(path):
+                if path == work/'proof':raise PermissionError(errno.EACCES,'denied',str(path))
+                return original(path)
+            with patch.object(Path,'exists',exists), self.assertRaises(L.BoundaryInvalid):
+                self.export(root,work,boundary)
+
     def test_sealed_directory_alias_of_exposed_root_is_error(self):
         with self.fixture() as (root,work,boundary,run,finish):
             self.expose(root,work,boundary,run)
@@ -76,7 +87,7 @@ class LiveExportAttribution(ExportAttribution):
     def fixture(self):
         from zk_registry.sandbox import Sandbox
         boundary=Sandbox.production(os.environ['BOOLE_TEST_SANDBOX'])
-        with tempfile.TemporaryDirectory(dir=os.environ.get('BOOLE_TEST_CONTROL_RECEIPTS')) as temp:
+        with tempfile.TemporaryDirectory(dir=os.environ['ZK_GATE_WORK_ROOT']) as temp:
             root=Path(temp).resolve();work=root/'work';work.mkdir()
             def run(argv,env,cwd,*args):
                 command=boundary.command(argv,env,['/usr',str(root)],[str(work)],submission_controlled=True)
