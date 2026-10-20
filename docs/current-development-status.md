@@ -164,6 +164,13 @@ limited to a safe allowlist; commands that define elaboration code are rejected.
     candidate Challenges are excluded, so the identity step cannot turn
     submission content into an error. An opt-in kernel-checked non-vacuity measurement (G-NONVAC-K) changes
     no required stage and no frozen outcome.
+- **Resource verdicts and artifact pins.** Host resource failures, trusted export
+  corruption and untyped legacy replay failures return ERROR. The judge binds
+  Lean executable/runtime bytes and ordered imported module artifacts on both
+  arm64 profiles. Submission policy v4 rejects solver limit overrides, and pinned
+  exporter roots precede submission roots. Gate-owned testnet limits are provisional;
+  full deterministic fuel enforcement remains a later upgrade. See the
+  [registry contract](zk-problem-registry.md) for the classifications and limits.
 - macOS results remain development evidence only.
 
 Contracts are in the
