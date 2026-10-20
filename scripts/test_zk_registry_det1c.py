@@ -5,6 +5,8 @@ import json
 import tempfile
 import platform
 import ast
+import itertools
+import time
 from unittest.mock import patch
 from pathlib import Path
 
@@ -16,6 +18,129 @@ import test_zk_registry_check as check_fixtures
 
 
 class CompilePrecedence(unittest.TestCase):
+    def test_precedence_product(self):
+        # Every availability kind crosses every finding and replay state.
+        availability = ['none', 'compile-exit', 'compile-timeout', 'compile-memory',
+                        'compile-signal', 'post-exit', 'post-timeout', 'post-memory',
+                        'post-signal', 'silent-compile-exit']
+        findings = ['none', 'compile-boundary-invalid', 'post-boundary-invalid',
+                    'compile-boundary-error', 'post-boundary-error', 'both-boundaries',
+                    'compile-errors', 'compile-limit', 'sorry-warning', 'printed-sorry',
+                    'printed-disallowed', 'both-printed', 'post-target', 'post-kind',
+                    'post-type', 'post-sorry', 'post-disallowed', 'post-axiom', 'post-unsafe', 'missing-print', 'existing-invalid', 'existing-fail']
+        for available, finding, replay in itertools.product(
+                availability, findings, ['ok', 'failed', 'absent', 'missing-post']):
+            with self.subTest(availability=available, finding=finding, replay=replay):
+                post = dict(rc=0, replay='ok', target=dict(kind='theorem'),
+                            type_sha256='reference', axioms=[], consts=[])
+                result = dict(compile_rc=0, n_errors=0, printed_axioms=[],
+                              sorry_warnings=0, errors=[], post=post)
+                expected_finding = 'PASS'
+                if finding.startswith('existing-'):
+                    expected_finding = 'INVALID' if finding == 'existing-invalid' else 'FAIL'
+                elif finding.endswith('boundary-invalid'):
+                    (result if finding.startswith('compile') else post)['boundary'] = dict(
+                        verdict='INVALID', reason='owned-descendants-remained')
+                    # A boundary launcher exits 125 for every non-PASS record.
+                    if finding.startswith('compile'):
+                        result['compile_rc'] = 125
+                    else:
+                        post['rc'] = 125
+                    expected_finding = 'INVALID'
+                elif finding.endswith('boundary-error'):
+                    (result if finding.startswith('compile') else post)['boundary'] = dict(
+                        verdict='ERROR', reason='sandbox-unavailable')
+                    expected_finding = 'ERROR'
+                elif finding == 'both-boundaries':
+                    result['boundary'] = dict(verdict='INVALID', reason='owned-descendants-remained')
+                    post['boundary'] = dict(verdict='ERROR', reason='sandbox-unavailable')
+                    result['compile_rc'] = 125
+                    expected_finding = 'ERROR'
+                elif finding == 'compile-errors':
+                    result.update(compile_rc=1, n_errors=1, errors=['structured error'])
+                    expected_finding = 'FAIL'
+                elif finding == 'compile-limit':
+                    result.update(compile_rc=1, n_errors=1,
+                                  error_kinds=['nested.runtime.maxHeartbeats'])
+                    expected_finding = 'INVALID'
+                elif finding == 'sorry-warning':
+                    result['sorry_warnings'] = 1
+                    expected_finding = 'FAIL'
+                elif finding.startswith('printed-') or finding == 'both-printed':
+                    result['printed_axioms'] = (['sorryAx'] if finding == 'printed-sorry' else
+                        ['Lean.ofReduceBool'] if finding == 'printed-disallowed' else
+                        ['sorryAx', 'Lean.ofReduceBool'])
+                    expected_finding = 'FAIL' if finding == 'printed-sorry' else 'INVALID'
+                elif finding == 'missing-print':
+                    result['printed_axioms'] = None
+                    expected_finding = 'FAIL'
+                elif finding.startswith('post-'):
+                    expected_finding = 'INVALID'
+                    if finding == 'post-target': post['target'] = 'missing'
+                    elif finding == 'post-kind': post['target'] = dict(kind='definition')
+                    elif finding == 'post-type': post['type_sha256'] = 'different'
+                    elif finding == 'post-sorry':
+                        post['axioms'] = ['sorryAx']; expected_finding = 'FAIL'
+                    elif finding == 'post-disallowed': post['axioms'] = ['Lean.ofReduceBool']
+                    elif finding == 'post-axiom': post['consts'] = [dict(name='bad', kind='axiom', unsafe=False)]
+                    elif finding == 'post-unsafe': post['consts'] = [dict(name='bad', kind='definition', unsafe=True)]
+                if replay == 'failed': post['replay'] = 'FAIL: unavailable'
+                elif replay == 'absent': post['replay'] = None
+                elif replay == 'missing-post': result['post'] = None
+                if finding.startswith('post-') and (replay == 'missing-post' or
+                        ('boundary' not in finding and replay != 'ok')):
+                    expected_finding = 'PASS'
+                if finding == 'both-boundaries' and replay == 'missing-post':
+                    expected_finding = 'INVALID'
+                active_availability = available != 'none' and not (
+                    available.startswith('post-') and replay == 'missing-post')
+                if available == 'compile-exit': result['compile_rc'] = 124
+                elif available == 'compile-timeout': result['compile_timeout'] = True
+                elif available == 'compile-memory': result['compile_memkill'] = True
+                elif available == 'compile-signal': result['compile_killed_by'] = 'signal'
+                elif available == 'post-exit': post['rc'] = 134
+                elif available == 'post-timeout': post['timeout'] = True
+                elif available == 'post-memory': post['memkill'] = True
+                elif available == 'post-signal': post['killed_by'] = 'signal'
+                elif available == 'silent-compile-exit': result.update(compile_rc=1, n_errors=0)
+                expected = ('ERROR' if active_availability else expected_finding if expected_finding != 'PASS'
+                            else 'ERROR' if replay != 'ok' else 'PASS')
+                if available == 'silent-compile-exit' and any(
+                        record and record.get('boundary') for record in [result, result['post']]):
+                    expected = expected_finding
+                invalid = ['existing finding'] if finding == 'existing-invalid' else []
+                fail = ['existing finding'] if finding == 'existing-fail' else []
+                error = []
+                C.apply_compile_result(result, dict(reference_type_sha256='reference'), invalid, fail, error)
+                self.assertEqual(C.verdict_of(dict(invalid=invalid, fail=fail, error=error)), expected)
+
+    def test_missing_print_output_ranks_below_every_deterministic_finding(self):
+        fixture = check_fixtures.VerdictMappingTests()
+        for finding, compile_fields, post_fields, expected in [
+            ('compile-error', dict(n_errors=1, errors=['structured error']), {}, 'FAIL'),
+            ('sorry-warning', dict(sorry_warnings=1), {}, 'FAIL'),
+            ('post-type', {}, dict(type_sha256='different'), 'INVALID'),
+            ('post-sorry', {}, dict(axioms=['sorryAx']), 'FAIL'),
+            ('post-disallowed', {}, dict(axioms=['Lean.ofReduceBool']), 'INVALID'),
+            ('post-axiom', {}, dict(consts=[dict(name='bad', kind='axiom', unsafe=False)]), 'INVALID'),
+            ('post-unsafe', {}, dict(consts=[dict(name='bad', kind='definition', unsafe=True)]), 'INVALID'),
+        ]:
+            with self.subTest(finding=finding):
+                result = fixture.ok_compile(printed_axioms=None, post=fixture.ok_post(**post_fields), **compile_fields)
+                invalid, fail, error = fixture.verdict(result)
+                self.assertEqual(C.verdict_of(dict(invalid=invalid, fail=fail, error=error)), expected)
+                self.assertFalse(any('output missing' in reason for reason in fail + error))
+
+    def test_missing_print_preserves_existing_findings(self):
+        for verdict in ['INVALID', 'FAIL', 'ERROR']:
+            with self.subTest(verdict=verdict):
+                findings = dict(invalid=[], fail=[], error=[])
+                findings[verdict.lower() if verdict != 'INVALID' else 'invalid'].append('existing finding')
+                C.apply_compile_result(dict(compile_rc=0, n_errors=0, printed_axioms=None, post=None),
+                                       {}, findings['invalid'], findings['fail'], findings['error'])
+                self.assertEqual(C.verdict_of(findings), verdict)
+                self.assertEqual(sum(map(len, findings.values())), 1)
+
     def test_generated_decide_native_axiom_cannot_be_allowlisted(self):
         axiom = 'Example.target._native.decide.ax_1_1'
         fixture = check_fixtures.VerdictMappingTests()
@@ -30,6 +155,23 @@ class CompilePrecedence(unittest.TestCase):
         result = fixture.ok_compile(boundary=dict(verdict='INVALID', reason='resource-cap'),
             post=fixture.ok_post(boundary=dict(verdict='ERROR', reason='sandbox-unavailable')))
         self.assertEqual(fixture.verdict(result), ([], [], ['sandbox-unavailable']))
+
+    def test_non_json_stderr_is_raw_output_and_not_a_lean_error(self):
+        with tempfile.TemporaryDirectory() as temp:
+            env = L.LeanEnv('/unused', [], '', {}, '', temp)
+            problem = dict(checker=dict(theorem_fqn='X.goal', files=[], lean_opts=[]))
+            output = 'allocator could not reserve memory\n'
+            with patch.object(L, 'run_lean', return_value=L.RunResult(1, output, 0, False)):
+                result = C.compile_in_sandbox(env, problem, temp, 'theorem goal : True := by trivial',
+                                              str(Path(temp)/'check'), 10, SB.Sandbox.fixture())
+            self.assertEqual(result['n_errors'], 0)
+            self.assertEqual(Path(temp, 'check/proof/compile.log').read_text(), output)
+            invalid, fail, error = [], [], []
+            C.apply_compile_result(result, {}, invalid, fail, error)
+            self.assertEqual((invalid, fail, error), ([], [], ['resource-unavailable']))
+            messages = L.parse_messages(output + json.dumps(dict(severity='error', data='Lean error')))
+            self.assertEqual([message['data'] for message in L.errors(messages)], ['Lean error'])
+            self.assertEqual(messages[0]['data'], output.rstrip('\n'))
 
     def test_silent_nonzero_compile_exit_is_availability_error(self):
         fixture = check_fixtures.VerdictMappingTests()
@@ -60,34 +202,47 @@ class CompilePrecedence(unittest.TestCase):
                             self.assertEqual(error, [])
 
 
-class LeanLexing(unittest.TestCase):
-    def test_public_checker_rejects_unclassifiable_source_without_crashing(self):
+class TextPolicy(unittest.TestCase):
+    def test_public_checker_rejects_invalid_utf8_without_crashing(self):
         from test_zk_registry_package import make_package
-        for body in [b'  exact "unfinished\n', b'  exact \xff\n']:
-            with self.subTest(body=body), tempfile.TemporaryDirectory() as temp:
+        with tempfile.TemporaryDirectory() as temp:
+            package, _ = make_package(temp)
+            statement = Path(package, 'Statement.lean').read_text()
+            proof = Path(temp)/'Proof.lean'
+            proof.write_bytes(check_fixtures.submission(statement, '  trivial\n').encode().replace(
+                b'  trivial\n', b'  exact \xff\n'))
+            env = check_fixtures.fake_env(temp)
+            result = C.check(package, str(proof), env, policy_fixture=env.pins())
+            self.assertEqual((result['verdict'], result.get('reason')), ('INVALID', 'submission-source-encoding'))
+
+    def test_shared_text_policy_cases(self):
+        path = Path(C.__file__).parents[2]/'fixtures/submission-policy/cases-v4.json'
+        for case in json.loads(path.read_text())['cases']:
+            with self.subTest(case=case['name']):
+                expected = [f"{hit['label']} in proof (line {hit['line']} of that part)"
+                            + (f" [forbidden word: {hit['word']}]" if hit['word'] not in hit['label']
+                               and hit['label'] != 'forbidden-attribute' else '') for hit in case['hits']]
+                self.assertEqual(C.forbidden_scan([('proof', case['source'])]), expected)
+
+    def test_public_checker_rejects_forbidden_word_in_every_text_form(self):
+        from test_zk_registry_package import make_package
+        for source in ['axiom bad : False', '-- axiom', 'let text := "axiom"']:
+            with self.subTest(source=source), tempfile.TemporaryDirectory() as temp:
                 package, _ = make_package(temp)
                 statement = Path(package, 'Statement.lean').read_text()
                 proof = Path(temp)/'Proof.lean'
-                proof.write_bytes(check_fixtures.submission(statement, '  trivial\n').encode().replace(b'  trivial\n', body))
+                proof.write_text(check_fixtures.submission(statement, '\n  '+source+'\n  trivial\n'))
                 env = check_fixtures.fake_env(temp)
                 result = C.check(package, str(proof), env, policy_fixture=env.pins())
-                self.assertEqual((result['verdict'], result.get('reason')), ('INVALID', 'unparseable-source'))
+                self.assertEqual(result['verdict'], 'INVALID')
+                self.assertIn('axiom in proof (line 3 of that part)', result['invalid'])
 
-    def test_shared_literal_corpus(self):
-        path = Path(C.__file__).parents[2]/'fixtures/lean-lexing/corpus-v1.json'
-        for case in json.loads(path.read_text())['cases']:
-            with self.subTest(case=case['name']):
-                hits = C.forbidden_scan([('proof', case['source'])])
-                self.assertEqual(any(h.startswith('unparseable-source in ') for h in hits), case['invalid'])
-                if not case['invalid']:
-                    self.assertEqual(any(h.startswith('axiom in ') for h in hits), case['has_axiom'])
-
-    def test_critical_raw_layer_and_native_forms(self):
-        for token in ['maxHeartbeats', 'maxRecDepth', 'decide +native',
-                      'decide (config := { native := true })', 'bv_decide', 'bv_check']:
-            for source in [token, '-- '+token, '"'+token+'"', '«'+token+'»']:
-                with self.subTest(source=source):
-                    self.assertTrue(C.forbidden_scan([('proof', source)]))
+    def test_sixteen_mib_scan_finishes_under_ten_seconds(self):
+        text = ("/- nested /- inner -/ text -/ s!\"a{x}b\" f '' s\n" * 400000)[:16 * 1024 * 1024]
+        self.assertEqual(len(text.encode()), 16 * 1024 * 1024)
+        started = time.monotonic()
+        self.assertEqual(C.forbidden_scan([('proof', text)]), [])
+        self.assertLess(time.monotonic() - started, 10)
 
 
 class SymlinkLoops(unittest.TestCase):

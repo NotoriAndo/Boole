@@ -1,0 +1,1608 @@
+{
+  "cases": [
+    {
+      "name": "sorry-code",
+      "source": "first line\nsecond line\nsorry",
+      "hits": [
+        {
+          "label": "sorry",
+          "word": "sorry",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "sorry-comment",
+      "source": "first line\nsecond line\n-- sorry",
+      "hits": [
+        {
+          "label": "sorry",
+          "word": "sorry",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "sorry-string",
+      "source": "first line\nsecond line\n\"sorry\"",
+      "hits": [
+        {
+          "label": "sorry",
+          "word": "sorry",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "admit-code",
+      "source": "first line\nsecond line\nadmit",
+      "hits": [
+        {
+          "label": "admit",
+          "word": "admit",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "admit-comment",
+      "source": "first line\nsecond line\n-- admit",
+      "hits": [
+        {
+          "label": "admit",
+          "word": "admit",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "admit-string",
+      "source": "first line\nsecond line\n\"admit\"",
+      "hits": [
+        {
+          "label": "admit",
+          "word": "admit",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "axiom-code",
+      "source": "first line\nsecond line\naxiom",
+      "hits": [
+        {
+          "label": "axiom",
+          "word": "axiom",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "axiom-comment",
+      "source": "first line\nsecond line\n-- axiom",
+      "hits": [
+        {
+          "label": "axiom",
+          "word": "axiom",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "axiom-string",
+      "source": "first line\nsecond line\n\"axiom\"",
+      "hits": [
+        {
+          "label": "axiom",
+          "word": "axiom",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "native_decide-code",
+      "source": "first line\nsecond line\nnative_decide",
+      "hits": [
+        {
+          "label": "native_decide",
+          "word": "native_decide",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "native_decide-comment",
+      "source": "first line\nsecond line\n-- native_decide",
+      "hits": [
+        {
+          "label": "native_decide",
+          "word": "native_decide",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "native_decide-string",
+      "source": "first line\nsecond line\n\"native_decide\"",
+      "hits": [
+        {
+          "label": "native_decide",
+          "word": "native_decide",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "unsafe-code",
+      "source": "first line\nsecond line\nunsafe",
+      "hits": [
+        {
+          "label": "unsafe",
+          "word": "unsafe",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "unsafe-comment",
+      "source": "first line\nsecond line\n-- unsafe",
+      "hits": [
+        {
+          "label": "unsafe",
+          "word": "unsafe",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "unsafe-string",
+      "source": "first line\nsecond line\n\"unsafe\"",
+      "hits": [
+        {
+          "label": "unsafe",
+          "word": "unsafe",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "implemented_by-code",
+      "source": "first line\nsecond line\nimplemented_by",
+      "hits": [
+        {
+          "label": "implemented_by",
+          "word": "implemented_by",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "implemented_by-comment",
+      "source": "first line\nsecond line\n-- implemented_by",
+      "hits": [
+        {
+          "label": "implemented_by",
+          "word": "implemented_by",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "implemented_by-string",
+      "source": "first line\nsecond line\n\"implemented_by\"",
+      "hits": [
+        {
+          "label": "implemented_by",
+          "word": "implemented_by",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "extern-code",
+      "source": "first line\nsecond line\nextern",
+      "hits": [
+        {
+          "label": "extern",
+          "word": "extern",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "extern-comment",
+      "source": "first line\nsecond line\n-- extern",
+      "hits": [
+        {
+          "label": "extern",
+          "word": "extern",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "extern-string",
+      "source": "first line\nsecond line\n\"extern\"",
+      "hits": [
+        {
+          "label": "extern",
+          "word": "extern",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "skipKernelTC-code",
+      "source": "first line\nsecond line\nskipKernelTC",
+      "hits": [
+        {
+          "label": "debug.skipKernelTC",
+          "word": "skipKernelTC",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "skipKernelTC-comment",
+      "source": "first line\nsecond line\n-- skipKernelTC",
+      "hits": [
+        {
+          "label": "debug.skipKernelTC",
+          "word": "skipKernelTC",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "skipKernelTC-string",
+      "source": "first line\nsecond line\n\"skipKernelTC\"",
+      "hits": [
+        {
+          "label": "debug.skipKernelTC",
+          "word": "skipKernelTC",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "addDeclWithoutChecking-code",
+      "source": "first line\nsecond line\naddDeclWithoutChecking",
+      "hits": [
+        {
+          "label": "addDeclWithoutChecking",
+          "word": "addDeclWithoutChecking",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "addDeclWithoutChecking-comment",
+      "source": "first line\nsecond line\n-- addDeclWithoutChecking",
+      "hits": [
+        {
+          "label": "addDeclWithoutChecking",
+          "word": "addDeclWithoutChecking",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "addDeclWithoutChecking-string",
+      "source": "first line\nsecond line\n\"addDeclWithoutChecking\"",
+      "hits": [
+        {
+          "label": "addDeclWithoutChecking",
+          "word": "addDeclWithoutChecking",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "ofReduceBool-code",
+      "source": "first line\nsecond line\nofReduceBool",
+      "hits": [
+        {
+          "label": "Lean.ofReduceBool/Nat",
+          "word": "ofReduceBool",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "ofReduceBool-comment",
+      "source": "first line\nsecond line\n-- ofReduceBool",
+      "hits": [
+        {
+          "label": "Lean.ofReduceBool/Nat",
+          "word": "ofReduceBool",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "ofReduceBool-string",
+      "source": "first line\nsecond line\n\"ofReduceBool\"",
+      "hits": [
+        {
+          "label": "Lean.ofReduceBool/Nat",
+          "word": "ofReduceBool",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "ofReduceNat-code",
+      "source": "first line\nsecond line\nofReduceNat",
+      "hits": [
+        {
+          "label": "Lean.ofReduceBool/Nat",
+          "word": "ofReduceNat",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "ofReduceNat-comment",
+      "source": "first line\nsecond line\n-- ofReduceNat",
+      "hits": [
+        {
+          "label": "Lean.ofReduceBool/Nat",
+          "word": "ofReduceNat",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "ofReduceNat-string",
+      "source": "first line\nsecond line\n\"ofReduceNat\"",
+      "hits": [
+        {
+          "label": "Lean.ofReduceBool/Nat",
+          "word": "ofReduceNat",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "#exit-code",
+      "source": "first line\nsecond line\n#exit",
+      "hits": [
+        {
+          "label": "#exit",
+          "word": "#exit",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "#exit-comment",
+      "source": "first line\nsecond line\n-- #exit",
+      "hits": [
+        {
+          "label": "#exit",
+          "word": "#exit",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "#exit-string",
+      "source": "first line\nsecond line\n\"#exit\"",
+      "hits": [
+        {
+          "label": "#exit",
+          "word": "#exit",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "#eval-code",
+      "source": "first line\nsecond line\n#eval",
+      "hits": [
+        {
+          "label": "#eval",
+          "word": "#eval",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "#eval-comment",
+      "source": "first line\nsecond line\n-- #eval",
+      "hits": [
+        {
+          "label": "#eval",
+          "word": "#eval",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "#eval-string",
+      "source": "first line\nsecond line\n\"#eval\"",
+      "hits": [
+        {
+          "label": "#eval",
+          "word": "#eval",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "run_cmd-code",
+      "source": "first line\nsecond line\nrun_cmd",
+      "hits": [
+        {
+          "label": "run_cmd",
+          "word": "run_cmd",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "run_cmd-comment",
+      "source": "first line\nsecond line\n-- run_cmd",
+      "hits": [
+        {
+          "label": "run_cmd",
+          "word": "run_cmd",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "run_cmd-string",
+      "source": "first line\nsecond line\n\"run_cmd\"",
+      "hits": [
+        {
+          "label": "run_cmd",
+          "word": "run_cmd",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "run_elab-code",
+      "source": "first line\nsecond line\nrun_elab",
+      "hits": [
+        {
+          "label": "run_elab",
+          "word": "run_elab",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "run_elab-comment",
+      "source": "first line\nsecond line\n-- run_elab",
+      "hits": [
+        {
+          "label": "run_elab",
+          "word": "run_elab",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "run_elab-string",
+      "source": "first line\nsecond line\n\"run_elab\"",
+      "hits": [
+        {
+          "label": "run_elab",
+          "word": "run_elab",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "run_meta-code",
+      "source": "first line\nsecond line\nrun_meta",
+      "hits": [
+        {
+          "label": "run_meta",
+          "word": "run_meta",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "run_meta-comment",
+      "source": "first line\nsecond line\n-- run_meta",
+      "hits": [
+        {
+          "label": "run_meta",
+          "word": "run_meta",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "run_meta-string",
+      "source": "first line\nsecond line\n\"run_meta\"",
+      "hits": [
+        {
+          "label": "run_meta",
+          "word": "run_meta",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "initialize-code",
+      "source": "first line\nsecond line\ninitialize",
+      "hits": [
+        {
+          "label": "initialize",
+          "word": "initialize",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "initialize-comment",
+      "source": "first line\nsecond line\n-- initialize",
+      "hits": [
+        {
+          "label": "initialize",
+          "word": "initialize",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "initialize-string",
+      "source": "first line\nsecond line\n\"initialize\"",
+      "hits": [
+        {
+          "label": "initialize",
+          "word": "initialize",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "builtin_initialize-code",
+      "source": "first line\nsecond line\nbuiltin_initialize",
+      "hits": [
+        {
+          "label": "builtin_initialize",
+          "word": "builtin_initialize",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "builtin_initialize-comment",
+      "source": "first line\nsecond line\n-- builtin_initialize",
+      "hits": [
+        {
+          "label": "builtin_initialize",
+          "word": "builtin_initialize",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "builtin_initialize-string",
+      "source": "first line\nsecond line\n\"builtin_initialize\"",
+      "hits": [
+        {
+          "label": "builtin_initialize",
+          "word": "builtin_initialize",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "trustCompiler-code",
+      "source": "first line\nsecond line\ntrustCompiler",
+      "hits": [
+        {
+          "label": "Lean.trustCompiler",
+          "word": "trustCompiler",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "trustCompiler-comment",
+      "source": "first line\nsecond line\n-- trustCompiler",
+      "hits": [
+        {
+          "label": "Lean.trustCompiler",
+          "word": "trustCompiler",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "trustCompiler-string",
+      "source": "first line\nsecond line\n\"trustCompiler\"",
+      "hits": [
+        {
+          "label": "Lean.trustCompiler",
+          "word": "trustCompiler",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "elab-code",
+      "source": "first line\nsecond line\nelab",
+      "hits": [
+        {
+          "label": "elab",
+          "word": "elab",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "elab-comment",
+      "source": "first line\nsecond line\n-- elab",
+      "hits": [
+        {
+          "label": "elab",
+          "word": "elab",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "elab-string",
+      "source": "first line\nsecond line\n\"elab\"",
+      "hits": [
+        {
+          "label": "elab",
+          "word": "elab",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "elab_rules-code",
+      "source": "first line\nsecond line\nelab_rules",
+      "hits": [
+        {
+          "label": "elab_rules",
+          "word": "elab_rules",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "elab_rules-comment",
+      "source": "first line\nsecond line\n-- elab_rules",
+      "hits": [
+        {
+          "label": "elab_rules",
+          "word": "elab_rules",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "elab_rules-string",
+      "source": "first line\nsecond line\n\"elab_rules\"",
+      "hits": [
+        {
+          "label": "elab_rules",
+          "word": "elab_rules",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "simproc-code",
+      "source": "first line\nsecond line\nsimproc",
+      "hits": [
+        {
+          "label": "simproc",
+          "word": "simproc",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "simproc-comment",
+      "source": "first line\nsecond line\n-- simproc",
+      "hits": [
+        {
+          "label": "simproc",
+          "word": "simproc",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "simproc-string",
+      "source": "first line\nsecond line\n\"simproc\"",
+      "hits": [
+        {
+          "label": "simproc",
+          "word": "simproc",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "dsimproc-code",
+      "source": "first line\nsecond line\ndsimproc",
+      "hits": [
+        {
+          "label": "dsimproc",
+          "word": "dsimproc",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "dsimproc-comment",
+      "source": "first line\nsecond line\n-- dsimproc",
+      "hits": [
+        {
+          "label": "dsimproc",
+          "word": "dsimproc",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "dsimproc-string",
+      "source": "first line\nsecond line\n\"dsimproc\"",
+      "hits": [
+        {
+          "label": "dsimproc",
+          "word": "dsimproc",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "simproc_decl-code",
+      "source": "first line\nsecond line\nsimproc_decl",
+      "hits": [
+        {
+          "label": "simproc_decl",
+          "word": "simproc_decl",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "simproc_decl-comment",
+      "source": "first line\nsecond line\n-- simproc_decl",
+      "hits": [
+        {
+          "label": "simproc_decl",
+          "word": "simproc_decl",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "simproc_decl-string",
+      "source": "first line\nsecond line\n\"simproc_decl\"",
+      "hits": [
+        {
+          "label": "simproc_decl",
+          "word": "simproc_decl",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "dsimproc_decl-code",
+      "source": "first line\nsecond line\ndsimproc_decl",
+      "hits": [
+        {
+          "label": "dsimproc_decl",
+          "word": "dsimproc_decl",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "dsimproc_decl-comment",
+      "source": "first line\nsecond line\n-- dsimproc_decl",
+      "hits": [
+        {
+          "label": "dsimproc_decl",
+          "word": "dsimproc_decl",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "dsimproc_decl-string",
+      "source": "first line\nsecond line\n\"dsimproc_decl\"",
+      "hits": [
+        {
+          "label": "dsimproc_decl",
+          "word": "dsimproc_decl",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "builtin_simproc-code",
+      "source": "first line\nsecond line\nbuiltin_simproc",
+      "hits": [
+        {
+          "label": "builtin_simproc",
+          "word": "builtin_simproc",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "builtin_simproc-comment",
+      "source": "first line\nsecond line\n-- builtin_simproc",
+      "hits": [
+        {
+          "label": "builtin_simproc",
+          "word": "builtin_simproc",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "builtin_simproc-string",
+      "source": "first line\nsecond line\n\"builtin_simproc\"",
+      "hits": [
+        {
+          "label": "builtin_simproc",
+          "word": "builtin_simproc",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "builtin_dsimproc-code",
+      "source": "first line\nsecond line\nbuiltin_dsimproc",
+      "hits": [
+        {
+          "label": "builtin_dsimproc",
+          "word": "builtin_dsimproc",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "builtin_dsimproc-comment",
+      "source": "first line\nsecond line\n-- builtin_dsimproc",
+      "hits": [
+        {
+          "label": "builtin_dsimproc",
+          "word": "builtin_dsimproc",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "builtin_dsimproc-string",
+      "source": "first line\nsecond line\n\"builtin_dsimproc\"",
+      "hits": [
+        {
+          "label": "builtin_dsimproc",
+          "word": "builtin_dsimproc",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "builtin_simproc_decl-code",
+      "source": "first line\nsecond line\nbuiltin_simproc_decl",
+      "hits": [
+        {
+          "label": "builtin_simproc_decl",
+          "word": "builtin_simproc_decl",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "builtin_simproc_decl-comment",
+      "source": "first line\nsecond line\n-- builtin_simproc_decl",
+      "hits": [
+        {
+          "label": "builtin_simproc_decl",
+          "word": "builtin_simproc_decl",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "builtin_simproc_decl-string",
+      "source": "first line\nsecond line\n\"builtin_simproc_decl\"",
+      "hits": [
+        {
+          "label": "builtin_simproc_decl",
+          "word": "builtin_simproc_decl",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "builtin_dsimproc_decl-code",
+      "source": "first line\nsecond line\nbuiltin_dsimproc_decl",
+      "hits": [
+        {
+          "label": "builtin_dsimproc_decl",
+          "word": "builtin_dsimproc_decl",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "builtin_dsimproc_decl-comment",
+      "source": "first line\nsecond line\n-- builtin_dsimproc_decl",
+      "hits": [
+        {
+          "label": "builtin_dsimproc_decl",
+          "word": "builtin_dsimproc_decl",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "builtin_dsimproc_decl-string",
+      "source": "first line\nsecond line\n\"builtin_dsimproc_decl\"",
+      "hits": [
+        {
+          "label": "builtin_dsimproc_decl",
+          "word": "builtin_dsimproc_decl",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "macro-code",
+      "source": "first line\nsecond line\nmacro",
+      "hits": [
+        {
+          "label": "macro",
+          "word": "macro",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "macro-comment",
+      "source": "first line\nsecond line\n-- macro",
+      "hits": [
+        {
+          "label": "macro",
+          "word": "macro",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "macro-string",
+      "source": "first line\nsecond line\n\"macro\"",
+      "hits": [
+        {
+          "label": "macro",
+          "word": "macro",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "macro_rules-code",
+      "source": "first line\nsecond line\nmacro_rules",
+      "hits": [
+        {
+          "label": "macro_rules",
+          "word": "macro_rules",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "macro_rules-comment",
+      "source": "first line\nsecond line\n-- macro_rules",
+      "hits": [
+        {
+          "label": "macro_rules",
+          "word": "macro_rules",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "macro_rules-string",
+      "source": "first line\nsecond line\n\"macro_rules\"",
+      "hits": [
+        {
+          "label": "macro_rules",
+          "word": "macro_rules",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "syntax-code",
+      "source": "first line\nsecond line\nsyntax",
+      "hits": [
+        {
+          "label": "syntax",
+          "word": "syntax",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "syntax-comment",
+      "source": "first line\nsecond line\n-- syntax",
+      "hits": [
+        {
+          "label": "syntax",
+          "word": "syntax",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "syntax-string",
+      "source": "first line\nsecond line\n\"syntax\"",
+      "hits": [
+        {
+          "label": "syntax",
+          "word": "syntax",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "run_tac-code",
+      "source": "first line\nsecond line\nrun_tac",
+      "hits": [
+        {
+          "label": "run_tac",
+          "word": "run_tac",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "run_tac-comment",
+      "source": "first line\nsecond line\n-- run_tac",
+      "hits": [
+        {
+          "label": "run_tac",
+          "word": "run_tac",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "run_tac-string",
+      "source": "first line\nsecond line\n\"run_tac\"",
+      "hits": [
+        {
+          "label": "run_tac",
+          "word": "run_tac",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "register_-code",
+      "source": "first line\nsecond line\nregister_test",
+      "hits": [
+        {
+          "label": "elaboration-registration",
+          "word": "register_",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "register_-comment",
+      "source": "first line\nsecond line\n-- register_test",
+      "hits": [
+        {
+          "label": "elaboration-registration",
+          "word": "register_",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "register_-string",
+      "source": "first line\nsecond line\n\"register_test\"",
+      "hits": [
+        {
+          "label": "elaboration-registration",
+          "word": "register_",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "declare_-code",
+      "source": "first line\nsecond line\ndeclare_test",
+      "hits": [
+        {
+          "label": "elaboration-registration",
+          "word": "declare_",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "declare_-comment",
+      "source": "first line\nsecond line\n-- declare_test",
+      "hits": [
+        {
+          "label": "elaboration-registration",
+          "word": "declare_",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "declare_-string",
+      "source": "first line\nsecond line\n\"declare_test\"",
+      "hits": [
+        {
+          "label": "elaboration-registration",
+          "word": "declare_",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "maxHeartbeats-code",
+      "source": "first line\nsecond line\nmaxHeartbeats",
+      "hits": [
+        {
+          "label": "limit-override",
+          "word": "maxHeartbeats",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "maxHeartbeats-comment",
+      "source": "first line\nsecond line\n-- maxHeartbeats",
+      "hits": [
+        {
+          "label": "limit-override",
+          "word": "maxHeartbeats",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "maxHeartbeats-string",
+      "source": "first line\nsecond line\n\"maxHeartbeats\"",
+      "hits": [
+        {
+          "label": "limit-override",
+          "word": "maxHeartbeats",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "maxRecDepth-code",
+      "source": "first line\nsecond line\nmaxRecDepth",
+      "hits": [
+        {
+          "label": "limit-override",
+          "word": "maxRecDepth",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "maxRecDepth-comment",
+      "source": "first line\nsecond line\n-- maxRecDepth",
+      "hits": [
+        {
+          "label": "limit-override",
+          "word": "maxRecDepth",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "maxRecDepth-string",
+      "source": "first line\nsecond line\n\"maxRecDepth\"",
+      "hits": [
+        {
+          "label": "limit-override",
+          "word": "maxRecDepth",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "native-code",
+      "source": "first line\nsecond line\nnative",
+      "hits": [
+        {
+          "label": "native-evaluation",
+          "word": "native",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "native-comment",
+      "source": "first line\nsecond line\n-- native",
+      "hits": [
+        {
+          "label": "native-evaluation",
+          "word": "native",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "native-string",
+      "source": "first line\nsecond line\n\"native\"",
+      "hits": [
+        {
+          "label": "native-evaluation",
+          "word": "native",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "bv_decide-code",
+      "source": "first line\nsecond line\nbv_decide",
+      "hits": [
+        {
+          "label": "native-evaluation",
+          "word": "bv_decide",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "bv_decide-comment",
+      "source": "first line\nsecond line\n-- bv_decide",
+      "hits": [
+        {
+          "label": "native-evaluation",
+          "word": "bv_decide",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "bv_decide-string",
+      "source": "first line\nsecond line\n\"bv_decide\"",
+      "hits": [
+        {
+          "label": "native-evaluation",
+          "word": "bv_decide",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "bv_check-code",
+      "source": "first line\nsecond line\nbv_check",
+      "hits": [
+        {
+          "label": "native-evaluation",
+          "word": "bv_check",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "bv_check-comment",
+      "source": "first line\nsecond line\n-- bv_check",
+      "hits": [
+        {
+          "label": "native-evaluation",
+          "word": "bv_check",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "bv_check-string",
+      "source": "first line\nsecond line\n\"bv_check\"",
+      "hits": [
+        {
+          "label": "native-evaluation",
+          "word": "bv_check",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "addDecl-code",
+      "source": "first line\nsecond line\naddDecl",
+      "hits": [
+        {
+          "label": "addDecl",
+          "word": "addDecl",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "addDecl-comment",
+      "source": "first line\nsecond line\n-- addDecl",
+      "hits": [
+        {
+          "label": "addDecl",
+          "word": "addDecl",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "addDecl-string",
+      "source": "first line\nsecond line\n\"addDecl\"",
+      "hits": [
+        {
+          "label": "addDecl",
+          "word": "addDecl",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "debug.-code",
+      "source": "first line\nsecond line\ndebug.",
+      "hits": [
+        {
+          "label": "debug.",
+          "word": "debug.",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "debug.-comment",
+      "source": "first line\nsecond line\n-- debug.",
+      "hits": [
+        {
+          "label": "debug.",
+          "word": "debug.",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "debug.-string",
+      "source": "first line\nsecond line\n\"debug.\"",
+      "hits": [
+        {
+          "label": "debug.",
+          "word": "debug.",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "ordinary-0",
+      "source": "f '' s",
+      "hits": []
+    },
+    {
+      "name": "ordinary-1",
+      "source": "f ⁻¹' s",
+      "hits": []
+    },
+    {
+      "name": "ordinary-2",
+      "source": "Σ' n : Nat, n = n",
+      "hits": []
+    },
+    {
+      "name": "ordinary-3",
+      "source": "Nat ×' Nat",
+      "hits": []
+    },
+    {
+      "name": "ordinary-4",
+      "source": "x'",
+      "hits": []
+    },
+    {
+      "name": "ordinary-5",
+      "source": "h'.1",
+      "hits": []
+    },
+    {
+      "name": "ordinary-6",
+      "source": "s!\"a{x}b\"",
+      "hits": []
+    },
+    {
+      "name": "ordinary-7",
+      "source": "/- outer /- inner -/ end -/",
+      "hits": []
+    },
+    {
+      "name": "ordinary-8",
+      "source": "/-- docs -/",
+      "hits": []
+    },
+    {
+      "name": "ordinary-9",
+      "source": "\"unfinished",
+      "hits": []
+    },
+    {
+      "name": "ordinary-10",
+      "source": "my_axiom_lemma",
+      "hits": []
+    },
+    {
+      "name": "ordinary-11",
+      "source": "native_decide_helper",
+      "hits": []
+    },
+    {
+      "name": "ordinary-12",
+      "source": "nativeα",
+      "hits": [
+        {
+          "label": "native-evaluation",
+          "word": "native",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "name": "ordinary-13",
+      "source": "αnative",
+      "hits": [
+        {
+          "label": "native-evaluation",
+          "word": "native",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "name": "ordinary-14",
+      "source": "αaxiomβ",
+      "hits": [
+        {
+          "label": "axiom",
+          "word": "axiom",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "name": "ordinary-15",
+      "source": "native_é",
+      "hits": []
+    },
+    {
+      "name": "ordinary-16",
+      "source": "attribute [simp] x",
+      "hits": []
+    },
+    {
+      "name": "ordinary-17",
+      "source": "@[simp, local instance]",
+      "hits": []
+    },
+    {
+      "name": "attribute-0",
+      "source": "line one\n@[unknown]",
+      "hits": [
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 2
+        }
+      ]
+    },
+    {
+      "name": "attribute-1",
+      "source": "line one\n-- @[unknown]",
+      "hits": [
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 2
+        }
+      ]
+    },
+    {
+      "name": "attribute-2",
+      "source": "line one\n\"@[unknown]\"",
+      "hits": [
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 2
+        }
+      ]
+    },
+    {
+      "name": "attribute-3",
+      "source": "line one\nattribute [simp, unknown] x",
+      "hits": [
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 2
+        }
+      ]
+    },
+    {
+      "name": "attribute-4",
+      "source": "line one\n@[simp (@[unknown])]",
+      "hits": [
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 2
+        }
+      ]
+    },
+    {
+      "name": "attribute-5",
+      "source": "line one\n@[simp\n",
+      "hits": [
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 2
+        }
+      ]
+    },
+    {
+      "name": "attribute-6",
+      "source": "line one\n@[simp, [broken)",
+      "hits": [
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 2
+        }
+      ]
+    },
+    {
+      "name": "attribute-without-space",
+      "source": "line one\nattribute[unknown]",
+      "hits": [
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 2
+        }
+      ]
+    },
+    {
+      "name": "unicode-attribute-boundary",
+      "source": "αattribute [unknown]",
+      "hits": [
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "name": "unicode-registration-suffix",
+      "source": "register_ξ",
+      "hits": [
+        {
+          "label": "elaboration-registration",
+          "word": "register_",
+          "line": 1
+        }
+      ]
+    }
+  ]
+}

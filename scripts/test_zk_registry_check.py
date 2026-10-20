@@ -62,12 +62,6 @@ class TextRuleTests(unittest.TestCase):
         self.assertTrue(C.text_check(self.stmt, "import Mathlib\n" + submission(self.stmt, "  x\n"), "det")[0])
         self.assertTrue(C.text_check(self.stmt, submission(self.stmt, "  x\n") + "theorem extra : True := trivial\n", "det")[0])
 
-    def test_forbidden_constructs_ignore_comments_and_strings(self) -> None:
-        hits = C.forbidden_scan([("proof", '  -- sorry\n  /- native_decide -/\n  exact "admit"\n'),
-                                 ("helper declarations", "axiom bad : False\nset_option debug.skipKernelTC true\n")])
-        self.assertEqual(sorted(h.split(" in ")[0] for h in hits), ["axiom", "debug.skipKernelTC"])
-        self.assertEqual(C.forbidden_scan([("proof", "  native_decide")]), ["native_decide in proof (line 1 of that part)"])
-
 
 class VerdictMappingTests(unittest.TestCase):
     def verdict(self, r: dict) -> tuple[list, list, list]:

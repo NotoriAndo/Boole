@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - fixtures/lean-lexing/**
+      - fixtures/submission-policy/**
       - scripts/zk_registry/**
       - scripts/setup_zk_registry_sandbox.sh
       - scripts/test_zk_registry_linux_sandbox.py
@@ -25,7 +25,7 @@ on:
       - .github/workflows/acceptance-gate-linux.yml
   pull_request:
     paths:
-      - fixtures/lean-lexing/**
+      - fixtures/submission-policy/**
       - scripts/zk_registry/**
       - scripts/setup_zk_registry_sandbox.sh
       - scripts/test_zk_registry_linux_sandbox.py

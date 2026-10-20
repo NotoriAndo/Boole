@@ -195,9 +195,12 @@ production-mode catalog run; Task Y-fix does not repeat them on macOS or promote
 Gate outcomes are PASS / FAIL / INVALID / ERROR. A Lean acceptance with an independent nanoda rejection remains
 INVALID `kernel-disagreement`. A nanoda acceptance with a legacy, untyped Lean negative is ERROR
 `replay-unavailable`: changing only the local worker stack can produce that negative. Legacy ZkReplay failure gives ERROR only when compilation has established no deterministic INVALID/FAIL.
-Availability errors (resources, sandbox, signals) take precedence, followed by deterministic compile findings
-(disallowed axioms, sorry, structured errors), then unavailable replay. A nonzero compile exit without structured
-error diagnostics is ERROR `resource-unavailable`. Abort, signals and shell-encoded signal statuses are ERROR `resource-unavailable` in compile,
+Observed resource failures take precedence, followed by structured boundary ERROR and INVALID, then an
+exit-code-only availability rule, deterministic compile/postcheck findings, and missing print or replay output.
+A nonzero compile exit without structured Lean error diagnostics is ERROR `resource-unavailable`; raw stdout/stderr
+lines do not count as Lean errors. A boundary verdict is applied before that exit-code-only rule. Missing
+`#print axioms` output is FAIL only when no deterministic finding exists: a submission can capture the appended
+command with `#guard_msgs`. Like unavailable replay, it never changes an established deterministic verdict. Abort, signals and shell-encoded signal statuses are ERROR `resource-unavailable` in compile,
 replay and export; Comparator uses its own private JSONL status file and 0/2 exit contract; kernel stdout is never a verdict channel.
 Transport exit 70, unknown exits, missing/malformed statuses and contradictory final status are ERROR.
 Two kernel acceptances followed by a deterministic Quotient post-check rejection are INVALID `kernel-rejection`;
@@ -208,17 +211,17 @@ The exported-constant cap remains deterministic INVALID `resource-cap`. Wall/mem
 retryable ERROR `resource-unavailable`, not mathematical rejection. Time/RSS cover the owned process tree;
 sampled cooperative guards are not certified adversarial peak-memory bounds.
 
-Current submission policy v4 rejects solver-written `maxHeartbeats` / `maxRecDepth`, `+native`, `native :=`,
-`bv_decide` and `bv_check` before compilation. Both code and raw unstripped text are scanned for these critical
-restrictions, including occurrences in comments/strings; `bv_decide` has a wall-clock solver timeout. Generated
-native-evaluator axioms remain forbidden even if an allowlist names one. The Python checker and Rust runner share
-Lean 4.34.1 literal-boundary conformance cases: escaped identifiers, nested/doc comments, plain/raw strings,
-character literals/escapes and nested interpolated terms. Other forbidden tokens inside actual comments/literal
-text are ignored; interpolation expressions remain code. Unterminated, malformed or ambiguous lexical constructs
-(including unknown custom bang-string syntax or unescaped `{` in a string without a directly recognized
-interpolation introducer) give deterministic INVALID `unparseable-source`. This conservative lexical subset
-uses raw strings for literal brace text; it does not pretend to parse every imported macro argument grammar. The two interfaces
-retain their separate policy vocabularies; this does not claim identical whole forbidden lists.
+Current submission policy v4 scans all solver-written helper declarations and proof text exactly as written.
+Forbidden words may not appear anywhere in that text, including comments and string literals. The reason gives
+the policy label, the forbidden word and the line within the helper/proof part. There is no comment or string stripping.
+Ordinary Lean notation, nested/doc comments and interpolated strings need no separate lexical classification.
+The Python checker and Rust runner read one shared pattern list in `data/submission_policy_v4.json` and the
+same test cases. Word boundaries are ASCII: only `[A-Za-z0-9_]` counts as a word character, including next to
+Unicode text. Both also check attributes on the text as written. The shared list retains the Rust runner's
+`addDecl` and `debug.` restrictions; its import allowlist remains an additional interface check.
+The first text layer rejects bare `native`, `native_decide`, `bv_decide` and `bv_check`, plus solver-written
+`maxHeartbeats` / `maxRecDepth`. The axiom check remains the authority: `Lean.ofReduceBool` and generated
+native-evaluator axioms remain forbidden even if an allowlist names one.
 Historical v1/v2/v3 metadata remains readable and frozen outcomes remain historical evidence. Exporter module lookup
 puts pinned core/library roots first, then the trusted build root before proof, so a solver `proof/Init` or
 `proof/Mathlib` directory cannot shadow pinned packages or pristine imported builds.

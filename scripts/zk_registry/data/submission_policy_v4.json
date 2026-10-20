@@ -1,0 +1,227 @@
+{
+  "version": 4,
+  "word_boundary": "ASCII letters, digits and underscore",
+  "patterns": [
+    {
+      "text": "sorry",
+      "label": "sorry",
+      "boundary": "word"
+    },
+    {
+      "text": "admit",
+      "label": "admit",
+      "boundary": "word"
+    },
+    {
+      "text": "axiom",
+      "label": "axiom",
+      "boundary": "word"
+    },
+    {
+      "text": "native_decide",
+      "label": "native_decide",
+      "boundary": "word"
+    },
+    {
+      "text": "unsafe",
+      "label": "unsafe",
+      "boundary": "word"
+    },
+    {
+      "text": "implemented_by",
+      "label": "implemented_by",
+      "boundary": "word"
+    },
+    {
+      "text": "extern",
+      "label": "extern",
+      "boundary": "word"
+    },
+    {
+      "text": "skipKernelTC",
+      "label": "debug.skipKernelTC",
+      "boundary": "any"
+    },
+    {
+      "text": "addDeclWithoutChecking",
+      "label": "addDeclWithoutChecking",
+      "boundary": "any"
+    },
+    {
+      "text": "ofReduceBool",
+      "label": "Lean.ofReduceBool/Nat",
+      "boundary": "word"
+    },
+    {
+      "text": "ofReduceNat",
+      "label": "Lean.ofReduceBool/Nat",
+      "boundary": "word"
+    },
+    {
+      "text": "#exit",
+      "label": "#exit",
+      "boundary": "suffix"
+    },
+    {
+      "text": "#eval",
+      "label": "#eval",
+      "boundary": "suffix"
+    },
+    {
+      "text": "run_cmd",
+      "label": "run_cmd",
+      "boundary": "word"
+    },
+    {
+      "text": "run_elab",
+      "label": "run_elab",
+      "boundary": "word"
+    },
+    {
+      "text": "run_meta",
+      "label": "run_meta",
+      "boundary": "word"
+    },
+    {
+      "text": "initialize",
+      "label": "initialize",
+      "boundary": "word"
+    },
+    {
+      "text": "builtin_initialize",
+      "label": "builtin_initialize",
+      "boundary": "word"
+    },
+    {
+      "text": "trustCompiler",
+      "label": "Lean.trustCompiler",
+      "boundary": "word"
+    },
+    {
+      "text": "elab",
+      "label": "elab",
+      "boundary": "word"
+    },
+    {
+      "text": "elab_rules",
+      "label": "elab_rules",
+      "boundary": "word"
+    },
+    {
+      "text": "simproc",
+      "label": "simproc",
+      "boundary": "word"
+    },
+    {
+      "text": "dsimproc",
+      "label": "dsimproc",
+      "boundary": "word"
+    },
+    {
+      "text": "simproc_decl",
+      "label": "simproc_decl",
+      "boundary": "word"
+    },
+    {
+      "text": "dsimproc_decl",
+      "label": "dsimproc_decl",
+      "boundary": "word"
+    },
+    {
+      "text": "builtin_simproc",
+      "label": "builtin_simproc",
+      "boundary": "word"
+    },
+    {
+      "text": "builtin_dsimproc",
+      "label": "builtin_dsimproc",
+      "boundary": "word"
+    },
+    {
+      "text": "builtin_simproc_decl",
+      "label": "builtin_simproc_decl",
+      "boundary": "word"
+    },
+    {
+      "text": "builtin_dsimproc_decl",
+      "label": "builtin_dsimproc_decl",
+      "boundary": "word"
+    },
+    {
+      "text": "macro",
+      "label": "macro",
+      "boundary": "word"
+    },
+    {
+      "text": "macro_rules",
+      "label": "macro_rules",
+      "boundary": "word"
+    },
+    {
+      "text": "syntax",
+      "label": "syntax",
+      "boundary": "word"
+    },
+    {
+      "text": "run_tac",
+      "label": "run_tac",
+      "boundary": "word"
+    },
+    {
+      "text": "register_",
+      "label": "elaboration-registration",
+      "boundary": "prefix"
+    },
+    {
+      "text": "declare_",
+      "label": "elaboration-registration",
+      "boundary": "prefix"
+    },
+    {
+      "text": "maxHeartbeats",
+      "label": "limit-override",
+      "boundary": "word"
+    },
+    {
+      "text": "maxRecDepth",
+      "label": "limit-override",
+      "boundary": "word"
+    },
+    {
+      "text": "native",
+      "label": "native-evaluation",
+      "boundary": "word"
+    },
+    {
+      "text": "bv_decide",
+      "label": "native-evaluation",
+      "boundary": "word"
+    },
+    {
+      "text": "bv_check",
+      "label": "native-evaluation",
+      "boundary": "word"
+    },
+    {
+      "text": "addDecl",
+      "label": "addDecl",
+      "boundary": "word"
+    },
+    {
+      "text": "debug.",
+      "label": "debug.",
+      "boundary": "prefix"
+    }
+  ],
+  "safe_attributes": [
+    "ext",
+    "inline",
+    "instance",
+    "irreducible",
+    "norm_cast",
+    "reducible",
+    "semireducible",
+    "simp",
+    "specialize"
+  ]
+}

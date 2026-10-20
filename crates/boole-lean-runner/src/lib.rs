@@ -51,8 +51,6 @@
 // code rather than hidden in a manifest exception.
 #![allow(unsafe_code)]
 
-mod lean_lex;
-
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -62,7 +60,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -1623,82 +1621,152 @@ fn truncate_utf8_to_bytes(value: &mut String, limit: usize) -> bool {
     true
 }
 
-/// How a forbidden token's boundaries are checked (see
-/// [`contains_forbidden_token`] vs [`contains_forbidden_prefix`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TokenBoundary {
-    /// Both the byte before AND after the match must be non-word characters
-    /// (or absent). Correct for identifier-shaped tokens like `sorry`/`axiom`
-    /// where `my_axiom_lemma` must NOT be flagged.
-    Word,
-    /// Only the byte BEFORE the match must be a non-word character (or
-    /// absent). Needed for tokens like `debug.` whose next byte is always a
-    /// word character (the option name, e.g. `skipKernelTC`) — a `Word`
-    /// check could never match `debug.` at all.
-    PrefixOnly,
+// Both runners use the same patterns and ASCII word boundaries. The text
+// policy scans comments and strings too; the axiom audit remains the authority.
+#[derive(Deserialize)]
+struct TextPattern {
+    text: String,
+    label: String,
+    boundary: String,
 }
 
-/// P1.9 / TB.1 (ADR-0013) — tokens that make a Lean proof unsound, or that
-/// let a submission escape the checker's intended trust boundary, and must
-/// be rejected before the proof is ever handed to the checker:
-///
-/// - `sorry` admits any goal without proof;
-/// - `axiom` introduces an unverified postulate the kernel trusts blindly;
-/// - `native_decide` discharges a goal via native compiled code, outside
-///   the trusted kernel;
-/// - `#eval` runs arbitrary IO during checking (see below);
-/// - `addDecl` lets a custom `elab`/`macro` command register an axiom (or
-///   any declaration) directly into the environment, bypassing the `axiom`
-///   keyword scan entirely;
-/// - `elab`/`macro` let a submission run arbitrary `IO`/`MetaM`/`TermElabM`
-///   code *during elaboration*, before the post-elaboration axiom audit
-///   (see `enforce_axiom_allowlist`) ever starts;
-/// - `run_cmd`/`run_elab`/`run_meta`/`run_tac` are built-in command aliases
-///   for the same elaboration-time execution surface;
-/// - `initialize` runs IO at import/elaboration time via the same escape;
-/// - `debug.` (matched as a prefix, not a whole word — see
-///   `TokenBoundary::PrefixOnly`) blocks every `set_option debug.*`, in
-///   particular `debug.skipKernelTC`, which disables kernel typechecking
-///   entirely. No `debug.*` option has a legitimate use in a submitted proof.
-///
-/// This blacklist is defense-in-depth, fail-fast hardening, NOT the primary
-/// soundness boundary — a blacklist can never enumerate every escape (e.g.
-/// a proof term that merely names `Lean.trustCompiler` uses no keyword
-/// here). The post-elaboration axiom-closure audit in `check_file` is the
-/// boundary that actually decides soundness.
-///
-/// Each `Word` token is matched on a word boundary (after line comments are
-/// stripped), so identifiers that merely contain the substring
-/// (`my_axiom_lemma`, `native_decide_helper`) are never flagged.
-const FORBIDDEN_TOKENS: &[(&[u8], &str, TokenBoundary)] = &[
-    (b"sorry", "sorry", TokenBoundary::Word),
-    (b"axiom", "axiom", TokenBoundary::Word),
-    (b"native_decide", "native_decide", TokenBoundary::Word),
-    // N0-pre.1 — `#eval` executes arbitrary IO (`IO.Process.run`/
-    // `IO.FS.readFile`) with node privileges and Lean compiles it as a
-    // side-effecting command (not an error), so a hostile proof could run
-    // code during checking. Reject it pre-spawn like the other unsound tokens.
-    (b"#eval", "#eval", TokenBoundary::Word),
-    (b"addDecl", "addDecl", TokenBoundary::Word),
-    (b"elab", "elab", TokenBoundary::Word),
-    (b"macro", "macro", TokenBoundary::Word),
-    (b"run_cmd", "run_cmd", TokenBoundary::Word),
-    (b"run_elab", "run_elab", TokenBoundary::Word),
-    (b"run_meta", "run_meta", TokenBoundary::Word),
-    (b"run_tac", "run_tac", TokenBoundary::Word),
-    (b"initialize", "initialize", TokenBoundary::Word),
-    (b"debug.", "debug.", TokenBoundary::PrefixOnly),
-    // SC.9a / ADR-0016 (a-2) layer 1 — the committed step budget is a
-    // ceiling the source cannot raise: `set_option maxHeartbeats <M>`
-    // (including `0` = unlimited) or `set_option maxRecDepth <M>` would
-    // override the runner's `-D` defaults and make the consensus budget
-    // advisory. Matching the bare option name (word boundary) rejects every
-    // spelling that could reach the option without flagging identifiers
-    // that merely contain the substring. Layer 2 is the raw-text scan in
-    // `BooleCheck/Main.lean` (`BOOLE_BUDGET_OVERRIDE`).
-    (b"maxHeartbeats", "maxHeartbeats", TokenBoundary::Word),
-    (b"maxRecDepth", "maxRecDepth", TokenBoundary::Word),
-];
+#[derive(Deserialize)]
+struct TextPolicy {
+    patterns: Vec<TextPattern>,
+    safe_attributes: Vec<String>,
+}
+
+fn text_policy() -> &'static TextPolicy {
+    static POLICY: OnceLock<TextPolicy> = OnceLock::new();
+    POLICY.get_or_init(|| {
+        serde_json::from_str(include_str!(
+            "../../../scripts/zk_registry/data/submission_policy_v4.json"
+        ))
+        .expect("valid shared text policy")
+    })
+}
+
+fn ascii_word(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_'
+}
+
+fn text_pattern_hit(text: &str, rule: &TextPattern) -> Option<usize> {
+    let bytes = text.as_bytes();
+    for (start, _) in text.match_indices(rule.text.as_str()) {
+        let end = start + rule.text.len();
+        if matches!(rule.boundary.as_str(), "word" | "prefix")
+            && start > 0
+            && ascii_word(bytes[start - 1])
+        {
+            continue;
+        }
+        if matches!(rule.boundary.as_str(), "word" | "suffix")
+            && bytes.get(end).is_some_and(|byte| ascii_word(*byte))
+        {
+            continue;
+        }
+        return Some(start);
+    }
+    None
+}
+
+// Each bracket is visited once, including nested attribute markers. An entry
+// only needs its leading word; do not copy or rescan a whole nested suffix.
+fn forbidden_attribute(text: &str) -> Option<usize> {
+    struct Frame {
+        close: u8,
+        marker: Option<usize>,
+        entry: usize,
+    }
+    fn allowed_entry(text: &[u8]) -> bool {
+        let trimmed = text.trim_ascii_start();
+        let trimmed = [b"local".as_slice(), b"scoped".as_slice()]
+            .iter()
+            .find_map(|prefix| {
+                trimmed
+                    .strip_prefix(*prefix)
+                    .filter(|rest| rest.first().is_some_and(u8::is_ascii_whitespace))
+            })
+            .unwrap_or(trimmed)
+            .trim_ascii_start();
+        let trimmed = trimmed.strip_prefix(b"-").unwrap_or(trimmed);
+        let end = trimmed
+            .iter()
+            .position(|byte| byte.is_ascii_whitespace() || b",()[]{}".contains(byte))
+            .unwrap_or(trimmed.len());
+        text_policy()
+            .safe_attributes
+            .iter()
+            .any(|name| name.as_bytes() == &trimmed[..end])
+    }
+    let bytes = text.as_bytes();
+    let mut markers = std::collections::HashMap::new();
+    for start in 0..bytes.len() {
+        let rest = if bytes[start] == b'@' {
+            Some(start + 1)
+        } else if bytes[start..].starts_with(b"attribute")
+            && (start == 0 || !ascii_word(bytes[start - 1]))
+        {
+            Some(start + 9)
+        } else {
+            None
+        };
+        if let Some(mut end) = rest {
+            while bytes.get(end).is_some_and(u8::is_ascii_whitespace) {
+                end += 1;
+            }
+            if bytes.get(end) == Some(&b'[') {
+                markers.insert(end, start);
+            }
+        }
+    }
+    if markers.is_empty() {
+        return None;
+    }
+    let mut stack: Vec<Frame> = Vec::new();
+    let mut bad: Option<usize> = None;
+    let mut reject = |marker: Option<usize>| {
+        if let Some(marker) = marker {
+            bad = Some(bad.map_or(marker, |prior| prior.min(marker)));
+        }
+    };
+    for (index, byte) in bytes.iter().copied().enumerate() {
+        match byte {
+            b'[' | b'(' | b'{' => stack.push(Frame {
+                close: match byte {
+                    b'[' => b']',
+                    b'(' => b')',
+                    _ => b'}',
+                },
+                marker: markers.get(&index).copied(),
+                entry: index + 1,
+            }),
+            b']' | b')' | b'}' => {
+                while stack.last().is_some_and(|frame| frame.close != byte) {
+                    reject(stack.pop().unwrap().marker);
+                }
+                if let Some(frame) = stack.pop() {
+                    if frame.marker.is_some() && !allowed_entry(&bytes[frame.entry..index]) {
+                        reject(frame.marker);
+                    }
+                }
+            }
+            b',' => {
+                if let Some(frame) = stack.last_mut() {
+                    if frame.marker.is_some() && !allowed_entry(&bytes[frame.entry..index]) {
+                        reject(frame.marker);
+                    }
+                    frame.entry = index + 1;
+                }
+            }
+            _ => {}
+        }
+    }
+    for frame in stack {
+        reject(frame.marker);
+    }
+    bad
+}
 
 /// Import paths a submitted proof file may reference. ADR-0013's blacklist
 /// hardening step: only the shared, human-reviewed helper surface is
@@ -1739,81 +1807,39 @@ fn disallowed_import_on_line(line: &str) -> Option<String> {
 /// all of them.
 fn scan_for_forbidden_tokens_in_bytes(bytes: &[u8]) -> Option<(String, usize)> {
     let Ok(text) = std::str::from_utf8(bytes) else {
-        return Some(("unparseable-source".to_string(), 1));
+        return Some(("submission-source-encoding".to_string(), 1));
     };
-    // Blank the bytes of line comments, nested block comments, and string
-    // literals (preserving newlines so line numbers stay accurate) so the
-    // forbidden-token scan only fires on real CODE. A `sorry`/`axiom`/
-    // `native_decide` that appears inside a comment or string is
-    // documentation, not an unsound declaration, and must not be rejected.
-    let code = match lean_lex::blank_non_code(text) {
-        Ok(code) => code,
-        Err(()) => return Some(("unparseable-source".to_string(), 1)),
+    let line_at = |position| {
+        text[..position]
+            .bytes()
+            .filter(|byte| *byte == b'\n')
+            .count()
+            + 1
     };
-    // v4 critical restrictions are scanned in code AND raw comments/literals.
-    for source in [text, code.as_str()] {
-        if let Some(hit) = critical_raw_form(source) {
-            return Some(hit);
-        }
-    }
-    for (idx, line) in code.lines().enumerate() {
-        for &(needle, name, boundary) in FORBIDDEN_TOKENS {
-            let hit = match boundary {
-                TokenBoundary::Word => contains_forbidden_token(line, needle),
-                TokenBoundary::PrefixOnly => contains_forbidden_prefix(line, needle),
+    for rule in &text_policy().patterns {
+        if let Some(position) = text_pattern_hit(text, rule) {
+            let end = position + rule.text.len();
+            let word = &text[position..end];
+            let reason = if rule.label.contains(word) {
+                rule.label.clone()
+            } else {
+                format!("{} [forbidden word: {word}]", rule.label)
             };
-            if hit {
-                return Some((name.to_string(), idx + 1));
-            }
+            return Some((reason, line_at(position)));
         }
+    }
+    if let Some(position) = forbidden_attribute(text) {
+        return Some(("forbidden-attribute".to_string(), line_at(position)));
+    }
+    for (index, line) in text.lines().enumerate() {
         if let Some(module) = disallowed_import_on_line(line) {
-            return Some((format!("import {module}"), idx + 1));
+            return Some((format!("import {module}"), index + 1));
         }
     }
     None
 }
 
-/// Test helper for the shared fail-closed Lean literal classifier.
 #[cfg(test)]
-fn blank_non_code(text: &str) -> String {
-    lean_lex::blank_non_code(text).expect("valid lexical fixture")
-}
-
-fn critical_raw_form(text: &str) -> Option<(String, usize)> {
-    let word = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
-    for needle in [
-        "maxHeartbeats",
-        "maxRecDepth",
-        "bv_decide",
-        "bv_check",
-        "native",
-    ] {
-        for (start, _) in text.match_indices(needle) {
-            let end = start + needle.len();
-            if start > 0 && word(text.as_bytes()[start - 1])
-                || text.as_bytes().get(end).is_some_and(|b| word(*b))
-            {
-                continue;
-            }
-            if needle == "native"
-                && !(text[..start].trim_end().ends_with('+')
-                    || text[end..]
-                        .strip_prefix('»')
-                        .unwrap_or(&text[end..])
-                        .trim_start()
-                        .starts_with(":="))
-            {
-                continue;
-            }
-            return Some((
-                needle.to_string(),
-                text[..start].bytes().filter(|b| *b == b'\n').count() + 1,
-            ));
-        }
-    }
-    None
-}
-
 fn contains_forbidden_token(line: &str, needle: &[u8]) -> bool {
     let bytes = line.as_bytes();
     if needle.is_empty() || bytes.len() < needle.len() {
@@ -1834,33 +1860,6 @@ fn contains_forbidden_token(line: &str, needle: &[u8]) -> bool {
             continue;
         }
         if after.map(is_word_char).unwrap_or(false) {
-            continue;
-        }
-        return true;
-    }
-    false
-}
-
-/// Like [`contains_forbidden_token`] but only checks the byte BEFORE the
-/// match, not after — for tokens such as `debug.` where the byte after the
-/// match is always a word character (the option name) so a whole-word check
-/// could never fire. See [`TokenBoundary::PrefixOnly`].
-fn contains_forbidden_prefix(line: &str, needle: &[u8]) -> bool {
-    let bytes = line.as_bytes();
-    if needle.is_empty() || bytes.len() < needle.len() {
-        return false;
-    }
-    for start in 0..=(bytes.len() - needle.len()) {
-        if &bytes[start..start + needle.len()] != needle {
-            continue;
-        }
-        let before = if start == 0 {
-            None
-        } else {
-            Some(bytes[start - 1])
-        };
-        let is_word_char = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
-        if before.map(is_word_char).unwrap_or(false) {
             continue;
         }
         return true;
@@ -2901,32 +2900,47 @@ fn run_toolchain_probe(command: Command, config: &LeanRunnerConfig) -> Result<St
 #[cfg(test)]
 mod tests {
     #[test]
-    fn review_lean_literal_corpus_is_fail_closed() {
-        let corpus: serde_json::Value =
-            serde_json::from_str(include_str!("../../../fixtures/lean-lexing/corpus-v1.json"))
-                .unwrap();
+    fn review_text_policy_shared_cases() {
+        let corpus: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../fixtures/submission-policy/cases-v4.json"
+        ))
+        .unwrap();
         for case in corpus["cases"].as_array().unwrap() {
             let source = case["source"].as_str().unwrap();
-            let found = scan_for_forbidden_tokens_in_bytes(source.as_bytes());
-            if case["invalid"].as_bool().unwrap() {
-                assert_eq!(
-                    found.map(|v| v.0),
-                    Some("unparseable-source".into()),
-                    "{case}"
-                );
-            } else {
-                let code = lean_lex::blank_non_code(source).expect("classified literal case");
-                assert_eq!(
-                    contains_forbidden_token(&code, b"axiom"),
-                    case["has_axiom"].as_bool().unwrap(),
-                    "{case}"
-                );
-            }
+            let expected = case["hits"].as_array().unwrap().first().map(|hit| {
+                (
+                    {
+                        let label = hit["label"].as_str().unwrap();
+                        let word = hit["word"].as_str().unwrap();
+                        if label.contains(word) || label == "forbidden-attribute" {
+                            label.to_string()
+                        } else {
+                            format!("{label} [forbidden word: {word}]")
+                        }
+                    },
+                    hit["line"].as_u64().unwrap() as usize,
+                )
+            });
+            assert_eq!(
+                scan_for_forbidden_tokens_in_bytes(source.as_bytes()),
+                expected,
+                "{case}"
+            );
         }
     }
 
     #[test]
-    fn review_critical_raw_forms_are_rejected_before_spawn() {
+    fn sixteen_mib_text_scan_finishes_under_ten_seconds() {
+        let mut source = "/- nested /- inner -/ text -/ s!\"a{x}b\" f '' s\n".repeat(400_000);
+        source.truncate(16 * 1024 * 1024);
+        assert_eq!(source.len(), 16 * 1024 * 1024);
+        let started = Instant::now();
+        assert_eq!(scan_for_forbidden_tokens_in_bytes(source.as_bytes()), None);
+        assert!(started.elapsed() < Duration::from_secs(10));
+    }
+
+    #[test]
+    fn review_forbidden_words_are_rejected_before_spawn() {
         for token in [
             "maxHeartbeats",
             "maxRecDepth",
@@ -3154,62 +3168,10 @@ mod tests {
     }
 
     #[test]
-    fn ignores_sorry_in_line_comment() {
-        // blank_non_code blanks the `-- sorry` so the scan finds nothing.
-        assert!(!contains_forbidden_token(
-            &blank_non_code("foo -- sorry"),
-            b"sorry"
-        ));
-    }
-
-    #[test]
-    fn ignores_forbidden_tokens_in_block_comments() {
-        let code = blank_non_code(
-            "/- this proof is axiom-independent and avoids native_decide -/\n\
-             theorem t : True := trivial\n",
-        );
-        assert!(!contains_forbidden_token(&code, b"axiom"));
-        assert!(!contains_forbidden_token(&code, b"native_decide"));
-        assert!(!contains_forbidden_token(&code, b"sorry"));
-    }
-
-    #[test]
-    fn ignores_forbidden_tokens_in_string_literals() {
-        let code = blank_non_code(r#"def msg : String := "axiom is not permitted here""#);
-        assert!(!contains_forbidden_token(&code, b"axiom"));
-    }
-
-    #[test]
-    fn block_comment_open_inside_string_does_not_swallow_following_code() {
-        // `/-` inside a string must NOT start a block comment that would blank
-        // the real `axiom` on the next line (a false negative / unsound).
-        let code = blank_non_code("def s : String := \"/-\"\naxiom sneaky : False\n");
-        let line2 = code.lines().nth(1).unwrap_or("");
-        assert!(
-            contains_forbidden_token(line2, b"axiom"),
-            "a real axiom after a string containing /- must still be caught; line2={line2:?}"
-        );
-    }
-
-    #[test]
-    fn real_forbidden_token_in_code_survives_blanking() {
-        assert!(contains_forbidden_token(
-            &blank_non_code("axiom bad : False\n"),
-            b"axiom"
-        ));
-        assert!(contains_forbidden_token(
-            &blank_non_code("theorem t : True := by native_decide\n"),
-            b"native_decide"
-        ));
-    }
-
-    #[test]
     fn elaboration_time_command_aliases_are_forbidden() {
         for token in ["run_cmd", "run_elab", "run_meta", "run_tac"] {
             assert!(
-                FORBIDDEN_TOKENS.iter().any(|(_, name, boundary)| {
-                    *name == token && *boundary == TokenBoundary::Word
-                }),
+                scan_for_forbidden_tokens_in_bytes(token.as_bytes()).is_some(),
                 "`{token}` can execute code while the primary checker elaborates"
             );
         }

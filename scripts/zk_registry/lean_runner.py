@@ -334,7 +334,7 @@ def run_lean(env: LeanEnv, args: list[str], cwd: str, timeout: float, extra_lean
 
 
 def parse_messages(out: str) -> list[dict]:
-    """``lean --json`` output: one JSON message per line; other lines become error messages."""
+    """``lean --json`` output: one JSON message per line; other lines remain raw output."""
     msgs = []
     for ln in out.splitlines():
         if not ln.strip():
@@ -346,7 +346,7 @@ def parse_messages(out: str) -> list[dict]:
                 continue
         except ValueError:
             pass
-        msgs.append({"severity": "error", "data": "non-JSON output: " + ln[:500], "pos": None})
+        msgs.append({"severity": "raw", "data": ln, "pos": None})
     return msgs
 
 

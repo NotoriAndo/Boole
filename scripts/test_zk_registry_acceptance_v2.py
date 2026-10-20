@@ -65,9 +65,7 @@ class ForbiddenV2Tests(unittest.TestCase):
         for name in names:
             with self.subTest(command=name):
                 self.assertTrue(C.forbidden_scan([('helper declarations', name + ' anything')]))
-        self.assertEqual(C.forbidden_scan([('helper declarations',
-                                           '-- elab and @[bad]\n/- register_simp_attr x -/\n'
-                                           'def text := "@[bad] simproc"')]), [])
+
 
 
 class EnvironmentV2Tests(unittest.TestCase):
