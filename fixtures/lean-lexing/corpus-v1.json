@@ -1,0 +1,173 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "escaped-open",
+      "source": "def «/-» := 0\naxiom hidden : True\n",
+      "has_axiom": true,
+      "invalid": false
+    },
+    {
+      "name": "escaped-line",
+      "source": "def «--» := 0\naxiom hidden : True\n",
+      "has_axiom": true,
+      "invalid": false
+    },
+    {
+      "name": "escaped-quote",
+      "source": "def «\"» := 0\naxiom hidden : True\n",
+      "has_axiom": true,
+      "invalid": false
+    },
+    {
+      "name": "raw",
+      "source": "def x := r#\"a\"b\"#\naxiom hidden : True\n",
+      "has_axiom": true,
+      "invalid": false
+    },
+    {
+      "name": "raw-empty-hash",
+      "source": "def x := r\"/-\"\naxiom hidden : True\n",
+      "has_axiom": true,
+      "invalid": false
+    },
+    {
+      "name": "character",
+      "source": "def x := '\\\"' \naxiom hidden : True\n",
+      "has_axiom": true,
+      "invalid": false
+    },
+    {
+      "name": "interpolated",
+      "source": "def x := s!\"{'\"'}\"\naxiom hidden : True\n",
+      "has_axiom": true,
+      "invalid": false
+    },
+    {
+      "name": "quoted-comment-pair",
+      "source": "def «/-» := 0\naxiom hidden : True\ndef «-/» := 0\n",
+      "has_axiom": true,
+      "invalid": false
+    },
+    {
+      "name": "nested-comments",
+      "source": "/- axiom /-- axiom -/ axiom -/\n-- axiom\ntheorem ok : True := by trivial",
+      "has_axiom": false,
+      "invalid": false
+    },
+    {
+      "name": "plain-literal",
+      "source": "def x := \"axiom /- \\\" --\"\ntheorem ok : True := by trivial",
+      "has_axiom": false,
+      "invalid": false
+    },
+    {
+      "name": "raw-hashes",
+      "source": "def x := r##\"axiom \"# and /-\"##\n",
+      "has_axiom": false,
+      "invalid": false
+    },
+    {
+      "name": "char-escapes",
+      "source": "def a := '\\''\ndef b := '\\x22'\ndef c := '\\u0022'\ndef d := '\"'\n",
+      "has_axiom": false,
+      "invalid": false
+    },
+    {
+      "name": "identifier-prime",
+      "source": "def x' := 1\ndef y := x'\n",
+      "has_axiom": false,
+      "invalid": false
+    },
+    {
+      "name": "nested-interpolation",
+      "source": "def x := s!\"{s!\"{'\\\"'}\"} axiom\"\n",
+      "has_axiom": false,
+      "invalid": false
+    },
+    {
+      "name": "interpolation-code",
+      "source": "def x := s!\"literal axiom { by axiom hidden : True }\"",
+      "has_axiom": true,
+      "invalid": false
+    },
+    {
+      "name": "spaced-interpolation",
+      "source": "def x := s! /- axiom -/ \"{ by axiom hidden : True }\"",
+      "has_axiom": true,
+      "invalid": false
+    },
+    {
+      "name": "unterminated-string",
+      "source": "\"abc",
+      "has_axiom": false,
+      "invalid": true
+    },
+    {
+      "name": "unterminated-raw",
+      "source": "r##\"abc\"#",
+      "has_axiom": false,
+      "invalid": true
+    },
+    {
+      "name": "unterminated-comment",
+      "source": "/- abc",
+      "has_axiom": false,
+      "invalid": true
+    },
+    {
+      "name": "unterminated-identifier",
+      "source": "«abc",
+      "has_axiom": false,
+      "invalid": true
+    },
+    {
+      "name": "unterminated-char",
+      "source": "'abc'",
+      "has_axiom": false,
+      "invalid": true
+    },
+    {
+      "name": "unterminated-escape",
+      "source": "\"bad\\q\"",
+      "has_axiom": false,
+      "invalid": true
+    },
+    {
+      "name": "unterminated-interpolation",
+      "source": "s!\"{ 1 \"",
+      "has_axiom": false,
+      "invalid": true
+    },
+    {
+      "name": "ambiguous-custom-interpolation",
+      "source": "unknown! \"{axiom hidden : True}\"",
+      "has_axiom": false,
+      "invalid": true
+    },
+    {
+      "name": "nested-interpolant-record",
+      "source": "s!\"{ {field := 1} }\"",
+      "has_axiom": false,
+      "invalid": false
+    },
+    {
+      "name": "comments-between-native-config",
+      "source": "decide (config := { native /- hidden -/ := true })",
+      "has_axiom": false,
+      "invalid": false
+    },
+    {
+      "name": "ambiguous-argument-interpolation",
+      "source": "throwErrorAt stx \"{axiom hidden : True}\"",
+      "has_axiom": false,
+      "invalid": true
+    },
+    {
+      "name": "raw-braced-literal",
+      "source": "def x := r#\"{axiom hidden : True}\"#",
+      "has_axiom": false,
+      "invalid": false
+    }
+  ]
+}

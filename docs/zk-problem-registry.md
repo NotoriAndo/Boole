@@ -36,7 +36,10 @@ The production judge reads only `scripts/zk_registry/data/acceptance_environment
 Mathlib `d13f23b723b8a846827a245b89c10fc7d3f11612` and exact manifest/package pins. Old roots and fixtures retain
 v4.33.1. An old package gives ERROR `environment-retired` before compilation; its earlier PASS is historical evidence.
 The environment descriptor also binds each supported profile's Lean executable, runtime libraries and ordered
-`.olean` roots, including private/server companions and package-directory layout. Missing, added, reordered or
+module roots: `.olean`, every `.olean.*` companion (including private/server and `.hash`),
+`.ir` and `.ir.sig`, plus package-directory layout. `.hash` files remain conservative extra pins.
+Darwin-arm64 is development evidence; Linux-aarch64 has a measured production artifact profile.
+Linux-x86_64 has no artifact profile and is **not production**. Missing, added, reordered or
 changed artifacts give ERROR `environment-mismatch`; an unmeasured profile gives ERROR `environment-unpinned`.
 Version strings and operator-provided hashes cannot replace these tracked byte pins. Challenge export and sealed
 reference integrity failures, including a rebuilt Challenge hash mismatch, are node ERRORs, never INVALID.
@@ -47,6 +50,7 @@ declaration, `maxRecDepth` 2,048 (raw 32,768), and a 64 MiB worker stack. Nanoda
 per declaration and 64 MiB; con-ron's candidate is 8,589,934,592 native decrement calls per phase.
 The gate fixes the Lean replay worker stack
 from this profile. Legacy replay still uses unlimited kernel calls: an untyped negative is ERROR `replay-unavailable`.
+Lean kernel heartbeat/depth caps and the nanoda worker-stack cap are recorded candidates, **not enforced**.
 Deterministic fuel/depth enforcement for all kernels and mandatory con-ron are subsequent upgrades; these values
 do not claim that existing nanoda/con-ron binaries enforce those budgets. Final caps require the full population,
 actual cap-profile probes and quiet timing/RSS remeasurement on the genesis toolchain at **M-FULL**.
@@ -162,7 +166,8 @@ Attributes in both `@[...]` and `attribute [...]` must be on the allowlist: `sim
 All others are INVALID `forbidden-attribute`; this does not authorize custom elaboration handlers.
 `sorry`, `native_decide`,
 `Lean.ofReduceBool/Nat`, `Lean.trustCompiler`, `implemented_by`, `extern`, unsafe and generated
-`_native.native_decide.ax_*` axioms remain forbidden. New CG1 metadata records `forbidden_version: 3`;
+`_native.native_decide.ax_*` / `_native.decide.ax_*` axioms remain unconditionally forbidden.
+New CG1 metadata records `forbidden_version: 4`;
 the immutable v1/v2 label sets remain readable. Live checking applies the current policy without editing historical
 package roots. The checker reads each validated package's declared theorem name; it never assumes `soundness`.
 
@@ -189,21 +194,34 @@ production-mode catalog run; Task Y-fix does not repeat them on macOS or promote
 
 Gate outcomes are PASS / FAIL / INVALID / ERROR. A Lean acceptance with an independent nanoda rejection remains
 INVALID `kernel-disagreement`. A nanoda acceptance with a legacy, untyped Lean negative is ERROR
-`replay-unavailable`: changing only the local worker stack can produce that negative. Legacy ZkReplay failure
-likewise gives ERROR. Abort, signals and shell-encoded signal statuses are ERROR `resource-unavailable` in compile,
-replay and export; Comparator accepts only its structured 0/2 statuses as verdicts, with 70, unknown exits and
-contradictory acceptance markers producing ERROR.
+`replay-unavailable`: changing only the local worker stack can produce that negative. Legacy ZkReplay failure gives ERROR only when compilation has established no deterministic INVALID/FAIL.
+Availability errors (resources, sandbox, signals) take precedence, followed by deterministic compile findings
+(disallowed axioms, sorry, structured errors), then unavailable replay. A nonzero compile exit without structured
+error diagnostics is ERROR `resource-unavailable`. Abort, signals and shell-encoded signal statuses are ERROR `resource-unavailable` in compile,
+replay and export; Comparator uses its own private JSONL status file and 0/2 exit contract; kernel stdout is never a verdict channel.
+Transport exit 70, unknown exits, missing/malformed statuses and contradictory final status are ERROR.
+Two kernel acceptances followed by a deterministic Quotient post-check rejection are INVALID `kernel-rejection`;
+this rejection must not be masked as an inconsistent success. Comparator `export-integrity` is ERROR.
 Compile heartbeat/recursion exhaustion uses Lean's structured `runtime.maxHeartbeats`/`runtime.maxRecDepth`
 diagnostic kinds for INVALID `resource-cap`; English message text does not decide this classification.
 The exported-constant cap remains deterministic INVALID `resource-cap`. Wall/memory/observation interruption is
 retryable ERROR `resource-unavailable`, not mathematical rejection. Time/RSS cover the owned process tree;
 sampled cooperative guards are not certified adversarial peak-memory bounds.
 
-Current submission policy v4 rejects solver-written `maxHeartbeats` and `maxRecDepth` identifiers, including escaped
-spellings, before compilation, matching the Rust runner; comments and strings are ignored. Historical v1/v2/v3
-metadata remains readable and frozen outcomes remain historical evidence. Exporter module lookup explicitly puts
-pinned core and library roots before submission-writable proof/build roots, so an empty solver `proof/Init` or
-`proof/Mathlib` directory cannot shadow the pinned packages.
+Current submission policy v4 rejects solver-written `maxHeartbeats` / `maxRecDepth`, `+native`, `native :=`,
+`bv_decide` and `bv_check` before compilation. Both code and raw unstripped text are scanned for these critical
+restrictions, including occurrences in comments/strings; `bv_decide` has a wall-clock solver timeout. Generated
+native-evaluator axioms remain forbidden even if an allowlist names one. The Python checker and Rust runner share
+Lean 4.34.1 literal-boundary conformance cases: escaped identifiers, nested/doc comments, plain/raw strings,
+character literals/escapes and nested interpolated terms. Other forbidden tokens inside actual comments/literal
+text are ignored; interpolation expressions remain code. Unterminated, malformed or ambiguous lexical constructs
+(including unknown custom bang-string syntax or unescaped `{` in a string without a directly recognized
+interpolation introducer) give deterministic INVALID `unparseable-source`. This conservative lexical subset
+uses raw strings for literal brace text; it does not pretend to parse every imported macro argument grammar. The two interfaces
+retain their separate policy vocabularies; this does not claim identical whole forbidden lists.
+Historical v1/v2/v3 metadata remains readable and frozen outcomes remain historical evidence. Exporter module lookup
+puts pinned core/library roots first, then the trusted build root before proof, so a solver `proof/Init` or
+`proof/Mathlib` directory cannot shadow pinned packages or pristine imported builds.
 
 Kernel-bug policy: recheck every accepted result under the fixed and independent kernels; mark failures stale and
 re-pose them; cancel unvested rewards only, with no vested clawback. The stale/re-pose/reward registry states belong

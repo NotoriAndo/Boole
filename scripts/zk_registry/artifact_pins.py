@@ -47,7 +47,9 @@ def snapshot(env):
     # Keep no-follow checks on every artifact below the canonical roots.
     prefix = Path(env.toolchain).resolve(strict=True)
     roots = [prefix/'lib/lean', *(Path(root).resolve(strict=True) for root in env.lean_path)]
-    modules = lambda name: name.endswith('.olean') or '.olean.' in name
+    # Lean imports read both kernel/elaboration artifacts and interpreter IR.
+    # Retain .olean.hash as a conservative additional pin, alongside server/private.
+    modules = lambda name: name.endswith(('.olean', '.ir', '.ir.sig')) or '.olean.' in name
     native = lambda name: re.search(r'\.(?:so(?:\.\d+)*|dylib|dll)$', name) is not None
     return dict(lean_binary_sha256=digest(prefix/'bin/lean'),
                 runtime_libraries=tree(prefix/'lib', native),

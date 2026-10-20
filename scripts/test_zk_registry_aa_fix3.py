@@ -21,6 +21,7 @@ from zk_registry import correctness_runtime as CR
 from zk_registry import closure as D
 from zk_registry.sandbox import Sandbox
 from zk_registry.sandbox import SandboxUnavailable
+from test_zk_registry_aa_fix import comparator_status_program
 
 
 def retain_control(test, observation):
@@ -224,7 +225,7 @@ class LiveCompare(unittest.TestCase):
         for name in ['Challenge.ndjson', 'Solution.ndjson']:
             (root / name).write_text('transport control, not a proof')
         program = root / 'comparator-control'
-        program.write_text('#!/usr/bin/python3\nimport os,json\nfrom pathlib import Path\n'
+        program.write_text('#!/usr/bin/python3\n' + comparator_status_program() + 'import os,json\nfrom pathlib import Path\n'
             'Path(os.environ["COMPARATOR_BOUNDARY_STATUS"]).write_text('
             'json.dumps(dict(inner_exec="ok",exit=0))+"\\n")\n'
             + ('print("Lean default kernel accepts the solution",flush=True)\n'
@@ -254,8 +255,9 @@ class LiveCompare(unittest.TestCase):
                          ('ERROR', 'sandbox-unavailable'), actual)
 
     def test_early_semantic_rejection_without_inner_launch_is_still_invalid(self):
+        semantic = comparator_status_program([dict(stage='policy', reason='comparator-statement-mismatch')], rc=2)
         actual = self.compare_control('Path(os.environ["COMPARATOR_BOUNDARY_STATUS"]).write_text("")\n'
-            'print("statement mismatch",flush=True)\nraise SystemExit(2)\n', acceptance_markers=False)
+            + semantic + 'print("statement mismatch",flush=True)\nraise SystemExit(2)\n', acceptance_markers=False)
         self.assertEqual((actual['verdict'], actual['reason']),
                          ('INVALID', 'comparator-statement-mismatch'), actual)
 

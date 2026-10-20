@@ -100,8 +100,7 @@ class AvailabilityVerdicts(unittest.TestCase):
         from test_zk_registry_correctness_gnark import package_fixture
         problem = package_fixture()
         problem['checker']['forbidden_version'] = 3
-        problem['checker']['forbidden_tokens'] = [label for label in C.FORBIDDEN_LABELS
-                                                   if label != 'limit-override']
+        problem['checker']['forbidden_tokens'] = C.FORBIDDEN_LABELS_V3[:]
         self.assertEqual(P.validate_problem(problem), [])
 
     def test_rebuilt_challenge_digest_mismatch_is_error(self):
@@ -173,7 +172,13 @@ class AvailabilityVerdicts(unittest.TestCase):
             tools = D.Tools('/usr/bin/true', '/usr/bin/true', '/usr/bin/true', '/usr', None)
             result = L.RunResult(2, 'nanoda kernel accepts the solution\n'
                 'Lean default kernel rejects the solution\nresource-cap: in a declaration name\n', 0, False)
-            with patch.object(CR, 'runner', return_value=lambda *args: result):
+            def run(command, env, *args):
+                events = [dict(version=1, stage='nanoda', result='accept'),
+                          dict(version=1, stage='lean', result='reject'),
+                          dict(version=1, stage='final', rc=2)]
+                Path(env['COMPARATOR_STATUS_FILE']).write_text(''.join(json.dumps(e)+'\n' for e in events))
+                return result
+            with patch.object(CR, 'runner', return_value=run):
                 actual = D.compare_exports(str(challenge), str(solution), 'X.goal', tools,
                     SB.Sandbox.fixture(), str(root/'compare'), 10, [])
             self.assertEqual((actual['verdict'], actual['reason']), ('ERROR', 'replay-unavailable'))

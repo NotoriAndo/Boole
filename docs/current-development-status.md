@@ -166,10 +166,15 @@ limited to a safe allowlist; commands that define elaboration code are rejected.
     no required stage and no frozen outcome.
 - **Resource verdicts and artifact pins.** Host resource failures, trusted export
   corruption and untyped legacy replay failures return ERROR. The judge binds
-  Lean executable/runtime bytes and ordered imported module artifacts on both
-  arm64 profiles. Submission policy v4 rejects solver limit overrides, and pinned
-  exporter roots precede submission roots. Gate-owned testnet limits are provisional;
-  full deterministic fuel enforcement remains a later upgrade. See the
+  Lean executable/runtime bytes and ordered module roots: `.olean`, `.olean.*`
+  (private/server/hash companions), `.ir`, `.ir.sig` and package-directory layout
+  on Darwin-arm64 and Linux-aarch64. Linux-x86_64 has no artifact profile and is not
+  production. Submission policy v4 rejects solver limit overrides and native-evaluation
+  forms using code plus raw-text checks; ambiguous Lean lexing is INVALID. Deterministic
+  compile findings survive unavailable replay, and Comparator uses its own status
+  channel. Pinned core/library roots and trusted builds precede proof roots. Gate-owned
+  testnet limits are provisional; Lean kernel step/depth and nanoda stack candidates
+  are recorded but not enforced. Full deterministic fuel enforcement remains a later upgrade. See the
   [registry contract](zk-problem-registry.md) for the classifications and limits.
 - macOS results remain development evidence only.
 

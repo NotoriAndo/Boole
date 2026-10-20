@@ -51,6 +51,8 @@
 // code rather than hidden in a manifest exception.
 #![allow(unsafe_code)]
 
+mod lean_lex;
+
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -1736,13 +1738,24 @@ fn disallowed_import_on_line(line: &str) -> Option<String> {
 /// together with its 1-based line number, or `None` if the proof is free of
 /// all of them.
 fn scan_for_forbidden_tokens_in_bytes(bytes: &[u8]) -> Option<(String, usize)> {
-    let text = String::from_utf8_lossy(bytes);
+    let Ok(text) = std::str::from_utf8(bytes) else {
+        return Some(("unparseable-source".to_string(), 1));
+    };
     // Blank the bytes of line comments, nested block comments, and string
     // literals (preserving newlines so line numbers stay accurate) so the
     // forbidden-token scan only fires on real CODE. A `sorry`/`axiom`/
     // `native_decide` that appears inside a comment or string is
     // documentation, not an unsound declaration, and must not be rejected.
-    let code = blank_non_code(&text);
+    let code = match lean_lex::blank_non_code(text) {
+        Ok(code) => code,
+        Err(()) => return Some(("unparseable-source".to_string(), 1)),
+    };
+    // v4 critical restrictions are scanned in code AND raw comments/literals.
+    for source in [text, code.as_str()] {
+        if let Some(hit) = critical_raw_form(source) {
+            return Some(hit);
+        }
+    }
     for (idx, line) in code.lines().enumerate() {
         for &(needle, name, boundary) in FORBIDDEN_TOKENS {
             let hit = match boundary {
@@ -1760,83 +1773,45 @@ fn scan_for_forbidden_tokens_in_bytes(bytes: &[u8]) -> Option<(String, usize)> {
     None
 }
 
-/// Replace the bytes of Lean line comments (`-- … eol`), nested block
-/// comments (`/- … -/`), and double-quoted string literals with spaces,
-/// preserving newlines so 1-based line numbers stay accurate.
-///
-/// A single left-to-right pass tracks the lexical state so that, crucially,
-/// `/-` inside a string and `"` inside a comment are NOT misinterpreted — a
-/// naive two-pass strip would treat `"/-"` as a comment-open and blank the
-/// real code that follows, a false negative that would let an unsound
-/// `axiom` through. Char literals (`'c'`) are left as-is: a single char can
-/// never be a forbidden multi-byte keyword, and `'` is also an identifier
-/// suffix in Lean (`x'`), so treating it as a delimiter would mangle code.
-/// Only ASCII delimiters are matched; UTF-8 multi-byte code bytes are copied
-/// through verbatim (their bytes never collide with the ASCII delimiters).
+/// Test helper for the shared fail-closed Lean literal classifier.
+#[cfg(test)]
 fn blank_non_code(text: &str) -> String {
-    let b = text.as_bytes();
-    let mut out: Vec<u8> = Vec::with_capacity(b.len());
-    let mut i = 0;
-    let mut block_depth: usize = 0;
-    while i < b.len() {
-        let c = b[i];
-        if block_depth > 0 {
-            if c == b'/' && i + 1 < b.len() && b[i + 1] == b'-' {
-                block_depth += 1;
-                out.push(b' ');
-                out.push(b' ');
-                i += 2;
+    lean_lex::blank_non_code(text).expect("valid lexical fixture")
+}
+
+fn critical_raw_form(text: &str) -> Option<(String, usize)> {
+    let word = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+    for needle in [
+        "maxHeartbeats",
+        "maxRecDepth",
+        "bv_decide",
+        "bv_check",
+        "native",
+    ] {
+        for (start, _) in text.match_indices(needle) {
+            let end = start + needle.len();
+            if start > 0 && word(text.as_bytes()[start - 1])
+                || text.as_bytes().get(end).is_some_and(|b| word(*b))
+            {
                 continue;
             }
-            if c == b'-' && i + 1 < b.len() && b[i + 1] == b'/' {
-                block_depth -= 1;
-                out.push(b' ');
-                out.push(b' ');
-                i += 2;
+            if needle == "native"
+                && !(text[..start].trim_end().ends_with('+')
+                    || text[end..]
+                        .strip_prefix('»')
+                        .unwrap_or(&text[end..])
+                        .trim_start()
+                        .starts_with(":="))
+            {
                 continue;
             }
-            out.push(if c == b'\n' { b'\n' } else { b' ' });
-            i += 1;
-            continue;
+            return Some((
+                needle.to_string(),
+                text[..start].bytes().filter(|b| *b == b'\n').count() + 1,
+            ));
         }
-        if c == b'/' && i + 1 < b.len() && b[i + 1] == b'-' {
-            block_depth = 1;
-            out.push(b' ');
-            out.push(b' ');
-            i += 2;
-            continue;
-        }
-        if c == b'-' && i + 1 < b.len() && b[i + 1] == b'-' {
-            while i < b.len() && b[i] != b'\n' {
-                out.push(b' ');
-                i += 1;
-            }
-            continue;
-        }
-        if c == b'"' {
-            out.push(b' ');
-            i += 1;
-            while i < b.len() {
-                if b[i] == b'\\' && i + 1 < b.len() {
-                    out.push(b' ');
-                    out.push(b' ');
-                    i += 2;
-                    continue;
-                }
-                if b[i] == b'"' {
-                    out.push(b' ');
-                    i += 1;
-                    break;
-                }
-                out.push(if b[i] == b'\n' { b'\n' } else { b' ' });
-                i += 1;
-            }
-            continue;
-        }
-        out.push(c);
-        i += 1;
     }
-    String::from_utf8(out).unwrap_or_else(|_| text.to_string())
+    None
 }
 
 fn contains_forbidden_token(line: &str, needle: &[u8]) -> bool {
@@ -2925,6 +2900,55 @@ fn run_toolchain_probe(command: Command, config: &LeanRunnerConfig) -> Result<St
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn review_lean_literal_corpus_is_fail_closed() {
+        let corpus: serde_json::Value =
+            serde_json::from_str(include_str!("../../../fixtures/lean-lexing/corpus-v1.json"))
+                .unwrap();
+        for case in corpus["cases"].as_array().unwrap() {
+            let source = case["source"].as_str().unwrap();
+            let found = scan_for_forbidden_tokens_in_bytes(source.as_bytes());
+            if case["invalid"].as_bool().unwrap() {
+                assert_eq!(
+                    found.map(|v| v.0),
+                    Some("unparseable-source".into()),
+                    "{case}"
+                );
+            } else {
+                let code = lean_lex::blank_non_code(source).expect("classified literal case");
+                assert_eq!(
+                    contains_forbidden_token(&code, b"axiom"),
+                    case["has_axiom"].as_bool().unwrap(),
+                    "{case}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn review_critical_raw_forms_are_rejected_before_spawn() {
+        for token in [
+            "maxHeartbeats",
+            "maxRecDepth",
+            "decide +native",
+            "decide (config := { native := true })",
+            "bv_decide",
+            "bv_check",
+        ] {
+            for source in [
+                token.to_string(),
+                format!("-- {token}"),
+                format!("\"{token}\""),
+                format!("«{token}»"),
+            ] {
+                assert!(
+                    scan_for_forbidden_tokens_in_bytes(source.as_bytes()).is_some(),
+                    "{source}"
+                );
+            }
+        }
+        assert!(scan_for_forbidden_tokens_in_bytes(b"native /- hidden -/ := true").is_some());
+    }
     use super::*;
 
     #[cfg(unix)]

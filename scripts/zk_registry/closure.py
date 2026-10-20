@@ -51,6 +51,15 @@ class Tools:
     @classmethod
     def load(cls, root: str) -> Tools:
         """Load provisioned paths using only the tracked component and binary pins."""
+        try:
+            return cls._load(root)
+        except (OSError, ValueError, RuntimeError, KeyError):
+            # Provisioned paths are trusted inputs. Python <=3.12 reports
+            # resolve() symlink loops as RuntimeError rather than OSError.
+            raise ToolsUnavailable('kernels-unavailable') from None
+
+    @classmethod
+    def _load(cls, root: str) -> Tools:
         data = json.loads((Path(__file__).parent / 'data/acceptance_tools_v2.json').read_text())
         profile = platform.system() + '-' + platform.machine()
         pins = data['binary_profiles'].get(profile)
@@ -199,7 +208,7 @@ def prepare_reference(env: L.LeanEnv, problem: dict, package: str, work: str, se
     if post.get('replay') != 'ok':
         return dict(verdict='ERROR', reason='challenge-build-unavailable', compiled=compiled)
     result = export_module(env, 'ProofMod', problem['checker']['theorem_fqn'], sealed, tools, sandbox,
-                           str(Path(work) / 'proof'), [str(Path(work) / 'proof'), str(Path(work) / 'build')],
+                           str(Path(work) / 'proof'), [str(Path(work) / 'build'), str(Path(work) / 'proof')],
                            timeout, axioms, identity=not P.candidate_derived(problem))
     if P.candidate_derived(problem):
         result.update(statement_closure_sha256=None,
@@ -306,6 +315,10 @@ def compare_exports(challenge: str, solution: str, theorem: str, tools: Tools, s
         'COMPARATOR_NANODA': nanoda_binary or tools.nanoda,
         'LEAN_STACK_SIZE_KB': str(L.testnet_caps()['lean']['worker_stack_bytes'] // 1024),
     }
+    comparator_status = directory / 'comparator.status.jsonl'
+    with comparator_status.open('xb'):
+        pass
+    env['COMPARATOR_STATUS_FILE'] = str(comparator_status)
     status_directory = None
     if sandbox.mode == 'production':
         if not sandbox.inner_executable or not Path(sandbox.inner_executable).is_file():
@@ -377,27 +390,57 @@ def compare_exports(challenge: str, solution: str, theorem: str, tools: Tools, s
                 or not 0 <= row['exit'] < 128 for row in signals)
                 or (result.rc != 2 and not signals)):
             return dict(record, verdict='ERROR', reason='sandbox-unavailable')
-    lean_accepts = 'Lean default kernel accepts the solution' in result.out
-    nanoda_accepts = 'nanoda kernel accepts the solution' in result.out
+    # Kernel stdout contains attacker-controlled declaration names. Only the
+    # Comparator's own private structured file establishes semantic statuses.
+    try:
+        raw = comparator_status.read_bytes()
+        if len(raw) > 16384:
+            raise ValueError('oversized comparator status')
+        events = [json.loads(line) for line in raw.splitlines()]
+        if not 1 <= len(events) <= 8 or any(not isinstance(e, dict) or type(e.get('version')) is not int
+                or e['version'] != 1 for e in events):
+            raise ValueError('invalid comparator status')
+        if type(events[-1].get('rc')) is not int or events[-1] != dict(version=1, stage='final', rc=result.rc):
+            raise ValueError('missing final comparator status')
+        statuses = {}
+        for event in events[:-1]:
+            stage = event.get('stage')
+            if stage in statuses:
+                raise ValueError('duplicate comparator stage')
+            if stage in ('lean', 'nanoda', 'quotient'):
+                if set(event) != {'version', 'stage', 'result'} or event['result'] not in ('accept', 'reject'):
+                    raise ValueError('invalid kernel status')
+            elif stage in ('policy', 'error'):
+                allowed = {'resource-cap', 'disallowed-axiom', 'comparator-statement-mismatch'} if stage == 'policy' else {'export-integrity'}
+                if set(event) != {'version', 'stage', 'reason'} or event['reason'] not in allowed:
+                    raise ValueError('invalid semantic status')
+            else:
+                raise ValueError('unknown comparator stage')
+            statuses[stage] = event
+    except (OSError, ValueError, TypeError, KeyError):
+        return dict(record, verdict='ERROR', reason='sandbox-unavailable')
+    record['comparator_status'] = events
+    lean_accepts = statuses.get('lean', {}).get('result') == 'accept'
+    nanoda_accepts = statuses.get('nanoda', {}).get('result') == 'accept'
     record.update(lean_accepts=lean_accepts, nanoda_accepts=nanoda_accepts)
-    if result.rc == 0 and lean_accepts and nanoda_accepts:
-        return dict(record, verdict='PASS', reason=None)
+    if 'error' in statuses:
+        return dict(record, verdict='ERROR', reason=statuses['error']['reason'])
+    if 'policy' in statuses:
+        return dict(record, verdict='INVALID' if result.rc == 2 else 'ERROR',
+                    reason=statuses['policy']['reason'] if result.rc == 2 else 'sandbox-unavailable')
     if result.rc == 0:
+        if lean_accepts and nanoda_accepts and statuses.get('quotient', {}).get('result') == 'accept':
+            return dict(record, verdict='PASS', reason=None)
+        return dict(record, verdict='ERROR', reason='sandbox-unavailable')
+    if statuses.get('quotient', {}).get('result') == 'reject' and lean_accepts:
+        return dict(record, verdict='INVALID', reason='kernel-rejection')
+    if 'lean' not in statuses or 'nanoda' not in statuses:
         return dict(record, verdict='ERROR', reason='sandbox-unavailable')
     if lean_accepts and nanoda_accepts:
-        # A rejection status contradicts two acceptance markers. Never let
-        # semantic-looking text turn an inconsistent tool response into INVALID.
         return dict(record, verdict='ERROR', reason='sandbox-unavailable')
-    if nanoda_accepts and not lean_accepts:
-        # Legacy Lean replay erases resource exception types. M4 reproduced this
-        # negative solely by changing the local worker stack. Await typed replay.
+    if nanoda_accepts:
+        # Legacy replay still erases typed resource exceptions.
         return dict(record, verdict='ERROR', reason='replay-unavailable')
-    if 'resource-cap:' in result.out:
-        return dict(record, verdict='INVALID', reason='resource-cap')
-    if lean_accepts != nanoda_accepts:
+    if lean_accepts:
         return dict(record, verdict='INVALID', reason='kernel-disagreement')
-    if 'axiom' in result.out.lower():
-        return dict(record, verdict='INVALID', reason='disallowed-axiom')
-    if 'mismatch' in result.out.lower() or 'not match' in result.out.lower():
-        return dict(record, verdict='INVALID', reason='comparator-statement-mismatch')
-    return dict(record, verdict='INVALID' if result.rc else 'ERROR', reason='kernel-rejection')
+    return dict(record, verdict='INVALID', reason='kernel-rejection')

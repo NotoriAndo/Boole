@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 """Generalized submission checker for zk-registry problem packages.
 
-Derived from the ZK-PILOT-DIFFICULTY-P2 checker, including its fix F1 (the kernel replay runs with
-the package's ``--tstack`` option, on a dedicated thread of the replay tool).  Everything that was
-item-specific there comes from the package's ``problem.json`` here.  One change: the theorem type is
-compared modulo binder names (see ``lean/ZkReplay.lean``), because anonymous binders get hygienic names
-that depend on the module name and on declarations above the theorem.
+The gate owns elaboration heartbeat, recursion and worker-stack limits. Deterministic compile
+findings survive unavailable legacy replay; resource and sandbox failures retain ERROR precedence.
+Theorem types are compared modulo binder names (see ``lean/ZkReplay.lean``).
 
 Usage::
 
@@ -14,7 +12,7 @@ Usage::
 
 Verdicts (exit code): PASS (0) | FAIL (1: does not elaborate, errors, ``sorry``) | INVALID (2: forbidden
 construct, disallowed axiom, changed statement text or imports, modified imported file, type mismatch,
-failed kernel replay) | ERROR (3: package, environment or checker problem).
+deterministic kernel rejection) | ERROR (3: package, environment, resources or unavailable replay).
 
 Checks, in order:
   1. package and environment integrity: ``problem.json`` validates, the package files match their
@@ -22,7 +20,7 @@ Checks, in order:
      one that recorded the reference type; copies of imported files in the solver's directory must match;
   2. text: the submission equals ``Statement.lean`` except for helper declarations inserted directly
      above the theorem and the proof replacing the ``sorry`` line;
-  3. forbidden constructs in the solver-written parts (comments and strings ignored);
+  3. forbidden constructs in solver-written code; v4 limit/native restrictions also scan raw text;
   4. compile (only if 1-3 are clean): the pristine model module is compiled from the package, then the
      submission as module ``ProofMod`` with ``#print axioms`` appended; no error, no ``sorry`` warning,
      printed axioms within the allowed set;
@@ -34,6 +32,7 @@ Checks, in order:
 from __future__ import annotations
 
 import argparse
+import errno
 import hashlib
 import json
 import os
@@ -82,7 +81,11 @@ FORBIDDEN = [entry for entry in FORBIDDEN_V2 if entry[1] != 'elaboration-attribu
 ] + [(r'\b(?:register|declare)_\w+\b', 'elaboration-registration')]
 FORBIDDEN_LABELS_V3 = [label for _, label in FORBIDDEN] + ['forbidden-attribute']
 # Match the bare names as the Rust runner does, including escaped Lean identifiers.
-FORBIDDEN += [(r'\b(?:maxHeartbeats|maxRecDepth)\b', 'limit-override')]
+CRITICAL_RAW_FORBIDDEN = [
+    (r'\b(?:maxHeartbeats|maxRecDepth)\b', 'limit-override'),
+    (r'\+\s*native\b|\bnative»?\s*:=|\bbv_(?:decide|check)\b', 'native-evaluation'),
+]
+FORBIDDEN += CRITICAL_RAW_FORBIDDEN
 FORBIDDEN_LABELS_V1 = [label for _, label in FORBIDDEN_V1]
 FORBIDDEN_LABELS_V2 = [label for _, label in FORBIDDEN_V2]
 FORBIDDEN_LABELS = [label for _, label in FORBIDDEN] + ['forbidden-attribute']
@@ -132,33 +135,9 @@ def parse_statement(text: str, thm: str) -> dict:
 
 
 def strip_comments_strings(src: str) -> str:
-    """Remove Lean comments (line and nested block, incl. doc comments) and string literals."""
-    out, i, n = [], 0, len(src)
-    while i < n:
-        c = src[i]
-        if src.startswith("--", i):
-            j = src.find("\n", i)
-            i = n if j < 0 else j
-        elif src.startswith("/-", i):
-            depth, i = 1, i + 2
-            while i < n and depth:
-                if src.startswith("/-", i):
-                    depth, i = depth + 1, i + 2
-                elif src.startswith("-/", i):
-                    depth, i = depth - 1, i + 2
-                else:
-                    i += 1
-            out.append(" ")
-        elif c == '"' and not src.startswith("'\"'", i - 1):
-            i += 1
-            while i < n and src[i] != '"':
-                i += 2 if src[i] == "\\" else 1
-            i += 1
-            out.append('""')
-        else:
-            out.append(c)
-            i += 1
-    return "".join(out)
+    """Classify pinned Lean literal boundaries; ambiguous source fails closed."""
+    from .lean_lex import blank_non_code
+    return blank_non_code(src)
 
 
 def text_check(orig: str, proof: str, thm: str) -> tuple[list[str], str, str]:
@@ -227,10 +206,17 @@ def forbidden_scan(parts: list[tuple[str, str]]) -> list[str]:
     """Apply the current submission policy; historical metadata versions do not weaken checking."""
     hits = []
     for name, txt in parts:
-        clean = strip_comments_strings(txt)
+        from .lean_lex import UnparseableSource
+        try:
+            clean = strip_comments_strings(txt)
+        except (UnparseableSource, RecursionError):
+            hits.append(f'unparseable-source in {name} (line 1 of that part)')
+            clean = ''
         for pat, label in FORBIDDEN:
-            for mm in re.finditer(pat, clean):
-                line = clean[: mm.start()].count("\n") + 1
+            # Critical v4 restrictions deliberately include comments/literals.
+            scans = [clean, txt] if (pat, label) in CRITICAL_RAW_FORBIDDEN else [clean]
+            for position in sorted({mm.start() for scan in scans for mm in re.finditer(pat, scan)}):
+                line = txt[:position].count("\n") + 1
                 hits.append(f"{label} in {name} (line {line} of that part)")
         for position in forbidden_attributes(clean):
             line = clean[:position].count('\n') + 1
@@ -387,8 +373,18 @@ def check(pkg_dir: str, proof_path: str, env: L.LeanEnv, workdir: str | None = N
     rep["status"] = problem["status"]
     chk = problem["checker"]
     rep["theorem"] = chk["theorem_fqn"]
-    with open(proof_path, "rb") as f:
-        proof_bytes = f.read()
+    try:
+        with open(proof_path, "rb") as f:
+            proof_bytes = f.read()
+    except L.BoundaryInvalid as ex:
+        invalid.append(str(ex))
+        rep['reason'] = str(ex)
+        return _finish(rep)
+    except OSError as ex:
+        reason = 'submission-output-path' if ex.errno == errno.ELOOP else 'submission-source-unavailable'
+        (invalid if ex.errno == errno.ELOOP else error).append(reason)
+        rep['reason'] = reason
+        return _finish(rep)
     rep["proof_sha256"] = hashlib.sha256(proof_bytes).hexdigest()
 
     # 1. environment integrity
@@ -415,7 +411,13 @@ def check(pkg_dir: str, proof_path: str, env: L.LeanEnv, workdir: str | None = N
     # 2-3. text and forbidden constructs
     with open(os.path.join(pkg_dir, chk["statement_file"]), encoding="utf-8") as f:
         orig = f.read()
-    proof = proof_bytes.decode('utf-8')
+    try:
+        proof = proof_bytes.decode('utf-8')
+    except UnicodeDecodeError:
+        invalid.append('unparseable-source')
+        rep['reason'] = 'unparseable-source'
+        rep['compile'] = 'skipped'
+        return _finish(rep)
     probs, aux, body = text_check(orig, proof, chk["theorem"])
     invalid += probs
     if not probs:
@@ -424,6 +426,8 @@ def check(pkg_dir: str, proof_path: str, env: L.LeanEnv, workdir: str | None = N
         invalid += scanned
         if any(hit.startswith('forbidden-attribute in ') for hit in scanned):
             rep['reason'] = 'forbidden-attribute'
+        if any(hit.startswith('unparseable-source in ') for hit in scanned):
+            rep['reason'] = 'unparseable-source'
         rep["helper_chars"], rep["proof_chars"] = len(aux), len(body)
 
     # 4-5. compile + kernel post-check (skipped when already INVALID or ERROR)
@@ -529,7 +533,7 @@ def check(pkg_dir: str, proof_path: str, env: L.LeanEnv, workdir: str | None = N
     if tools is not None and not (invalid or fail or error):
         exported = D.export_module(env, 'ProofMod', chk['theorem_fqn'], os.path.join(sealed, 'Solution.ndjson'),
                                    tools, selected, os.path.join(tmp, 'proof'),
-                                   [os.path.join(tmp, 'proof'), os.path.join(tmp, 'build')],
+                                   [os.path.join(tmp, 'build'), os.path.join(tmp, 'proof')],
                                    remaining(), allowed, exposure=selected.exposed_writers)
         rep['solution_export'] = exported
         if exported['verdict'] != 'PASS':
@@ -561,15 +565,20 @@ def apply_compile_result(r: dict, chk: dict, invalid: list[str], fail: list[str]
     if r.get('compile_memkill') or r.get('compile_killed_by'):
         error.append('resource-unavailable')
         return
+    if r.get('compile_rc') not in (0, None) and not r.get('n_errors'):
+        # An exit code alone (including allocator exit 1) proves no solver fault.
+        error.append('resource-unavailable')
+        return
     post_resource = r.get('post') or {}
     if post_resource.get('timeout') or post_resource.get('memkill') or post_resource.get('killed_by'):
         error.append('resource-unavailable')
         return
-    for boundary in (r.get('boundary'), post_resource.get('boundary')):
-        boundary = normalized_boundary(boundary)
-        if boundary and boundary.get('verdict') != 'PASS':
-            (error if boundary['verdict'] == 'ERROR' else invalid).append(boundary['reason'])
-            return
+    boundaries = [normalized_boundary(b) for b in (r.get('boundary'), post_resource.get('boundary'))]
+    for verdict, findings in [('ERROR', error), ('INVALID', invalid)]:
+        for boundary in boundaries:
+            if boundary and boundary.get('verdict') == verdict:
+                findings.append(boundary['reason'])
+                return
     if any(re.fullmatch(r'(?:nested\.)*runtime\.(?:maxHeartbeats|maxRecDepth)', kind)
            for kind in r.get('error_kinds', [])):
         invalid.append('resource-cap')
@@ -591,14 +600,17 @@ def apply_compile_result(r: dict, chk: dict, invalid: list[str], fail: list[str]
     if post and (post.get('timeout') or post.get('memkill') or post.get('killed_by')):
         error.append('resource-unavailable')
         return
-    if post is None:
-        if r.get("compile_rc") == 0 and not r.get("compile_timeout"):
-            error.append("no compiled module for the post-check")
-        return
-    if post.get("replay") != "ok":
-        # Legacy replay uses addDeclCore 0 0 and erases typed kernel exceptions.
-        # Its stack-dependent failure cannot establish a deterministic rejection.
-        error.append('replay-unavailable')
+    if post is None or post.get("replay") != "ok":
+        # Availability was checked first. A legacy replay failure cannot mask
+        # deterministic compile findings, nor establish a new rejection itself.
+        replay_errors = {
+            'ERROR': None, 'INVALID': None, 'FAIL': None,
+            'PASS': ('no compiled module for the post-check' if post is None
+                     else 'replay-unavailable'),
+        }
+        reason = replay_errors[verdict_of(dict(invalid=invalid, fail=fail, error=error))]
+        if reason:
+            error.append(reason)
         return
     target = post.get("target")
     if target in (None, "missing"):
@@ -656,6 +668,11 @@ def main(argv: list[str] | None = None) -> int:
                     sandbox=selected, tools=tools)
     except (SandboxUnavailable, D.ToolsUnavailable) as ex:
         rep = _finish(dict(error=[str(ex)], invalid=[], fail=[], reason=str(ex), compile='skipped'))
+    except L.BoundaryInvalid as ex:
+        rep = _finish(dict(error=[], invalid=[str(ex)], fail=[], reason=str(ex), compile='skipped'))
+    except OSError:
+        rep = _finish(dict(error=['checker-input-unavailable'], invalid=[], fail=[],
+                           reason='checker-input-unavailable', compile='skipped'))
     if a.report:
         P.write_json(a.report, rep)
     print(f"{rep['verdict']} package={a.package} theorem={rep.get('theorem')}")

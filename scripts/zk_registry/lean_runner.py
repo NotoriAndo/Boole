@@ -163,7 +163,7 @@ def production_environment_reason(env: LeanEnv, descriptor: dict | None = None) 
         try:
             if artifact_pins.snapshot(env) != expected['artifact_profiles'][profile]:
                 return 'environment-mismatch'
-        except (OSError, ValueError):
+        except (OSError, ValueError, RuntimeError):
             return 'environment-mismatch'
     return None
 

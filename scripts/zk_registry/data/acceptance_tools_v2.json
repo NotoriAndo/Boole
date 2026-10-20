@@ -13,6 +13,12 @@
       "success": 0,
       "semantic_rejection": 2,
       "transport_failure": 70
+    },
+    "status_patch": "comparator-d03acab-status.patch",
+    "status_contract": {
+      "version": 1,
+      "channel": "COMPARATOR_STATUS_FILE",
+      "format": "JSONL: policy or error, per-kernel and quotient status, final exit; kernel stdout is never authority"
     }
   },
   "exporter": {
@@ -107,7 +113,7 @@
   },
   "binary_profiles": {
     "Linux-x86_64": {
-      "assurance": "production",
+      "assurance": "unprofiled-not-production",
       "kernel_prefix": "lean-4.34.1-linux",
       "comparator": {
         "path": "comparator/.lake/build/bin/comparator",
@@ -128,7 +134,21 @@
       "kernel_prefix": "lean-4.34.1-linux_aarch64",
       "comparator": {
         "path": "comparator/.lake/build/bin/comparator",
-        "sha256": "fe0a4234774b0f98b53239e4e06131d25ed2c38e057685298e8ee85c014ce295"
+        "sha256": "e379d9a677b47e6ad4fcf50b8f1c682b41d8f4d0318923a2e23a558ee12e7306",
+        "provenance": {
+          "revision": "d03acab154d269c06e60e4de7e4cc85deebff94b",
+          "build_lean": "v4.34.1",
+          "platform": "Linux-aarch64",
+          "main_sha256": "7a71238b4feb535bd1ad4172fabb4bb35e380ebc848a685a20ae240de7dc937f",
+          "patch_order": [
+            "comparator-d03acab-export-files.patch",
+            "comparator-d03acab-lean4341.patch",
+            "comparator-d03acab-transport.patch",
+            "comparator-d03acab-status.patch"
+          ],
+          "prior_binary_sha256": "fe0a4234774b0f98b53239e4e06131d25ed2c38e057685298e8ee85c014ce295",
+          "prior_binary_origin": "Pinned Lean 4.34.1 native build with export-files, toolchain and transport patches; replaced by the status-channel rebuild."
+        }
       },
       "exporter": {
         "path": "lean4export/.lake/build/bin/lean4export",
@@ -145,7 +165,21 @@
       "kernel_prefix": "lean-4.34.1-darwin_aarch64",
       "comparator": {
         "path": "comparator/.lake/build/bin/comparator",
-        "sha256": "5f4153e81ca6450496e26733b44c36c186f7c0115215d7c90e63de7627be24a3"
+        "sha256": "153dcbe1335a80b77fdb34cc0cb3ce3af57666f99e0b12f04aa95d7d6fc415cf",
+        "provenance": {
+          "revision": "d03acab154d269c06e60e4de7e4cc85deebff94b",
+          "build_lean": "v4.34.1",
+          "platform": "Darwin-arm64",
+          "main_sha256": "7a71238b4feb535bd1ad4172fabb4bb35e380ebc848a685a20ae240de7dc937f",
+          "patch_order": [
+            "comparator-d03acab-export-files.patch",
+            "comparator-d03acab-lean4341.patch",
+            "comparator-d03acab-transport.patch",
+            "comparator-d03acab-status.patch"
+          ],
+          "prior_binary_sha256": "5f4153e81ca6450496e26733b44c36c186f7c0115215d7c90e63de7627be24a3",
+          "prior_binary_origin": "Native Lean 4.34.1 build of pinned Comparator plus export-files, toolchain and transport patches; replaced by the status-channel rebuild."
+        }
       },
       "exporter": {
         "path": "lean4export/.lake/build/bin/lean4export",

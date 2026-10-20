@@ -1,0 +1,94 @@
+--- a/Main.lean
++++ b/Main.lean
+@@ -8,6 +8,13 @@
+ import Export.Parse
+
+ namespace Comparator
++
++/-- Own semantic status channel, never kernel stdout. Inner kernels have no write grant here. -/
++def recordStatus (fields : List (String × Lean.Json)) : IO Unit := do
++  if let some path ← IO.getEnv "COMPARATOR_STATUS_FILE" then
++    IO.FS.withFile path .append fun handle => do
++      handle.putStrLn <| Lean.Json.compress <| Lean.Json.mkObj
++        (("version", Lean.toJson (1 : Nat)) :: fields)
+
+ structure Context where
+   projectDir : System.FilePath
+@@ -161,6 +168,7 @@
+     let solutionPath ← match (← read).solutionExportFile with
+       | some pinnedPath => do
+         if (← IO.FS.readFile pinnedPath) != solutionExport then
++          recordStatus [("stage", .str "error"), ("reason", .str "export-integrity")]
+           throw <| .userError "export-integrity: solution export changed"
+         pure pinnedPath
+       | none => do
+@@ -206,9 +214,11 @@
+       if ret == 125 || ret >= 128 then
+         return ← IO.Process.exit 70
+       if ret != 0 then
++        recordStatus [("stage", .str kernelName), ("result", .str "reject")]
+         IO.println s!"{kernelName} kernel rejected the solution"
+         return some s!"{kernelName} exited with {ret}"
+       else
++        recordStatus [("stage", .str kernelName), ("result", .str "accept")]
+         IO.println s!"{kernelName} kernel accepts the solution"
+         return none
+     catch e => do
+@@ -231,8 +241,10 @@
+   let kernelConstMap := quotTargets.foldl (init := origConstMap) (·.erase ·)
+   try
+     kernelEnv ← kernelEnv.replay kernelConstMap
++    recordStatus [("stage", .str "lean"), ("result", .str "accept")]
+     IO.println "Lean default kernel accepts the solution"
+   catch e =>
++    recordStatus [("stage", .str "lean"), ("result", .str "reject")]
+     IO.println "Lean default kernel rejects the solution"
+     return some e.toString
+
+@@ -244,8 +256,10 @@
+           throw <| .userError s!"Could not find quotient constant in final kernel env: {quotTarget}"
+         if info != info' then
+           throw <| .userError s!"Quotient constant mismatch on: {quotTarget}"
++    recordStatus [("stage", .str "quotient"), ("result", .str "accept")]
+     return none
+   catch e =>
++    recordStatus [("stage", .str "quotient"), ("result", .str "reject")]
+     IO.println "Quotient post-check rejects the solution"
+     return some e.toString
+
+@@ -301,12 +315,17 @@
+   let challenge ← Export.parseStream (← stringStream challengeExport)
+   let solution ← Export.parseStream (← stringStream solutionExport)
+   if solution.constMap.size > (← read).maxExportedConstants then
++    recordStatus [("stage", .str "policy"), ("reason", .str "resource-cap")]
+     throw <| .userError "resource-cap: exported constant count"
+   let theoremNames ← getTheoremNames
+   let definitionNames ← getDefinitionNames
+   let targets := (← getTheoremNames) ++ (← getLegalAxioms)
+-  IO.ofExcept <| Comparator.compareAt challenge solution targets definitionNames (← primitiveTargets)
+-  IO.ofExcept <| Comparator.checkAxioms solution theoremNames definitionNames (← getLegalAxioms)
++  if let .error error := Comparator.compareAt challenge solution targets definitionNames (← primitiveTargets) then
++    recordStatus [("stage", .str "policy"), ("reason", .str "comparator-statement-mismatch")]
++    throw <| .userError error
++  if let .error error := Comparator.checkAxioms solution theoremNames definitionNames (← getLegalAxioms) then
++    recordStatus [("stage", .str "policy"), ("reason", .str "disallowed-axiom")]
++    throw <| .userError error
+   let mut result := none
+   for (kernelName, kernelCommand) in ← getExternalKernels do
+     result := result <|> (← runExternalKernel kernelName kernelCommand solutionExport)
+@@ -400,9 +419,12 @@
+ def main (args : List String) : IO UInt32 := do
+   try
+     runMain args
++    Comparator.recordStatus [("stage", .str "final"), ("rc", Lean.toJson (0 : Nat))]
+     return 0
+   catch e =>
+     IO.eprintln e.toString
+-    match e with
+-    | .userError _ => return 2
+-    | _ => return 70
++    let rc : UInt32 := match e with
++      | .userError _ => 2
++      | _ => 70
++    Comparator.recordStatus [("stage", .str "final"), ("rc", Lean.toJson rc.toNat)]
++    return rc

@@ -16,7 +16,7 @@ class BindingUnavailable(ValueError):
 
 def native_evaluator_axiom(name: str) -> bool:
     """N1 is unconditional, including generated per-use compiled-evaluator axioms."""
-    return bool(re.search(r'(^|\.)ofReduce\w*|(^|\.)trustCompiler\b|_native\.native_decide\.ax_', name))
+    return bool(re.search(r'(^|\.)ofReduce\w*|(^|\.)trustCompiler\b|_native\.(?:native_decide|decide)\.ax_', name))
 
 
 def conformance() -> dict:

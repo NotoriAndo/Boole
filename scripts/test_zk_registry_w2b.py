@@ -45,16 +45,13 @@ class ChallengeOnlyIdentity(unittest.TestCase):
                 )
             self.assertEqual(exported["verdict"], "PASS")
             worker.assert_not_called()
-            with patch.object(
-                CR,
-                "runner",
-                return_value=lambda *args: L.RunResult(
-                    0,
-                    "Lean default kernel accepts the solution\nnanoda kernel accepts the solution",
-                    0,
-                    False,
-                ),
-            ):
+            def comparator(command, task_env, *args):
+                statuses = [dict(version=1, stage=stage, result='accept')
+                            for stage in ['nanoda', 'lean', 'quotient']]
+                statuses.append(dict(version=1, stage='final', rc=0))
+                Path(task_env['COMPARATOR_STATUS_FILE']).write_text(''.join(json.dumps(s)+'\n' for s in statuses))
+                return L.RunResult(0, 'kernel stdout is not a verdict', 0, False)
+            with patch.object(CR, "runner", return_value=comparator):
                 compared = D.compare_exports(
                     exported["path"],
                     exported["path"],
