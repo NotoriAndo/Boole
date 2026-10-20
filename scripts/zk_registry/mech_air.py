@@ -968,8 +968,6 @@ def _stuck(an: Analysis, ctx: Ctx, missing: set, where: str, base, ctxs) -> Resu
 PRELUDE_COMMON = """/-! Battery P3 (mechanical propagation, {name} v{version}): helper lemmas, one theorem per hoisted
 subterm used as an atom and one per propagation step; the proof of `det` below chains them. -/
 
-set_option maxHeartbeats 4000000
-
 theorem mech_p : ({p} : F) = 0 := by decide
 
 theorem mech_cancel [Fact (Nat.Prime p)] {{x y c : F}} (hc : c ≠ 0) (h : c * x = c * y) : x = y :=

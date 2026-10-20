@@ -86,7 +86,7 @@ def parse_replay(path: str) -> dict:
 
 def run_replay(env: L.LeanEnv, olean: str, fqn: str, out_file: str, opts: list[str], lean_path: list[str],
                timeout: float) -> tuple[L.RunResult, dict]:
-    tstack = [o for o in opts if o.startswith("--tstack")]      # fix F1: same stack as the compile
+    tstack = [f"--tstack={L.testnet_caps()['lean']['worker_stack_bytes'] // 1024}"]
     r = L.run_lean(env, tstack + ["--run", REPLAY_TOOL, olean, fqn, out_file], os.path.dirname(out_file),
                    timeout, extra_lean_path=lean_path)
     return r, parse_replay(out_file)

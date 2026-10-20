@@ -592,7 +592,7 @@ def battery_det_solution(statement: str, n_constraints: int, form: str) -> str:
     variant, tactic = m.groups()
     lines = E.battery_prefix(variant, n_constraints) + [f"all_goals {tactic}" if variant == "V4" else tactic]
     if variant in ("V3", "V4"):
-        body = ["  set_option maxRecDepth 100000 in"] + [f"    {x}" for x in lines]
+        body = [f"    {x}" for x in lines]
     else:
         body = [f"  {x}" for x in lines]
     if statement.count("\n  sorry\n") != 1:

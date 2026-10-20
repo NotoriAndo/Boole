@@ -65,6 +65,17 @@ class Tools:
                 raise ToolsUnavailable('kernels-unavailable')
             binaries[name] = str(binary.resolve())
         kernel_prefix = (directory / pins['kernel_prefix']).resolve()
+        from . import artifact_pins
+        authority = L.production_descriptor().get('artifact_profiles', {}).get(profile)
+        if authority is None:
+            raise ToolsUnavailable('kernels-unavailable')
+        try:
+            actual = artifact_pins.snapshot(L.LeanEnv(str(kernel_prefix), [], '', {}, '', ''))
+            expected = dict(authority, olean_roots=authority['olean_roots'][:1])
+            if actual != expected:
+                raise ToolsUnavailable('kernels-unavailable')
+        except (OSError, ValueError, KeyError):
+            raise ToolsUnavailable('kernels-unavailable') from None
         landrun = None
         if platform.system() == 'Linux':
             row = data.get('sandbox', {}).get('launcher_path')
@@ -75,7 +86,7 @@ class Tools:
 
 def resource_reason(result: L.RunResult) -> str | None:
     """Wall, memory and observation failures are availability errors, not mathematical verdicts."""
-    if result.timeout or result.memkill or result.killed_by or result.rc in (-9, -15, 124, 137):
+    if result.timeout or result.memkill or result.killed_by or L.availability_exit(result.rc):
         return 'resource-unavailable'
     return None
 
@@ -222,6 +233,10 @@ def export_module(env: L.LeanEnv, module: str, theorem: str, output: str, tools:
         return dict(stage='closure-export', verdict='ERROR', reason='sandbox-unavailable', assurance=sandbox.mode)
     target.parent.mkdir(parents=True, exist_ok=True)
     task_env = L.process_env(env, extra_lean_path)
+    # Lean commits package lookup to the first matching root, even an empty
+    # directory. Explicitly precede all submission roots with pinned core/libs.
+    task_env['LEAN_PATH'] = os.pathsep.join(dict.fromkeys(os.path.realpath(path) for path in
+        [os.path.join(env.toolchain, 'lib', 'lean'), *env.lean_path, *extra_lean_path]))
     roots = list(dict.fromkeys([theorem, *axioms, *PRIMITIVES, *QUOTIENTS]))
     argv = [tools.exporter, module, '--', *roots]
     command = sandbox.command(argv, task_env, [env.toolchain, *env.lean_path, *extra_lean_path, cwd],
@@ -289,6 +304,7 @@ def compare_exports(challenge: str, solution: str, theorem: str, tools: Tools, s
         'HOME': str(directory), 'TMPDIR': str(tmp), 'LANG': 'C.UTF-8',
         'COMPARATOR_LEAN4EXPORT': tools.exporter,
         'COMPARATOR_NANODA': nanoda_binary or tools.nanoda,
+        'LEAN_STACK_SIZE_KB': str(L.testnet_caps()['lean']['worker_stack_bytes'] // 1024),
     }
     status_directory = None
     if sandbox.mode == 'production':
@@ -335,13 +351,13 @@ def compare_exports(challenge: str, solution: str, theorem: str, tools: Tools, s
                   boundary=result.boundary, inner_signals=signals, process_receipt=result.process_receipt,
                   cleanup_errors=cleanup_errors)
     if any(digest(path) != value for path, value in before.items()):
-        return dict(record, verdict='INVALID', reason='export-integrity')
-    if sandbox.mode == 'production' and result.rc not in (0, 2):
+        return dict(record, verdict='ERROR', reason='export-integrity')
+    if result.rc not in (0, 2):
         # Only 0/2 are Comparator verdicts. Even plausible kernel output cannot
         # turn a crash, signal or unknown exit status into a semantic rejection.
         observation = (result.boundary or {}).get('observation') or {}
         resource_events = observation.get('oom_kill_events') or observation.get('pids_max_events')
-        guarded_resource_stop = result.timeout or result.memkill or result.killed_by == 'checker-deadline'
+        guarded_resource_stop = resource_reason(result) is not None
         reason = ('resource-unavailable' if result.rc != 70 and (guarded_resource_stop or resource_events)
                   else 'sandbox-unavailable')
         return dict(record, verdict='ERROR', reason=reason)
@@ -368,6 +384,14 @@ def compare_exports(challenge: str, solution: str, theorem: str, tools: Tools, s
         return dict(record, verdict='PASS', reason=None)
     if result.rc == 0:
         return dict(record, verdict='ERROR', reason='sandbox-unavailable')
+    if lean_accepts and nanoda_accepts:
+        # A rejection status contradicts two acceptance markers. Never let
+        # semantic-looking text turn an inconsistent tool response into INVALID.
+        return dict(record, verdict='ERROR', reason='sandbox-unavailable')
+    if nanoda_accepts and not lean_accepts:
+        # Legacy Lean replay erases resource exception types. M4 reproduced this
+        # negative solely by changing the local worker stack. Await typed replay.
+        return dict(record, verdict='ERROR', reason='replay-unavailable')
     if 'resource-cap:' in result.out:
         return dict(record, verdict='INVALID', reason='resource-cap')
     if lean_accepts != nanoda_accepts:

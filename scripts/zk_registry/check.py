@@ -52,7 +52,7 @@ from zk_registry import safe_fs as FS
 from zk_registry import gates as G            # noqa: E402
 from zk_registry import lean_runner as L      # noqa: E402
 from zk_registry import package as P          # noqa: E402
-from zk_registry.sandbox import Sandbox, SandboxUnavailable  # noqa: E402
+from zk_registry.sandbox import Sandbox, SandboxUnavailable, normalized_boundary  # noqa: E402
 from zk_registry.safe_fs import open, copyfile  # noqa: E402
 
 ALLOWED_AXIOMS = {"propext", "Classical.choice", "Quot.sound"}
@@ -69,7 +69,7 @@ FORBIDDEN_V2 = FORBIDDEN_V1 + [
     (r"\bbuiltin_initialize\b", "builtin_initialize"), (r"@\s*\[", "elaboration-attribute"),
     (r"\btrustCompiler\b", "Lean.trustCompiler"),
 ]
-FORBIDDEN_VERSION = 3
+FORBIDDEN_VERSION = 4
 SAFE_ATTRIBUTES = frozenset({'simp', 'reducible', 'irreducible', 'semireducible', 'instance',
                              'ext', 'norm_cast', 'inline', 'specialize'})
 CODE_DEFINING_COMMANDS = (
@@ -80,10 +80,14 @@ CODE_DEFINING_COMMANDS = (
 FORBIDDEN = [entry for entry in FORBIDDEN_V2 if entry[1] != 'elaboration-attribute'] + [
     (r'\b' + command + r'\b', command) for command in CODE_DEFINING_COMMANDS
 ] + [(r'\b(?:register|declare)_\w+\b', 'elaboration-registration')]
+FORBIDDEN_LABELS_V3 = [label for _, label in FORBIDDEN] + ['forbidden-attribute']
+# Match the bare names as the Rust runner does, including escaped Lean identifiers.
+FORBIDDEN += [(r'\b(?:maxHeartbeats|maxRecDepth)\b', 'limit-override')]
 FORBIDDEN_LABELS_V1 = [label for _, label in FORBIDDEN_V1]
 FORBIDDEN_LABELS_V2 = [label for _, label in FORBIDDEN_V2]
 FORBIDDEN_LABELS = [label for _, label in FORBIDDEN] + ['forbidden-attribute']
-FORBIDDEN_SETS = {1: FORBIDDEN_LABELS_V1, 2: FORBIDDEN_LABELS_V2, 3: FORBIDDEN_LABELS}
+FORBIDDEN_SETS = {1: FORBIDDEN_LABELS_V1, 2: FORBIDDEN_LABELS_V2,
+                  3: FORBIDDEN_LABELS_V3, 4: FORBIDDEN_LABELS}
 EXIT = {"PASS": 0, "FAIL": 1, "INVALID": 2, "ERROR": 3}
 
 
@@ -282,7 +286,7 @@ def _compile_and_postcheck(env: L.LeanEnv, problem: dict, pkg_dir: str, text: st
     """Compile pristine imports and submission; this helper inherits the sandbox context."""
     chk = problem["checker"]
     fqn = chk["theorem_fqn"]
-    opts = chk["lean_opts"]
+    opts = L.elaboration_options(chk["lean_opts"])
     src_root = os.path.join(workdir, "src")
     build = os.path.join(workdir, "build")
     FS.makedirs(src_root, exist_ok=True)
@@ -329,6 +333,7 @@ def _compile_and_postcheck(env: L.LeanEnv, problem: dict, pkg_dir: str, text: st
     res.update(compile_rc=r.rc, compile_secs=r.secs, compile_timeout=r.timeout, n_errors=len(errs),
                compile_memkill=r.memkill, compile_killed_by=r.killed_by, compile_peak_rss_mb=r.peak_rss_mb,
                errors=[L.fmt_msg(m) for m in errs[:10]], boundary=r.boundary,
+               error_kinds=[m.get('kind') for m in errs if isinstance(m.get('kind'), str)],
                sorry_warnings=sum(1 for m in msgs if m.get("severity") == "warning" and "sorry" in m.get("data", "")),
                printed_axioms=parse_printed_axioms(msgs, fqn))
     if r.rc != 0 or r.timeout or not os.path.exists(olean):
@@ -494,7 +499,7 @@ def check(pkg_dir: str, proof_path: str, env: L.LeanEnv, workdir: str | None = N
             return _finish(rep)
         if acceptance:
             if acceptance['challenge_export']['sha256'] != reference['sha256']:
-                invalid.append('challenge-export-mismatch')
+                error.append('challenge-export-mismatch')
                 return _finish(rep)
         try:
             bindings = A.resolve(env, manifest, os.path.join(tmp + '-reference', 'build'), selected, remaining())
@@ -547,6 +552,9 @@ def apply_compile_result(r: dict, chk: dict, invalid: list[str], fail: list[str]
     """Turn a compile + post-check record into verdict reasons (pure; unit-tested without Lean)."""
     from zk_registry import axiom_policy as A
     permitted = ALLOWED_AXIOMS if allowed_axioms is None else allowed_axioms
+    if L.availability_exit(r.get('compile_rc')) or L.availability_exit((r.get('post') or {}).get('rc')):
+        error.append('resource-unavailable')
+        return
     if r.get("compile_timeout"):
         error.append('resource-unavailable')
         return
@@ -558,11 +566,12 @@ def apply_compile_result(r: dict, chk: dict, invalid: list[str], fail: list[str]
         error.append('resource-unavailable')
         return
     for boundary in (r.get('boundary'), post_resource.get('boundary')):
+        boundary = normalized_boundary(boundary)
         if boundary and boundary.get('verdict') != 'PASS':
             (error if boundary['verdict'] == 'ERROR' else invalid).append(boundary['reason'])
             return
-    if any('maximum number of heartbeats' in text.lower() or 'maxheartbeats' in text.lower()
-           for text in r.get('errors', [])):
+    if any(re.fullmatch(r'(?:nested\.)*runtime\.(?:maxHeartbeats|maxRecDepth)', kind)
+           for kind in r.get('error_kinds', [])):
         invalid.append('resource-cap')
         return
     if r.get("n_errors") or r.get("compile_rc") not in (0, None):
@@ -587,7 +596,9 @@ def apply_compile_result(r: dict, chk: dict, invalid: list[str], fail: list[str]
             error.append("no compiled module for the post-check")
         return
     if post.get("replay") != "ok":
-        invalid.append(f"kernel replay did not succeed: {post.get('replay') or post.get('stdout', '')[-300:]}")
+        # Legacy replay uses addDeclCore 0 0 and erases typed kernel exceptions.
+        # Its stack-dependent failure cannot establish a deterministic rejection.
+        error.append('replay-unavailable')
         return
     target = post.get("target")
     if target in (None, "missing"):

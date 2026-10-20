@@ -466,8 +466,7 @@ def execute(options, arguments):
         if observation['oom_kill_events']:
             verdict, reason = 'ERROR', 'resource-unavailable'
         elif observation['pids_max_events']:
-            verdict, reason = ('ERROR', 'resource-unavailable') if options.role == 'reference' else (
-                'INVALID', 'resource-cap')
+            verdict, reason = 'ERROR', 'resource-unavailable'
         elif observation['orphans_reaped'] or observation['frozen_members']:
             verdict, reason = ('ERROR', 'sandbox-unavailable') if options.role == 'reference' else (
                 'INVALID', 'owned-descendants-remained')

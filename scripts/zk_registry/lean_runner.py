@@ -11,6 +11,7 @@ from zk_registry import safe_fs as FS
 
 import json
 import os
+import platform
 from contextlib import contextmanager
 from contextvars import ContextVar
 import signal
@@ -21,6 +22,11 @@ from dataclasses import dataclass, field
 
 SYSTEM_PATH = "/usr/bin:/bin:/usr/sbin:/sbin"
 _SANDBOX = ContextVar('zk_registry_sandbox', default=None)
+
+
+def availability_exit(code: int | None) -> bool:
+    """A signal (direct or shell encoded) or deadline is not a proof rejection."""
+    return code is not None and (code < 0 or code == 124 or code >= 128)
 
 
 @contextmanager
@@ -112,6 +118,35 @@ def production_descriptor() -> dict:
         return json.load(stream)
 
 
+def testnet_caps() -> dict:
+    """One tracked cap profile; deterministic fuel enforcement is a separate upgrade."""
+    path = os.path.join(os.path.dirname(__file__), 'data', 'testnet_caps_v1.json')
+    with open(path, encoding='utf-8') as stream:
+        return json.load(stream)
+
+
+def elaboration_options(opts: list[str]) -> list[str]:
+    """The gate owns uniform compiler limits, including for older pinned packages."""
+    kept = []
+    index = 0
+    while index < len(opts):
+        option = opts[index]
+        if option in ('--tstack', '-s'):
+            index += 2
+            continue
+        if option == '-D' and index + 1 < len(opts) and opts[index + 1].split('=', 1)[0] in ('maxHeartbeats', 'maxRecDepth'):
+            index += 2
+            continue
+        if not (option.startswith(('-DmaxHeartbeats=', '-DmaxRecDepth=', '--tstack='))
+                or (option.startswith('-s') and option[2:].isdigit())):
+            kept.append(option)
+        index += 1
+    caps = testnet_caps()['elaboration']
+    return kept + [f"-DmaxHeartbeats={caps['max_heartbeats']}",
+                   f"-DmaxRecDepth={caps['max_rec_depth']}",
+                   f"--tstack={caps['worker_stack_bytes'] // 1024}"]
+
+
 def production_environment_reason(env: LeanEnv, descriptor: dict | None = None) -> str | None:
     """Return the environment-stage reason; fixtures may be passed only as arguments."""
     expected = production_descriptor() if descriptor is None else descriptor
@@ -120,6 +155,16 @@ def production_environment_reason(env: LeanEnv, descriptor: dict | None = None) 
     pins = env.pins()
     if any(pins[key] != expected[key] for key in ('mathlib', 'lake_manifest_sha256', 'packages')):
         return 'environment-mismatch'
+    if 'artifact_profiles' in expected:
+        from . import artifact_pins
+        profile = platform.system() + '-' + platform.machine()
+        if profile not in expected['artifact_profiles']:
+            return 'environment-unpinned'
+        try:
+            if artifact_pins.snapshot(env) != expected['artifact_profiles'][profile]:
+                return 'environment-mismatch'
+        except (OSError, ValueError):
+            return 'environment-mismatch'
     return None
 
 
@@ -182,7 +227,8 @@ def boundary_outcome(error):
 
 def enforce_boundary(result):
     """Translate trusted execution receipts without assigning meaning to payload exit codes."""
-    from .sandbox import SandboxUnavailable
+    from .sandbox import SandboxUnavailable, normalized_boundary
+    result.boundary = normalized_boundary(result.boundary)
     if result.timeout or result.memkill or result.killed_by:
         raise ResourceUnavailable('resource-unavailable')
     if result.boundary and result.boundary.get('verdict') != 'PASS':
@@ -310,7 +356,7 @@ def compile_module(env: LeanEnv, src_root: str, rel_path: str, build_dir: str, o
     stem = rel_path[:-len(".lean")]
     olean = os.path.join(build_dir, stem + ".olean")
     FS.makedirs(os.path.dirname(olean), exist_ok=True)
-    args = opts + ["--json", "-R", src_root, "-o", olean, "-i", os.path.join(build_dir, stem + ".ilean"),
+    args = elaboration_options(opts) + ["--json", "-R", src_root, "-o", olean, "-i", os.path.join(build_dir, stem + ".ilean"),
                    os.path.join(src_root, rel_path)]
     r = run_lean(env, args, src_root, timeout, extra_lean_path=[build_dir, *extra_lean_path])
     return r, parse_messages(r.out)

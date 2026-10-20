@@ -78,7 +78,7 @@
                                "reference_type_sha256": {"$ref": "#/$defs/sha"},
                                "replay_tool_sha256": {"$ref": "#/$defs/sha"}, "allowed_axioms": {"type": "array"},
                                "forbidden_tokens": {"type": "array"},
-                               "forbidden_version": {"type": "integer", "enum": [1, 2, 3]},
+                               "forbidden_version": {"type": "integer", "enum": [1, 2, 3, 4]},
                                "limits": {"const": {"timeout_seconds": 1800, "rss_mb": 12000}}}},
     "files": {"type": "array", "minItems": 5, "items": {"$ref": "#/$defs/file"}},
     "env": {"type": "object", "additionalProperties": false,

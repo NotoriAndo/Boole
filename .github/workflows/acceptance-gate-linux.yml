@@ -14,6 +14,7 @@ on:
       - scripts/test_zk_registry_w6.py
       - scripts/test_zk_registry_w6b.py
       - scripts/test_zk_registry_w6c.py
+      - scripts/test_zk_registry_det1b.py
       - .github/workflows/acceptance-gate-linux.yml
   pull_request:
     paths:
@@ -27,6 +28,7 @@ on:
       - scripts/test_zk_registry_w6.py
       - scripts/test_zk_registry_w6b.py
       - scripts/test_zk_registry_w6c.py
+      - scripts/test_zk_registry_det1b.py
       - .github/workflows/acceptance-gate-linux.yml
   workflow_dispatch:
 
@@ -122,5 +124,6 @@ jobs:
             test_zk_registry_w6 \
             test_zk_registry_w6b \
             test_zk_registry_w6c \
+            test_zk_registry_det1b \
             test_zk_registry_service.IntakeTests.test_receipt_emitting_production_verifier_replays_byte_identically \
             test_zk_registry_service.IntakeTests.test_registry_never_serializes_verifier_receipts_into_events

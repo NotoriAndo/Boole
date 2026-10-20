@@ -431,7 +431,10 @@ class LiveReviewFixes(unittest.TestCase):
         env = L.LeanEnv('/unexecuted', [], pins['lean'], pins['packages'], pins['lake_manifest_sha256'],
                         str(root / 'scratch'))
         problem = dict(checker=dict(theorem_fqn='X.goal', lean_opts=[], files=[]))
-        with patch.object(L, 'run_lean', return_value=result), \
+        # This control injects a stage result, not a provisioned Lean runtime.
+        # Admit that fixture past C2 so the real sandbox output is consumed.
+        with patch.object(L, 'production_environment_reason', return_value=None), \
+                patch.object(L, 'run_lean', return_value=result), \
                 self.assertRaisesRegex(L.BoundaryInvalid, '^submission-output-path$'):
             C.compile_in_sandbox(env, problem, str(root), 'theorem goal : True := by trivial',
                                  str(work), 5, self.boundary)

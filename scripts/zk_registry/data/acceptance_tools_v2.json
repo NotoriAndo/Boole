@@ -46,7 +46,7 @@
   "sandbox": {
     "version": 1,
     "launcher_path": "gate/launcher.py",
-    "launcher_sha256": "5e71ce7f3c84f8b3d02f6b71484ab1d19c9361fd3a5f26412947b90e1aa13908",
+    "launcher_sha256": "c66c9e64d4d021fb1f706a636ca1a0a0fc172edb6c08157d3a4f810a0dc3bc88",
     "inner_launcher_sha256": "b7c04833bbc73cdc81a3d894670db4e6fea7be92b801f0c96892b76d577d102b",
     "bubblewrap_version": "0.9.0-1ubuntu0.3",
     "libseccomp_version": "2.5.5-1ubuntu3.1",
@@ -145,7 +145,7 @@
       "kernel_prefix": "lean-4.34.1-darwin_aarch64",
       "comparator": {
         "path": "comparator/.lake/build/bin/comparator",
-        "sha256": "d6e6a431ba745b5f6555b1b63ad1be24eff9d2f763eba3a1ff0e4bb6f8462c77"
+        "sha256": "5f4153e81ca6450496e26733b44c36c186f7c0115215d7c90e63de7627be24a3"
       },
       "exporter": {
         "path": "lean4export/.lake/build/bin/lean4export",

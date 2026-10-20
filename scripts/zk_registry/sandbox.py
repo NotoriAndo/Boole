@@ -66,7 +66,7 @@ def capture_result(command, result):
             raise ValueError('invalid boundary receipt')
         if record['verdict'] == 'PASS' and record['descriptor_sha256'] != authority:
             raise ValueError('boundary authority mismatch')
-        result.boundary = record
+        result.boundary = normalized_boundary(record)
         if record.get('observation') and not record['observation'].get('setup_failed', True):
             exposed.update(writers)
     except (OSError, ValueError, KeyError):
@@ -78,12 +78,21 @@ def capture_result(command, result):
     return result
 
 
+def normalized_boundary(record):
+    """Host resource observations cannot become mathematical rejections."""
+    observation = (record or {}).get('observation') or {}
+    if observation.get('oom_kill_events') or observation.get('pids_max_events'):
+        return dict(record, verdict='ERROR', reason='resource-unavailable')
+    return record
+
+
 def boundary_failure(result):
     """Give wall/memory ERROR precedence over deterministic containment failures."""
     if result.timeout or result.memkill or result.killed_by:
         return {'verdict': 'ERROR', 'reason': 'resource-unavailable'}
-    if result.boundary and result.boundary.get('verdict') != 'PASS':
-        return result.boundary
+    boundary = normalized_boundary(result.boundary)
+    if boundary and boundary.get('verdict') != 'PASS':
+        return boundary
     return None
 
 
