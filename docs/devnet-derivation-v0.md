@@ -148,3 +148,10 @@ main heights 24–35 use the accepted budget fixture. Live A/B/C comparisons
 include finalized-only waiting, restart, unfinalized reorgs and advancing one
 more finalized height after the reorg. I3 now produces identical blocks.
 Executable identities and genesis bytes are in `fixtures/devnet-m1/`.
+
+Known coverage gap: after the case 9 drop at main height 24, the sender has a nonce gap, so every user
+transaction at heights 25–35 is skipped by the client. The real-client runs therefore no longer exercise
+S1b cases 10 (same-block duplicate) and 13 (included execution failure); the I2 case 13 balance check is
+vacuous. I3 P2 still covers an included status-0 transaction. Re-recording a budget-compliant S1b schedule
+is a follow-up. D12 also relies on the devnet L1Block having zero DA-footprint scalars, so the client's
+DA-footprint check cannot fail a block.
