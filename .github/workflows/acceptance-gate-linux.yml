@@ -51,7 +51,7 @@ permissions:
 
 jobs:
   production-controls:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 15
     env:
       GIT_CONFIG_GLOBAL: /dev/null
