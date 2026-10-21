@@ -26,6 +26,7 @@ P1.9 plants the gate that a future release script can flip off:
 """
 from __future__ import annotations
 
+import json
 import re
 import unittest
 from pathlib import Path
@@ -36,6 +37,7 @@ CARGO_TOML = MINER_CRATE / "Cargo.toml"
 CLI_RS = MINER_CRATE / "src" / "cli.rs"
 LOCAL_VERIFY_RS = MINER_CRATE / "src" / "local_verify.rs"
 LEAN_RUNNER_LIB = ROOT / "crates" / "boole-lean-runner" / "src" / "lib.rs"
+SUBMISSION_POLICY = ROOT / "scripts" / "zk_registry" / "data" / "submission_policy_v4.json"
 NODE_MAIN_RS = ROOT / "crates" / "boole-node" / "src" / "main.rs"
 
 
@@ -145,21 +147,18 @@ class ForbiddenTokenScannerContractTests(unittest.TestCase):
         self.lib = _read(LEAN_RUNNER_LIB)
 
     def test_forbidden_tokens_const_covers_all_unsound_escapes(self) -> None:
-        match = re.search(
-            r"const\s+FORBIDDEN_TOKENS\s*:[^=]*=\s*&\[(.*?)\];",
+        self.assertIn(
+            'include_str!(\n            "../../../scripts/zk_registry/data/submission_policy_v4.json"',
             self.lib,
-            re.DOTALL,
+            "P1.9: boole-lean-runner must load the shared submission text policy.",
         )
-        self.assertIsNotNone(
-            match,
-            "P1.9: boole-lean-runner must declare a FORBIDDEN_TOKENS table.",
-        )
-        body = match.group(1)
+        policy = json.loads(_read(SUBMISSION_POLICY))
+        texts = {pattern["text"] for pattern in policy["patterns"]}
         for token in ("sorry", "axiom", "native_decide"):
             self.assertIn(
-                f'"{token}"',
-                body,
-                f"P1.9: FORBIDDEN_TOKENS must reject `{token}`.",
+                token,
+                texts,
+                f"P1.9: the shared text policy must reject `{token}`.",
             )
 
     def test_check_file_scans_before_primary_spawn(self) -> None:
