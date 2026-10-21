@@ -39,7 +39,7 @@ pub fn l1_info(l1: &L1Block) -> Result<String, InputError> {
         rlp::bytes(&fixed_bytes(config::L1_BLOCK, 20, "L1Block")?),
         rlp::uint(0),
         rlp::uint(0),
-        rlp::uint(1_000_000),
+        rlp::uint(config::L1INFO_GAS),
         rlp::uint(0),
         rlp::bytes(&data),
     ];

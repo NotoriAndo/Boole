@@ -68,7 +68,9 @@ pub struct UserTxDecision {
     pub tx_hash: String,
 }
 
-pub fn filter_user(raw: &[u8], parent_gas_limit: u64) -> UserTxDecision {
+/// `budget` starts at parent.gasLimit minus L1INFO_GAS. Only a candidate
+/// forwarded by F6 consumes its full gas limit, even if the client later skips it.
+pub fn filter_user(raw: &[u8], budget: &mut u64) -> UserTxDecision {
     let mut decision = UserTxDecision {
         rule: "USER-TYPE-NOT-ALLOWED",
         forward: false,
@@ -102,10 +104,11 @@ pub fn filter_user(raw: &[u8], parent_gas_limit: u64) -> UserTxDecision {
         .bytes
         .iter()
         .fold(0u64, |n, b| (n << 8) | u64::from(*b));
-    decision.rule = "USER-GAS-EXCEEDS-PARENT-BLOCK-LIMIT";
-    if gas > parent_gas_limit {
+    decision.rule = "USER-GAS-EXCEEDS-BLOCK-BUDGET";
+    let Some(remaining) = budget.checked_sub(gas) else {
         return decision;
-    }
+    };
+    *budget = remaining;
     decision.rule = "FORWARD-TO-CLIENT-SEQUENTIAL-VALIDATION";
     decision.forward = true;
     decision

@@ -1,5 +1,5 @@
 //! T1/T2: D9–D13. Recorded transactions also cover setup and continuations.
-use boole_derivation::{rlp, user_tx::filter_user};
+use boole_derivation::{config, rlp, user_tx::filter_user, ParentHeader};
 use serde_json::Value;
 
 fn rows() -> Vec<Value> {
@@ -14,29 +14,63 @@ fn rows() -> Vec<Value> {
 
 #[test]
 fn t1_all_18_cases_and_continuations() {
+    let schedule: Value =
+        serde_json::from_str(include_str!("../../../fixtures/devnet-m1/s1b-cases.json")).unwrap();
     let mut cases = 0;
-    for row in rows() {
-        let gas = u64::from_str_radix(
-            row["parent"]["gasLimit"]
-                .as_str()
-                .unwrap()
-                .trim_start_matches("0x"),
-            16,
-        )
-        .unwrap();
-        for expected in row["decisions"].as_array().unwrap() {
-            let raw =
-                hex::decode(expected["raw"].as_str().unwrap().trim_start_matches("0x")).unwrap();
-            let actual = filter_user(&raw, gas);
-            assert_eq!(actual.rule, expected["rule"], "height {}", row["height"]);
-            assert_eq!(actual.forward, expected["forward"]);
-            assert_eq!(actual.tx_hash, expected["tx_hash"]);
-            if let Some(signer) = expected["signer"].as_str() {
-                assert_eq!(actual.sender.as_deref(), Some(signer));
+    for (profile, recording) in [
+        (
+            "main",
+            include_str!("../../../fixtures/devnet-m1/s1b-recorded-main.json"),
+        ),
+        (
+            "basefee",
+            include_str!("../../../fixtures/devnet-m1/s1b-recorded-basefee.json"),
+        ),
+    ] {
+        let recorded: Vec<Value> = serde_json::from_str(recording).unwrap();
+        for (case, row) in schedule[profile].as_array().unwrap().iter().zip(recorded) {
+            let is_case = case["role"] == "case";
+            if is_case {
+                cases += 1;
             }
-        }
-        if row["height"].as_u64().unwrap() % 2 == 0 {
-            cases += 1;
+            let parent: ParentHeader = serde_json::from_value(row["parent"].clone()).unwrap();
+            let mut budget = parent.gas_limit.checked_sub(config::L1INFO_GAS).unwrap();
+            let raws = case["raws"].as_array().unwrap();
+            assert_eq!(raws.len(), row["decisions"].as_array().unwrap().len());
+            for (index, (raw, expected)) in raws
+                .iter()
+                .zip(row["decisions"].as_array().unwrap())
+                .enumerate()
+            {
+                let rule = if is_case {
+                    match case["label"].as_str().unwrap() {
+                        "1a-bad-rlp" | "3-bad-signature" => "USER-DECODE-OR-SIGNATURE-INVALID",
+                        "1b-unknown-type" | "11a-blob" | "11b-7702" | "12-user-mint" => {
+                            "USER-TYPE-NOT-ALLOWED"
+                        }
+                        "7b-above-block-gas" => "USER-GAS-EXCEEDS-BLOCK-BUDGET",
+                        "9-sum-gas-limits" if index == 2 => "USER-GAS-EXCEEDS-BLOCK-BUDGET",
+                        _ => "FORWARD-TO-CLIENT-SEQUENTIAL-VALIDATION",
+                    }
+                } else {
+                    "FORWARD-TO-CLIENT-SEQUENTIAL-VALIDATION"
+                };
+                let bytes = hex::decode(raw.as_str().unwrap().trim_start_matches("0x")).unwrap();
+                let actual = filter_user(&bytes, &mut budget);
+                assert_eq!(
+                    actual.rule, rule,
+                    "{} {} item {index}",
+                    case["label"], case["role"]
+                );
+                assert_eq!(
+                    actual.forward,
+                    rule == "FORWARD-TO-CLIENT-SEQUENTIAL-VALIDATION"
+                );
+                assert_eq!(actual.tx_hash, expected["tx_hash"]);
+                if let Some(signer) = expected["signer"].as_str() {
+                    assert_eq!(actual.sender.as_deref(), Some(signer));
+                }
+            }
         }
     }
     assert_eq!(cases, 18);
@@ -127,16 +161,19 @@ fn t2_signature_and_encoding() {
     mutations.push(trailing);
     for raw in mutations {
         assert_eq!(
-            filter_user(&raw, 30_000_000).rule,
+            filter_user(&raw, &mut 29_000_000).rule,
             INVALID,
             "{}",
             hex::encode(raw)
         );
     }
-    assert_eq!(filter_user(&[], 30_000_000).rule, "USER-TYPE-NOT-ALLOWED");
+    assert_eq!(
+        filter_user(&[], &mut 29_000_000).rule,
+        "USER-TYPE-NOT-ALLOWED"
+    );
     for kind in [0, 1, 3, 4, 0x7e, 0xff] {
         assert_eq!(
-            filter_user(&[kind, 0xc0], 30_000_000).rule,
+            filter_user(&[kind, 0xc0], &mut 29_000_000).rule,
             "USER-TYPE-NOT-ALLOWED"
         );
     }
@@ -145,18 +182,18 @@ fn t2_signature_and_encoding() {
     f[10] = rlp::uint(5);
     f[11] = rlp::uint(1);
     assert_eq!(
-        filter_user(&tx(&f), 30_000_000).rule,
+        filter_user(&tx(&f), &mut 29_000_000).rule,
         "USER-SENDER-UNRECOVERABLE"
     );
     let mut f = original;
-    f[4] = rlp::uint(30_000_000);
-    assert!(filter_user(&tx(&f), 30_000_000).forward);
+    f[4] = rlp::uint(29_000_000);
+    assert!(filter_user(&tx(&f), &mut 29_000_000).forward);
     f[8] = rlp::list(&[rlp::list(&[
         rlp::bytes(&[1; 20]),
         rlp::list(&[rlp::bytes(&[1; 32])]),
     ])]);
     assert!(
-        filter_user(&tx(&f), 30_000_000).forward,
+        filter_user(&tx(&f), &mut 29_000_000).forward,
         "well-shaped nonempty access list"
     );
 }

@@ -4,17 +4,45 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 pub fn rows() -> Vec<Value> {
-    [
-        include_str!("../../../fixtures/devnet-m1/s1b-recorded-main.json"),
-        include_str!("../../../fixtures/devnet-m1/s1b-recorded-basefee.json"),
-    ]
-    .into_iter()
-    .flat_map(|s| serde_json::from_str::<Vec<Value>>(s).unwrap())
-    .collect()
+    let main: Value = serde_json::from_str(include_str!(
+        "../../../fixtures/devnet-m1/s1b-recorded-main-budget-v1.json"
+    ))
+    .unwrap();
+    let mut rows = main["heights"].as_array().unwrap().clone();
+    rows.extend(
+        serde_json::from_str::<Vec<Value>>(include_str!(
+            "../../../fixtures/devnet-m1/s1b-recorded-basefee.json"
+        ))
+        .unwrap(),
+    );
+    rows
 }
 
 #[test]
 fn t3_golden_and_t5_determinism_all_37_heights() {
+    let original = include_str!("../../../fixtures/devnet-m1/s1b-recorded-main.json");
+    let budget: Value = serde_json::from_str(include_str!(
+        "../../../fixtures/devnet-m1/s1b-recorded-main-budget-v1.json"
+    ))
+    .unwrap();
+    assert_eq!(budget["acceptance"]["recorded_abc"], true);
+    assert_eq!(budget["acceptance"]["live_abc"], true);
+    assert_eq!(
+        budget["provenance"]["source_sha256"],
+        format!("0x{}", hex::encode(Sha256::digest(original.as_bytes())))
+    );
+    let baseline: Vec<Value> = serde_json::from_str(original).unwrap();
+    for (row, old) in budget["heights"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .zip(&baseline)
+        .take(23)
+    {
+        for field in ["attributes", "blockHash", "stateRoot", "receiptsRoot"] {
+            assert_eq!(row[field], old[field]);
+        }
+    }
     let rows = rows();
     assert_eq!(rows.len(), 37);
     for row in rows {

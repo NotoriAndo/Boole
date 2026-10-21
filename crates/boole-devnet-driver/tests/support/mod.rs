@@ -132,16 +132,22 @@ pub struct Runtime {
     jwt: PathBuf,
     owned: Vec<Owned>,
 }
+fn run_root(override_root: Option<PathBuf>, target_dir: Option<PathBuf>, pid: u32) -> PathBuf {
+    override_root.unwrap_or_else(|| {
+        target_dir
+            .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target"))
+            .join("devnet-tests")
+            .join(pid.to_string())
+    })
+}
 impl Runtime {
     pub fn new(name: &str) -> Result<Self> {
         disk_guard()?;
-        let root = std::env::var_os("BOOLE_DEVNET_RUN_DIR")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| {
-                Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join("../../target/devnet-tests")
-                    .join(std::process::id().to_string())
-            });
+        let root = run_root(
+            std::env::var_os("BOOLE_DEVNET_RUN_DIR").map(PathBuf::from),
+            std::env::var_os("CARGO_TARGET_DIR").map(PathBuf::from),
+            std::process::id(),
+        );
         let path = root.join(name);
         fs::create_dir_all(&root)?;
         fs::create_dir(&path)?;
@@ -424,4 +430,24 @@ pub fn observe(node: &Node, derived: &Derived) -> Result<Value> {
     Ok(
         json!({"blockHash":block["hash"],"stateRoot":block["stateRoot"],"receiptsRoot":block["receiptsRoot"],"receipts":receipts}),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn run_folder_honors_cargo_target_dir() {
+        assert_eq!(
+            run_root(None, Some(PathBuf::from("build-out")), 7),
+            PathBuf::from("build-out/devnet-tests/7")
+        );
+        assert_eq!(
+            run_root(
+                Some(PathBuf::from("evidence")),
+                Some(PathBuf::from("build-out")),
+                7
+            ),
+            PathBuf::from("evidence")
+        );
+    }
 }

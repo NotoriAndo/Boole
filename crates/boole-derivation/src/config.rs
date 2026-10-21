@@ -5,6 +5,7 @@ pub const INBOX: &str = "0xb001000000000000000000000000000000000001";
 pub const DEPOSITOR: &str = "0xdeaddeaddeaddeaddeaddeaddeaddeaddead0001";
 pub const L1_BLOCK: &str = "0x4200000000000000000000000000000000000015";
 pub const POST_SELECTOR: &str = "0xbaf9b369";
+pub const L1INFO_GAS: u64 = 1_000_000;
 
 pub fn posted_topic() -> String {
     format!(

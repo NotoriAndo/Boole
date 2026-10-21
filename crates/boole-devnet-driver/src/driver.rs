@@ -54,26 +54,36 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
         }
         let mut record = json!({"height":height,"engine_calls":[]});
         let result = self.try_step(height, &mut record);
-        match &result {
-            Ok(StepOutcome::WaitingForFinality) => {
-                record["outcome"] = json!("WAITING_FOR_FINALITY")
+        self.complete_step(height, record, result, Derived::canonical_bytes)
+    }
+
+    fn complete_step(
+        &mut self,
+        height: u64,
+        mut record: Value,
+        result: Result<StepOutcome>,
+        canonical: impl FnOnce(&Derived) -> serde_json::Result<Vec<u8>>,
+    ) -> std::result::Result<StepOutcome, Stall> {
+        let result = result.and_then(|outcome| {
+            match &outcome {
+                StepOutcome::WaitingForFinality => {
+                    record["outcome"] = json!("WAITING_FOR_FINALITY")
+                }
+                StepOutcome::Derived(derived) => {
+                    record["outcome"] = json!("DERIVED");
+                    record["derived"] = json!(derived);
+                    let bytes = canonical(derived).context("canonical attribute encoding")?;
+                    use sha2::{Digest, Sha256};
+                    record["attribute_digest"] = json!(boole_derivation::attributes::hex_string(
+                        &Sha256::digest(bytes)
+                    ));
+                }
             }
-            Ok(StepOutcome::Derived(derived)) => {
-                record["outcome"] = json!("DERIVED");
-                record["derived"] = json!(derived);
-                let bytes = derived.canonical_bytes().map_err(|e| Stall {
-                    height,
-                    reason: e.to_string(),
-                })?;
-                use sha2::{Digest, Sha256};
-                record["attribute_digest"] = json!(boole_derivation::attributes::hex_string(
-                    &Sha256::digest(bytes)
-                ));
-            }
-            Err(error) => {
-                record["outcome"] = json!("STALL");
-                record["error"] = json!(format!("{error:#}"));
-            }
+            Ok(outcome)
+        });
+        if let Err(error) = &result {
+            record["outcome"] = json!("STALL");
+            record["error"] = json!(format!("{error:#}"));
         }
         let persisted = (|| -> Result<()> {
             if let Some(file) = &mut self.evidence {
@@ -206,4 +216,54 @@ pub fn check_payload_transactions(payload: &Value, derived: &Derived) -> Result<
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    struct Unused;
+    impl L1Source for Unused {
+        fn finalized(&mut self) -> Result<u64> {
+            panic!("sticky stall must not read L1")
+        }
+        fn block(&mut self, _n: u64) -> Result<boole_derivation::L1Block> {
+            panic!("unused")
+        }
+        fn inbox_logs(&mut self, _hash: &str) -> Result<Vec<boole_derivation::InboxLog>> {
+            panic!("unused")
+        }
+    }
+    impl Engine for Unused {
+        fn head(&mut self) -> Result<boole_derivation::ParentHeader> {
+            panic!("sticky stall must not read head")
+        }
+        fn call(&mut self, _method: &str, _params: Value) -> Result<Value> {
+            panic!("sticky stall must not call Engine")
+        }
+    }
+    #[test]
+    fn canonical_encoding_failure_keeps_stall_state() {
+        let rows: Vec<Value> = serde_json::from_str(include_str!(
+            "../../../fixtures/devnet-m1/s1b-recorded-main.json"
+        ))
+        .unwrap();
+        let row = &rows[0];
+        let d = derive(
+            &serde_json::from_value(row["l1"].clone()).unwrap(),
+            &serde_json::from_value::<Vec<_>>(row["logs"].clone()).unwrap(),
+            &serde_json::from_value(row["parent"].clone()).unwrap(),
+        )
+        .unwrap();
+        let mut driver = Driver::new(Unused, Unused);
+        let error = driver
+            .complete_step(
+                1,
+                json!({"height":1,"engine_calls":[]}),
+                Ok(StepOutcome::Derived(Box::new(d))),
+                |_| serde_json::from_str::<Value>("invalid").map(|_| vec![]),
+            )
+            .unwrap_err();
+        assert_eq!(driver.last_failure().map(|x| x.height), Some(1));
+        assert_eq!(driver.step(1).unwrap_err().reason, error.reason);
+    }
 }

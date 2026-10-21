@@ -110,6 +110,8 @@ pub enum InputError {
     ExtraData,
     #[error("parent timestamp overflow")]
     TimestampOverflow,
+    #[error("parent gas limit is smaller than the L1-info gas reservation")]
+    SystemGasBudget,
     #[error("L1 parent hash does not match parent L2 origin")]
     L1Link,
 }
@@ -138,6 +140,10 @@ pub fn derive(
         return Err(InputError::Height);
     }
     check_l1_link(l1, parent)?;
+    let mut budget = parent
+        .gas_limit
+        .checked_sub(crate::config::L1INFO_GAS)
+        .ok_or(InputError::SystemGasBudget)?;
     let timestamp = l1.timestamp.max(
         parent
             .timestamp
@@ -202,7 +208,7 @@ pub fn derive(
         match crate::inbox::user_body(&data) {
             Err(rule) => decision.rule = rule,
             Ok(body) => {
-                let user = crate::user_tx::filter_user(body, parent.gas_limit);
+                let user = crate::user_tx::filter_user(body, &mut budget);
                 decision.rule = user.rule;
                 decision.forward = user.forward;
                 if user.forward {

@@ -1,8 +1,8 @@
 # Boole derivation specification v0
 
 Status: devnet only v0. Rules D1–D18 are normative within this version. Tests cite
-these identifiers. The devnet conventions preserve S1b byte parity and are not
-production choices.
+these identifiers. The devnet conventions preserve the S1b byte layout; the
+DEVNET-M1b cumulative budget changes forwarding. These are not production choices.
 
 **D1 — Configuration (devnet only).** L2 chain ID is 720926 (`0xb001e`);
 L1 is anvil chain 31337. Inbox is `0xb001000000000000000000000000000000000001`,
@@ -73,15 +73,33 @@ list of 32-byte keys]. Parity is 0 or 1, 0 < r < secp256k1 order n, 0 < s <= n/2
 first nine fields, excluding parity/r/s. Failure
 drops `USER-SENDER-UNRECOVERABLE`.
 
-**D12 — F5 gas limit.** gasLimit greater than the exact parent header gasLimit
-drops `USER-GAS-EXCEEDS-PARENT-BLOCK-LIMIT`. Equality passes. Do not reserve the
-sum of gas limits.
+**D12 — F5 cumulative gas budget.** Initialize `budget = parent.gasLimit -
+L1INFO_GAS`, with checked subtraction and `L1INFO_GAS = 1,000,000`, the L1-info
+deposit's declared gas limit. Underflow is an input error. Process F4-successful
+candidates in inbox order. If `candidate.gasLimit > budget`, drop with
+`USER-GAS-EXCEEDS-BLOCK-BUDGET` and consume no budget. Otherwise checked-subtract
+the candidate's full gas limit and forward it. Equality passes. Reserve this
+gas even when the client later skips a forwarded transaction for nonce, funds,
+intrinsic gas, fees or another InvalidTx error. No state RPC enters this rule.
+
+Sufficiency for the client's block-gas check: write B for parent.gasLimit, S for
+L1INFO_GAS and g_j for earlier forwarded gas limits. The budget invariant is
+`S + sum(g_j) <= B`. Cumulative pre-refund gas actually used A is at most
+`S + sum(g_j)`, since each execution consumes at most its declared limit and
+skipped transactions consume none. A newly forwarded g_i satisfies
+`g_i <= B - S - sum(g_j) <= B - A`, exactly the client's remaining-gas check.
+The system transaction also fits because initialization requires S <= B.
+This closes the block-gas failure; other failure classes still follow D16.
+Pinned op-reth v2.6.0 (`da6d3252491754837a778061db0cc47236ec13c6`)
+checks remaining pre-refund gas in `alloy-op-evm/src/block/mod.rs:813–833`,
+called at line 951. Its `execute_sequencer_transactions` treats this error as
+fatal rather than InvalidTx.
 
 **D13 — F6 forwarding.** Otherwise use
 `FORWARD-TO-CLIENT-SEQUENTIAL-VALIDATION`. Chain ID, nonce, funds, intrinsic gas,
 fee caps and duplicates are left to the pinned client's sequential InvalidTx
 skip. Apply F0–F6 in order; the first failure wins. Each dropped item is a
-recorded no-op, without affecting other items.
+recorded no-op consuming no budget; later candidates retain inbox order.
 
 **D14 — System namespace.** Type 0x7e and the depositor belong only to the driver.
 System deposits use consensus data only. Source domain L1INFO is implemented;
@@ -103,29 +121,30 @@ a height or rebuild it differently after a failure.
 
 **D17 — Determinism.** Derivation is a pure function of L1 fields, inbox logs,
 parent fields and constants. No mempool, time, randomness, environment, filesystem,
-state RPC or map iteration order enters derivation. Wall clock is only for JWT
+state RPC, node-local data or map iteration order enters derivation. Wall clock is only for JWT
 iat and polling pace. Pure and I/O code reside in separate crates.
 
-**D18 — Known client limitation (measured I3).** Both independent replicas
-stalled at height 1 in each probe, with unchanged genesis heads. P1's single
-transaction declared the parent limit, 30,000,000 gas; after the L1-info deposit,
-only 29,975,900 remained. P2's creation (`0x5b600056`, 16,000,000 gas) exhausted
-its gas, leaving 13,975,900; the next transfer declared 15,000,000. All passed
-D12. In both probes forkchoiceUpdatedV3 returned VALID and a payloadId, then
-getPayloadV5 returned JSON-RPC error `-38001`, `Unknown payload` (HTTP 200).
-The client's warning reported the declared gas exceeding remaining block gas.
-No newPayload or selecting forkchoice call followed the failure.
+**D18 — Earlier liveness limitation, fixed in DEVNET-M1b.** A single user
+transaction could stop block production; closed by the cumulative budget.
+The earlier I3 probes stalled both replicas with getPayloadV5 error `-38001`,
+`Unknown payload`: P1 declared 30,000,000 against 29,975,900 remaining gas;
+P2 declared 15,000,000 after a 16,000,000-gas creation, with 13,975,900 remaining.
+With D12, P1 is dropped and produces a system-only block. P2 forwards the
+creation (`0x5b600056`, consuming all 16,000,000 gas, receipt status 0) and drops
+the following 15,000,000-gas transfer. A/B produce identical blocks without a stall.
 
-In pinned op-reth v2.6.0 (`da6d3252491754837a778061db0cc47236ec13c6`),
-`alloy-op-evm/src/block/mod.rs:813–833` validates against remaining gas, called
-at line 951. This error is outside the per-transaction InvalidTx skip in
-`execute_sequencer_transactions`; it aborts the payload build. The driver records
-the Engine error and stalls. D12 remains unchanged: this is a devnet v0 liveness
-limitation, not permission to pre-simulate, reserve aggregate gas, skip a height,
-or drop additional user transactions.
+History: DEVNET-M1b replaces `USER-GAS-EXCEEDS-PARENT-BLOCK-LIMIT` and its
+parent-limit-only check. S1b case 9 originally included three 12,000,000-gas
+transactions in a 30,000,000-gas block. D12 forwards the first two and drops the
+third, leaving subsequent higher-nonce transactions to the client's skip.
+Original S1b fixtures remain unchanged. The separate
+`s1b-recorded-main-budget-v1.json` binds new expectations to original L1 data,
+recorded A/B/C replay and live A/B/C acceptance.
 
 Validation: pure tests cover all 18 S1b case variants, malformed encodings,
 input errors, all 37 golden attribute sets and determinism. Real-client tests
-reproduce all 37 recorded block hashes/roots/receipts and compare live A/B/C
-replicas, including finalized-only waiting, restart and unfinalized reorgs.
+reproduce the original main heights 1–23 and both basefee heights exactly;
+main heights 24–35 use the accepted budget fixture. Live A/B/C comparisons
+include finalized-only waiting, restart, unfinalized reorgs and advancing one
+more finalized height after the reorg. I3 now produces identical blocks.
 Executable identities and genesis bytes are in `fixtures/devnet-m1/`.
