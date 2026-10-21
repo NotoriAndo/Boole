@@ -1141,9 +1141,7 @@ def _key(item):
     return -1 if w is None else w
 
 
-HELPERS_BASE = """set_option maxHeartbeats 0
-set_option maxRecDepth 100000
-"""
+HELPERS_BASE = ""
 
 HELPERS_BITS = """
 /-- Little-endian weighted sum `x₀ + 2 x₁ + 4 x₂ + …` in the field (battery P3 helper). -/

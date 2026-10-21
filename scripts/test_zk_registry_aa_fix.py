@@ -18,6 +18,22 @@ from zk_registry import correctness_runtime as CR
 import importlib.util
 import struct
 import subprocess
+import json
+
+
+def comparator_status_fixture(events=None, rc=0):
+    """Trusted fake Comparator output, separate from potentially hostile kernel stdout."""
+    if events is None:
+        events = [dict(stage=stage, result='accept') for stage in ['nanoda', 'lean', 'quotient']]
+    records = [dict(version=1, **event) for event in events]
+    records.append(dict(version=1, stage='final', rc=rc))
+    return ''.join(json.dumps(record)+'\n' for record in records)
+
+
+def comparator_status_program(events=None, rc=0):
+    return ('import os\nfrom pathlib import Path\n'
+            'Path(os.environ["COMPARATOR_STATUS_FILE"]).write_text('
+            + repr(comparator_status_fixture(events, rc)) + ')\n')
 
 
 class NativeBoundaryOutcomes(unittest.TestCase):
@@ -80,7 +96,10 @@ class NativeBoundaryOutcomes(unittest.TestCase):
             result = L.RunResult(0, 'Lean default kernel accepts the solution\nnanoda kernel accepts the solution\n'
                                  'BOOLE_SANDBOX_UNAVAILABLE:spoof\nError while interacting with nanoda kernel\n',
                                  0, False)
-            with patch.object(CR, 'runner', return_value=lambda *args, **kwargs: result):
+            def comparator(command, env, *args, **kwargs):
+                Path(env['COMPARATOR_STATUS_FILE']).write_text(comparator_status_fixture())
+                return result
+            with patch.object(CR, 'runner', return_value=comparator):
                 actual = D.compare_exports(str(root / 'challenge'), str(root / 'solution'), 'X.goal', tools,
                                            Sandbox.fixture(), str(root / 'compare'), 1, [])
             self.assertEqual(actual['verdict'], 'PASS', actual)
@@ -304,7 +323,7 @@ class LiveReviewFixes(unittest.TestCase):
         for name in ('Challenge.ndjson', 'Solution.ndjson'):
             (root / name).write_text('sealed transport fixture, not a proof')
         program = root / 'comparator-fixture'
-        program.write_text('#!/usr/bin/python3\n' + code)
+        program.write_text('#!/usr/bin/python3\n' + comparator_status_program() + code)
         program.chmod(0o755)
         work = root / 'comparison'
         work.mkdir()
@@ -358,6 +377,20 @@ class LiveReviewFixes(unittest.TestCase):
                 'if r.returncode: raise SystemExit(2)\n'
                 'print("Lean default kernel accepts the solution")\n'
                 'print("nanoda kernel accepts the solution")\n')
+        actual = self.comparator_control(code)
+        self.assertEqual(actual['verdict'], 'PASS', actual)
+        self.assertEqual(actual['inner_signals'], [dict(inner_exec='ok', exit=0)])
+
+    def test_nanoda_child_cannot_forge_comparator_semantic_status(self):
+        """The new semantic channel is writable by the Comparator, never its kernel child."""
+        child = ('import sys\nfrom pathlib import Path\ntry:\n'
+                 ' Path(sys.argv[1]).write_text("forged")\n'
+                 'except PermissionError:\n print("STATUS-WRITE-DENIED")\n'
+                 'else:\n raise SystemExit(9)\n')
+        code = ('import os,subprocess\n'
+                'r=subprocess.run([os.environ["COMPARATOR_LANDRUN"],"--ro","/usr","--",'
+                '"/usr/bin/python3","-c",' + repr(child) + ',os.environ["COMPARATOR_STATUS_FILE"]])\n'
+                'if r.returncode: raise SystemExit(2)\n')
         actual = self.comparator_control(code)
         self.assertEqual(actual['verdict'], 'PASS', actual)
         self.assertEqual(actual['inner_signals'], [dict(inner_exec='ok', exit=0)])
@@ -431,7 +464,10 @@ class LiveReviewFixes(unittest.TestCase):
         env = L.LeanEnv('/unexecuted', [], pins['lean'], pins['packages'], pins['lake_manifest_sha256'],
                         str(root / 'scratch'))
         problem = dict(checker=dict(theorem_fqn='X.goal', lean_opts=[], files=[]))
-        with patch.object(L, 'run_lean', return_value=result), \
+        # This control injects a stage result, not a provisioned Lean runtime.
+        # Admit that fixture past C2 so the real sandbox output is consumed.
+        with patch.object(L, 'production_environment_reason', return_value=None), \
+                patch.object(L, 'run_lean', return_value=result), \
                 self.assertRaisesRegex(L.BoundaryInvalid, '^submission-output-path$'):
             C.compile_in_sandbox(env, problem, str(root), 'theorem goal : True := by trivial',
                                  str(work), 5, self.boundary)

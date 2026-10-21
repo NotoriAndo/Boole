@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 """Generalized submission checker for zk-registry problem packages.
 
-Derived from the ZK-PILOT-DIFFICULTY-P2 checker, including its fix F1 (the kernel replay runs with
-the package's ``--tstack`` option, on a dedicated thread of the replay tool).  Everything that was
-item-specific there comes from the package's ``problem.json`` here.  One change: the theorem type is
-compared modulo binder names (see ``lean/ZkReplay.lean``), because anonymous binders get hygienic names
-that depend on the module name and on declarations above the theorem.
+The gate owns elaboration heartbeat, recursion and worker-stack limits. Deterministic compile
+findings survive unavailable legacy replay; resource and sandbox failures retain ERROR precedence.
+Theorem types are compared modulo binder names (see ``lean/ZkReplay.lean``).
 
 Usage::
 
@@ -14,7 +12,7 @@ Usage::
 
 Verdicts (exit code): PASS (0) | FAIL (1: does not elaborate, errors, ``sorry``) | INVALID (2: forbidden
 construct, disallowed axiom, changed statement text or imports, modified imported file, type mismatch,
-failed kernel replay) | ERROR (3: package, environment or checker problem).
+deterministic kernel rejection) | ERROR (3: package, environment, resources or unavailable replay).
 
 Checks, in order:
   1. package and environment integrity: ``problem.json`` validates, the package files match their
@@ -22,7 +20,7 @@ Checks, in order:
      one that recorded the reference type; copies of imported files in the solver's directory must match;
   2. text: the submission equals ``Statement.lean`` except for helper declarations inserted directly
      above the theorem and the proof replacing the ``sorry`` line;
-  3. forbidden constructs in the solver-written parts (comments and strings ignored);
+  3. forbidden words anywhere in solver-written text, including comments and strings;
   4. compile (only if 1-3 are clean): the pristine model module is compiled from the package, then the
      submission as module ``ProofMod`` with ``#print axioms`` appended; no error, no ``sorry`` warning,
      printed axioms within the allowed set;
@@ -34,6 +32,7 @@ Checks, in order:
 from __future__ import annotations
 
 import argparse
+import errno
 import hashlib
 import json
 import os
@@ -52,7 +51,7 @@ from zk_registry import safe_fs as FS
 from zk_registry import gates as G            # noqa: E402
 from zk_registry import lean_runner as L      # noqa: E402
 from zk_registry import package as P          # noqa: E402
-from zk_registry.sandbox import Sandbox, SandboxUnavailable  # noqa: E402
+from zk_registry.sandbox import Sandbox, SandboxUnavailable, normalized_boundary  # noqa: E402
 from zk_registry.safe_fs import open, copyfile  # noqa: E402
 
 ALLOWED_AXIOMS = {"propext", "Classical.choice", "Quot.sound"}
@@ -69,9 +68,7 @@ FORBIDDEN_V2 = FORBIDDEN_V1 + [
     (r"\bbuiltin_initialize\b", "builtin_initialize"), (r"@\s*\[", "elaboration-attribute"),
     (r"\btrustCompiler\b", "Lean.trustCompiler"),
 ]
-FORBIDDEN_VERSION = 3
-SAFE_ATTRIBUTES = frozenset({'simp', 'reducible', 'irreducible', 'semireducible', 'instance',
-                             'ext', 'norm_cast', 'inline', 'specialize'})
+FORBIDDEN_VERSION = 4
 CODE_DEFINING_COMMANDS = (
     'elab', 'elab_rules', 'simproc', 'dsimproc', 'simproc_decl', 'dsimproc_decl',
     'builtin_simproc', 'builtin_dsimproc', 'builtin_simproc_decl', 'builtin_dsimproc_decl',
@@ -80,10 +77,33 @@ CODE_DEFINING_COMMANDS = (
 FORBIDDEN = [entry for entry in FORBIDDEN_V2 if entry[1] != 'elaboration-attribute'] + [
     (r'\b' + command + r'\b', command) for command in CODE_DEFINING_COMMANDS
 ] + [(r'\b(?:register|declare)_\w+\b', 'elaboration-registration')]
+FORBIDDEN_LABELS_V3 = [label for _, label in FORBIDDEN] + ['forbidden-attribute']
+# Both runners read this list. ASCII boundaries mean [A-Za-z0-9_] only.
+with open(os.path.join(os.path.dirname(__file__), 'data', 'submission_policy_v4.json'), encoding='utf-8') as policy_file:
+    TEXT_POLICY = json.load(policy_file)
+SAFE_ATTRIBUTES = frozenset(TEXT_POLICY['safe_attributes'])
+ASCII_WHITESPACE = re.escape(TEXT_POLICY['ascii_whitespace'])
+
+
+def text_pattern(rule: dict) -> str:
+    boundary = rule['boundary']
+    word = rule['text']
+    if boundary == 'word' and (not word or not re.fullmatch(r'[A-Za-z0-9_]', word[0])
+                               or not re.fullmatch(r'[A-Za-z0-9_]', word[-1])):
+        raise ValueError('word-bounded pattern must start and end with ASCII word characters')
+    return ((r'\b' if boundary in ('word', 'prefix') else '')
+            + re.escape(rule['text'])
+            + (r'\b' if boundary in ('word', 'suffix') else ''))
+
+
+FORBIDDEN = [(text_pattern(rule), rule['label']) for rule in TEXT_POLICY['patterns']]
+TEXT_PATTERNS = [(re.compile(pattern, re.ASCII), label) for pattern, label in FORBIDDEN]
 FORBIDDEN_LABELS_V1 = [label for _, label in FORBIDDEN_V1]
 FORBIDDEN_LABELS_V2 = [label for _, label in FORBIDDEN_V2]
-FORBIDDEN_LABELS = [label for _, label in FORBIDDEN] + ['forbidden-attribute']
-FORBIDDEN_SETS = {1: FORBIDDEN_LABELS_V1, 2: FORBIDDEN_LABELS_V2, 3: FORBIDDEN_LABELS}
+# Historical v1-v3 vocabularies stay readable; v4 records every current label.
+FORBIDDEN_LABELS = FORBIDDEN_LABELS_V3[:-1] + ['limit-override', 'native-evaluation', 'addDecl', 'debug.', 'forbidden-attribute']
+FORBIDDEN_SETS = {1: FORBIDDEN_LABELS_V1, 2: FORBIDDEN_LABELS_V2,
+                  3: FORBIDDEN_LABELS_V3, 4: FORBIDDEN_LABELS}
 EXIT = {"PASS": 0, "FAIL": 1, "INVALID": 2, "ERROR": 3}
 
 
@@ -127,36 +147,6 @@ def parse_statement(text: str, thm: str) -> dict:
                 post=text[sorry_line_end:])
 
 
-def strip_comments_strings(src: str) -> str:
-    """Remove Lean comments (line and nested block, incl. doc comments) and string literals."""
-    out, i, n = [], 0, len(src)
-    while i < n:
-        c = src[i]
-        if src.startswith("--", i):
-            j = src.find("\n", i)
-            i = n if j < 0 else j
-        elif src.startswith("/-", i):
-            depth, i = 1, i + 2
-            while i < n and depth:
-                if src.startswith("/-", i):
-                    depth, i = depth + 1, i + 2
-                elif src.startswith("-/", i):
-                    depth, i = depth - 1, i + 2
-                else:
-                    i += 1
-            out.append(" ")
-        elif c == '"' and not src.startswith("'\"'", i - 1):
-            i += 1
-            while i < n and src[i] != '"':
-                i += 2 if src[i] == "\\" else 1
-            i += 1
-            out.append('""')
-        else:
-            out.append(c)
-            i += 1
-    return "".join(out)
-
-
 def text_check(orig: str, proof: str, thm: str) -> tuple[list[str], str, str]:
     """Returns (problems, helper text, proof body)."""
     st = parse_statement(orig, thm)
@@ -187,65 +177,84 @@ def text_check(orig: str, proof: str, thm: str) -> tuple[list[str], str, str]:
     return probs, aux, body
 
 
-def forbidden_attributes(clean: str) -> list[int]:
-    """Reject every attribute entry outside the allowlist, including command and scoped forms."""
-    hits = []
-    for marker in re.finditer(r'@\s*\[|\battribute\s*\[', clean):
-        start = marker.end()
-        stack, entries, entry_start = [']'], [], start
-        pairs = {'[': ']', '(': ')', '{': '}'}
-        for index in range(start, len(clean)):
-            char = clean[index]
-            if char in pairs:
-                stack.append(pairs[char])
-            elif char in '])}':
-                if char != stack[-1]:
-                    break
-                stack.pop()
-                if not stack:
-                    entries.append(clean[entry_start:index])
-                    break
-            elif char == ',' and len(stack) == 1:
-                entries.append(clean[entry_start:index])
-                entry_start = index + 1
-        if stack:
-            hits.append(marker.start())
-            continue
-        for entry in entries:
-            match = re.match(r'\s*(?:(?:local|scoped)\s+)?-?([^\s,()\[\]{}]+)', entry)
-            if match is None or match[1] not in SAFE_ATTRIBUTES:
-                hits.append(marker.start())
-                break
-    return hits
+def forbidden_attributes(text: str) -> list[int]:
+    """Check every attribute marker on the text as written, in one pass."""
+    markers = list(re.finditer(r'@[' + ASCII_WHITESPACE + r']*\[|\battribute[' + ASCII_WHITESPACE + r']*\[', text, re.ASCII))
+    if not markers:
+        return []
+    by_end = {marker.end() - 1: marker.start() for marker in markers}
+    bad = set()
+    closers = bytearray()
+    frames = []  # Only attribute markers need depth, position and entry start.
+    pairs = {'[': ord(']'), '(': ord(')'), '{': ord('}')}
+    entry_pattern = re.compile(r'[' + ASCII_WHITESPACE + r']*(?:(?:local|scoped)[' + ASCII_WHITESPACE + r']+)?-?([^' + ASCII_WHITESPACE + r',()\[\]{}]+)', re.ASCII)
+
+    def check_entry(frame, end):
+        _, marker, start = frame
+        entry = entry_pattern.match(text, start, end)
+        if entry is None or entry[1] not in SAFE_ATTRIBUTES:
+            bad.add(marker)
+
+    for index, char in enumerate(text):
+        if char in pairs:
+            closers.append(pairs[char])
+            marker = by_end.get(index)
+            if marker is not None:
+                frames.append([len(closers), marker, index + 1])
+        elif char in '])}':
+            close = ord(char)
+            while closers and closers[-1] != close:
+                if frames and frames[-1][0] == len(closers):
+                    bad.add(frames.pop()[1])
+                closers.pop()
+            if closers:
+                if frames and frames[-1][0] == len(closers):
+                    check_entry(frames.pop(), index)
+                closers.pop()
+        elif char == ',' and frames and frames[-1][0] == len(closers):
+            check_entry(frames[-1], index)
+            frames[-1][2] = index + 1
+    bad.update(frame[1] for frame in frames)
+    return [marker.start() for marker in markers if marker.start() in bad]
 
 
 def forbidden_scan(parts: list[tuple[str, str]]) -> list[str]:
-    """Apply the current submission policy; historical metadata versions do not weaken checking."""
+    """Scan all solver-written text, including comments and strings, with ASCII boundaries."""
     hits = []
-    for name, txt in parts:
-        clean = strip_comments_strings(txt)
-        for pat, label in FORBIDDEN:
-            for mm in re.finditer(pat, clean):
-                line = clean[: mm.start()].count("\n") + 1
-                hits.append(f"{label} in {name} (line {line} of that part)")
-        for position in forbidden_attributes(clean):
-            line = clean[:position].count('\n') + 1
+    for name, text in parts:
+        for pattern, label in TEXT_PATTERNS:
+            line, previous = 1, 0
+            for match in pattern.finditer(text):
+                line += text.count('\n', previous, match.start())
+                previous = match.start()
+                word = match.group()
+                detail = '' if word in label else f' [forbidden word: {word}]'
+                hits.append(f'{label} in {name} (line {line} of that part){detail}')
+        line, previous = 1, 0
+        for position in forbidden_attributes(text):
+            line += text.count('\n', previous, position)
+            previous = position
             hits.append(f'forbidden-attribute in {name} (line {line} of that part)')
     return hits
 
 
 # ------------------------------------------------------------------------------------------ compile
 
-def parse_printed_axioms(msgs: list[dict], fqn: str) -> list[str] | None:
-    ax = [m for m in msgs if m.get("severity") == "information" and "axioms" in m.get("data", "")
-          and fqn.split(".")[-1] in m.get("data", "")]
-    if not ax:
+def parse_printed_axioms(msgs: list[dict], fqn: str, print_line: int) -> list[str] | None:
+    # This diagnostic belongs to the appended command only. Replay axioms and
+    # Comparator's permitted-axioms check remain the authority for acceptance.
+    prefix = f"'{fqn}' "
+    messages = [message['data'][len(prefix):].strip() for message in msgs
+                if message.get('severity') == 'information'
+                and (message.get('pos') or {}).get('line') == print_line
+                and isinstance(message.get('data'), str) and message['data'].startswith(prefix)]
+    if not messages:
         return None
-    d = ax[-1]["data"]
-    if "does not depend on any axioms" in d:
+    data = messages[-1]
+    if data == 'does not depend on any axioms':
         return []
-    mm = re.search(r"depends on axioms:\s*\[(.*)\]", d, re.S)
-    return [a.strip() for a in mm.group(1).split(",")] if mm else None
+    match = re.fullmatch(r'depends on axioms:\s*\[(.*)\]', data, re.S)
+    return [axiom.strip() for axiom in match[1].split(',')] if match else None
 
 
 def compile_and_postcheck(env: L.LeanEnv, problem: dict, pkg_dir: str, text: str, workdir: str, timeout: float) -> dict:
@@ -282,7 +291,7 @@ def _compile_and_postcheck(env: L.LeanEnv, problem: dict, pkg_dir: str, text: st
     """Compile pristine imports and submission; this helper inherits the sandbox context."""
     chk = problem["checker"]
     fqn = chk["theorem_fqn"]
-    opts = chk["lean_opts"]
+    opts = L.elaboration_options(chk["lean_opts"])
     src_root = os.path.join(workdir, "src")
     build = os.path.join(workdir, "build")
     FS.makedirs(src_root, exist_ok=True)
@@ -317,20 +326,23 @@ def _compile_and_postcheck(env: L.LeanEnv, problem: dict, pkg_dir: str, text: st
     proof_dir = os.path.join(workdir, "proof")
     FS.makedirs(proof_dir, exist_ok=True)
     src = os.path.join(proof_dir, "ProofMod.lean")
+    source = text + ("" if text.endswith("\n") else "\n")
+    print_line = source.count('\n') + 2
     with open(src, "w", encoding="utf-8") as f:
-        f.write(text + ("" if text.endswith("\n") else "\n") + f"\n#print axioms {fqn}\n")
+        f.write(source + f"\n#print axioms {fqn}\n")
     olean = os.path.join(proof_dir, "ProofMod.olean")
     r = L.run_lean(env, opts + ["--json", "-R", proof_dir, "-o", olean, src], proof_dir, timeout,
                    extra_lean_path=[build], submission_controlled=True)
     with open(os.path.join(proof_dir, "compile.log"), "w", encoding="utf-8") as f:
         f.write(r.out)
-    msgs = L.parse_messages(r.out)
+    msgs = L.parse_messages(r.out, structured_only=True)
     errs = L.errors(msgs)
     res.update(compile_rc=r.rc, compile_secs=r.secs, compile_timeout=r.timeout, n_errors=len(errs),
                compile_memkill=r.memkill, compile_killed_by=r.killed_by, compile_peak_rss_mb=r.peak_rss_mb,
                errors=[L.fmt_msg(m) for m in errs[:10]], boundary=r.boundary,
+               error_kinds=[m.get('kind') for m in errs if isinstance(m.get('kind'), str)],
                sorry_warnings=sum(1 for m in msgs if m.get("severity") == "warning" and "sorry" in m.get("data", "")),
-               printed_axioms=parse_printed_axioms(msgs, fqn))
+               printed_axioms=parse_printed_axioms(msgs, fqn, print_line))
     if r.rc != 0 or r.timeout or not os.path.exists(olean):
         res["post"] = None
         return res
@@ -382,8 +394,18 @@ def check(pkg_dir: str, proof_path: str, env: L.LeanEnv, workdir: str | None = N
     rep["status"] = problem["status"]
     chk = problem["checker"]
     rep["theorem"] = chk["theorem_fqn"]
-    with open(proof_path, "rb") as f:
-        proof_bytes = f.read()
+    try:
+        with open(proof_path, "rb") as f:
+            proof_bytes = f.read()
+    except L.BoundaryInvalid as ex:
+        invalid.append(str(ex))
+        rep['reason'] = str(ex)
+        return _finish(rep)
+    except OSError as ex:
+        reason = 'submission-output-path' if ex.errno == errno.ELOOP else 'submission-source-unavailable'
+        (invalid if ex.errno == errno.ELOOP else error).append(reason)
+        rep['reason'] = reason
+        return _finish(rep)
     rep["proof_sha256"] = hashlib.sha256(proof_bytes).hexdigest()
 
     # 1. environment integrity
@@ -410,7 +432,13 @@ def check(pkg_dir: str, proof_path: str, env: L.LeanEnv, workdir: str | None = N
     # 2-3. text and forbidden constructs
     with open(os.path.join(pkg_dir, chk["statement_file"]), encoding="utf-8") as f:
         orig = f.read()
-    proof = proof_bytes.decode('utf-8')
+    try:
+        proof = proof_bytes.decode('utf-8')
+    except UnicodeDecodeError:
+        invalid.append('submission-source-encoding')
+        rep['reason'] = 'submission-source-encoding'
+        rep['compile'] = 'skipped'
+        return _finish(rep)
     probs, aux, body = text_check(orig, proof, chk["theorem"])
     invalid += probs
     if not probs:
@@ -494,7 +522,7 @@ def check(pkg_dir: str, proof_path: str, env: L.LeanEnv, workdir: str | None = N
             return _finish(rep)
         if acceptance:
             if acceptance['challenge_export']['sha256'] != reference['sha256']:
-                invalid.append('challenge-export-mismatch')
+                error.append('challenge-export-mismatch')
                 return _finish(rep)
         try:
             bindings = A.resolve(env, manifest, os.path.join(tmp + '-reference', 'build'), selected, remaining())
@@ -524,7 +552,7 @@ def check(pkg_dir: str, proof_path: str, env: L.LeanEnv, workdir: str | None = N
     if tools is not None and not (invalid or fail or error):
         exported = D.export_module(env, 'ProofMod', chk['theorem_fqn'], os.path.join(sealed, 'Solution.ndjson'),
                                    tools, selected, os.path.join(tmp, 'proof'),
-                                   [os.path.join(tmp, 'proof'), os.path.join(tmp, 'build')],
+                                   [os.path.join(tmp, 'build'), os.path.join(tmp, 'proof')],
                                    remaining(), allowed, exposure=selected.exposed_writers)
         rep['solution_export'] = exported
         if exported['verdict'] != 'PASS':
@@ -547,66 +575,68 @@ def apply_compile_result(r: dict, chk: dict, invalid: list[str], fail: list[str]
     """Turn a compile + post-check record into verdict reasons (pure; unit-tested without Lean)."""
     from zk_registry import axiom_policy as A
     permitted = ALLOWED_AXIOMS if allowed_axioms is None else allowed_axioms
-    if r.get("compile_timeout"):
-        error.append('resource-unavailable')
-        return
-    if r.get('compile_memkill') or r.get('compile_killed_by'):
-        error.append('resource-unavailable')
-        return
-    post_resource = r.get('post') or {}
-    if post_resource.get('timeout') or post_resource.get('memkill') or post_resource.get('killed_by'):
-        error.append('resource-unavailable')
-        return
-    for boundary in (r.get('boundary'), post_resource.get('boundary')):
-        if boundary and boundary.get('verdict') != 'PASS':
-            (error if boundary['verdict'] == 'ERROR' else invalid).append(boundary['reason'])
-            return
-    if any('maximum number of heartbeats' in text.lower() or 'maxheartbeats' in text.lower()
-           for text in r.get('errors', [])):
-        invalid.append('resource-cap')
-        return
-    if r.get("n_errors") or r.get("compile_rc") not in (0, None):
-        fail.append(f"{r.get('n_errors')} error(s): " + " | ".join(r.get("errors", [])[:3]))
-    if r.get("sorry_warnings"):
-        fail.append("declaration uses 'sorry'")
-    pa = r.get("printed_axioms")
-    if pa is None and not fail:
-        fail.append("`#print axioms` output missing")
-    elif pa:
-        if "sorryAx" in pa:
-            fail.append("#print axioms lists sorryAx")
+    post = r.get('post')
+    post_record = post or {}
+    boundaries = [normalized_boundary(b) for b in (r.get('boundary'), post_record.get('boundary'))]
+    boundary_reasons = lambda verdict: [b['reason'] for b in boundaries if b and b.get('verdict') == verdict]
+    resource_failure = (
+        L.availability_exit(r.get('compile_rc')) or L.availability_exit(post_record.get('rc'))
+        or r.get('compile_timeout') or r.get('compile_memkill') or r.get('compile_killed_by')
+        or post_record.get('timeout') or post_record.get('memkill') or post_record.get('killed_by'))
+    resource_cap = any(re.fullmatch(r'(?:nested\.)*runtime\.(?:maxHeartbeats|maxRecDepth)', kind)
+                       for kind in r.get('error_kinds', []))
+    invalid_findings, fail_findings = [], []
+    if r.get('n_errors') or r.get('compile_rc') not in (0, None):
+        fail_findings.append(f"{r.get('n_errors')} error(s): " + ' | '.join(r.get('errors', [])[:3]))
+    if r.get('sorry_warnings'):
+        fail_findings.append("declaration uses 'sorry'")
+    pa = r.get('printed_axioms')
+    if pa:
+        if 'sorryAx' in pa:
+            fail_findings.append('#print axioms lists sorryAx')
         bad = [x for x in pa if x != 'sorryAx' and (x not in permitted or A.native_evaluator_axiom(x))]
         if bad:
-            invalid.append(f"#print axioms lists disallowed axioms: {bad}")
-    post = r.get("post")
-    if post and (post.get('timeout') or post.get('memkill') or post.get('killed_by')):
-        error.append('resource-unavailable')
-        return
-    if post is None:
-        if r.get("compile_rc") == 0 and not r.get("compile_timeout"):
-            error.append("no compiled module for the post-check")
-        return
-    if post.get("replay") != "ok":
-        invalid.append(f"kernel replay did not succeed: {post.get('replay') or post.get('stdout', '')[-300:]}")
-        return
-    target = post.get("target")
-    if target in (None, "missing"):
-        invalid.append("theorem not found in the compiled module")
-    elif target["kind"] != "theorem":
-        invalid.append(f"target is a {target['kind']}, not a theorem")
-    if post.get("type_sha256") != chk["reference_type_sha256"]:
-        invalid.append("elaborated theorem type differs from the reference statement")
-    axs = set(post.get("axioms", []))
-    if "sorryAx" in axs and not any("sorry" in x for x in fail):
-        fail.append("theorem depends on sorryAx")
-    bad = sorted(x for x in axs if x != 'sorryAx' and (x not in permitted or A.native_evaluator_axiom(x)))
-    if bad:
-        invalid.append(f"theorem depends on disallowed axioms: {bad}")
-    for c in post.get("consts", []):
-        if c["kind"] == "axiom":
-            invalid.append(f"module declares axiom {c['name']}")
-        if c["unsafe"]:
-            invalid.append(f"module declares unsafe constant {c['name']}")
+            invalid_findings.append(f'#print axioms lists disallowed axioms: {bad}')
+    if post and post.get('replay') == 'ok':
+        target = post.get('target')
+        if target in (None, 'missing'):
+            invalid_findings.append('theorem not found in the compiled module')
+        elif target['kind'] != 'theorem':
+            invalid_findings.append(f"target is a {target['kind']}, not a theorem")
+        if post.get('type_sha256') != chk['reference_type_sha256']:
+            invalid_findings.append('elaborated theorem type differs from the reference statement')
+        axs = set(post.get('axioms', []))
+        if 'sorryAx' in axs and not any('sorry' in x for x in fail_findings):
+            fail_findings.append('theorem depends on sorryAx')
+        bad = sorted(x for x in axs if x != 'sorryAx' and (x not in permitted or A.native_evaluator_axiom(x)))
+        if bad:
+            invalid_findings.append(f'theorem depends on disallowed axioms: {bad}')
+        for constant in post.get('consts', []):
+            if constant['kind'] == 'axiom':
+                invalid_findings.append(f"module declares axiom {constant['name']}")
+            if constant['unsafe']:
+                invalid_findings.append(f"module declares unsafe constant {constant['name']}")
+    established = bool(invalid or fail or error)
+    # Whole precedence table, highest first. Each row holds INVALID, FAIL, ERROR reasons.
+    # A submission can deterministically capture the appended print with #guard_msgs;
+    # missing output is therefore FAIL, but proves less than any actual finding.
+    precedence = [
+        ([], [], ['resource-unavailable'] if resource_failure else []),
+        ([], [], boundary_reasons('ERROR')[:1]),
+        (boundary_reasons('INVALID')[:1], [], []),
+        ([], [], ['resource-unavailable'] if r.get('compile_rc') not in (0, None) and not r.get('n_errors') else []),
+        (['resource-cap'] if resource_cap else [], [], []),
+        (invalid_findings, fail_findings, []),
+        ([], ['`#print axioms` output missing'] if pa is None and not established else [], []),
+        ([], [], [] if established else ['no compiled module for the post-check'] if post is None else
+         ['replay-unavailable'] if post.get('replay') != 'ok' else []),
+    ]
+    for invalid_reasons, fail_reasons, error_reasons in precedence:
+        if invalid_reasons or fail_reasons or error_reasons:
+            invalid.extend(invalid_reasons)
+            fail.extend(fail_reasons)
+            error.extend(error_reasons)
+            return
 
 
 def verdict_of(rep: dict) -> str:
@@ -645,6 +675,11 @@ def main(argv: list[str] | None = None) -> int:
                     sandbox=selected, tools=tools)
     except (SandboxUnavailable, D.ToolsUnavailable) as ex:
         rep = _finish(dict(error=[str(ex)], invalid=[], fail=[], reason=str(ex), compile='skipped'))
+    except L.BoundaryInvalid as ex:
+        rep = _finish(dict(error=[], invalid=[str(ex)], fail=[], reason=str(ex), compile='skipped'))
+    except OSError:
+        rep = _finish(dict(error=['checker-input-unavailable'], invalid=[], fail=[],
+                           reason='checker-input-unavailable', compile='skipped'))
     if a.report:
         P.write_json(a.report, rep)
     print(f"{rep['verdict']} package={a.package} theorem={rep.get('theorem')}")

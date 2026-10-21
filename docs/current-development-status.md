@@ -1,6 +1,6 @@
 # Boole — current development status
 
-Updated: 2026-10-20. This is the tracked entrypoint for current progress and the
+Updated: 2026-10-21. This is the tracked entrypoint for current progress and the
 ordered development roadmap. Edit it in place; execution evidence stays in its
 own result record. Local Master/Execution documents link here instead of owning
 a second current cursor. Work methods follow the
@@ -164,6 +164,20 @@ limited to a safe allowlist; commands that define elaboration code are rejected.
     candidate Challenges are excluded, so the identity step cannot turn
     submission content into an error. An opt-in kernel-checked non-vacuity measurement (G-NONVAC-K) changes
     no required stage and no frozen outcome.
+- **Resource verdicts and artifact pins.** Host resource failures, trusted export
+  corruption and untyped legacy replay failures return ERROR. The judge binds
+  Lean executable/runtime bytes and ordered module roots: `.olean`, `.olean.*`
+  (private/server/hash companions), `.ir`, `.ir.sig` and package-directory layout
+  on Darwin-arm64 and Linux-aarch64. Linux-x86_64 has no artifact profile and is not
+  production. Submission policy v4 rejects solver limit overrides and native-evaluation
+  forms, including bare `native`, anywhere in solver-written text, including comments
+  and strings. Both runners share the pattern list and ASCII word boundaries. Structured
+  boundary verdicts precede the exit-code-only rule; raw stderr is not a Lean error.
+  Deterministic compile/postcheck findings precede missing print or replay output, and Comparator uses its own status
+  channel. Pinned core/library roots and trusted builds precede proof roots. Gate-owned
+  testnet limits are provisional; Lean kernel step/depth and nanoda stack candidates
+  are recorded but not enforced. Full deterministic fuel enforcement remains a later upgrade. See the
+  [registry contract](zk-problem-registry.md) for the classifications and limits.
 - macOS results remain development evidence only.
 
 Contracts are in the

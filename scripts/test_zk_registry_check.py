@@ -62,12 +62,6 @@ class TextRuleTests(unittest.TestCase):
         self.assertTrue(C.text_check(self.stmt, "import Mathlib\n" + submission(self.stmt, "  x\n"), "det")[0])
         self.assertTrue(C.text_check(self.stmt, submission(self.stmt, "  x\n") + "theorem extra : True := trivial\n", "det")[0])
 
-    def test_forbidden_constructs_ignore_comments_and_strings(self) -> None:
-        hits = C.forbidden_scan([("proof", '  -- sorry\n  /- native_decide -/\n  exact "admit"\n'),
-                                 ("helper declarations", "axiom bad : False\nset_option debug.skipKernelTC true\n")])
-        self.assertEqual(sorted(h.split(" in ")[0] for h in hits), ["axiom", "debug.skipKernelTC"])
-        self.assertEqual(C.forbidden_scan([("proof", "  native_decide")]), ["native_decide in proof (line 1 of that part)"])
-
 
 class VerdictMappingTests(unittest.TestCase):
     def verdict(self, r: dict) -> tuple[list, list, list]:
@@ -95,7 +89,8 @@ class VerdictMappingTests(unittest.TestCase):
         self.assertTrue(self.verdict(self.ok_compile(sorry_warnings=1))[1])
         self.assertTrue(self.verdict(self.ok_compile(printed_axioms=["propext", "Lean.ofReduceBool"]))[0])
         self.assertTrue(self.verdict(self.ok_compile(post=self.ok_post(type_sha256="0" * 64)))[0])
-        self.assertTrue(self.verdict(self.ok_compile(post=self.ok_post(replay="FAIL: deep recursion")))[0])
+        self.assertEqual(self.verdict(self.ok_compile(post=self.ok_post(replay="FAIL: deep recursion"))),
+                         ([], [], ['replay-unavailable']))
         self.assertTrue(self.verdict(self.ok_compile(post=self.ok_post(target={"kind": "def", "levels": "[]"})))[0])
         consts = [{"name": "x.ax", "kind": "axiom", "unsafe": False}]
         self.assertTrue(self.verdict(self.ok_compile(post=self.ok_post(consts=consts)))[0])
@@ -151,6 +146,15 @@ class CheckEarlyPathTests(unittest.TestCase):
         rep = self.run_check(submission(self.stmt, "  trivial\n"), env=fake_env(self.tmp, mathlib="d" * 40))
         self.assertEqual(rep["verdict"], "ERROR")
         self.assertTrue(any("mathlib" in e for e in rep["error"]))
+
+    def test_solver_cannot_override_checker_limits(self) -> None:
+        for option in ('maxHeartbeats', 'maxRecDepth', '«maxHeartbeats»', '«maxRecDepth»'):
+            with self.subTest(option=option):
+                rep = self.run_check(submission(self.stmt, '  trivial\n',
+                    helper=f'set_option {option} 0\n'))
+                self.assertEqual(rep['verdict'], 'INVALID')
+                self.assertEqual(rep['compile'], 'skipped')
+                self.assertTrue(any('limit-override' in reason for reason in rep['invalid']))
 
     def test_modified_import_copy_in_the_workdir_is_invalid(self) -> None:
         model_rel = self.rec["statement"]["model_file"]

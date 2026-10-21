@@ -35,6 +35,29 @@ checks. Hand-authoring problems does not scale, so production uses deterministic
 The production judge reads only `scripts/zk_registry/data/acceptance_environment_v2.json`: Lean v4.34.1,
 Mathlib `d13f23b723b8a846827a245b89c10fc7d3f11612` and exact manifest/package pins. Old roots and fixtures retain
 v4.33.1. An old package gives ERROR `environment-retired` before compilation; its earlier PASS is historical evidence.
+The environment descriptor also binds each supported profile's Lean executable, runtime libraries and ordered
+module roots: `.olean`, every `.olean.*` companion (including private/server and `.hash`),
+`.ir` and `.ir.sig`, plus package-directory layout. `.hash` files remain conservative extra pins.
+Darwin-arm64 is development evidence; Linux-aarch64 has a measured production artifact profile.
+Linux-x86_64 has no artifact profile and is **not production**. Missing, added, reordered or
+changed artifacts give ERROR `environment-mismatch`; an unmeasured profile gives ERROR `environment-unpinned`.
+Version strings and operator-provided hashes cannot replace these tracked byte pins. Challenge export and sealed
+reference integrity failures, including a rebuilt Challenge hash mismatch, are node ERRORs, never INVALID.
+
+Testnet cap candidates live together in [testnet_caps_v1.json](../scripts/zk_registry/data/testnet_caps_v1.json),
+marked **PROVISIONAL-TESTNET**, with no mainnet validity. Lean's candidates are 262,144 heartbeat thousands per
+declaration, `maxRecDepth` 2,048 (raw 32,768), and a 64 MiB worker stack. Nanoda's candidates are 33,554,432 steps
+per declaration and 64 MiB; con-ron's candidate is 8,589,934,592 native decrement calls per phase.
+The gate fixes the Lean replay worker stack
+from this profile. Legacy replay still uses unlimited kernel calls: an untyped negative is ERROR `replay-unavailable`.
+Lean kernel heartbeat/depth caps and the nanoda worker-stack cap are recorded candidates, **not enforced**.
+Deterministic fuel/depth enforcement for all kernels and mandatory con-ron are subsequent upgrades; these values
+do not claim that existing nanoda/con-ron binaries enforce those budgets. Final caps require the full population,
+actual cap-profile probes and quiet timing/RSS remeasurement on the genesis toolchain at **M-FULL**.
+The same profile separately enforces elaboration limits: `maxHeartbeats` 4,194,304 per command,
+`maxRecDepth` 16,384 and a 64 MiB thread stack. Package compiler options cannot replace these limits.
+Reference-solution calibration supplies a provisional margin of at least fourfold; stack calibration uses a
+successful reservation upper bound, without claiming measured stack occupancy.
 
 Every submission-code execution uses the pinned hardened Linux boundary: native builds/extraction, generated model
 elaboration, submission compilation, olean inspection, closure export and Comparator as a whole. Native output,
@@ -92,8 +115,8 @@ its administrative FDs are closed in the payload before execution. It counts eve
 most the first256 events, and records frozen payload-cgroup members at main exit; every write is checked. Receipts
 are cleaned per step after their bounded observations are retained in the guard log. A remaining/adopted submission descendant is INVALID
 `owned-descendants-remained`; descendants of trusted reference builds, exporters and Comparator instead give ERROR
-`sandbox-unavailable`. Mandatory pids exhaustion is INVALID `resource-cap` (those trusted roles: ERROR
-`resource-unavailable`); OOM and wall/memory interruption take ERROR precedence. The compile-time
+`sandbox-unavailable`. Mandatory pids exhaustion is ERROR `resource-unavailable` for every role;
+OOM and wall/memory interruption take ERROR precedence. The compile-time
 detachment controls deliberately bypass the text stage as trusted fixtures to exercise the actual OS boundary.
 Setup/exec failure uses a CLOEXEC status pipe, not the payload's exit code125. Comparator's inner launcher reports
 an explicit exec-success marker or setup failure through a dedicated status directory outside the work root.
@@ -143,7 +166,8 @@ Attributes in both `@[...]` and `attribute [...]` must be on the allowlist: `sim
 All others are INVALID `forbidden-attribute`; this does not authorize custom elaboration handlers.
 `sorry`, `native_decide`,
 `Lean.ofReduceBool/Nat`, `Lean.trustCompiler`, `implemented_by`, `extern`, unsafe and generated
-`_native.native_decide.ax_*` axioms remain forbidden. New CG1 metadata records `forbidden_version: 3`;
+`_native.native_decide.ax_*` / `_native.decide.ax_*` axioms remain unconditionally forbidden.
+New CG1 metadata records `forbidden_version: 4`;
 the immutable v1/v2 label sets remain readable. Live checking applies the current policy without editing historical
 package roots. The checker reads each validated package's declared theorem name; it never assumes `soundness`.
 
@@ -168,10 +192,43 @@ at least 99% PASS-UNCHANGED among every applicable item, not a completed prefix.
 The original development root is incomplete. Its 267 NOT-RUN and three resource-ERROR templates await the Linux
 production-mode catalog run; Task Y-fix does not repeat them on macOS or promote development evidence.
 
-Gate outcomes are PASS / FAIL / INVALID / ERROR. Kernel disagreement is INVALID `kernel-disagreement`; deterministic
-heartbeat/exported-constant exhaustion is INVALID `resource-cap`. Wall/memory/observation interruption is retryable
-ERROR `resource-unavailable`, not mathematical rejection. Time/RSS cover the owned process tree; sampled cooperative
-guards are not certified adversarial peak-memory bounds.
+Gate outcomes are PASS / FAIL / INVALID / ERROR. A Lean acceptance with an independent nanoda rejection remains
+INVALID `kernel-disagreement`. A nanoda acceptance with a legacy, untyped Lean negative is ERROR
+`replay-unavailable`: changing only the local worker stack can produce that negative. Legacy ZkReplay failure gives ERROR only when compilation has established no deterministic INVALID/FAIL.
+Observed resource failures take precedence, followed by structured boundary ERROR and INVALID, then an
+exit-code-only availability rule, deterministic compile/postcheck findings, and missing print or replay output.
+A nonzero compile exit without structured Lean error diagnostics is ERROR `resource-unavailable`; raw stdout/stderr
+lines do not count toward the submission compile error count. Other message consumers retain bounded,
+prefixed raw-line reports. A boundary verdict is applied before that exit-code-only rule. Missing
+`#print axioms` output is FAIL only when no deterministic finding exists: a submission can capture the appended
+command with `#guard_msgs`. Like unavailable replay, it never changes an established deterministic verdict.
+The printed-axiom diagnostic must be at the appended command line and start with the exact quoted full theorem
+name. Replay axioms and Comparator's permitted-axioms check remain the acceptance authority. Abort, signals and shell-encoded signal statuses are ERROR `resource-unavailable` in compile,
+replay and export; Comparator uses its own private JSONL status file and 0/2 exit contract; kernel stdout is never a verdict channel.
+Transport exit 70, unknown exits, missing/malformed statuses and contradictory final status are ERROR.
+Two kernel acceptances followed by a deterministic Quotient post-check rejection are INVALID `kernel-rejection`;
+this rejection must not be masked as an inconsistent success. Comparator `export-integrity` is ERROR.
+Compile heartbeat/recursion exhaustion uses Lean's structured `runtime.maxHeartbeats`/`runtime.maxRecDepth`
+diagnostic kinds for INVALID `resource-cap`; English message text does not decide this classification.
+The exported-constant cap remains deterministic INVALID `resource-cap`. Wall/memory/observation interruption is
+retryable ERROR `resource-unavailable`, not mathematical rejection. Time/RSS cover the owned process tree;
+sampled cooperative guards are not certified adversarial peak-memory bounds.
+
+Current submission policy v4 scans all solver-written helper declarations and proof text exactly as written.
+Forbidden words may not appear anywhere in that text, including comments and string literals. The reason gives
+the policy label, the forbidden word and the line within the helper/proof part. There is no comment or string stripping.
+Ordinary Lean notation, nested/doc comments and interpolated strings need no separate lexical classification.
+The Python checker and Rust runner read one shared pattern list in `data/submission_policy_v4.json` and the
+same test cases. Word boundaries are ASCII: only `[A-Za-z0-9_]` counts as a word character, including next to
+Unicode text. Attribute whitespace is the shared explicit ASCII set: space, HT, LF, CR, VT and FF
+(`0x20`, `0x09`, `0x0a`, `0x0d`, `0x0b`, `0x0c`). Both also check attributes on the text as written. The shared list retains the Rust runner's
+`addDecl` and `debug.` restrictions; its import allowlist remains an additional interface check.
+The first text layer rejects bare `native`, `native_decide`, `bv_decide` and `bv_check`, plus solver-written
+`maxHeartbeats` / `maxRecDepth`. The axiom check remains the authority: `Lean.ofReduceBool` and generated
+native-evaluator axioms remain forbidden even if an allowlist names one.
+Historical v1/v2/v3 metadata remains readable and frozen outcomes remain historical evidence. Exporter module lookup
+puts pinned core/library roots first, then the trusted build root before proof, so a solver `proof/Init` or
+`proof/Mathlib` directory cannot shadow pinned packages or pristine imported builds.
 
 Kernel-bug policy: recheck every accepted result under the fixed and independent kernels; mark failures stale and
 re-pose them; cancel unvested rewards only, with no vested clawback. The stale/re-pose/reward registry states belong

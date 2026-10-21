@@ -38,7 +38,7 @@ def read(directory: str, problem: dict, *, required: bool = False,
               'measuring_stick_axioms', 'migration'}
     if not isinstance(data, dict) or set(data) != fields or data['schema_version'] != 2:
         raise ValueError('reference-binding-invalid')
-    if data['package_id'] != problem['package_id'] or data['forbidden_version'] not in (2, 3):
+    if data['package_id'] != problem['package_id'] or data['forbidden_version'] not in (2, 3, 4):
         raise ValueError('reference-binding-invalid')
     if data['metadata_sha256'] != D.digest(root / 'problem.json'):
         raise ValueError('reference-binding-invalid')

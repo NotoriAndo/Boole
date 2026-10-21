@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
     paths:
+      - fixtures/submission-policy/**
       - scripts/zk_registry/**
       - scripts/setup_zk_registry_sandbox.sh
       - scripts/test_zk_registry_linux_sandbox.py
@@ -14,9 +15,17 @@ on:
       - scripts/test_zk_registry_w6.py
       - scripts/test_zk_registry_w6b.py
       - scripts/test_zk_registry_w6c.py
+      - scripts/test_zk_registry_check.py
+      - scripts/test_zk_registry_package.py
+      - scripts/test_zk_registry_spec_problem.py
+      - scripts/test_zk_registry_correctness_gnark.py
+      - scripts/test_zk_registry_acceptance_v2.py
+      - scripts/test_zk_registry_det1c.py
+      - scripts/test_zk_registry_det1b.py
       - .github/workflows/acceptance-gate-linux.yml
   pull_request:
     paths:
+      - fixtures/submission-policy/**
       - scripts/zk_registry/**
       - scripts/setup_zk_registry_sandbox.sh
       - scripts/test_zk_registry_linux_sandbox.py
@@ -27,6 +36,13 @@ on:
       - scripts/test_zk_registry_w6.py
       - scripts/test_zk_registry_w6b.py
       - scripts/test_zk_registry_w6c.py
+      - scripts/test_zk_registry_check.py
+      - scripts/test_zk_registry_package.py
+      - scripts/test_zk_registry_spec_problem.py
+      - scripts/test_zk_registry_correctness_gnark.py
+      - scripts/test_zk_registry_acceptance_v2.py
+      - scripts/test_zk_registry_det1c.py
+      - scripts/test_zk_registry_det1b.py
       - .github/workflows/acceptance-gate-linux.yml
   workflow_dispatch:
 
@@ -35,7 +51,7 @@ permissions:
 
 jobs:
   production-controls:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 15
     env:
       GIT_CONFIG_GLOBAL: /dev/null
@@ -122,5 +138,7 @@ jobs:
             test_zk_registry_w6 \
             test_zk_registry_w6b \
             test_zk_registry_w6c \
+            test_zk_registry_det1b \
+            test_zk_registry_det1c \
             test_zk_registry_service.IntakeTests.test_receipt_emitting_production_verifier_replays_byte_identically \
             test_zk_registry_service.IntakeTests.test_registry_never_serializes_verifier_receipts_into_events

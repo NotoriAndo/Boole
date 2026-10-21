@@ -1,0 +1,23 @@
+{
+  "status": "PROVISIONAL-TESTNET",
+  "mainnet_valid": false,
+  "final_validation_gate": "M-FULL",
+  "elaboration": {
+    "status": "PROVISIONAL-TESTNET",
+    "max_heartbeats": 4194304,
+    "max_rec_depth": 16384,
+    "worker_stack_bytes": 67108864
+  },
+  "lean": {
+    "max_heartbeats": 262144,
+    "max_rec_depth": 2048,
+    "worker_stack_bytes": 67108864
+  },
+  "nanoda": {
+    "steps_per_declaration": 33554432,
+    "worker_stack_bytes": 67108864
+  },
+  "conron": {
+    "fuel_decrements_per_phase": 8589934592
+  }
+}

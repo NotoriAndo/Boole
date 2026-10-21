@@ -215,9 +215,9 @@ class LiveConfinement(unittest.TestCase):
                 self.assertEqual((result.boundary['verdict'], result.boundary['reason']),
                                  ('INVALID', 'owned-descendants-remained'))
 
-    def test_pids_limit_is_invalid_but_reference_is_error(self):
+    def test_pids_limit_is_error_for_every_role(self):
         """The bounded fork bomb must hit a real pids controller, including reference precedence."""
-        for role, verdict, reason in (('submission', 'INVALID', 'resource-cap'),
+        for role, verdict, reason in (('submission', 'ERROR', 'resource-unavailable'),
                                       ('reference', 'ERROR', 'resource-unavailable')):
             with self.subTest(role=role):
                 result = self.run_probe(['fork-bomb'], replace(self.boundary, pids_max=8, role=role))

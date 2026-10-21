@@ -1280,8 +1280,6 @@ class Emitter:
 
 
 HELPERS = f"""set_option linter.unusedVariables false
-set_option maxRecDepth 100000
-set_option maxHeartbeats 10000000
 
 theorem mech_hp : ({P} : F) = 0 := ZMod.natCast_self p
 

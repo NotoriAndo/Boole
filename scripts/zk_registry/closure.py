@@ -51,6 +51,15 @@ class Tools:
     @classmethod
     def load(cls, root: str) -> Tools:
         """Load provisioned paths using only the tracked component and binary pins."""
+        try:
+            return cls._load(root)
+        except (OSError, ValueError, RuntimeError, KeyError):
+            # Provisioned paths are trusted inputs. Python <=3.12 reports
+            # resolve() symlink loops as RuntimeError rather than OSError.
+            raise ToolsUnavailable('kernels-unavailable') from None
+
+    @classmethod
+    def _load(cls, root: str) -> Tools:
         data = json.loads((Path(__file__).parent / 'data/acceptance_tools_v2.json').read_text())
         profile = platform.system() + '-' + platform.machine()
         pins = data['binary_profiles'].get(profile)
@@ -65,6 +74,17 @@ class Tools:
                 raise ToolsUnavailable('kernels-unavailable')
             binaries[name] = str(binary.resolve())
         kernel_prefix = (directory / pins['kernel_prefix']).resolve()
+        from . import artifact_pins
+        authority = L.production_descriptor().get('artifact_profiles', {}).get(profile)
+        if authority is None:
+            raise ToolsUnavailable('kernels-unavailable')
+        try:
+            actual = artifact_pins.snapshot(L.LeanEnv(str(kernel_prefix), [], '', {}, '', ''))
+            expected = dict(authority, olean_roots=authority['olean_roots'][:1])
+            if actual != expected:
+                raise ToolsUnavailable('kernels-unavailable')
+        except (OSError, ValueError, KeyError):
+            raise ToolsUnavailable('kernels-unavailable') from None
         landrun = None
         if platform.system() == 'Linux':
             row = data.get('sandbox', {}).get('launcher_path')
@@ -75,7 +95,7 @@ class Tools:
 
 def resource_reason(result: L.RunResult) -> str | None:
     """Wall, memory and observation failures are availability errors, not mathematical verdicts."""
-    if result.timeout or result.memkill or result.killed_by or result.rc in (-9, -15, 124, 137):
+    if result.timeout or result.memkill or result.killed_by or L.availability_exit(result.rc):
         return 'resource-unavailable'
     return None
 
@@ -188,7 +208,7 @@ def prepare_reference(env: L.LeanEnv, problem: dict, package: str, work: str, se
     if post.get('replay') != 'ok':
         return dict(verdict='ERROR', reason='challenge-build-unavailable', compiled=compiled)
     result = export_module(env, 'ProofMod', problem['checker']['theorem_fqn'], sealed, tools, sandbox,
-                           str(Path(work) / 'proof'), [str(Path(work) / 'proof'), str(Path(work) / 'build')],
+                           str(Path(work) / 'proof'), [str(Path(work) / 'build'), str(Path(work) / 'proof')],
                            timeout, axioms, identity=not P.candidate_derived(problem))
     if P.candidate_derived(problem):
         result.update(statement_closure_sha256=None,
@@ -222,6 +242,10 @@ def export_module(env: L.LeanEnv, module: str, theorem: str, output: str, tools:
         return dict(stage='closure-export', verdict='ERROR', reason='sandbox-unavailable', assurance=sandbox.mode)
     target.parent.mkdir(parents=True, exist_ok=True)
     task_env = L.process_env(env, extra_lean_path)
+    # Lean commits package lookup to the first matching root, even an empty
+    # directory. Explicitly precede all submission roots with pinned core/libs.
+    task_env['LEAN_PATH'] = os.pathsep.join(dict.fromkeys(os.path.realpath(path) for path in
+        [os.path.join(env.toolchain, 'lib', 'lean'), *env.lean_path, *extra_lean_path]))
     roots = list(dict.fromkeys([theorem, *axioms, *PRIMITIVES, *QUOTIENTS]))
     argv = [tools.exporter, module, '--', *roots]
     command = sandbox.command(argv, task_env, [env.toolchain, *env.lean_path, *extra_lean_path, cwd],
@@ -289,7 +313,12 @@ def compare_exports(challenge: str, solution: str, theorem: str, tools: Tools, s
         'HOME': str(directory), 'TMPDIR': str(tmp), 'LANG': 'C.UTF-8',
         'COMPARATOR_LEAN4EXPORT': tools.exporter,
         'COMPARATOR_NANODA': nanoda_binary or tools.nanoda,
+        'LEAN_STACK_SIZE_KB': str(L.testnet_caps()['lean']['worker_stack_bytes'] // 1024),
     }
+    comparator_status = directory / 'comparator.status.jsonl'
+    with comparator_status.open('xb'):
+        pass
+    env['COMPARATOR_STATUS_FILE'] = str(comparator_status)
     status_directory = None
     if sandbox.mode == 'production':
         if not sandbox.inner_executable or not Path(sandbox.inner_executable).is_file():
@@ -335,13 +364,13 @@ def compare_exports(challenge: str, solution: str, theorem: str, tools: Tools, s
                   boundary=result.boundary, inner_signals=signals, process_receipt=result.process_receipt,
                   cleanup_errors=cleanup_errors)
     if any(digest(path) != value for path, value in before.items()):
-        return dict(record, verdict='INVALID', reason='export-integrity')
-    if sandbox.mode == 'production' and result.rc not in (0, 2):
+        return dict(record, verdict='ERROR', reason='export-integrity')
+    if result.rc not in (0, 2):
         # Only 0/2 are Comparator verdicts. Even plausible kernel output cannot
         # turn a crash, signal or unknown exit status into a semantic rejection.
         observation = (result.boundary or {}).get('observation') or {}
         resource_events = observation.get('oom_kill_events') or observation.get('pids_max_events')
-        guarded_resource_stop = result.timeout or result.memkill or result.killed_by == 'checker-deadline'
+        guarded_resource_stop = resource_reason(result) is not None
         reason = ('resource-unavailable' if result.rc != 70 and (guarded_resource_stop or resource_events)
                   else 'sandbox-unavailable')
         return dict(record, verdict='ERROR', reason=reason)
@@ -361,19 +390,57 @@ def compare_exports(challenge: str, solution: str, theorem: str, tools: Tools, s
                 or not 0 <= row['exit'] < 128 for row in signals)
                 or (result.rc != 2 and not signals)):
             return dict(record, verdict='ERROR', reason='sandbox-unavailable')
-    lean_accepts = 'Lean default kernel accepts the solution' in result.out
-    nanoda_accepts = 'nanoda kernel accepts the solution' in result.out
-    record.update(lean_accepts=lean_accepts, nanoda_accepts=nanoda_accepts)
-    if result.rc == 0 and lean_accepts and nanoda_accepts:
-        return dict(record, verdict='PASS', reason=None)
-    if result.rc == 0:
+    # Kernel stdout contains attacker-controlled declaration names. Only the
+    # Comparator's own private structured file establishes semantic statuses.
+    try:
+        raw = comparator_status.read_bytes()
+        if len(raw) > 16384:
+            raise ValueError('oversized comparator status')
+        events = [json.loads(line) for line in raw.splitlines()]
+        if not 1 <= len(events) <= 8 or any(not isinstance(e, dict) or type(e.get('version')) is not int
+                or e['version'] != 1 for e in events):
+            raise ValueError('invalid comparator status')
+        if type(events[-1].get('rc')) is not int or events[-1] != dict(version=1, stage='final', rc=result.rc):
+            raise ValueError('missing final comparator status')
+        statuses = {}
+        for event in events[:-1]:
+            stage = event.get('stage')
+            if stage in statuses:
+                raise ValueError('duplicate comparator stage')
+            if stage in ('lean', 'nanoda', 'quotient'):
+                if set(event) != {'version', 'stage', 'result'} or event['result'] not in ('accept', 'reject'):
+                    raise ValueError('invalid kernel status')
+            elif stage in ('policy', 'error'):
+                allowed = {'resource-cap', 'disallowed-axiom', 'comparator-statement-mismatch'} if stage == 'policy' else {'export-integrity'}
+                if set(event) != {'version', 'stage', 'reason'} or event['reason'] not in allowed:
+                    raise ValueError('invalid semantic status')
+            else:
+                raise ValueError('unknown comparator stage')
+            statuses[stage] = event
+    except (OSError, ValueError, TypeError, KeyError):
         return dict(record, verdict='ERROR', reason='sandbox-unavailable')
-    if 'resource-cap:' in result.out:
-        return dict(record, verdict='INVALID', reason='resource-cap')
-    if lean_accepts != nanoda_accepts:
+    record['comparator_status'] = events
+    lean_accepts = statuses.get('lean', {}).get('result') == 'accept'
+    nanoda_accepts = statuses.get('nanoda', {}).get('result') == 'accept'
+    record.update(lean_accepts=lean_accepts, nanoda_accepts=nanoda_accepts)
+    if 'error' in statuses:
+        return dict(record, verdict='ERROR', reason=statuses['error']['reason'])
+    if 'policy' in statuses:
+        return dict(record, verdict='INVALID' if result.rc == 2 else 'ERROR',
+                    reason=statuses['policy']['reason'] if result.rc == 2 else 'sandbox-unavailable')
+    if result.rc == 0:
+        if lean_accepts and nanoda_accepts and statuses.get('quotient', {}).get('result') == 'accept':
+            return dict(record, verdict='PASS', reason=None)
+        return dict(record, verdict='ERROR', reason='sandbox-unavailable')
+    if statuses.get('quotient', {}).get('result') == 'reject' and lean_accepts:
+        return dict(record, verdict='INVALID', reason='kernel-rejection')
+    if 'lean' not in statuses or 'nanoda' not in statuses:
+        return dict(record, verdict='ERROR', reason='sandbox-unavailable')
+    if lean_accepts and nanoda_accepts:
+        return dict(record, verdict='ERROR', reason='sandbox-unavailable')
+    if nanoda_accepts:
+        # Legacy replay still erases typed resource exceptions.
+        return dict(record, verdict='ERROR', reason='replay-unavailable')
+    if lean_accepts:
         return dict(record, verdict='INVALID', reason='kernel-disagreement')
-    if 'axiom' in result.out.lower():
-        return dict(record, verdict='INVALID', reason='disallowed-axiom')
-    if 'mismatch' in result.out.lower() or 'not match' in result.out.lower():
-        return dict(record, verdict='INVALID', reason='comparator-statement-mismatch')
-    return dict(record, verdict='INVALID' if result.rc else 'ERROR', reason='kernel-rejection')
+    return dict(record, verdict='INVALID', reason='kernel-rejection')

@@ -478,6 +478,19 @@ fn production_audit_rejects_declarations_that_kernel_replay_would_skip() {
                 .with_isolation_mode(IsolationMode::Log)
                 .with_timeout_ms(5_000),
         );
+        // Policy v4 forbids the `unsafe` word anywhere in solver text, so that
+        // case now fails at source intake; `partial` still reaches the replay audit.
+        if name == "unsafe" {
+            let error = runner
+                .check_file(&proof)
+                .expect_err("the text policy rejects `unsafe` before any checker child runs");
+            assert!(
+                error.to_string().contains("forbidden `unsafe` token")
+                    && error.to_string().contains("Skipped.lean:2"),
+                "unexpected unsafe rejection: {error:#}"
+            );
+            continue;
+        }
         let result = runner.check_file(&proof).expect("checker returns envelope");
         assert!(
             !result.accepted,
