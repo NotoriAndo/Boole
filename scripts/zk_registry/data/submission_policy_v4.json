@@ -224,5 +224,10 @@
     "simp",
     "specialize"
   ],
-  "ascii_whitespace": " \t\n\r\u000b\f"
+  "ascii_whitespace": " \t\n\r\u000b\f",
+  "attribute_limits": {
+    "markers": 64,
+    "brackets": 4096,
+    "reported_lines": 64
+  }
 }

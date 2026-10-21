@@ -1677,6 +1677,1055 @@
       "name": "attribute-FF-4",
       "source": "@[local\fsimp]",
       "hits": []
+    },
+    {
+      "name": "attribute-same-line-once",
+      "source": "@[bad] @[worse]",
+      "hits": [
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "name": "attribute-multiline-marker-start",
+      "source": "@\n[bad]\nattribute\n[bad]",
+      "hits": [
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 1
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "name": "attribute-marker-depth-at-cap",
+      "source": "@[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp ]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+      "hits": []
+    },
+    {
+      "name": "attribute-marker-depth-over-cap",
+      "source": "@[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp @[simp ]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+      "hits": [
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "name": "attribute-delimiter-depth-over-cap",
+      "source": "@[simp (((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((())))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))]",
+      "hits": [
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "name": "attribute-lines-at-cap",
+      "source": "@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n",
+      "hits": [
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 1
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 2
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 3
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 4
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 5
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 6
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 7
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 8
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 9
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 10
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 11
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 12
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 13
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 14
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 15
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 16
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 17
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 18
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 19
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 20
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 21
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 22
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 23
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 24
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 25
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 26
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 27
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 28
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 29
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 30
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 31
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 32
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 33
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 34
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 35
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 36
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 37
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 38
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 39
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 40
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 41
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 42
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 43
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 44
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 45
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 46
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 47
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 48
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 49
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 50
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 51
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 52
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 53
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 54
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 55
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 56
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 57
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 58
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 59
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 60
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 61
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 62
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 63
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 64
+        }
+      ]
+    },
+    {
+      "name": "attribute-lines-over-cap",
+      "source": "@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n",
+      "hits": [
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 1
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 2
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 3
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 4
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 5
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 6
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 7
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 8
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 9
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 10
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 11
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 12
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 13
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 14
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 15
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 16
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 17
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 18
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 19
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 20
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 21
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 22
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 23
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 24
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 25
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 26
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 27
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 28
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 29
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 30
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 31
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 32
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 33
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 34
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 35
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 36
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 37
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 38
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 39
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 40
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 41
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 42
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 43
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 44
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 45
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 46
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 47
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 48
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 49
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 50
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 51
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 52
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 53
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 54
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 55
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 56
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 57
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 58
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 59
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 60
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 61
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 62
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 63
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 64
+        }
+      ],
+      "more_lines": true
+    },
+    {
+      "name": "attribute-earlier-unclosed-line",
+      "source": "@[simp\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n@[bad]\n",
+      "hits": [
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 1
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 2
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 3
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 4
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 5
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 6
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 7
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 8
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 9
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 10
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 11
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 12
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 13
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 14
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 15
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 16
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 17
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 18
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 19
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 20
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 21
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 22
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 23
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 24
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 25
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 26
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 27
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 28
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 29
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 30
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 31
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 32
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 33
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 34
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 35
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 36
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 37
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 38
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 39
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 40
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 41
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 42
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 43
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 44
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 45
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 46
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 47
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 48
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 49
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 50
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 51
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 52
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 53
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 54
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 55
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 56
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 57
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 58
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 59
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 60
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 61
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 62
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 63
+        },
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 64
+        }
+      ],
+      "more_lines": true
+    },
+    {
+      "name": "attribute-safe-many-markers",
+      "source": "@[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] @[simp] ",
+      "hits": []
+    },
+    {
+      "name": "attribute-delimiter-depth-at-cap",
+      "source": "@[simp ((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((()))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))]",
+      "hits": []
+    },
+    {
+      "name": "attribute-outside-delimiters-need-no-stack",
+      "source": "(((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((@[simp])))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))",
+      "hits": []
     }
   ]
 }

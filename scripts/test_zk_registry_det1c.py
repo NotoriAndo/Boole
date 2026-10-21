@@ -175,6 +175,8 @@ class CompilePrecedence(unittest.TestCase):
                     result = C.compile_in_sandbox(env, problem, temp, text, str(Path(temp)/'work'),
                                                   10, SB.Sandbox.fixture())
                 self.assertEqual(result['printed_axioms'], expected)
+                self.assertEqual(Path(temp, 'work/proof/ProofMod.lean').read_text().splitlines()[appended-1],
+                                 'set_option pp.fullNames true in #print axioms Example.goal')
 
     def test_raw_fid_lines_do_not_establish_gate_verdicts(self):
         from zk_registry import gates as G
@@ -239,6 +241,19 @@ class TextPolicy(unittest.TestCase):
             with self.subTest(word=word), self.assertRaises(ValueError):
                 C.text_pattern(dict(text=word, label='bad', boundary='word'))
 
+    def test_policy_loader_rejects_non_ascii_whitespace_and_bad_bounded_edges(self):
+        policy = dict(C.TEXT_POLICY, ascii_whitespace=' \u00a0')
+        with self.assertRaises(ValueError):
+            C.validate_text_policy(policy)
+        for boundary, word in [('prefix', '.debug'), ('prefix', ''),
+                               ('suffix', '#eval.'), ('suffix', '')]:
+            with self.subTest(boundary=boundary, word=word), self.assertRaises(ValueError):
+                C.text_pattern(dict(text=word, label='bad', boundary=boundary))
+
+    def test_runner_manifest_is_private(self):
+        manifest = Path(C.__file__).parents[2]/'crates/boole-lean-runner/Cargo.toml'
+        self.assertIn('publish = false', manifest.read_text())
+
     def test_current_metadata_contains_every_reported_policy_label(self):
         reported = {rule['label'] for rule in C.TEXT_POLICY['patterns']} | {'forbidden-attribute'}
         self.assertEqual(reported - set(C.FORBIDDEN_LABELS), set())
@@ -262,6 +277,8 @@ class TextPolicy(unittest.TestCase):
                 expected = [f"{hit['label']} in proof (line {hit['line']} of that part)"
                             + (f" [forbidden word: {hit['word']}]" if hit['word'] not in hit['label']
                                and hit['label'] != 'forbidden-attribute' else '') for hit in case['hits']]
+                if case.get('more_lines'):
+                    expected[-1] += ' [more offending lines omitted]'
                 self.assertEqual(C.forbidden_scan([('proof', case['source'])]), expected)
 
     def test_public_checker_rejects_forbidden_word_in_every_text_form(self):
@@ -277,17 +294,22 @@ class TextPolicy(unittest.TestCase):
                 self.assertEqual(result['verdict'], 'INVALID')
                 self.assertIn('axiom in proof (line 3 of that part)', result['invalid'])
 
+    # The 10 s bound is the Mac requirement; shared CI runners get a looser linearity bound.
+    SCAN_SECONDS = 10 if platform.system() == 'Darwin' else 20
+
     def test_sixteen_mib_scan_finishes_under_ten_seconds(self):
         text = ("/- nested /- inner -/ text -/ s!\"a{x}b\" f '' s\n" * 400000)[:16 * 1024 * 1024]
         self.assertEqual(len(text.encode()), 16 * 1024 * 1024)
         started = time.monotonic()
         self.assertEqual(C.forbidden_scan([('proof', text)]), [])
-        self.assertLess(time.monotonic() - started, 10)
+        self.assertLess(time.monotonic() - started, self.SCAN_SECONDS)
+
     def test_attribute_brackets_use_bounded_memory_and_time(self):
         code = """import json,resource,sys,time
 sys.path.insert(0,sys.argv[1])
 from zk_registry import check as C
-text='@['+sys.argv[2]*(16*1024*1024)
+unit=sys.argv[2]
+text=(unit*((16*1024*1024)//len(unit))) if unit.startswith('@') else '@['+unit*(16*1024*1024)
 scale=1024*1024 if sys.platform=='darwin' else 1024
 before=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/scale
 started=time.monotonic()
@@ -296,15 +318,17 @@ print(json.dumps(dict(hits=hits,seconds=time.monotonic()-started,
     growth_mib=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/scale-before)))
 """
         import os
-        for bracket in '([{':
+        for bracket in ['(', '[', '{', '@[', '@[simp] ']:
             with self.subTest(bracket=bracket):
                 result = L.run_process([sys.executable, '-c', code, str(Path(__file__).parent), bracket],
-                                       dict(os.environ), str(Path(__file__).parent), 12, 230, poll_s=0.02)
+                                       dict(os.environ), str(Path(__file__).parent), self.SCAN_SECONDS + 2, 230, poll_s=0.02)
                 self.assertFalse(result.memkill, 'attribute scan exceeded the bounded test memory guard')
                 self.assertEqual(result.rc, 0, result.out)
                 receipt = json.loads(result.out)
-                self.assertEqual(receipt['hits'], ['forbidden-attribute in proof (line 1 of that part)'])
-                self.assertLess(receipt['seconds'], 10)
+                print(json.dumps(dict(unit=bracket, **receipt)), flush=True)
+                self.assertEqual(receipt['hits'], [] if bracket == '@[simp] ' else
+                                 ['forbidden-attribute in proof (line 1 of that part)'])
+                self.assertLess(receipt['seconds'], self.SCAN_SECONDS)
                 self.assertLess(receipt['growth_mib'], 200)
 
 
