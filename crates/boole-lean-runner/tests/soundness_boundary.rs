@@ -164,27 +164,15 @@ fn rejects_proof_depending_on_non_allowlisted_axiom() {
     workspace.build_helper();
     let proof = workspace.write_proof("Poc4.lean", POC4_NON_ALLOWLISTED_AXIOM_TERM);
 
-    // `.expect` (not `assert_rejected`) is deliberate: PoC4 must reach
-    // `check_file`'s `Ok(..)` path (primary checker + audit both actually
-    // ran) rather than being turned away as an `Err` by the pre-spawn
-    // blacklist — this is the one PoC that must specifically exercise the
-    // audit layer, not the blacklist.
-    let result = runner_for(&workspace).check_file(&proof).expect(
-        "PoC4 contains no forbidden token and imports only the allowlisted helper, so the \
-         pre-spawn intake must let it through to the primary checker and \
-         the axiom audit — a rejection here would mean the blacklist wrongly \
-         intercepted it",
-    );
+    // Policy v4 lists `trustCompiler` as a forbidden word, so PoC4 is now
+    // rejected at source intake, before any checker child runs. The axiom
+    // audit itself is covered by the `enforce_axiom_allowlist` unit tests.
+    let error = runner_for(&workspace)
+        .check_file(&proof)
+        .expect_err("the text policy rejects `trustCompiler` before any checker child runs");
     assert!(
-        !result.accepted,
-        "a proof whose axiom closure includes a non-allowlisted axiom \
-         (Lean.trustCompiler) must be rejected: {result:?}"
-    );
-    assert!(
-        result.stderr.contains("axiom"),
-        "the rejection must come from the axiom audit (enforce_axiom_allowlist), \
-         not a blacklist token match: stderr={:?}",
-        result.stderr
+        error.to_string().contains("trustCompiler") && error.to_string().contains("Poc4.lean"),
+        "unexpected PoC4 rejection: {error:#}"
     );
 }
 
