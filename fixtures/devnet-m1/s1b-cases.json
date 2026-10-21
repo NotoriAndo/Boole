@@ -1,0 +1,709 @@
+{
+  "main": [
+    {
+      "height": 1,
+      "label": "setup",
+      "role": "setup",
+      "raws": [
+        "0x02f86e830b001e800102830186a0943c44cdddb6a900fa2b585dd299e03d12fa4293bc880de0b6b3a764000080c080a0ac55049ff00a63530cd10f97fc61982a5332d445366d471d03cf54a48d5c2ee1a070438aa1ae28c0f035193ae05b0c75132ef01e185f813907a931162fd4ab3cf1",
+        "0x02f86e830b001e010102830186a09490f79bf6eb2c4f870365e785982e1f101e93b906880de0b6b3a764000080c080a027ded41b80ec4f324392973c5c6135f5bbaf0391e14d766d8db68811fa2c34d8a006bd37f09e97b312869086b3a36b7f94bd302707a08965524c263f5c937e067e",
+        "0x02f869830b001e020102830186a09415d34aaf54267db7d7c367839aaf71a00a2c6a65830186a080c080a0a6af37df8b02ac704ba5260ac33b970f775385cd51c3838ae179688a02de067ca06018633330c093a007a7ddb34a239586fd7213f9bf8d5b32e5d134cc0a68cb9b"
+      ],
+      "expect": [
+        1,
+        1,
+        1
+      ],
+      "addresses": [
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+        "0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc",
+        "0x90f79bf6eb2c4f870365e785982e1f101e93b906",
+        "0x15d34aaf54267db7d7c367839aaf71a00a2c6a65",
+        "0x9965507d1a55bcc2695c58ba16fb37d819b0a4dc"
+      ]
+    },
+    {
+      "height": 2,
+      "label": "1a-bad-rlp",
+      "role": "case",
+      "raws": [
+        "0x02c0"
+      ],
+      "expect": [
+        null
+      ],
+      "addresses": [
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+      ],
+      "classification": "FILTER-BY-DRIVER",
+      "note": ""
+    },
+    {
+      "height": 3,
+      "label": "1a-bad-rlp",
+      "role": "continuation",
+      "raws": [
+        "0x02f886830b001e030102830186a094b00100000000000000000000000000000000000380a00000000000000000000000000000000000000000000000000000000000000002c080a0d0a6572279277e216beac4e0efea03b59148f674084213ac321a5443269d815ca02d0f55ce6f6e5a335a8f0a1aee6887b3b3d78a9654be45b933765be6ab1388be"
+      ],
+      "expect": [
+        1
+      ],
+      "addresses": [
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+      ]
+    },
+    {
+      "height": 4,
+      "label": "1b-unknown-type",
+      "role": "case",
+      "raws": [
+        "0x7fc0"
+      ],
+      "expect": [
+        null
+      ],
+      "addresses": [
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+      ],
+      "classification": "FILTER-BY-DRIVER",
+      "note": ""
+    },
+    {
+      "height": 5,
+      "label": "1b-unknown-type",
+      "role": "continuation",
+      "raws": [
+        "0x02f886830b001e040102830186a094b00100000000000000000000000000000000000380a00000000000000000000000000000000000000000000000000000000000000004c080a0780ab6f859a341b657447a1fbbefc978d397e1110fd43b4e347b3b8b8492ffc4a0414609e29b32303eb50aece62fa54f09ecbe45d6738318e8ea3c9bfe459cfccc"
+      ],
+      "expect": [
+        1
+      ],
+      "addresses": [
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+      ]
+    },
+    {
+      "height": 6,
+      "label": "2-wrong-chain",
+      "role": "case",
+      "raws": [
+        "0x02f866830b001f050102830186a094b0010000000000000000000000000000000000038080c001a0a822fde376b0701523249fe543fe495b631fd790e757d4dc91230c64211ced52a016da8f95875cf0f4bcfc79b3fd9b6274accee981eb8f434604c3fb15383e72e1"
+      ],
+      "expect": [
+        null
+      ],
+      "addresses": [
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+      ],
+      "classification": "SKIP-BY-CLIENT",
+      "note": ""
+    },
+    {
+      "height": 7,
+      "label": "2-wrong-chain",
+      "role": "continuation",
+      "raws": [
+        "0x02f886830b001e050102830186a094b00100000000000000000000000000000000000380a00000000000000000000000000000000000000000000000000000000000000006c080a01528686099e6032ef2a182ea0314ba1a14051181b1dbbdd7334f391b66023f32a033c7306445db365ac7bc17b435e49edf673a40be89043d592df6d6bef0aeb9c5"
+      ],
+      "expect": [
+        1
+      ],
+      "addresses": [
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+      ]
+    },
+    {
+      "height": 8,
+      "label": "3-bad-signature",
+      "role": "case",
+      "raws": [
+        "0x02e6830b001e060102830186a094b0010000000000000000000000000000000000038080c0808001"
+      ],
+      "expect": [
+        null
+      ],
+      "addresses": [
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+      ],
+      "classification": "FILTER-BY-DRIVER",
+      "note": ""
+    },
+    {
+      "height": 9,
+      "label": "3-bad-signature",
+      "role": "continuation",
+      "raws": [
+        "0x02f886830b001e060102830186a094b00100000000000000000000000000000000000380a00000000000000000000000000000000000000000000000000000000000000008c080a0352d389b213b41578a9347b3ba50d9afd359ec6fde12136e99f7fef874b1eba8a03dd0a1f3cc5b627cc46578a5a0e5c02d7a7b1597348fa4b57db552f466b6cb4f"
+      ],
+      "expect": [
+        1
+      ],
+      "addresses": [
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+      ]
+    },
+    {
+      "height": 10,
+      "label": "4-nonce-low",
+      "role": "case",
+      "raws": [
+        "0x02f86e830b001e800102830186a0943c44cdddb6a900fa2b585dd299e03d12fa4293bc880de0b6b3a764000080c080a0ac55049ff00a63530cd10f97fc61982a5332d445366d471d03cf54a48d5c2ee1a070438aa1ae28c0f035193ae05b0c75132ef01e185f813907a931162fd4ab3cf1"
+      ],
+      "expect": [
+        null
+      ],
+      "addresses": [
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+      ],
+      "classification": "SKIP-BY-CLIENT",
+      "note": ""
+    },
+    {
+      "height": 11,
+      "label": "4-nonce-low",
+      "role": "continuation",
+      "raws": [
+        "0x02f886830b001e070102830186a094b00100000000000000000000000000000000000380a0000000000000000000000000000000000000000000000000000000000000000ac001a028b4c80a939f2ef9db596dcf16945887d876d15a7e1913065f918b34601769c8a075086ddef26b23d2f6f9f9778a080e2ffd7284b6b669d826c55e9d060a2c5ad0"
+      ],
+      "expect": [
+        1
+      ],
+      "addresses": [
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+      ]
+    },
+    {
+      "height": 12,
+      "label": "5-nonce-gap",
+      "role": "case",
+      "raws": [
+        "0x02f866830b001e090102830186a094b0010000000000000000000000000000000000038080c080a07af53aa967c6048068f02b5b69d74c969fee177bcc287d1ca50c15fda0298161a06186550d20cbdf418fd22486d0d5b7955515e127b60d1c6393a88e808dd4f051"
+      ],
+      "expect": [
+        null
+      ],
+      "addresses": [
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+      ],
+      "classification": "SKIP-BY-CLIENT",
+      "note": ""
+    },
+    {
+      "height": 13,
+      "label": "5-nonce-gap",
+      "role": "continuation",
+      "raws": [
+        "0x02f886830b001e080102830186a094b00100000000000000000000000000000000000380a0000000000000000000000000000000000000000000000000000000000000000cc080a0478a1785e353483098bdb4f1b3d364b3888dc86d82e289ee355f0bb334b1794ba07379de1d1b013005a9cc48615eca4a9aa3760599dc846ab808907430ebe7790f"
+      ],
+      "expect": [
+        1
+      ],
+      "addresses": [
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+      ]
+    },
+    {
+      "height": 14,
+      "label": "6-insufficient-upfront",
+      "role": "case",
+      "raws": [
+        "0x02f866830b001e800102830186a094b0010000000000000000000000000000000000038080c001a07eee6aa681d708f6af8056d1b2ee1eae10579919174031dfc4b88f7bb2c19547a05252e2928390a307345f70b1cf7b448cf5dfd9cacad4d33599727c1d68951277"
+      ],
+      "expect": [
+        null
+      ],
+      "addresses": [
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+        "0x15d34aaf54267db7d7c367839aaf71a00a2c6a65"
+      ],
+      "classification": "SKIP-BY-CLIENT",
+      "note": "100000 wei is below gasLimit(100000)*maxFee(2), despite covering 21000*effectivePrice(1)."
+    },
+    {
+      "height": 15,
+      "label": "6-insufficient-upfront",
+      "role": "continuation",
+      "raws": [
+        "0x02f886830b001e090102830186a094b00100000000000000000000000000000000000380a0000000000000000000000000000000000000000000000000000000000000000ec001a0499115ba222d49c52d9f70fcf8c47be128197e42e713663aa89f1a8f238f0d72a00dd4c53091e3fec396e93129bf126ae57d6832fc58a4fdd641a1483b17af83cc"
+      ],
+      "expect": [
+        1
+      ],
+      "addresses": [
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+      ]
+    },
+    {
+      "height": 16,
+      "label": "7a-intrinsic-gas",
+      "role": "case",
+      "raws": [
+        "0x02f865830b001e0a0102824e2094b0010000000000000000000000000000000000038080c001a0fe56e496fa5b8ea815fdf335fbdd00cf698de906e2ec4959132711615df74f95a073967beded05ee7affeedbaaa5f815059ea4615d5b9b470e3142715000fde488"
+      ],
+      "expect": [
+        null
+      ],
+      "addresses": [
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+      ],
+      "classification": "SKIP-BY-CLIENT",
+      "note": ""
+    },
+    {
+      "height": 17,
+      "label": "7a-intrinsic-gas",
+      "role": "continuation",
+      "raws": [
+        "0x02f886830b001e0a0102830186a094b00100000000000000000000000000000000000380a00000000000000000000000000000000000000000000000000000000000000010c080a0745e3e2fa389eddcaa32050469cfb95f614b53d3ec95006013dbf76a26c34348a04b468b84bf77327cbe49103f0e5f2143b7692fb368b4310fb4f3880b10c7b09e"
+      ],
+      "expect": [
+        1
+      ],
+      "addresses": [
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+      ]
+    },
+    {
+      "height": 18,
+      "label": "7b-above-block-gas",
+      "role": "case",
+      "raws": [
+        "0x02f867830b001e0b01028401d905c094b0010000000000000000000000000000000000038080c001a0262e2b0fc0771a1e74ea5fa0f45a5faf07c5b9e4ab779f0cf6dc7bb2125be99ca054fd5bfb1cebdfff403567c4e678c142c5487c6be65720b44b1bc21426cda450"
+      ],
+      "expect": [
+        null
+      ],
+      "addresses": [
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+      ],
+      "classification": "FILTER-BY-DRIVER",
+      "note": ""
+    },
+    {
+      "height": 19,
+      "label": "7b-above-block-gas",
+      "role": "continuation",
+      "raws": [
+        "0x02f886830b001e0b0102830186a094b00100000000000000000000000000000000000380a00000000000000000000000000000000000000000000000000000000000000012c080a03487384726ec4ea54766f07c699741c900b93f76f19cf99369eaa07bc56b5397a03385038d72d89ca720057d791be4b4f1e8804d9b38d5cd39d5573fc697954ad2"
+      ],
+      "expect": [
+        1
+      ],
+      "addresses": [
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+      ]
+    },
+    {
+      "height": 20,
+      "label": "8a-sequential-balance",
+      "role": "case",
+      "raws": [
+        "0x02f86e830b001e800101830f424094f39fd6e51aad88f6f4ce6ab8827279cfffb92266880de0b6b3a754bdc080c001a0924ad5567bde50f1bf9c1d1ac7edf47802205bac13b7711a5ef39a9bb4a54ae4a06bbbe80f8f77dfe71b04795582ea7f0b8e08acc867711b2584f954a7f38c3a34",
+        "0x02f866830b001e010101830f424094f39fd6e51aad88f6f4ce6ab8827279cfffb922668080c080a0a8b16c2920d25c4773ab24e286aa2fb9934e2f0ab3583a7bba9179267e76a4f4a055f92c167a73316545a5855d5e867f9a6476ba4a1cdca9182ab990fff1bb63a0"
+      ],
+      "expect": [
+        1,
+        null
+      ],
+      "addresses": [
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+        "0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc"
+      ],
+      "classification": "SKIP-BY-CLIENT",
+      "note": "First included; second becomes unaffordable only after first. Parent balance 1 ETH; after balance 979000 wei, nonce1."
+    },
+    {
+      "height": 21,
+      "label": "8a-sequential-balance",
+      "role": "continuation",
+      "raws": [
+        "0x02f886830b001e0c0102830186a094b00100000000000000000000000000000000000380a00000000000000000000000000000000000000000000000000000000000000014c001a07ab017dbde3d61e1757fbb9853a89bd53764cd59063ec80e63b31f768525c223a06c111b4d558fd9025e143815668e1ae28d0f9cb77e5164398a614ed03fa35744"
+      ],
+      "expect": [
+        1
+      ],
+      "addresses": [
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+      ]
+    },
+    {
+      "height": 22,
+      "label": "8b-sequential-nonce",
+      "role": "case",
+      "raws": [
+        "0x02f865830b001e800102824e2094b0010000000000000000000000000000000000038080c080a0e42ef92dd3364b54e3cf3c1d8a7494c2c023946ac5b3d539c47b042f291bec5aa04979fe060dea0c0b047ba16a3cd1c9fa485ab0c18cf8f8184553f82d10619f62",
+        "0x02f866830b001e010102830186a094b0010000000000000000000000000000000000038080c001a022a0f1c9306c660d6d8a5fb73cf50ee47b61ecbf3e26532a926ce0e8dbb15013a07bbe49bbb65905544d023b40280b8424a27edfbc5399d519cd2547110534d20b"
+      ],
+      "expect": [
+        null,
+        null
+      ],
+      "addresses": [
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+        "0x90f79bf6eb2c4f870365e785982e1f101e93b906"
+      ],
+      "classification": "SKIP-BY-CLIENT",
+      "note": "First invalid intrinsic gas; second nonce1 skipped because nonce0 never executes."
+    },
+    {
+      "height": 23,
+      "label": "8b-sequential-nonce",
+      "role": "continuation",
+      "raws": [
+        "0x02f886830b001e0d0102830186a094b00100000000000000000000000000000000000380a00000000000000000000000000000000000000000000000000000000000000016c080a0ebb184c09fcb3c17e6c54624e549a66b0fa3ab872296edd45bac4e648c625a4ca03f932828bc5b4ba67341c2ba5cb7210e8118e48729e45daa954af1fe7d6f3dd2"
+      ],
+      "expect": [
+        1
+      ],
+      "addresses": [
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+      ]
+    },
+    {
+      "height": 24,
+      "label": "9-sum-gas-limits",
+      "role": "case",
+      "raws": [
+        "0x02f886830b001e0e010283b71b0094b00100000000000000000000000000000000000380a00000000000000000000000000000000000000000000000000000000000000384c001a002bf1e35c82daaf0070cab07ca35a852a0c458d8f495ca76704c16f76ba12b11a07fe34542c2db6e2f36aa04b9a795848d69f2cacb4c94c3b541153bed1362744f",
+        "0x02f886830b001e0f010283b71b0094b00100000000000000000000000000000000000380a00000000000000000000000000000000000000000000000000000000000000385c080a0cc28275561faee5dafbef28790382f38a959bf0ed5dd7b6c97c5ec3e0819c692a03a75d332c52d2799c5698ff13b06da5afd366a67d0d411a154d5d492afa0b6bf",
+        "0x02f886830b001e10010283b71b0094b00100000000000000000000000000000000000380a00000000000000000000000000000000000000000000000000000000000000386c080a00ce46bbac94ae79972e06eed72584e189587f79fb06395b020941f7a19559b97a03c85b66a497e7c8302893b3c05e0615c152532c448ead2ae6c12c008dcfd7f87"
+      ],
+      "expect": [
+        1,
+        1,
+        1
+      ],
+      "addresses": [
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+      ],
+      "classification": "INCLUDED-SUCCESS",
+      "note": "Valid control: 36m upfront gas limits exceed 30m block limit, actual used gas fits. INCLUDED-SUCCESS names the valid case, not an execution failure."
+    },
+    {
+      "height": 25,
+      "label": "9-sum-gas-limits",
+      "role": "continuation",
+      "raws": [
+        "0x02f886830b001e110102830186a094b00100000000000000000000000000000000000380a00000000000000000000000000000000000000000000000000000000000000018c001a036b6cf04727be9bbd687738a6f73da334089ca6f5dedd8baeb1564e73c295303a01fe61dc261d4ad590b281271d4253e91a38c17fea56e639b6e0e2a033def8a64"
+      ],
+      "expect": [
+        1
+      ],
+      "addresses": [
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+      ]
+    },
+    {
+      "height": 26,
+      "label": "10-same-block-duplicate",
+      "role": "case",
+      "raws": [
+        "0x02f866830b001e120102830186a094b0010000000000000000000000000000000000038080c001a00727082dc35cc1f4b2be500b1953b9558c118fb857d81c9058582691d33dc197a02dc738752fc84044d4fefe711c0bb5316bd198a9cc37097d369af2888a1755cc",
+        "0x02f866830b001e120102830186a094b0010000000000000000000000000000000000038080c001a00727082dc35cc1f4b2be500b1953b9558c118fb857d81c9058582691d33dc197a02dc738752fc84044d4fefe711c0bb5316bd198a9cc37097d369af2888a1755cc"
+      ],
+      "expect": [
+        1,
+        null
+      ],
+      "addresses": [
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+      ],
+      "classification": "SKIP-BY-CLIENT",
+      "note": "First occurrence included once, duplicate skipped. Receipt belongs to first occurrence."
+    },
+    {
+      "height": 27,
+      "label": "10-same-block-duplicate",
+      "role": "continuation",
+      "raws": [
+        "0x02f886830b001e130102830186a094b00100000000000000000000000000000000000380a0000000000000000000000000000000000000000000000000000000000000001ac001a0eaa17e70a910c49c8918cb62bb5de4a60135cd3a5be93f9187bf1b488933b7c5a0634bf0112e6ec58c6138161a3048b21b3eca09187dd3c17cf3fc52aa72a7cb18"
+      ],
+      "expect": [
+        1
+      ],
+      "addresses": [
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+      ]
+    },
+    {
+      "height": 28,
+      "label": "11a-blob",
+      "role": "case",
+      "raws": [
+        "0x03f889830b001e140102830186a094b0010000000000000000000000000000000000038080c001e1a0010000000000000000000000000000000000000000000000000000000000000001a0e1f06d84a05a81af6cc8c7f086a6149e6b8c747ed126468c07418de5ad7bd813a058fe58af96e4c06bfa6b102e23ff6bac8ff8af67fee0fb7dd0cd7acf27660ffc"
+      ],
+      "expect": [
+        null
+      ],
+      "addresses": [
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+      ],
+      "classification": "FILTER-BY-DRIVER",
+      "note": ""
+    },
+    {
+      "height": 29,
+      "label": "11a-blob",
+      "role": "continuation",
+      "raws": [
+        "0x02f886830b001e140102830186a094b00100000000000000000000000000000000000380a0000000000000000000000000000000000000000000000000000000000000001cc080a0013381ca9ae594d3ae8533f08aa223ebe96e9f4939e0c7afdf38e54babead7c9a043232178b29a14fc52be0cf69103d309d44319dbc766b2bca644aea1b29fcb48"
+      ],
+      "expect": [
+        1
+      ],
+      "addresses": [
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+      ]
+    },
+    {
+      "height": 30,
+      "label": "11b-7702",
+      "role": "case",
+      "raws": [
+        "0x04f8c7830b001e150102830186a094b0010000000000000000000000000000000000038080c0f85ff85d830b001e94b0010000000000000000000000000000000000038001a0d8e5ba5e742d503f5feffb5de3a0cee2b68404cd54eb1cad2a38d8b4cc7b091da00e186e7dadba1fa488b27b547668c1d1de169a6bc2322ad82869021f86a80a8280a0d2a1e683f87a7acd7e1127a74d0c29a54078f9262561d5faef3fa253f8f086bfa03ac7cf35c11b82c1a3b821b783352dc06bbcc4a3c57067dafdc4e09fab6c2615"
+      ],
+      "expect": [
+        null
+      ],
+      "addresses": [
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+      ],
+      "classification": "FILTER-BY-DRIVER",
+      "note": ""
+    },
+    {
+      "height": 31,
+      "label": "11b-7702",
+      "role": "continuation",
+      "raws": [
+        "0x02f886830b001e150102830186a094b00100000000000000000000000000000000000380a0000000000000000000000000000000000000000000000000000000000000001ec080a0613ef3b3c4e3eb2b3919ac69048c67246f8418fa6e44b0e67909249ec4eb09cfa0171c1e483132983a722199410d7549b7f1eb858473b09322f368bd9b5c465e27"
+      ],
+      "expect": [
+        1
+      ],
+      "addresses": [
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+      ]
+    },
+    {
+      "height": 32,
+      "label": "12-user-mint",
+      "role": "case",
+      "raws": [
+        "0x7ef85ba07486b1b4b6772b6985e70b16d56fe809aaa83dad6dc35bdbb4a998de503e4403949965507d1a55bcc2695c58ba16fb37d819b0a4dc949965507d1a55bcc2695c58ba16fb37d819b0a4dc880de0b6b3a764000080830f42408080"
+      ],
+      "expect": [
+        null
+      ],
+      "addresses": [
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+        "0x9965507d1a55bcc2695c58ba16fb37d819b0a4dc"
+      ],
+      "classification": "FILTER-BY-DRIVER",
+      "note": ""
+    },
+    {
+      "height": 33,
+      "label": "12-user-mint",
+      "role": "continuation",
+      "raws": [
+        "0x02f886830b001e160102830186a094b00100000000000000000000000000000000000380a00000000000000000000000000000000000000000000000000000000000000020c080a073025a16149120826985d05753031a3f01fa2cc2639527c49365db1c1176ce01a06eac56861daf95c410cfd63d432b944d657d12d03edf9dea2930db69a5d9bd95"
+      ],
+      "expect": [
+        1
+      ],
+      "addresses": [
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+      ]
+    },
+    {
+      "height": 34,
+      "label": "13-execution-revert",
+      "role": "case",
+      "raws": [
+        "0x02f88a830b001e170102830186a094b00100000000000000000000000000000000000280a4bd66528a00000000000000000000000000000000000000000000000000000000000f423fc001a0e886d86799faaf221d044cdfc00487b4d068c979cd8939e7e5124ba547d65fc9a007fa2477b10828e3c256b0aa2e56e8ddfa4ac5275b80a8feebdf786124f0412d"
+      ],
+      "expect": [
+        0
+      ],
+      "addresses": [
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+      ],
+      "classification": "INCLUDED-FAILED",
+      "note": ""
+    },
+    {
+      "height": 35,
+      "label": "13-execution-revert",
+      "role": "continuation",
+      "raws": [
+        "0x02f886830b001e180102830186a094b00100000000000000000000000000000000000380a00000000000000000000000000000000000000000000000000000000000000022c080a051e10de4f8a71786373a427d9a8f0698a05fb2cf5375a8e9fead26d127ede0bfa063560276fc5d9d5ae1fe54f14617ae419f765050e534ee0d6f58f35fe1044b0a"
+      ],
+      "expect": [
+        1
+      ],
+      "addresses": [
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+      ]
+    }
+  ],
+  "basefee": [
+    {
+      "height": 1,
+      "label": "14-below-basefee",
+      "role": "case",
+      "raws": [
+        "0x02f866830b001e800163830186a094b0010000000000000000000000000000000000038080c001a0eb64319bdaff4f2087ab33df053f503b3518f51bb6e9d142f8d6d9ad57cf87a5a03e999e1a0dda50b6cbf1a4fb42a35ce6bfa9ced53b3d476b4d0ca4ca8a86200f"
+      ],
+      "expect": [
+        null
+      ],
+      "addresses": [
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+      ],
+      "classification": "SKIP-BY-CLIENT"
+    },
+    {
+      "height": 2,
+      "label": "14-below-basefee",
+      "role": "continuation",
+      "raws": [
+        "0x02f867830b001e800181c8830186a094b0010000000000000000000000000000000000038080c001a02bda569cf58cec686e5192e95ff2fc80101dceba2194bdd1635d4b4a4fa871f7a0128f38b4ec6eaf384b64d600a5f38f0482694aca595dc4acd957a16ec554be5a"
+      ],
+      "expect": [
+        1
+      ],
+      "addresses": [
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "case": "1a-bad-rlp",
+      "height": 2,
+      "continuation_height": 3,
+      "classification": "FILTER-BY-DRIVER",
+      "note": ""
+    },
+    {
+      "case": "1b-unknown-type",
+      "height": 4,
+      "continuation_height": 5,
+      "classification": "FILTER-BY-DRIVER",
+      "note": ""
+    },
+    {
+      "case": "2-wrong-chain",
+      "height": 6,
+      "continuation_height": 7,
+      "classification": "SKIP-BY-CLIENT",
+      "note": ""
+    },
+    {
+      "case": "3-bad-signature",
+      "height": 8,
+      "continuation_height": 9,
+      "classification": "FILTER-BY-DRIVER",
+      "note": ""
+    },
+    {
+      "case": "4-nonce-low",
+      "height": 10,
+      "continuation_height": 11,
+      "classification": "SKIP-BY-CLIENT",
+      "note": ""
+    },
+    {
+      "case": "5-nonce-gap",
+      "height": 12,
+      "continuation_height": 13,
+      "classification": "SKIP-BY-CLIENT",
+      "note": ""
+    },
+    {
+      "case": "6-insufficient-upfront",
+      "height": 14,
+      "continuation_height": 15,
+      "classification": "SKIP-BY-CLIENT",
+      "note": "100000 wei is below gasLimit(100000)*maxFee(2), despite covering 21000*effectivePrice(1)."
+    },
+    {
+      "case": "7a-intrinsic-gas",
+      "height": 16,
+      "continuation_height": 17,
+      "classification": "SKIP-BY-CLIENT",
+      "note": ""
+    },
+    {
+      "case": "7b-above-block-gas",
+      "height": 18,
+      "continuation_height": 19,
+      "classification": "FILTER-BY-DRIVER",
+      "note": ""
+    },
+    {
+      "case": "8a-sequential-balance",
+      "height": 20,
+      "continuation_height": 21,
+      "classification": "SKIP-BY-CLIENT",
+      "note": "First included; second becomes unaffordable only after first. Parent balance 1 ETH; after balance 979000 wei, nonce1."
+    },
+    {
+      "case": "8b-sequential-nonce",
+      "height": 22,
+      "continuation_height": 23,
+      "classification": "SKIP-BY-CLIENT",
+      "note": "First invalid intrinsic gas; second nonce1 skipped because nonce0 never executes."
+    },
+    {
+      "case": "9-sum-gas-limits",
+      "height": 24,
+      "continuation_height": 25,
+      "classification": "INCLUDED-SUCCESS",
+      "note": "Valid control: 36m upfront gas limits exceed 30m block limit, actual used gas fits. INCLUDED-SUCCESS names the valid case, not an execution failure."
+    },
+    {
+      "case": "10-same-block-duplicate",
+      "height": 26,
+      "continuation_height": 27,
+      "classification": "SKIP-BY-CLIENT",
+      "note": "First occurrence included once, duplicate skipped. Receipt belongs to first occurrence."
+    },
+    {
+      "case": "11a-blob",
+      "height": 28,
+      "continuation_height": 29,
+      "classification": "FILTER-BY-DRIVER",
+      "note": ""
+    },
+    {
+      "case": "11b-7702",
+      "height": 30,
+      "continuation_height": 31,
+      "classification": "FILTER-BY-DRIVER",
+      "note": ""
+    },
+    {
+      "case": "12-user-mint",
+      "height": 32,
+      "continuation_height": 33,
+      "classification": "FILTER-BY-DRIVER",
+      "note": ""
+    },
+    {
+      "case": "13-execution-revert",
+      "height": 34,
+      "continuation_height": 35,
+      "classification": "INCLUDED-FAILED",
+      "note": ""
+    }
+  ],
+  "addresses": {
+    "1": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+    "2": "0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc",
+    "3": "0x90f79bf6eb2c4f870365e785982e1f101e93b906",
+    "4": "0x15d34aaf54267db7d7c367839aaf71a00a2c6a65",
+    "5": "0x9965507d1a55bcc2695c58ba16fb37d819b0a4dc"
+  }
+}

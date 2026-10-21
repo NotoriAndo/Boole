@@ -18,6 +18,18 @@ twelve-hour delegation.
 
 ## Current boundary
 
+**Devnet M1 (October 21, devnet only).** The additive `boole-derivation` crate
+maps finalized anvil inbox data and the exact parent header to deterministic
+`noTxPool` payload attributes. `boole-devnet-driver` drives unmodified pinned
+op-reth through the Engine API. The [derivation spec](devnet-derivation-v0.md)
+reserves L1-info gas and applies a cumulative user gas budget. The
+[pinned integration tests](../crates/boole-devnet-driver/tests/devnet.rs) reproduce
+37 heights: original S1b main 1–23 and both basefee heights remain exact;
+main 24–35 use the separately accepted budget fixture. Live A/B/C agree through
+finality waiting, restart and another finalized block after an unfinalized reorg.
+Both earlier fatal block-gas probes now produce identical A/B blocks. This is
+closed-local devnet evidence.
+
 **Priority: ZK verification problem production, selected by the user on
 September 29.** Protocol-authored Lean problems about real ZK code (miners only
 prove) replace generated puzzles as the useful-work direction; block production

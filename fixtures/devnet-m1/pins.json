@@ -1,0 +1,13 @@
+{
+  "op_reth": {
+    "tag": "op-reth/v2.6.0",
+    "commit": "da6d3252491754837a778061db0cc47236ec13c6",
+    "platform": "darwin-arm64",
+    "sha256": "db37c9fa368f97c25112547bf5a24fe7afb50ad559e3953c2176c3c3f6f5726b"
+  },
+  "anvil": {
+    "version": "Foundry v1.8.5",
+    "platform": "darwin-arm64",
+    "sha256": "a082205c1b76cccc39516aeb784ea0478f66772451b9412dfaa271c23abf118a"
+  }
+}
