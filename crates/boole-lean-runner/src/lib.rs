@@ -3053,9 +3053,15 @@ mod tests {
             scan_for_forbidden_tokens_in_bytes(source.as_bytes()),
             Some(("forbidden-attribute".into(), 1))
         );
-        assert!(started.elapsed() < Duration::from_secs(10));
+        assert!(started.elapsed() < attribute_scan_time_limit());
         let growth = peak() - before;
         assert!(growth < 200.0, "attribute scan grew by {growth} MiB");
+    }
+
+    /// The 10 s bound is for optimized builds; unoptimized CI runners are several times slower.
+    #[cfg(unix)]
+    fn attribute_scan_time_limit() -> Duration {
+        Duration::from_secs(if cfg!(debug_assertions) { 60 } else { 10 })
     }
 
     #[cfg(unix)]
@@ -3074,7 +3080,8 @@ mod tests {
                 .spawn()
                 .unwrap();
             let started = Instant::now();
-            while child.try_wait().unwrap().is_none() && started.elapsed() < Duration::from_secs(12)
+            while child.try_wait().unwrap().is_none()
+                && started.elapsed() < attribute_scan_time_limit() + Duration::from_secs(5)
             {
                 thread::sleep(Duration::from_millis(20));
             }
