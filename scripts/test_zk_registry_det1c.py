@@ -156,6 +156,37 @@ class CompilePrecedence(unittest.TestCase):
             post=fixture.ok_post(boundary=dict(verdict='ERROR', reason='sandbox-unavailable')))
         self.assertEqual(fixture.verdict(result), ([], [], ['sandbox-unavailable']))
 
+    def test_print_axioms_is_bound_to_appended_line_and_full_name(self):
+        text = 'namespace Example\ntheorem goal : True := by trivial\nend Example\n'
+        appended = text.count('\n') + 2
+        def message(data, line):
+            return dict(severity='information', data=data, pos=dict(line=line, column=0))
+        valid = message("'Example.goal' does not depend on any axioms", appended)
+        forged = message("'Example.goal' depends on axioms: [Lean.ofReduceBool]", 2)
+        cases = [([valid, forged], []), ([forged], None),
+                 ([message("'Other.goal' does not depend on any axioms", appended)], None),
+                 ([message("solver text: 'Example.goal' does not depend on any axioms", appended)], None)]
+        for messages, expected in cases:
+            with self.subTest(messages=messages), tempfile.TemporaryDirectory() as temp:
+                env = L.LeanEnv('/unused', [], '', {}, '', temp)
+                problem = dict(checker=dict(theorem_fqn='Example.goal', files=[], lean_opts=[]))
+                output = '\n'.join(json.dumps(message) for message in messages)
+                with patch.object(L, 'run_lean', return_value=L.RunResult(1, output, 0, False)):
+                    result = C.compile_in_sandbox(env, problem, temp, text, str(Path(temp)/'work'),
+                                                  10, SB.Sandbox.fixture())
+                self.assertEqual(result['printed_axioms'], expected)
+
+    def test_raw_fid_lines_do_not_establish_gate_verdicts(self):
+        from zk_registry import gates as G
+        with tempfile.TemporaryDirectory() as temp:
+            env = L.LeanEnv('/unused', [], '', {}, '', temp)
+            output = 'FID raw ACCEPT\n' + json.dumps(dict(severity='information', data='FID structured ACCEPT\nFID-DONE'))
+            with patch.object(L, 'run_lean', return_value=L.RunResult(0, output, 0, False)):
+                verdicts, _ = G.lean_verdicts(env, temp, 'Example', 0, [], temp, 10)
+            self.assertEqual(verdicts, dict(structured='ACCEPT'))
+        raw = 'x' * 600
+        self.assertEqual(L.parse_messages(raw)[0]['data'], 'non-JSON output: ' + raw[:500])
+
     def test_non_json_stderr_is_raw_output_and_not_a_lean_error(self):
         with tempfile.TemporaryDirectory() as temp:
             env = L.LeanEnv('/unused', [], '', {}, '', temp)
@@ -169,9 +200,9 @@ class CompilePrecedence(unittest.TestCase):
             invalid, fail, error = [], [], []
             C.apply_compile_result(result, {}, invalid, fail, error)
             self.assertEqual((invalid, fail, error), ([], [], ['resource-unavailable']))
-            messages = L.parse_messages(output + json.dumps(dict(severity='error', data='Lean error')))
+            messages = L.parse_messages(output + json.dumps(dict(severity='error', data='Lean error')), structured_only=True)
             self.assertEqual([message['data'] for message in L.errors(messages)], ['Lean error'])
-            self.assertEqual(messages[0]['data'], output.rstrip('\n'))
+            self.assertEqual(L.parse_messages(output)[0]['data'], 'non-JSON output: ' + output.rstrip('\n'))
 
     def test_silent_nonzero_compile_exit_is_availability_error(self):
         fixture = check_fixtures.VerdictMappingTests()
@@ -203,6 +234,15 @@ class CompilePrecedence(unittest.TestCase):
 
 
 class TextPolicy(unittest.TestCase):
+    def test_policy_loader_rejects_word_patterns_with_nonword_edges(self):
+        for word in ['#eval', 'debug.', 'αnative', 'nativeα', '']:
+            with self.subTest(word=word), self.assertRaises(ValueError):
+                C.text_pattern(dict(text=word, label='bad', boundary='word'))
+
+    def test_current_metadata_contains_every_reported_policy_label(self):
+        reported = {rule['label'] for rule in C.TEXT_POLICY['patterns']} | {'forbidden-attribute'}
+        self.assertEqual(reported - set(C.FORBIDDEN_LABELS), set())
+
     def test_public_checker_rejects_invalid_utf8_without_crashing(self):
         from test_zk_registry_package import make_package
         with tempfile.TemporaryDirectory() as temp:
@@ -243,6 +283,30 @@ class TextPolicy(unittest.TestCase):
         started = time.monotonic()
         self.assertEqual(C.forbidden_scan([('proof', text)]), [])
         self.assertLess(time.monotonic() - started, 10)
+    def test_attribute_brackets_use_bounded_memory_and_time(self):
+        code = """import json,resource,sys,time
+sys.path.insert(0,sys.argv[1])
+from zk_registry import check as C
+text='@['+sys.argv[2]*(16*1024*1024)
+scale=1024*1024 if sys.platform=='darwin' else 1024
+before=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/scale
+started=time.monotonic()
+hits=C.forbidden_scan([('proof',text)])
+print(json.dumps(dict(hits=hits,seconds=time.monotonic()-started,
+    growth_mib=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/scale-before)))
+"""
+        import os
+        for bracket in '([{':
+            with self.subTest(bracket=bracket):
+                result = L.run_process([sys.executable, '-c', code, str(Path(__file__).parent), bracket],
+                                       dict(os.environ), str(Path(__file__).parent), 12, 230, poll_s=0.02)
+                self.assertFalse(result.memkill, 'attribute scan exceeded the bounded test memory guard')
+                self.assertEqual(result.rc, 0, result.out)
+                receipt = json.loads(result.out)
+                self.assertEqual(receipt['hits'], ['forbidden-attribute in proof (line 1 of that part)'])
+                self.assertLess(receipt['seconds'], 10)
+                self.assertLess(receipt['growth_mib'], 200)
+
 
 
 class SymlinkLoops(unittest.TestCase):
@@ -348,6 +412,11 @@ class ImportedArtifacts(unittest.TestCase):
 
 
 class CIImports(unittest.TestCase):
+    def test_shared_policy_and_fixture_trigger_both_macos_ci_events(self):
+        workflow = (Path(__file__).parents[1]/'.github/workflows/macos-isolation.yml').read_text()
+        for path in ['scripts/zk_registry/data/submission_policy_v4.json', 'fixtures/submission-policy/**']:
+            self.assertEqual(workflow.count('      - "'+path+'"\n'), 2, path)
+
     def test_det1_test_helpers_trigger_both_ci_events(self):
         scripts = Path(__file__).parent
         pending, seen = ['test_zk_registry_det1b', 'test_zk_registry_det1c'], set()

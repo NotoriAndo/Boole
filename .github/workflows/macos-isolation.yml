@@ -5,7 +5,7 @@ name: macos-isolation
 # self-test on a GitHub macOS runner (~10x the Linux minute cost) is not
 # worth it; this scoped canary runs the boole-lean-runner isolation guards
 # plus one real pinned-Lean Main -> inherited artifact fd -> Audit request,
-# and only when the lean-runner crate or this workflow changes. It is the
+# and only when verifier inputs or this workflow change. It is the
 # OS-regression canary the ADR calls for (Seatbelt is a deprecated-but-
 # functional Apple API), at a fraction of a full macOS matrix's cost.
 # Constitution §13: the invariant (macOS isolation is CI-verified) is kept;
@@ -18,6 +18,8 @@ on:
     branches: [main]
     paths:
       - "crates/boole-lean-runner/**"
+      - "scripts/zk_registry/data/submission_policy_v4.json"
+      - "fixtures/submission-policy/**"
       - "lean/checker/**"
       - "native/mac3/**"
       - "scripts/native_shadow_closed_local_mac_readiness_arm64_v1.py"
@@ -26,6 +28,8 @@ on:
     branches: [main]
     paths:
       - "crates/boole-lean-runner/**"
+      - "scripts/zk_registry/data/submission_policy_v4.json"
+      - "fixtures/submission-policy/**"
       - "lean/checker/**"
       - "native/mac3/**"
       - "scripts/native_shadow_closed_local_mac_readiness_arm64_v1.py"

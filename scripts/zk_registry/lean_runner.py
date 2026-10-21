@@ -333,8 +333,12 @@ def run_lean(env: LeanEnv, args: list[str], cwd: str, timeout: float, extra_lean
         return runner(command, task_env, cwd, timeout, rss)
 
 
-def parse_messages(out: str) -> list[dict]:
-    """``lean --json`` output: one JSON message per line; other lines remain raw output."""
+def parse_messages(out: str, *, structured_only: bool = False) -> list[dict]:
+    """Parse Lean diagnostics; compilation can exclude synthetic raw-line reports.
+
+    Other consumers retain their earlier prefixed, bounded raw-line messages.
+    The complete unmodified output remains in RunResult.out and compile.log.
+    """
     msgs = []
     for ln in out.splitlines():
         if not ln.strip():
@@ -346,7 +350,8 @@ def parse_messages(out: str) -> list[dict]:
                 continue
         except ValueError:
             pass
-        msgs.append({"severity": "raw", "data": ln, "pos": None})
+        if not structured_only:
+            msgs.append({"severity": "error", "data": "non-JSON output: " + ln[:500], "pos": None})
     return msgs
 
 

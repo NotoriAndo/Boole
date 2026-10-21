@@ -1603,6 +1603,80 @@
           "line": 1
         }
       ]
+    },
+    {
+      "name": "attribute-VT-0",
+      "source": "@\u000b[foo]",
+      "hits": [
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "name": "attribute-VT-1",
+      "source": "attribute\u000b[foo]",
+      "hits": [
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "name": "attribute-VT-2",
+      "source": "@[\u000bsimp]",
+      "hits": []
+    },
+    {
+      "name": "attribute-VT-3",
+      "source": "@[simp\u000b]",
+      "hits": []
+    },
+    {
+      "name": "attribute-VT-4",
+      "source": "@[local\u000bsimp]",
+      "hits": []
+    },
+    {
+      "name": "attribute-FF-0",
+      "source": "@\f[foo]",
+      "hits": [
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "name": "attribute-FF-1",
+      "source": "attribute\f[foo]",
+      "hits": [
+        {
+          "label": "forbidden-attribute",
+          "word": "attribute",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "name": "attribute-FF-2",
+      "source": "@[\fsimp]",
+      "hits": []
+    },
+    {
+      "name": "attribute-FF-3",
+      "source": "@[simp\f]",
+      "hits": []
+    },
+    {
+      "name": "attribute-FF-4",
+      "source": "@[local\fsimp]",
+      "hits": []
     }
   ]
 }

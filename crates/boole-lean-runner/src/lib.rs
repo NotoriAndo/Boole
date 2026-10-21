@@ -1631,14 +1631,53 @@ struct TextPattern {
 }
 
 #[derive(Deserialize)]
+struct TextPolicyData {
+    patterns: Vec<TextPattern>,
+    safe_attributes: Vec<String>,
+    ascii_whitespace: String,
+}
+
+#[derive(Deserialize)]
+#[serde(try_from = "TextPolicyData")]
 struct TextPolicy {
     patterns: Vec<TextPattern>,
     safe_attributes: Vec<String>,
+    ascii_whitespace: String,
+}
+
+impl TryFrom<TextPolicyData> for TextPolicy {
+    type Error = &'static str;
+
+    fn try_from(data: TextPolicyData) -> std::result::Result<Self, Self::Error> {
+        for rule in &data.patterns {
+            if rule.boundary == "word"
+                && !(rule
+                    .text
+                    .as_bytes()
+                    .first()
+                    .is_some_and(|byte| ascii_word(*byte))
+                    && rule
+                        .text
+                        .as_bytes()
+                        .last()
+                        .is_some_and(|byte| ascii_word(*byte)))
+            {
+                return Err("word-bounded pattern must start and end with ASCII word characters");
+            }
+        }
+        Ok(Self {
+            patterns: data.patterns,
+            safe_attributes: data.safe_attributes,
+            ascii_whitespace: data.ascii_whitespace,
+        })
+    }
 }
 
 fn text_policy() -> &'static TextPolicy {
     static POLICY: OnceLock<TextPolicy> = OnceLock::new();
     POLICY.get_or_init(|| {
+        // This internal workspace crate is built from the repository and is
+        // never packaged with `cargo package`; the shared authority stays here.
         serde_json::from_str(include_str!(
             "../../../scripts/zk_registry/data/submission_policy_v4.json"
         ))
@@ -1648,6 +1687,17 @@ fn text_policy() -> &'static TextPolicy {
 
 fn ascii_word(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || byte == b'_'
+}
+
+fn ascii_space(byte: u8) -> bool {
+    text_policy().ascii_whitespace.as_bytes().contains(&byte)
+}
+
+fn trim_ascii_space(bytes: &[u8]) -> &[u8] {
+    &bytes[bytes
+        .iter()
+        .position(|byte| !ascii_space(*byte))
+        .unwrap_or(bytes.len())..]
 }
 
 fn text_pattern_hit(text: &str, rule: &TextPattern) -> Option<usize> {
@@ -1674,25 +1724,25 @@ fn text_pattern_hit(text: &str, rule: &TextPattern) -> Option<usize> {
 // only needs its leading word; do not copy or rescan a whole nested suffix.
 fn forbidden_attribute(text: &str) -> Option<usize> {
     struct Frame {
-        close: u8,
-        marker: Option<usize>,
+        depth: usize,
+        marker: usize,
         entry: usize,
     }
     fn allowed_entry(text: &[u8]) -> bool {
-        let trimmed = text.trim_ascii_start();
+        let trimmed = trim_ascii_space(text);
         let trimmed = [b"local".as_slice(), b"scoped".as_slice()]
             .iter()
             .find_map(|prefix| {
                 trimmed
                     .strip_prefix(*prefix)
-                    .filter(|rest| rest.first().is_some_and(u8::is_ascii_whitespace))
+                    .filter(|rest| rest.first().is_some_and(|byte| ascii_space(*byte)))
             })
-            .unwrap_or(trimmed)
-            .trim_ascii_start();
+            .unwrap_or(trimmed);
+        let trimmed = trim_ascii_space(trimmed);
         let trimmed = trimmed.strip_prefix(b"-").unwrap_or(trimmed);
         let end = trimmed
             .iter()
-            .position(|byte| byte.is_ascii_whitespace() || b",()[]{}".contains(byte))
+            .position(|byte| ascii_space(*byte) || b",()[]{}".contains(byte))
             .unwrap_or(trimmed.len());
         text_policy()
             .safe_attributes
@@ -1712,7 +1762,7 @@ fn forbidden_attribute(text: &str) -> Option<usize> {
             None
         };
         if let Some(mut end) = rest {
-            while bytes.get(end).is_some_and(u8::is_ascii_whitespace) {
+            while bytes.get(end).is_some_and(|byte| ascii_space(*byte)) {
                 end += 1;
             }
             if bytes.get(end) == Some(&b'[') {
@@ -1723,37 +1773,57 @@ fn forbidden_attribute(text: &str) -> Option<usize> {
     if markers.is_empty() {
         return None;
     }
-    let mut stack: Vec<Frame> = Vec::new();
+    let mut closers: Vec<u8> = Vec::new();
+    let mut frames: Vec<Frame> = Vec::new();
     let mut bad: Option<usize> = None;
-    let mut reject = |marker: Option<usize>| {
-        if let Some(marker) = marker {
-            bad = Some(bad.map_or(marker, |prior| prior.min(marker)));
-        }
+    let mut reject = |marker: usize| {
+        bad = Some(bad.map_or(marker, |prior| prior.min(marker)));
     };
     for (index, byte) in bytes.iter().copied().enumerate() {
         match byte {
-            b'[' | b'(' | b'{' => stack.push(Frame {
-                close: match byte {
+            b'[' | b'(' | b'{' => {
+                closers.push(match byte {
                     b'[' => b']',
                     b'(' => b')',
                     _ => b'}',
-                },
-                marker: markers.get(&index).copied(),
-                entry: index + 1,
-            }),
-            b']' | b')' | b'}' => {
-                while stack.last().is_some_and(|frame| frame.close != byte) {
-                    reject(stack.pop().unwrap().marker);
+                });
+                if let Some(marker) = markers.get(&index) {
+                    frames.push(Frame {
+                        depth: closers.len(),
+                        marker: *marker,
+                        entry: index + 1,
+                    });
                 }
-                if let Some(frame) = stack.pop() {
-                    if frame.marker.is_some() && !allowed_entry(&bytes[frame.entry..index]) {
-                        reject(frame.marker);
+            }
+            b']' | b')' | b'}' => {
+                while closers.last().is_some_and(|close| *close != byte) {
+                    if frames
+                        .last()
+                        .is_some_and(|frame| frame.depth == closers.len())
+                    {
+                        reject(frames.pop().unwrap().marker);
                     }
+                    closers.pop();
+                }
+                if !closers.is_empty() {
+                    if frames
+                        .last()
+                        .is_some_and(|frame| frame.depth == closers.len())
+                    {
+                        let frame = frames.pop().unwrap();
+                        if !allowed_entry(&bytes[frame.entry..index]) {
+                            reject(frame.marker);
+                        }
+                    }
+                    closers.pop();
                 }
             }
             b',' => {
-                if let Some(frame) = stack.last_mut() {
-                    if frame.marker.is_some() && !allowed_entry(&bytes[frame.entry..index]) {
+                if let Some(frame) = frames
+                    .last_mut()
+                    .filter(|frame| frame.depth == closers.len())
+                {
+                    if !allowed_entry(&bytes[frame.entry..index]) {
                         reject(frame.marker);
                     }
                     frame.entry = index + 1;
@@ -1762,9 +1832,10 @@ fn forbidden_attribute(text: &str) -> Option<usize> {
             _ => {}
         }
     }
-    for frame in stack {
+    for frame in frames {
         reject(frame.marker);
     }
+
     bad
 }
 
@@ -2900,6 +2971,21 @@ fn run_toolchain_probe(command: Command, config: &LeanRunnerConfig) -> Result<St
 #[cfg(test)]
 mod tests {
     #[test]
+    fn policy_loader_rejects_word_patterns_with_nonword_edges() {
+        for word in ["#eval", "debug.", "αnative", "nativeα", ""] {
+            let mut data: serde_json::Value = serde_json::from_str(include_str!(
+                "../../../scripts/zk_registry/data/submission_policy_v4.json"
+            ))
+            .unwrap();
+            data["patterns"][0]["text"] = word.into();
+            assert!(
+                serde_json::from_str::<TextPolicy>(&data.to_string()).is_err(),
+                "{word}"
+            );
+        }
+    }
+
+    #[test]
     fn review_text_policy_shared_cases() {
         let corpus: serde_json::Value = serde_json::from_str(include_str!(
             "../../../fixtures/submission-policy/cases-v4.json"
@@ -2937,6 +3023,71 @@ mod tests {
         let started = Instant::now();
         assert_eq!(scan_for_forbidden_tokens_in_bytes(source.as_bytes()), None);
         assert!(started.elapsed() < Duration::from_secs(10));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn attribute_bracket_memory_worker() {
+        let Ok(bracket) = std::env::var("BOOLE_ATTRIBUTE_BRACKET") else {
+            return;
+        };
+        let mut source = String::with_capacity(16 * 1024 * 1024 + 2);
+        source.push_str("@[");
+        source.extend(std::iter::repeat_n(
+            bracket.chars().next().unwrap(),
+            16 * 1024 * 1024,
+        ));
+        let peak = || {
+            let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
+            assert_eq!(unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut usage) }, 0);
+            let scale = if cfg!(target_os = "macos") {
+                1024.0 * 1024.0
+            } else {
+                1024.0
+            };
+            usage.ru_maxrss as f64 / scale
+        };
+        let before = peak();
+        let started = Instant::now();
+        assert_eq!(
+            scan_for_forbidden_tokens_in_bytes(source.as_bytes()),
+            Some(("forbidden-attribute".into(), 1))
+        );
+        assert!(started.elapsed() < Duration::from_secs(10));
+        let growth = peak() - before;
+        assert!(growth < 200.0, "attribute scan grew by {growth} MiB");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn attribute_brackets_use_bounded_memory_and_time() {
+        for bracket in ["(", "[", "{"] {
+            let mut child = Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "tests::attribute_bracket_memory_worker",
+                    "--nocapture",
+                ])
+                .env("BOOLE_ATTRIBUTE_BRACKET", bracket)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            let started = Instant::now();
+            while child.try_wait().unwrap().is_none() && started.elapsed() < Duration::from_secs(12)
+            {
+                thread::sleep(Duration::from_millis(20));
+            }
+            if child.try_wait().unwrap().is_none() {
+                child.kill().unwrap();
+            }
+            let output = child.wait_with_output().unwrap();
+            assert!(
+                output.status.success(),
+                "{bracket}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
     }
 
     #[test]

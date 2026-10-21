@@ -82,10 +82,15 @@ FORBIDDEN_LABELS_V3 = [label for _, label in FORBIDDEN] + ['forbidden-attribute'
 with open(os.path.join(os.path.dirname(__file__), 'data', 'submission_policy_v4.json'), encoding='utf-8') as policy_file:
     TEXT_POLICY = json.load(policy_file)
 SAFE_ATTRIBUTES = frozenset(TEXT_POLICY['safe_attributes'])
+ASCII_WHITESPACE = re.escape(TEXT_POLICY['ascii_whitespace'])
 
 
 def text_pattern(rule: dict) -> str:
     boundary = rule['boundary']
+    word = rule['text']
+    if boundary == 'word' and (not word or not re.fullmatch(r'[A-Za-z0-9_]', word[0])
+                               or not re.fullmatch(r'[A-Za-z0-9_]', word[-1])):
+        raise ValueError('word-bounded pattern must start and end with ASCII word characters')
     return ((r'\b' if boundary in ('word', 'prefix') else '')
             + re.escape(rule['text'])
             + (r'\b' if boundary in ('word', 'suffix') else ''))
@@ -95,8 +100,8 @@ FORBIDDEN = [(text_pattern(rule), rule['label']) for rule in TEXT_POLICY['patter
 TEXT_PATTERNS = [(re.compile(pattern, re.ASCII), label) for pattern, label in FORBIDDEN]
 FORBIDDEN_LABELS_V1 = [label for _, label in FORBIDDEN_V1]
 FORBIDDEN_LABELS_V2 = [label for _, label in FORBIDDEN_V2]
-# Metadata vocabularies stay readable; current checking always uses the shared list.
-FORBIDDEN_LABELS = FORBIDDEN_LABELS_V3[:-1] + ['limit-override', 'native-evaluation', 'forbidden-attribute']
+# Historical v1-v3 vocabularies stay readable; v4 records every current label.
+FORBIDDEN_LABELS = FORBIDDEN_LABELS_V3[:-1] + ['limit-override', 'native-evaluation', 'addDecl', 'debug.', 'forbidden-attribute']
 FORBIDDEN_SETS = {1: FORBIDDEN_LABELS_V1, 2: FORBIDDEN_LABELS_V2,
                   3: FORBIDDEN_LABELS_V3, 4: FORBIDDEN_LABELS}
 EXIT = {"PASS": 0, "FAIL": 1, "INVALID": 2, "ERROR": 3}
@@ -174,36 +179,42 @@ def text_check(orig: str, proof: str, thm: str) -> tuple[list[str], str, str]:
 
 def forbidden_attributes(text: str) -> list[int]:
     """Check every attribute marker on the text as written, in one pass."""
-    markers = list(re.finditer(r'@\s*\[|\battribute\s*\[', text, re.ASCII))
+    markers = list(re.finditer(r'@[' + ASCII_WHITESPACE + r']*\[|\battribute[' + ASCII_WHITESPACE + r']*\[', text, re.ASCII))
     if not markers:
         return []
     by_end = {marker.end() - 1: marker.start() for marker in markers}
     bad = set()
-    stack = []
-    pairs = {'[': ']', '(': ')', '{': '}'}
-    entry_pattern = re.compile(r'\s*(?:(?:local|scoped)\s+)?-?([^\s,()\[\]{}]+)', re.ASCII)
+    closers = bytearray()
+    frames = []  # Only attribute markers need depth, position and entry start.
+    pairs = {'[': ord(']'), '(': ord(')'), '{': ord('}')}
+    entry_pattern = re.compile(r'[' + ASCII_WHITESPACE + r']*(?:(?:local|scoped)[' + ASCII_WHITESPACE + r']+)?-?([^' + ASCII_WHITESPACE + r',()\[\]{}]+)', re.ASCII)
 
     def check_entry(frame, end):
-        marker, start = frame[1], frame[2]
-        if marker is not None:
-            entry = entry_pattern.match(text, start, end)
-            if entry is None or entry[1] not in SAFE_ATTRIBUTES:
-                bad.add(marker)
+        _, marker, start = frame
+        entry = entry_pattern.match(text, start, end)
+        if entry is None or entry[1] not in SAFE_ATTRIBUTES:
+            bad.add(marker)
 
     for index, char in enumerate(text):
         if char in pairs:
-            stack.append([pairs[char], by_end.get(index), index + 1])
+            closers.append(pairs[char])
+            marker = by_end.get(index)
+            if marker is not None:
+                frames.append([len(closers), marker, index + 1])
         elif char in '])}':
-            while stack and stack[-1][0] != char:
-                frame = stack.pop()
-                if frame[1] is not None:
-                    bad.add(frame[1])
-            if stack:
-                check_entry(stack.pop(), index)
-        elif char == ',' and stack:
-            check_entry(stack[-1], index)
-            stack[-1][2] = index + 1
-    bad.update(frame[1] for frame in stack if frame[1] is not None)
+            close = ord(char)
+            while closers and closers[-1] != close:
+                if frames and frames[-1][0] == len(closers):
+                    bad.add(frames.pop()[1])
+                closers.pop()
+            if closers:
+                if frames and frames[-1][0] == len(closers):
+                    check_entry(frames.pop(), index)
+                closers.pop()
+        elif char == ',' and frames and frames[-1][0] == len(closers):
+            check_entry(frames[-1], index)
+            frames[-1][2] = index + 1
+    bad.update(frame[1] for frame in frames)
     return [marker.start() for marker in markers if marker.start() in bad]
 
 
@@ -229,16 +240,21 @@ def forbidden_scan(parts: list[tuple[str, str]]) -> list[str]:
 
 # ------------------------------------------------------------------------------------------ compile
 
-def parse_printed_axioms(msgs: list[dict], fqn: str) -> list[str] | None:
-    ax = [m for m in msgs if m.get("severity") == "information" and "axioms" in m.get("data", "")
-          and fqn.split(".")[-1] in m.get("data", "")]
-    if not ax:
+def parse_printed_axioms(msgs: list[dict], fqn: str, print_line: int) -> list[str] | None:
+    # This diagnostic belongs to the appended command only. Replay axioms and
+    # Comparator's permitted-axioms check remain the authority for acceptance.
+    prefix = f"'{fqn}' "
+    messages = [message['data'][len(prefix):].strip() for message in msgs
+                if message.get('severity') == 'information'
+                and (message.get('pos') or {}).get('line') == print_line
+                and isinstance(message.get('data'), str) and message['data'].startswith(prefix)]
+    if not messages:
         return None
-    d = ax[-1]["data"]
-    if "does not depend on any axioms" in d:
+    data = messages[-1]
+    if data == 'does not depend on any axioms':
         return []
-    mm = re.search(r"depends on axioms:\s*\[(.*)\]", d, re.S)
-    return [a.strip() for a in mm.group(1).split(",")] if mm else None
+    match = re.fullmatch(r'depends on axioms:\s*\[(.*)\]', data, re.S)
+    return [axiom.strip() for axiom in match[1].split(',')] if match else None
 
 
 def compile_and_postcheck(env: L.LeanEnv, problem: dict, pkg_dir: str, text: str, workdir: str, timeout: float) -> dict:
@@ -310,21 +326,23 @@ def _compile_and_postcheck(env: L.LeanEnv, problem: dict, pkg_dir: str, text: st
     proof_dir = os.path.join(workdir, "proof")
     FS.makedirs(proof_dir, exist_ok=True)
     src = os.path.join(proof_dir, "ProofMod.lean")
+    source = text + ("" if text.endswith("\n") else "\n")
+    print_line = source.count('\n') + 2
     with open(src, "w", encoding="utf-8") as f:
-        f.write(text + ("" if text.endswith("\n") else "\n") + f"\n#print axioms {fqn}\n")
+        f.write(source + f"\n#print axioms {fqn}\n")
     olean = os.path.join(proof_dir, "ProofMod.olean")
     r = L.run_lean(env, opts + ["--json", "-R", proof_dir, "-o", olean, src], proof_dir, timeout,
                    extra_lean_path=[build], submission_controlled=True)
     with open(os.path.join(proof_dir, "compile.log"), "w", encoding="utf-8") as f:
         f.write(r.out)
-    msgs = L.parse_messages(r.out)
+    msgs = L.parse_messages(r.out, structured_only=True)
     errs = L.errors(msgs)
     res.update(compile_rc=r.rc, compile_secs=r.secs, compile_timeout=r.timeout, n_errors=len(errs),
                compile_memkill=r.memkill, compile_killed_by=r.killed_by, compile_peak_rss_mb=r.peak_rss_mb,
                errors=[L.fmt_msg(m) for m in errs[:10]], boundary=r.boundary,
                error_kinds=[m.get('kind') for m in errs if isinstance(m.get('kind'), str)],
                sorry_warnings=sum(1 for m in msgs if m.get("severity") == "warning" and "sorry" in m.get("data", "")),
-               printed_axioms=parse_printed_axioms(msgs, fqn))
+               printed_axioms=parse_printed_axioms(msgs, fqn, print_line))
     if r.rc != 0 or r.timeout or not os.path.exists(olean):
         res["post"] = None
         return res

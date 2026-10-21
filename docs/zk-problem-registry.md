@@ -198,9 +198,12 @@ INVALID `kernel-disagreement`. A nanoda acceptance with a legacy, untyped Lean n
 Observed resource failures take precedence, followed by structured boundary ERROR and INVALID, then an
 exit-code-only availability rule, deterministic compile/postcheck findings, and missing print or replay output.
 A nonzero compile exit without structured Lean error diagnostics is ERROR `resource-unavailable`; raw stdout/stderr
-lines do not count as Lean errors. A boundary verdict is applied before that exit-code-only rule. Missing
+lines do not count toward the submission compile error count. Other message consumers retain bounded,
+prefixed raw-line reports. A boundary verdict is applied before that exit-code-only rule. Missing
 `#print axioms` output is FAIL only when no deterministic finding exists: a submission can capture the appended
-command with `#guard_msgs`. Like unavailable replay, it never changes an established deterministic verdict. Abort, signals and shell-encoded signal statuses are ERROR `resource-unavailable` in compile,
+command with `#guard_msgs`. Like unavailable replay, it never changes an established deterministic verdict.
+The printed-axiom diagnostic must be at the appended command line and start with the exact quoted full theorem
+name. Replay axioms and Comparator's permitted-axioms check remain the acceptance authority. Abort, signals and shell-encoded signal statuses are ERROR `resource-unavailable` in compile,
 replay and export; Comparator uses its own private JSONL status file and 0/2 exit contract; kernel stdout is never a verdict channel.
 Transport exit 70, unknown exits, missing/malformed statuses and contradictory final status are ERROR.
 Two kernel acceptances followed by a deterministic Quotient post-check rejection are INVALID `kernel-rejection`;
@@ -217,7 +220,8 @@ the policy label, the forbidden word and the line within the helper/proof part. 
 Ordinary Lean notation, nested/doc comments and interpolated strings need no separate lexical classification.
 The Python checker and Rust runner read one shared pattern list in `data/submission_policy_v4.json` and the
 same test cases. Word boundaries are ASCII: only `[A-Za-z0-9_]` counts as a word character, including next to
-Unicode text. Both also check attributes on the text as written. The shared list retains the Rust runner's
+Unicode text. Attribute whitespace is the shared explicit ASCII set: space, HT, LF, CR, VT and FF
+(`0x20`, `0x09`, `0x0a`, `0x0d`, `0x0b`, `0x0c`). Both also check attributes on the text as written. The shared list retains the Rust runner's
 `addDecl` and `debug.` restrictions; its import allowlist remains an additional interface check.
 The first text layer rejects bare `native`, `native_decide`, `bv_decide` and `bv_check`, plus solver-written
 `maxHeartbeats` / `maxRecDepth`. The axiom check remains the authority: `Lean.ofReduceBool` and generated

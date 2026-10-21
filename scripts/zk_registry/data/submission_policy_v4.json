@@ -223,5 +223,6 @@
     "semireducible",
     "simp",
     "specialize"
-  ]
+  ],
+  "ascii_whitespace": " \t\n\r\u000b\f"
 }
