@@ -1631,10 +1631,18 @@ struct TextPattern {
 }
 
 #[derive(Deserialize)]
+struct AttributeLimits {
+    markers: usize,
+    brackets: usize,
+    reported_lines: usize,
+}
+
+#[derive(Deserialize)]
 struct TextPolicyData {
     patterns: Vec<TextPattern>,
     safe_attributes: Vec<String>,
     ascii_whitespace: String,
+    attribute_limits: AttributeLimits,
 }
 
 #[derive(Deserialize)]
@@ -1643,32 +1651,31 @@ struct TextPolicy {
     patterns: Vec<TextPattern>,
     safe_attributes: Vec<String>,
     ascii_whitespace: String,
+    attribute_limits: AttributeLimits,
 }
 
 impl TryFrom<TextPolicyData> for TextPolicy {
     type Error = &'static str;
 
     fn try_from(data: TextPolicyData) -> std::result::Result<Self, Self::Error> {
+        if !data.ascii_whitespace.is_ascii() {
+            return Err("attribute whitespace must be ASCII only");
+        }
         for rule in &data.patterns {
-            if rule.boundary == "word"
-                && !(rule
-                    .text
-                    .as_bytes()
-                    .first()
-                    .is_some_and(|byte| ascii_word(*byte))
-                    && rule
-                        .text
-                        .as_bytes()
-                        .last()
-                        .is_some_and(|byte| ascii_word(*byte)))
+            let bytes = rule.text.as_bytes();
+            if (matches!(rule.boundary.as_str(), "word" | "prefix")
+                && !bytes.first().is_some_and(|byte| ascii_word(*byte)))
+                || (matches!(rule.boundary.as_str(), "word" | "suffix")
+                    && !bytes.last().is_some_and(|byte| ascii_word(*byte)))
             {
-                return Err("word-bounded pattern must start and end with ASCII word characters");
+                return Err("bounded pattern edges must be ASCII word characters");
             }
         }
         Ok(Self {
             patterns: data.patterns,
             safe_attributes: data.safe_attributes,
             ascii_whitespace: data.ascii_whitespace,
+            attribute_limits: data.attribute_limits,
         })
     }
 }
@@ -1720,12 +1727,13 @@ fn text_pattern_hit(text: &str, rule: &TextPattern) -> Option<usize> {
     None
 }
 
-// Each bracket is visited once, including nested attribute markers. An entry
-// only needs its leading word; do not copy or rescan a whole nested suffix.
-fn forbidden_attribute(text: &str) -> Option<usize> {
+// Storage is bounded by the shared nesting and reported-line limits. Plain
+// delimiters outside attributes need no stack. An overflow is already INVALID;
+// count its brackets without retaining additional frames until it ends.
+fn forbidden_attribute(text: &str) -> (Vec<usize>, bool) {
     struct Frame {
         depth: usize,
-        marker: usize,
+        line: usize,
         entry: usize,
     }
     fn allowed_entry(text: &[u8]) -> bool {
@@ -1750,47 +1758,81 @@ fn forbidden_attribute(text: &str) -> Option<usize> {
             .any(|name| name.as_bytes() == &trimmed[..end])
     }
     let bytes = text.as_bytes();
-    let mut markers = std::collections::HashMap::new();
-    for start in 0..bytes.len() {
-        let rest = if bytes[start] == b'@' {
-            Some(start + 1)
-        } else if bytes[start..].starts_with(b"attribute")
-            && (start == 0 || !ascii_word(bytes[start - 1]))
-        {
-            Some(start + 9)
+    let limits = &text_policy().attribute_limits;
+    let mut closers: Vec<u8> = Vec::new();
+    let mut frames: Vec<Frame> = Vec::new();
+    let mut bad = std::collections::BTreeSet::new();
+    let mut more = false;
+    let mut overflow = 0usize;
+    let mut line = 1;
+    let mut reject = |marker_line: usize| {
+        if bad.contains(&marker_line) {
+            return;
+        }
+        if bad.len() < limits.reported_lines {
+            bad.insert(marker_line);
+        } else {
+            more = true;
+            if marker_line < *bad.last().unwrap() {
+                bad.pop_last();
+                bad.insert(marker_line);
+            }
+        }
+    };
+    for (index, byte) in bytes.iter().copied().enumerate() {
+        if byte == b'\n' {
+            line += 1;
+        }
+        let marker_line = if byte == b'[' {
+            let mut before = index;
+            let mut start_line = line;
+            while before > 0 && ascii_space(bytes[before - 1]) {
+                before -= 1;
+                if bytes[before] == b'\n' {
+                    start_line -= 1;
+                }
+            }
+            if (before > 0 && bytes[before - 1] == b'@')
+                || (before >= 9
+                    && &bytes[before - 9..before] == b"attribute"
+                    && (before == 9 || !ascii_word(bytes[before - 10])))
+            {
+                Some(start_line)
+            } else {
+                None
+            }
         } else {
             None
         };
-        if let Some(mut end) = rest {
-            while bytes.get(end).is_some_and(|byte| ascii_space(*byte)) {
-                end += 1;
+        if overflow > 0 {
+            if let Some(marker_line) = marker_line {
+                reject(marker_line);
             }
-            if bytes.get(end) == Some(&b'[') {
-                markers.insert(end, start);
+            if b"[({".contains(&byte) {
+                overflow += 1;
+            } else if b"])}".contains(&byte) {
+                overflow -= 1;
             }
+            continue;
         }
-    }
-    if markers.is_empty() {
-        return None;
-    }
-    let mut closers: Vec<u8> = Vec::new();
-    let mut frames: Vec<Frame> = Vec::new();
-    let mut bad: Option<usize> = None;
-    let mut reject = |marker: usize| {
-        bad = Some(bad.map_or(marker, |prior| prior.min(marker)));
-    };
-    for (index, byte) in bytes.iter().copied().enumerate() {
         match byte {
-            b'[' | b'(' | b'{' => {
+            b'[' | b'(' | b'{' if !frames.is_empty() || marker_line.is_some() => {
+                if closers.len() == limits.brackets
+                    || (marker_line.is_some() && frames.len() == limits.markers)
+                {
+                    reject(marker_line.unwrap_or_else(|| frames.last().unwrap().line));
+                    overflow = 1;
+                    continue;
+                }
                 closers.push(match byte {
                     b'[' => b']',
                     b'(' => b')',
                     _ => b'}',
                 });
-                if let Some(marker) = markers.get(&index) {
+                if let Some(marker_line) = marker_line {
                     frames.push(Frame {
                         depth: closers.len(),
-                        marker: *marker,
+                        line: marker_line,
                         entry: index + 1,
                     });
                 }
@@ -1801,7 +1843,7 @@ fn forbidden_attribute(text: &str) -> Option<usize> {
                         .last()
                         .is_some_and(|frame| frame.depth == closers.len())
                     {
-                        reject(frames.pop().unwrap().marker);
+                        reject(frames.pop().unwrap().line);
                     }
                     closers.pop();
                 }
@@ -1812,7 +1854,7 @@ fn forbidden_attribute(text: &str) -> Option<usize> {
                     {
                         let frame = frames.pop().unwrap();
                         if !allowed_entry(&bytes[frame.entry..index]) {
-                            reject(frame.marker);
+                            reject(frame.line);
                         }
                     }
                     closers.pop();
@@ -1824,7 +1866,7 @@ fn forbidden_attribute(text: &str) -> Option<usize> {
                     .filter(|frame| frame.depth == closers.len())
                 {
                     if !allowed_entry(&bytes[frame.entry..index]) {
-                        reject(frame.marker);
+                        reject(frame.line);
                     }
                     frame.entry = index + 1;
                 }
@@ -1833,10 +1875,9 @@ fn forbidden_attribute(text: &str) -> Option<usize> {
         }
     }
     for frame in frames {
-        reject(frame.marker);
+        reject(frame.line);
     }
-
-    bad
+    (bad.into_iter().collect(), more)
 }
 
 /// Import paths a submitted proof file may reference. ADR-0013's blacklist
@@ -1899,8 +1940,14 @@ fn scan_for_forbidden_tokens_in_bytes(bytes: &[u8]) -> Option<(String, usize)> {
             return Some((reason, line_at(position)));
         }
     }
-    if let Some(position) = forbidden_attribute(text) {
-        return Some(("forbidden-attribute".to_string(), line_at(position)));
+    let (lines, more) = forbidden_attribute(text);
+    if let Some(line) = lines.first() {
+        let reason = if more {
+            "forbidden-attribute [more offending lines omitted]"
+        } else {
+            "forbidden-attribute"
+        };
+        return Some((reason.to_string(), *line));
     }
     for (index, line) in text.lines().enumerate() {
         if let Some(module) = disallowed_import_on_line(line) {
@@ -2986,6 +3033,31 @@ mod tests {
     }
 
     #[test]
+    fn policy_loader_rejects_non_ascii_whitespace_and_bad_bounded_edges() {
+        let original: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../scripts/zk_registry/data/submission_policy_v4.json"
+        ))
+        .unwrap();
+        let mut data = original.clone();
+        data["ascii_whitespace"] = " \u{a0}".into();
+        assert!(serde_json::from_value::<TextPolicy>(data).is_err());
+        for (boundary, word) in [
+            ("prefix", ".debug"),
+            ("prefix", ""),
+            ("suffix", "#eval."),
+            ("suffix", ""),
+        ] {
+            let mut data = original.clone();
+            data["patterns"][0]["boundary"] = boundary.into();
+            data["patterns"][0]["text"] = word.into();
+            assert!(
+                serde_json::from_value::<TextPolicy>(data).is_err(),
+                "{boundary}: {word}"
+            );
+        }
+    }
+
+    #[test]
     fn review_text_policy_shared_cases() {
         let corpus: serde_json::Value = serde_json::from_str(include_str!(
             "../../../fixtures/submission-policy/cases-v4.json"
@@ -2993,13 +3065,32 @@ mod tests {
         .unwrap();
         for case in corpus["cases"].as_array().unwrap() {
             let source = case["source"].as_str().unwrap();
+            let expected_lines: Vec<usize> = case["hits"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|hit| hit["label"] == "forbidden-attribute")
+                .map(|hit| hit["line"].as_u64().unwrap() as usize)
+                .collect();
+            assert_eq!(
+                forbidden_attribute(source),
+                (
+                    expected_lines,
+                    case["more_lines"].as_bool().unwrap_or(false)
+                ),
+                "{case}"
+            );
             let expected = case["hits"].as_array().unwrap().first().map(|hit| {
                 (
                     {
                         let label = hit["label"].as_str().unwrap();
                         let word = hit["word"].as_str().unwrap();
                         if label.contains(word) || label == "forbidden-attribute" {
-                            label.to_string()
+                            if case["more_lines"].as_bool().unwrap_or(false) {
+                                format!("{label} [more offending lines omitted]")
+                            } else {
+                                label.to_string()
+                            }
                         } else {
                             format!("{label} [forbidden word: {word}]")
                         }
@@ -3031,12 +3122,11 @@ mod tests {
         let Ok(bracket) = std::env::var("BOOLE_ATTRIBUTE_BRACKET") else {
             return;
         };
-        let mut source = String::with_capacity(16 * 1024 * 1024 + 2);
-        source.push_str("@[");
-        source.extend(std::iter::repeat_n(
-            bracket.chars().next().unwrap(),
-            16 * 1024 * 1024,
-        ));
+        let source = if bracket.starts_with('@') {
+            bracket.repeat(16 * 1024 * 1024 / bracket.len())
+        } else {
+            format!("@[{}", bracket.repeat(16 * 1024 * 1024))
+        };
         let peak = || {
             let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
             assert_eq!(unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut usage) }, 0);
@@ -3051,23 +3141,32 @@ mod tests {
         let started = Instant::now();
         assert_eq!(
             scan_for_forbidden_tokens_in_bytes(source.as_bytes()),
-            Some(("forbidden-attribute".into(), 1))
+            if bracket == "@[simp] " {
+                None
+            } else {
+                Some(("forbidden-attribute".into(), 1))
+            }
         );
-        assert!(started.elapsed() < attribute_scan_time_limit());
+        let seconds = started.elapsed().as_secs_f64();
         let growth = peak() - before;
+        println!(
+            "{}",
+            serde_json::json!({"unit": bracket, "seconds": seconds, "growth_mib": growth})
+        );
+        assert!(seconds < 10.0, "attribute scan took {seconds}s");
         assert!(growth < 200.0, "attribute scan grew by {growth} MiB");
     }
 
-    /// The 10 s bound is for optimized builds; unoptimized CI runners are several times slower.
+    /// Keep the worker deadline and its parent timeout aligned.
     #[cfg(unix)]
     fn attribute_scan_time_limit() -> Duration {
-        Duration::from_secs(if cfg!(debug_assertions) { 60 } else { 10 })
+        Duration::from_secs(10)
     }
 
     #[cfg(unix)]
     #[test]
     fn attribute_brackets_use_bounded_memory_and_time() {
-        for bracket in ["(", "[", "{"] {
+        for bracket in ["(", "[", "{", "@[", "@[simp] "] {
             let mut child = Command::new(std::env::current_exe().unwrap())
                 .args([
                     "--exact",
@@ -3089,6 +3188,7 @@ mod tests {
                 child.kill().unwrap();
             }
             let output = child.wait_with_output().unwrap();
+            print!("{}", String::from_utf8_lossy(&output.stdout));
             assert!(
                 output.status.success(),
                 "{bracket}: {}",

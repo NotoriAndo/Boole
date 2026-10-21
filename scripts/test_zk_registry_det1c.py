@@ -175,6 +175,8 @@ class CompilePrecedence(unittest.TestCase):
                     result = C.compile_in_sandbox(env, problem, temp, text, str(Path(temp)/'work'),
                                                   10, SB.Sandbox.fixture())
                 self.assertEqual(result['printed_axioms'], expected)
+                self.assertEqual(Path(temp, 'work/proof/ProofMod.lean').read_text().splitlines()[appended-1],
+                                 'set_option pp.fullNames true in #print axioms Example.goal')
 
     def test_raw_fid_lines_do_not_establish_gate_verdicts(self):
         from zk_registry import gates as G
@@ -239,6 +241,19 @@ class TextPolicy(unittest.TestCase):
             with self.subTest(word=word), self.assertRaises(ValueError):
                 C.text_pattern(dict(text=word, label='bad', boundary='word'))
 
+    def test_policy_loader_rejects_non_ascii_whitespace_and_bad_bounded_edges(self):
+        policy = dict(C.TEXT_POLICY, ascii_whitespace=' \u00a0')
+        with self.assertRaises(ValueError):
+            C.validate_text_policy(policy)
+        for boundary, word in [('prefix', '.debug'), ('prefix', ''),
+                               ('suffix', '#eval.'), ('suffix', '')]:
+            with self.subTest(boundary=boundary, word=word), self.assertRaises(ValueError):
+                C.text_pattern(dict(text=word, label='bad', boundary=boundary))
+
+    def test_runner_manifest_is_private(self):
+        manifest = Path(C.__file__).parents[2]/'crates/boole-lean-runner/Cargo.toml'
+        self.assertIn('publish = false', manifest.read_text())
+
     def test_current_metadata_contains_every_reported_policy_label(self):
         reported = {rule['label'] for rule in C.TEXT_POLICY['patterns']} | {'forbidden-attribute'}
         self.assertEqual(reported - set(C.FORBIDDEN_LABELS), set())
@@ -262,6 +277,8 @@ class TextPolicy(unittest.TestCase):
                 expected = [f"{hit['label']} in proof (line {hit['line']} of that part)"
                             + (f" [forbidden word: {hit['word']}]" if hit['word'] not in hit['label']
                                and hit['label'] != 'forbidden-attribute' else '') for hit in case['hits']]
+                if case.get('more_lines'):
+                    expected[-1] += ' [more offending lines omitted]'
                 self.assertEqual(C.forbidden_scan([('proof', case['source'])]), expected)
 
     def test_public_checker_rejects_forbidden_word_in_every_text_form(self):
@@ -287,7 +304,8 @@ class TextPolicy(unittest.TestCase):
         code = """import json,resource,sys,time
 sys.path.insert(0,sys.argv[1])
 from zk_registry import check as C
-text='@['+sys.argv[2]*(16*1024*1024)
+unit=sys.argv[2]
+text=(unit*((16*1024*1024)//len(unit))) if unit.startswith('@') else '@['+unit*(16*1024*1024)
 scale=1024*1024 if sys.platform=='darwin' else 1024
 before=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/scale
 started=time.monotonic()
@@ -296,14 +314,16 @@ print(json.dumps(dict(hits=hits,seconds=time.monotonic()-started,
     growth_mib=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/scale-before)))
 """
         import os
-        for bracket in '([{':
+        for bracket in ['(', '[', '{', '@[', '@[simp] ']:
             with self.subTest(bracket=bracket):
                 result = L.run_process([sys.executable, '-c', code, str(Path(__file__).parent), bracket],
                                        dict(os.environ), str(Path(__file__).parent), 12, 230, poll_s=0.02)
                 self.assertFalse(result.memkill, 'attribute scan exceeded the bounded test memory guard')
                 self.assertEqual(result.rc, 0, result.out)
                 receipt = json.loads(result.out)
-                self.assertEqual(receipt['hits'], ['forbidden-attribute in proof (line 1 of that part)'])
+                print(json.dumps(dict(unit=bracket, **receipt)), flush=True)
+                self.assertEqual(receipt['hits'], [] if bracket == '@[simp] ' else
+                                 ['forbidden-attribute in proof (line 1 of that part)'])
                 self.assertLess(receipt['seconds'], 10)
                 self.assertLess(receipt['growth_mib'], 200)
 

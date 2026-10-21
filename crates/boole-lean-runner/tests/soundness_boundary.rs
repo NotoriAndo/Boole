@@ -67,18 +67,14 @@ const POC3_DEBUG_SKIP_KERNEL_TC: &str = r#"set_option debug.skipKernelTC true
 theorem poc3_trivial_with_kernel_tc_skipped : True := trivial
 "#;
 
-// PoC4 — reaches a non-allowlisted axiom (`Lean.trustCompiler`) WITHOUT
-// tripping any pre-spawn check at all: no `addDecl`/`elab`/`macro`/
-// `initialize`/`debug.`/`sorry`/`axiom`/`native_decide`/`#eval` token. It
-// imports only the one allowlisted helper module required by the canonical
-// artifact contract. `Lean.trustCompiler` still resolves from Lean's
-// implicit prelude, so only the post-elaboration axiom audit, not the intake
-// allowlist, can reject it.
+// PoC4 — only the gate-owned helper contains the non-allowlisted axiom.
+// The solver imports the existing allowed module and uses a lemma with no
+// forbidden word. Primary elaboration must succeed before the artifact audit
+// rejects the lemma's transitive axiom closure.
 const POC4_NON_ALLOWLISTED_AXIOM_TERM: &str = r#"import Boole.Family.V0Helpers
 
-theorem poc4_trusts_compiler : True :=
-  let _ := @Lean.trustCompiler
-  trivial
+theorem poc4_helper_dependency : True :=
+  False.elim Boole.Family.V0Helpers.hiddenWitness
 "#;
 
 // Acceptance — a legitimate proof in the official v1-lenbound module shape,
@@ -159,20 +155,39 @@ fn rejects_proof_depending_on_non_allowlisted_axiom() {
         eprintln!("skipping real Lean runner test: lake/lean unavailable");
         return;
     }
-    let workspace = TestLeanWorkspace::new("poc4-trust-compiler");
+    let workspace = TestLeanWorkspace::new("poc4-helper-closure");
     workspace.write_checker_project();
-    workspace.build_helper();
+    std::fs::write(
+        workspace.root.join("Boole/Family/V0Helpers.lean"),
+        "namespace Boole.Family.V0Helpers\naxiom forbiddenWitness : False\n\
+         theorem hiddenWitness : False := forbiddenWitness\nend Boole.Family.V0Helpers\n",
+    )
+    .expect("write gate-owned helper fixture");
     let proof = workspace.write_proof("Poc4.lean", POC4_NON_ALLOWLISTED_AXIOM_TERM);
 
-    // Policy v4 lists `trustCompiler` as a forbidden word, so PoC4 is now
-    // rejected at source intake, before any checker child runs. The axiom
-    // audit itself is covered by the `enforce_axiom_allowlist` unit tests.
-    let error = runner_for(&workspace)
+    let result = runner_for(&workspace)
         .check_file(&proof)
-        .expect_err("the text policy rejects `trustCompiler` before any checker child runs");
+        .expect("source intake must allow this proof to reach the real artifact audit");
     assert!(
-        error.to_string().contains("trustCompiler") && error.to_string().contains("Poc4.lean"),
-        "unexpected PoC4 rejection: {error:#}"
+        !result.accepted,
+        "bad helper closure must reject: {result:?}"
+    );
+    assert_eq!(
+        result.exit_code, 0,
+        "primary elaboration must succeed: {result:?}"
+    );
+    assert!(
+        matches!(&result.verdict,
+        boole_lean_runner::LeanVerdict::DeterministicReject { reason }
+            if reason == boole_lean_runner::REJECT_AXIOM_AUDIT),
+        "{result:?}"
+    );
+    assert!(
+        result.stderr.contains("axiom audit rejected:")
+            && result
+                .stderr
+                .contains("Boole.Family.V0Helpers.forbiddenWitness"),
+        "{result:?}"
     );
 }
 
@@ -338,19 +353,6 @@ lean_exe boole_check where
             "-- fixture stub: pinned by checker_artifact_hash\n",
         )
         .expect("write V0Helpers stub");
-    }
-
-    fn build_helper(&self) {
-        let build = Command::new("lake")
-            .args(["build", "Boole.Family.V0Helpers"])
-            .current_dir(&self.root)
-            .output()
-            .expect("build soundness fixture");
-        assert!(
-            build.status.success(),
-            "soundness fixture build failed: {}",
-            String::from_utf8_lossy(&build.stderr)
-        );
     }
 
     fn write_proof(&self, name: &str, content: &str) -> PathBuf {

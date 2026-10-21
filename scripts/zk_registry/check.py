@@ -81,16 +81,27 @@ FORBIDDEN_LABELS_V3 = [label for _, label in FORBIDDEN] + ['forbidden-attribute'
 # Both runners read this list. ASCII boundaries mean [A-Za-z0-9_] only.
 with open(os.path.join(os.path.dirname(__file__), 'data', 'submission_policy_v4.json'), encoding='utf-8') as policy_file:
     TEXT_POLICY = json.load(policy_file)
+
+
+def validate_text_policy(policy: dict) -> None:
+    if not policy['ascii_whitespace'].isascii():
+        raise ValueError('attribute whitespace must be ASCII only')
+
+
+validate_text_policy(TEXT_POLICY)
 SAFE_ATTRIBUTES = frozenset(TEXT_POLICY['safe_attributes'])
 ASCII_WHITESPACE = re.escape(TEXT_POLICY['ascii_whitespace'])
+MAX_SAFE_ATTRIBUTE_LENGTH = max(map(len, SAFE_ATTRIBUTES))
 
 
 def text_pattern(rule: dict) -> str:
     boundary = rule['boundary']
     word = rule['text']
-    if boundary == 'word' and (not word or not re.fullmatch(r'[A-Za-z0-9_]', word[0])
-                               or not re.fullmatch(r'[A-Za-z0-9_]', word[-1])):
-        raise ValueError('word-bounded pattern must start and end with ASCII word characters')
+    if ((boundary in ('word', 'prefix') and
+         (not word or not re.fullmatch(r'[A-Za-z0-9_]', word[0]))) or
+        (boundary in ('word', 'suffix') and
+         (not word or not re.fullmatch(r'[A-Za-z0-9_]', word[-1])))):
+        raise ValueError('bounded pattern edges must be ASCII word characters')
     return ((r'\b' if boundary in ('word', 'prefix') else '')
             + re.escape(rule['text'])
             + (r'\b' if boundary in ('word', 'suffix') else ''))
@@ -177,35 +188,80 @@ def text_check(orig: str, proof: str, thm: str) -> tuple[list[str], str, str]:
     return probs, aux, body
 
 
-def forbidden_attributes(text: str) -> list[int]:
-    """Check every attribute marker on the text as written, in one pass."""
-    markers = list(re.finditer(r'@[' + ASCII_WHITESPACE + r']*\[|\battribute[' + ASCII_WHITESPACE + r']*\[', text, re.ASCII))
-    if not markers:
-        return []
-    by_end = {marker.end() - 1: marker.start() for marker in markers}
+def forbidden_attributes(text: str) -> tuple[list[int], bool]:
+    """Return unique offending lines, with bounded parser and report storage.
+
+    Delimiters outside attributes need no stack. After a nesting overflow the
+    verdict is already INVALID; count brackets until that region ends, without
+    retaining more frames. Marker recognition happens only when `[` is reached.
+    """
+    limits = TEXT_POLICY['attribute_limits']
+    whitespace = TEXT_POLICY['ascii_whitespace']
     bad = set()
+    more = False
     closers = bytearray()
-    frames = []  # Only attribute markers need depth, position and entry start.
+    frames = []  # depth, marker line, entry start
+    overflow = 0
+    line = 1
     pairs = {'[': ord(']'), '(': ord(')'), '{': ord('}')}
     entry_pattern = re.compile(r'[' + ASCII_WHITESPACE + r']*(?:(?:local|scoped)[' + ASCII_WHITESPACE + r']+)?-?([^' + ASCII_WHITESPACE + r',()\[\]{}]+)', re.ASCII)
 
+    def reject(marker_line):
+        nonlocal more
+        if marker_line in bad:
+            return
+        if len(bad) < limits['reported_lines']:
+            bad.add(marker_line)
+        else:
+            more = True
+            latest = max(bad)
+            if marker_line < latest:
+                bad.remove(latest)
+                bad.add(marker_line)
+
     def check_entry(frame, end):
-        _, marker, start = frame
-        entry = entry_pattern.match(text, start, end)
-        if entry is None or entry[1] not in SAFE_ATTRIBUTES:
-            bad.add(marker)
+        entry = entry_pattern.match(text, frame[2], end)
+        if (entry is None or entry.end(1) - entry.start(1) > MAX_SAFE_ATTRIBUTE_LENGTH
+                or entry[1] not in SAFE_ATTRIBUTES):
+            reject(frame[1])
 
     for index, char in enumerate(text):
-        if char in pairs:
+        if char == '\n':
+            line += 1
+        marker_line = None
+        if char == '[':
+            before = index - 1
+            start_line = line
+            while before >= 0 and text[before] in whitespace:
+                start_line -= text[before] == '\n'
+                before -= 1
+            if before >= 0 and text[before] == '@':
+                marker_line = start_line
+            elif (before >= 8 and text.startswith('attribute', before - 8, before + 1)
+                  and (before == 8 or not re.fullmatch(r'[A-Za-z0-9_]', text[before - 9]))):
+                marker_line = start_line
+        if overflow:
+            if marker_line is not None:
+                reject(marker_line)
+            if char in pairs:
+                overflow += 1
+            elif char in '])}':
+                overflow -= 1
+            continue
+        if char in pairs and (frames or marker_line is not None):
+            if (len(closers) == limits['brackets'] or
+                    (marker_line is not None and len(frames) == limits['markers'])):
+                reject(marker_line if marker_line is not None else frames[-1][1])
+                overflow = 1
+                continue
             closers.append(pairs[char])
-            marker = by_end.get(index)
-            if marker is not None:
-                frames.append([len(closers), marker, index + 1])
+            if marker_line is not None:
+                frames.append([len(closers), marker_line, index + 1])
         elif char in '])}':
             close = ord(char)
             while closers and closers[-1] != close:
                 if frames and frames[-1][0] == len(closers):
-                    bad.add(frames.pop()[1])
+                    reject(frames.pop()[1])
                 closers.pop()
             if closers:
                 if frames and frames[-1][0] == len(closers):
@@ -214,8 +270,9 @@ def forbidden_attributes(text: str) -> list[int]:
         elif char == ',' and frames and frames[-1][0] == len(closers):
             check_entry(frames[-1], index)
             frames[-1][2] = index + 1
-    bad.update(frame[1] for frame in frames)
-    return [marker.start() for marker in markers if marker.start() in bad]
+    for frame in frames:
+        reject(frame[1])
+    return sorted(bad), more
 
 
 def forbidden_scan(parts: list[tuple[str, str]]) -> list[str]:
@@ -230,11 +287,10 @@ def forbidden_scan(parts: list[tuple[str, str]]) -> list[str]:
                 word = match.group()
                 detail = '' if word in label else f' [forbidden word: {word}]'
                 hits.append(f'{label} in {name} (line {line} of that part){detail}')
-        line, previous = 1, 0
-        for position in forbidden_attributes(text):
-            line += text.count('\n', previous, position)
-            previous = position
-            hits.append(f'forbidden-attribute in {name} (line {line} of that part)')
+        lines, more = forbidden_attributes(text)
+        for index, line in enumerate(lines):
+            detail = ' [more offending lines omitted]' if more and index == len(lines) - 1 else ''
+            hits.append(f'forbidden-attribute in {name} (line {line} of that part){detail}')
     return hits
 
 
@@ -329,7 +385,7 @@ def _compile_and_postcheck(env: L.LeanEnv, problem: dict, pkg_dir: str, text: st
     source = text + ("" if text.endswith("\n") else "\n")
     print_line = source.count('\n') + 2
     with open(src, "w", encoding="utf-8") as f:
-        f.write(source + f"\n#print axioms {fqn}\n")
+        f.write(source + f"\nset_option pp.fullNames true in #print axioms {fqn}\n")
     olean = os.path.join(proof_dir, "ProofMod.olean")
     r = L.run_lean(env, opts + ["--json", "-R", proof_dir, "-o", olean, src], proof_dir, timeout,
                    extra_lean_path=[build], submission_controlled=True)

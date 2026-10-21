@@ -223,6 +223,14 @@ same test cases. Word boundaries are ASCII: only `[A-Za-z0-9_]` counts as a word
 Unicode text. Attribute whitespace is the shared explicit ASCII set: space, HT, LF, CR, VT and FF
 (`0x20`, `0x09`, `0x0a`, `0x0d`, `0x0b`, `0x0c`). Both also check attributes on the text as written. The shared list retains the Rust runner's
 `addDecl` and `debug.` restrictions; its import allowlist remains an additional interface check.
+Attribute scanning retains at most 64 open attribute markers and 4096 delimiters within an attribute;
+exceeding either nesting limit is INVALID `forbidden-attribute` at the marker's starting line. Delimiters
+outside attributes need no stack. Each offending line is reported once; Python retains the earliest 64
+lines and marks omitted lines in the last reason. Rust exposes the earliest line through its single-reason
+interface and marks when the same 64-line collection overflowed. These limits share the policy data.
+The appended command uses `set_option pp.fullNames true in #print axioms <full name>` on one line,
+so open namespaces cannot shorten allowed axiom names; its diagnostic must still match that line and the
+exact quoted theorem name.
 The first text layer rejects bare `native`, `native_decide`, `bv_decide` and `bv_check`, plus solver-written
 `maxHeartbeats` / `maxRecDepth`. The axiom check remains the authority: `Lean.ofReduceBool` and generated
 native-evaluator axioms remain forbidden even if an allowlist names one.
