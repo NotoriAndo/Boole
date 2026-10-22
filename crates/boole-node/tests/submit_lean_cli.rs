@@ -311,8 +311,13 @@ theorem boole_submit_lean_tampered_checker : 3 + 3 = 6 := by
     assert_eq!(parsed["ok"], false);
     assert_eq!(parsed["command"], "submit-lean");
     assert_eq!(parsed["accepted"], false);
-    assert_eq!(parsed["error"], "lean_artifact_not_allowed");
-    assert_eq!(parsed["lean"]["accepted"], true);
+    assert_eq!(parsed["error"], "lean_runner_unavailable");
+    assert_eq!(parsed["lean"]["verdict"]["state"], "retryable_unavailable");
+    assert_eq!(
+        parsed["lean"]["verdict"]["reason"],
+        "checker_release_mismatch"
+    );
+    assert_eq!(parsed["lean"]["accepted"], false);
     assert_eq!(parsed["shareAccepted"], false);
     assert_eq!(parsed["blockProduced"], false);
     assert_eq!(parsed["invalidAccepted"], 0);
@@ -360,65 +365,35 @@ impl TestLeanWorkspace {
     }
 
     fn write_checker_project_with_main(&self, main_lean: &str) {
-        std::fs::write(
-            self.root.join("lean-toolchain"),
-            "leanprover/lean4:v4.29.1\n",
-        )
-        .expect("write lean-toolchain");
-        std::fs::write(
-            self.root.join("lakefile.lean"),
-            r#"import Lake
-open Lake DSL
-
-package boole_check_fixture
-
-lean_lib «Boole» where
-  globs := #[.submodules `Boole.Family]
-
-lean_exe boole_check where
-  root := `BooleCheck.Main
-"#,
-        )
-        .expect("write lakefile");
-        std::fs::write(
-            self.root.join("lake-manifest.json"),
-            r#"{"version": "1.1.0",
- "packagesDir": ".lake/packages",
- "packages": [],
- "name": "boole_check_fixture",
- "lakeDir": ".lake"}
-"#,
-        )
-        .expect("write lake-manifest");
+        for (relative, bytes) in [
+            (
+                "lean-toolchain",
+                include_str!("../../../lean/checker/lean-toolchain"),
+            ),
+            (
+                "lakefile.lean",
+                include_str!("../../../lean/checker/lakefile.lean"),
+            ),
+            (
+                "lake-manifest.json",
+                include_str!("../../../lean/checker/lake-manifest.json"),
+            ),
+            (
+                "Boole/Family/V0Helpers.lean",
+                include_str!("../../../lean/checker/Boole/Family/V0Helpers.lean"),
+            ),
+            (
+                "BooleCheck/Audit.lean",
+                include_str!("../../../lean/checker/BooleCheck/Audit.lean"),
+            ),
+        ] {
+            let target = self.root.join(relative);
+            std::fs::create_dir_all(target.parent().expect("release file parent"))
+                .expect("create release directory");
+            std::fs::write(target, bytes).expect("copy pinned checker release");
+        }
         std::fs::write(self.root.join("BooleCheck/Main.lean"), main_lean)
             .expect("write checker main");
-        // TB.1 / ADR-0013 — `check_file` now runs a second, separate
-        // process (`lake env lean --run BooleCheck/Audit.lean`) after the
-        // primary checker accepts, so every synthetic fixture package needs
-        // its own copy of the real audit script or that stage fails to spawn.
-        // `include_str!` pulls the production file in verbatim at compile
-        // time so the fixture can never drift from what actually ships.
-        std::fs::write(
-            self.root.join("BooleCheck/Audit.lean"),
-            include_str!("../../../lean/checker/BooleCheck/Audit.lean"),
-        )
-        .expect("write axiom audit script");
-        std::fs::create_dir_all(self.root.join("Boole/Family")).expect("create Boole/Family");
-        std::fs::write(
-            self.root.join("Boole/Family/V0Helpers.lean"),
-            "-- fixture stub: pinned by checker_artifact_hash\n",
-        )
-        .expect("write V0Helpers stub");
-        let build = Command::new("lake")
-            .args(["build", "Boole.Family.V0Helpers"])
-            .current_dir(&self.root)
-            .output()
-            .expect("build submit-lean checker fixture");
-        assert!(
-            build.status.success(),
-            "checker fixture build failed: {}",
-            String::from_utf8_lossy(&build.stderr)
-        );
     }
 
     fn write_proof(&self, name: &str, content: &str) -> PathBuf {
