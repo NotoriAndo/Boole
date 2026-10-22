@@ -22,12 +22,24 @@ struct Args {
     until: u64,
     #[arg(long)]
     evidence: Option<PathBuf>,
+    #[arg(long)]
+    m2_journal: Option<PathBuf>,
+    #[arg(long)]
+    m2_config: Option<PathBuf>,
 }
 fn main() -> Result<()> {
     let args = Args::parse();
+    let config = match args.m2_config {
+        Some(path) => serde_json::from_slice(&std::fs::read(path)?)?,
+        None => boole_derivation::m2::Config::devnet(),
+    };
     let l1 = RpcL1::new(&args.l1_rpc)?;
-    let engine = RpcEngine::new(&args.engine_rpc, &args.node_rpc, &args.jwt_secret)?;
-    let mut driver = Driver::new(l1, engine);
+    let mut engine = RpcEngine::new(&args.engine_rpc, &args.node_rpc, &args.jwt_secret)?;
+    let l2_gas_limit = engine.head()?.gas_limit;
+    let mut driver = Driver::with_config(l1, engine, config, l2_gas_limit)?;
+    if let Some(path) = args.m2_journal {
+        driver.set_journal(&path)?;
+    }
     if let Some(path) = args.evidence {
         driver.set_evidence(&path)?;
     }

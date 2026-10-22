@@ -8,6 +8,9 @@ pub trait L1Source {
     fn finalized(&mut self) -> Result<u64>;
     fn block(&mut self, number: u64) -> Result<L1Block>;
     fn inbox_logs(&mut self, hash: &str) -> Result<Vec<InboxLog>>;
+    fn block_by_hash(&mut self, _hash: &str) -> Result<L1Block> {
+        bail!("L1 source does not support anchored restart")
+    }
 }
 
 pub struct RecordedL1 {
@@ -37,6 +40,14 @@ impl RecordedL1 {
     }
 }
 impl L1Source for RecordedL1 {
+    fn block_by_hash(&mut self, hash: &str) -> Result<L1Block> {
+        self.rows
+            .values()
+            .find(|row| row.0.hash.eq_ignore_ascii_case(hash))
+            .map(|row| row.0.clone())
+            .ok_or_else(|| anyhow!("unknown anchored L1 hash"))
+    }
+
     fn finalized(&mut self) -> Result<u64> {
         Ok(self.finalized_height)
     }
@@ -70,6 +81,12 @@ impl RpcL1 {
     }
 }
 impl L1Source for RpcL1 {
+    fn block_by_hash(&mut self, hash: &str) -> Result<L1Block> {
+        Ok(serde_json::from_value(
+            self.rpc.call("eth_getBlockByHash", json!([hash, false]))?,
+        )?)
+    }
+
     fn finalized(&mut self) -> Result<u64> {
         let block = self
             .rpc
