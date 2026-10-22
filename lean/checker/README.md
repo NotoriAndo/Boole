@@ -33,7 +33,7 @@ smuggle a file in via a symlink that resolves outside the package.
 The hash of the files committed to this repo:
 
 ```
-d899db43fc2585e912995addef7e6c815428aa985c5415ce73e9bc026ba39b57
+8174cf67577e7ab2490b6d4c98f75bc131056462fa50d9909dd1eb47311b9ea6
 ```
 
 Recompute and verify with:
@@ -88,7 +88,7 @@ pins keep using the byte-identical frozen v1 package at `../checker-v1/`.
 | Checker artifact SHA-256 | Package | Audit grammar |
 |---|---|---|
 | `f9da3a1c5bcb605a26c8f778e2661e471398864c69393079aed461dd1453d7b4` | `lean/checker-v1` | strict v1 |
-| `d899db43fc2585e912995addef7e6c815428aa985c5415ce73e9bc026ba39b57` | `lean/checker` | v2 |
+| `8174cf67577e7ab2490b6d4c98f75bc131056462fa50d9909dd1eb47311b9ea6` | `lean/checker` | v2 |
 
 The selected package must match the network genesis or operator allowlist. Unknown
 hashes are retryable `checker_release_mismatch` before toolchain probes. A v1
@@ -108,3 +108,21 @@ New store descriptors select policy v5 independently of the checker release.
 Legacy stores select recorded v4; checking and replay verify the policy SHA-256.
 Policy v5 adds output commands, output options and name control characters to
 the shared text scan. Policies v1–v4 remain readable for historical metadata.
+
+## Typed budget failures (v2)
+
+The pinned Lean 4.29.1 snapshot frontend exposes structured `MessageData` kinds
+`runtime.maxHeartbeats` and `runtime.maxRecDepth`. `stripNestedTags.kind`
+recognizes limits propagated through nested tactics. The checker retains those
+messages before reporting, and carries a limit through `Lean.Exception`; the
+handler uses `Exception.isMaxHeartbeat` / `Exception.isMaxRecDepth`. Ordinary
+message text never selects a budget reason. Frontend IO failures have the
+generic failure marker.
+
+V2 prints exactly one final stderr failure marker: either
+`BOOLE_BUDGET_EXCEEDED maxHeartbeats`, `BOOLE_BUDGET_EXCEEDED maxRecDepth`,
+`BOOLE_PRIMARY_REJECT`, or the source-token guard's `BOOLE_BUDGET_OVERRIDE <token>`.
+Rust recognizes only an exact, complete final stderr budget marker. Checker
+startup uses a trusted compilation budget; the explicit committed counters
+apply to the submitted frontend. The primary still elaborates source once and
+the separate audit consumes only its sealed artifact.

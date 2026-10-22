@@ -235,7 +235,7 @@ Ordinary Lean notation, nested/doc comments and interpolated strings need no sep
 The Python checker and Rust runner read one shared pattern list in `data/submission_policy_v5.json` and the
 same test cases, including every hit. Policy v5 is independent of the selected checker release.
 The Rust release table binds frozen `lean/checker-v1` (`f9da3a1c…`) to strict audit grammar v1,
-and `lean/checker` (`d899db43…`) to grammar v2. Existing genesis pins remain unchanged;
+and `lean/checker` (`8174cf67…`) to grammar v2. Existing genesis pins remain unchanged;
 unknown hashes return D-node `checker_release_mismatch`. Word boundaries are ASCII: only `[A-Za-z0-9_]` counts as a word character, including next to
 Unicode text. Attribute whitespace is the shared explicit ASCII set: space, HT, LF, CR, VT and FF
 (`0x20`, `0x09`, `0x0a`, `0x0d`, `0x0b`, `0x0c`). Both also check attributes on the text as written. The shared list retains the Rust runner's

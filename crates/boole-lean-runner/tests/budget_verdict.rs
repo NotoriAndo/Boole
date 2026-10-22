@@ -136,3 +136,54 @@ fn runner_default_budget_is_explicit_and_pinned() {
         "default recursion budget must mirror the base-lane Tier-2 constant"
     );
 }
+
+#[test]
+fn budget_words_without_a_structured_limit_are_an_ordinary_reject() {
+    if !lake_and_lean_available() {
+        return;
+    }
+    let proof = write_proof("ordinary-error", "import Boole.Family.V0Helpers\ntheorem ordinary_error : True := by fail \"maximum number of heartbeats\"\n");
+    let result = LeanRunner::new(
+        LeanRunnerConfig::new("ordinary-error")
+            .with_package_dir(canonical_checker_dir())
+            .with_timeout_ms(120_000),
+    )
+    .check_file(proof)
+    .unwrap();
+    assert!(result.stdout.contains("maximum number of heartbeats"));
+    assert_eq!(result.stderr, "BOOLE_PRIMARY_REJECT\n");
+    assert_eq!(
+        result.verdict,
+        LeanVerdict::DeterministicReject {
+            reason: "lean_rejected".into()
+        }
+    );
+}
+
+#[test]
+fn checker_failure_paths_end_in_one_marker() {
+    if !lake_and_lean_available() {
+        return;
+    }
+    for args in [
+        vec![],
+        vec!["missing-proof.lean", "400000", "512", "unused.olean"],
+    ] {
+        let output = std::process::Command::new("lean")
+            .args([
+                "-DmaxHeartbeats=400000",
+                "-DmaxRecDepth=512",
+                "--run",
+                "BooleCheck/Main.lean",
+            ])
+            .args(args)
+            .current_dir(canonical_checker_dir())
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert_eq!(
+            String::from_utf8(output.stderr).unwrap(),
+            "BOOLE_PRIMARY_REJECT\n"
+        );
+    }
+}

@@ -17,13 +17,13 @@ use boole_lean_runner::{LeanRunner, LeanRunnerConfig, LeanVerdict};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
-fn canonical_checker_dir() -> PathBuf {
+fn canonical_checker_dir(release: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(|p| p.parent())
         .expect("crate has workspace root")
         .join("lean")
-        .join("checker")
+        .join(release)
 }
 
 fn golden_path() -> PathBuf {
@@ -95,10 +95,11 @@ const CORPUS: &[CorpusCase] = &[
     },
 ];
 
-fn run_case(case: &CorpusCase) -> serde_json::Value {
+fn run_case(case: &CorpusCase, release: &str) -> serde_json::Value {
     let dir = std::env::temp_dir().join(format!(
-        "boole-verdict-corpus-{}-{}",
+        "boole-verdict-corpus-{}-{}-{}",
         std::process::id(),
+        release,
         case.id
     ));
     let _ = std::fs::remove_dir_all(&dir);
@@ -108,7 +109,12 @@ fn run_case(case: &CorpusCase) -> serde_json::Value {
 
     let runner = LeanRunner::new(
         LeanRunnerConfig::new("verdict-corpus")
-            .with_package_dir(canonical_checker_dir())
+            .with_package_dir(canonical_checker_dir(release))
+            .with_checker_artifact_hash(if release == "checker-v1" {
+                boole_lean_runner::CHECKER_RELEASE_HASH_V1
+            } else {
+                boole_lean_runner::CHECKER_RELEASE_HASH
+            })
             .with_max_heartbeats(case.max_heartbeats)
             .with_max_rec_depth(case.max_rec_depth)
             // Generous wall clock: containment must never fire here.
@@ -144,13 +150,13 @@ fn run_case(case: &CorpusCase) -> serde_json::Value {
     entry
 }
 
-#[test]
-fn verdict_corpus_is_identical_across_platforms_and_profiles() {
+fn assert_release_corpus(release: &str) {
     if !lake_and_lean_available() {
         eprintln!("skipping verdict corpus: lake/lean unavailable");
         return;
     }
-    let entries: Vec<serde_json::Value> = CORPUS.iter().map(run_case).collect();
+    let entries: Vec<serde_json::Value> =
+        CORPUS.iter().map(|case| run_case(case, release)).collect();
     let actual = serde_json::to_string_pretty(&serde_json::json!({
         "schema": "boole.verdict-corpus.v1",
         "entries": entries,
@@ -158,7 +164,7 @@ fn verdict_corpus_is_identical_across_platforms_and_profiles() {
     .expect("serialize corpus")
         + "\n";
     let digest = hex::encode(Sha256::digest(actual.as_bytes()));
-    eprintln!("verdict corpus digest: {digest}");
+    eprintln!("{release} verdict corpus digest: {digest}");
 
     if std::env::var("BOOLE_REGEN_VERDICT_CORPUS").is_ok() {
         std::fs::create_dir_all(golden_path().parent().expect("fixture dir")).expect("mkdir");
@@ -180,4 +186,14 @@ fn verdict_corpus_is_identical_across_platforms_and_profiles() {
          budget change, regenerate the golden with BOOLE_REGEN_VERDICT_CORPUS=1 and land it \
          with the change"
     );
+}
+
+#[test]
+fn verdict_corpus_is_identical_across_platforms_and_profiles() {
+    assert_release_corpus("checker");
+}
+
+#[test]
+fn frozen_v1_verdict_corpus_matches_unchanged_golden() {
+    assert_release_corpus("checker-v1");
 }

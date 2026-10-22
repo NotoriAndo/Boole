@@ -113,15 +113,14 @@ pub struct LeanRunnerConfig {
     pub expected_checker_artifact_hash: Option<String>,
     checker_artifact_allowlist: Option<Vec<String>>,
     /// SC.9a / ADR-0016 (a)(b) — the committed step budget, forwarded to
-    /// the checker as `lean -D maxHeartbeats=<n>` (Lean counts this option
+    /// the checker as an explicit frontend option (Lean counts this option
     /// in thousands of raw heartbeats). This IS the verdict input: the same
     /// proof bytes under the same budget exhaust it identically on every
     /// node. The default mirrors `boole_core::BASE_LANE_MAX_HEARTBEATS`
     /// (Tier-2 rule constant); the family lane overrides it from the
     /// consensus-committed `FamilyManifest.resource_limits`.
     pub max_heartbeats: u64,
-    /// Companion verdict-bearing counter, forwarded as
-    /// `lean -D maxRecDepth=<n>`. Default mirrors
+    /// Companion verdict-bearing frontend recursion counter. Default mirrors
     /// `boole_core::BASE_LANE_MAX_REC_DEPTH` (ADR-0016 (b-1)).
     pub max_rec_depth: u64,
     // Request-local directory where the primary checker may serialize the
@@ -140,6 +139,7 @@ pub struct LeanRunnerConfig {
     // process creation prevents submitted elaborator code from leaving a
     // detached descendant that can race artifact promotion.
     deny_process_spawn: bool,
+    release_v1_capture: bool,
 }
 
 impl LeanRunnerConfig {
@@ -160,6 +160,7 @@ impl LeanRunnerConfig {
             lean_sysroot: None,
             lean_path: None,
             deny_process_spawn: false,
+            release_v1_capture: false,
         }
     }
 
@@ -1047,6 +1048,9 @@ impl LeanRunner {
         );
         let mut audit_config =
             verification_stage_config(&self.config, &toolchain_runtime, request_lean_path, None);
+        let release_v1 = actual_hash == CHECKER_RELEASE_HASH_V1;
+        run_config.release_v1_capture = release_v1;
+        audit_config.release_v1_capture = release_v1;
 
         // SC.9a / ADR-0016 (a)(b) — the committed step budget rides along
         // as explicit checker args so the verdict never inherits Lean's own
@@ -1059,8 +1063,22 @@ impl LeanRunner {
             Err(err) => return Ok(unavailable_result(&evidence, format!("{err:#}"))),
         };
         primary_command
-            .arg(format!("-DmaxHeartbeats={}", self.config.max_heartbeats))
-            .arg(format!("-DmaxRecDepth={}", self.config.max_rec_depth))
+            .arg(format!(
+                "-DmaxHeartbeats={}",
+                if release_v1 {
+                    self.config.max_heartbeats
+                } else {
+                    TRUSTED_HELPER_MAX_HEARTBEATS
+                }
+            ))
+            .arg(format!(
+                "-DmaxRecDepth={}",
+                if release_v1 {
+                    self.config.max_rec_depth
+                } else {
+                    TRUSTED_HELPER_MAX_REC_DEPTH
+                }
+            ))
             .arg("--run")
             .arg(PRIMARY_CHECKER_SCRIPT)
             .arg(inherited_descriptor_path)
@@ -1092,7 +1110,11 @@ impl LeanRunner {
         };
 
         if !primary.success || primary.capture_failed {
-            let verdict = classify_failed_run(&primary);
+            let verdict = if release_v1 {
+                classify_failed_run_v1(&primary)
+            } else {
+                classify_failed_run(&primary)
+            };
             return Ok(LeanCheckResult {
                 accepted: false,
                 exit_code: primary.exit_code,
@@ -1300,10 +1322,14 @@ impl LeanRunner {
             .stderr
             .take()
             .ok_or_else(|| anyhow!("child stderr was not captured"))?;
-        let stdout_buf: Arc<Mutex<DrainBuffer>> =
-            Arc::new(Mutex::new(DrainBuffer::new(output_limit)));
-        let stderr_buf: Arc<Mutex<DrainBuffer>> =
-            Arc::new(Mutex::new(DrainBuffer::new(output_limit)));
+        let stdout_buf: Arc<Mutex<DrainBuffer>> = Arc::new(Mutex::new(DrainBuffer::for_release(
+            output_limit,
+            sandbox_config.release_v1_capture,
+        )));
+        let stderr_buf: Arc<Mutex<DrainBuffer>> = Arc::new(Mutex::new(DrainBuffer::for_release(
+            output_limit,
+            sandbox_config.release_v1_capture,
+        )));
         let stdout_handle = spawn_drain(stdout_pipe, Arc::clone(&stdout_buf));
         let stderr_handle = spawn_drain(stderr_pipe, Arc::clone(&stderr_buf));
 
@@ -1468,7 +1494,7 @@ struct SandboxedRunOutcome {
 
 /// Released v2 checker artifact identity (audit grammar v2).
 pub const CHECKER_RELEASE_HASH: &str =
-    "d899db43fc2585e912995addef7e6c815428aa985c5415ce73e9bc026ba39b57";
+    "8174cf67577e7ab2490b6d4c98f75bc131056462fa50d9909dd1eb47311b9ea6";
 /// Frozen v1 checker used by existing pinned networks.
 pub const CHECKER_RELEASE_HASH_V1: &str =
     "f9da3a1c5bcb605a26c8f778e2661e471398864c69393079aed461dd1453d7b4";
@@ -1564,11 +1590,20 @@ fn enforce_axiom_allowlist_with_grammar(
     if outcome.capture_failed {
         return Err(unavailable("capture_failed"));
     }
+    if grammar == AuditGrammar::V1 && release_v1_budget(&release_v1_output(outcome)) {
+        return Err((
+            LeanVerdict::DeterministicReject {
+                reason: REJECT_BUDGET_EXCEEDED.into(),
+            },
+            "audit exhausted committed budget".into(),
+        ));
+    }
     if !outcome.success {
-        if outcome
-            .stderr_final_line
-            .as_deref()
-            .is_some_and(lean_output_reports_budget_exhaustion)
+        if grammar == AuditGrammar::V2
+            && outcome
+                .stderr_final_line
+                .as_deref()
+                .is_some_and(is_budget_marker)
         {
             return Err((
                 LeanVerdict::DeterministicReject {
@@ -1577,11 +1612,20 @@ fn enforce_axiom_allowlist_with_grammar(
                 "audit exhausted committed budget".into(),
             ));
         }
-        if outcome.stderr_final_line.as_ref().is_some_and(|line| {
-            AUDIT_SEMANTIC_REJECT_PREFIXES
-                .iter()
-                .any(|prefix| line.starts_with(prefix))
-        }) {
+        let semantic_reject = if grammar == AuditGrammar::V1 {
+            release_v1_output(outcome).lines().any(|line| {
+                AUDIT_SEMANTIC_REJECT_PREFIXES
+                    .iter()
+                    .any(|prefix| line.starts_with(prefix))
+            })
+        } else {
+            outcome.stderr_final_line.as_ref().is_some_and(|line| {
+                AUDIT_SEMANTIC_REJECT_PREFIXES
+                    .iter()
+                    .any(|prefix| line.starts_with(prefix))
+            })
+        };
+        if semantic_reject {
             let (verdict, _) = rejected();
             return Err((
                 verdict,
@@ -1660,12 +1704,49 @@ const BUDGET_OVERRIDE_MARKER_PREFIX: &str = "BOOLE_BUDGET_OVERRIDE ";
 /// checker/runtime failure and therefore cannot become a proof verdict.
 const PRIMARY_REJECT_MARKER: &str = "BOOLE_PRIMARY_REJECT";
 
-/// Lean's own diagnostics when a `-D maxHeartbeats`/`-D maxRecDepth` budget
-/// runs out. These strings are produced by the pinned toolchain, so they are
-/// as stable as the checker artifact itself (the pin covers `lean-toolchain`).
-fn lean_output_reports_budget_exhaustion(output: &str) -> bool {
+fn is_budget_marker(line: &str) -> bool {
+    matches!(
+        line,
+        "BOOLE_BUDGET_EXCEEDED maxHeartbeats" | "BOOLE_BUDGET_EXCEEDED maxRecDepth"
+    )
+}
+
+fn release_v1_output(outcome: &SandboxedRunOutcome) -> String {
+    let mut output = outcome.stdout.clone();
+    if !output.is_empty() && !output.ends_with('\n') {
+        output.push('\n');
+    }
+    output.push_str(&outcome.stderr);
+    output
+}
+
+fn release_v1_budget(output: &str) -> bool {
     output.contains("maximum number of heartbeats")
         || output.contains("maximum recursion depth has been reached")
+}
+
+fn classify_failed_run_v1(outcome: &SandboxedRunOutcome) -> LeanVerdict {
+    if outcome.timed_out || outcome.exit_code < 0 || outcome.capture_failed {
+        return classify_failed_run(outcome);
+    }
+    let output = release_v1_output(outcome);
+    let reason = if output
+        .lines()
+        .any(|line| line.starts_with("BOOLE_BUDGET_OVERRIDE"))
+    {
+        REJECT_BUDGET_OVERRIDE_FORBIDDEN
+    } else if release_v1_budget(&output) {
+        REJECT_BUDGET_EXCEEDED
+    } else if output.lines().any(|line| line == PRIMARY_REJECT_MARKER) {
+        REJECT_LEAN_REJECTED
+    } else {
+        return LeanVerdict::RetryableUnavailable {
+            reason: "primary_checker_unavailable".into(),
+        };
+    };
+    LeanVerdict::DeterministicReject {
+        reason: reason.into(),
+    }
 }
 
 /// SC.9a / ADR-0016 (a-3) — classify a failed primary checker run into the
@@ -1700,18 +1781,18 @@ fn classify_failed_run(outcome: &SandboxedRunOutcome) -> LeanVerdict {
             reason: REJECT_BUDGET_OVERRIDE_FORBIDDEN.into(),
         };
     }
+    if outcome
+        .stderr_final_line
+        .as_deref()
+        .is_some_and(is_budget_marker)
+    {
+        return LeanVerdict::DeterministicReject {
+            reason: REJECT_BUDGET_EXCEEDED.into(),
+        };
+    }
     if outcome.stderr_final_line.as_deref() == Some(PRIMARY_REJECT_MARKER) {
         return LeanVerdict::DeterministicReject {
-            reason: if outcome
-                .stderr_final_line
-                .as_deref()
-                .is_some_and(lean_output_reports_budget_exhaustion)
-            {
-                REJECT_BUDGET_EXCEEDED
-            } else {
-                REJECT_LEAN_REJECTED
-            }
-            .into(),
+            reason: REJECT_LEAN_REJECTED.into(),
         };
     }
     LeanVerdict::RetryableUnavailable {
@@ -1726,11 +1807,17 @@ struct DrainBuffer {
     total: u64,
     truncated: bool,
     capture_failed: bool,
+    prefix_only: bool,
 }
 
 impl DrainBuffer {
+    #[cfg(test)]
     fn new(limit: usize) -> Self {
+        Self::for_release(limit, false)
+    }
+    fn for_release(limit: usize, prefix_only: bool) -> Self {
         Self {
+            prefix_only,
             head: Vec::new(),
             tail: Vec::new(),
             limit,
@@ -1742,7 +1829,11 @@ impl DrainBuffer {
     fn push(&mut self, chunk: &[u8]) {
         self.total = self.total.saturating_add(chunk.len() as u64);
         self.truncated = self.total > self.limit as u64;
-        let head_limit = self.limit / 2;
+        let head_limit = if self.prefix_only {
+            self.limit
+        } else {
+            self.limit / 2
+        };
         let tail_limit = self.limit - head_limit;
         let n = chunk.len().min(head_limit.saturating_sub(self.head.len()));
         self.head.extend_from_slice(&chunk[..n]);
@@ -3335,6 +3426,48 @@ mod tests {
             assert!(
                 enforce_axiom_allowlist(&det2_outcome(&stdout, "", true)).is_err(),
                 "{json}"
+            );
+        }
+    }
+    #[test]
+    fn budget_signal_v1_retains_the_release_prefix_bound() {
+        let bytes: Vec<u8> = (0..100_000).map(|n| (n % 251) as u8).collect();
+        let mut drain = DrainBuffer::for_release(65536, true);
+        for chunk in bytes.chunks(4096) {
+            drain.push(chunk);
+        }
+        assert_eq!(drain.retained(), bytes[..65536]);
+        assert_eq!(drain.total, 100_000);
+        assert!(drain.truncated);
+    }
+    #[test]
+    fn budget_signal_v2_is_exact_and_final() {
+        for kind in ["maxHeartbeats", "maxRecDepth"] {
+            let marker = format!("BOOLE_BUDGET_EXCEEDED {kind}\n");
+            let result = classify_failed_run(&det2_outcome("", &marker, false));
+            assert_eq!(
+                result,
+                LeanVerdict::DeterministicReject {
+                    reason: REJECT_BUDGET_EXCEEDED.into()
+                }
+            );
+            for (stdout, stderr) in [
+                (marker.as_str(), ""),
+                ("", "BOOLE_BUDGET_EXCEEDED maxHeartbeats"),
+                ("", "BOOLE_BUDGET_EXCEEDED other\n"),
+                ("", "BOOLE_BUDGET_EXCEEDED maxHeartbeats extra\n"),
+                ("", "BOOLE_BUDGET_EXCEEDED maxHeartbeats\ntrailing line\n"),
+            ] {
+                assert!(classify_failed_run(&det2_outcome(stdout, stderr, false))
+                    .is_retryable_unavailable());
+            }
+            assert_eq!(
+                enforce_axiom_allowlist(&det2_outcome("", &marker, false))
+                    .unwrap_err()
+                    .0,
+                LeanVerdict::DeterministicReject {
+                    reason: REJECT_BUDGET_EXCEEDED.into()
+                }
             );
         }
     }
