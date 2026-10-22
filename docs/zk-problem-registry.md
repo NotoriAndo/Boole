@@ -1746,3 +1746,8 @@ and other unmodelled platform cases need separate validation. A general decode-t
 Notices retain BSD-2-Clause/MIT provenance and explicitly record lean-sail's missing licence file.
 
 No reconstruction activates a template or changes frozen B2, R1-bis, R3 or catalog v1 outcomes.
+
+Policy v5 also rejects solver-written output commands, trace/profiler/diagnostics options and control
+characters within escaped names. Option and name rules use the same labels and LF line numbers in both
+scanners. Gate-added diagnostic commands run only after this scan. Historical package policy metadata
+remains valid; the gate descriptor records the active scan policy.

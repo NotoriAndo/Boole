@@ -184,7 +184,7 @@ class AvailabilityServiceTests(unittest.TestCase):
             (answer / 'Solution.lean').write_text('synthetic boundary fixture\n')
             unavailable = lambda *_: dict(verdict='ERROR', reason='resource-unavailable')
             registry = S.Registry.create(str(Path(directory, 'store')), S.build_catalog([package]),
-                                         reveal_window=10, verifier=unavailable)
+                                         reveal_window=10, verifier=unavailable, error_policy=None)
             ident = problem['package_id']
             binding = S.commitment(ident, 'solver', S.submission_digest(str(answer)), 'salt')
             first = registry.commit(ident, 'solver', binding, 1)

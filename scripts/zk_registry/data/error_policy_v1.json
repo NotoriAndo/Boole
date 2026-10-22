@@ -47,7 +47,27 @@
   "triggers": {
     "independent_hosts": 2,
     "healthy_canaries": true,
-    "resource_requires_escalated": true
+    "resource_requires_escalated": true,
+    "component_stages": [
+      "compile",
+      "replay",
+      "export",
+      "closure-export",
+      "comparator",
+      "identity",
+      "kernel",
+      "primary",
+      "audit"
+    ],
+    "component_reasons": [
+      "export-unavailable",
+      "silent-exit",
+      "comparator-unavailable",
+      "primary_checker_unavailable",
+      "axiom_audit_unavailable",
+      "containment_killed",
+      "sandbox-unavailable"
+    ]
   },
   "retry": {
     "attempts": 3,
