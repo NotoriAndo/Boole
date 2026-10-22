@@ -17,13 +17,16 @@ Start the existing M2 devnet, then connect the MCP host to this executable:
 
 ```text
 boole-devnet-mcp --devnet --l1-rpc http://127.0.0.1:28545 \
+  --node-rpc http://127.0.0.1:29545 \
   --account <unlocked-development-address> --state-dir <private-directory> \
   --m2-config <same-config-as-driver.json> --zstd <pinned-executable>
 ```
 
 `--devnet` is mandatory. The L1 chain id and deployed inbox runtime must match
-the devnet. The L2 chain id is fixed to the devnet; the validated M2 config must
-match the driver, including its pool key. The default is `Config::devnet()`.
+the devnet. The required L2 node RPC must also report the devnet chain id. Its
+latest header supplies the L2 gas limit for the same S4 startup validation as
+the driver; no fixed 30M limit is assumed. The validated M2 config must match
+the driver, including its pool key. The default is `Config::devnet()`.
 Only literal loopback RPC URLs are accepted, with proxy routing and redirects
 disabled. There is no HTTP listener. The codec executable is checked against
 the existing codec pin before use; installed symlink paths are resolved and
@@ -31,10 +34,10 @@ their target bytes are checked. There is no PATH fallback or network fetch.
 
 | Tool | Arguments | Result |
 |---|---|---|
-| `boole.devnet_status` | none | Slot/lane, open problem, last commit height, pending commits, next draw execution height, fold height, config/slot digests and m2_root |
+| `boole.devnet_status` | none | Slot/lane, open problem, last commit height, pending commits, next draw execution height, fold height, config/slot digests, m2_root and any stall reason |
 | `boole.devnet_problem` | `slot` or `problem_id` | Problem id, decoded package as hex and UTF-8 when valid, and finalized-fold membership status |
 | `boole.devnet_commit` | `export_file`, `payee`, `problem_id` | Durable submission id and initial progress; automatic posting continues while the process runs |
-| `boole.devnet_submission` | `submission_id` | Finalized candidate status, part count, sent transaction hashes, local-check status and posting error if any |
+| `boole.devnet_submission` | `submission_id` | Finalized/retained status, observed state and prune height, part count, transaction hashes and failures, local-check status and posting error if any |
 | `boole.devnet_cancel` | `submission_id` | Persisted cancel intent and progress; a finalized live candidate is cancelled on L1 |
 
 Hex ids have a `0x` prefix and fixed byte lengths. `payee` is the 20-byte L2
@@ -55,6 +58,8 @@ The client reads finalized L1 headers and inbox logs from genesis and applies
 `boole-derivation::m2::State::step` with the same validated config and initial
 config-digest root as the driver. It checks header links, the cached finalized
 anchor, inbox address/topic/hash/removed flags and duplicate log positions.
+Before folding it applies the same mixHash, beacon-root and baseFee format
+checks as M1 derivation; a malformed mixHash cannot silently become zero.
 Malformed envelopes have the same treatment as derivation. It never reads
 unfinalized inbox inputs into its state.
 
@@ -67,11 +72,16 @@ package refuses the problem/commit call as an operator fault. It does not modify
 consensus or fabricate an on-chain void verdict.
 
 A changed finalized anchor, backward finalized height, broken link, inconsistent
-log or input error stalls that client instance and prevents posting. Previously
-verified state remains available internally. Stop, verify the intended local
-node/config and preserve the private directory before restarting. Restart folds
+log or input error stalls that client instance and prevents posting. Status and
+submission tools remain readable with the previously verified state and stall
+reason. Transient connection,
+timeout, body-read and HTTP429/5xx failures receive at most three read attempts
+with 100/300ms backoff before a stall; format and application errors do not retry.
+Transaction writes are reconciled rather than blindly retried. Stop, verify the
+intended local node/config and preserve the private directory before restarting. Restart folds
 from genesis; a cached root is never accepted as a substitute for that fold.
-The store is bound to the exact config digest and L1 genesis hash.
+The store is bound to the exact config digest, L1 genesis hash and observed L2
+gas limit.
 
 The RPC endpoint supplies the finalized chain. This is independent M2 derivation,
 not an Ethereum consensus light-client proof or an RPC quorum. A server cannot
@@ -103,6 +113,10 @@ inclusion guarantee under censorship or a stalled chain.
 
 Finalized state determines completion. Canonical unfinalized receipts suppress
 duplicate work; missing/reorged parts can be reposted after a bounded delay.
+A canonical reverted receipt marks that submission step REVERTED in its private
+record and progress response, without blocking other submissions. Reposting
+remains subject to the same M2 windows and budgets. An orphaned receipt is not
+canonical inclusion.
 An uncertain send outcome retains the same durable preimage and reconciles its
 on-chain candidate before retrying. Retries use the same item for the same
 submission. New submissions prepare their export again with new secrets; encoding
@@ -114,7 +128,12 @@ CANCEL intent is persisted first. A submission cancelled before any COMMIT is
 posted can abort locally. An already posted commitment is cancelled once the
 finalized fold sees it. CHECKING and EXPIRED candidates cannot cancel. If the
 client stays offline, a partial or unopened reveal may expire; restart reports
-EXPIRED and sends no late OPEN. Partial data may remain publicly decodable.
+EXPIRED and sends no late OPEN. Each owned record retains its observed state
+and the problem's `close+W+1` prune height; EXPIRED and CANCELLED remain final
+after the fold prunes tombstones, even across restart and full replay. A sent
+COMMIT missing after its finalized deadline is COMMIT_NOT_INCLUDED. A closed
+problem with no posting attempt is PROBLEM_CLOSED; a pre-post cancel is ABORTED.
+Partial data may remain publicly decodable.
 
 ## Optional local pre-check
 
@@ -135,18 +154,23 @@ discover a compiler, gate or network service.
 
 ## Validation and limits
 
-Tests reproduce B, commit hash, keyed leaves and all fourteen part bodies from
-the existing M2 recording. Codec controls reject truncated, concatenated,
+Tests reproduce the same candidate's exact COMMIT/CANCEL bytes, B, commit hash,
+keyed leaves and all fourteen part bodies from the existing M2 recording. Codec controls reject truncated, concatenated,
 trailing, dictionary and missing-checksum frames. Offline client folding matches
 all 140 roots of the rounds recording. Finality faults, private-store locking,
 permissions, pin mismatch, deterministic reject, tool error and timeout are tested.
+Regression tests cover pruning, missed deadlines, durable reverted receipts,
+transient reads and reachable stalls, header-format parity, the actual L2 gas
+limit, nonempty packages, format 1 and cancellation of OPEN with some parts.
 
 The opt-in `live` test uses the actual MCP stdio process, anvil, one pinned
 op-reth replica and the driver. It runs pool/draw/package/commit/open/parts to
 CHECKING with equal client/driver roots, cancels another candidate and restarts
-after an offline candidate expires. It also checks a rejecting local hook makes
-no post. Set the existing pinned client/codec environment variables to execute
-it; without those variables its binary-gated entry returns early. Node runs use
+after an offline candidate expires and again after tombstone pruning. It uses
+lane 1/format 1 with a required package and a 40M L2 gas limit, asserts exact
+posting/comparison counts, and checks every submission's salt/secret is absent
+from progress and MCP stdout/stderr. A rejecting local hook makes no post.
+Set the existing pinned client/codec environment variables to execute it; without those variables its binary-gated entry returns early. Node runs use
 the shared resource lease procedure.
 
 This remains a synthetic closed-local devnet transport client. It does not build

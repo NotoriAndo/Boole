@@ -10,14 +10,15 @@ use std::{
     thread,
 };
 
-#[test]
-fn finalized_genesis_needs_only_number() {
+fn source(include_finalized: bool) -> (RpcL1, thread::JoinHandle<()>) {
     let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
     let server = thread::spawn(move || {
-        for (method, result) in [
-            ("eth_chainId", json!("0x7a69")),
-            ("eth_getBlockByNumber", json!({"number":"0x0"})),
+        let mut replies = vec![("eth_chainId", json!("0x7a69"))];
+        if include_finalized {
+            replies.push(("eth_getBlockByNumber", json!({"number":"0x0"})));
+        }
+        replies.extend([
             (
                 "eth_getBlockByNumber",
                 json!({"number":"0x0","hash":format!("0x{}","ab".repeat(32))}),
@@ -26,7 +27,8 @@ fn finalized_genesis_needs_only_number() {
                 "eth_getBlockByNumber",
                 json!({"number":"0x0","hash":"0xab"}),
             ),
-        ] {
+        ]);
+        for (method, result) in replies {
             let (mut stream, _) = listener.accept().unwrap();
             let mut reader = BufReader::new(&mut stream);
             let mut length = 0;
@@ -63,12 +65,27 @@ fn finalized_genesis_needs_only_number() {
             stream.write_all(&body).unwrap();
         }
     });
-    let mut l1 = RpcL1::new(&url).unwrap();
+    (RpcL1::new(&url).unwrap(), server)
+}
+
+#[test]
+fn finalized_genesis_needs_only_number() {
+    let (mut l1, server) = source(true);
     let actual = l1.finalized();
     let genesis = l1.genesis_hash();
     let invalid = l1.genesis_hash();
     server.join().unwrap();
     assert_eq!(actual.unwrap(), 0);
+    assert_eq!(genesis.unwrap(), format!("0x{}", "ab".repeat(32)));
+    assert!(invalid.is_err());
+}
+
+#[test]
+fn genesis_hash_accepts_a_pre_london_header_and_refuses_an_invalid_hash() {
+    let (mut l1, server) = source(false);
+    let genesis = l1.genesis_hash();
+    let invalid = l1.genesis_hash();
+    server.join().unwrap();
     assert_eq!(genesis.unwrap(), format!("0x{}", "ab".repeat(32)));
     assert!(invalid.is_err());
 }

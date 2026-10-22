@@ -2,7 +2,7 @@ use anyhow::{ensure, Context, Result};
 use boole_derivation::m2::Config;
 use boole_devnet_driver::l1::RpcL1;
 use boole_devnet_mcp::{
-    client::{fixed, Client, RpcPoster},
+    client::{fixed, l2_gas_limit, Client, ClientOptions, RpcPoster},
     codec::Codec,
     hook::Precheck,
     protocol,
@@ -23,6 +23,8 @@ struct Args {
     devnet: bool,
     #[arg(long)]
     l1_rpc: String,
+    #[arg(long)]
+    node_rpc: String,
     #[arg(long)]
     account: String,
     #[arg(long)]
@@ -68,8 +70,11 @@ fn main() -> Result<()> {
         c,
         account,
         args.state_dir,
-        codec,
-        hook,
+        ClientOptions {
+            l2_gas_limit: l2_gas_limit(&args.node_rpc)?,
+            codec,
+            hook,
+        },
     )?;
     let (sender, receiver) = mpsc::sync_channel(8);
     thread::spawn(move || {

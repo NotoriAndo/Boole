@@ -43,6 +43,8 @@ impl Server {
                 "--devnet",
                 "--l1-rpc",
                 "http://127.0.0.1:28545",
+                "--node-rpc",
+                "http://127.0.0.1:29545",
                 "--account",
                 user,
                 "--m2-config",
@@ -62,10 +64,14 @@ impl Server {
         let input = child.stdin.take().context("MCP stdin")?;
         let stdout = child.stdout.take().context("MCP stdout")?;
         let (sender, output) = mpsc::channel();
+        let mut transcript = File::create(root.join("stdout.log"))?;
         thread::spawn(move || {
             for line in BufReader::new(stdout).lines() {
                 match line {
                     Ok(s) => {
+                        if writeln!(transcript, "{s}").is_err() {
+                            break;
+                        }
                         if sender.send(s).is_err() {
                             break;
                         }
@@ -237,13 +243,15 @@ fn mcp_live_round_checking_cancel_offline_expiry_and_equal_roots() -> Result<()>
     let user = accounts[0].as_str().context("account")?;
     let c = config();
     let l2_genesis = rt.path.join("l2-genesis.json");
-    fs::write(&l2_genesis, serde_json::to_vec_pretty(&genesis()?)?)?;
+    let mut l2 = genesis()?;
+    l2["gasLimit"] = json!("0x2625a00"); // 40M, deliberately differs from the old fixed value.
+    fs::write(&l2_genesis, serde_json::to_vec_pretty(&l2)?)?;
     let node = rt.node(&op, &l2_genesis, "miner-replica", 0)?;
     let mut driver = Driver::with_config(
         RpcL1::new_m2("http://127.0.0.1:28545")?,
         node.engine()?,
         c.clone(),
-        30_000_000,
+        boole_devnet_mcp::client::l2_gas_limit("http://127.0.0.1:29545")?,
     )?;
     driver.set_evidence(&rt.path.join("driver.jsonl"))?;
     let state = rt.path.join("miner-state");
@@ -255,24 +263,21 @@ fn mcp_live_round_checking_cancel_offline_expiry_and_equal_roots() -> Result<()>
         &format!("0x{}", package["carried_hex"].as_str().context("package")?),
         "package",
     )?;
+    let required = vec![c.pkg_table[0]];
     let root =
-        boole_derivation::m2::pool_leaf(c.chain_id, 2, &[], 1, 1_048_576, &carried, &[9; 32]);
-    post(&l1, user, &[(8, pool(&c, root, 1, 3, 1))], false)?;
+        boole_derivation::m2::pool_leaf(c.chain_id, 1, &required, 1, 1_048_576, &carried, &[9; 32]);
+    post(&l1, user, &[(8, pool_at(&c, 1, root, 1, 3, 1))], false)?;
     let (raw, _, _) = frame(&rt.path)?;
     let export = rt.path.join("export.raw");
     let mut rows = vec![];
     loop {
         let h = quantity(&l1.call("eth_blockNumber", json!([]))?)? + 1;
         if h == 5 {
-            post(
-                &l1,
-                user,
-                &[(
-                    9,
-                    problem_encoded(0, 1, 0, [9; 32], &[], &carried, (1, 1_048_576)),
-                )],
-                false,
-            )?;
+            let mut body = problem_encoded(1, 1, 0, [9; 32], &[], &carried, (1, 1_048_576));
+            body[10] = 1;
+            body[11] = 1;
+            body.splice(12..12, required[0]);
+            post(&l1, user, &[(9, body)], false)?;
         }
         mine(&l1, &mut driver, Some(&mut server), &mut rows)?;
         if driver.m2_state().height() >= 5 {
@@ -280,10 +285,10 @@ fn mcp_live_round_checking_cancel_offline_expiry_and_equal_roots() -> Result<()>
         }
         ensure!(h < 24, "problem did not finalize");
     }
-    let p = driver.m2_state().rounds[&(0, 1)]
+    let p = driver.m2_state().rounds[&(1, 1)]
         .problem
         .context("problem")?;
-    let problem = server.tool("boole.devnet_problem", json!({"slot":0}))?;
+    let problem = server.tool("boole.devnet_problem", json!({"slot":1}))?;
     ensure!(
         problem["problem_id"] == hex_string(&p) && problem["decoded_len"] == 1_048_576,
         "MCP decoded problem"
@@ -448,6 +453,65 @@ fn mcp_live_round_checking_cancel_offline_expiry_and_equal_roots() -> Result<()>
         expired["status"] == "EXPIRED" && !last_tx(&expired, "open"),
         "offline expiry without late OPEN"
     );
+    // The same owned records must retain final states after consensus tombstones
+    // disappear, including when a fresh process refolds all heights at once.
+    let before_prune_comparisons = rows
+        .iter()
+        .filter(|r| !r["client_status"].is_null())
+        .count();
+    ensure!(
+        before_prune_comparisons == 52,
+        "online comparison count before pruning: {before_prune_comparisons}"
+    );
+    let close_height = driver.m2_state().problems[&p].h_v + c.slot_table[1].solve_deadline + 1;
+    let prune_height = close_height + c.w + 1;
+    let before_prune_height = driver.m2_state().height();
+    while driver.m2_state().height() <= prune_height {
+        mine(&l1, &mut driver, Some(&mut restarted), &mut rows)?;
+        ensure!(rows.len() < 300, "prune finality timeout");
+    }
+    ensure!(
+        !driver.m2_state().candidates.contains_key(&(p, expiry_hash)),
+        "expiry tombstone not pruned"
+    );
+    ensure!(
+        restarted.submission(&cancel_id)?["status"] == "CANCELLED",
+        "cancel after pruning"
+    );
+    ensure!(
+        expiry_restarted.submission(&expire_id)?["status"] == "EXPIRED",
+        "expiry after pruning"
+    );
+    restarted.stop()?;
+    expiry_restarted.stop()?;
+    let mut restarted = Server::start(&rt.path.join("mcp-pruned-restart"), &c, user, &state, &[])?;
+    let mut expiry_restarted = Server::start(
+        &rt.path.join("mcp-expiry-pruned-restart"),
+        &c,
+        user,
+        &expiry_state,
+        &[],
+    )?;
+    let after_prune = restarted.tool("boole.devnet_status", json!({}))?;
+    let expiry_after_prune = expiry_restarted.tool("boole.devnet_status", json!({}))?;
+    ensure!(
+        after_prune["m2_root"] == hex_string(&driver.m2_state().root)
+            && expiry_after_prune["m2_root"] == after_prune["m2_root"],
+        "post-prune restart roots"
+    );
+    ensure!(
+        restarted.submission(&cancel_id)?["status"] == "CANCELLED"
+            && expiry_restarted.submission(&expire_id)?["status"] == "EXPIRED",
+        "post-prune restart final states"
+    );
+    let comparisons = rows
+        .iter()
+        .filter(|r| !r["client_status"].is_null())
+        .count();
+    ensure!(
+        comparisons == 52 + (prune_height + 1 - before_prune_height) as usize,
+        "online comparison count after pruning"
+    );
     let mut salts = vec![];
     let mut secrets = vec![];
     for id in [&primary_id, &cancel_id, &expire_id] {
@@ -468,6 +532,10 @@ fn mcp_live_round_checking_cancel_offline_expiry_and_equal_roots() -> Result<()>
         let local: Value = serde_json::from_slice(&fs::read(path)?)?;
         let body: Vec<u8> = serde_json::from_value(local["prepared"]["body"].clone())?;
         let secret: Hash = serde_json::from_value(local["prepared"]["cancel_secret"].clone())?;
+        ensure!(
+            body[150] == 1 && body[151..183] == required[0] && body[184] == 1,
+            "required package and lane-1 format"
+        );
         salts.push(body[53..85].to_vec());
         secrets.push(secret);
         let progress = if *id == expire_id {
@@ -475,10 +543,31 @@ fn mcp_live_round_checking_cancel_offline_expiry_and_equal_roots() -> Result<()>
         } else {
             restarted.submission(id)?
         };
-        ensure!(
-            !progress.to_string().contains(&hex_string(&secret)),
-            "secret in progress response"
-        );
+        for private in [&body[53..85], secret.as_slice()] {
+            let needle = hex_string(private);
+            let array = serde_json::to_string(private)?;
+            ensure!(
+                !progress.to_string().contains(&needle[2..])
+                    && !progress.to_string().contains(&array),
+                "private material in progress response"
+            );
+            for entry in fs::read_dir(&rt.path)? {
+                let path = entry?.path();
+                if !path
+                    .file_name()
+                    .is_some_and(|n| n.to_string_lossy().starts_with("mcp-"))
+                {
+                    continue;
+                }
+                for file in ["stdout.log", "stderr.log"] {
+                    let text = fs::read_to_string(path.join(file))?;
+                    ensure!(
+                        !text.contains(&needle[2..]) && !text.contains(&array),
+                        "private material in MCP stdout/stderr"
+                    );
+                }
+            }
+        }
     }
     ensure!(
         salts[0] != salts[1]
@@ -526,13 +615,13 @@ fn mcp_live_round_checking_cancel_offline_expiry_and_equal_roots() -> Result<()>
         }
     }
     ensure!(
-        posted_items.iter().filter(|(_, k, _)| *k == 4).count() >= 14,
-        "parts posted"
+        posted_items.iter().filter(|(_, k, _)| *k == 4).count() == 14 && posted_items.len() == 21,
+        "exact 14 PARTs and 21 posted items"
     );
     restarted.stop()?;
     expiry_restarted.stop()?;
     let provenance = json!({"generator":"crates/boole-devnet-mcp/tests/live.rs","generator_sha256":hex_string(&hash(include_bytes!("live.rs"))),"client_binary_sha256":hex_string(&hash(&fs::read(env!("CARGO_BIN_EXE_boole-devnet-mcp"))?)),"client_pins":fixture_json("pins.json")?,"l1_genesis_sha256":hex_string(&hash(&fs::read(&l1_genesis)?)),"l2_genesis_sha256":hex_string(&hash(&fs::read(&l2_genesis)?)),"l1_genesis_hash":RpcL1::new_m2("http://127.0.0.1:28545")?.genesis_hash()?});
-    let result = json!({"schema":"boole-devnet-mcp-round-v0","config":c,"config_digest":hex_string(&c.digest()),"slot_table_digest":hex_string(&c.slot_table_digest()),"package_codec":1,"package_raw_len":1_048_576,"export_raw_len":raw.len(),"primary":primary_final,"cancel_status":"CANCELLED","expiry_status":"EXPIRED","restart_m2_root":status["m2_root"],"driver_m2_root":hex_string(&driver.m2_state().root),"rows":rows,"postings":posting,"l1_inputs":l1_inputs,"provenance":provenance,"strict_cleanup":"pending"});
+    let result = json!({"schema":"boole-devnet-mcp-round-v0","config":c,"config_digest":hex_string(&c.digest()),"slot_table_digest":hex_string(&c.slot_table_digest()),"package_codec":1,"package_raw_len":1_048_576,"export_raw_len":raw.len(),"primary":primary_final,"cancel_status":"CANCELLED","expiry_status":"EXPIRED","restart_m2_root":after_prune["m2_root"],"pre_prune_restart_m2_root":status["m2_root"],"online_comparisons":comparisons,"restart_comparisons":4,"posted_items":posted_items.len(),"prune_height":prune_height,"l2_gas_limit":40_000_000,"required_packages":required,"export_format":1,"driver_m2_root":hex_string(&driver.m2_state().root),"rows":rows,"postings":posting,"l1_inputs":l1_inputs,"provenance":provenance,"strict_cleanup":"pending"});
     rt.finish(true)?;
     if let Some(path) = std::env::var_os("BOOLE_DEVNET_MCP_RECORDING") {
         let mut result = result;

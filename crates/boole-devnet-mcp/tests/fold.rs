@@ -1,7 +1,7 @@
 use anyhow::{bail, Result};
 use boole_derivation::{attributes::hex_string, m2::*, InboxLog, L1Block};
 use boole_devnet_driver::l1::L1Source;
-use boole_devnet_mcp::client::{Client, Poster};
+use boole_devnet_mcp::client::{Client, ClientOptions, Poster};
 use serde_json::Value;
 use std::{
     collections::BTreeMap,
@@ -39,6 +39,8 @@ struct Source {
     bad_log: bool,
     refuse_runtime: bool,
     bad_prefix: u8,
+    transient_reads: u8,
+    finality_calls: u8,
 }
 impl L1Source for Source {
     fn validate_m2_inbox(&mut self) -> Result<()> {
@@ -48,6 +50,11 @@ impl L1Source for Source {
         Ok(())
     }
     fn finalized(&mut self) -> Result<u64> {
+        self.finality_calls += 1;
+        if self.transient_reads > 0 {
+            self.transient_reads -= 1;
+            return Err(boole_devnet_driver::engine::TransientRpcError.into());
+        }
         Ok(self.finalized)
     }
     fn block(&mut self, n: u64) -> Result<L1Block> {
@@ -123,6 +130,8 @@ fn fixture() -> (Source, Config, Vec<Value>) {
             bad_log: false,
             refuse_runtime: false,
             bad_prefix: 0,
+            transient_reads: 0,
+            finality_calls: 0,
         },
         serde_json::from_value(fixture["config"].clone()).unwrap(),
         rows,
@@ -138,8 +147,7 @@ fn finalized_client_matches_all_recorded_driver_roots_and_reads_problem() {
         c.clone(),
         [1; 20],
         dir.0.clone(),
-        None,
-        None,
+        ClientOptions::new(30_000_000),
     )
     .unwrap();
     assert_eq!(client.status()["fold_height"], 0);
@@ -181,7 +189,15 @@ fn finalized_client_matches_all_recorded_driver_roots_and_reads_problem() {
 fn changed_finalized_anchor_is_sticky_and_never_adopts_a_new_root() {
     let (source, c, _) = fixture();
     let dir = Dir::new();
-    let mut client = Client::new(source, NoPosts, c, [1; 20], dir.0.clone(), None, None).unwrap();
+    let mut client = Client::new(
+        source,
+        NoPosts,
+        c,
+        [1; 20],
+        dir.0.clone(),
+        ClientOptions::new(30_000_000),
+    )
+    .unwrap();
     client.source.finalized = 3;
     client.sync().unwrap();
     let root = client.m2_state().root;
@@ -207,20 +223,35 @@ fn runtime_bad_logs_and_backwards_finality_refuse_progress() {
         c.clone(),
         [1; 20],
         dir.0.clone(),
-        None,
-        None
+        ClientOptions::new(30_000_000)
     )
     .is_err());
     assert!(!dir.0.exists());
     let (mut source, _, _) = fixture();
     source.bad_log = true;
     source.finalized = 1;
-    let mut client = Client::new(source, NoPosts, c, [1; 20], dir.0.clone(), None, None).unwrap();
+    let mut client = Client::new(
+        source,
+        NoPosts,
+        c,
+        [1; 20],
+        dir.0.clone(),
+        ClientOptions::new(30_000_000),
+    )
+    .unwrap();
     assert!(client.sync().is_err());
     assert_eq!(client.m2_state().height(), 0);
     drop(client);
     let (source, c, _) = fixture();
-    let mut client = Client::new(source, NoPosts, c, [1; 20], dir.0.clone(), None, None).unwrap();
+    let mut client = Client::new(
+        source,
+        NoPosts,
+        c,
+        [1; 20],
+        dir.0.clone(),
+        ClientOptions::new(30_000_000),
+    )
+    .unwrap();
     client.source.finalized = 3;
     client.sync().unwrap();
     client.source.finalized = 2;
@@ -237,8 +268,7 @@ fn store_is_exclusive_and_bound_to_the_exact_configuration() {
         c.clone(),
         [1; 20],
         dir.0.clone(),
-        None,
-        None,
+        ClientOptions::new(30_000_000),
     )
     .unwrap();
     let (source, _, _) = fixture();
@@ -248,14 +278,21 @@ fn store_is_exclusive_and_bound_to_the_exact_configuration() {
         c.clone(),
         [1; 20],
         dir.0.clone(),
-        None,
-        None
+        ClientOptions::new(30_000_000)
     )
     .is_err());
     drop(client);
     let (source, mut c, _) = fixture();
     c.slot_table[1].lane = 2;
-    assert!(Client::new(source, NoPosts, c, [1; 20], dir.0.clone(), None, None).is_err());
+    assert!(Client::new(
+        source,
+        NoPosts,
+        c,
+        [1; 20],
+        dir.0.clone(),
+        ClientOptions::new(30_000_000)
+    )
+    .is_err());
 }
 
 #[derive(Default)]
@@ -264,6 +301,7 @@ struct Capture {
     posts: Vec<u8>,
     receipts: BTreeMap<String, u64>,
     fail_once: bool,
+    reverted: Option<String>,
 }
 impl Poster for Capture {
     fn head(&mut self) -> Result<u64> {
@@ -278,6 +316,9 @@ impl Poster for Capture {
         Ok(hex_string(&[self.posts.len() as u8; 32]))
     }
     fn included(&mut self, tx: &str) -> Result<Option<u64>> {
+        if self.reverted.as_deref() == Some(tx) {
+            return Err(boole_devnet_mcp::client::RevertedReceipt.into());
+        }
         Ok(self.receipts.get(tx).copied())
     }
 }
@@ -299,8 +340,7 @@ fn persisted_candidates(
         c.clone(),
         [1; 20],
         dir.0.clone(),
-        None,
-        None,
+        ClientOptions::new(30_000_000),
     )
     .unwrap();
     bootstrap.sync().unwrap();
@@ -358,8 +398,7 @@ fn cancel_does_not_post_past_the_window_when_finality_lags() {
             c,
             [1; 20],
             dir.0.clone(),
-            None,
-            None,
+            ClientOptions::new(30_000_000),
         )
         .unwrap();
         client.tick().unwrap();
@@ -384,8 +423,7 @@ fn restart_keeps_the_posting_budget_of_the_current_head() {
         c,
         [1; 20],
         dir.0.clone(),
-        None,
-        None,
+        ClientOptions::new(30_000_000),
     )
     .unwrap();
     client.tick().unwrap();
@@ -411,8 +449,7 @@ fn open_waits_for_the_minimum_and_missing_unfinalized_parts_are_reposted() {
         c,
         [1; 20],
         dir.0.clone(),
-        None,
-        None,
+        ClientOptions::new(30_000_000),
     )
     .unwrap();
     client.tick().unwrap();
@@ -456,8 +493,7 @@ fn unknown_send_outcome_reconciles_from_the_fold_without_leaking_the_error() {
         c,
         [1; 20],
         dir.0.clone(),
-        None,
-        None,
+        ClientOptions::new(30_000_000),
     )
     .unwrap();
     client.tick().unwrap();
@@ -499,8 +535,7 @@ fn restart_refuses_corrupt_unrevealed_material() {
         c,
         [1; 20],
         dir.0.clone(),
-        None,
-        None
+        ClientOptions::new(30_000_000)
     )
     .is_err());
 }
@@ -512,12 +547,387 @@ fn hex_encoding_rejections_match_the_driver_input_contract() {
         source.finalized = 1;
         source.bad_prefix = field;
         let dir = Dir::new();
-        let mut client =
-            Client::new(source, NoPosts, c, [1; 20], dir.0.clone(), None, None).unwrap();
+        let mut client = Client::new(
+            source,
+            NoPosts,
+            c,
+            [1; 20],
+            dir.0.clone(),
+            ClientOptions::new(30_000_000),
+        )
+        .unwrap();
         assert!(
             client.sync().is_err(),
             "accepted a noncanonical hex prefix in field {field}"
         );
         assert_eq!(client.m2_state().height(), 0);
     }
+}
+
+fn saved_submission(dir: &Dir) -> (String, Value, boole_devnet_mcp::wire::Prepared) {
+    let store = boole_devnet_mcp::store::Store::open(dir.0.clone()).unwrap();
+    let name = store.submissions().unwrap().pop().unwrap();
+    let saved: Value = store.read(&name).unwrap();
+    let prepared = serde_json::from_value(saved["prepared"].clone()).unwrap();
+    (name, saved, prepared)
+}
+fn add_item(source: &mut Source, height: u64, kind: u8, body: &[u8]) {
+    let row = source.rows.get_mut(&height).unwrap();
+    row.1.push(InboxLog {
+        address: boole_derivation::config::INBOX.into(),
+        topics: vec![boole_derivation::config::posted_topic()],
+        block_hash: row.0.hash.clone(),
+        removed: false,
+        transaction_index: 200,
+        log_index: 200,
+        data: hex_string(&boole_devnet_mcp::wire::calldata(kind, body)[4..]),
+    });
+}
+#[test]
+fn final_submission_states_survive_recorded_pruning_and_restart() {
+    for cancelled in [false, true] {
+        let dir = Dir::new();
+        let (mut source, c) = persisted_candidates(&dir, 1, cancelled, None);
+        let (_, _, prepared) = saved_submission(&dir);
+        if cancelled {
+            add_item(&mut source, 7, 7, &prepared.cancel());
+        }
+        source.finalized = 140;
+        let mut client = Client::new(
+            source,
+            NoPosts,
+            c.clone(),
+            [1; 20],
+            dir.0.clone(),
+            ClientOptions::new(30_000_000),
+        )
+        .unwrap();
+        client.sync().unwrap();
+        assert!(!client
+            .m2_state()
+            .candidates
+            .contains_key(&(prepared.problem, prepared.commit)));
+        let expected = if cancelled { "CANCELLED" } else { "EXPIRED" };
+        let view = client.submission(prepared.commit).unwrap();
+        assert_eq!(view["status"], expected);
+        assert!(view["prune_height"].as_u64().unwrap() < 140);
+        let source = client.source.clone();
+        drop(client);
+        let mut restarted = Client::new(
+            source,
+            NoPosts,
+            c,
+            [1; 20],
+            dir.0.clone(),
+            ClientOptions::new(30_000_000),
+        )
+        .unwrap();
+        restarted.sync().unwrap();
+        assert_eq!(
+            restarted.submission(prepared.commit).unwrap()["status"],
+            expected
+        );
+    }
+}
+#[test]
+fn a_commit_that_misses_its_deadline_becomes_final() {
+    let dir = Dir::new();
+    let (mut source, c) = persisted_candidates(&dir, 1, false, Some(5));
+    let (_, _, prepared) = saved_submission(&dir);
+    source
+        .rows
+        .get_mut(&6)
+        .unwrap()
+        .1
+        .retain(|l| l.transaction_index < 100);
+    source.finalized = 140;
+    let mut client = Client::new(
+        source,
+        NoPosts,
+        c,
+        [1; 20],
+        dir.0.clone(),
+        ClientOptions::new(30_000_000),
+    )
+    .unwrap();
+    client.sync().unwrap();
+    assert_eq!(
+        client.submission(prepared.commit).unwrap()["status"],
+        "COMMIT_NOT_INCLUDED"
+    );
+}
+#[test]
+fn transient_rpc_reads_retry_before_stalling_and_status_is_reachable() {
+    for (failures, recovers) in [(1, true), (3, false)] {
+        let (mut source, c, _) = fixture();
+        source.finalized = 3;
+        source.transient_reads = failures;
+        let dir = Dir::new();
+        let mut client = Client::new(
+            source,
+            NoPosts,
+            c,
+            [1; 20],
+            dir.0.clone(),
+            ClientOptions::new(30_000_000),
+        )
+        .unwrap();
+        let view = client
+            .call("boole.devnet_status", &serde_json::json!({}))
+            .unwrap();
+        assert_eq!(view["stalled"].is_null(), recovers);
+        assert_eq!(view["fold_height"], if recovers { 3 } else { 0 });
+        assert_eq!(client.source.finality_calls, if recovers { 2 } else { 3 });
+        if !recovers {
+            assert!(client
+                .call("boole.devnet_problem", &serde_json::json!({"slot":0}))
+                .is_err());
+        }
+    }
+}
+#[test]
+fn malformed_l1_headers_stall_before_folding_like_the_driver() {
+    for (field, bad) in [
+        ("mixHash", "0x00".to_owned()),
+        ("mixHash", format!("0X{}", "11".repeat(32))),
+        ("parentBeaconBlockRoot", "0x00".into()),
+        ("parentBeaconBlockRoot", format!("0X{}", "11".repeat(32))),
+        ("baseFeePerGas", "0x".into()),
+        ("baseFeePerGas", "0xzz".into()),
+        ("baseFeePerGas", format!("0x{}", "1".repeat(65))),
+    ] {
+        let (mut source, c, _) = fixture();
+        source.finalized = 1;
+        let mut value = serde_json::to_value(&source.rows[&1].0).unwrap();
+        value[field] = serde_json::json!(bad);
+        source.rows.get_mut(&1).unwrap().0 = serde_json::from_value(value).unwrap();
+        let dir = Dir::new();
+        let mut client = Client::new(
+            source,
+            NoPosts,
+            c,
+            [1; 20],
+            dir.0.clone(),
+            ClientOptions::new(30_000_000),
+        )
+        .unwrap();
+        assert!(client.sync().is_err(), "accepted malformed {field}");
+        assert_eq!(client.m2_state().height(), 0);
+        assert!(!client
+            .call("boole.devnet_status", &serde_json::json!({}))
+            .unwrap()["stalled"]
+            .is_null());
+    }
+}
+#[test]
+fn reverted_open_is_durable_and_does_not_block_other_submissions() {
+    let dir = Dir::new();
+    let (source, c) = persisted_candidates(&dir, 2, false, None);
+    let mut client = Client::new(
+        source,
+        Capture {
+            head: 14,
+            ..Capture::default()
+        },
+        c.clone(),
+        [1; 20],
+        dir.0.clone(),
+        ClientOptions::new(30_000_000),
+    )
+    .unwrap();
+    client.tick().unwrap();
+    assert_eq!(client.poster.posts, [3, 3]);
+    client.poster.reverted = Some(hex_string(&[1; 32]));
+    client.poster.head = 15;
+    client.tick().unwrap();
+    assert_eq!(
+        client.poster.posts,
+        [3, 3],
+        "respect the receipt reconciliation gap"
+    );
+    let source = client.source.clone();
+    drop(client);
+    let store = boole_devnet_mcp::store::Store::open(dir.0.clone()).unwrap();
+    let states: Vec<Value> = store
+        .submissions()
+        .unwrap()
+        .iter()
+        .map(|n| store.read(n).unwrap())
+        .collect();
+    let failed = states
+        .iter()
+        .find(|s| s["sent"]["open"]["tx"] == hex_string(&[1; 32]))
+        .unwrap();
+    assert_eq!(failed["sent"]["open"]["failure"], "REVERTED");
+    let failed_id: Hash = serde_json::from_value(failed["prepared"]["commit"].clone()).unwrap();
+    drop(store);
+    let mut restarted = Client::new(
+        source,
+        Capture {
+            head: 16,
+            reverted: Some(hex_string(&[1; 32])),
+            ..Capture::default()
+        },
+        c,
+        [1; 20],
+        dir.0.clone(),
+        ClientOptions::new(30_000_000),
+    )
+    .unwrap();
+    assert_eq!(
+        restarted.submission(failed_id).unwrap()["transactions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["stage"] == "open")
+            .unwrap()["failure"],
+        "REVERTED"
+    );
+    restarted.tick().unwrap();
+    assert_eq!(
+        restarted.poster.posts,
+        [3, 3],
+        "both submissions resume within their M2 windows"
+    );
+}
+
+#[test]
+fn startup_and_store_identity_use_the_observed_l2_gas_limit() {
+    let (source, c, _) = fixture();
+    assert!(c.validate(1_000_000).is_err());
+    let dir = Dir::new();
+    assert!(Client::new(
+        source,
+        NoPosts,
+        c.clone(),
+        [1; 20],
+        dir.0.clone(),
+        ClientOptions::new(1_000_000)
+    )
+    .is_err());
+    assert!(!dir.0.exists());
+    let (source, _, _) = fixture();
+    let client = Client::new(
+        source,
+        NoPosts,
+        c.clone(),
+        [1; 20],
+        dir.0.clone(),
+        ClientOptions::new(40_000_000),
+    )
+    .unwrap();
+    drop(client);
+    let identity: Value =
+        serde_json::from_slice(&std::fs::read(dir.0.join("identity.json")).unwrap()).unwrap();
+    assert_eq!(identity["l2_gas_limit"], 40_000_000);
+    let (source, _, _) = fixture();
+    assert!(Client::new(
+        source,
+        NoPosts,
+        c,
+        [1; 20],
+        dir.0.clone(),
+        ClientOptions::new(30_000_000)
+    )
+    .is_err());
+}
+
+#[test]
+fn a_closed_problem_without_a_post_has_a_final_status() {
+    let dir = Dir::new();
+    let (mut source, c) = persisted_candidates(&dir, 1, false, None);
+    let (_, _, prepared) = saved_submission(&dir);
+    source
+        .rows
+        .get_mut(&6)
+        .unwrap()
+        .1
+        .retain(|l| l.transaction_index < 100);
+    source.finalized = 140;
+    let mut client = Client::new(
+        source,
+        NoPosts,
+        c,
+        [1; 20],
+        dir.0.clone(),
+        ClientOptions::new(30_000_000),
+    )
+    .unwrap();
+    client.sync().unwrap();
+    assert_eq!(
+        client.submission(prepared.commit).unwrap()["status"],
+        "PROBLEM_CLOSED"
+    );
+}
+#[test]
+fn an_open_candidate_with_finalized_parts_can_cancel_instead_of_posting_parts() {
+    use boole_devnet_mcp::{
+        store::Store,
+        wire::{Material, Prepared},
+    };
+    let dir = Dir::new();
+    let (mut source, c) = persisted_candidates(&dir, 1, false, None);
+    let (name, mut saved, old) = saved_submission(&dir);
+    let prepared = Prepared::new(
+        &c,
+        Material {
+            problem: old.problem,
+            payee: [6; 20],
+            salt: [7; 32],
+            cancel_secret: [8; 32],
+            raw_len: (2 * PART_SIZE + 3) as u64,
+            export_digest: [9; 32],
+            compressed: vec![10; 2 * PART_SIZE + 3],
+            packages: vec![],
+            format: 2,
+        },
+    )
+    .unwrap();
+    source
+        .rows
+        .get_mut(&6)
+        .unwrap()
+        .1
+        .retain(|l| l.transaction_index < 100);
+    add_item(&mut source, 6, 2, &prepared.commit_body([1; 20]));
+    add_item(&mut source, 15, 3, &prepared.open([1; 20]));
+    add_item(&mut source, 16, 4, &prepared.part([1; 20], 0).unwrap());
+    let store = Store::open(dir.0.clone()).unwrap();
+    std::fs::remove_file(dir.0.join(name)).unwrap();
+    saved["prepared"] = serde_json::to_value(&prepared).unwrap();
+    store
+        .write(
+            &format!("submission-{}.json", hex_string(&prepared.commit)),
+            &saved,
+        )
+        .unwrap();
+    drop(store);
+    source.finalized = 16;
+    let mut client = Client::new(
+        source,
+        Capture {
+            head: 16,
+            ..Capture::default()
+        },
+        c,
+        [1; 20],
+        dir.0.clone(),
+        ClientOptions::new(30_000_000),
+    )
+    .unwrap();
+    client.sync().unwrap();
+    let view = client.submission(prepared.commit).unwrap();
+    assert_eq!(view["status"], "OPEN");
+    assert_eq!(view["finalized_parts"], 1);
+    assert_eq!(view["parts"], 3);
+    client.cancel(prepared.commit).unwrap();
+    client.tick().unwrap();
+    assert_eq!(client.poster.posts, [7]);
+    add_item(&mut client.source, 17, 7, &prepared.cancel());
+    client.source.finalized = 17;
+    client.sync().unwrap();
+    assert_eq!(
+        client.submission(prepared.commit).unwrap()["status"],
+        "CANCELLED"
+    );
 }

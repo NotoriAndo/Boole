@@ -25,7 +25,10 @@ OPEN, parts and CANCEL using unlocked development accounts. Private records
 retain salts and cancel tokens across restart; an optional pinned local adapter
 can refuse COMMIT. The actual stdio/live test reaches CHECKING with one pinned
 op-reth replica and equal client/driver roots, then exercises cancellation and
-offline expiry with restart. Native-chain MCP tools remain unchanged.
+offline expiry through tombstone pruning and restart. Reviewed recovery fixes
+retain final submission states, isolate reverted receipts, retry transient reads,
+and validate L1 header formats and the observed L2 gas limit. Native-chain MCP
+tools remain unchanged.
 This is synthetic devnet transport evidence; no gate/kernel certification,
 batcher, escrow, wallet or production posting path is added.
 

@@ -65,8 +65,19 @@ fn client_preimage_parts_and_cancel_reproduce_the_recorded_candidate() {
         assert_eq!(part.len(), 55 + 4 * 32 + data.len());
         assert!(items.iter().any(|(k, body)| *k == 4 && *body == part));
     }
-    assert_eq!(prepared.cancel().len(), 129);
-    assert_eq!(&prepared.cancel()[97..], secret.as_slice());
+    let commit = items
+        .iter()
+        .find(|(k, body)| *k == 2 && body[53..85] == ch)
+        .unwrap();
+    assert_eq!(
+        prepared.commit_body(commit.1[1..21].try_into().unwrap()),
+        commit.1
+    );
+    let cancel = items
+        .iter()
+        .find(|(k, body)| *k == 7 && body[33..65] == ch)
+        .unwrap();
+    assert_eq!(prepared.cancel(), cancel.1);
     assert!(prepared.validate(&c).is_ok());
     let mut tampered = prepared;
     tampered.chunks[0][0] ^= 1;
@@ -104,4 +115,34 @@ fn frame_contract_rejects_streaming_trailing_dictionary_and_bad_lengths() {
         bad[4] ^= mask;
         assert!(boole_devnet_mcp::codec::validate_frame(&bad, 1_048_576).is_err());
     }
+}
+
+#[test]
+fn nonempty_packages_and_lane_one_use_variable_body_offsets() {
+    let c = Config::devnet();
+    let packages = vec![c.pkg_table[0]];
+    let prepared = Prepared::new(
+        &c,
+        Material {
+            problem: [7; 32],
+            payee: [6; 20],
+            salt: [8; 32],
+            cancel_secret: [9; 32],
+            raw_len: (PART_SIZE + 3) as u64,
+            export_digest: [10; 32],
+            compressed: vec![11; PART_SIZE + 3],
+            packages: packages.clone(),
+            format: 1,
+        },
+    )
+    .unwrap();
+    assert_eq!(prepared.body[150], 1);
+    assert_eq!(&prepared.body[151..183], packages[0].as_slice());
+    assert_eq!(prepared.body[183..185], [1, 1]);
+    assert_eq!(prepared.body.len(), 309);
+    assert_eq!(prepared.chunks.len(), 2);
+    assert!(prepared.validate(&c).is_ok());
+    let mut bad = prepared;
+    bad.body[151] ^= 1;
+    assert!(bad.validate(&c).is_err());
 }

@@ -10,13 +10,25 @@ use boole_derivation::{
     m2::*,
     InboxLog, L1Block,
 };
-use boole_devnet_driver::{engine::Rpc, l1::L1Source};
+use boole_devnet_driver::{
+    engine::{retry_rpc, Rpc},
+    l1::L1Source,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
 };
+
+#[derive(Debug)]
+pub struct RevertedReceipt;
+impl std::fmt::Display for RevertedReceipt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("devnet posting transaction reverted")
+    }
+}
+impl std::error::Error for RevertedReceipt {}
 
 pub trait Poster {
     fn head(&mut self) -> Result<u64>;
@@ -71,13 +83,34 @@ impl Poster for RpcPoster {
         if r.is_null() {
             return Ok(None);
         }
-        ensure!(r["status"] == "0x1", "devnet posting transaction reverted");
         let h = quantity(&r["blockNumber"])?;
         let b = self
             .rpc
             .call("eth_getBlockByNumber", json!([r["blockNumber"], false]))?;
-        Ok((b["hash"] == r["blockHash"]).then_some(h))
+        if fixed::<32>(b["hash"].as_str().context("receipt canonical hash")?)?
+            != fixed::<32>(r["blockHash"].as_str().context("receipt block hash")?)?
+        {
+            return Ok(None);
+        }
+        if r["status"] == "0x0" {
+            return Err(RevertedReceipt.into());
+        }
+        ensure!(r["status"] == "0x1", "invalid receipt status");
+        Ok(Some(h))
     }
+}
+/// Read the same L2 head gasLimit that the driver supplies to State::new.
+pub fn l2_gas_limit(url: &str) -> Result<u64> {
+    let node = Rpc::new(url)?;
+    ensure!(
+        retry_rpc(|| node.call("eth_chainId", json!([])))?
+            == format!("0x{:x}", boole_derivation::config::L2_CHAIN_ID),
+        "unexpected devnet L2 chain"
+    );
+    let block = retry_rpc(|| node.call("eth_getBlockByNumber", json!(["latest", false])))?;
+    let head: boole_derivation::ParentHeader =
+        serde_json::from_value(block).context("decode L2 head")?;
+    Ok(head.gas_limit)
 }
 pub fn fixed<const N: usize>(s: &str) -> Result<[u8; N]> {
     hex_bytes(s, "tool hex field")?
@@ -100,6 +133,49 @@ struct Anchor {
 struct Sent {
     head: u64,
     tx: Option<String>,
+    #[serde(default)]
+    failure: Option<String>,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+enum SubmissionState {
+    CommitPending,
+    Committed,
+    Open,
+    Checking,
+    Expired,
+    Cancelled,
+    CommitNotIncluded,
+    ProblemClosed,
+    Aborted,
+}
+impl SubmissionState {
+    fn from_candidate(status: Status) -> Self {
+        match status {
+            Status::Committed => Self::Committed,
+            Status::Open => Self::Open,
+            Status::Checking => Self::Checking,
+            Status::Expired => Self::Expired,
+            Status::Cancelled => Self::Cancelled,
+        }
+    }
+    fn final_state(self) -> bool {
+        matches!(
+            self,
+            Self::Checking
+                | Self::Expired
+                | Self::Cancelled
+                | Self::CommitNotIncluded
+                | Self::ProblemClosed
+                | Self::Aborted
+        )
+    }
+}
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Observation {
+    state: SubmissionState,
+    height: u64,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -111,6 +187,24 @@ struct Submission {
     local_check: String,
     sent: BTreeMap<String, Sent>,
     last_error: Option<String>,
+    #[serde(default)]
+    observed: Option<Observation>,
+    #[serde(default)]
+    prune_height: Option<u64>,
+}
+pub struct ClientOptions {
+    pub l2_gas_limit: u64,
+    pub codec: Option<Codec>,
+    pub hook: Option<Precheck>,
+}
+impl ClientOptions {
+    pub fn new(l2_gas_limit: u64) -> Self {
+        Self {
+            l2_gas_limit,
+            codec: None,
+            hook: None,
+        }
+    }
 }
 pub struct Client<L, P> {
     pub source: L,
@@ -135,22 +229,21 @@ impl<L: L1Source, P: Poster> Client<L, P> {
         config: Config,
         account: [u8; 20],
         path: PathBuf,
-        codec: Option<Codec>,
-        hook: Option<Precheck>,
+        options: ClientOptions,
     ) -> Result<Self> {
         ensure!(
             config.chain_id == boole_derivation::config::L2_CHAIN_ID,
             "client supports the devnet L2 only"
         );
         source.validate_m2_inbox()?;
-        let state = State::new(&config, 30_000_000)?;
+        let state = State::new(&config, options.l2_gas_limit)?;
         let anchor = Anchor {
             number: 0,
             hash: source.genesis_hash()?,
         };
         let _: Hash = fixed(&anchor.hash)?;
         let store = Store::open(path)?;
-        let identity = json!({"config_digest":hex_string(&config.digest()),"l1_genesis_hash":anchor.hash,"l2_gas_limit":30_000_000});
+        let identity = json!({"config_digest":hex_string(&config.digest()),"l1_genesis_hash":anchor.hash,"l2_gas_limit":options.l2_gas_limit});
         if store.path.join("identity.json").exists() {
             ensure!(
                 store.read::<Value>("identity.json")? == identity,
@@ -182,8 +275,8 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             packages: BTreeMap::new(),
             store,
             submissions,
-            codec,
-            hook,
+            codec: options.codec,
+            hook: options.hook,
             account,
             stalled: None,
             budget_head: None,
@@ -204,15 +297,15 @@ impl<L: L1Source, P: Poster> Client<L, P> {
         Ok(())
     }
     fn fold_finalized(&mut self) -> Result<()> {
-        let finalized = self.source.finalized()?;
+        let finalized = retry_rpc(|| self.source.finalized())?;
         ensure!(
             finalized >= self.state.height(),
             "finalized height moved backwards"
         );
         let cached = if self.anchor.number == 0 {
-            self.source.genesis_hash()?
+            retry_rpc(|| self.source.genesis_hash())?
         } else {
-            let block = self.source.block(self.anchor.number)?;
+            let block = retry_rpc(|| self.source.block(self.anchor.number))?;
             ensure!(block.number == self.anchor.number, "cached anchor height");
             block.hash
         };
@@ -226,15 +319,19 @@ impl<L: L1Source, P: Poster> Client<L, P> {
                 .height()
                 .checked_add(1)
                 .context("fold height overflow")?;
-            let block = self.source.block(h)?;
+            let block = retry_rpc(|| self.source.block(h))?;
             ensure!(
                 fixed::<32>(&block.parent_hash)? == fixed::<32>(&self.anchor.hash)?,
                 "L1 parent link"
             );
-            let logs = self.source.inbox_logs(&block.hash)?;
+            // Match derive_m1's field checks before M2 can consume mixHash.
+            let _: Hash = fixed(&block.mix_hash)?;
+            let _: Hash = fixed(&block.parent_beacon_block_root)?;
+            boole_derivation::system::l1_info(&block)?;
+            let logs = retry_rpc(|| self.source.inbox_logs(&block.hash))?;
             let inputs = validated_inputs(&block, logs)?;
             let step = self.state.step(&self.config, &block, &inputs)?;
-            let repeated = self.source.block(h)?;
+            let repeated = retry_rpc(|| self.source.block(h))?;
             ensure!(
                 fixed::<32>(&repeated.hash)? == fixed::<32>(&block.hash)?,
                 "L1 changed during read"
@@ -266,6 +363,70 @@ impl<L: L1Source, P: Poster> Client<L, P> {
                 number: block.number,
                 hash: block.hash,
             };
+            // Observe every height, including an expiry immediately before prune,
+            // even when a restarted worker catches up in a single sync.
+            self.observe_submissions()?;
+        }
+        self.observe_submissions()?;
+        Ok(())
+    }
+    fn observe_submissions(&mut self) -> Result<()> {
+        let height = self.state.height();
+        let mut changed = vec![];
+        for sub in self.submissions.values() {
+            if sub.observed.as_ref().is_some_and(|o| o.height > height) {
+                continue;
+            }
+            let problem = self.state.problems.get(&sub.prepared.problem);
+            let prune_height = if let Some(close) = problem.and_then(|p| p.closed) {
+                Some(
+                    close
+                        .checked_add(self.config.w)
+                        .and_then(|h| h.checked_add(1))
+                        .context("prune height overflow")?,
+                )
+            } else {
+                sub.prune_height
+            };
+            let candidate = self
+                .state
+                .candidates
+                .get(&(sub.prepared.problem, sub.prepared.commit));
+            let state = if let Some(c) = candidate {
+                SubmissionState::from_candidate(c.status())
+            } else if let Some(o) = sub.observed.as_ref().filter(|o| o.state.final_state()) {
+                o.state
+            } else if sub.cancel_requested && !sub.sent.contains_key("commit") {
+                SubmissionState::Aborted
+            } else if let Some(p) = problem {
+                let deadline = p
+                    .h_v
+                    .checked_add(self.config.slot_table[p.slot as usize].solve_deadline)
+                    .context("commit deadline overflow")?;
+                if p.closed.is_some() && !sub.sent.contains_key("commit") {
+                    SubmissionState::ProblemClosed
+                } else if height > deadline {
+                    SubmissionState::CommitNotIncluded
+                } else {
+                    SubmissionState::CommitPending
+                }
+            } else {
+                SubmissionState::CommitPending
+            };
+            let observed = if sub.observed.as_ref().is_none_or(|o| o.state != state) {
+                Some(Observation { state, height })
+            } else {
+                sub.observed.clone()
+            };
+            if observed != sub.observed || prune_height != sub.prune_height {
+                let mut next = sub.clone();
+                next.observed = observed;
+                next.prune_height = prune_height;
+                changed.push(next);
+            }
+        }
+        for sub in changed {
+            self.save(&sub)?;
         }
         Ok(())
     }
@@ -311,9 +472,7 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             .context("problem not found")?
             .clone();
         ensure!(p.closed.is_none(), "problem closed");
-        let next = self
-            .poster
-            .head()?
+        let next = retry_rpc(|| self.poster.head())?
             .checked_add(1)
             .context("head overflow")?;
         ensure!(
@@ -384,6 +543,8 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             .into(),
             sent: BTreeMap::new(),
             last_error: None,
+            observed: None,
+            prune_height: None,
         };
         self.save(&sub)?;
         self.submission(commit)
@@ -397,15 +558,10 @@ impl<L: L1Source, P: Poster> Client<L, P> {
     pub fn submission(&self, id: Hash) -> Result<Value> {
         let sub = self.submissions.get(&id).context("submission not found")?;
         let candidate = self.state.candidates.get(&(sub.prepared.problem, id));
-        let status = match candidate.map(|c| c.status()) {
-            Some(Status::Committed) => "COMMITTED",
-            Some(Status::Open) => "OPEN",
-            Some(Status::Checking) => "CHECKING",
-            Some(Status::Expired) => "EXPIRED",
-            Some(Status::Cancelled) => "CANCELLED",
-            None if sub.cancel_requested => "ABORTED_OR_CANCEL_PENDING",
-            None => "COMMIT_PENDING",
-        };
+        let status = candidate
+            .map(|c| SubmissionState::from_candidate(c.status()))
+            .or_else(|| sub.observed.as_ref().map(|o| o.state))
+            .unwrap_or(SubmissionState::CommitPending);
         let open = candidate
             .and_then(|c| c.live())
             .and_then(|c| c.open.as_ref());
@@ -413,7 +569,7 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             .map(|o| o.bitmap.iter().map(|b| b.count_ones()).sum::<u32>())
             .unwrap_or(0);
         Ok(
-            json!({"submission_id":hex_string(&id),"problem_id":hex_string(&sub.prepared.problem),"status":status,"cancel_requested":sub.cancel_requested,"local_check":sub.local_check,"finalized_parts":complete,"parts":sub.prepared.chunks.len(),"transactions":sub.sent.iter().map(|(stage,s)|json!({"stage":stage,"transaction_hash":s.tx})).collect::<Vec<_>>(),"last_error":sub.last_error,"fold_height":self.state.height()}),
+            json!({"submission_id":hex_string(&id),"problem_id":hex_string(&sub.prepared.problem),"status":status,"cancel_requested":sub.cancel_requested,"local_check":sub.local_check,"finalized_parts":complete,"parts":sub.prepared.chunks.len(),"transactions":sub.sent.iter().map(|(stage,s)|json!({"stage":stage,"transaction_hash":s.tx,"failure":s.failure})).collect::<Vec<_>>(),"last_error":sub.last_error,"last_observed_state":sub.observed,"prune_height":sub.prune_height,"fold_height":self.state.height()}),
         )
     }
     pub fn cancel(&mut self, id: Hash) -> Result<Value> {
@@ -431,11 +587,12 @@ impl<L: L1Source, P: Poster> Client<L, P> {
         }
         sub.cancel_requested = true;
         self.save(&sub)?;
+        self.observe_submissions()?;
         self.submission(id)
     }
     pub fn tick(&mut self) -> Result<()> {
         self.sync()?;
-        let head = self.poster.head()?;
+        let head = retry_rpc(|| self.poster.head())?;
         ensure!(
             head >= self.state.height(),
             "posting head behind finalized fold"
@@ -451,7 +608,11 @@ impl<L: L1Source, P: Poster> Client<L, P> {
         }
         let ids: Vec<_> = self.submissions.keys().copied().collect();
         for id in ids {
-            self.advance(id, head)?;
+            if self.advance(id, head).is_err() {
+                let mut sub = self.submissions[&id].clone();
+                sub.last_error = Some("submission progress read failed; retry pending".into());
+                self.save(&sub)?;
+            }
         }
         Ok(())
     }
@@ -460,7 +621,8 @@ impl<L: L1Source, P: Poster> Client<L, P> {
         let p = sub.prepared.problem;
         let candidate = self.state.candidates.get(&(p, id)).cloned();
         let Some(candidate) = candidate else {
-            if sub.cancel_requested {
+            if sub.cancel_requested || sub.observed.as_ref().is_some_and(|o| o.state.final_state())
+            {
                 return Ok(());
             }
             let Some(problem) = self.state.problems.get(&p) else {
@@ -506,12 +668,9 @@ impl<L: L1Source, P: Poster> Client<L, P> {
         }
         let mut open_included = candidate.status() == Status::Open;
         if !open_included {
-            if let Some(tx) = sub.sent.get("open").and_then(|s| s.tx.as_deref()) {
-                open_included = self
-                    .poster
-                    .included(tx)?
-                    .is_some_and(|h| h > self.state.height());
-            }
+            open_included = self
+                .receipt(&mut sub, "open")?
+                .is_some_and(|h| h > self.state.height());
             if !open_included {
                 let reserve = (sub.prepared.chunks.len() as u64)
                     .div_ceil(self.config.p_blk)
@@ -552,19 +711,21 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             if sent.head == head {
                 return Ok(());
             }
-            match sent
-                .tx
-                .as_deref()
-                .map(|tx| self.poster.included(tx))
-                .transpose()?
-                .flatten()
-            {
+            let old_head = sent.head;
+            match self.receipt(sub, stage)? {
                 Some(h) if h > self.state.height() => return Ok(()),
-                None if head <= sent.head.saturating_add(1) => return Ok(()),
+                None if head <= old_head.saturating_add(1) => return Ok(()),
                 _ => {}
             }
         }
-        sub.sent.insert(stage.into(), Sent { head, tx: None });
+        sub.sent.insert(
+            stage.into(),
+            Sent {
+                head,
+                tx: None,
+                failure: None,
+            },
+        );
         self.save(sub)?;
         self.posted += 1;
         match self.poster.post(kind, &body) {
@@ -583,8 +744,42 @@ impl<L: L1Source, P: Poster> Client<L, P> {
         self.save(sub)?;
         Ok(())
     }
+    fn receipt(&mut self, sub: &mut Submission, stage: &str) -> Result<Option<u64>> {
+        let Some(sent) = sub.sent.get(stage) else {
+            return Ok(None);
+        };
+        if sent.failure.is_some() {
+            return Ok(None);
+        }
+        let Some(tx) = sent.tx.as_deref() else {
+            return Ok(None);
+        };
+        match retry_rpc(|| self.poster.included(tx)) {
+            Err(e) if e.is::<RevertedReceipt>() => {
+                sub.sent
+                    .get_mut(stage)
+                    .context("posting step missing")?
+                    .failure = Some("REVERTED".into());
+                sub.last_error = Some(format!(
+                    "{stage} transaction reverted; retry only within the M2 window"
+                ));
+                self.save(sub)?;
+                Ok(None)
+            }
+            result => result,
+        }
+    }
     pub fn call(&mut self, name: &str, args: &Value) -> Result<Value> {
-        self.sync()?;
+        if name == "boole.devnet_status" {
+            let _ = self.sync();
+            return Ok(self.status());
+        }
+        // Durable progress remains inspectable when a bad finalized input stalls.
+        if name != "boole.devnet_submission" {
+            self.sync()?;
+        } else {
+            let _ = self.sync();
+        }
         let text = |key: &str| args[key].as_str().with_context(|| format!("missing {key}"));
         match name {
             "boole.devnet_status" => Ok(self.status()),
