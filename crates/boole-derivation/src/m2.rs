@@ -11,7 +11,8 @@ pub const MAX_PARTS: u16 = 128;
 pub const Z_CAP: usize = PART_SIZE * MAX_PARTS as usize;
 pub const RAW_CAP: u64 = 134_217_728;
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+/// Untrusted configuration values. `State::new` validates and pins them before folding.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Config {
     pub chain_id: u64,
     pub d: u64,
@@ -24,7 +25,7 @@ pub struct Config {
     pub q_max: u64,
     pub v_per_deposit: u64,
     pub verdict_gas: u64,
-    pub gas_limit: u64,
+    pub l1_gas_limit: u64,
     pub pool_limit: usize,
     pub k_open: u8,
     pub solve_deadline: u64,
@@ -62,7 +63,7 @@ impl Config {
             q_max: 8,
             v_per_deposit: 128,
             verdict_gas: 1_000_000,
-            gas_limit: 30_000_000,
+            l1_gas_limit: 30_000_000,
             pool_limit: 131_072,
             k_open: 1,
             solve_deadline: 48,
@@ -96,7 +97,7 @@ impl Config {
         c.w_slack_min = 64;
         c.c_commit = 1875;
         c.v_per_deposit = 256;
-        c.gas_limit = 60_000_000;
+        c.l1_gas_limit = 60_000_000;
         c.solve_deadline = 7200;
         c.announce_gap = 300;
         c.reveal_grace = 25;
@@ -108,7 +109,7 @@ impl Config {
         c.pool_lead = 50400;
         c
     }
-    pub fn validate(&self) -> Result<(), u8> {
+    pub fn validate(&self, l2_gas_limit: u64) -> Result<(), u8> {
         if self.d < 2 {
             return Err(1);
         }
@@ -136,7 +137,7 @@ impl Config {
             .checked_mul(self.verdict_gas)
             .and_then(|x| x.checked_add(crate::config::L1INFO_GAS))
             .and_then(|x| x.checked_add(16_777_216))
-            .is_none_or(|x| x > self.gas_limit)
+            .is_none_or(|x| x > l2_gas_limit)
         {
             return Err(4);
         }
@@ -371,7 +372,9 @@ pub struct Problem {
 }
 #[derive(Debug, Clone)]
 pub struct State {
-    pub height: u64,
+    pub(crate) height: u64,
+    config: Config,
+    l2_gas_limit: u64,
     pub root: Hash,
     pub candidates: BTreeMap<Key, Candidate>,
     pub pools: BTreeMap<u32, Pool>,
@@ -382,14 +385,26 @@ pub struct State {
     expiry: BTreeSet<(u64, u64, Hash, Key)>,
     repose: VecDeque<Problem>,
 }
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum FoldError {
+    #[error("M2 height must be previous + 1 (expected {expected:?}, got {actual})")]
+    Height { expected: Option<u64>, actual: u64 },
+    #[error("M2 startup invariant S{0}")]
+    Startup(u8),
+    #[error("M2 configuration differs from the validated state configuration")]
+    ConfigurationChanged,
+}
 pub struct Step {
     pub state: State,
     pub codes: Vec<u8>,
     pub events: Vec<u8>,
 }
 impl State {
-    pub fn new(c: &Config) -> Self {
-        Self {
+    pub fn new(c: &Config, l2_gas_limit: u64) -> Result<Self, FoldError> {
+        c.validate(l2_gas_limit).map_err(FoldError::Startup)?;
+        Ok(Self {
+            config: c.clone(),
+            l2_gas_limit,
             height: 0,
             root: [0; 32],
             candidates: BTreeMap::new(),
@@ -406,7 +421,24 @@ impl State {
             opened: BTreeMap::new(),
             expiry: BTreeSet::new(),
             repose: VecDeque::new(),
+        })
+    }
+    pub fn height(&self) -> u64 {
+        self.height
+    }
+    pub fn validate_next(&self, c: &Config, l1: &L1Block) -> Result<(), FoldError> {
+        c.validate(self.l2_gas_limit).map_err(FoldError::Startup)?;
+        if c != &self.config {
+            return Err(FoldError::ConfigurationChanged);
         }
+        let expected = self.height.checked_add(1);
+        if expected != Some(l1.number) {
+            return Err(FoldError::Height {
+                expected,
+                actual: l1.number,
+            });
+        }
+        Ok(())
     }
     pub fn priority(&self, p: Hash) -> Vec<Hash> {
         let mut v: Vec<_> = self
@@ -436,7 +468,8 @@ impl State {
             false
         }
     }
-    pub fn step(&self, c: &Config, l1: &L1Block, items: &[Input]) -> Step {
+    pub fn step(&self, c: &Config, l1: &L1Block, items: &[Input]) -> Result<Step, FoldError> {
+        self.validate_next(c, l1)?;
         let mut s = self.clone();
         let h = l1.number;
         let mut events = Vec::new();
@@ -461,7 +494,9 @@ impl State {
                 }
             }
         }
-        let expired: Vec<_> = s.expiry.iter().take_while(|x| x.0 < h).copied().collect();
+        let mut expired: Vec<_> = s.expiry.iter().take_while(|x| x.0 < h).copied().collect();
+        // Problem barriers are independent; emit each problem's expiry index in order.
+        expired.sort_by_key(|x| (x.3 .0, x.0, x.1, x.2, x.3 .1));
         for x in expired {
             s.candidates
                 .insert(x.3, Candidate::Tombstone(Status::Expired));
@@ -486,7 +521,9 @@ impl State {
                 let count = u32::try_from(keys.len()).unwrap_or(u32::MAX);
                 for k in keys {
                     s.candidates.remove(&k);
-                    s.opened.remove(&k.1);
+                    if s.opened.get(&k.1) == Some(&k) {
+                        s.opened.remove(&k.1);
+                    }
                 }
                 events.push(4);
                 events.extend(p.id);
@@ -516,11 +553,11 @@ impl State {
             &sha(&[&events]),
         ]);
         s.height = h;
-        Step {
+        Ok(Step {
             state: s,
             codes,
             events,
-        }
+        })
     }
     fn round_event(e: &mut Vec<u8>, slot: u8, round: u32, event: u8, index: u32, p: Option<Hash>) {
         e.extend([3, slot]);
@@ -1178,5 +1215,32 @@ pub fn rule(code: u8) -> &'static str {
         0x85 => "M2-POOL-RECORDED",
         0x86 => "M2-PROBLEM-OPENED",
         _ => "ITEM-KIND-NOT-ACCEPTED",
+    }
+}
+
+#[cfg(test)]
+mod continuity_tests {
+    use super::*;
+    #[test]
+    fn height_overflow_refuses_to_fold() {
+        let c = Config::devnet();
+        let mut state = State::new(&c, 30_000_000).unwrap();
+        state.height = u64::MAX;
+        let l1 = L1Block {
+            number: 0,
+            hash: String::new(),
+            parent_hash: String::new(),
+            timestamp: 0,
+            mix_hash: String::new(),
+            base_fee_per_gas: String::new(),
+            parent_beacon_block_root: String::new(),
+        };
+        assert!(matches!(
+            state.step(&c, &l1, &[]),
+            Err(FoldError::Height {
+                expected: None,
+                actual: 0
+            })
+        ));
     }
 }

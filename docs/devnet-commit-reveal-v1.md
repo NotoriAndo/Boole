@@ -39,7 +39,8 @@ implemented by M2. Startup validates the following and refuses invalid config:
 - **S2:** W ≥ D + ceil((MAX_PARTS+1)/P_BLK) + W_SLACK_MIN; checked arithmetic,
   nonzero P_BLK.
 - **S3:** C_COMMIT ≤ Q_MAX·V_PER_DEPOSIT.
-- **S4:** L1INFO_GAS + Q_MAX·VERDICT_GAS + 16777216 ≤ gasLimit.
+- **S4:** L1INFO_GAS + Q_MAX·VERDICT_GAS + 16777216 ≤ the L2 block gas limit,
+  supplied explicitly to configuration validation (independent of G_L1).
 - **S5:** the largest PART item (123160 bytes), selector and padded ABI head fit
   the pool limit (131072 bytes).
 - **S6:** 1 ≤ K_OPEN ≤ 3; allowed environments contain only strictly ascending,
@@ -136,7 +137,10 @@ changes no priority, verdict or reward.
 
 ## Fold and checks
 
-**M2-R5 — State.** S0 is empty. Sh = step(S(h−1), L1[h], logs[h]). Maps are
+**M2-R5 — State.** Untrusted configuration values, including decoded JSON, must
+pass S1–S6 before constructing state. The constructor pins the validated values
+and explicit L2 gas limit; a fold refuses altered or invalid configuration.
+S0 is empty. Sh = step(S(h−1), L1[h], logs[h]). Maps are
 ordered. A live candidate stores its inclusion position, h_c, pending/fixed t,
 COMMIT poster and status. After OPEN it also stores h_o, solver, salt, n,
 z_len, raw_len, data_root, body_digest, env_id, mode, a 128-bit bitmap and h_r.
@@ -146,9 +150,12 @@ compact tombstones. At close(problem)+W+1, delete its tombstones. CHECKING and
 later records are never pruned in M2. Closed-problem checks precede duplicates.
 
 **M2-R6 — Height order.** Set ties for h−1 from L1[h].mixHash; process slot
-events in slot order (draw, withheld, deadline); expire candidates in expiry
-order; prune; process logs sorted by (transactionIndex, logIndex); compute root.
-D7 F0 precedes item checks. The first failing check wins.
+events in slot order (draw, withheld, deadline); expire candidates by ascending problem_id, then by that problem's expiry-index
+key (expiry height, h_c, t, commit_hash); prune by ascending problem_id and
+candidate key (problem_id, commit_hash); process logs sorted by (transactionIndex, logIndex); compute root.
+D7 F0 precedes item checks. A fold requires h=checked(previous_height+1),
+starting at height 1. A repeated, skipped or overflowing height is a typed input
+error and stalls the driver. The first failing item check wins.
 
 **M2-R23 — OPEN prelookup checks**, in this order:
 
@@ -185,8 +192,9 @@ M2-REVEAL-COMPLETE and freezes CHECKING at h_r. A part before OPEN drops.
 [h_c+D,h_c+W] (PART may arrive at any height after OPEN). At h_c+W+1,
 COMMITTED or OPEN becomes EXPIRED. CHECKING never expires and cannot be
 cancelled. A future gate fault is a node-local stall, never candidate expiry.
-For the registry reference mapping, reveal_window=W+1, D=0; COMMITTED and OPEN
-map to COMMITTED; CHECKING with PASS maps to VALID-REVEAL.
+For registry parity, reveal_window=W+1. The registry has no minimum delay;
+the Rust side retains D≥2 and vectors schedule reveals within its valid window.
+COMMITTED and OPEN map to COMMITTED; CHECKING with PASS maps to VALID-REVEAL.
 
 **M2-R11 — Admission.** Only accepted COMMITs count against C_COMMIT, globally
 per height. Drops consume nothing. OPEN, PART, CANCEL, POOL and PROBLEM_REVEAL
@@ -205,7 +213,10 @@ forward=false and an m2 field (kind and code). Other decisions omit this field.
 | 3f | ITEM-KIND-NOT-ACCEPTED |
 | 80 / 81 / 82 / 83 | M2-COMMIT-RECORDED / M2-REVEAL-OPENED / M2-PART-RECORDED / M2-REVEAL-COMPLETE |
 | 84 / 85 / 86 | M2-CANCELLED / M2-POOL-RECORDED / M2-PROBLEM-OPENED |
-| c0 / c1 / c2 / c3 / c4 | EXPIRED / ROUND-DRAWN / ROUND-WITHHELD / PROBLEM-DEADLINE / PRUNED |
+| c1 / c2 / c3 | ROUND-DRAWN / ROUND-WITHHELD / PROBLEM-DEADLINE |
+
+Expiry and prune have record types 02 and 04 below; they do not emit separate
+c0 or c4 event codes.
 
 **M2-R13 — Payload independence.** M2 never forwards an item, consumes no D12
 gas budget, changes no user decision and causes no InputError, panic or Engine
@@ -216,6 +227,10 @@ header hash, parentHash, mixHash, timestamp and baseFeePerGas. No decompression,
 gate, drand, receipts, transaction bodies, beacon data or L1 sender reads enter
 the fold. Use checked arithmetic, ordered maps, SHA-256 and low-s secp256k1
 POOL signatures under D10's scalar/recovery rules.
+
+The stateless `derive` API retains M1 attribute compatibility; consensus M2
+callers use `derive_with_m2`. The legacy `user_body` helper accepts only kind 01;
+consensus dispatch uses the ABI item decoder and the appropriate M1 or M2 path.
 
 **M2-R15 — Driver.** Publish Sh only after D15(6) succeeds. A stall retains
 S(h−1). On startup re-fold each historical L1 header and logs by the hash in

@@ -106,6 +106,8 @@ impl Derived {
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum InputError {
+    #[error(transparent)]
+    M2(#[from] crate::m2::FoldError),
     #[error("L1 height must be parent + 1")]
     Height,
     #[error("invalid input field: {0}")]
@@ -257,8 +259,12 @@ pub fn derive(
     logs: &[InboxLog],
     parent: &ParentHeader,
 ) -> Result<Derived, InputError> {
+    let baseline = derive_base(l1, logs, parent)?;
+    if baseline.decisions.iter().all(|d| d.m2.is_none()) {
+        return Ok(baseline);
+    }
     let c = crate::m2::Config::devnet();
-    let mut state = crate::m2::State::new(&c);
+    let mut state = crate::m2::State::new(&c, parent.gas_limit)?;
     state.height = parent.number;
     derive_with_m2(&state, &c, l1, logs, parent).map(|x| x.0)
 }
@@ -271,6 +277,10 @@ pub fn derive_with_m2(
     parent: &ParentHeader,
 ) -> Result<(Derived, crate::m2::State), InputError> {
     let mut derived = derive_base(l1, logs, parent)?;
+    state.validate_next(config, l1)?;
+    config
+        .validate(parent.gas_limit)
+        .map_err(crate::m2::FoldError::Startup)?;
     let mut inputs = Vec::new();
     for log in logs {
         let data = hex_bytes(&log.data, "log data")?;
@@ -285,7 +295,7 @@ pub fn derive_with_m2(
             }
         }
     }
-    let step = state.step(config, l1, &inputs);
+    let step = state.step(config, l1, &inputs)?;
     for (decision, code) in derived
         .decisions
         .iter_mut()

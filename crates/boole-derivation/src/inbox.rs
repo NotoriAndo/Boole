@@ -16,12 +16,11 @@ pub fn item(data: &[u8]) -> Result<(u8, &[u8]), &'static str> {
     Ok((kind, body))
 }
 
-/// Compatibility helper for callers interested only in user transactions.
+/// Legacy user-only helper. Consensus derivation dispatches `item` to the M1 or M2 path.
 pub fn user_body(data: &[u8]) -> Result<&[u8], &'static str> {
     let (kind, body) = item(data)?;
     match kind {
         1 => Ok(body),
-        2 | 3 | 4 | 7 | 8 | 9 => Err("M2-DECODE-INVALID"),
         _ => Err("ITEM-KIND-NOT-ACCEPTED"),
     }
 }

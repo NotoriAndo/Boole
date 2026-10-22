@@ -1,0 +1,4869 @@
+{
+  "cases": [
+    {
+      "event_log_sha256": "dac754c06abd75d736bbd5fbbf6a60e5c7c67db62e11ea5546fcf28385121d82",
+      "name": "earlier-expiry-releases-later-pass",
+      "rows": [
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {},
+            "winner": null
+          },
+          "height": 1
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {},
+            "winner": null
+          },
+          "height": 2
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {},
+            "winner": null
+          },
+          "height": 3
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {},
+            "winner": null
+          },
+          "height": 4
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {},
+            "winner": null
+          },
+          "height": 5
+        },
+        {
+          "actions": [
+            {
+              "op": "commit",
+              "sequence": 1
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 6
+        },
+        {
+          "actions": [
+            {
+              "op": "commit",
+              "sequence": 2
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 7
+        },
+        {
+          "actions": [
+            {
+              "op": "commit",
+              "sequence": 3
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED",
+              "3": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 8
+        },
+        {
+          "actions": [
+            {
+              "correct_binding": true,
+              "matched": true,
+              "op": "reveal",
+              "outcome": "PENDING",
+              "sequence": 2,
+              "verdict": "PASS"
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 9
+        },
+        {
+          "actions": [
+            {
+              "correct_binding": true,
+              "matched": true,
+              "op": "reveal",
+              "outcome": "REJECTED",
+              "sequence": 3,
+              "verdict": "FAIL"
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 10
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 11
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 12
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 13
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 14
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 15
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 16
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 17
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 18
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 19
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 20
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 21
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 22
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 23
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 24
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 25
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 26
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 27
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 28
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 29
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 30
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 31
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 32
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 33
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 34
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 35
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 36
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 37
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 38
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 39
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 40
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 41
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 42
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 43
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 44
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 45
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 46
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 47
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 48
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 49
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 50
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 51
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 52
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 53
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 54
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 55
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 56
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 57
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 58
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 59
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 60
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 61
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 62
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 63
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 64
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 65
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 66
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 67
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 68
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 69
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "REJECTED"
+            },
+            "winner": null
+          },
+          "height": 70
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "EXPIRED",
+              "2": "ACCEPTED",
+              "3": "REJECTED"
+            },
+            "winner": 2
+          },
+          "height": 71
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "EXPIRED",
+              "2": "ACCEPTED",
+              "3": "REJECTED"
+            },
+            "winner": 2
+          },
+          "height": 72
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "EXPIRED",
+              "2": "ACCEPTED",
+              "3": "REJECTED"
+            },
+            "winner": 2
+          },
+          "height": 73
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "EXPIRED",
+              "2": "ACCEPTED",
+              "3": "REJECTED"
+            },
+            "winner": 2
+          },
+          "height": 74
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "EXPIRED",
+              "2": "ACCEPTED",
+              "3": "REJECTED"
+            },
+            "winner": 2
+          },
+          "height": 75
+        }
+      ]
+    },
+    {
+      "event_log_sha256": "c8de78cfbadd5e13411ad63cb31f45897375a9577953f14e69063ee13b276b40",
+      "name": "inclusive-last-reveal-and-expired-attempt",
+      "rows": [
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {},
+            "winner": null
+          },
+          "height": 1
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {},
+            "winner": null
+          },
+          "height": 2
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {},
+            "winner": null
+          },
+          "height": 3
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {},
+            "winner": null
+          },
+          "height": 4
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {},
+            "winner": null
+          },
+          "height": 5
+        },
+        {
+          "actions": [
+            {
+              "op": "commit",
+              "sequence": 1
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 6
+        },
+        {
+          "actions": [
+            {
+              "op": "commit",
+              "sequence": 2
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 7
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 8
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 9
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 10
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 11
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 12
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 13
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 14
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 15
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 16
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 17
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 18
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 19
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 20
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 21
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 22
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 23
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 24
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 25
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 26
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 27
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 28
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 29
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 30
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 31
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 32
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 33
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 34
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 35
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 36
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 37
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 38
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 39
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 40
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 41
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 42
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 43
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 44
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 45
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 46
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 47
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 48
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 49
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 50
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 51
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 52
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 53
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 54
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 55
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 56
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 57
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 58
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 59
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 60
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 61
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 62
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 63
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 64
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 65
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 66
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 67
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 68
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 69
+        },
+        {
+          "actions": [
+            {
+              "correct_binding": true,
+              "matched": true,
+              "op": "reveal",
+              "outcome": "ACCEPTED",
+              "sequence": 1,
+              "verdict": "PASS"
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "COMMITTED"
+            },
+            "winner": 1
+          },
+          "height": 70
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "COMMITTED"
+            },
+            "winner": 1
+          },
+          "height": 71
+        },
+        {
+          "actions": [
+            {
+              "correct_binding": true,
+              "matched": false,
+              "op": "reveal",
+              "outcome": "REJECTED",
+              "sequence": 2,
+              "verdict": "PASS"
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "EXPIRED"
+            },
+            "winner": 1
+          },
+          "height": 72
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "EXPIRED"
+            },
+            "winner": 1
+          },
+          "height": 73
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "EXPIRED"
+            },
+            "winner": 1
+          },
+          "height": 74
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "EXPIRED"
+            },
+            "winner": 1
+          },
+          "height": 75
+        }
+      ]
+    },
+    {
+      "event_log_sha256": "fa8b2884869a3e08a07835f17315a1284fe243ac8eca57927074f6f066cc4cfa",
+      "name": "wrong-binding-does-not-consume-and-later-duplicate",
+      "rows": [
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {},
+            "winner": null
+          },
+          "height": 1
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {},
+            "winner": null
+          },
+          "height": 2
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {},
+            "winner": null
+          },
+          "height": 3
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {},
+            "winner": null
+          },
+          "height": 4
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {},
+            "winner": null
+          },
+          "height": 5
+        },
+        {
+          "actions": [
+            {
+              "op": "commit",
+              "sequence": 1
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 6
+        },
+        {
+          "actions": [
+            {
+              "op": "commit",
+              "sequence": 2
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 7
+        },
+        {
+          "actions": [
+            {
+              "correct_binding": false,
+              "matched": false,
+              "op": "reveal",
+              "outcome": "REJECTED",
+              "sequence": 1,
+              "verdict": "PASS"
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 8
+        },
+        {
+          "actions": [
+            {
+              "correct_binding": true,
+              "matched": true,
+              "op": "reveal",
+              "outcome": "ACCEPTED",
+              "sequence": 1,
+              "verdict": "PASS"
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "COMMITTED"
+            },
+            "winner": 1
+          },
+          "height": 9
+        },
+        {
+          "actions": [
+            {
+              "correct_binding": true,
+              "matched": true,
+              "op": "reveal",
+              "outcome": "DUPLICATE",
+              "sequence": 2,
+              "verdict": "PASS"
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 10
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 11
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 12
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 13
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 14
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 15
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 16
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 17
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 18
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 19
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 20
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 21
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 22
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 23
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 24
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 25
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 26
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 27
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 28
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 29
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 30
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 31
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 32
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 33
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 34
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 35
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 36
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 37
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 38
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 39
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 40
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 41
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 42
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 43
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 44
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 45
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 46
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 47
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 48
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 49
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 50
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 51
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 52
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 53
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 54
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 55
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 56
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 57
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 58
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 59
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 60
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 61
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 62
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 63
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 64
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 65
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 66
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 67
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 68
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 69
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 70
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 71
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 72
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 73
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 74
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "ACCEPTED",
+              "2": "DUPLICATE"
+            },
+            "winner": 1
+          },
+          "height": 75
+        }
+      ]
+    },
+    {
+      "event_log_sha256": "24484327765fe1a7b606fd75b31c5e8701b0a0e78be62cda5bcbefb4da38a15e",
+      "name": "generated-barrier-and-verdict-sequence",
+      "rows": [
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {},
+            "winner": null
+          },
+          "height": 1
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {},
+            "winner": null
+          },
+          "height": 2
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {},
+            "winner": null
+          },
+          "height": 3
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {},
+            "winner": null
+          },
+          "height": 4
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {},
+            "winner": null
+          },
+          "height": 5
+        },
+        {
+          "actions": [
+            {
+              "op": "commit",
+              "sequence": 1
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 6
+        },
+        {
+          "actions": [
+            {
+              "op": "commit",
+              "sequence": 2
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 7
+        },
+        {
+          "actions": [
+            {
+              "op": "commit",
+              "sequence": 3
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED",
+              "3": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 8
+        },
+        {
+          "actions": [
+            {
+              "op": "commit",
+              "sequence": 4
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED",
+              "3": "COMMITTED",
+              "4": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 9
+        },
+        {
+          "actions": [
+            {
+              "op": "commit",
+              "sequence": 5
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED",
+              "3": "COMMITTED",
+              "4": "COMMITTED",
+              "5": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 10
+        },
+        {
+          "actions": [
+            {
+              "op": "commit",
+              "sequence": 6
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED",
+              "3": "COMMITTED",
+              "4": "COMMITTED",
+              "5": "COMMITTED",
+              "6": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 11
+        },
+        {
+          "actions": [
+            {
+              "op": "commit",
+              "sequence": 7
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED",
+              "3": "COMMITTED",
+              "4": "COMMITTED",
+              "5": "COMMITTED",
+              "6": "COMMITTED",
+              "7": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 12
+        },
+        {
+          "actions": [
+            {
+              "op": "commit",
+              "sequence": 8
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED",
+              "3": "COMMITTED",
+              "4": "COMMITTED",
+              "5": "COMMITTED",
+              "6": "COMMITTED",
+              "7": "COMMITTED",
+              "8": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 13
+        },
+        {
+          "actions": [
+            {
+              "op": "commit",
+              "sequence": 9
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "2": "COMMITTED",
+              "3": "COMMITTED",
+              "4": "COMMITTED",
+              "5": "COMMITTED",
+              "6": "COMMITTED",
+              "7": "COMMITTED",
+              "8": "COMMITTED",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 14
+        },
+        {
+          "actions": [
+            {
+              "op": "commit",
+              "sequence": 10
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "COMMITTED",
+              "2": "COMMITTED",
+              "3": "COMMITTED",
+              "4": "COMMITTED",
+              "5": "COMMITTED",
+              "6": "COMMITTED",
+              "7": "COMMITTED",
+              "8": "COMMITTED",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 15
+        },
+        {
+          "actions": [
+            {
+              "op": "commit",
+              "sequence": 11
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "COMMITTED",
+              "11": "COMMITTED",
+              "2": "COMMITTED",
+              "3": "COMMITTED",
+              "4": "COMMITTED",
+              "5": "COMMITTED",
+              "6": "COMMITTED",
+              "7": "COMMITTED",
+              "8": "COMMITTED",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 16
+        },
+        {
+          "actions": [
+            {
+              "op": "commit",
+              "sequence": 12
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "COMMITTED",
+              "11": "COMMITTED",
+              "12": "COMMITTED",
+              "2": "COMMITTED",
+              "3": "COMMITTED",
+              "4": "COMMITTED",
+              "5": "COMMITTED",
+              "6": "COMMITTED",
+              "7": "COMMITTED",
+              "8": "COMMITTED",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 17
+        },
+        {
+          "actions": [
+            {
+              "op": "commit",
+              "sequence": 13
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "COMMITTED",
+              "11": "COMMITTED",
+              "12": "COMMITTED",
+              "13": "COMMITTED",
+              "2": "COMMITTED",
+              "3": "COMMITTED",
+              "4": "COMMITTED",
+              "5": "COMMITTED",
+              "6": "COMMITTED",
+              "7": "COMMITTED",
+              "8": "COMMITTED",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 18
+        },
+        {
+          "actions": [
+            {
+              "op": "commit",
+              "sequence": 14
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "COMMITTED",
+              "11": "COMMITTED",
+              "12": "COMMITTED",
+              "13": "COMMITTED",
+              "14": "COMMITTED",
+              "2": "COMMITTED",
+              "3": "COMMITTED",
+              "4": "COMMITTED",
+              "5": "COMMITTED",
+              "6": "COMMITTED",
+              "7": "COMMITTED",
+              "8": "COMMITTED",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 19
+        },
+        {
+          "actions": [
+            {
+              "op": "commit",
+              "sequence": 15
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "COMMITTED",
+              "11": "COMMITTED",
+              "12": "COMMITTED",
+              "13": "COMMITTED",
+              "14": "COMMITTED",
+              "15": "COMMITTED",
+              "2": "COMMITTED",
+              "3": "COMMITTED",
+              "4": "COMMITTED",
+              "5": "COMMITTED",
+              "6": "COMMITTED",
+              "7": "COMMITTED",
+              "8": "COMMITTED",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 20
+        },
+        {
+          "actions": [
+            {
+              "op": "commit",
+              "sequence": 16
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "COMMITTED",
+              "11": "COMMITTED",
+              "12": "COMMITTED",
+              "13": "COMMITTED",
+              "14": "COMMITTED",
+              "15": "COMMITTED",
+              "16": "COMMITTED",
+              "2": "COMMITTED",
+              "3": "COMMITTED",
+              "4": "COMMITTED",
+              "5": "COMMITTED",
+              "6": "COMMITTED",
+              "7": "COMMITTED",
+              "8": "COMMITTED",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 21
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "COMMITTED",
+              "11": "COMMITTED",
+              "12": "COMMITTED",
+              "13": "COMMITTED",
+              "14": "COMMITTED",
+              "15": "COMMITTED",
+              "16": "COMMITTED",
+              "2": "COMMITTED",
+              "3": "COMMITTED",
+              "4": "COMMITTED",
+              "5": "COMMITTED",
+              "6": "COMMITTED",
+              "7": "COMMITTED",
+              "8": "COMMITTED",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 22
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "COMMITTED",
+              "11": "COMMITTED",
+              "12": "COMMITTED",
+              "13": "COMMITTED",
+              "14": "COMMITTED",
+              "15": "COMMITTED",
+              "16": "COMMITTED",
+              "2": "COMMITTED",
+              "3": "COMMITTED",
+              "4": "COMMITTED",
+              "5": "COMMITTED",
+              "6": "COMMITTED",
+              "7": "COMMITTED",
+              "8": "COMMITTED",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 23
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "COMMITTED",
+              "11": "COMMITTED",
+              "12": "COMMITTED",
+              "13": "COMMITTED",
+              "14": "COMMITTED",
+              "15": "COMMITTED",
+              "16": "COMMITTED",
+              "2": "COMMITTED",
+              "3": "COMMITTED",
+              "4": "COMMITTED",
+              "5": "COMMITTED",
+              "6": "COMMITTED",
+              "7": "COMMITTED",
+              "8": "COMMITTED",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 24
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "COMMITTED",
+              "11": "COMMITTED",
+              "12": "COMMITTED",
+              "13": "COMMITTED",
+              "14": "COMMITTED",
+              "15": "COMMITTED",
+              "16": "COMMITTED",
+              "2": "COMMITTED",
+              "3": "COMMITTED",
+              "4": "COMMITTED",
+              "5": "COMMITTED",
+              "6": "COMMITTED",
+              "7": "COMMITTED",
+              "8": "COMMITTED",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 25
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "COMMITTED",
+              "11": "COMMITTED",
+              "12": "COMMITTED",
+              "13": "COMMITTED",
+              "14": "COMMITTED",
+              "15": "COMMITTED",
+              "16": "COMMITTED",
+              "2": "COMMITTED",
+              "3": "COMMITTED",
+              "4": "COMMITTED",
+              "5": "COMMITTED",
+              "6": "COMMITTED",
+              "7": "COMMITTED",
+              "8": "COMMITTED",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 26
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "COMMITTED",
+              "11": "COMMITTED",
+              "12": "COMMITTED",
+              "13": "COMMITTED",
+              "14": "COMMITTED",
+              "15": "COMMITTED",
+              "16": "COMMITTED",
+              "2": "COMMITTED",
+              "3": "COMMITTED",
+              "4": "COMMITTED",
+              "5": "COMMITTED",
+              "6": "COMMITTED",
+              "7": "COMMITTED",
+              "8": "COMMITTED",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 27
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "COMMITTED",
+              "11": "COMMITTED",
+              "12": "COMMITTED",
+              "13": "COMMITTED",
+              "14": "COMMITTED",
+              "15": "COMMITTED",
+              "16": "COMMITTED",
+              "2": "COMMITTED",
+              "3": "COMMITTED",
+              "4": "COMMITTED",
+              "5": "COMMITTED",
+              "6": "COMMITTED",
+              "7": "COMMITTED",
+              "8": "COMMITTED",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 28
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "COMMITTED",
+              "11": "COMMITTED",
+              "12": "COMMITTED",
+              "13": "COMMITTED",
+              "14": "COMMITTED",
+              "15": "COMMITTED",
+              "16": "COMMITTED",
+              "2": "COMMITTED",
+              "3": "COMMITTED",
+              "4": "COMMITTED",
+              "5": "COMMITTED",
+              "6": "COMMITTED",
+              "7": "COMMITTED",
+              "8": "COMMITTED",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 29
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "COMMITTED",
+              "11": "COMMITTED",
+              "12": "COMMITTED",
+              "13": "COMMITTED",
+              "14": "COMMITTED",
+              "15": "COMMITTED",
+              "16": "COMMITTED",
+              "2": "COMMITTED",
+              "3": "COMMITTED",
+              "4": "COMMITTED",
+              "5": "COMMITTED",
+              "6": "COMMITTED",
+              "7": "COMMITTED",
+              "8": "COMMITTED",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 30
+        },
+        {
+          "actions": [
+            {
+              "correct_binding": true,
+              "matched": true,
+              "op": "reveal",
+              "outcome": "PENDING",
+              "sequence": 2,
+              "verdict": "PASS"
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "COMMITTED",
+              "11": "COMMITTED",
+              "12": "COMMITTED",
+              "13": "COMMITTED",
+              "14": "COMMITTED",
+              "15": "COMMITTED",
+              "16": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "COMMITTED",
+              "4": "COMMITTED",
+              "5": "COMMITTED",
+              "6": "COMMITTED",
+              "7": "COMMITTED",
+              "8": "COMMITTED",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 31
+        },
+        {
+          "actions": [
+            {
+              "correct_binding": true,
+              "matched": true,
+              "op": "reveal",
+              "outcome": "PENDING",
+              "sequence": 3,
+              "verdict": "PASS"
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "COMMITTED",
+              "11": "COMMITTED",
+              "12": "COMMITTED",
+              "13": "COMMITTED",
+              "14": "COMMITTED",
+              "15": "COMMITTED",
+              "16": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "VALID-REVEAL",
+              "4": "COMMITTED",
+              "5": "COMMITTED",
+              "6": "COMMITTED",
+              "7": "COMMITTED",
+              "8": "COMMITTED",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 32
+        },
+        {
+          "actions": [
+            {
+              "correct_binding": true,
+              "matched": true,
+              "op": "reveal",
+              "outcome": "PENDING",
+              "sequence": 4,
+              "verdict": "PASS"
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "COMMITTED",
+              "11": "COMMITTED",
+              "12": "COMMITTED",
+              "13": "COMMITTED",
+              "14": "COMMITTED",
+              "15": "COMMITTED",
+              "16": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "VALID-REVEAL",
+              "4": "VALID-REVEAL",
+              "5": "COMMITTED",
+              "6": "COMMITTED",
+              "7": "COMMITTED",
+              "8": "COMMITTED",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 33
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "COMMITTED",
+              "11": "COMMITTED",
+              "12": "COMMITTED",
+              "13": "COMMITTED",
+              "14": "COMMITTED",
+              "15": "COMMITTED",
+              "16": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "VALID-REVEAL",
+              "4": "VALID-REVEAL",
+              "5": "COMMITTED",
+              "6": "COMMITTED",
+              "7": "COMMITTED",
+              "8": "COMMITTED",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 34
+        },
+        {
+          "actions": [
+            {
+              "correct_binding": true,
+              "matched": true,
+              "op": "reveal",
+              "outcome": "REJECTED",
+              "sequence": 6,
+              "verdict": "FAIL"
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "COMMITTED",
+              "11": "COMMITTED",
+              "12": "COMMITTED",
+              "13": "COMMITTED",
+              "14": "COMMITTED",
+              "15": "COMMITTED",
+              "16": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "VALID-REVEAL",
+              "4": "VALID-REVEAL",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "COMMITTED",
+              "8": "COMMITTED",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 35
+        },
+        {
+          "actions": [
+            {
+              "correct_binding": true,
+              "matched": true,
+              "op": "reveal",
+              "outcome": "PENDING",
+              "sequence": 7,
+              "verdict": "PASS"
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "COMMITTED",
+              "11": "COMMITTED",
+              "12": "COMMITTED",
+              "13": "COMMITTED",
+              "14": "COMMITTED",
+              "15": "COMMITTED",
+              "16": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "VALID-REVEAL",
+              "4": "VALID-REVEAL",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "VALID-REVEAL",
+              "8": "COMMITTED",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 36
+        },
+        {
+          "actions": [
+            {
+              "correct_binding": true,
+              "matched": true,
+              "op": "reveal",
+              "outcome": "PENDING",
+              "sequence": 8,
+              "verdict": "PASS"
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "COMMITTED",
+              "11": "COMMITTED",
+              "12": "COMMITTED",
+              "13": "COMMITTED",
+              "14": "COMMITTED",
+              "15": "COMMITTED",
+              "16": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "VALID-REVEAL",
+              "4": "VALID-REVEAL",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "VALID-REVEAL",
+              "8": "VALID-REVEAL",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 37
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "COMMITTED",
+              "11": "COMMITTED",
+              "12": "COMMITTED",
+              "13": "COMMITTED",
+              "14": "COMMITTED",
+              "15": "COMMITTED",
+              "16": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "VALID-REVEAL",
+              "4": "VALID-REVEAL",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "VALID-REVEAL",
+              "8": "VALID-REVEAL",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 38
+        },
+        {
+          "actions": [
+            {
+              "correct_binding": true,
+              "matched": true,
+              "op": "reveal",
+              "outcome": "PENDING",
+              "sequence": 10,
+              "verdict": "PASS"
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "VALID-REVEAL",
+              "11": "COMMITTED",
+              "12": "COMMITTED",
+              "13": "COMMITTED",
+              "14": "COMMITTED",
+              "15": "COMMITTED",
+              "16": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "VALID-REVEAL",
+              "4": "VALID-REVEAL",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "VALID-REVEAL",
+              "8": "VALID-REVEAL",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 39
+        },
+        {
+          "actions": [
+            {
+              "correct_binding": true,
+              "matched": true,
+              "op": "reveal",
+              "outcome": "REJECTED",
+              "sequence": 11,
+              "verdict": "FAIL"
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "VALID-REVEAL",
+              "11": "REJECTED",
+              "12": "COMMITTED",
+              "13": "COMMITTED",
+              "14": "COMMITTED",
+              "15": "COMMITTED",
+              "16": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "VALID-REVEAL",
+              "4": "VALID-REVEAL",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "VALID-REVEAL",
+              "8": "VALID-REVEAL",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 40
+        },
+        {
+          "actions": [
+            {
+              "correct_binding": true,
+              "matched": true,
+              "op": "reveal",
+              "outcome": "PENDING",
+              "sequence": 12,
+              "verdict": "PASS"
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "VALID-REVEAL",
+              "11": "REJECTED",
+              "12": "VALID-REVEAL",
+              "13": "COMMITTED",
+              "14": "COMMITTED",
+              "15": "COMMITTED",
+              "16": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "VALID-REVEAL",
+              "4": "VALID-REVEAL",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "VALID-REVEAL",
+              "8": "VALID-REVEAL",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 41
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "VALID-REVEAL",
+              "11": "REJECTED",
+              "12": "VALID-REVEAL",
+              "13": "COMMITTED",
+              "14": "COMMITTED",
+              "15": "COMMITTED",
+              "16": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "VALID-REVEAL",
+              "4": "VALID-REVEAL",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "VALID-REVEAL",
+              "8": "VALID-REVEAL",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 42
+        },
+        {
+          "actions": [
+            {
+              "correct_binding": true,
+              "matched": true,
+              "op": "reveal",
+              "outcome": "PENDING",
+              "sequence": 14,
+              "verdict": "PASS"
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "VALID-REVEAL",
+              "11": "REJECTED",
+              "12": "VALID-REVEAL",
+              "13": "COMMITTED",
+              "14": "VALID-REVEAL",
+              "15": "COMMITTED",
+              "16": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "VALID-REVEAL",
+              "4": "VALID-REVEAL",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "VALID-REVEAL",
+              "8": "VALID-REVEAL",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 43
+        },
+        {
+          "actions": [
+            {
+              "correct_binding": true,
+              "matched": true,
+              "op": "reveal",
+              "outcome": "PENDING",
+              "sequence": 15,
+              "verdict": "PASS"
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "VALID-REVEAL",
+              "11": "REJECTED",
+              "12": "VALID-REVEAL",
+              "13": "COMMITTED",
+              "14": "VALID-REVEAL",
+              "15": "VALID-REVEAL",
+              "16": "COMMITTED",
+              "2": "VALID-REVEAL",
+              "3": "VALID-REVEAL",
+              "4": "VALID-REVEAL",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "VALID-REVEAL",
+              "8": "VALID-REVEAL",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 44
+        },
+        {
+          "actions": [
+            {
+              "correct_binding": true,
+              "matched": true,
+              "op": "reveal",
+              "outcome": "REJECTED",
+              "sequence": 16,
+              "verdict": "FAIL"
+            }
+          ],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "VALID-REVEAL",
+              "11": "REJECTED",
+              "12": "VALID-REVEAL",
+              "13": "COMMITTED",
+              "14": "VALID-REVEAL",
+              "15": "VALID-REVEAL",
+              "16": "REJECTED",
+              "2": "VALID-REVEAL",
+              "3": "VALID-REVEAL",
+              "4": "VALID-REVEAL",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "VALID-REVEAL",
+              "8": "VALID-REVEAL",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 45
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "VALID-REVEAL",
+              "11": "REJECTED",
+              "12": "VALID-REVEAL",
+              "13": "COMMITTED",
+              "14": "VALID-REVEAL",
+              "15": "VALID-REVEAL",
+              "16": "REJECTED",
+              "2": "VALID-REVEAL",
+              "3": "VALID-REVEAL",
+              "4": "VALID-REVEAL",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "VALID-REVEAL",
+              "8": "VALID-REVEAL",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 46
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "VALID-REVEAL",
+              "11": "REJECTED",
+              "12": "VALID-REVEAL",
+              "13": "COMMITTED",
+              "14": "VALID-REVEAL",
+              "15": "VALID-REVEAL",
+              "16": "REJECTED",
+              "2": "VALID-REVEAL",
+              "3": "VALID-REVEAL",
+              "4": "VALID-REVEAL",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "VALID-REVEAL",
+              "8": "VALID-REVEAL",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 47
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "VALID-REVEAL",
+              "11": "REJECTED",
+              "12": "VALID-REVEAL",
+              "13": "COMMITTED",
+              "14": "VALID-REVEAL",
+              "15": "VALID-REVEAL",
+              "16": "REJECTED",
+              "2": "VALID-REVEAL",
+              "3": "VALID-REVEAL",
+              "4": "VALID-REVEAL",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "VALID-REVEAL",
+              "8": "VALID-REVEAL",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 48
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "VALID-REVEAL",
+              "11": "REJECTED",
+              "12": "VALID-REVEAL",
+              "13": "COMMITTED",
+              "14": "VALID-REVEAL",
+              "15": "VALID-REVEAL",
+              "16": "REJECTED",
+              "2": "VALID-REVEAL",
+              "3": "VALID-REVEAL",
+              "4": "VALID-REVEAL",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "VALID-REVEAL",
+              "8": "VALID-REVEAL",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 49
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "VALID-REVEAL",
+              "11": "REJECTED",
+              "12": "VALID-REVEAL",
+              "13": "COMMITTED",
+              "14": "VALID-REVEAL",
+              "15": "VALID-REVEAL",
+              "16": "REJECTED",
+              "2": "VALID-REVEAL",
+              "3": "VALID-REVEAL",
+              "4": "VALID-REVEAL",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "VALID-REVEAL",
+              "8": "VALID-REVEAL",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 50
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "VALID-REVEAL",
+              "11": "REJECTED",
+              "12": "VALID-REVEAL",
+              "13": "COMMITTED",
+              "14": "VALID-REVEAL",
+              "15": "VALID-REVEAL",
+              "16": "REJECTED",
+              "2": "VALID-REVEAL",
+              "3": "VALID-REVEAL",
+              "4": "VALID-REVEAL",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "VALID-REVEAL",
+              "8": "VALID-REVEAL",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 51
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "VALID-REVEAL",
+              "11": "REJECTED",
+              "12": "VALID-REVEAL",
+              "13": "COMMITTED",
+              "14": "VALID-REVEAL",
+              "15": "VALID-REVEAL",
+              "16": "REJECTED",
+              "2": "VALID-REVEAL",
+              "3": "VALID-REVEAL",
+              "4": "VALID-REVEAL",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "VALID-REVEAL",
+              "8": "VALID-REVEAL",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 52
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "VALID-REVEAL",
+              "11": "REJECTED",
+              "12": "VALID-REVEAL",
+              "13": "COMMITTED",
+              "14": "VALID-REVEAL",
+              "15": "VALID-REVEAL",
+              "16": "REJECTED",
+              "2": "VALID-REVEAL",
+              "3": "VALID-REVEAL",
+              "4": "VALID-REVEAL",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "VALID-REVEAL",
+              "8": "VALID-REVEAL",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 53
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "VALID-REVEAL",
+              "11": "REJECTED",
+              "12": "VALID-REVEAL",
+              "13": "COMMITTED",
+              "14": "VALID-REVEAL",
+              "15": "VALID-REVEAL",
+              "16": "REJECTED",
+              "2": "VALID-REVEAL",
+              "3": "VALID-REVEAL",
+              "4": "VALID-REVEAL",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "VALID-REVEAL",
+              "8": "VALID-REVEAL",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 54
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "VALID-REVEAL",
+              "11": "REJECTED",
+              "12": "VALID-REVEAL",
+              "13": "COMMITTED",
+              "14": "VALID-REVEAL",
+              "15": "VALID-REVEAL",
+              "16": "REJECTED",
+              "2": "VALID-REVEAL",
+              "3": "VALID-REVEAL",
+              "4": "VALID-REVEAL",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "VALID-REVEAL",
+              "8": "VALID-REVEAL",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 55
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "VALID-REVEAL",
+              "11": "REJECTED",
+              "12": "VALID-REVEAL",
+              "13": "COMMITTED",
+              "14": "VALID-REVEAL",
+              "15": "VALID-REVEAL",
+              "16": "REJECTED",
+              "2": "VALID-REVEAL",
+              "3": "VALID-REVEAL",
+              "4": "VALID-REVEAL",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "VALID-REVEAL",
+              "8": "VALID-REVEAL",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 56
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "VALID-REVEAL",
+              "11": "REJECTED",
+              "12": "VALID-REVEAL",
+              "13": "COMMITTED",
+              "14": "VALID-REVEAL",
+              "15": "VALID-REVEAL",
+              "16": "REJECTED",
+              "2": "VALID-REVEAL",
+              "3": "VALID-REVEAL",
+              "4": "VALID-REVEAL",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "VALID-REVEAL",
+              "8": "VALID-REVEAL",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 57
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "VALID-REVEAL",
+              "11": "REJECTED",
+              "12": "VALID-REVEAL",
+              "13": "COMMITTED",
+              "14": "VALID-REVEAL",
+              "15": "VALID-REVEAL",
+              "16": "REJECTED",
+              "2": "VALID-REVEAL",
+              "3": "VALID-REVEAL",
+              "4": "VALID-REVEAL",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "VALID-REVEAL",
+              "8": "VALID-REVEAL",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 58
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "VALID-REVEAL",
+              "11": "REJECTED",
+              "12": "VALID-REVEAL",
+              "13": "COMMITTED",
+              "14": "VALID-REVEAL",
+              "15": "VALID-REVEAL",
+              "16": "REJECTED",
+              "2": "VALID-REVEAL",
+              "3": "VALID-REVEAL",
+              "4": "VALID-REVEAL",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "VALID-REVEAL",
+              "8": "VALID-REVEAL",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 59
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "VALID-REVEAL",
+              "11": "REJECTED",
+              "12": "VALID-REVEAL",
+              "13": "COMMITTED",
+              "14": "VALID-REVEAL",
+              "15": "VALID-REVEAL",
+              "16": "REJECTED",
+              "2": "VALID-REVEAL",
+              "3": "VALID-REVEAL",
+              "4": "VALID-REVEAL",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "VALID-REVEAL",
+              "8": "VALID-REVEAL",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 60
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "VALID-REVEAL",
+              "11": "REJECTED",
+              "12": "VALID-REVEAL",
+              "13": "COMMITTED",
+              "14": "VALID-REVEAL",
+              "15": "VALID-REVEAL",
+              "16": "REJECTED",
+              "2": "VALID-REVEAL",
+              "3": "VALID-REVEAL",
+              "4": "VALID-REVEAL",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "VALID-REVEAL",
+              "8": "VALID-REVEAL",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 61
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "VALID-REVEAL",
+              "11": "REJECTED",
+              "12": "VALID-REVEAL",
+              "13": "COMMITTED",
+              "14": "VALID-REVEAL",
+              "15": "VALID-REVEAL",
+              "16": "REJECTED",
+              "2": "VALID-REVEAL",
+              "3": "VALID-REVEAL",
+              "4": "VALID-REVEAL",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "VALID-REVEAL",
+              "8": "VALID-REVEAL",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 62
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "VALID-REVEAL",
+              "11": "REJECTED",
+              "12": "VALID-REVEAL",
+              "13": "COMMITTED",
+              "14": "VALID-REVEAL",
+              "15": "VALID-REVEAL",
+              "16": "REJECTED",
+              "2": "VALID-REVEAL",
+              "3": "VALID-REVEAL",
+              "4": "VALID-REVEAL",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "VALID-REVEAL",
+              "8": "VALID-REVEAL",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 63
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "VALID-REVEAL",
+              "11": "REJECTED",
+              "12": "VALID-REVEAL",
+              "13": "COMMITTED",
+              "14": "VALID-REVEAL",
+              "15": "VALID-REVEAL",
+              "16": "REJECTED",
+              "2": "VALID-REVEAL",
+              "3": "VALID-REVEAL",
+              "4": "VALID-REVEAL",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "VALID-REVEAL",
+              "8": "VALID-REVEAL",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 64
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "VALID-REVEAL",
+              "11": "REJECTED",
+              "12": "VALID-REVEAL",
+              "13": "COMMITTED",
+              "14": "VALID-REVEAL",
+              "15": "VALID-REVEAL",
+              "16": "REJECTED",
+              "2": "VALID-REVEAL",
+              "3": "VALID-REVEAL",
+              "4": "VALID-REVEAL",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "VALID-REVEAL",
+              "8": "VALID-REVEAL",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 65
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "VALID-REVEAL",
+              "11": "REJECTED",
+              "12": "VALID-REVEAL",
+              "13": "COMMITTED",
+              "14": "VALID-REVEAL",
+              "15": "VALID-REVEAL",
+              "16": "REJECTED",
+              "2": "VALID-REVEAL",
+              "3": "VALID-REVEAL",
+              "4": "VALID-REVEAL",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "VALID-REVEAL",
+              "8": "VALID-REVEAL",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 66
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "VALID-REVEAL",
+              "11": "REJECTED",
+              "12": "VALID-REVEAL",
+              "13": "COMMITTED",
+              "14": "VALID-REVEAL",
+              "15": "VALID-REVEAL",
+              "16": "REJECTED",
+              "2": "VALID-REVEAL",
+              "3": "VALID-REVEAL",
+              "4": "VALID-REVEAL",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "VALID-REVEAL",
+              "8": "VALID-REVEAL",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 67
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "VALID-REVEAL",
+              "11": "REJECTED",
+              "12": "VALID-REVEAL",
+              "13": "COMMITTED",
+              "14": "VALID-REVEAL",
+              "15": "VALID-REVEAL",
+              "16": "REJECTED",
+              "2": "VALID-REVEAL",
+              "3": "VALID-REVEAL",
+              "4": "VALID-REVEAL",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "VALID-REVEAL",
+              "8": "VALID-REVEAL",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 68
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "VALID-REVEAL",
+              "11": "REJECTED",
+              "12": "VALID-REVEAL",
+              "13": "COMMITTED",
+              "14": "VALID-REVEAL",
+              "15": "VALID-REVEAL",
+              "16": "REJECTED",
+              "2": "VALID-REVEAL",
+              "3": "VALID-REVEAL",
+              "4": "VALID-REVEAL",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "VALID-REVEAL",
+              "8": "VALID-REVEAL",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 69
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "COMMITTED",
+              "10": "VALID-REVEAL",
+              "11": "REJECTED",
+              "12": "VALID-REVEAL",
+              "13": "COMMITTED",
+              "14": "VALID-REVEAL",
+              "15": "VALID-REVEAL",
+              "16": "REJECTED",
+              "2": "VALID-REVEAL",
+              "3": "VALID-REVEAL",
+              "4": "VALID-REVEAL",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "VALID-REVEAL",
+              "8": "VALID-REVEAL",
+              "9": "COMMITTED"
+            },
+            "winner": null
+          },
+          "height": 70
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "EXPIRED",
+              "10": "DUPLICATE",
+              "11": "REJECTED",
+              "12": "DUPLICATE",
+              "13": "COMMITTED",
+              "14": "DUPLICATE",
+              "15": "DUPLICATE",
+              "16": "REJECTED",
+              "2": "ACCEPTED",
+              "3": "DUPLICATE",
+              "4": "DUPLICATE",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "DUPLICATE",
+              "8": "DUPLICATE",
+              "9": "COMMITTED"
+            },
+            "winner": 2
+          },
+          "height": 71
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "EXPIRED",
+              "10": "DUPLICATE",
+              "11": "REJECTED",
+              "12": "DUPLICATE",
+              "13": "COMMITTED",
+              "14": "DUPLICATE",
+              "15": "DUPLICATE",
+              "16": "REJECTED",
+              "2": "ACCEPTED",
+              "3": "DUPLICATE",
+              "4": "DUPLICATE",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "DUPLICATE",
+              "8": "DUPLICATE",
+              "9": "COMMITTED"
+            },
+            "winner": 2
+          },
+          "height": 72
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "EXPIRED",
+              "10": "DUPLICATE",
+              "11": "REJECTED",
+              "12": "DUPLICATE",
+              "13": "COMMITTED",
+              "14": "DUPLICATE",
+              "15": "DUPLICATE",
+              "16": "REJECTED",
+              "2": "ACCEPTED",
+              "3": "DUPLICATE",
+              "4": "DUPLICATE",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "DUPLICATE",
+              "8": "DUPLICATE",
+              "9": "COMMITTED"
+            },
+            "winner": 2
+          },
+          "height": 73
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "EXPIRED",
+              "10": "DUPLICATE",
+              "11": "REJECTED",
+              "12": "DUPLICATE",
+              "13": "COMMITTED",
+              "14": "DUPLICATE",
+              "15": "DUPLICATE",
+              "16": "REJECTED",
+              "2": "ACCEPTED",
+              "3": "DUPLICATE",
+              "4": "DUPLICATE",
+              "5": "COMMITTED",
+              "6": "REJECTED",
+              "7": "DUPLICATE",
+              "8": "DUPLICATE",
+              "9": "COMMITTED"
+            },
+            "winner": 2
+          },
+          "height": 74
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "EXPIRED",
+              "10": "DUPLICATE",
+              "11": "REJECTED",
+              "12": "DUPLICATE",
+              "13": "COMMITTED",
+              "14": "DUPLICATE",
+              "15": "DUPLICATE",
+              "16": "REJECTED",
+              "2": "ACCEPTED",
+              "3": "DUPLICATE",
+              "4": "DUPLICATE",
+              "5": "EXPIRED",
+              "6": "REJECTED",
+              "7": "DUPLICATE",
+              "8": "DUPLICATE",
+              "9": "COMMITTED"
+            },
+            "winner": 2
+          },
+          "height": 75
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "EXPIRED",
+              "10": "DUPLICATE",
+              "11": "REJECTED",
+              "12": "DUPLICATE",
+              "13": "COMMITTED",
+              "14": "DUPLICATE",
+              "15": "DUPLICATE",
+              "16": "REJECTED",
+              "2": "ACCEPTED",
+              "3": "DUPLICATE",
+              "4": "DUPLICATE",
+              "5": "EXPIRED",
+              "6": "REJECTED",
+              "7": "DUPLICATE",
+              "8": "DUPLICATE",
+              "9": "COMMITTED"
+            },
+            "winner": 2
+          },
+          "height": 76
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "EXPIRED",
+              "10": "DUPLICATE",
+              "11": "REJECTED",
+              "12": "DUPLICATE",
+              "13": "COMMITTED",
+              "14": "DUPLICATE",
+              "15": "DUPLICATE",
+              "16": "REJECTED",
+              "2": "ACCEPTED",
+              "3": "DUPLICATE",
+              "4": "DUPLICATE",
+              "5": "EXPIRED",
+              "6": "REJECTED",
+              "7": "DUPLICATE",
+              "8": "DUPLICATE",
+              "9": "COMMITTED"
+            },
+            "winner": 2
+          },
+          "height": 77
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "EXPIRED",
+              "10": "DUPLICATE",
+              "11": "REJECTED",
+              "12": "DUPLICATE",
+              "13": "COMMITTED",
+              "14": "DUPLICATE",
+              "15": "DUPLICATE",
+              "16": "REJECTED",
+              "2": "ACCEPTED",
+              "3": "DUPLICATE",
+              "4": "DUPLICATE",
+              "5": "EXPIRED",
+              "6": "REJECTED",
+              "7": "DUPLICATE",
+              "8": "DUPLICATE",
+              "9": "COMMITTED"
+            },
+            "winner": 2
+          },
+          "height": 78
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "EXPIRED",
+              "10": "DUPLICATE",
+              "11": "REJECTED",
+              "12": "DUPLICATE",
+              "13": "COMMITTED",
+              "14": "DUPLICATE",
+              "15": "DUPLICATE",
+              "16": "REJECTED",
+              "2": "ACCEPTED",
+              "3": "DUPLICATE",
+              "4": "DUPLICATE",
+              "5": "EXPIRED",
+              "6": "REJECTED",
+              "7": "DUPLICATE",
+              "8": "DUPLICATE",
+              "9": "EXPIRED"
+            },
+            "winner": 2
+          },
+          "height": 79
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "EXPIRED",
+              "10": "DUPLICATE",
+              "11": "REJECTED",
+              "12": "DUPLICATE",
+              "13": "COMMITTED",
+              "14": "DUPLICATE",
+              "15": "DUPLICATE",
+              "16": "REJECTED",
+              "2": "ACCEPTED",
+              "3": "DUPLICATE",
+              "4": "DUPLICATE",
+              "5": "EXPIRED",
+              "6": "REJECTED",
+              "7": "DUPLICATE",
+              "8": "DUPLICATE",
+              "9": "EXPIRED"
+            },
+            "winner": 2
+          },
+          "height": 80
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "EXPIRED",
+              "10": "DUPLICATE",
+              "11": "REJECTED",
+              "12": "DUPLICATE",
+              "13": "COMMITTED",
+              "14": "DUPLICATE",
+              "15": "DUPLICATE",
+              "16": "REJECTED",
+              "2": "ACCEPTED",
+              "3": "DUPLICATE",
+              "4": "DUPLICATE",
+              "5": "EXPIRED",
+              "6": "REJECTED",
+              "7": "DUPLICATE",
+              "8": "DUPLICATE",
+              "9": "EXPIRED"
+            },
+            "winner": 2
+          },
+          "height": 81
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "EXPIRED",
+              "10": "DUPLICATE",
+              "11": "REJECTED",
+              "12": "DUPLICATE",
+              "13": "COMMITTED",
+              "14": "DUPLICATE",
+              "15": "DUPLICATE",
+              "16": "REJECTED",
+              "2": "ACCEPTED",
+              "3": "DUPLICATE",
+              "4": "DUPLICATE",
+              "5": "EXPIRED",
+              "6": "REJECTED",
+              "7": "DUPLICATE",
+              "8": "DUPLICATE",
+              "9": "EXPIRED"
+            },
+            "winner": 2
+          },
+          "height": 82
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "EXPIRED",
+              "10": "DUPLICATE",
+              "11": "REJECTED",
+              "12": "DUPLICATE",
+              "13": "EXPIRED",
+              "14": "DUPLICATE",
+              "15": "DUPLICATE",
+              "16": "REJECTED",
+              "2": "ACCEPTED",
+              "3": "DUPLICATE",
+              "4": "DUPLICATE",
+              "5": "EXPIRED",
+              "6": "REJECTED",
+              "7": "DUPLICATE",
+              "8": "DUPLICATE",
+              "9": "EXPIRED"
+            },
+            "winner": 2
+          },
+          "height": 83
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "EXPIRED",
+              "10": "DUPLICATE",
+              "11": "REJECTED",
+              "12": "DUPLICATE",
+              "13": "EXPIRED",
+              "14": "DUPLICATE",
+              "15": "DUPLICATE",
+              "16": "REJECTED",
+              "2": "ACCEPTED",
+              "3": "DUPLICATE",
+              "4": "DUPLICATE",
+              "5": "EXPIRED",
+              "6": "REJECTED",
+              "7": "DUPLICATE",
+              "8": "DUPLICATE",
+              "9": "EXPIRED"
+            },
+            "winner": 2
+          },
+          "height": 84
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "EXPIRED",
+              "10": "DUPLICATE",
+              "11": "REJECTED",
+              "12": "DUPLICATE",
+              "13": "EXPIRED",
+              "14": "DUPLICATE",
+              "15": "DUPLICATE",
+              "16": "REJECTED",
+              "2": "ACCEPTED",
+              "3": "DUPLICATE",
+              "4": "DUPLICATE",
+              "5": "EXPIRED",
+              "6": "REJECTED",
+              "7": "DUPLICATE",
+              "8": "DUPLICATE",
+              "9": "EXPIRED"
+            },
+            "winner": 2
+          },
+          "height": 85
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "EXPIRED",
+              "10": "DUPLICATE",
+              "11": "REJECTED",
+              "12": "DUPLICATE",
+              "13": "EXPIRED",
+              "14": "DUPLICATE",
+              "15": "DUPLICATE",
+              "16": "REJECTED",
+              "2": "ACCEPTED",
+              "3": "DUPLICATE",
+              "4": "DUPLICATE",
+              "5": "EXPIRED",
+              "6": "REJECTED",
+              "7": "DUPLICATE",
+              "8": "DUPLICATE",
+              "9": "EXPIRED"
+            },
+            "winner": 2
+          },
+          "height": 86
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "EXPIRED",
+              "10": "DUPLICATE",
+              "11": "REJECTED",
+              "12": "DUPLICATE",
+              "13": "EXPIRED",
+              "14": "DUPLICATE",
+              "15": "DUPLICATE",
+              "16": "REJECTED",
+              "2": "ACCEPTED",
+              "3": "DUPLICATE",
+              "4": "DUPLICATE",
+              "5": "EXPIRED",
+              "6": "REJECTED",
+              "7": "DUPLICATE",
+              "8": "DUPLICATE",
+              "9": "EXPIRED"
+            },
+            "winner": 2
+          },
+          "height": 87
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "EXPIRED",
+              "10": "DUPLICATE",
+              "11": "REJECTED",
+              "12": "DUPLICATE",
+              "13": "EXPIRED",
+              "14": "DUPLICATE",
+              "15": "DUPLICATE",
+              "16": "REJECTED",
+              "2": "ACCEPTED",
+              "3": "DUPLICATE",
+              "4": "DUPLICATE",
+              "5": "EXPIRED",
+              "6": "REJECTED",
+              "7": "DUPLICATE",
+              "8": "DUPLICATE",
+              "9": "EXPIRED"
+            },
+            "winner": 2
+          },
+          "height": 88
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "EXPIRED",
+              "10": "DUPLICATE",
+              "11": "REJECTED",
+              "12": "DUPLICATE",
+              "13": "EXPIRED",
+              "14": "DUPLICATE",
+              "15": "DUPLICATE",
+              "16": "REJECTED",
+              "2": "ACCEPTED",
+              "3": "DUPLICATE",
+              "4": "DUPLICATE",
+              "5": "EXPIRED",
+              "6": "REJECTED",
+              "7": "DUPLICATE",
+              "8": "DUPLICATE",
+              "9": "EXPIRED"
+            },
+            "winner": 2
+          },
+          "height": 89
+        },
+        {
+          "actions": [],
+          "expected": {
+            "statuses": {
+              "1": "EXPIRED",
+              "10": "DUPLICATE",
+              "11": "REJECTED",
+              "12": "DUPLICATE",
+              "13": "EXPIRED",
+              "14": "DUPLICATE",
+              "15": "DUPLICATE",
+              "16": "REJECTED",
+              "2": "ACCEPTED",
+              "3": "DUPLICATE",
+              "4": "DUPLICATE",
+              "5": "EXPIRED",
+              "6": "REJECTED",
+              "7": "DUPLICATE",
+              "8": "DUPLICATE",
+              "9": "EXPIRED"
+            },
+            "winner": 2
+          },
+          "height": 90
+        }
+      ]
+    }
+  ],
+  "mapping": {
+    "d": 2,
+    "problem_open_height": 5,
+    "reveal_window": 65,
+    "w": 64
+  },
+  "provenance": {
+    "execution": "Registry.commit, Registry.reveal and Registry.advance; synthetic catalog bootstrap and injected PASS/FAIL verifier; no ERROR or CANCEL",
+    "generator": "generate_service_vectors.py",
+    "generator_sha256": "50ee9119f538e11f92732e8c86d2520bb9401830954f8db8a05b5201c7972c36",
+    "python": "3.9.6",
+    "source": "scripts/zk_registry/service.py",
+    "source_sha256": "6b0505f1953d729590025b24f4b3bd5e34954de87cbcccffde08bffc0c049584"
+  },
+  "schema": "boole-devnet-m2-service-parity-v1"
+}

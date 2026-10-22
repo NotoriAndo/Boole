@@ -120,7 +120,7 @@ fn t2_inbox_kind_and_abi() {
     for kind in [2, 3, 4, 7, 8, 9] {
         assert_eq!(
             inbox::user_body(&envelope(&[kind])),
-            Err("M2-DECODE-INVALID")
+            Err("ITEM-KIND-NOT-ACCEPTED")
         );
     }
     assert_eq!(
