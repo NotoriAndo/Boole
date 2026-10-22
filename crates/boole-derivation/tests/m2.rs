@@ -2314,6 +2314,201 @@ fn v11_t28_lane_formats_and_cancel_after_wrong_lane() {
         }
     }
 }
+
+#[test]
+fn review_real_multislot_tables_select_the_problem_lane() {
+    for profile in [Config::devnet(), Config::lean_testnet(99)] {
+        let mut c = profile.clone();
+        c.pool_key = cfg().pool_key;
+        // Only shorten pool admission lead; retain every real slot row and D/W.
+        c.pool_lead = 2;
+        assert_eq!(c.slot_table, profile.slot_table);
+        let mut s = State::new(&c, 30_000_000).unwrap();
+        let pools = (0..c.slot_table.len())
+            .map(|slot| {
+                let salt = [slot as u8 + 1; 32];
+                let root = pool_leaf(c.chain_id, 2, &[], b"a", &salt);
+                input(
+                    8,
+                    pool_at(&c, slot as u8, root, 1, 3, slot as u32 + 1),
+                    slot as u64,
+                )
+            })
+            .collect();
+        assert_eq!(run(&mut s, &c, pools), vec![0x85; c.slot_table.len()]);
+        until(&mut s, &c, 4);
+        let reveals = (0..c.slot_table.len())
+            .map(|slot| {
+                input(
+                    9,
+                    problem_body(slot as u8, 1, 0, &[], [slot as u8 + 1; 32], &[], b"a"),
+                    slot as u64,
+                )
+            })
+            .collect();
+        assert_eq!(run(&mut s, &c, reveals), vec![0x86; c.slot_table.len()]);
+        let mut commits = vec![];
+        let mut opens = vec![];
+        let mut expected = vec![];
+        for slot in 0..c.slot_table.len() {
+            let p = s.rounds[&(slot as u8, 1)].problem.unwrap();
+            assert_eq!(s.problems[&p].slot, slot as u8);
+            for format in [1, 2] {
+                let (mut b, _, _) = body(&c, p, [6; 20], [7; 32], b"a", &[]);
+                b[152] = format;
+                let ch = commit_hash(c.chain_id, p, cancel_hash(&[8; 32]), body_digest(&b));
+                let index = commits.len() as u64;
+                commits.push(input(2, commit(p, ch), index));
+                opens.push(input(3, open(&b, cancel_hash(&[8; 32])), index));
+                expected.push(if format == c.slot_table[slot].lane {
+                    0x81
+                } else {
+                    2
+                });
+            }
+        }
+        assert_eq!(run(&mut s, &c, commits), vec![0x80; expected.len()]);
+        let hc = s.height();
+        until(&mut s, &c, hc + c.d - 1);
+        assert_eq!(run(&mut s, &c, opens), expected);
+        assert_eq!(
+            expected,
+            if c.slot_table.len() == 2 {
+                vec![2, 0x81, 0x81, 2]
+            } else {
+                vec![2, 0x81, 0x81, 2, 2, 0x81]
+            }
+        );
+    }
+}
+
+#[test]
+fn review_union_excludes_pool_starting_at_draw_execution_height() {
+    let c = cfg();
+    let mut s = State::new(&c, 30_000_000).unwrap();
+    assert_eq!(
+        run(
+            &mut s,
+            &c,
+            vec![
+                input(8, pool_at(&c, 0, [1; 32], 1, 3, 1), 0),
+                input(8, pool_at(&c, 0, [2; 32], 1, 4, 2), 1),
+            ]
+        ),
+        [0x85, 0x85]
+    );
+    until(&mut s, &c, 3);
+    assert_eq!(s.slots[0].scheduled, Some(3));
+    // Choose j=1 for a wrongly enlarged two-leaf union, so the boundary error
+    // cannot hide behind a draw that happens to select the first pool.
+    let mix = (0u64..256)
+        .map(|n| hash(&n.to_be_bytes()))
+        .find(|mix| {
+            let seed = hash(
+                &[
+                    b"BOOLE-M2/DRAW/v2".as_slice(),
+                    &c.chain_id.to_be_bytes(),
+                    &[0],
+                    &1u32.to_be_bytes(),
+                    mix,
+                ]
+                .concat(),
+            );
+            u64::from_be_bytes(seed[..8].try_into().unwrap()) % 2 == 1
+        })
+        .unwrap();
+    let mut execution = block(4);
+    execution.mix_hash = format!("0x{}", hex::encode(mix));
+    let out = s.step(&c, &execution, &[]).unwrap();
+    assert_eq!(
+        (
+            out.state.rounds[&(0, 1)].pool_seq,
+            out.state.rounds[&(0, 1)].leaf_index
+        ),
+        (1, 0)
+    );
+    assert!(out.state.pools[&1].unused.is_empty());
+    assert_eq!(out.state.pools[&2].unused, [0].into());
+}
+
+#[test]
+fn review_unused_leaf_capacity_is_per_slot_including_future_pools() {
+    let mut c = cfg();
+    c.slot_table.push(c.slot_table[0].clone());
+    c.pool_max = 2;
+    c.slot_leaves_max = 2;
+    let mut s = State::new(&c, 30_000_000).unwrap();
+    assert_eq!(
+        run(
+            &mut s,
+            &c,
+            vec![
+                input(8, pool_at(&c, 0, [1; 32], 2, 100, 1), 0),
+                input(8, pool_at(&c, 1, [2; 32], 2, 100, 2), 1),
+            ]
+        ),
+        [0x85, 0x85]
+    );
+    assert_eq!(s.pools.values().map(|p| p.unused.len()).sum::<usize>(), 4);
+    assert_eq!(
+        run(
+            &mut s,
+            &c,
+            vec![input(8, pool_at(&c, 1, [3; 32], 1, 100, 3), 0)]
+        ),
+        [13]
+    );
+    assert_eq!(s.pools.len(), 2);
+}
+
+#[test]
+fn review_s8_statement_max_zero_and_one() {
+    let mut c = cfg();
+    c.statement_max = 0;
+    assert_eq!(c.validate(30_000_000), Err(8));
+    assert!(matches!(
+        State::new(&c, 30_000_000),
+        Err(FoldError::Startup(8))
+    ));
+    c.statement_max = 1;
+    assert_eq!(c.validate(30_000_000), Ok(()));
+}
+
+#[test]
+fn review_s5_exact_abi_padding_boundary() {
+    let mut c = cfg();
+    c.pool_max = 1 << 20;
+    c.slot_leaves_max = 1 << 20;
+    c.pkg_table = (0u8..4).map(|i| hash(&[i])).collect();
+    c.pkg_table.sort();
+    c.env_allowed = [vec![]].into();
+    // 55 bytes including kind + 4 required packages + 20 siblings. The
+    // middle case ends exactly on a 32-byte ABI boundary; its neighbors do not.
+    for (statement_len, exact_call_len) in
+        [(122_888, 123_780), (122_889, 123_780), (122_890, 123_812)]
+    {
+        c.statement_max = statement_len;
+        let wire = problem_body(
+            0,
+            1,
+            0,
+            &c.pkg_table,
+            [9; 32],
+            &[[0; 32]; 20],
+            &vec![1; statement_len],
+        );
+        let mut item = vec![9];
+        item.extend(wire);
+        while item.len() % 32 != 0 {
+            item.push(0);
+        }
+        assert_eq!(4 + 64 + item.len(), exact_call_len);
+        c.pool_limit = exact_call_len;
+        assert_eq!(c.validate(30_000_000), Ok(()));
+        c.pool_limit -= 1;
+        assert_eq!(c.validate(30_000_000), Err(5));
+    }
+}
 fn two_slots() -> (Config, State, [Hash; 2]) {
     let mut c = cfg();
     c.slot_table = vec![

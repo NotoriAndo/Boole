@@ -93,7 +93,7 @@ fn m1_budget_compliant_schedule_live_and_recorded_abc() -> Result<()> {
     let Some(anvil) = pinned("BOOLE_DEVNET_ANVIL", "anvil")? else {
         return Ok(());
     };
-    let mut rt = Runtime::new("m1-schedule-budget-v2")?;
+    let mut rt = Runtime::new("m1-schedule-budget-v3")?;
     let l1 = rt.anvil(&anvil)?;
     let accounts = l1.call("eth_accounts", json!([]))?;
     let user = accounts[0].as_str().context("account")?;

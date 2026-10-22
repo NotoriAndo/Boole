@@ -405,6 +405,40 @@ impl Drop for TestDir {
 }
 
 #[test]
+fn review_cli_startup_reports_the_actual_slot_table_digest() {
+    let dir = TestDir::new("startup-slot-digest");
+    for c in [Config::devnet(), Config::lean_testnet(99)] {
+        let config = dir.0.join("config.json");
+        std::fs::write(&config, serde_json::to_vec(&c).unwrap()).unwrap();
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_boole-devnet-driver"))
+            .args([
+                "--l1-rpc",
+                "http://127.0.0.1:0",
+                "--engine-rpc",
+                "http://127.0.0.1:0",
+                "--node-rpc",
+                "http://127.0.0.1:0",
+                "--until",
+                "0",
+                "--jwt-secret",
+            ])
+            .arg(dir.0.join("unused-jwt"))
+            .arg("--m2-config")
+            .arg(&config)
+            .output()
+            .unwrap();
+        // The banner must precede the RPC attempt, even when no node is up.
+        assert!(!output.status.success());
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        let expected = format!(
+            "slot_table_digest={}",
+            boole_derivation::attributes::hex_string(&c.slot_table_digest())
+        );
+        assert_eq!(stderr.lines().next(), Some(expected.as_str()));
+    }
+}
+
+#[test]
 fn review_restart_from_open_reveal_and_round_matches_full_state() {
     let fixture: Value = serde_json::from_str(
         &std::fs::read_to_string(
