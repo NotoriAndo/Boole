@@ -4860,10 +4860,10 @@
   "provenance": {
     "execution": "Registry.commit, Registry.reveal and Registry.advance; synthetic catalog bootstrap and injected PASS/FAIL verifier; no ERROR or CANCEL",
     "generator": "generate_service_vectors.py",
-    "generator_sha256": "50ee9119f538e11f92732e8c86d2520bb9401830954f8db8a05b5201c7972c36",
+    "generator_sha256": "316b2fceb6f9a13c62d5e25faf9b09749b7642d7dc08366e6f5ad590f78a4d8f",
     "python": "3.9.6",
     "source": "scripts/zk_registry/service.py",
-    "source_sha256": "6b0505f1953d729590025b24f4b3bd5e34954de87cbcccffde08bffc0c049584"
+    "source_sha256": "6969de0712121f1d2b316e1c4e875647292c96c9b2cf6703f45e1c20a1547f76"
   },
   "schema": "boole-devnet-m2-service-parity-v1"
 }
