@@ -34,7 +34,7 @@ const NONCE_S: &str = "ccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
 fn canonical_checker_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../lean/checker")
+        .join("../../lean/checker-v1")
         .canonicalize()
         .expect("canonical checker dir")
 }

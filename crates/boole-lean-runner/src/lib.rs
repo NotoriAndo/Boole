@@ -109,6 +109,9 @@ pub struct LeanRunnerConfig {
     pub memory_limit_mb: u64,
     pub output_limit_bytes: usize,
     pub isolation_mode: IsolationMode,
+    /// Optional genesis or operator pin; the selected package must also be a known release.
+    pub expected_checker_artifact_hash: Option<String>,
+    checker_artifact_allowlist: Option<Vec<String>>,
     /// SC.9a / ADR-0016 (a)(b) — the committed step budget, forwarded to
     /// the checker as `lean -D maxHeartbeats=<n>` (Lean counts this option
     /// in thousands of raw heartbeats). This IS the verdict input: the same
@@ -148,6 +151,8 @@ impl LeanRunnerConfig {
             memory_limit_mb: 8192,
             output_limit_bytes: 64 * 1024,
             isolation_mode: IsolationMode::default(),
+            expected_checker_artifact_hash: None,
+            checker_artifact_allowlist: None,
             max_heartbeats: 400_000,
             max_rec_depth: 512,
             artifact_scratch_dir: None,
@@ -180,6 +185,11 @@ impl LeanRunnerConfig {
 
     pub fn with_isolation_mode(mut self, isolation_mode: IsolationMode) -> Self {
         self.isolation_mode = isolation_mode;
+        self
+    }
+
+    pub fn with_checker_artifact_hash(mut self, hash: impl Into<String>) -> Self {
+        self.expected_checker_artifact_hash = Some(hash.into());
         self
     }
 
@@ -819,17 +829,38 @@ fn apply_remaining_timeout_at(
     true
 }
 
+fn verification_stage_config(
+    base: &LeanRunnerConfig,
+    runtime: &EffectiveToolchainRuntime,
+    lean_path: OsString,
+    scratch: Option<PathBuf>,
+) -> LeanRunnerConfig {
+    let mut config = base.clone();
+    config.artifact_scratch_dir = scratch;
+    config.package_dir_writable = false;
+    config.lean_sysroot = Some(runtime.lean_sysroot.clone());
+    config.lean_path = Some(lean_path);
+    config.deny_process_spawn = true;
+    config
+}
+
 impl LeanRunner {
     pub fn new(config: LeanRunnerConfig) -> Self {
         Self { config }
     }
 
+    /// Bind operator allowlist authority before any checker child executes.
+    pub fn with_checker_artifact_allowlist(mut self, hashes: Vec<String>) -> Self {
+        self.config.checker_artifact_allowlist = Some(hashes);
+        self
+    }
+
     pub fn check_file(&self, proof_path: impl AsRef<Path>) -> Result<LeanCheckResult> {
         let proof_path = proof_path.as_ref();
         if !self.config.package_dir.is_dir() {
-            return Err(anyhow!(
-                "Lean package directory does not exist: {}",
-                self.config.package_dir.display()
+            return Ok(unavailable_result(
+                &self.unprobed_evidence(String::new()),
+                "checker_release_mismatch",
             ));
         }
         let artifact_workspace = CheckerArtifactWorkspace::create()?;
@@ -844,7 +875,18 @@ impl LeanRunner {
         }
 
         let actual_hash = checker_artifact_hash(&self.config.package_dir).unwrap_or_default();
-        if actual_hash != CHECKER_RELEASE_HASH {
+        if self
+            .config
+            .checker_artifact_allowlist
+            .as_ref()
+            .is_some_and(|hashes| !hashes.contains(&actual_hash))
+            || checker_audit_grammar(&actual_hash).is_none()
+            || self
+                .config
+                .expected_checker_artifact_hash
+                .as_ref()
+                .is_some_and(|pin| pin != &actual_hash)
+        {
             let evidence = LeanRunnerEvidence {
                 verifier_hash: self.config.verifier_hash.clone(),
                 checker: "direct lean source checker + artifact audit".into(),
@@ -861,8 +903,16 @@ impl LeanRunner {
             };
             return Ok(unavailable_result(&evidence, "checker_release_mismatch"));
         }
-        let evidence = self.evidence()?;
-        if evidence.checker_artifact_hash != CHECKER_RELEASE_HASH {
+        let evidence = match self.evidence() {
+            Ok(evidence) => evidence,
+            Err(_) => {
+                return Ok(unavailable_result(
+                    &self.unprobed_evidence(actual_hash),
+                    "toolchain_unavailable",
+                ))
+            }
+        };
+        if evidence.checker_artifact_hash != actual_hash {
             return Ok(unavailable_result(&evidence, "checker_release_mismatch"));
         }
         let toolchain_runtime =
@@ -989,17 +1039,14 @@ impl LeanRunner {
             Err(err) => return Ok(unavailable_result(&evidence, format!("{err:#}"))),
         };
 
-        let mut run_config = self.config.clone();
-        run_config.artifact_scratch_dir = Some(artifact_workspace.primary_dir.clone());
-        run_config.package_dir_writable = false;
-        run_config.lean_sysroot = Some(toolchain_runtime.lean_sysroot.clone());
-        run_config.lean_path = Some(request_lean_path.clone());
-        run_config.deny_process_spawn = true;
-        let mut audit_config = self.config.clone();
-        audit_config.package_dir_writable = false;
-        audit_config.lean_sysroot = Some(toolchain_runtime.lean_sysroot.clone());
-        audit_config.lean_path = Some(request_lean_path);
-        audit_config.deny_process_spawn = true;
+        let mut run_config = verification_stage_config(
+            &self.config,
+            &toolchain_runtime,
+            request_lean_path.clone(),
+            Some(artifact_workspace.primary_dir.clone()),
+        );
+        let mut audit_config =
+            verification_stage_config(&self.config, &toolchain_runtime, request_lean_path, None);
 
         // SC.9a / ADR-0016 (a)(b) — the committed step budget rides along
         // as explicit checker args so the verdict never inherits Lean's own
@@ -1163,7 +1210,11 @@ impl LeanRunner {
         let output_truncated = primary.output_truncated || audit.output_truncated;
         let stdout_bytes = primary.stdout_bytes + audit.stdout_bytes;
         let stderr_bytes = primary.stderr_bytes + audit.stderr_bytes;
-        match enforce_axiom_allowlist(&audit) {
+        match match checker_audit_grammar(&evidence.checker_artifact_hash) {
+            Some(AuditGrammar::V1) => enforce_axiom_allowlist_v1(&audit),
+            Some(AuditGrammar::V2) => enforce_axiom_allowlist(&audit),
+            None => unreachable!("release checked before execution"),
+        } {
             Ok(()) => Ok(LeanCheckResult {
                 accepted: true,
                 exit_code: primary.exit_code,
@@ -1332,6 +1383,23 @@ impl LeanRunner {
         })
     }
 
+    fn unprobed_evidence(&self, hash: String) -> LeanRunnerEvidence {
+        LeanRunnerEvidence {
+            verifier_hash: self.config.verifier_hash.clone(),
+            checker: "direct lean source checker + artifact audit".into(),
+            checker_exe: "lean".into(),
+            checker_artifact_hash: hash,
+            package_dir: self.config.package_dir.display().to_string(),
+            lean_version: String::new(),
+            lake_version: String::new(),
+            timeout_ms: self.config.timeout_ms,
+            memory_limit_mb: self.config.memory_limit_mb,
+            output_limit_bytes: self.config.output_limit_bytes,
+            max_heartbeats: self.config.max_heartbeats,
+            max_rec_depth: self.config.max_rec_depth,
+        }
+    }
+
     pub fn evidence(&self) -> Result<LeanRunnerEvidence> {
         // SC.9b / ADR-0016 (a-2) — record the toolchain the checker
         // PROCESS actually runs under (package-dir dispatch), never the
@@ -1398,12 +1466,31 @@ struct SandboxedRunOutcome {
     capture_failed: bool,
 }
 
-/// Relative path (from the checker package root) to the source-reading
-/// primary checker. The package-pinned Lean executable runs this source
-/// directly; there is no prebuilt checker executable in the request path.
+/// Released v2 checker artifact identity (audit grammar v2).
 pub const CHECKER_RELEASE_HASH: &str =
     "d899db43fc2585e912995addef7e6c815428aa985c5415ce73e9bc026ba39b57";
+/// Frozen v1 checker used by existing pinned networks.
+pub const CHECKER_RELEASE_HASH_V1: &str =
+    "f9da3a1c5bcb605a26c8f778e2661e471398864c69393079aed461dd1453d7b4";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuditGrammar {
+    V1,
+    V2,
+}
+
+pub const CHECKER_RELEASES: &[(&str, AuditGrammar)] = &[
+    (CHECKER_RELEASE_HASH_V1, AuditGrammar::V1),
+    (CHECKER_RELEASE_HASH, AuditGrammar::V2),
+];
+
+pub fn checker_audit_grammar(hash: &str) -> Option<AuditGrammar> {
+    CHECKER_RELEASES
+        .iter()
+        .find_map(|(pin, grammar)| (*pin == hash).then_some(*grammar))
+}
+
+/// Relative source-reading primary entrypoint within either released package.
 const PRIMARY_CHECKER_SCRIPT: &str = "BooleCheck/Main.lean";
 
 /// Relative path (from the checker package root) to the dedicated axiom
@@ -1435,9 +1522,22 @@ const AUDIT_SEMANTIC_REJECT_PREFIXES: &[&str] = &[
 /// must be treated as rejection, never as silent acceptance.
 const AXIOM_AUDIT_DONE_SENTINEL: &str = "BOOLE_AXIOM_AUDIT_DONE count=";
 
-/// Only a complete grammar-v2 audit transcript can establish acceptance.
 fn enforce_axiom_allowlist(
     outcome: &SandboxedRunOutcome,
+) -> std::result::Result<(), (LeanVerdict, String)> {
+    enforce_axiom_allowlist_with_grammar(outcome, AuditGrammar::V2)
+}
+
+fn enforce_axiom_allowlist_v1(
+    outcome: &SandboxedRunOutcome,
+) -> std::result::Result<(), (LeanVerdict, String)> {
+    enforce_axiom_allowlist_with_grammar(outcome, AuditGrammar::V1)
+}
+
+/// A complete transcript must match the grammar bound to its released checker.
+fn enforce_axiom_allowlist_with_grammar(
+    outcome: &SandboxedRunOutcome,
+    grammar: AuditGrammar,
 ) -> std::result::Result<(), (LeanVerdict, String)> {
     let unavailable = |reason: &str| {
         (
@@ -1465,7 +1565,11 @@ fn enforce_axiom_allowlist(
         return Err(unavailable("capture_failed"));
     }
     if !outcome.success {
-        if lean_output_reports_budget_exhaustion(&outcome.stderr) {
+        if outcome
+            .stderr_final_line
+            .as_deref()
+            .is_some_and(lean_output_reports_budget_exhaustion)
+        {
             return Err((
                 LeanVerdict::DeterministicReject {
                     reason: REJECT_BUDGET_EXCEEDED.into(),
@@ -1496,6 +1600,20 @@ fn enforce_axiom_allowlist(
     let lines: Vec<_> = outcome.stdout[..outcome.stdout.len() - 1]
         .split('\n')
         .collect();
+    if grammar == AuditGrammar::V1 {
+        if lines.last() != Some(&"BOOLE_AXIOM_AUDIT_DONE") {
+            return Err(rejected());
+        }
+        for line in &lines[..lines.len() - 1] {
+            let Some(name) = line.strip_prefix("BOOLE_AXIOM ") else {
+                return Err(rejected());
+            };
+            if !matches!(name, "propext" | "Classical.choice" | "Quot.sound") {
+                return Err(rejected());
+            }
+        }
+        return Ok(());
+    }
     let count = lines
         .last()
         .and_then(|line| line.strip_prefix(AXIOM_AUDIT_DONE_SENTINEL))
@@ -1512,6 +1630,9 @@ fn enforce_axiom_allowlist(
             .strip_prefix(AXIOM_AUDIT_LINE_PREFIX)
             .ok_or_else(rejected)?;
         let components: serde_json::Value = serde_json::from_str(json).map_err(|_| rejected())?;
+        if serde_json::to_string(&components).map_err(|_| rejected())? != json {
+            return Err(rejected());
+        }
         let array = components
             .as_array()
             .filter(|a| !a.is_empty())
@@ -1538,15 +1659,6 @@ const BUDGET_OVERRIDE_MARKER_PREFIX: &str = "BOOLE_BUDGET_OVERRIDE ";
 /// rejected the submitted source. A non-zero exit without this marker is a
 /// checker/runtime failure and therefore cannot become a proof verdict.
 const PRIMARY_REJECT_MARKER: &str = "BOOLE_PRIMARY_REJECT";
-
-fn combined_output(outcome: &SandboxedRunOutcome) -> String {
-    let mut combined = outcome.stdout.clone();
-    if !combined.is_empty() && !combined.ends_with('\n') {
-        combined.push('\n');
-    }
-    combined.push_str(&outcome.stderr);
-    combined
-}
 
 /// Lean's own diagnostics when a `-D maxHeartbeats`/`-D maxRecDepth` budget
 /// runs out. These strings are produced by the pinned toolchain, so they are
@@ -1590,7 +1702,11 @@ fn classify_failed_run(outcome: &SandboxedRunOutcome) -> LeanVerdict {
     }
     if outcome.stderr_final_line.as_deref() == Some(PRIMARY_REJECT_MARKER) {
         return LeanVerdict::DeterministicReject {
-            reason: if lean_output_reports_budget_exhaustion(&combined_output(outcome)) {
+            reason: if outcome
+                .stderr_final_line
+                .as_deref()
+                .is_some_and(lean_output_reports_budget_exhaustion)
+            {
                 REJECT_BUDGET_EXCEEDED
             } else {
                 REJECT_LEAN_REJECTED
@@ -1721,12 +1837,20 @@ struct AttributeLimits {
     reported_lines: usize,
 }
 
+#[derive(Clone, Deserialize)]
+struct OutputOptions {
+    forbidden_roots: Vec<String>,
+    name_grammar: String,
+}
+
 #[derive(Deserialize)]
 struct TextPolicyData {
     patterns: Vec<TextPattern>,
     safe_attributes: Vec<String>,
     ascii_whitespace: String,
     attribute_limits: AttributeLimits,
+    output_options: OutputOptions,
+    forbidden_name_characters: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -1736,6 +1860,9 @@ struct TextPolicy {
     safe_attributes: Vec<String>,
     ascii_whitespace: String,
     attribute_limits: AttributeLimits,
+    output_options: OutputOptions,
+    option_name: regex_automata::meta::Regex,
+    forbidden_name_ranges: Vec<(u32, u32)>,
 }
 
 impl TryFrom<TextPolicyData> for TextPolicy {
@@ -1755,7 +1882,33 @@ impl TryFrom<TextPolicyData> for TextPolicy {
                 return Err("bounded pattern edges must be ASCII word characters");
             }
         }
+        let option_name =
+            regex_automata::meta::Regex::new(&format!("^(?:{})", data.output_options.name_grammar))
+                .map_err(|_| "invalid output option name grammar")?;
+        let mut forbidden_name_ranges = Vec::new();
+        for range in &data.forbidden_name_characters {
+            let parts: Vec<_> = range.split('-').collect();
+            if parts.len() > 2 {
+                return Err("invalid character range");
+            }
+            let parse = |value: &str| {
+                u32::from_str_radix(
+                    value.strip_prefix("U+").ok_or("invalid character range")?,
+                    16,
+                )
+                .map_err(|_| "invalid character range")
+            };
+            let lo = parse(parts[0])?;
+            let hi = parse(parts[parts.len() - 1])?;
+            if lo > hi || hi > 0x10ffff {
+                return Err("invalid character range");
+            }
+            forbidden_name_ranges.push((lo, hi));
+        }
         Ok(Self {
+            output_options: data.output_options,
+            option_name,
+            forbidden_name_ranges,
             patterns: data.patterns,
             safe_attributes: data.safe_attributes,
             ascii_whitespace: data.ascii_whitespace,
@@ -1998,10 +2151,12 @@ fn disallowed_import_on_line(line: &str) -> Option<String> {
     }
 }
 
-/// Returns the first forbidden token (or disallowed import) found in `path`
-/// together with its 1-based line number, or `None` if the proof is free of
-/// all of them.
+/// Locate an output option disallowed by the digest-bound policy.
 fn output_option_position(text: &str) -> Option<usize> {
+    output_option_position_with_policy(text, text_policy())
+}
+
+fn output_option_position_with_policy(text: &str, policy: &TextPolicy) -> Option<usize> {
     let bytes = text.as_bytes();
     for (start, _) in text.match_indices("set_option") {
         let end = start + 10;
@@ -2014,36 +2169,39 @@ fn output_option_position(text: &str) -> Option<usize> {
         while bytes.get(pos).is_some_and(|b| ascii_space(*b)) {
             pos += 1;
         }
-        if pos == end
-            || !bytes
-                .get(pos)
-                .is_some_and(|b| b.is_ascii_alphabetic() || *b == b'_')
-        {
+        if pos == end {
             return Some(start);
         }
-        let name_start = pos;
-        while bytes.get(pos).is_some_and(|b| ascii_word(*b) || *b == b'.') {
-            pos += 1;
-        }
-        if matches!(
-            text[name_start..pos].split('.').next(),
-            Some("trace" | "profiler" | "diagnostics")
-        ) {
+        let Some(name) = policy.option_name.find(&text[pos..]) else {
+            return Some(start);
+        };
+        if policy
+            .output_options
+            .forbidden_roots
+            .iter()
+            .any(|root| Some(root.as_str()) == text[pos..][name.range()].split('.').next())
+        {
             return Some(start);
         }
     }
     None
 }
 fn forbidden_name_position(text: &str) -> Option<usize> {
+    forbidden_name_position_with_policy(text, text_policy())
+}
+
+fn forbidden_name_position_with_policy(text: &str, policy: &TextPolicy) -> Option<usize> {
     let mut position = 0;
     while let Some(relative) = text[position..].find('«') {
         let start = position + relative;
         let body = start + '«'.len_utf8();
         let end = text[body..].find('»').map_or(text.len(), |n| body + n);
-        if text[body..end]
-            .chars()
-            .any(|c| matches!(c as u32, 0..=31 | 127..=159 | 0x2028 | 0x2029))
-        {
+        if text[body..end].chars().any(|c| {
+            policy
+                .forbidden_name_ranges
+                .iter()
+                .any(|(lo, hi)| (*lo..=*hi).contains(&(c as u32)))
+        }) {
             return Some(start);
         }
         if end == text.len() {
@@ -3165,6 +3323,113 @@ fn run_toolchain_probe(command: Command, config: &LeanRunnerConfig) -> Result<St
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn review_compact_audit_only() {
+        for json in [
+            " [\"propext\"]",
+            "[ \"propext\"]",
+            "[\"propext\"] ",
+            "[\"Classical\", \"choice\"]",
+        ] {
+            let stdout = format!("BOOLE_AXIOM_JSON {json}\nBOOLE_AXIOM_AUDIT_DONE count=1\n");
+            assert!(
+                enforce_axiom_allowlist(&det2_outcome(&stdout, "", true)).is_err(),
+                "{json}"
+            );
+        }
+    }
+    #[test]
+    fn review_budget_labels_ignore_earlier_text() {
+        let primary = det2_outcome(
+            "maximum number of heartbeats\n",
+            "maximum recursion depth has been reached\nBOOLE_PRIMARY_REJECT\n",
+            false,
+        );
+        assert_eq!(
+            classify_failed_run(&primary),
+            LeanVerdict::DeterministicReject {
+                reason: REJECT_LEAN_REJECTED.into()
+            }
+        );
+        let audit = det2_outcome(
+            "",
+            "maximum number of heartbeats\nruntime unavailable\n",
+            false,
+        );
+        assert!(enforce_axiom_allowlist(&audit)
+            .unwrap_err()
+            .0
+            .is_retryable_unavailable());
+    }
+    #[test]
+    fn review_marker_through_real_pipe() {
+        let config = LeanRunnerConfig::new("pipe")
+            .with_package_dir(std::env::temp_dir())
+            .with_isolation_mode(IsolationMode::Log);
+        let runner = LeanRunner::new(config.clone());
+        let mut command = Command::new("/usr/bin/python3");
+        command.args([
+            "-c",
+            "import os,sys;os.write(2,b'x'*102400+b'\\nBOOLE_PRIMARY_REJECT\\n');sys.exit(1)",
+        ]);
+        let outcome = runner.run_sandboxed_with_config(command, &config).unwrap();
+        assert_eq!(outcome.stderr_bytes, 102422);
+        assert!(outcome.output_truncated);
+        assert_eq!(
+            classify_failed_run(&outcome),
+            LeanVerdict::DeterministicReject {
+                reason: REJECT_LEAN_REJECTED.into()
+            }
+        );
+    }
+    #[test]
+    fn review_capture_read_error_is_retryable() {
+        struct Bad;
+        impl Read for Bad {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::other("fixture read error"))
+            }
+        }
+        let drain = Arc::new(Mutex::new(DrainBuffer::new(65536)));
+        spawn_drain(Bad, Arc::clone(&drain)).join().unwrap();
+        let mut outcome = det2_outcome("", "BOOLE_PRIMARY_REJECT\n", false);
+        outcome.capture_failed = drain.lock().unwrap().capture_failed;
+        assert_eq!(
+            classify_failed_run(&outcome),
+            LeanVerdict::RetryableUnavailable {
+                reason: "capture_failed".into()
+            }
+        );
+    }
+    #[test]
+    fn review_operator_pin_rejects_known_other_release_before_probes() {
+        let package = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lean/checker-v1");
+        let directory = CheckerArtifactWorkspace::create().unwrap();
+        let proof = directory.primary_dir.join("Proof.lean");
+        std::fs::write(&proof, "theorem t : True := trivial\n").unwrap();
+        let runner = LeanRunner::new(
+            LeanRunnerConfig::new("pin")
+                .with_package_dir(package)
+                .with_checker_artifact_hash(CHECKER_RELEASE_HASH),
+        );
+        let result = runner.check_file(proof).unwrap();
+        assert_eq!(
+            result.verdict,
+            LeanVerdict::RetryableUnavailable {
+                reason: "checker_release_mismatch".into()
+            }
+        );
+        assert!(result.evidence.lean_version.is_empty());
+    }
+    #[test]
+    fn review_frozen_v1_is_preserved() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lean/checker-v1");
+        assert_eq!(
+            checker_artifact_hash(&dir).unwrap(),
+            "f9da3a1c5bcb605a26c8f778e2661e471398864c69393079aed461dd1453d7b4"
+        );
+    }
+
     fn det2_outcome(stdout: &str, stderr: &str, success: bool) -> SandboxedRunOutcome {
         SandboxedRunOutcome {
             success,
@@ -3312,12 +3577,11 @@ mod tests {
     #[test]
     fn det2_audit_grammar_v2() {
         for stdout in [
-            "BOOLE_AXIOM propext\nBOOLE_AXIOM_AUDIT_DONE\nx✝\n",
+            "malformed audit line\nBOOLE_AXIOM_AUDIT_DONE count=0\n",
             "BOOLE_AXIOM_AUDIT_DONE count=0\nx\n",
             "BOOLE_AXIOM_JSON [\"propext\"]\nBOOLE_AXIOM_JSON [\"Quot\",\"sound\"]\nBOOLE_AXIOM_AUDIT_DONE count=1\n",
             "BOOLE_AXIOM_AUDIT_DONE count=01\n", "BOOLE_AXIOM_AUDIT_DONE count=0\r\n",
             "BOOLE_AXIOM_JSON [\"Classical\",\"choice\",\"x\"]\nBOOLE_AXIOM_AUDIT_DONE count=1\n",
-            "BOOLE_AXIOM_JSON [\"propext\\nBOOLE_AXIOM_AUDIT_DONE\"]\nBOOLE_AXIOM_AUDIT_DONE count=1\n",
         ] {
             let (verdict, _) = enforce_axiom_allowlist(&det2_outcome(stdout, "", true)).expect_err(stdout);
             assert!(matches!(verdict, LeanVerdict::DeterministicReject { ref reason } if reason == REJECT_AXIOM_AUDIT));
@@ -3333,21 +3597,119 @@ mod tests {
         ))
         .unwrap();
         for case in corpus["cases"].as_array().unwrap() {
-            let actual =
-                scan_for_forbidden_tokens_in_bytes(case["source"].as_str().unwrap().as_bytes());
-            let expected = case["hits"].as_array().unwrap().first();
-            match (actual, expected) {
-                (None, None) => {}
-                (Some((label, line)), Some(hit)) => {
-                    assert!(
-                        label.starts_with(hit["label"].as_str().unwrap()),
-                        "{case}: {label}"
-                    );
-                    assert_eq!(line, hit["line"].as_u64().unwrap() as usize);
+            let source = case["source"].as_str().unwrap();
+            let mut actual = Vec::new();
+            for rule in &text_policy().patterns {
+                let mut cursor = 0;
+                while let Some(position) = text_pattern_hit(&source[cursor..], rule) {
+                    let offset = cursor + position;
+                    actual.push((
+                        rule.label.clone(),
+                        1 + source[..offset].bytes().filter(|b| *b == b'\n').count(),
+                    ));
+                    cursor = offset + rule.text.len();
                 }
-                (actual, _) => panic!("{case}: {actual:?}"),
             }
+            for (label, matcher, width) in [
+                (
+                    "output-option",
+                    output_option_position as fn(&str) -> Option<usize>,
+                    10,
+                ),
+                (
+                    "forbidden-name-character",
+                    forbidden_name_position as fn(&str) -> Option<usize>,
+                    '«'.len_utf8(),
+                ),
+            ] {
+                let mut cursor = 0;
+                while let Some(position) = matcher(&source[cursor..]) {
+                    let offset = cursor + position;
+                    actual.push((
+                        label.into(),
+                        1 + source[..offset].bytes().filter(|b| *b == b'\n').count(),
+                    ));
+                    cursor = offset + width;
+                }
+            }
+            let (lines, _) = forbidden_attribute(source);
+            actual.extend(
+                lines
+                    .into_iter()
+                    .map(|line| ("forbidden-attribute".into(), line)),
+            );
+            let mut expected: Vec<_> = case["hits"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|h| {
+                    (
+                        h["label"].as_str().unwrap().to_string(),
+                        h["line"].as_u64().unwrap() as usize,
+                    )
+                })
+                .collect();
+            actual.sort();
+            expected.sort();
+            assert_eq!(actual, expected, "{case}");
         }
+    }
+
+    #[test]
+    fn review_rules_bound_to_policy_fields() {
+        let mut data: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../scripts/zk_registry/data/submission_policy_v5.json"
+        ))
+        .unwrap();
+        data["output_options"]["forbidden_roots"] = serde_json::json!([]);
+        data["forbidden_name_characters"] = serde_json::json!([]);
+        data["output_options"]["name_grammar"] = serde_json::json!("Z+");
+        let policy: TextPolicy = serde_json::from_value(data).unwrap();
+        assert_eq!(
+            output_option_position_with_policy("set_option ZZZ true", &policy),
+            None
+        );
+        assert_eq!(
+            output_option_position_with_policy("set_option pp.foo true", &policy),
+            Some(0)
+        );
+        assert_eq!(
+            forbidden_name_position_with_policy("«x\u{2028}y»", &policy),
+            None
+        );
+    }
+
+    #[test]
+    fn review_release_grammars_are_separate_and_complete() {
+        assert_eq!(
+            checker_audit_grammar(CHECKER_RELEASE_HASH_V1),
+            Some(AuditGrammar::V1)
+        );
+        assert_eq!(
+            checker_audit_grammar(CHECKER_RELEASE_HASH),
+            Some(AuditGrammar::V2)
+        );
+        assert_eq!(checker_audit_grammar("unknown"), None);
+        for text in ["BOOLE_AXIOM_AUDIT_DONE\n","BOOLE_AXIOM propext\nBOOLE_AXIOM Classical.choice\nBOOLE_AXIOM Quot.sound\nBOOLE_AXIOM_AUDIT_DONE\n"] {
+            assert!(enforce_axiom_allowlist_v1(&det2_outcome(text,"",true)).is_ok());
+            assert!(enforce_axiom_allowlist(&det2_outcome(text,"",true)).is_err());
+        }
+        for text in [
+            "malformed line\nBOOLE_AXIOM_AUDIT_DONE\n",
+            "BOOLE_AXIOM_AUDIT_DONE\nextra\n",
+            "BOOLE_AXIOM_AUDIT_DONE\nBOOLE_AXIOM_AUDIT_DONE\n",
+            "BOOLE_AXIOM propext \nBOOLE_AXIOM_AUDIT_DONE\n",
+            "BOOLE_AXIOM_AUDIT_DONE",
+            "BOOLE_AXIOM_AUDIT_DONE count=0\n",
+        ] {
+            assert!(
+                enforce_axiom_allowlist_v1(&det2_outcome(text, "", true)).is_err(),
+                "{text}"
+            );
+        }
+        let mut truncated = det2_outcome("BOOLE_AXIOM_AUDIT_DONE\n", "", true);
+        truncated.stdout_truncated = true;
+        assert!(enforce_axiom_allowlist_v1(&truncated).is_err());
     }
     #[test]
     fn policy_loader_rejects_word_patterns_with_nonword_edges() {
@@ -4788,3 +5150,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(&outside);
     }
 }
+
+#[cfg(test)]
+mod release_controls;

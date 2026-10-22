@@ -9,7 +9,7 @@ class PolicyV5(unittest.TestCase):
             with self.subTest(case=case['name']):
                 actual=C.forbidden_scan([('part',case['source'])])
                 expected=[(h['label'],h['line']) for h in case['hits']]
-                self.assertEqual(sorted(set((h.split(' in ')[0],int(re.search(r'line (\d+)',h)[1])) for h in actual)),sorted(set(expected)))
+                self.assertEqual(sorted((h.split(' in ')[0],int(re.search(r'line (\d+)',h)[1])) for h in actual),sorted(expected))
     def test_historical_vocabulary(self):
         self.assertNotIn('output-command', C.FORBIDDEN_SETS[4])
         self.assertTrue({'output-command','output-option','forbidden-name-character'}<=set(C.FORBIDDEN_SETS[5]))

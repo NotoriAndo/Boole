@@ -76,7 +76,9 @@ class ProductionVerifier:
         except (SandboxUnavailable, OSError, ValueError):
             return self.error('sandbox-unavailable')
         config_path = Path(work_dir) / 'checker-config.json'
-        config_path.write_bytes(canonical(self.config) + b'\n')
+        from . import check as C
+        job_config=dict(self.config,submission_policy=C.current_policy_descriptor())
+        config_path.write_bytes(canonical(job_config) + b'\n')
         task_env = {
             'PATH': self.config.get('native_path', L.SYSTEM_PATH),
             'PYTHONPATH': str(Path(__file__).resolve().parent.parent),
@@ -170,8 +172,14 @@ def ratchet_artifact(problem, report):
     return artifact
 
 
-@FS.guard_submission_io
 def run(config, package_dir, submission_dir, work_dir, *, sandbox=None, acceptance_tools=None):
+    from . import check as C
+    with C.submission_policy(config.get('submission_policy',C.policy_descriptor())):
+        return _run(config,package_dir,submission_dir,work_dir,sandbox=sandbox,acceptance_tools=acceptance_tools)
+
+
+@FS.guard_submission_io
+def _run(config, package_dir, submission_dir, work_dir, *, sandbox=None, acceptance_tools=None):
     """Execute existing final pipeline/core, never a reimplementation of admissibility or proof checks."""
     problem = read_json(Path(package_dir) / 'problem.json')
     errors = P.validate_problem(problem, package_dir)

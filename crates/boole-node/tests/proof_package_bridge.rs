@@ -492,6 +492,8 @@ fn synthetic_accepted_lean_result(stdout: &str) -> LeanCheckResult {
         stderr: String::new(),
         timed_out: false,
         output_truncated: false,
+        stdout_bytes: 0,
+        stderr_bytes: 0,
         verdict: boole_lean_runner::LeanVerdict::Accepted,
         evidence: LeanRunnerEvidence {
             verifier_hash: "bridge-verifier-hash".to_string(),

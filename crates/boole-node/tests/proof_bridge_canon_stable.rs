@@ -21,6 +21,8 @@ fn synthetic_lean_result(lean_version: &str, lake_version: &str, stdout: &str) -
         stderr: String::new(),
         timed_out: false,
         output_truncated: false,
+        stdout_bytes: 0,
+        stderr_bytes: 0,
         verdict: boole_lean_runner::LeanVerdict::Accepted,
         evidence: LeanRunnerEvidence {
             verifier_hash: "bridge-verifier-hash".to_string(),
@@ -72,5 +74,32 @@ fn toolchain_version_change_does_not_change_canon_hash() {
     assert_eq!(
         package_a, package_b,
         "a lean/lake toolchain bump (and its stdout) must not change the canon package"
+    );
+}
+
+#[test]
+fn diagnostic_byte_counters_never_enter_canonical_bytes() {
+    let mut result = synthetic_lean_result("Lean 4.29.1", "Lake 5.0.0", "");
+    let source = b"theorem counter : True := trivial\n";
+    let before = canonical_pofp_package_from_lean_result_and_source(&result, source);
+    let bound = boole_core::lean_bound_canon_package(
+        &result.evidence.verifier_hash,
+        &result.evidence.checker_artifact_hash,
+        std::str::from_utf8(source).unwrap(),
+    );
+    result.stdout_bytes = u64::MAX;
+    result.stderr_bytes = 123456789;
+    result.output_truncated = true;
+    assert_eq!(
+        before,
+        canonical_pofp_package_from_lean_result_and_source(&result, source)
+    );
+    assert_eq!(
+        bound,
+        boole_core::lean_bound_canon_package(
+            &result.evidence.verifier_hash,
+            &result.evidence.checker_artifact_hash,
+            std::str::from_utf8(source).unwrap()
+        )
     );
 }

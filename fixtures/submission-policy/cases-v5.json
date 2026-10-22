@@ -187,6 +187,10 @@
         {
           "label": "forbidden-name-character",
           "line": 1
+        },
+        {
+          "label": "forbidden-name-character",
+          "line": 1
         }
       ]
     },
@@ -234,6 +238,69 @@
       "name": "allowed-8",
       "source": "set_option traceOf true",
       "hits": []
+    },
+    {
+      "name": "multiple-output-forms",
+      "source": "#check Nat\n#synth Inhabited Nat\nset_option trace.foo true\nset_option diagnostics true\n",
+      "hits": [
+        {
+          "label": "output-command",
+          "line": 1,
+          "word": "#check"
+        },
+        {
+          "label": "output-command",
+          "line": 2,
+          "word": "#synth"
+        },
+        {
+          "label": "output-option",
+          "line": 3,
+          "word": "set_option"
+        },
+        {
+          "label": "output-option",
+          "line": 4,
+          "word": "set_option"
+        }
+      ]
+    },
+    {
+      "name": "multiple-name-and-command-findings",
+      "source": "example «first name» : True := trivial\n#check Nat\nexample «second name» : True := trivial\n",
+      "hits": [
+        {
+          "label": "output-command",
+          "line": 2,
+          "word": "#check"
+        },
+        {
+          "label": "forbidden-name-character",
+          "line": 1,
+          "word": "«"
+        },
+        {
+          "label": "forbidden-name-character",
+          "line": 3,
+          "word": "«"
+        }
+      ]
+    },
+    {
+      "name": "duplicate-command-hits",
+      "source": "#check Nat; #check Bool\n",
+      "hits": [
+        {
+          "label": "output-command",
+          "line": 1,
+          "word": "#check"
+        },
+        {
+          "label": "output-command",
+          "line": 1,
+          "word": "#check"
+        }
+      ]
     }
   ]
 }

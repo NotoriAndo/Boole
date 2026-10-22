@@ -82,10 +82,18 @@ that links against an unexpected compiler is detectable post-hoc.
 
 ## Audit transcript v2 and policy v5
 
-The runner accepts only this release hash. A different checker is retryable
-`checker_release_mismatch` before any toolchain is run. Existing network genesis
-pins remain unchanged; operators activate this release through a new gate epoch
-or a new genesis and an explicit checker hash allowlist.
+The runner selects the grammar from its known release table. Existing network
+pins keep using the byte-identical frozen v1 package at `../checker-v1/`.
+
+| Checker artifact SHA-256 | Package | Audit grammar |
+|---|---|---|
+| `f9da3a1c5bcb605a26c8f778e2661e471398864c69393079aed461dd1453d7b4` | `lean/checker-v1` | strict v1 |
+| `d899db43fc2585e912995addef7e6c815428aa985c5415ce73e9bc026ba39b57` | `lean/checker` | v2 |
+
+The selected package must match the network genesis or operator allowlist. Unknown
+hashes are retryable `checker_release_mismatch` before toolchain probes. A v1
+transcript contains only exact axiom-name records followed by one final
+`BOOLE_AXIOM_AUDIT_DONE` line and LF; incomplete or extra output rejects.
 
 A successful audit writes zero or more `BOOLE_AXIOM_JSON <array>` lines followed
 by exactly `BOOLE_AXIOM_AUDIT_DONE count=<n>` and LF. Names are root-first JSON
@@ -96,5 +104,7 @@ audit output is `axiom_audit_rejected`. Capture failures remain retryable.
 
 Primary failure markers are authoritative only as the final complete stderr
 line. Drains retain bounded head and tail bytes and record total byte counts.
+New store descriptors select policy v5 independently of the checker release.
+Legacy stores select recorded v4; checking and replay verify the policy SHA-256.
 Policy v5 adds output commands, output options and name control characters to
 the shared text scan. Policies v1–v4 remain readable for historical metadata.

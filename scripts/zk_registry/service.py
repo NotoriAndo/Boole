@@ -575,7 +575,9 @@ class Registry:
                         metadata_path.write_bytes(canonical(metadata) + b'\n')
                     if self.verifier is None:
                         raise RegistryError('production checker configuration required')
-                    verdict = self.verifier(package_dir, submission_dir, work_dir)
+                    from . import check as C
+                    with C.submission_policy(state.get('submission_policy')):
+                        verdict = self.verifier(package_dir, submission_dir, work_dir)
                     if not isinstance(verdict, dict) or verdict.get('verdict') not in (
                             'PASS', 'INVALID', 'FAIL', 'ERROR', 'REJECTED'):
                         raise RegistryError('checker returned an invalid verdict')

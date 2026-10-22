@@ -444,7 +444,7 @@ fn named_network_boot_fails_fast_on_non_consensus_multiplier() {
 // is a typed refusal, not a warning.
 
 fn canonical_checker_dir() -> PathBuf {
-    repo_root().join("lean").join("checker")
+    repo_root().join("lean").join("checker-v1")
 }
 
 fn lake_and_lean_available() -> bool {
@@ -479,6 +479,14 @@ fn copy_checker(tag: &str) -> PathBuf {
 
 /// Boot under the pinned network name with a configured Lean checker dir.
 fn boot_testnet2_with_checker(tag: &str, checker_dir: PathBuf) -> Boot {
+    boot_testnet2_with_checker_and_scenario(tag, checker_dir, scenario_path())
+}
+
+fn boot_testnet2_with_checker_and_scenario(
+    tag: &str,
+    checker_dir: PathBuf,
+    scenario: PathBuf,
+) -> Boot {
     let dir = std::env::temp_dir().join(format!(
         "boole-sc9b-boot-{tag}-{}-{}",
         std::process::id(),
@@ -498,7 +506,7 @@ fn boot_testnet2_with_checker(tag: &str, checker_dir: PathBuf) -> Boot {
         serve_local_node_with_p2p(
             listener,
             LocalNodeConfig {
-                scenario_path: scenario_path(),
+                scenario_path: scenario,
                 block_path,
                 reward_ledger_path: Some(rewards),
                 work_manifests_path: None,
@@ -777,4 +785,36 @@ fn preset_pin_matches_released_checker_toolchain_manifest() {
             "SHA256SUMS must cover {required}"
         );
     }
+}
+
+#[test]
+fn existing_testnet_genesis_boots_and_verifies_with_frozen_v1() {
+    if !lake_and_lean_available() {
+        return;
+    }
+    let preset = boole_core::network_genesis_preset("boole-testnet-2").unwrap();
+    let pin = preset.params.checker_artifact_hash.as_ref().unwrap();
+    assert_eq!(pin, boole_lean_runner::CHECKER_RELEASE_HASH_V1);
+    let checker = canonical_checker_dir();
+    let boot = boot_testnet2_with_checker_and_scenario(
+        "frozen-v1",
+        checker.clone(),
+        testnet2_scenario_path(),
+    );
+    assert_eq!(http_get(boot.addr, "/status").0, 200);
+    let proof = boot.dir.join("Proof.lean");
+    fs::write(
+        &proof,
+        "import Boole.Family.V0Helpers\ntheorem existing_network : True := trivial\n",
+    )
+    .unwrap();
+    let runner = boole_lean_runner::LeanRunner::new(
+        boole_lean_runner::LeanRunnerConfig::new("existing-network")
+            .with_package_dir(checker)
+            .with_checker_artifact_hash(pin)
+            .with_timeout_ms(30000),
+    );
+    let result = runner.check_file(proof).unwrap();
+    assert!(result.accepted, "{result:?}");
+    stop(boot);
 }
