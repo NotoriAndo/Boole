@@ -18,6 +18,7 @@ and zero fee scalars. L1 block zero anchors L2 genesis.
 Read logs by blockHash, inbox address and topic0; sort by (transactionIndex,
 logIndex). The ABI data is word 32, length, item (and optional trailing padding).
 An item is kind byte followed by body. Kind `0x01` carries one EIP-2718 user tx.
+The M1 inbox corrupts items above 65,536 bytes and is unsuitable for M2.
 
 **D3 — Finality and restart.** L2 height h derives only from finalized L1 height
 h, one block per height including empty blocks. Anvil finality is latest minus

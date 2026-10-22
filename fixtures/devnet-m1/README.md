@@ -1,5 +1,7 @@
 # Devnet M1 fixtures
 
+Warning: the M1 inbox corrupts items above 65,536 bytes and is unsuitable for M2.
+
 Provenance: S1b local spike, 2026-10-20, op-reth v2.6.0, Foundry v1.8.5.
 
 Genesis files are byte-for-byte copies. Recorded profiles contain all 35 main

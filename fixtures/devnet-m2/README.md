@@ -21,6 +21,21 @@ These are derivation and client fixtures, not kernel-certified proofs or product
 - `l1-gas-limits-v1.json`: separate fresh-node probes at 2^24 and 2^24+1 gas.
   Pinned anvil admits and mines both with 21,000 gas used; this configuration
   does not enforce the EIP-7825 transaction gas limit.
+- `adversarial-v1.json` and `rounds-v1.json`: I6's 72 heights and I7's 80
+  heights, each compared on live and recorded A/B/C and replayed offline against
+  the pure model at every height. The full compared values are in each row.
+- `zstd-pin-v1.json`: exact darwin-arm64 codec executable identity. Tests require
+  `BOOLE_DEVNET_ZSTD`; the executable is checked before use, with no PATH lookup.
+
+Regenerate using the tracked `m2_devnet` integration test with the pinned client
+variables from the M1 README and `BOOLE_DEVNET_ZSTD`. Set
+`BOOLE_DEVNET_M2_RECORDING`, `BOOLE_DEVNET_I6_RECORDING` and
+`BOOLE_DEVNET_I7_RECORDING` to distinct candidate output paths. The tracked
+generator constructs the full L1 genesis, source genesis hashes and inbox-change
+provenance before writing each file after successful comparisons and strict
+cleanup. No metadata injection or private comparison-log digest is required.
+For the M1 schedule use `m1_schedule` and `BOOLE_DEVNET_SCHEDULE_RECORDING`.
+Accepted fixtures keep the compared attributes, decisions, roots and observations.
 
 The client recording uses a deterministic test generator package and synthetic
 configuration identities. Its compressed bytes exercise codec framing, size,

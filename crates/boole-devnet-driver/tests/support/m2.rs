@@ -270,7 +270,7 @@ pub fn frame(path: &Path) -> Result<(Vec<u8>, Vec<u8>, Value)> {
     }
     let input = path.join("export.raw");
     fs::write(&input, &raw)?;
-    let output = Command::new("zstd")
+    let output = Command::new(zstd_binary()?)
         .args(["-q", "-1", "--check", "--no-dictID", "--stdout"])
         .arg(&input)
         .output()?;
@@ -279,8 +279,8 @@ pub fn frame(path: &Path) -> Result<(Vec<u8>, Vec<u8>, Value)> {
     }
     let compressed = output.stdout;
     assert_eq!(compressed.len().div_ceil(PART_SIZE), 14);
-    let version = Command::new("zstd").arg("--version").output()?;
-    let info = json!({"decoder":String::from_utf8(version.stdout)?.trim(),"raw_len":raw.len(),"z_len":compressed.len(),"export_digest":hex_string(&hash(&raw)),"codec":1});
+    let version = Command::new(zstd_binary()?).arg("--version").output()?;
+    let info = json!({"decoder":String::from_utf8(version.stdout)?.trim(),"raw_len":raw.len(),"z_len":compressed.len(),"export_digest":hex_string(&hash(&raw)),"codec":1,"binary_sha256":format!("{:x}",Sha256::digest(fs::read(zstd_binary()?)?))});
     Ok((raw, compressed, info))
 }
 pub fn check_frame(path: &Path, compressed: &[u8], raw: &[u8]) -> Result<Value> {
@@ -315,13 +315,13 @@ pub fn check_frame(path: &Path, compressed: &[u8], raw: &[u8]) -> Result<Value> 
     assert!(window.unwrap_or(content) <= content.min(1 << 27));
     let file = path.join("reconstructed.zst");
     fs::write(&file, compressed)?;
-    let out = Command::new("zstd")
+    let out = Command::new(zstd_binary()?)
         .args(["-q", "-d", "--stdout"])
         .arg(&file)
         .output()?;
     assert!(out.status.success());
     assert_eq!(out.stdout, raw);
-    let listed = Command::new("zstd")
+    let listed = Command::new(zstd_binary()?)
         .args(["--list", "--verbose"])
         .arg(&file)
         .output()?;
@@ -340,4 +340,47 @@ pub fn check_frame(path: &Path, compressed: &[u8], raw: &[u8]) -> Result<Value> 
     Ok(
         json!({"content_size":content,"window":window.unwrap_or(content),"checksum":true,"no_dictionary":true,"single_frame":true,"export_digest":hex_string(&hash(raw)),"list":public_list}),
     )
+}
+
+/// The complete L1 input used by all M2 scenarios, including the test caller.
+pub fn l1_genesis_value() -> Result<Value> {
+    let mut g: Value = serde_json::from_slice(&fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/devnet-m2/l1-genesis-v1.json"),
+    )?)?;
+    g["alloc"][BATCHER] = json!({"code":hex_string(&batch_runtime()),"balance":"0x0"});
+    Ok(g)
+}
+/// Called by the tracked generators before writing accepted recordings.
+pub fn bind_provenance(data: &mut Value) -> Result<()> {
+    let g = l1_genesis_value()?;
+    data["l1_genesis"] = g.clone();
+    data["provenance"]["l1_genesis_sha256"] = json!(format!(
+        "{:x}",
+        Sha256::digest(serde_json::to_vec_pretty(&g)?)
+    ));
+    data["provenance"]["source_l1_genesis_sha256"] = json!(format!(
+        "{:x}",
+        Sha256::digest(fs::read(super::fixture("l1-genesis.json"))?)
+    ));
+    data["provenance"]["source_genesis_sha256"] = json!(hex_string(&hash(&fs::read(
+        super::fixture("l2-genesis.json")
+    )?)));
+    data["provenance"]["inbox_change"]=json!("Keep size scratch at max(0x10000, MSIZE after calldata copy), outside emitted bytes; preserve small-call memory cost.");
+    if let Some(a) = data["acceptance"].as_object_mut() {
+        a.remove("comparison_output_sha256");
+    }
+    Ok(())
+}
+pub fn zstd_binary() -> Result<std::path::PathBuf> {
+    let path = std::env::var_os("BOOLE_DEVNET_ZSTD").ok_or_else(|| {
+        anyhow::anyhow!("BOOLE_DEVNET_ZSTD must name the pinned codec executable")
+    })?;
+    let path = std::path::PathBuf::from(path);
+    let pin: Value = serde_json::from_slice(&fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/devnet-m2/zstd-pin-v1.json"),
+    )?)?;
+    if format!("{:x}", Sha256::digest(fs::read(&path)?)) != pin["sha256"].as_str().unwrap_or("") {
+        bail!("zstd binary digest mismatch");
+    }
+    Ok(path)
 }

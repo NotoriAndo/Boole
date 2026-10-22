@@ -46,6 +46,15 @@ fn i4_anvil_gas_limit_admission_and_mining() -> Result<()> {
                 observed["admission_error"] = json!(format!("{error:#}"));
             }
         }
+        assert_eq!(
+            observed["admitted"], true,
+            "pinned anvil admission at {gas}"
+        );
+        assert_eq!(
+            observed["mine_rpc_succeeded"], true,
+            "pinned anvil mining at {gas}"
+        );
+        assert_eq!(observed["mined"], true, "pinned anvil receipt at {gas}");
         fs::write(
             rt.path.join("observation.json"),
             serde_json::to_vec_pretty(&observed)?,
@@ -61,5 +70,31 @@ fn i4_anvil_gas_limit_admission_and_mining() -> Result<()> {
         "I4 gas-limit observations: {}",
         serde_json::to_string(&value["observations"])?
     );
+    Ok(())
+}
+
+#[test]
+fn review_cli_refuses_old_inbox_before_engine_startup() -> Result<()> {
+    let Some(anvil) = pinned("BOOLE_DEVNET_ANVIL", "anvil")? else {
+        return Ok(());
+    };
+    let mut rt = Runtime::new("old-inbox-startup")?;
+    rt.anvil(&anvil)?;
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_boole-devnet-driver"))
+        .args([
+            "--l1-rpc",
+            "http://127.0.0.1:28545",
+            "--engine-rpc",
+            "http://127.0.0.1:28546",
+            "--node-rpc",
+            "http://127.0.0.1:28547",
+            "--jwt-secret",
+        ])
+        .arg(rt.path.join("unused-jwt"))
+        .args(["--until", "0"])
+        .output()?;
+    assert!(!out.status.success());
+    assert!(String::from_utf8(out.stderr)?.contains("M2 inbox runtime"));
+    rt.finish(true)?;
     Ok(())
 }

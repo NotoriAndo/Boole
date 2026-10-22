@@ -46,10 +46,14 @@ pub struct Driver<L, E> {
 }
 impl<L: L1Source, E: Engine> Driver<L, E> {
     pub fn new(l1: L, engine: E) -> Self {
-        Self::with_config(l1, engine, Config::devnet(), 30_000_000)
+        Self::construct(l1, engine, Config::devnet(), 30_000_000)
             .expect("valid built-in devnet config")
     }
-    pub fn with_config(l1: L, engine: E, config: Config, l2_gas_limit: u64) -> Result<Self> {
+    pub fn with_config(mut l1: L, engine: E, config: Config, l2_gas_limit: u64) -> Result<Self> {
+        l1.validate_m2_inbox()?;
+        Self::construct(l1, engine, config, l2_gas_limit)
+    }
+    fn construct(l1: L, engine: E, config: Config, l2_gas_limit: u64) -> Result<Self> {
         config
             .validate(l2_gas_limit)
             .map_err(|s| anyhow::anyhow!("M2 startup invariant S{s}"))?;
@@ -85,6 +89,17 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
             serde_json::to_vec(&json!({"config":self.config,"l2_gas_limit":self.l2_gas_limit}))?,
         )))
     }
+    fn check_m2_transport(&mut self, logs: &[boole_derivation::InboxLog]) -> Result<()> {
+        for log in logs {
+            if let Ok(bytes) = boole_derivation::attributes::hex_bytes(&log.data, "log") {
+                if let Ok((2..=15, _)) = boole_derivation::inbox::item(&bytes) {
+                    self.l1.validate_m2_inbox()?;
+                    break;
+                }
+            }
+        }
+        Ok(())
+    }
     fn state_for_parent(&mut self, parent: &ParentHeader) -> Result<State> {
         if let Some(saved) = &self.checkpoint {
             if saved["version"] != 1
@@ -114,6 +129,11 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
                     .header(height)
                     .context("L2 history for re-fold")?
             };
+            if header.number != height
+                || header.parent_hash.as_deref() != Some(previous.hash.as_str())
+            {
+                bail!("L2 re-fold parentHash chain mismatch");
+            }
             let deposit = header
                 .l1_info
                 .as_deref()
@@ -131,6 +151,7 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
                 .l1
                 .inbox_logs(&origin)
                 .context("anchored re-fold logs")?;
+            self.check_m2_transport(&logs)?;
             let (derived, next) = derive_with_m2(&state, &self.config, &l1, &logs, &previous)
                 .context("pure anchored re-fold")?;
             if derived.attributes.transactions.first().map(String::as_str) != Some(deposit) {
@@ -224,6 +245,7 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
         if let Err(error) = &result {
             record["outcome"] = json!("STALL");
             record["error"] = json!(format!("{error:#}"));
+            record["m2_root"] = json!(boole_derivation::attributes::hex_string(&self.m2.root));
         }
         let persisted = (|| -> Result<()> {
             if let Some(file) = &mut self.evidence {
@@ -234,6 +256,7 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
             Ok(())
         })();
         let result = result.and_then(|outcome| persisted.map(|_| outcome));
+        let checkpoint_attempt = result.is_ok();
         let pending = self.pending.take();
         let result = result.and_then(|outcome| {
             if let Some(state) = pending {
@@ -247,6 +270,29 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
             }
             Ok(outcome)
         });
+        if checkpoint_attempt {
+            if let Err(error) = &result {
+                record["outcome"] = json!("STALL");
+                record["error"] = json!(format!("{error:#}"));
+                record["m2_root"] = json!(boole_derivation::attributes::hex_string(&self.m2.root));
+                if let Some(file) = &mut self.evidence {
+                    let appended = (|| -> Result<()> {
+                        serde_json::to_writer(&mut *file, &record)?;
+                        file.write_all(b"\n")?;
+                        file.flush()?;
+                        Ok(())
+                    })();
+                    if let Err(write_error) = appended {
+                        let stall = Stall {
+                            height,
+                            reason: format!("{error:#}; append STALL evidence: {write_error:#}"),
+                        };
+                        self.stalled = Some(stall.clone());
+                        return Err(stall);
+                    }
+                }
+            }
+        }
         match result {
             Ok(outcome) => Ok(outcome),
             Err(error) => {
@@ -291,6 +337,7 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
         if serde_json::to_value(&l1)? != serde_json::to_value(&reread)? {
             bail!("L1 block changed between reads");
         }
+        self.check_m2_transport(&logs)?;
         let previous = self.state_for_parent(&parent)?;
         let (derived, next) = derive_with_m2(&previous, &self.config, &l1, &logs, &parent)
             .context("pure derivation input")?;

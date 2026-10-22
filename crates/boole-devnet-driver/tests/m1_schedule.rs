@@ -34,6 +34,7 @@ fn schedule() -> Result<Vec<Value>> {
 #[test]
 fn new_schedule_fixture_preserves_raws_and_binds_provenance() -> Result<()> {
     let f = fixture_json(NEW)?;
+    assert!(f["acceptance"].get("comparison_output_sha256").is_none());
     assert_eq!(f["acceptance"]["live_abc"], true);
     assert_eq!(f["acceptance"]["recorded_abc"], true);
     assert_eq!(

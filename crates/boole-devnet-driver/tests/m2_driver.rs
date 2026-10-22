@@ -1,7 +1,7 @@
 //! T15–T16: four Engine calls, transactional state and hash-anchored restart.
 use anyhow::{bail, Result};
 use boole_derivation::{
-    derive,
+    attributes::derive_m1,
     m2::{Config, State},
     InboxLog, L1Block, ParentHeader,
 };
@@ -125,6 +125,7 @@ impl Engine for Client {
         Ok(match m {
             "engine_forkchoiceUpdatedV3" => {
                 if p[1].is_null() {
+                    self.head.parent_hash = Some(self.head.hash.clone());
                     self.head.number += 1;
                     self.head.hash = p[0]["headBlockHash"].as_str().unwrap().into();
                     self.head.timestamp = u64::from_str_radix(
@@ -156,7 +157,7 @@ fn t15_m2_adds_no_engine_call_or_payload() {
     let mut l = Source::new();
     let mut client = Client::new();
     let parent = client.head().unwrap();
-    let expected = derive(&l.block(1).unwrap(), &l.rows[&1].1, &parent).unwrap();
+    let expected = derive_m1(&l.block(1).unwrap(), &l.rows[&1].1, &parent).unwrap();
     let mut d = Driver::new(l, client);
     let StepOutcome::Derived(actual) = d.step(1).unwrap() else {
         panic!("wait")
@@ -218,10 +219,8 @@ fn t16_stall_preserves_previous_state_and_rpc_failure_is_sticky() {
 }
 #[test]
 fn t16_checkpoint_roundtrip_and_tamper_stalls() {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target")
-        .join(format!("m2-checkpoint-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let temporary = TestDir::new("checkpoint");
+    let dir = &temporary.0;
     let path = dir.join("checkpoint.json");
     let mut a = Driver::new(Source::new(), Client::new());
     a.set_journal(&path).unwrap();
@@ -240,8 +239,6 @@ fn t16_checkpoint_roundtrip_and_tamper_stalls() {
     c.set_journal(&path).unwrap();
     assert!(c.step(3).unwrap_err().reason.contains("checkpoint"));
     assert_eq!(c.m2_state().height(), 0);
-    std::fs::remove_file(path).unwrap();
-    std::fs::remove_dir(dir).unwrap();
 }
 
 #[test]
@@ -270,10 +267,8 @@ fn t16_repeated_height_stalls_without_state_change() {
 }
 #[test]
 fn t16_checkpoint_collision_preserves_existing_file_and_state() {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target")
-        .join(format!("m2-collision-{}", std::process::id()));
-    std::fs::create_dir(&dir).unwrap();
+    let temporary = TestDir::new("collision");
+    let dir = &temporary.0;
     let path = dir.join("checkpoint.json");
     let collision = path.with_extension(format!("tmp-{}", std::process::id()));
     std::fs::write(&collision, b"preserve existing temporary file").unwrap();
@@ -290,8 +285,6 @@ fn t16_checkpoint_collision_preserves_existing_file_and_state() {
         b"preserve existing temporary file"
     );
     assert!(!path.exists());
-    std::fs::remove_file(collision).unwrap();
-    std::fs::remove_dir(dir).unwrap();
 }
 #[test]
 fn t16_changed_cached_parent_hash_stalls_before_engine() {
@@ -315,4 +308,170 @@ fn t16_verified_restart_parent_survives_next_height_stall() {
     assert!(restarted.step(2).is_err());
     assert_eq!(restarted.m2_state().height(), 1);
     assert_eq!(restarted.m2_state().root, parent_root);
+}
+
+fn evidence_rows(path: &std::path::Path) -> Vec<Value> {
+    std::fs::read_to_string(path)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect()
+}
+#[test]
+fn review_checkpoint_failure_appends_stall_with_previous_root() {
+    let dir = TestDir::new("evidence-collision");
+    let path = dir.0.join("checkpoint.json");
+    let evidence = dir.0.join("evidence.jsonl");
+    let collision = path.with_extension(format!("tmp-{}", std::process::id()));
+    std::fs::write(&collision, b"owned elsewhere").unwrap();
+    let mut d = Driver::new(Source::new(), Client::new());
+    let previous = d.m2_state().root;
+    d.set_journal(&path).unwrap();
+    d.set_evidence(&evidence).unwrap();
+    assert!(d.step(1).is_err());
+    let rows = evidence_rows(&evidence);
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["outcome"], "DERIVED");
+    assert_eq!(rows[1]["outcome"], "STALL");
+    assert_eq!(
+        rows[1]["m2_root"],
+        boole_derivation::attributes::hex_string(&previous)
+    );
+}
+#[test]
+fn review_fold_stall_evidence_keeps_previous_root() {
+    let dir = TestDir::new("fold-stall");
+    let path = dir.0.join("evidence.jsonl");
+    let mut d = Driver::new(Source::new(), Client::new());
+    d.set_evidence(&path).unwrap();
+    d.step(1).unwrap();
+    let previous = d.m2_state().root;
+    d.engine.fail = true;
+    assert!(d.step(2).is_err());
+    let rows = evidence_rows(&path);
+    assert_eq!(rows[1]["outcome"], "STALL");
+    assert_eq!(
+        rows[1]["m2_root"],
+        boole_derivation::attributes::hex_string(&previous)
+    );
+}
+#[test]
+fn review_refold_rejects_broken_l2_parent_chain() {
+    let mut a = Driver::new(Source::new(), Client::new());
+    for h in 1..=3 {
+        a.step(h).unwrap();
+    }
+    let mut value = serde_json::to_value(&a.engine.history[&2]).unwrap();
+    value["parentHash"] = json!(format!("0x{}", "ff".repeat(32)));
+    a.engine
+        .history
+        .insert(2, serde_json::from_value(value).unwrap());
+    let calls = a.engine.calls.len();
+    let mut b = Driver::new(Source::new(), a.engine);
+    assert!(b.step(4).unwrap_err().reason.contains("parentHash"));
+    assert_eq!(b.engine.calls.len(), calls);
+    assert_eq!(b.m2_state().height(), 0);
+}
+struct TestDir(std::path::PathBuf);
+impl TestDir {
+    fn new(name: &str) -> Self {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let root = std::env::var_os("CARGO_TARGET_DIR")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| {
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target")
+            })
+            .join("m2-driver-tests");
+        std::fs::create_dir_all(&root).unwrap();
+        loop {
+            let path = root.join(format!(
+                "{name}-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            match std::fs::create_dir(&path) {
+                Ok(()) => return Self(path),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(e) => panic!("{e}"),
+            }
+        }
+    }
+}
+impl Drop for TestDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+#[test]
+fn review_restart_from_open_reveal_and_round_matches_full_state() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../fixtures/devnet-m2/commit-reveal-v1.json"
+    ))
+    .unwrap();
+    let config: Config = serde_json::from_value(fixture["config"].clone()).unwrap();
+    let rows = fixture["heights"].as_array().unwrap();
+    let mut source = Source::new();
+    source.rows = rows
+        .iter()
+        .map(|r| {
+            let l: L1Block = serde_json::from_value(r["l1"].clone()).unwrap();
+            (
+                l.number,
+                (l, serde_json::from_value(r["logs"].clone()).unwrap()),
+            )
+        })
+        .collect();
+    let mut client = Client::new();
+    client.head = serde_json::from_value(rows[0]["parent"].clone()).unwrap();
+    client.history = [(0, client.head.clone())].into();
+    let mut a = Driver::with_config(source.clone(), client, config.clone(), 30_000_000).unwrap();
+    for h in 1..=17 {
+        a.step(h).unwrap();
+    }
+    assert!(!a.m2_state().rounds.is_empty());
+    assert!(a
+        .m2_state()
+        .candidates
+        .values()
+        .any(|c| c.status() == boole_derivation::m2::Status::Open));
+    assert!(a.m2_state().candidates.len() >= 3);
+    let mut b = Driver::with_config(source, a.engine.clone(), config, 30_000_000).unwrap();
+    for h in 18..=35 {
+        a.step(h).unwrap();
+        b.step(h).unwrap();
+        assert_eq!(format!("{:?}", a.m2_state()), format!("{:?}", b.m2_state()));
+    }
+    assert_eq!(b.l1.hash_reads.len(), 17);
+    assert!(b.l1.number_reads.iter().all(|h| *h >= 18));
+}
+#[test]
+fn review_ahead_checkpoint_stalls_without_changing_it() {
+    let dir = TestDir::new("ahead");
+    let path = dir.0.join("checkpoint.json");
+    let mut a = Driver::new(Source::new(), Client::new());
+    a.set_journal(&path).unwrap();
+    a.step(1).unwrap();
+    let saved = std::fs::read(&path).unwrap();
+    let mut b = Driver::new(Source::new(), Client::new());
+    b.set_journal(&path).unwrap();
+    assert!(b.step(1).unwrap_err().reason.contains("height mismatch"));
+    assert_eq!(saved, std::fs::read(path).unwrap());
+    assert!(b.engine.calls.is_empty());
+}
+
+#[test]
+fn review_temp_directory_honors_target_and_cleans_on_unwind() {
+    let dir = TestDir::new("target-check");
+    if let Some(target) = std::env::var_os("CARGO_TARGET_DIR") {
+        assert!(dir.0.starts_with(target));
+    }
+    let path = dir.0.clone();
+    let failure = std::panic::catch_unwind(move || {
+        let _guard = dir;
+        panic!("injected test failure");
+    });
+    assert!(failure.is_err());
+    assert!(!path.exists());
 }

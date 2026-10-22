@@ -21,7 +21,9 @@ twelve-hour delegation.
 **Devnet M2 (October 22, devnet only).** The
 [commit/reveal spec](devnet-commit-reveal-v1.md) defines deterministic candidate,
 pool and problem-round state. The driver records `m2_root`, persists checkpoints
-and re-folds from L1 hashes anchored in L2 L1-info deposits after restart. The
+and re-folds from L1 hashes anchored in L2 L1-info deposits after restart, checking
+the L2 parent-hash chain. M2 startup pins the deployed inbox runtime; stall evidence
+retains the adopted root. The
 [pure tests](../crates/boole-derivation/tests/m2.rs) cover boundaries, 50,000 mutated
 items and vectors from the registry service; the
 [client tests](../crates/boole-devnet-driver/tests/m2_devnet.rs) compare A/B/C through
@@ -29,7 +31,8 @@ items and vectors from the registry service; the
 A [new M1 schedule](../crates/boole-devnet-driver/tests/m1_schedule.rs) preserves
 every original transaction occurrence and exercises duplicate and status-0 fee
 cases through 35 live and recorded heights. The
-[recordings](../fixtures/devnet-m2/README.md) bind client and genesis provenance.
+[recordings](../fixtures/devnet-m2/README.md) bind client, codec and genesis
+provenance from tracked generators and replay against the pure model offline.
 Kernel proof validation, verdict deposits, minting and reveal escrow remain later
 milestones; these results cover the closed-local devnet.
 

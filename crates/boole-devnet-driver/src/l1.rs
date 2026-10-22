@@ -5,6 +5,11 @@ use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
 pub trait L1Source {
+    /// Offline recordings/mocks have no runtime. RPC sources verify the profile.
+    fn validate_m2_inbox(&mut self) -> Result<()> {
+        Ok(())
+    }
+
     fn finalized(&mut self) -> Result<u64>;
     fn block(&mut self, number: u64) -> Result<L1Block>;
     fn inbox_logs(&mut self, hash: &str) -> Result<Vec<InboxLog>>;
@@ -66,10 +71,30 @@ impl L1Source for RecordedL1 {
     }
 }
 
+/// SHA-256 of the closed devnet M2 inbox runtime, excluding genesis JSON encoding.
+pub const M2_INBOX_RUNTIME_SHA256: &str =
+    "a14704d805198421bae48bf79534bc62d974699f203abc3ed4bc751e35fe0ca6";
+pub fn validate_m2_inbox_code(code: &str) -> Result<()> {
+    use sha2::{Digest, Sha256};
+    let bytes = boole_derivation::attributes::hex_bytes(code, "M2 inbox runtime")?;
+    if format!("{:x}", Sha256::digest(bytes)) != M2_INBOX_RUNTIME_SHA256 {
+        bail!("M2 inbox runtime does not match the devnet profile; use the M2 genesis");
+    }
+    Ok(())
+}
 pub struct RpcL1 {
     rpc: Rpc,
+    m2_validated: bool,
 }
 impl RpcL1 {
+    /// M2 entrypoint: validate deployed code before any Engine or fold activity.
+    /// `new` remains the M1-only fixture transport entrypoint.
+    pub fn new_m2(url: &str) -> Result<Self> {
+        let mut source = Self::new(url)?;
+        source.validate_m2_inbox()?;
+        Ok(source)
+    }
+
     pub fn new(url: &str) -> Result<Self> {
         let rpc = Rpc::new(url)?;
         if rpc.call("eth_chainId", json!([]))?
@@ -77,10 +102,28 @@ impl RpcL1 {
         {
             bail!("unexpected L1 chain ID");
         }
-        Ok(Self { rpc })
+        Ok(Self {
+            rpc,
+            m2_validated: false,
+        })
     }
 }
 impl L1Source for RpcL1 {
+    fn validate_m2_inbox(&mut self) -> Result<()> {
+        if !self.m2_validated {
+            let code = self.rpc.call(
+                "eth_getCode",
+                json!([boole_derivation::config::INBOX, "latest"]),
+            )?;
+            validate_m2_inbox_code(
+                code.as_str()
+                    .ok_or_else(|| anyhow!("M2 inbox runtime missing"))?,
+            )?;
+            self.m2_validated = true;
+        }
+        Ok(())
+    }
+
     fn block_by_hash(&mut self, hash: &str) -> Result<L1Block> {
         Ok(serde_json::from_value(
             self.rpc.call("eth_getBlockByHash", json!([hash, false]))?,

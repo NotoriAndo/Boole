@@ -236,7 +236,25 @@ consensus dispatch uses the ABI item decoder and the appropriate M1 or M2 path.
 S(h−1). On startup re-fold each historical L1 header and logs by the hash in
 that L2 block's L1-info deposit, never by number. RPC failures stall. Evidence
 adds m2_root and M2 decisions. A journal is a checkpoint, not an authority;
-the anchored re-fold validates restart state.
+the anchored re-fold validates restart state. Historical L2 headers must also
+form a continuous `parentHash` chain from genesis to the selected parent.
+The M2 RPC startup path verifies SHA-256 of the deployed inbox runtime against
+the devnet profile (`a14704d805198421bae48bf79534bc62d974699f203abc3ed4bc751e35fe0ca6`)
+before Engine access. The legacy M1 transport also checks this pin before any
+M2 item is folded. The original M1 runtime is unsuitable for large M2 parts.
+
+Evidence records the adopted state root on a stall. If checkpoint persistence
+fails after a DERIVED evidence line, append a STALL line containing the retained
+parent root; the earlier DERIVED line alone does not establish state adoption.
+
+A checkpoint ahead of the selected node head causes a permanent stall. For a
+deliberately restored earlier devnet database, stop the driver, preserve the
+checkpoint as a backup, verify the intended genesis, configuration and selected
+L2 head, and move the checkpoint aside before restarting. The driver then re-folds
+the selected chain from its L1-info origin hashes. Investigate an unexpected
+rollback before using this procedure; never edit a checkpoint height or root to
+force acceptance. Restoring the intended L2 database is the alternative when its
+newer selected head should have been retained.
 
 **M2-R16 — Priority.** Compare only within one problem by (h_c,t), where
 `t=SHA256("BOOLE-M2/TIE/v1" | commit_hash | randao_out(h_c))` and

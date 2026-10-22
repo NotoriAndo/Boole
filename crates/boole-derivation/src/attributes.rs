@@ -36,6 +36,8 @@ pub struct ParentHeader {
     #[serde(with = "quantity")]
     pub number: u64,
     pub hash: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_hash: Option<String>,
     #[serde(with = "quantity")]
     pub timestamp: u64,
     #[serde(with = "quantity")]
@@ -141,7 +143,8 @@ pub(crate) fn fixed_bytes(s: &str, len: usize, field: &'static str) -> Result<Ve
     Ok(bytes)
 }
 
-fn derive_base(
+/// M1 payload rules only; does not construct or fold M2 state.
+pub fn derive_m1(
     l1: &L1Block,
     logs: &[InboxLog],
     parent: &ParentHeader,
@@ -259,7 +262,7 @@ pub fn derive(
     logs: &[InboxLog],
     parent: &ParentHeader,
 ) -> Result<Derived, InputError> {
-    let baseline = derive_base(l1, logs, parent)?;
+    let baseline = derive_m1(l1, logs, parent)?;
     if baseline.decisions.iter().all(|d| d.m2.is_none()) {
         return Ok(baseline);
     }
@@ -276,7 +279,7 @@ pub fn derive_with_m2(
     logs: &[InboxLog],
     parent: &ParentHeader,
 ) -> Result<(Derived, crate::m2::State), InputError> {
-    let mut derived = derive_base(l1, logs, parent)?;
+    let mut derived = derive_m1(l1, logs, parent)?;
     state.validate_next(config, l1)?;
     config
         .validate(parent.gas_limit)

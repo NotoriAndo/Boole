@@ -28,7 +28,7 @@ fn driver(node: &Node, rt: &Runtime, c: &Config) -> Result<Live> {
     let mut engine = node.engine()?;
     let l2_gas_limit = engine.head()?.gas_limit;
     let mut d = Driver::with_config(
-        RpcL1::new("http://127.0.0.1:28545")?,
+        RpcL1::new_m2("http://127.0.0.1:28545")?,
         engine,
         c.clone(),
         l2_gas_limit,
@@ -43,10 +43,7 @@ fn view(d: &mut Live, node: &Node, h: u64) -> Result<(Value, Derived)> {
     Ok((v, out))
 }
 fn l1_genesis(rt: &Runtime) -> Result<std::path::PathBuf> {
-    let mut g: Value = serde_json::from_slice(&fs::read(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/devnet-m2/l1-genesis-v1.json"),
-    )?)?;
-    g["alloc"][BATCHER] = json!({"code":hex_string(&batch_runtime()),"balance":"0x0"});
+    let g = l1_genesis_value()?;
     let p = rt.path.join("l1-genesis.json");
     fs::write(&p, serde_json::to_vec_pretty(&g)?)?;
     Ok(p)
@@ -276,12 +273,18 @@ fn i4_i5_live_and_recorded_abc_mid_reveal_restart_reorg() -> Result<()> {
         if h <= 20 {
             eprintln!("build {h}: {codes:?}");
         }
-        if h == 14 {
-            assert_eq!(codes, [9]);
-        }
-        if h == 15 {
-            assert_eq!(codes, [0x81]);
-        }
+        let expected = match h {
+            1 => vec![0x85],
+            5 => vec![0x86],
+            6 => vec![0x80; 3],
+            7 => vec![0x84],
+            14 | 19 => vec![9],
+            15 => vec![0x81],
+            16 | 17 => vec![0x82; 6],
+            18 => vec![0x82, 0x83],
+            _ => vec![],
+        };
+        assert_eq!(codes, expected, "I4 build decisions at {h}");
         rows.push(row);
     }
     let p = proof.as_ref().unwrap();
@@ -472,6 +475,11 @@ fn i4_i5_live_and_recorded_abc_mid_reveal_restart_reorg() -> Result<()> {
         rt.stop(name)?;
     }
     recorded_abc(&mut rt, &binary, &genesis_path, &c, &rows)?;
+    let mut replay_model = State::new(&c, 30_000_000)?;
+    for row in &rows {
+        fold(&mut replay_model, &c, row)?;
+        assert_eq!(row["result"]["m2_root"], hex_string(&replay_model.root));
+    }
     let mix: std::collections::BTreeSet<_> = rows
         .iter()
         .map(|r| r["l1"]["mixHash"].as_str().unwrap_or("").to_owned())
@@ -480,7 +488,14 @@ fn i4_i5_live_and_recorded_abc_mid_reveal_restart_reorg() -> Result<()> {
         .iter()
         .filter(|g| g["kinds"] == json!([4]))
         .all(|g| g["floor_applied"] == true));
-    let data = json!({"schema":"boole-devnet-m2-recording-v1","provenance":{"pins":fixture_json("pins.json")?,"source_genesis_sha256":hex_string(&hash(&fs::read(fixture("l2-genesis.json"))?)),"rules":"M2 v1; finalized L1 inbox; synthetic generator and environment identities"},"acceptance":{"live_abc":true,"recorded_abc":true,"restart_height":17,"unfinalized_reorg":true},"config":c,"l2_genesis":g,"codec":codec,"gate_seam":gate_seam,"mix_hash":{"unique":mix,"count":mix.len()},"eip7825":eip7825,"gas":gas,"heights":rows});
+    let full: Vec<_> = gas
+        .iter()
+        .filter(|g| g["kinds"] == json!([4]) && g["gas_used"].as_u64().unwrap_or(0) > 1_000_000)
+        .collect();
+    assert_eq!(full.len(), 13);
+    assert!(full.iter().all(|g| g["gas_used"] == g["calldata_floor"]));
+    let mut data = json!({"schema":"boole-devnet-m2-recording-v1","provenance":{"pins":fixture_json("pins.json")?,"source_genesis_sha256":hex_string(&hash(&fs::read(fixture("l2-genesis.json"))?)),"rules":"M2 v1; finalized L1 inbox; synthetic generator and environment identities"},"acceptance":{"live_abc":true,"recorded_abc":true,"restart_height":17,"unfinalized_reorg":true},"config":c,"l2_genesis":g,"codec":codec,"gate_seam":gate_seam,"mix_hash":{"unique":mix,"count":mix.len()},"eip7825":eip7825,"gas":gas,"heights":rows});
+    bind_provenance(&mut data)?;
     fs::write(
         rt.path.join("recording.json"),
         serde_json::to_vec_pretty(&data)?,
@@ -501,6 +516,7 @@ fn compare_live_rows(
     rows: &mut [Value],
 ) -> Result<()> {
     let mut baseline = Vec::new();
+    let mut model = State::new(c, 30_000_000)?;
     for (i, name) in ["a", "b", "c"].into_iter().enumerate() {
         let n = rt.node(binary, genesis, name, i as u16)?;
         let mut d = driver(&n, rt, c)?;
@@ -509,6 +525,12 @@ fn compare_live_rows(
             let parent = d.engine.head()?;
             let (v, _) = view(&mut d, &n, h)?;
             if i == 0 {
+                fold(&mut model, c, row)?;
+                assert_eq!(
+                    v["m2_root"],
+                    hex_string(&model.root),
+                    "pure model height {h}"
+                );
                 record_row(row, parent, v.clone());
                 baseline.push(v);
             } else {
@@ -667,6 +689,11 @@ fn i6_adversarial_uncapped_reveal_copy_cap_and_gas_abc() -> Result<()> {
                     c.c_commit as usize
                 );
                 assert_eq!(codes.iter().filter(|x| **x == 11).count(), 1);
+                assert_eq!(codes.len(), c.c_commit as usize + 1 + 200 + 3);
+                assert_eq!(
+                    &codes[c.c_commit as usize + 1..c.c_commit as usize + 201],
+                    vec![1; 200]
+                );
                 assert_eq!(&codes[codes.len() - 3..], &[8, 0x81, 0x83]);
             }
             17 => assert_eq!(codes, [9, 3]),
@@ -700,13 +727,17 @@ fn i6_adversarial_uncapped_reveal_copy_cap_and_gas_abc() -> Result<()> {
         rows[1]["result"]["decisions"][2]["rule"],
         "USER-GAS-EXCEEDS-BLOCK-BUDGET"
     );
+    recorded_abc(&mut rt, &binary, &g, &c, &rows)?;
+    let mut data = json!({"schema":"boole-devnet-m2-adversarial-v1","provenance":{"pins":fixture_json("pins.json")?},"acceptance":{"live_abc":true,"recorded_abc":true},"config":c,"l2_genesis":genesis()?,"heights":rows,"gas":gas});
+    bind_provenance(&mut data)?;
     fs::write(
         rt.path.join("adversarial.json"),
-        serde_json::to_vec_pretty(
-            &json!({"live_abc":true,"heights":rows,"gas":gas,"accepted_commits_at_16":937,"overflow_drops":1,"malformed_flood_items":200,"copy_part_drop":8,"premature_open_drop":9,"cancel_forgery_drop":12,"pool_forgery_drop":13,"size129_drop":3,"gas_probes":"P1 system-only; P2 included 16M status0 then 15M dropped; M2 no budget effect"}),
-        )?,
+        serde_json::to_vec_pretty(&data)?,
     )?;
     rt.finish(true)?;
+    if let Some(path) = std::env::var_os("BOOLE_DEVNET_I6_RECORDING") {
+        fs::write(path, serde_json::to_vec_pretty(&data)?)?;
+    }
     eprintln!("I6 PASS: 72 live A/B/C heights, cap 937/+1, uncapped reveal, keyed copy, expiry, gas probes");
     Ok(())
 }
@@ -821,13 +852,17 @@ fn i7_rounds_two_slots_deadline_withheld_next_draw_abc() -> Result<()> {
     let g = rt.path.join("l2-genesis.json");
     fs::write(&g, serde_json::to_vec_pretty(&genesis()?)?)?;
     compare_live_rows(&mut rt, &binary, &g, &c, &mut rows)?;
+    recorded_abc(&mut rt, &binary, &g, &c, &rows)?;
+    let mut data = json!({"schema":"boole-devnet-m2-rounds-v1","provenance":{"pins":fixture_json("pins.json")?},"acceptance":{"live_abc":true,"recorded_abc":true},"config":c,"l2_genesis":genesis()?,"heights":rows,"gas":gas});
+    bind_provenance(&mut data)?;
     fs::write(
         rt.path.join("rounds.json"),
-        serde_json::to_vec_pretty(
-            &json!({"live_abc":true,"k_open":2,"withheld_height":9,"first_deadline":54,"next_draw":59,"no_replacement":true,"heights":rows,"gas":gas}),
-        )?,
+        serde_json::to_vec_pretty(&data)?,
     )?;
     rt.finish(true)?;
+    if let Some(path) = std::env::var_os("BOOLE_DEVNET_I7_RECORDING") {
+        fs::write(path, serde_json::to_vec_pretty(&data)?)?;
+    }
     eprintln!("I7 PASS: 80 live A/B/C heights, two slots, withheld, deadline and next draw");
     Ok(())
 }

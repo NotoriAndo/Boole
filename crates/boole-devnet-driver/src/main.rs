@@ -33,7 +33,7 @@ fn main() -> Result<()> {
         Some(path) => serde_json::from_slice(&std::fs::read(path)?)?,
         None => boole_derivation::m2::Config::devnet(),
     };
-    let l1 = RpcL1::new(&args.l1_rpc)?;
+    let l1 = RpcL1::new_m2(&args.l1_rpc)?;
     let mut engine = RpcEngine::new(&args.engine_rpc, &args.node_rpc, &args.jwt_secret)?;
     let l2_gas_limit = engine.head()?.gas_limit;
     let mut driver = Driver::with_config(l1, engine, config, l2_gas_limit)?;
