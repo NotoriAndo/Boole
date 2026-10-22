@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "groups": {
+    "resource-unavailable": "T",
+    "sandbox-unavailable": "T",
+    "checker-worker-error": "T",
+    "checker-unavailable": "T",
+    "acceptance-unavailable": "T",
+    "checker-input-unavailable": "T",
+    "checker-internal-error": "T",
+    "capture-failed": "T",
+    "capture_failed": "T",
+    "kernels-unavailable": "D-node",
+    "environment-retired": "D-node",
+    "environment-mismatch": "D-node",
+    "environment-unpinned": "D-node",
+    "export-integrity": "D-node",
+    "verdict-oversized": "D-node",
+    "trusted_helper_compile_unavailable": "D-node",
+    "checker_release_mismatch": "D-node",
+    "invalid-package": "D-node",
+    "closure-unavailable": "D-node",
+    "nonproduction-evidence": "D-node",
+    "replay-gate-unavailable": "D-node",
+    "export-unavailable": "I",
+    "silent-exit": "I",
+    "primary_checker_unavailable": "I",
+    "axiom_audit_unavailable": "I",
+    "containment_killed": "I",
+    "comparator-unavailable": "I",
+    "replay-unavailable": "D-input",
+    "output-cap": "S"
+  },
+  "node_prefixes": [
+    "environment-",
+    "sandbox-configuration:",
+    "challenge-",
+    "statement-",
+    "pristine ",
+    "pin-",
+    "replay-tool-",
+    "checker package changed"
+  ],
+  "terminal_reasons": [
+    "output-cap"
+  ],
+  "triggers": {
+    "independent_hosts": 2,
+    "healthy_canaries": true,
+    "resource_requires_escalated": true
+  },
+  "retry": {
+    "attempts": 3,
+    "a2_backoff_s": 60,
+    "a3_backoff_s": 600,
+    "slow_backoff_s": 3600
+  },
+  "standard": {
+    "wall_s": 1800,
+    "rss_mb": 12000,
+    "memory_max": 11534336000
+  },
+  "escalated": {
+    "wall_s": 3600,
+    "rss_mb": 20000,
+    "memory_max": 19966445568
+  },
+  "terminal_groups": [
+    "S"
+  ]
+}

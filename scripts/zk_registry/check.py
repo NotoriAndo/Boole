@@ -41,6 +41,7 @@ import shutil
 import sys
 import time
 import uuid
+from contextvars import ContextVar
 
 if __package__ in (None, ""):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -351,7 +352,7 @@ def _compile_and_postcheck(env: L.LeanEnv, problem: dict, pkg_dir: str, text: st
     src_root = os.path.join(workdir, "src")
     build = os.path.join(workdir, "build")
     FS.makedirs(src_root, exist_ok=True)
-    res: dict = {"imports": []}
+    res: dict = {"imports": [], 'stage':'reference:compile'}
     for fr in chk["files"]:
         if fr["role"] != "import":
             continue
@@ -379,6 +380,7 @@ def _compile_and_postcheck(env: L.LeanEnv, problem: dict, pkg_dir: str, text: st
         if r.rc != 0 or r.timeout or L.errors(msgs):
             res["error"] = f"pristine import {fr['path']} does not compile: " + "; ".join(L.fmt_msg(m) for m in L.errors(msgs)[:3])
             return res
+    res['stage']='compile'
     proof_dir = os.path.join(workdir, "proof")
     FS.makedirs(proof_dir, exist_ok=True)
     src = os.path.join(proof_dir, "ProofMod.lean")
@@ -387,18 +389,29 @@ def _compile_and_postcheck(env: L.LeanEnv, problem: dict, pkg_dir: str, text: st
     with open(src, "w", encoding="utf-8") as f:
         f.write(source + f"\nset_option pp.fullNames true in #print axioms {fqn}\n")
     olean = os.path.join(proof_dir, "ProofMod.olean")
-    r = L.run_lean(env, opts + ["--json", "-R", proof_dir, "-o", olean, src], proof_dir, timeout,
-                   extra_lean_path=[build], submission_controlled=True)
+    from . import bounded_capture as BC
+    with BC.capture(stdout=BC.MessageSink(print_name=fqn,print_line=print_line)):
+        r = L.run_lean(env, opts + ["--json", "-R", proof_dir, "-o", olean, src], proof_dir, timeout,
+                       extra_lean_path=[build], submission_controlled=True)
     with open(os.path.join(proof_dir, "compile.log"), "w", encoding="utf-8") as f:
         f.write(r.out)
-    msgs = L.parse_messages(r.out, structured_only=True)
+    with open(os.path.join(proof_dir, "compile.stderr"), "w", encoding="utf-8") as f:
+        f.write(r.stderr)
+    msgs = r.messages if r.messages is not None else L.parse_messages(r.out, structured_only=True)
     errs = L.errors(msgs)
     res.update(compile_rc=r.rc, compile_secs=r.secs, compile_timeout=r.timeout, n_errors=len(errs),
                compile_memkill=r.memkill, compile_killed_by=r.killed_by, compile_peak_rss_mb=r.peak_rss_mb,
+               output_capped=r.output_capped, streams=r.streams,
                errors=[L.fmt_msg(m) for m in errs[:10]], boundary=r.boundary,
                error_kinds=[m.get('kind') for m in errs if isinstance(m.get('kind'), str)],
                sorry_warnings=sum(1 for m in msgs if m.get("severity") == "warning" and "sorry" in m.get("data", "")),
                printed_axioms=parse_printed_axioms(msgs, fqn, print_line))
+    if r.message_summary is not None:
+        res.update(n_errors=r.message_summary['n_errors'],error_kinds=r.message_summary['error_kinds'],
+                   sorry_warnings=r.message_summary['sorry_warnings'])
+    if r.output_capped or r.killed_by.startswith('capture-failed'):
+        res.update(post=None)
+        return res
     if r.rc != 0 or r.timeout or not os.path.exists(olean):
         res["post"] = None
         return res
@@ -406,12 +419,71 @@ def _compile_and_postcheck(env: L.LeanEnv, problem: dict, pkg_dir: str, text: st
     post.update(rc=rr.rc, secs=rr.secs, timeout=rr.timeout, memkill=rr.memkill,
                 killed_by=rr.killed_by, peak_rss_mb=rr.peak_rss_mb, stdout=rr.out[-2000:], boundary=rr.boundary)
     res["post"] = post
+    res["stage"] = "replay"
     return res
 
 
 # ------------------------------------------------------------------------------------------ main
 
+_ARTIFACTS = ContextVar('attempt_artifacts',default=None)
+
+
+def _record_artifact(path,kind):
+    active=_ARTIFACTS.get()
+    if active is not None:active.append((path,kind))
+
+
+def _clean_artifacts(paths,rep,keep):
+    if keep or not paths:return
+    from . import bounded_capture as BC
+    from pathlib import Path
+    diagnostics=Path(paths[0][0]).with_name(Path(paths[0][0]).name+'-diagnostics')
+    diagnostics.mkdir(parents=True,exist_ok=True)
+    rep['diagnostics_dir']=str(diagnostics)
+    rep['artifact_digests']=[]
+    preserve='export-integrity' in rep.get('error',[])
+    for number,(name,kind) in enumerate(paths):
+        root=Path(name)
+        for relative in ('proof/compile.log','proof/compile.stderr','process-receipts.json','kernels/comparator.stdout'):
+            source=root/relative
+            try:
+                if source.is_file():
+                    sink=BC.RawSink(guard=None)
+                    with open(source,'rb') as stream:
+                        for block in iter(lambda:stream.read(65536),b''):sink.feed(block)
+                    target=diagnostics/(str(number)+'-'+source.name)
+                    with open(target,'wb') as stream:stream.write(sink.retained)
+                    rep['artifact_digests'].append(dict(sink.receipt(),artifact_kind='diagnostic',name=relative))
+            except (OSError,L.BoundaryInvalid):
+                rep.setdefault('cleanup_errors',[]).append('diagnostic-unavailable')
+        if kind=='export' and preserve:continue
+        shutil.rmtree(name,ignore_errors=True)
+    if not keep:rep['check_dir']=None
+
+
 def check(pkg_dir: str, proof_path: str, env: L.LeanEnv, workdir: str | None = None, timeout: float = 3600,
+          keep: bool = False, work_root: str | None = None, *, policy_fixture: dict | None = None,
+          sandbox: Sandbox | None = None, tools=None, conformance_fixture: dict | None = None) -> dict:
+    token=_ARTIFACTS.set([])
+    rep={}
+    try:
+        rep=_check(pkg_dir,proof_path,env,workdir,timeout,keep,work_root,
+            policy_fixture=policy_fixture,sandbox=sandbox,tools=tools,conformance_fixture=conformance_fixture)
+        return rep
+    except (L.ResourceUnavailable,L.BoundaryInvalid,SandboxUnavailable):
+        raise
+    except OSError as ex:
+        rep=_finish(dict(error=['checker-input-unavailable'],invalid=[],fail=[],reason='checker-input-unavailable',detail='exception:'+type(ex).__name__))
+        return rep
+    except Exception as ex:
+        rep=_finish(dict(error=['checker-internal-error'],invalid=[],fail=[],reason='checker-internal-error',detail='exception:'+type(ex).__name__))
+        return rep
+    finally:
+        try:_clean_artifacts(_ARTIFACTS.get(),rep,keep)
+        finally:_ARTIFACTS.reset(token)
+
+
+def _check(pkg_dir: str, proof_path: str, env: L.LeanEnv, workdir: str | None = None, timeout: float = 3600,
           keep: bool = False, work_root: str | None = None, *, policy_fixture: dict | None = None,
           sandbox: Sandbox | None = None, tools=None, conformance_fixture: dict | None = None) -> dict:
     rep: dict = {"package": os.path.abspath(pkg_dir), "proof_file": os.path.abspath(proof_path),
@@ -556,10 +628,14 @@ def check(pkg_dir: str, proof_path: str, env: L.LeanEnv, workdir: str | None = N
     root = work_root or os.path.join(env.scratch, "check")
     nonce = uuid.uuid4().hex
     tmp = os.path.join(root, f"{os.path.basename(os.path.abspath(pkg_dir))}-{nonce}")
+    _record_artifact(tmp,'build')
+    _record_artifact(tmp+'-reference','build')
     remaining = lambda: max(0.001, timeout - (time.monotonic() - started))
     started = time.monotonic()
     if tools is not None:
         sealed = os.path.join(os.path.dirname(env.scratch), 'acceptance-exports', nonce)
+        _record_artifact(sealed,'export')
+        rep['stage']='reference:export'
         reference = D.prepare_reference(env, problem, pkg_dir, tmp + '-reference',
                                         os.path.join(sealed, 'Challenge.ndjson'), tools, selected,
                                         remaining(), allowed)
@@ -595,7 +671,9 @@ def check(pkg_dir: str, proof_path: str, env: L.LeanEnv, workdir: str | None = N
         if policy['verdict'] != 'PASS':
             invalid.append(policy['reason'])
             return _finish(rep)
+    rep['stage']='compile'
     r = compile_in_sandbox(env, problem, pkg_dir, proof, tmp, remaining(), selected)
+    rep["stage"] = r.get("stage","compile")
     rep["compile"] = {k: v for k, v in r.items() if k != "post"}
     if "error" in r:
         error.append(r["error"])
@@ -603,9 +681,11 @@ def check(pkg_dir: str, proof_path: str, env: L.LeanEnv, workdir: str | None = N
         apply_compile_result(r, chk, invalid, fail, error, allowed_axioms=set(allowed))
         if r.get("post") is not None:
             post = r["post"]
+            if post.get('malformed'):rep.update(stage='replay',detail='malformed-record')
             rep["postcheck"] = {k: v for k, v in post.items() if k not in ("type_str", "consts", "stdout")}
             rep["postcheck"]["n_consts"] = len(post["consts"])
     if tools is not None and not (invalid or fail or error):
+        rep['stage']='export'
         exported = D.export_module(env, 'ProofMod', chk['theorem_fqn'], os.path.join(sealed, 'Solution.ndjson'),
                                    tools, selected, os.path.join(tmp, 'proof'),
                                    [os.path.join(tmp, 'build'), os.path.join(tmp, 'proof')],
@@ -614,15 +694,14 @@ def check(pkg_dir: str, proof_path: str, env: L.LeanEnv, workdir: str | None = N
         if exported['verdict'] != 'PASS':
             error.append(exported['reason'])
         else:
+            rep['stage']='comparator'
             compared = D.compare_exports(reference['path'], exported['path'], chk['theorem_fqn'], tools, selected,
                                          os.path.join(sealed, 'kernels'), remaining(), allowed)
             rep['two_kernels'] = compared
+            if compared.get('detail'):rep['detail']=compared['detail']
             if compared['verdict'] != 'PASS':
                 (error if compared['verdict'] == 'ERROR' else invalid).append(compared['reason'])
     rep["check_dir"] = tmp
-    if not keep and not error:
-        shutil.rmtree(tmp, ignore_errors=True)
-        rep["check_dir"] = None
     return _finish(rep)
 
 
@@ -635,9 +714,12 @@ def apply_compile_result(r: dict, chk: dict, invalid: list[str], fail: list[str]
     post_record = post or {}
     boundaries = [normalized_boundary(b) for b in (r.get('boundary'), post_record.get('boundary'))]
     boundary_reasons = lambda verdict: [b['reason'] for b in boundaries if b and b.get('verdict') == verdict]
-    resource_failure = (
+    output_cap = (r.get('output_capped') or str(r.get('compile_killed_by','')).startswith('output-cap')
+                  or post_record.get('error') == 'output-cap' or str(post_record.get('killed_by','')).startswith('output-cap'))
+    capture_failure = str(r.get('compile_killed_by','')).startswith('capture-failed') or str(post_record.get('killed_by','')).startswith('capture-failed')
+    resource_failure = not output_cap and not capture_failure and (
         L.availability_exit(r.get('compile_rc')) or L.availability_exit(post_record.get('rc'))
-        or r.get('compile_timeout') or r.get('compile_memkill') or r.get('compile_killed_by')
+        or r.get('compile_timeout') or r.get('compile_memkill') or (r.get('compile_killed_by') and not r['compile_killed_by'].startswith('output-cap'))
         or post_record.get('timeout') or post_record.get('memkill') or post_record.get('killed_by'))
     resource_cap = any(re.fullmatch(r'(?:nested\.)*runtime\.(?:maxHeartbeats|maxRecDepth)', kind)
                        for kind in r.get('error_kinds', []))
@@ -678,9 +760,12 @@ def apply_compile_result(r: dict, chk: dict, invalid: list[str], fail: list[str]
     # missing output is therefore FAIL, but proves less than any actual finding.
     precedence = [
         ([], [], ['resource-unavailable'] if resource_failure else []),
+        ([], [], ['output-cap'] if output_cap else []),
+        ([], [], ['capture-failed'] if capture_failure else []),
+        ([], [], ['checker-input-unavailable'] if post_record.get('error')=='checker-input-unavailable' else []),
         ([], [], boundary_reasons('ERROR')[:1]),
         (boundary_reasons('INVALID')[:1], [], []),
-        ([], [], ['resource-unavailable'] if r.get('compile_rc') not in (0, None) and not r.get('n_errors') else []),
+        ([], [], ['silent-exit'] if r.get('compile_rc') not in (0, None) and not r.get('n_errors') else []),
         (['resource-cap'] if resource_cap else [], [], []),
         (invalid_findings, fail_findings, []),
         ([], ['`#print axioms` output missing'] if pa is None and not established else [], []),
@@ -699,14 +784,38 @@ def verdict_of(rep: dict) -> str:
     return "ERROR" if rep["error"] else "INVALID" if rep["invalid"] else "FAIL" if rep["fail"] else "PASS"
 
 
+def error_reason(candidate):
+    """Keep named reason codes stable; diagnostics belong in private detail."""
+    if isinstance(candidate,str) and re.fullmatch(r'[a-z][a-z0-9_-]*(?::[a-z0-9_-]+)?',candidate):
+        return candidate,''
+    text=str(candidate)
+    prefixes=(('pristine import ','challenge-build-unavailable'),('pristine copy ','environment-mismatch'),
+              ('checker package changed','checker_release_mismatch'),('environment ','environment-mismatch'),
+              ('replay tool ','replay-tool-mismatch'),('package:','invalid-package'))
+    return next((token for prefix,token in prefixes if text.startswith(prefix)),'checker-input-unavailable'),text
+
+
 def _finish(rep: dict) -> dict:
     rep["verdict"] = verdict_of(rep)
+    from . import error_policy as E
+    if rep['error']:
+        rep['reason'],diagnostic=error_reason(rep.get('reason',rep['error'][0]))
+        if diagnostic:rep['detail']=diagnostic
+        rep.setdefault('stage','checker')
+        compile_record=rep.get('compile') if isinstance(rep.get('compile'),dict) else {}
+        detail=('silent-exit:'+str(compile_record.get('compile_rc')) if rep['reason']=='silent-exit' else
+                str(compile_record.get('compile_killed_by','')))
+        rep.setdefault('detail',detail)
+        rep['error_group']=E.classify(rep['reason'],rep['stage'],rep['detail'])
+    rep['class']=('ACCEPT' if rep['verdict']=='PASS' else 'DEFER' if rep['verdict']=='ERROR' and rep['error_group']!='S' else 'REJECT')
     rep["finished_utc"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     return rep
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    class Parser(argparse.ArgumentParser):
+        def error(self, message):raise ValueError(message)
+    ap = Parser(description=__doc__.split("\n\n")[0])
     ap.add_argument("package")
     ap.add_argument("proof")
     ap.add_argument("--lean-env", required=True, help="environment JSON (see lean_runner.describe_project)")
@@ -717,7 +826,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--work-root", help="parent directory for check work directories")
     ap.add_argument('--tools-root', help='directory containing the exact pinned Comparator/exporter/nanoda tools')
     ap.add_argument('--dev-unsandboxed', action='store_true', help='macOS test-only pipeline, never production evidence')
-    a = ap.parse_args(argv)
+    raw_args = list(sys.argv[1:] if argv is None else argv)
+    try:
+        a = ap.parse_args(raw_args)
+    except ValueError:
+        rep = _finish(dict(error=['checker-input-unavailable'], invalid=[], fail=[], reason='checker-input-unavailable'))
+        target = next((value.split('=',1)[1] for value in raw_args if value.startswith('--report=')), None)
+        if '--report' in raw_args and raw_args.index('--report')+1<len(raw_args):target=raw_args[raw_args.index('--report')+1]
+        if target:P.write_json(target,rep)
+        return EXIT['ERROR']
     selected, tools = None, None
     from zk_registry import closure as D
     try:
@@ -729,13 +846,15 @@ def main(argv: list[str] | None = None) -> int:
                 selected = Sandbox.production(tools.landrun)
         rep = check(a.package, a.proof, L.load_env(a.lean_env), a.workdir, a.timeout, a.keep, a.work_root,
                     sandbox=selected, tools=tools)
-    except (SandboxUnavailable, D.ToolsUnavailable) as ex:
+    except (SandboxUnavailable, D.ToolsUnavailable, L.ResourceUnavailable) as ex:
         rep = _finish(dict(error=[str(ex)], invalid=[], fail=[], reason=str(ex), compile='skipped'))
     except L.BoundaryInvalid as ex:
         rep = _finish(dict(error=[], invalid=[str(ex)], fail=[], reason=str(ex), compile='skipped'))
     except OSError:
         rep = _finish(dict(error=['checker-input-unavailable'], invalid=[], fail=[],
                            reason='checker-input-unavailable', compile='skipped'))
+    except Exception as ex:
+        rep = _finish(dict(error=['checker-internal-error'], invalid=[], fail=[], reason='checker-internal-error', detail='exception:'+type(ex).__name__,compile='skipped'))
     if a.report:
         P.write_json(a.report, rep)
     print(f"{rep['verdict']} package={a.package} theorem={rep.get('theorem')}")

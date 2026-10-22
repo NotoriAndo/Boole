@@ -282,7 +282,7 @@ def lean_eval(env: L.LeanEnv, build: str, text: str, work: str, name: str, timeo
     with open(src, "w", encoding="utf-8") as f:
         f.write(text)
     r = L.run_lean(env, AL.LEAN_OPTIONS + ["--json", src], work, timeout, extra_lean_path=[build])
-    msgs = L.parse_messages(r.out)
+    msgs = L.complete_messages(r)
     out = "\n".join(m.get("data", "") for m in msgs)
     if r.rc != 0 and not out:
         out = r.out
@@ -432,7 +432,7 @@ def kernel_verdicts(sh: Shared, air: IR.Air, layout: IR.Layout, ctx, summary: di
     with open(src, "w", encoding="utf-8") as f:
         f.write(text)
     r = L.run_lean(sh.env, AL.LEAN_OPTIONS + ["--json", src], work, 3600, extra_lean_path=[build])
-    msgs = L.parse_messages(r.out)
+    msgs = L.complete_messages(r)
     if r.timeout or (r.rc != 0 and not L.errors(msgs)):
         return {}, {}, r, (r.out[-400:] or "timeout")
     bad = set()
@@ -463,7 +463,7 @@ def confirm_in_lean(sh: Shared, ns: str, summary: dict, build: str, w1: list[int
         with open(src, "w", encoding="utf-8") as f:
             f.write(text)
         r = L.run_lean(sh.env, AL.LEAN_OPTIONS + ["--json", src], work, 3600, extra_lean_path=[build])
-        errs = L.errors(L.parse_messages(r.out))
+        errs = L.errors(L.complete_messages(r))
         ok = r.rc == 0 and not r.timeout and not errs
         return {"lean_confirms": ok, "lean": {"mode": "kernel", "errors": [L.fmt_msg(m) for m in errs[:3]]}}
     a, b = os.path.join(work, "w1.txt"), os.path.join(work, "w2.txt")

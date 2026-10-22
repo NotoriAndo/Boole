@@ -95,6 +95,10 @@ class Tools:
 
 def resource_reason(result: L.RunResult) -> str | None:
     """Wall, memory and observation failures are availability errors, not mathematical verdicts."""
+    if result.killed_by.startswith('output-cap') or result.output_capped:
+        return 'output-cap'
+    if result.killed_by.startswith('capture-failed'):
+        return 'capture-failed'
     if result.timeout or result.memkill or result.killed_by or L.availability_exit(result.rc):
         return 'resource-unavailable'
     return None
@@ -126,15 +130,17 @@ def statement_identity(export: str, theorem: str, work: str, timeout: float, *, 
         directory.mkdir(parents=True, exist_ok=True)
         task_env = task_env or dict(PATH=L.SYSTEM_PATH, HOME=str(directory), TMPDIR=str(directory), LANG='C.UTF-8')
         run = CR.runner(str(directory / 'processes'), timeout)
-        result = run([sys.executable, '-I', '-B', str(Path(__file__).with_name('statement_identity.py')),
-                      str(Path(export).absolute()), theorem, '--timeout', str(timeout)],
-                     task_env, cwd or str(directory), timeout, 19000)
+        from . import bounded_capture as BC
+        with BC.capture(stdout=BC.SmallSink()):
+            result = run([sys.executable, '-I', '-B', str(Path(__file__).with_name('statement_identity.py')),
+                          str(Path(export).absolute()), theorem, '--timeout', str(timeout)],
+                         task_env, cwd or str(directory), timeout, 19000)
     except (OSError, ValueError):
         return dict(verdict='ERROR', reason='statement-identity-unavailable')
     record = dict(seconds=result.secs, peak_rss_mb=result.peak_rss_mb, rc=result.rc,
                   process_receipt=result.process_receipt)
     if resource_reason(result):
-        return dict(record, verdict='ERROR', reason='resource-unavailable')
+        return dict(record, verdict='ERROR', reason=resource_reason(result))
     try:
         semantic = json.loads(result.out) if result.rc == 0 else {}
         if not isinstance(semantic, dict):
@@ -203,6 +209,12 @@ def prepare_reference(env: L.LeanEnv, problem: dict, package: str, work: str, se
     if compiled.get('compile_rc') != 0 or compiled.get('n_errors') or compiled.get('post') is None:
         return dict(verdict='ERROR', reason='challenge-build-unavailable', compiled=compiled)
     post = compiled['post']
+    if post.get('error')=='checker-input-unavailable':
+        return dict(verdict='ERROR',reason='checker-input-unavailable',compiled=compiled)
+    if post.get('error')=='output-cap' or str(post.get('killed_by','')).startswith('output-cap'):
+        return dict(verdict='ERROR',reason='output-cap',compiled=compiled)
+    if str(post.get('killed_by','')).startswith('capture-failed'):
+        return dict(verdict='ERROR',reason='capture-failed',compiled=compiled)
     if post.get('timeout') or post.get('memkill') or post.get('killed_by'):
         return dict(verdict='ERROR', reason='resource-unavailable', compiled=compiled)
     if post.get('replay') != 'ok':
@@ -251,10 +263,17 @@ def export_module(env: L.LeanEnv, module: str, theorem: str, output: str, tools:
     command = sandbox.command(argv, task_env, [env.toolchain, *env.lean_path, *extra_lean_path, cwd],
                               [task_env['TMPDIR']], prior_exposure=prior)
     run = CR.runner(str(target.parent / 'processes' / target.name), timeout)
-    result = run(command, task_env, cwd, timeout, 12000)
+    from . import bounded_capture as BC
+    sink=BC.FileSink(str(target))
+    with BC.capture(stdout=sink):
+        result = run(command, task_env, cwd, timeout, 12000)
+        # Adapt older injected runners through the same bounded sink contract.
+        if not result.streams:sink.feed(result.out.encode('utf-8'))
     record = dict(stage='closure-export', assurance=sandbox.mode, seconds=result.secs,
                   peak_rss_mb=result.peak_rss_mb, rc=result.rc, boundary=result.boundary,
                   process_receipt=result.process_receipt)
+    if sink.capped:
+        return dict(record,verdict='ERROR',reason='output-cap')
     stopped = boundary_failure(result)
     if stopped:
         return dict(record, verdict=stopped['verdict'], reason=stopped['reason'])
@@ -263,8 +282,6 @@ def export_module(env: L.LeanEnv, module: str, theorem: str, output: str, tools:
         return dict(record, verdict='ERROR', reason=reason)
     if result.rc != 0:
         return dict(record, verdict='ERROR', reason='export-unavailable', stdout=result.out[-2000:])
-    with target.open('x', encoding='utf-8') as stream:
-        stream.write(result.out)
     target.chmod(0o444)
     exported_sha = digest(target)
     exported = dict(record, verdict='PASS', reason=None, path=str(target), sha256=exported_sha,
@@ -362,17 +379,23 @@ def compare_exports(challenge: str, solution: str, theorem: str, tools: Tools, s
                   seconds=result.secs, peak_rss_mb=result.peak_rss_mb, rc=result.rc,
                   solution_export_sha256=before[solution], comparator_lean=tools.comparator_version,
                   boundary=result.boundary, inner_signals=signals, process_receipt=result.process_receipt,
-                  cleanup_errors=cleanup_errors)
+                  cleanup_errors=cleanup_errors,detail='')
     if any(digest(path) != value for path, value in before.items()):
         return dict(record, verdict='ERROR', reason='export-integrity')
+    if result.output_capped or result.killed_by.startswith(('output-cap','capture-failed')):
+        return dict(record, verdict='ERROR', reason=resource_reason(result))
     if result.rc not in (0, 2):
         # Only 0/2 are Comparator verdicts. Even plausible kernel output cannot
         # turn a crash, signal or unknown exit status into a semantic rejection.
         observation = (result.boundary or {}).get('observation') or {}
         resource_events = observation.get('oom_kill_events') or observation.get('pids_max_events')
         guarded_resource_stop = resource_reason(result) is not None
-        reason = ('resource-unavailable' if result.rc != 70 and (guarded_resource_stop or resource_events)
-                  else 'sandbox-unavailable')
+        silent=(result.rc not in (None,0,2,70) and not guarded_resource_stop and not resource_events
+                and not result.out.strip() and not result.stderr.strip())
+        reason = ('resource-unavailable' if guarded_resource_stop or resource_events else
+                  'silent-exit' if silent else 'sandbox-unavailable')
+        record['detail']=('silent-exit:'+str(result.rc) if silent else
+                          'signal:'+str(-result.rc) if result.rc is not None and result.rc<0 else '')
         return dict(record, verdict='ERROR', reason=reason)
     if resource_reason(result):
         stopped = boundary_failure(result)

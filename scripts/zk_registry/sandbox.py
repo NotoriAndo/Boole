@@ -55,8 +55,20 @@ def capture_result(command, result):
     if pending is None:
         return result
     authority, capabilities, mode, exposed, writers = pending
+    if result.killed_by.startswith('output-cap:'):
+        channel=result.killed_by.split(':',1)[1]
+        if result.streams.get(channel,{}).get('kind')=='raw' and mode=='production':
+            try:
+                observed=normalized_boundary(json.loads(SafePath(status).read_text()))
+                healthy=(observed.get('protocol')==1 and observed.get('assurance')==mode
+                         and observed.get('descriptor_sha256')==authority and observed.get('verdict')=='PASS')
+            except (OSError,ValueError,KeyError,TypeError):healthy=False
+            if not healthy:
+                result.killed_by='raw-output-guard:'+channel
+                result.output_capped=False
     if result.timeout or result.memkill or result.killed_by:
-        result.boundary = dict(verdict='ERROR', reason='resource-unavailable', assurance=mode,
+        from .closure import resource_reason
+        result.boundary = dict(verdict='ERROR', reason=resource_reason(result) or 'resource-unavailable', assurance=mode,
                                capabilities_snapshot=capabilities)
         clean_receipt(status)
         return result
@@ -89,7 +101,8 @@ def normalized_boundary(record):
 def boundary_failure(result):
     """Give wall/memory ERROR precedence over deterministic containment failures."""
     if result.timeout or result.memkill or result.killed_by:
-        return {'verdict': 'ERROR', 'reason': 'resource-unavailable'}
+        from .closure import resource_reason
+        return {'verdict': 'ERROR', 'reason': resource_reason(result) or 'resource-unavailable'}
     boundary = normalized_boundary(result.boundary)
     if boundary and boundary.get('verdict') != 'PASS':
         return boundary

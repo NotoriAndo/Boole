@@ -10,6 +10,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import time
 from types import SimpleNamespace
 from dataclasses import replace
 import unittest
@@ -18,6 +19,7 @@ from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from zk_registry import correctness_runtime as CR
+from zk_registry import bounded_capture as BC
 from zk_registry import closure as D
 from zk_registry.sandbox import Sandbox
 from zk_registry.sandbox import SandboxUnavailable
@@ -295,6 +297,22 @@ class LiveCompare(unittest.TestCase):
         self.assertIn('injected cleanup failure', actual['cleanup_errors'][0])
 
 
+class CompletedCapture:
+    """Supply completed stub bytes without starting live pipe-drain threads."""
+    apply = BC.Capture.apply
+
+    def __init__(self, child, stop):
+        self.stdout, self.stderr = BC.sinks()
+        stdout, stderr = child.communicate()
+        self.stdout.feed(stdout or b'')
+        self.stderr.feed(stderr or b'')
+        self.stdout.finish()
+        self.stderr.finish()
+
+    def join(self):
+        pass
+
+
 class ReceiptRetention(unittest.TestCase):
     def test_dead_runner_receipts_are_swept_and_live_runner_is_untouched(self):
         root = Path('/run/user') / str(os.getuid()) / 'boole-gate-receipts/processes'
@@ -320,6 +338,7 @@ class ReceiptRetention(unittest.TestCase):
             stub.poll.return_value = 0
             with patch.object(CR.subprocess, 'Popen', return_value=stub), \
                     patch.object(CR, 'processes', return_value={900001: (os.getpid(), 1, 'stub')}), \
+                    patch.object(BC, 'Capture', CompletedCapture), \
                     patch('zk_registry.sandbox.registered_command', return_value=True):
                 CR.runner(temp)(['stub'], {}, temp, 1)
             self.assertFalse(dead.exists(), 'proven-dead runner receipts were not swept')
@@ -334,15 +353,26 @@ class ReceiptRetention(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp, \
                 patch.object(CR.subprocess, 'Popen', return_value=child), \
                 patch.object(CR, 'processes', return_value={900001: (os.getpid(), 1, 'test-owned-stub')}), \
+                patch.object(BC, 'Capture', CompletedCapture), \
                 patch('zk_registry.sandbox.registered_command', return_value=True):
             run = CR.runner(temp)
+            started = time.monotonic()
             for _ in range(10000):
                 report = run(['stubbed-control'], {}, temp, 1)
+            seconds = time.monotonic() - started
             entries = list(Path(run.log_directory).glob('*.json'))
             self.assertLessEqual(len(entries), 1, 'temporary process receipts accumulate after step reports')
+            self.assertEqual(len(run.step_reports), 10000)
+            self.assertTrue(all(row['exit_code'] == 0 and not row['reason'] for row in run.step_reports))
+            self.assertEqual(child.communicate.call_count, 10000)
             self.assertEqual(report.process_receipt['exit_code'], 0)
             self.assertEqual(report.process_receipt['argv'], ['stubbed-control'])
+            stdout = report.process_receipt['streams']['stdout']
+            self.assertEqual(stdout['bytes'], len(b'stubbed step'))
+            self.assertEqual(stdout['sha256'], hashlib.sha256(b'stubbed step').hexdigest())
+            self.assertFalse(stdout['capture_failed'])
             retain_control(self, {'stubbed_steps': 10000, 'remaining_temporary_receipts': len(entries),
+                                 'seconds': seconds,
                                  'last_step_report': report.process_receipt, 'Lean_executed': False})
 
 

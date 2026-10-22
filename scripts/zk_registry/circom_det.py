@@ -462,7 +462,7 @@ def compile_main(sh: Shared, workdir: str, include_rel: str, template: str, args
         recorded = [*flags, *option_flags(prime, libs)]
     run = L.run_process(cmd, env, workdir, sh.cfg.compile_timeout_s, sh.cfg.compile_rss_mb,
                         watch=lambda: output_guard(workdir, sh.cfg.compile_output_mb))
-    log, rc = run.out, run.rc
+    log, rc = run.out + run.stderr, run.rc
     guard = None
     if run.timeout or run.memkill or run.killed_by:
         what = (run.killed_by or (f"RSS > {sh.cfg.compile_rss_mb} MB" if run.memkill else

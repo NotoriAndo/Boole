@@ -28,8 +28,9 @@ class CompilePrecedence(unittest.TestCase):
                     'compile-errors', 'compile-limit', 'sorry-warning', 'printed-sorry',
                     'printed-disallowed', 'both-printed', 'post-target', 'post-kind',
                     'post-type', 'post-sorry', 'post-disallowed', 'post-axiom', 'post-unsafe', 'missing-print', 'existing-invalid', 'existing-fail']
-        for available, finding, replay in itertools.product(
-                availability, findings, ['ok', 'failed', 'absent', 'missing-post']):
+        matrix=[]
+        for available, finding, replay, capped in itertools.product(
+                availability, findings, ['ok', 'failed', 'absent', 'missing-post'], [False, True]):
             with self.subTest(availability=available, finding=finding, replay=replay):
                 post = dict(rc=0, replay='ok', target=dict(kind='theorem'),
                             type_sha256='reference', axioms=[], consts=[])
@@ -108,11 +109,20 @@ class CompilePrecedence(unittest.TestCase):
                 if available == 'silent-compile-exit' and any(
                         record and record.get('boundary') for record in [result, result['post']]):
                     expected = expected_finding
+                if capped:
+                    result['output_capped'] = True
+                    expected = 'ERROR'
                 invalid = ['existing finding'] if finding == 'existing-invalid' else []
                 fail = ['existing finding'] if finding == 'existing-fail' else []
                 error = []
                 C.apply_compile_result(result, dict(reference_type_sha256='reference'), invalid, fail, error)
                 self.assertEqual(C.verdict_of(dict(invalid=invalid, fail=fail, error=error)), expected)
+                matrix.append(dict(result=result,invalid=['existing finding'] if finding=='existing-invalid' else [],
+                    fail=['existing finding'] if finding=='existing-fail' else [],expected=expected,
+                    resource=active_availability and available!='silent-compile-exit'))
+                if capped:self.assertEqual(error,['output-cap'])
+        from test_zk_registry_det2a_review2 import assert_worker_envelopes
+        assert_worker_envelopes(self,matrix)
 
     def test_missing_print_output_ranks_below_every_deterministic_finding(self):
         fixture = check_fixtures.VerdictMappingTests()
@@ -201,7 +211,7 @@ class CompilePrecedence(unittest.TestCase):
             self.assertEqual(Path(temp, 'check/proof/compile.log').read_text(), output)
             invalid, fail, error = [], [], []
             C.apply_compile_result(result, {}, invalid, fail, error)
-            self.assertEqual((invalid, fail, error), ([], [], ['resource-unavailable']))
+            self.assertEqual((invalid, fail, error), ([], [], ['silent-exit']))
             messages = L.parse_messages(output + json.dumps(dict(severity='error', data='Lean error')), structured_only=True)
             self.assertEqual([message['data'] for message in L.errors(messages)], ['Lean error'])
             self.assertEqual(L.parse_messages(output)[0]['data'], 'non-JSON output: ' + output.rstrip('\n'))
@@ -209,7 +219,7 @@ class CompilePrecedence(unittest.TestCase):
     def test_silent_nonzero_compile_exit_is_availability_error(self):
         fixture = check_fixtures.VerdictMappingTests()
         result = fixture.ok_compile(compile_rc=1, n_errors=0, errors=[], post=None)
-        self.assertEqual(fixture.verdict(result), ([], [], ['resource-unavailable']))
+        self.assertEqual(fixture.verdict(result), ([], [], ['silent-exit']))
 
     def test_deterministic_findings_survive_unavailable_replay(self):
         fixture = check_fixtures.VerdictMappingTests()

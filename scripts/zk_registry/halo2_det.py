@@ -545,10 +545,10 @@ def lean_eval(sh: Shared, build_dir: str, ns: str, summary: dict, files: list[tu
         f.write(HE.emit_fid_runner(ns, summary, files))
     r = L.run_lean(sh.env, HE.LEAN_OPTIONS + ["--json", src], work, 3600, extra_lean_path=[build_dir],
                    rss_limit_mb=16384)
-    text = "\n".join(m.get("data", "") for m in L.parse_messages(r.out))
+    text = "\n".join(m.get("data", "") for m in L.complete_messages(r))
     verdicts = dict(re.findall(r"^FID (\S+) (ACCEPT|REJECT)$", text, re.M))
     if "FID-DONE" not in text:
-        verdicts["__incomplete__"] = "; ".join(L.fmt_msg(m) for m in L.errors(L.parse_messages(r.out))[:3]) or r.out[-300:]
+        verdicts["__incomplete__"] = "; ".join(L.fmt_msg(m) for m in L.errors(L.complete_messages(r))[:3]) or r.out[-300:]
     return verdicts, r
 
 
@@ -657,7 +657,7 @@ def g_triv(sh: Shared, build_dir: str, ns: str, summary: dict, work: str) -> G.G
                        extra_lean_path=[build_dir], rss_limit_mb=16384)
         runs.append({"variant": fname.replace("Battery_", ""), "secs": r.secs, "timeout": r.timeout,
                      "memkill": r.memkill, "peak_rss_mb": r.peak_rss_mb})
-        for name, c in G.classify_battery(text, L.parse_messages(r.out), r.timeout or r.memkill).items():
+        for name, c in G.classify_battery(text, L.complete_messages(r), r.timeout or r.memkill).items():
             if c["status"] == "timeout":
                 form = next(fm for fm in forms if E.battery_theorem_name(*fm) == name)
                 single = emit([form])
@@ -666,7 +666,7 @@ def g_triv(sh: Shared, build_dir: str, ns: str, summary: dict, work: str) -> G.G
                     f.write(single)
                 rs = L.run_lean(sh.env, HE.LEAN_OPTIONS + ["--json", spath], work, cfg.battery_single_wall,
                                 extra_lean_path=[build_dir], rss_limit_mb=16384)
-                c = G.classify_battery(single, L.parse_messages(rs.out), rs.timeout or rs.memkill)[name]
+                c = G.classify_battery(single, L.complete_messages(rs), rs.timeout or rs.memkill)[name]
                 c["rerun_single"] = {"secs": rs.secs, "timeout": rs.timeout, "memkill": rs.memkill}
             results[name] = c
     budget = {"maxHeartbeats": cfg.battery_heartbeats, "file_wall_s": cfg.battery_file_wall,
