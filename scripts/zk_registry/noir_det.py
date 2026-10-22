@@ -529,7 +529,7 @@ def compile_candidate(sh: Shared, t: I.Target, plan: str, cand: dict, cdir: str,
         r = sh.tc.run_nargo(tag, ["export", "--silence-warnings"] + extra, crate, sh.cfg.compile_timeout)
         art = os.path.join(crate, "export", f"{cand['wrapper'].name}.json")
         cmd = "nargo export --silence-warnings"
-        if r.rc != 0 and "numeric generic is not of type" in first_error(r.out) and method_call_ok(t):
+        if r.rc != 0 and "numeric generic is not of type" in first_error(r.stderr) and method_call_ok(t):
             # a numeric generic argument of a non-u32 type in a `<Type as Trait>` expression is typed u32 by
             # the compiler; the trait method is called with method-call syntax instead (the type has no
             # inherent method of that name, so the call resolves to the same trait method)
@@ -543,11 +543,11 @@ def compile_candidate(sh: Shared, t: I.Target, plan: str, cand: dict, cdir: str,
                 f.write(text + cand["wrapper"].text)
             r = sh.tc.run_nargo(tag, ["export", "--silence-warnings"] + extra, crate, sh.cfg.compile_timeout)
         with open(os.path.join(cdir, "nargo.log"), "w", encoding="utf-8") as f:
-            f.write(r.out[-20000:])
+            f.write((r.out+r.stderr)[-20000:])
         keep_output(cdir, extra, r.out)
         if r.rc == 0 and os.path.exists(art):
             return Compiled(True, tag, art, None, "", round(time.time() - t0, 2), cmd)
-        err = "timeout" if r.timeout else ("memory limit" if r.memkill else first_error(r.out))
+        err = "timeout" if r.timeout else ("memory limit" if r.memkill else first_error(r.stderr))
         if r.rc == 0 and not err.strip():
             err = "nargo export produced no artifact for the wrapper"
         if t.crate_type == "contract":
@@ -561,12 +561,12 @@ def compile_candidate(sh: Shared, t: I.Target, plan: str, cand: dict, cdir: str,
     r = sh.tc.run_nargo(tag, ["compile", "--silence-warnings"] + extra, crate, sh.cfg.compile_timeout)
     cmd = "nargo compile --silence-warnings"
     with open(os.path.join(cdir, "nargo.log"), "w", encoding="utf-8") as f:
-        f.write(r.out[-20000:])
+        f.write((r.out+r.stderr)[-20000:])
     keep_output(cdir, extra, r.out)
     tdir = os.path.join(crate, "target")
     arts = sorted(x for x in os.listdir(tdir) if x.endswith(".json")) if os.path.isdir(tdir) else []
     if r.rc != 0 or not arts:
-        err = "timeout" if r.timeout else ("memory limit" if r.memkill else first_error(r.out))
+        err = "timeout" if r.timeout else ("memory limit" if r.memkill else first_error(r.stderr))
         return Compiled(False, tag, error=scrub_text(sh, err), secs=round(time.time() - t0, 2), command=cmd)
     art = os.path.join(tdir, arts[0])
     if plan == "contract-fn":
@@ -615,7 +615,7 @@ def compile_std(sh: Shared, t: I.Target, cand: dict, crate: str, tag: str, t0: f
                 cand["wrapper"], cand["call"] = wr, wr.call
                 cand["std_imports"] = lines
                 return Compiled(True, tag, art, None, "", round(time.time() - t0, 2), cmd)
-            err = first_error(r.out)
+            err = first_error(r.stderr)
             m = re.search(r"src/lib\.nr:(\d+):", err)
             line = int(m.group(1)) if m else 0
             bad = None
@@ -2264,7 +2264,7 @@ def crosscheck_nargo_execute(cfg: WaveConfig, index_path: str, limit: int = 24) 
             arts = [x for x in os.listdir(os.path.join(d, "target")) if x.endswith(".json")] \
                 if os.path.isdir(os.path.join(d, "target")) else []
             if r.rc != 0 or not os.path.exists(gz) or not arts:
-                res["result"] = "nargo execute failed: " + scrub_text(sh, first_error(r.out))[:200]
+                res["result"] = "nargo execute failed: " + scrub_text(sh, first_error(r.stderr))[:200]
                 out.append(res)
                 continue
             art = os.path.join(d, "target", arts[0])

@@ -272,7 +272,7 @@ class ClassificationRules(unittest.TestCase):
         self.assertEqual(E.classify('output-cap','reference:export',''),'D-node')
         self.assertEqual(E.classify('replay-unavailable','replay','malformed-record'),'I')
         self.assertEqual(E.classify('checker-worker-error','worker','verdict-oversized'),'D-node')
-        self.assertEqual(E.classify('sandbox-unavailable','comparator','silent-exit:101'),'I')
+        self.assertEqual(E.classify('sandbox-unavailable','comparator','silent-exit:101'),'T')
         for reason in ['pin-mismatch','replay-tool-mismatch','checker package changed']:
             self.assertEqual(E.classify(reason,'worker',''),'D-node')
 

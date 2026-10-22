@@ -225,7 +225,7 @@ success or failure; bounded diagnostics and digests remain, and export-integrity
 
 Replay records have exact tab-separated field counts, LF termination and bounded reads. Malformed records
 produce ERROR `replay-unavailable` with detail `malformed-record`. Unexpected checker exceptions and usage
-errors exit3 with an ERROR report; a consumer requires agreement between the report and exit code.
+errors exit 3 with an ERROR report; a consumer requires agreement between the report and exit code.
 Error groups, reference-stage handling and resource-only retry envelopes are pinned in `error_policy_v1.json`.
 
 Current submission policy v4 scans all solver-written helper declarations and proof text exactly as written.

@@ -59,19 +59,21 @@ class Gate:
 def parse_replay(path: str) -> dict:
     try:return _parse_replay(path)
     except (OSError,ValueError,TypeError):
-        return dict(consts=[],axioms=[],target=None,type_str=None,replay=None,error='replay-unavailable')
+        return dict(consts=[],axioms=[],target=None,type_str=None,replay='FAIL: malformed record',
+                    malformed=dict(line=0,tag='file'),error='replay-unavailable')
 
 
 def _parse_replay(path: str) -> dict:
     """Read a bounded newline-terminated replay record with exact field grammar."""
     post = {"consts": [], "axioms": [], "target": None, "type_str": None, "replay": None}
-    if not os.path.exists(path):return post
     cap = L.testnet_caps()['output']['replay_bytes']
-    size=os.stat(path).st_size
-    post['replay_bytes']=size
-    if size > cap:
-        return dict(post,error='output-cap')
-    with open(path,'rb') as f:raw=f.read(cap+1)
+    try:
+        with open(path,'rb') as f:
+            size=os.fstat(f.fileno()).st_size
+            post['replay_bytes']=size
+            if size>cap:return dict(post,error='output-cap')
+            raw=f.read(cap+1)
+    except FileNotFoundError:return post
     if len(raw)>cap:return dict(post,error='output-cap')
     post.update(replay_bytes=len(raw),replay_sha256=hashlib.sha256(raw).hexdigest())
     try:text=raw.decode('utf-8')

@@ -374,6 +374,19 @@ def parse_messages(out: str, *, structured_only: bool = False) -> list[dict]:
     return msgs
 
 
+def complete_messages(result: RunResult) -> list[dict]:
+    """Consume complete structured diagnostics; retained logs are never a parser input."""
+    if result.output_capped or result.killed_by.startswith('output-cap'):
+        raise ResourceUnavailable('output-cap')
+    if result.killed_by.startswith('capture-failed'):
+        raise ResourceUnavailable('capture-failed')
+    if result.messages is not None:return result.messages
+    if result.streams:
+        raise ResourceUnavailable('capture-failed')
+    # Compatibility for injected runners that return an explicitly complete buffer.
+    return parse_messages(result.out)
+
+
 def compile_module(env: LeanEnv, src_root: str, rel_path: str, build_dir: str, opts: list[str], timeout: float,
                    extra_lean_path=()) -> tuple[RunResult, list[dict]]:
     """Compile ``src_root/rel_path`` to ``build_dir`` (``.olean`` + ``.ilean``) with ``--json``."""

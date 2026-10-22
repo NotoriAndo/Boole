@@ -135,11 +135,14 @@ def evaluate(unit: dict, stage: Path, build: Path, witnesses: list[Path], env: L
                                         CG.LEAN_OPTIONS, timeout)
     if result.rc != 0 or result.killed_by or result.timeout or result.memkill or L.errors(messages):
         return dict(completed=False, rows=[], error='Evaluation support failed', output=result.out[-2000:])
-    result = L.run_lean(env, CG.LEAN_OPTIONS + ['--run', str(stage / 'Evaluation.lean')] + list(map(str, witnesses)),
-                        str(stage), timeout, extra_lean_path=[str(build)])
+    from . import bounded_capture as BC
+    with BC.capture(stdout=BC.SmallSink()):
+        result = L.run_lean(env, CG.LEAN_OPTIONS + ['--run', str(stage / 'Evaluation.lean')] + list(map(str, witnesses)),
+                            str(stage), timeout, extra_lean_path=[str(build)])
     put(stage / 'evidence/evaluation.stdout', result.out)
     rows = []
-    for line in result.out.splitlines():
+    for line in ([] if result.output_capped or result.killed_by or
+                 any(r.get('truncated') for r in result.streams.values()) else result.out.splitlines()):
         if line.startswith('{'):
             try:
                 row = json.loads(line)

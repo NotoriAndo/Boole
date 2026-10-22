@@ -472,6 +472,9 @@ def check(pkg_dir: str, proof_path: str, env: L.LeanEnv, workdir: str | None = N
         return rep
     except (L.ResourceUnavailable,L.BoundaryInvalid,SandboxUnavailable):
         raise
+    except (OSError,ValueError,KeyError,TypeError,RuntimeError) as ex:
+        rep=_finish(dict(error=['checker-input-unavailable'],invalid=[],fail=[],reason='checker-input-unavailable',detail='exception:'+type(ex).__name__))
+        return rep
     except Exception as ex:
         rep=_finish(dict(error=['checker-internal-error'],invalid=[],fail=[],reason='checker-internal-error',detail='exception:'+type(ex).__name__))
         return rep
@@ -784,7 +787,13 @@ def _finish(rep: dict) -> dict:
     rep["verdict"] = verdict_of(rep)
     from . import error_policy as E
     if rep['error']:
-        rep.setdefault('reason',rep['error'][0])
+        candidate=rep.get('reason',rep['error'][0])
+        if not isinstance(candidate,str) or not re.fullmatch(r'[a-z][a-z0-9_-]*',candidate):
+            rep['detail']=str(candidate)
+            candidate=('environment-mismatch' if str(candidate).startswith('environment ') else
+                       'replay-tool-mismatch' if str(candidate).startswith('replay tool ') else
+                       'invalid-package' if str(candidate).startswith('package:') else 'checker-input-unavailable')
+        rep['reason']=candidate
         rep.setdefault('stage','checker')
         compile_record=rep.get('compile') if isinstance(rep.get('compile'),dict) else {}
         detail=('silent-exit:'+str(compile_record.get('compile_rc')) if rep['reason']=='silent-exit' else

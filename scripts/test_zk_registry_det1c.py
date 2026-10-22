@@ -116,6 +116,18 @@ class CompilePrecedence(unittest.TestCase):
                 error = []
                 C.apply_compile_result(result, dict(reference_type_sha256='reference'), invalid, fail, error)
                 self.assertEqual(C.verdict_of(dict(invalid=invalid, fail=fail, error=error)), expected)
+                # S2: changing only the prescribed resource envelope preserves every finding.
+                from zk_registry import error_policy as E
+                observed=(invalid,fail,error)
+                for attempt in [1,2]:
+                    envelope=E.envelope(attempt,dict(reason='resource-unavailable'))
+                    replayed=dict(result,envelope=envelope)
+                    i=['existing finding'] if finding=='existing-invalid' else []
+                    f=['existing finding'] if finding=='existing-fail' else []
+                    e=[]
+                    C.apply_compile_result(replayed,dict(reference_type_sha256='reference'),i,f,e)
+                    self.assertEqual((i,f,e),observed)
+
                 if capped:self.assertEqual(error,['output-cap'])
 
     def test_missing_print_output_ranks_below_every_deterministic_finding(self):

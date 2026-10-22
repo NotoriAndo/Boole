@@ -450,14 +450,14 @@ def lean_verdicts(env: L.LeanEnv, build: str, ns: str, n_constraints: int, files
     with open(src, "w", encoding="utf-8") as f:
         f.write(emit_runner(ns, n_constraints, files, pair))
     r = L.run_lean(env, E.LEAN_OPTIONS + ["--json", src], work, timeout, extra_lean_path=[build])
-    text = "\n".join(m.get("data", "") for m in L.parse_messages(r.out))
+    text = "\n".join(m.get("data", "") for m in L.complete_messages(r))
     v = dict(re.findall(r"^FID (\S+) (ACCEPT|REJECT)$", text, re.M))
     v.update({f"CALLS:{k}": x for k, x in re.findall(r"^CALLS (\S+) (ACCEPT|REJECT)$", text, re.M)})
     m = re.search(r"^PAIR (ACCEPT|REJECT)$", text, re.M)
     if m:
         v["PAIR"] = m.group(1)
     if "FID-DONE" not in text:
-        v["__incomplete__"] = "; ".join(L.fmt_msg(x) for x in L.errors(L.parse_messages(r.out))[:3]) or r.out[-300:]
+        v["__incomplete__"] = "; ".join(L.fmt_msg(x) for x in L.errors(L.complete_messages(r))[:3]) or r.out[-300:]
     return v, r
 
 

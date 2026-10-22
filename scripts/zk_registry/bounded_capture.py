@@ -107,8 +107,13 @@ class MessageSink(RawSink):
             value=json.loads(raw)
         except (ValueError,UnicodeError):value=None
         if isinstance(value,dict) and isinstance(value.get('data'),str):
+            measured_bytes=len(value['data'].encode('utf-8'))
+            pos=value.get('pos')
+            if pos is not None and (not isinstance(pos,dict) or
+                    any(type(pos.get(k)) is not int for k in ('line','column') if k in pos)):
+                value=dict(severity='error',data='malformed Lean message',pos=None)
             self.summary['message_count']+=1
-            self.summary['data_bytes']+=len(value['data'].encode('utf-8'))
+            self.summary['data_bytes']+=measured_bytes
             if self.summary['message_count']>self.message_cap or self.summary['data_bytes']>self.data_cap:
                 self.capped=True;return
             severity=value.get('severity')
@@ -125,6 +130,11 @@ class MessageSink(RawSink):
         else:
             self.summary['data_bytes']+=len(raw)
             if self.summary['data_bytes']>self.data_cap:self.capped=True
+            if self.retain_all and raw.strip() and not self.capped:
+                self.summary['message_count']+=1
+                self.summary['n_errors']+=1
+                if self.summary['message_count']>self.message_cap:self.capped=True;return
+                self.messages.append(dict(severity='error',data='non-JSON output: '+raw.decode('utf-8','replace').rstrip('\r\n')[:500],pos=None))
 
     def feed(self,data):
         super().feed(data)
@@ -177,7 +187,9 @@ def drain(pipe,sink,stop=None,channel='stdout'):
         sink.capture_failed=True
         if stop:stop('capture-failed:'+channel)
     finally:
-        try:sink.finish()
+        try:
+            sink.finish()
+            if sink.capped and stop:stop('output-cap:'+channel)
         except (OSError,ValueError):
             sink.capture_failed=True
             if stop:stop('capture-failed:'+channel)

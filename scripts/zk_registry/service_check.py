@@ -11,6 +11,7 @@ import argparse
 import copy
 import json
 import os
+import re
 import socket
 from dataclasses import replace
 from .safe_fs import Path
@@ -43,11 +44,13 @@ class ProductionVerifier:
         if type(wall) is not int or wall not in (1800,3600):raise RegistryError('checker wall must be 1800 or 3600 seconds')
         self.config['wall_s']=wall
         self.host_id=config.get('host_id',socket.gethostname())
-        self.worker_id=config.get('worker_id',self.host_id+'/worker')
+        self.worker_id=config.get('worker_id',str(self.host_id)+'/worker')
         if any(not isinstance(value,str) or not value for value in (self.host_id,self.worker_id)):
             raise RegistryError('checker worker and host ids must be nonempty')
         self.config.update(host_id=self.host_id,worker_id=self.worker_id)
         memory=config.get('memory_max',11534336000)
+        if type(memory) is not int or memory not in (11534336000,19966445568):
+            raise RegistryError('checker memory must use a production retry envelope')
         descriptor=json.loads((Path(__file__).parent/'data/acceptance_tools_v2.json').read_text())
         validate_memory_profiles(descriptor,memory)
         self.config['memory_max']=memory
@@ -287,6 +290,9 @@ def run(config, package_dir, submission_dir, work_dir, *, sandbox=None, acceptan
         result['reason'] = proof_report.get('reason') or next(iter(proof_report.get('error') or []),'checker-unavailable')
         result['stage'] = proof_report.get('stage','checker')
         result['detail'] = proof_report.get('detail','')
+        if not isinstance(result['reason'],str) or not re.fullmatch(r'[a-z][a-z0-9_-]*',result['reason']):
+            result['detail']=str(result['reason'])
+            result['reason']='checker-input-unavailable'
     if schema in RATCHET_KINDS and verdict == 'PASS':
         result['record'] = _ratchet_record(problem, report['candidate'])
         result['artifact'] = ratchet_artifact(problem, report)

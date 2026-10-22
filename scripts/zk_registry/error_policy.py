@@ -11,7 +11,6 @@ terminal_reasons=frozenset(RULES['terminal_reasons'])
 
 
 def classify(reason,stage='',detail=''):
-    if stage=='comparator' and str(detail).startswith('silent-exit:'):return 'I'
     if reason=='output-cap' and str(stage).startswith(('reference','challenge','import','pristine')):return 'D-node'
     if reason=='replay-unavailable' and detail=='malformed-record':return 'I'
     if reason=='checker-worker-error' and detail=='verdict-oversized':return 'D-node'

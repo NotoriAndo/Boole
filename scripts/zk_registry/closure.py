@@ -209,6 +209,10 @@ def prepare_reference(env: L.LeanEnv, problem: dict, package: str, work: str, se
     if compiled.get('compile_rc') != 0 or compiled.get('n_errors') or compiled.get('post') is None:
         return dict(verdict='ERROR', reason='challenge-build-unavailable', compiled=compiled)
     post = compiled['post']
+    if post.get('error')=='output-cap' or str(post.get('killed_by','')).startswith('output-cap'):
+        return dict(verdict='ERROR',reason='output-cap',compiled=compiled)
+    if str(post.get('killed_by','')).startswith('capture-failed'):
+        return dict(verdict='ERROR',reason='capture-failed',compiled=compiled)
     if post.get('timeout') or post.get('memkill') or post.get('killed_by'):
         return dict(verdict='ERROR', reason='resource-unavailable', compiled=compiled)
     if post.get('replay') != 'ok':
@@ -266,6 +270,8 @@ def export_module(env: L.LeanEnv, module: str, theorem: str, output: str, tools:
     record = dict(stage='closure-export', assurance=sandbox.mode, seconds=result.secs,
                   peak_rss_mb=result.peak_rss_mb, rc=result.rc, boundary=result.boundary,
                   process_receipt=result.process_receipt)
+    if sink.capped:
+        return dict(record,verdict='ERROR',reason='output-cap')
     stopped = boundary_failure(result)
     if stopped:
         return dict(record, verdict=stopped['verdict'], reason=stopped['reason'])
@@ -371,8 +377,7 @@ def compare_exports(challenge: str, solution: str, theorem: str, tools: Tools, s
                   seconds=result.secs, peak_rss_mb=result.peak_rss_mb, rc=result.rc,
                   solution_export_sha256=before[solution], comparator_lean=tools.comparator_version,
                   boundary=result.boundary, inner_signals=signals, process_receipt=result.process_receipt,
-                  cleanup_errors=cleanup_errors,detail=('signal:'+str(-result.rc) if result.rc is not None and result.rc<0 else
-                    'silent-exit:'+str(result.rc) if result.rc not in (0,2) and not resource_reason(result) else ''))
+                  cleanup_errors=cleanup_errors,detail='')
     if any(digest(path) != value for path, value in before.items()):
         return dict(record, verdict='ERROR', reason='export-integrity')
     if result.output_capped or result.killed_by.startswith(('output-cap','capture-failed')):
@@ -383,8 +388,12 @@ def compare_exports(challenge: str, solution: str, theorem: str, tools: Tools, s
         observation = (result.boundary or {}).get('observation') or {}
         resource_events = observation.get('oom_kill_events') or observation.get('pids_max_events')
         guarded_resource_stop = resource_reason(result) is not None
-        reason = ('resource-unavailable' if result.rc != 70 and (guarded_resource_stop or resource_events)
-                  else 'sandbox-unavailable')
+        silent=(result.rc not in (None,0,2,70) and not guarded_resource_stop and not resource_events
+                and not result.out.strip() and not result.stderr.strip())
+        reason = ('resource-unavailable' if guarded_resource_stop or resource_events else
+                  'silent-exit' if silent else 'sandbox-unavailable')
+        record['detail']=('silent-exit:'+str(result.rc) if silent else
+                          'signal:'+str(-result.rc) if result.rc is not None and result.rc<0 else '')
         return dict(record, verdict='ERROR', reason=reason)
     if resource_reason(result):
         stopped = boundary_failure(result)
