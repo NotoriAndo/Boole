@@ -1,5 +1,7 @@
 # Boole derivation specification v0
 
+Commit and reveal extend these rules in [specification v1](devnet-commit-reveal-v1.md).
+
 Status: devnet only v0. Rules D1–D18 are normative within this version. Tests cite
 these identifiers. The devnet conventions preserve the S1b byte layout; the
 DEVNET-M1b cumulative budget changes forwarding. These are not production choices.
@@ -16,6 +18,7 @@ and zero fee scalars. L1 block zero anchors L2 genesis.
 Read logs by blockHash, inbox address and topic0; sort by (transactionIndex,
 logIndex). The ABI data is word 32, length, item (and optional trailing padding).
 An item is kind byte followed by body. Kind `0x01` carries one EIP-2718 user tx.
+The M1 inbox corrupts items above 65,536 bytes and is unsuitable for M2.
 
 **D3 — Finality and restart.** L2 height h derives only from finalized L1 height
 h, one block per height including empty blocks. Anvil finality is latest minus
@@ -56,7 +59,7 @@ Wrong address, topic0 or blockHash, removed logs, duplicate index pairs, malform
 input fields, timestamp overflow and invalid extraData are input errors and stall.
 
 **D8 — F1 kind.** Anything other than `0x01` (including an empty item) drops
-`ITEM-KIND-NOT-ACCEPTED`. Kinds `0x02`–`0x0f` are reserved for M2.
+`ITEM-KIND-NOT-ACCEPTED`. M2-R1 in specification v1 assigns and reserves kinds `0x02`–`0x0f`.
 
 **D9 — F2 type.** Any body not beginning with `0x02` drops
 `USER-TYPE-NOT-ALLOWED`: empty, legacy, types 1, 3, 4, unknown and user type 0x7e.

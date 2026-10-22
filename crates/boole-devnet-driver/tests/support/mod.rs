@@ -222,6 +222,9 @@ impl Runtime {
         bail!("{name} RPC startup timeout")
     }
     pub fn anvil(&mut self, binary: &Path) -> Result<Rpc> {
+        self.anvil_with_genesis(binary, &fixture("l1-genesis.json"))
+    }
+    pub fn anvil_with_genesis(&mut self, binary: &Path, genesis: &Path) -> Result<Rpc> {
         free_port(28545)?;
         let args = vec![
             "--host".into(),
@@ -234,7 +237,7 @@ impl Runtime {
             "--timestamp".into(),
             "1800000000".into(),
             "--init".into(),
-            fixture("l1-genesis.json").display().to_string(),
+            genesis.display().to_string(),
             "--silent".into(),
         ];
         self.start("anvil", binary, args, "http://127.0.0.1:28545")?;
@@ -402,12 +405,14 @@ pub fn observe(node: &Node, derived: &Derived) -> Result<Value> {
     let rpc = node.rpc()?;
     let mut receipts = vec![];
     for decision in &derived.decisions {
-        let hash = decision
-            .user
-            .as_ref()
-            .context("expected user fixture")?
-            .tx_hash
-            .clone();
+        let Some(user) = &decision.user else {
+            if decision.forward {
+                bail!("non-user item forwarded");
+            }
+            receipts.push(Value::Null);
+            continue;
+        };
+        let hash = user.tx_hash.clone();
         let position = remaining.iter().position(|x| *x == hash);
         let receipt = if let Some(position) = position {
             if !decision.forward {
@@ -451,3 +456,7 @@ mod tests {
         );
     }
 }
+
+// Shared encoders are used by the M2 test executable.
+#[allow(dead_code)]
+pub mod m2;

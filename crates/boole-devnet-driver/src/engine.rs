@@ -11,6 +11,10 @@ use std::{
 
 pub trait Engine {
     fn head(&mut self) -> Result<ParentHeader>;
+    fn header(&mut self, _height: u64) -> Result<ParentHeader> {
+        bail!("Engine node source does not support anchored restart")
+    }
+
     fn call(&mut self, method: &str, params: Value) -> Result<Value>;
 }
 
@@ -117,11 +121,11 @@ impl RpcEngine {
         Ok(Self { node, auth })
     }
 }
-impl Engine for RpcEngine {
-    fn head(&mut self) -> Result<ParentHeader> {
+impl RpcEngine {
+    fn read_header(&self, tag: Value) -> Result<ParentHeader> {
         let block = self
             .node
-            .call("eth_getBlockByNumber", json!(["latest", false]))?;
+            .call("eth_getBlockByNumber", json!([tag, false]))?;
         let mut parent: ParentHeader =
             serde_json::from_value(block.clone()).context("decode L2 head")?;
         if parent.number > 0 {
@@ -136,6 +140,14 @@ impl Engine for RpcEngine {
             );
         }
         Ok(parent)
+    }
+}
+impl Engine for RpcEngine {
+    fn head(&mut self) -> Result<ParentHeader> {
+        self.read_header(json!("latest"))
+    }
+    fn header(&mut self, height: u64) -> Result<ParentHeader> {
+        self.read_header(json!(format!("0x{height:x}")))
     }
     fn call(&mut self, method: &str, params: Value) -> Result<Value> {
         self.auth.call(method, params)

@@ -1,6 +1,6 @@
 # Boole — current development status
 
-Updated: 2026-10-21. This is the tracked entrypoint for current progress and the
+Updated: 2026-10-22. This is the tracked entrypoint for current progress and the
 ordered development roadmap. Edit it in place; execution evidence stays in its
 own result record. Local Master/Execution documents link here instead of owning
 a second current cursor. Work methods follow the
@@ -17,6 +17,24 @@ started. Publication did not authorize public P2P or resume the completed
 twelve-hour delegation.
 
 ## Current boundary
+
+**Devnet M2 (October 22, devnet only).** The
+[commit/reveal spec](devnet-commit-reveal-v1.md) defines deterministic candidate,
+pool and problem-round state. The driver records `m2_root`, persists checkpoints
+and re-folds from L1 hashes anchored in L2 L1-info deposits after restart, checking
+the L2 parent-hash chain. M2 startup pins the deployed inbox runtime; stall evidence
+retains the adopted root. The
+[pure tests](../crates/boole-derivation/tests/m2.rs) cover boundaries, 50,000 mutated
+items and vectors from the registry service; the
+[client tests](../crates/boole-devnet-driver/tests/m2_devnet.rs) compare A/B/C through
+84 commit/reveal heights, 72 adversarial heights and 80 round-lifecycle heights.
+A [new M1 schedule](../crates/boole-devnet-driver/tests/m1_schedule.rs) preserves
+every original transaction occurrence and exercises duplicate and status-0 fee
+cases through 35 live and recorded heights. The
+[recordings](../fixtures/devnet-m2/README.md) bind client, codec and genesis
+provenance from tracked generators and replay against the pure model offline.
+Kernel proof validation, verdict deposits, minting and reveal escrow remain later
+milestones; these results cover the closed-local devnet.
 
 **Devnet M1 (October 21, devnet only).** The additive `boole-derivation` crate
 maps finalized anvil inbox data and the exact parent header to deterministic
