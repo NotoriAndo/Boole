@@ -470,8 +470,12 @@ class LiveReviewFixes(unittest.TestCase):
                 self.assertRaisesRegex(L.BoundaryInvalid, '^submission-output-path$'):
             C.compile_in_sandbox(env, problem, str(root), 'theorem goal : True := by trivial',
                                  str(work), 5, self.boundary)
-        with self.assertRaises(OSError):
-            G.parse_replay(str(work / 'proof/replay.out'))
+        replay = G.parse_replay(str(work / 'proof/replay.out'))
+        self.assertEqual(replay['error'], 'replay-unavailable')
+        self.assertEqual(replay['replay'], 'FAIL: malformed record')
+        self.assertEqual(replay['malformed'], {'line': 0, 'tag': 'file'})
+        self.assertEqual(replay['consts'], [])
+        self.assertIsNone(replay['target'])
         self.assertEqual(canary.read_text(), 'unchanged')
 
     def test_reader_cannot_follow_a_previous_stage_symlink(self):
