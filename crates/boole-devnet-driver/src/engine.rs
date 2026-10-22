@@ -9,6 +9,34 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+/// A transport response that may recover without changing the request.
+#[derive(Debug)]
+pub struct TransientRpcError;
+impl std::fmt::Display for TransientRpcError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("temporary RPC unavailability")
+    }
+}
+impl std::error::Error for TransientRpcError {}
+
+/// Bounded retries apply only to transport/body failures and HTTP 429/5xx.
+/// Format, consensus and application errors retain their original fail-closed path.
+pub fn retry_rpc<T>(mut read: impl FnMut() -> Result<T>) -> Result<T> {
+    for delay in [100, 300] {
+        match read() {
+            Err(e)
+                if e.is::<TransientRpcError>()
+                    || e.downcast_ref::<reqwest::Error>()
+                        .is_some_and(|e| e.is_connect() || e.is_timeout() || e.is_body()) =>
+            {
+                std::thread::sleep(Duration::from_millis(delay));
+            }
+            result => return result,
+        }
+    }
+    read()
+}
+
 pub trait Engine {
     fn head(&mut self) -> Result<ParentHeader>;
     fn header(&mut self, _height: u64) -> Result<ParentHeader> {
@@ -84,6 +112,9 @@ impl Rpc {
             .send()
             .with_context(|| format!("{method} transport"))?;
         let status = response.status();
+        if status.is_server_error() || status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            return Err(TransientRpcError.into());
+        }
         let body: Value = response
             .json()
             .with_context(|| format!("{method}: malformed JSON response (HTTP {status})"))?;

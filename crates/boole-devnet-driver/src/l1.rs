@@ -5,6 +5,10 @@ use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
 pub trait L1Source {
+    /// Genesis may predate header fields required by the derivation fold.
+    fn genesis_hash(&mut self) -> Result<String> {
+        Ok(self.block(0)?.hash)
+    }
     /// Offline recordings/mocks have no runtime. RPC sources verify the profile.
     fn validate_m2_inbox(&mut self) -> Result<()> {
         Ok(())
@@ -109,6 +113,22 @@ impl RpcL1 {
     }
 }
 impl L1Source for RpcL1 {
+    fn genesis_hash(&mut self) -> Result<String> {
+        let block = self
+            .rpc
+            .call("eth_getBlockByNumber", json!(["0x0", false]))?;
+        if block["number"] != "0x0" {
+            bail!("L1 genesis height mismatch");
+        }
+        let hash = block["hash"]
+            .as_str()
+            .ok_or_else(|| anyhow!("L1 genesis hash missing"))?;
+        if boole_derivation::attributes::hex_bytes(hash, "L1 genesis hash")?.len() != 32 {
+            bail!("L1 genesis hash length");
+        }
+        Ok(hash.into())
+    }
+
     fn validate_m2_inbox(&mut self) -> Result<()> {
         if !self.m2_validated {
             let code = self.rpc.call(

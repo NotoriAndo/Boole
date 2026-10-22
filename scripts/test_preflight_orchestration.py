@@ -115,14 +115,16 @@ class PreflightOrchestrationTests(unittest.TestCase):
         # P2.1/P2.2 — boole-mcp joined boole-miner as a reqwest consumer
         # (HTTP proxy to upstream boole-node). CURL.2-TRANSPORT — boole-cli
         # joined as the verified product-release downloader. DEVNET-M1 —
-        # boole-devnet-driver joined as the loopback L1/Engine RPC client. All
-        # must continue to take reqwest via the workspace declaration, never
-        # re-declare it.
+        # boole-devnet-driver joined as the loopback L1/Engine RPC client.
+        # MCP-1 — boole-devnet-mcp joined as the devnet miner's L1 RPC client.
+        # All must continue to take reqwest via the workspace declaration,
+        # never re-declare it.
         self.assertEqual(
             reqwest_lines,
             [
                 ("crates/boole-cli/Cargo.toml", "reqwest.workspace = true"),
                 ("crates/boole-devnet-driver/Cargo.toml", "reqwest.workspace = true"),
+                ("crates/boole-devnet-mcp/Cargo.toml", "reqwest.workspace = true"),
                 ("crates/boole-mcp/Cargo.toml", "reqwest.workspace = true"),
                 ("crates/boole-miner/Cargo.toml", "reqwest.workspace = true"),
             ],

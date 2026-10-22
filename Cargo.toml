@@ -16,6 +16,7 @@ members = [
   "crates/boole-wallet-agent",
   "crates/boole-derivation",
   "crates/boole-devnet-driver",
+  "crates/boole-devnet-mcp",
 ]
 resolver = "2"
 

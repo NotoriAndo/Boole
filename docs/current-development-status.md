@@ -18,6 +18,20 @@ twelve-hour delegation.
 
 ## Current boundary
 
+**Devnet miner MCP-1 (October 22, devnet only).** The separate
+[`boole-devnet-mcp` client](devnet-miner-client-v0.md) folds finalized L1 with the
+same M2 derivation code, exposes status/decoded problems, and self-posts COMMIT,
+OPEN, parts and CANCEL using unlocked development accounts. Private records
+retain salts and cancel tokens across restart; an optional pinned local adapter
+can refuse COMMIT. The actual stdio/live test reaches CHECKING with one pinned
+op-reth replica and equal client/driver roots, then exercises cancellation and
+offline expiry through tombstone pruning and restart. Reviewed recovery fixes
+retain final submission states, isolate reverted receipts, retry transient reads,
+and validate L1 header formats and the observed L2 gas limit. Native-chain MCP
+tools remain unchanged.
+This is synthetic devnet transport evidence; no gate/kernel certification,
+batcher, escrow, wallet or production posting path is added.
+
 **Devnet M2 v1.1 (October 22, devnet only).** The
 [commit/reveal spec](devnet-commit-reveal-v1.1.md) defines deterministic candidate,
 pool and problem-round state with per-slot union draws, package codec declarations

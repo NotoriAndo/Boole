@@ -386,6 +386,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "boole-devnet-mcp"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "boole-derivation",
+ "boole-devnet-driver",
+ "clap",
+ "k256",
+ "reqwest",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "boole-emitter"
 version = "0.1.0"
 dependencies = [
