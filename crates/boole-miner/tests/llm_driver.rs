@@ -820,8 +820,9 @@ fn test_std_process_runner_timeout_closes_pipes_to_session_escaped_descendant() 
         "        os.write(fd, b'x')\n",
         "    except BrokenPipeError:\n",
         "        broken.append(fd)\n",
-        "with open(result, 'w') as out:\n",
-        "    out.write(f'{stdin_bytes}:{broken}')\n"
+        "with open(result + '.tmp', 'w') as out:\n",
+        "    out.write(f'{stdin_bytes}:{broken}')\n",
+        "os.replace(result + '.tmp', result)\n"
     );
     let input = vec![b'x'; 8 * 1024 * 1024];
     let runner = StdProcessRunner;
@@ -864,6 +865,7 @@ fn test_std_process_runner_timeout_closes_pipes_to_session_escaped_descendant() 
     for path in [&ready, &release, &result] {
         let _ = std::fs::remove_file(path);
     }
+    let _ = std::fs::remove_file(result.with_extension("tmp"));
     let observation = observation.expect("escaped helper must observe closed runner pipes");
     let (stdin_bytes, broken_outputs) = observation
         .split_once(':')
