@@ -111,10 +111,16 @@ fn t2_inbox_kind_and_abi() {
         inbox::user_body(&envelope(&[1, 2, 0xc0])).unwrap(),
         [2, 0xc0]
     );
-    for kind in [0, 2, 3, 15, 255] {
+    for kind in [0, 15, 255] {
         assert_eq!(
             inbox::user_body(&envelope(&[kind])),
             Err("ITEM-KIND-NOT-ACCEPTED")
+        );
+    }
+    for kind in [2, 3, 4, 7, 8, 9] {
+        assert_eq!(
+            inbox::user_body(&envelope(&[kind])),
+            Err("M2-DECODE-INVALID")
         );
     }
     assert_eq!(
@@ -165,7 +171,7 @@ fn t2_dropped_items_do_not_affect_other_items() {
             .collect::<Vec<_>>(),
         [
             "INBOX-ENVELOPE-INVALID",
-            "ITEM-KIND-NOT-ACCEPTED",
+            "M2-DECODE-INVALID",
             "USER-TYPE-NOT-ALLOWED",
             "USER-DECODE-OR-SIGNATURE-INVALID"
         ]

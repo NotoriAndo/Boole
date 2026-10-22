@@ -1,5 +1,7 @@
 # Boole derivation specification v0
 
+Commit and reveal extend these rules in [specification v1](devnet-commit-reveal-v1.md).
+
 Status: devnet only v0. Rules D1–D18 are normative within this version. Tests cite
 these identifiers. The devnet conventions preserve the S1b byte layout; the
 DEVNET-M1b cumulative budget changes forwarding. These are not production choices.
@@ -56,7 +58,7 @@ Wrong address, topic0 or blockHash, removed logs, duplicate index pairs, malform
 input fields, timestamp overflow and invalid extraData are input errors and stall.
 
 **D8 — F1 kind.** Anything other than `0x01` (including an empty item) drops
-`ITEM-KIND-NOT-ACCEPTED`. Kinds `0x02`–`0x0f` are reserved for M2.
+`ITEM-KIND-NOT-ACCEPTED`. M2-R1 in specification v1 assigns and reserves kinds `0x02`–`0x0f`.
 
 **D9 — F2 type.** Any body not beginning with `0x02` drops
 `USER-TYPE-NOT-ALLOWED`: empty, legacy, types 1, 3, 4, unknown and user type 0x7e.
