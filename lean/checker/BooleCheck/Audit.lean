@@ -8,19 +8,9 @@
   trusted imports without initializers, and replays every serialized safe
   declaration through Lean's kernel.
 
-  The submitted source is neither opened nor parsed here, so elaboration-time
-  commands cannot run a second time inside the auditor. For every declaration
-  named by the artifact, the audit computes the transitive axiom closure via
-  `Lean.CollectAxioms` — the machinery behind `#print axioms` — and prints:
-
-    BOOLE_AXIOM <axiom name>       -- one line per axiom in the closure
-    BOOLE_AXIOM_AUDIT_DONE         -- sentinel: audit ran to completion
-
-  `crates/boole-lean-runner/src/lib.rs` parses this stdout and rejects
-  the submission unless every printed axiom is in the allowlist
-  {propext, Classical.choice, Quot.sound} AND the `BOOLE_AXIOM_AUDIT_DONE`
-  sentinel is present. A missing sentinel (crash, timeout, kill) is treated
-  as retryable unavailability, never as a proof verdict or silent acceptance.
+  Each axiom is printed as a JSON array of root-first name components.
+  The final line records the exact number of axiom records. The runner checks
+  this complete grammar and the three permitted names before acceptance.
 -/
 import Lean
 import Lean.Replay
@@ -33,6 +23,11 @@ def declaredAxioms (newNames : Array Name) (finalEnv : Environment) : Array Name
   for name in newNames do
     st := (((Lean.CollectAxioms.collect name).run finalEnv).run st).snd
   return st.axioms
+
+def nameComponents : Name → Array Json
+  | .anonymous => #[]
+  | .str parent value => nameComponents parent |>.push (Json.str value)
+  | .num parent value => nameComponents parent |>.push (toJson value)
 
 def main (args : List String) : IO UInt32 := do
   let some artifactPath := args.head?
@@ -63,7 +58,7 @@ def main (args : List String) : IO UInt32 := do
   let baseEnv ← Lean.importModules artifact.imports {}
   for info in artifact.constants do
     if info.isUnsafe || info.isPartial then
-      IO.eprintln s!"BOOLE_UNREPLAYABLE_CONSTANT {info.name}"
+      IO.eprintln s!"BOOLE_UNREPLAYABLE_CONSTANT {(Json.arr (nameComponents info.name)).compress}"
       return 1
   let constants := artifact.constants.foldl
     (fun out info => out.insert info.name info)
@@ -81,6 +76,6 @@ def main (args : List String) : IO UInt32 := do
     | return 1
   let axioms := declaredAxioms artifact.constNames finalEnv
   for ax in axioms.qsort (fun a b => a.toString < b.toString) do
-    IO.println s!"BOOLE_AXIOM {ax}"
-  IO.println "BOOLE_AXIOM_AUDIT_DONE"
+    IO.println s!"BOOLE_AXIOM_JSON {(Json.arr (nameComponents ax)).compress}"
+  IO.println s!"BOOLE_AXIOM_AUDIT_DONE count={axioms.size}"
   return 0

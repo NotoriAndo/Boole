@@ -216,6 +216,23 @@ pub enum LeanVerdict {
 }
 
 impl LeanVerdict {
+    pub fn error_group(&self) -> Option<&'static str> {
+        match self {
+            Self::RetryableUnavailable { reason } => Some(match reason.as_str() {
+                "checker_release_mismatch"
+                | "toolchain_unavailable"
+                | "trusted_helper_compile_unavailable" => "D-node",
+                "containment_killed"
+                | "primary_checker_unavailable"
+                | "axiom_audit_unavailable" => "I",
+                "replay_unavailable" => "D-input",
+                value if value.starts_with("checker package changed") => "D-node",
+                _ => "T",
+            }),
+            _ => None,
+        }
+    }
+
     pub fn is_retryable_unavailable(&self) -> bool {
         matches!(self, LeanVerdict::RetryableUnavailable { .. })
     }
@@ -260,6 +277,10 @@ pub struct LeanCheckResult {
     pub stderr: String,
     pub timed_out: bool,
     pub output_truncated: bool,
+    #[serde(default)]
+    pub stdout_bytes: u64,
+    #[serde(default)]
+    pub stderr_bytes: u64,
     /// SC.9a / ADR-0016 (a-3) — three-state classification. `accepted`
     /// stays the boolean shorthand (`verdict == Accepted`); consumers that
     /// must not translate availability failures into consensus rejects
@@ -745,6 +766,8 @@ fn unavailable_result(evidence: &LeanRunnerEvidence, reason: impl Into<String>) 
         stderr: reason.clone(),
         timed_out: false,
         output_truncated: false,
+        stdout_bytes: 0,
+        stderr_bytes: 0,
         verdict: LeanVerdict::RetryableUnavailable { reason },
         evidence: evidence.clone(),
     }
@@ -768,6 +791,8 @@ fn unavailable_stage_result(
         stderr,
         timed_out: outcome.timed_out,
         output_truncated: outcome.output_truncated,
+        stdout_bytes: outcome.stdout_bytes,
+        stderr_bytes: outcome.stderr_bytes,
         verdict: LeanVerdict::RetryableUnavailable {
             reason: reason.to_string(),
         },
@@ -818,7 +843,28 @@ impl LeanRunner {
             ));
         }
 
+        let actual_hash = checker_artifact_hash(&self.config.package_dir).unwrap_or_default();
+        if actual_hash != CHECKER_RELEASE_HASH {
+            let evidence = LeanRunnerEvidence {
+                verifier_hash: self.config.verifier_hash.clone(),
+                checker: "direct lean source checker + artifact audit".into(),
+                checker_exe: "lean".into(),
+                checker_artifact_hash: actual_hash,
+                package_dir: self.config.package_dir.display().to_string(),
+                lean_version: String::new(),
+                lake_version: String::new(),
+                timeout_ms: self.config.timeout_ms,
+                memory_limit_mb: self.config.memory_limit_mb,
+                output_limit_bytes: self.config.output_limit_bytes,
+                max_heartbeats: self.config.max_heartbeats,
+                max_rec_depth: self.config.max_rec_depth,
+            };
+            return Ok(unavailable_result(&evidence, "checker_release_mismatch"));
+        }
         let evidence = self.evidence()?;
+        if evidence.checker_artifact_hash != CHECKER_RELEASE_HASH {
+            return Ok(unavailable_result(&evidence, "checker_release_mismatch"));
+        }
         let toolchain_runtime =
             match effective_toolchain_runtime(&self.config.package_dir, self.config.isolation_mode)
             {
@@ -902,9 +948,11 @@ impl LeanRunner {
             Ok(outcome) => outcome,
             Err(err) => return Ok(unavailable_result(&evidence, format!("{err:#}"))),
         };
-        if !helper_compile.success {
+        if !helper_compile.success || helper_compile.capture_failed {
             let reason = if helper_compile.timed_out {
                 "containment_wall_clock_kill"
+            } else if helper_compile.capture_failed {
+                "capture_failed"
             } else {
                 "trusted_helper_compile_unavailable"
             };
@@ -996,7 +1044,7 @@ impl LeanRunner {
             Err(err) => return Ok(unavailable_result(&evidence, format!("{err:#}"))),
         };
 
-        if !primary.success {
+        if !primary.success || primary.capture_failed {
             let verdict = classify_failed_run(&primary);
             return Ok(LeanCheckResult {
                 accepted: false,
@@ -1005,6 +1053,8 @@ impl LeanRunner {
                 stderr: primary.stderr,
                 timed_out: primary.timed_out,
                 output_truncated: primary.output_truncated,
+                stdout_bytes: primary.stdout_bytes,
+                stderr_bytes: primary.stderr_bytes,
                 verdict,
                 evidence,
             });
@@ -1111,6 +1161,8 @@ impl LeanRunner {
 
         let timed_out = primary.timed_out || audit.timed_out;
         let output_truncated = primary.output_truncated || audit.output_truncated;
+        let stdout_bytes = primary.stdout_bytes + audit.stdout_bytes;
+        let stderr_bytes = primary.stderr_bytes + audit.stderr_bytes;
         match enforce_axiom_allowlist(&audit) {
             Ok(()) => Ok(LeanCheckResult {
                 accepted: true,
@@ -1119,6 +1171,8 @@ impl LeanRunner {
                 stderr: primary.stderr,
                 timed_out,
                 output_truncated,
+                stdout_bytes,
+                stderr_bytes,
                 verdict: LeanVerdict::Accepted,
                 evidence,
             }),
@@ -1136,6 +1190,8 @@ impl LeanRunner {
                     stderr,
                     timed_out,
                     output_truncated,
+                    stdout_bytes,
+                    stderr_bytes,
                     verdict,
                     evidence,
                 })
@@ -1222,8 +1278,8 @@ impl LeanRunner {
         confirm_process_group_empty(child_pid)?;
         // Drain threads exit when the child closes its pipe ends. After the
         // child is reaped, EOF is delivered and the threads finish.
-        let _ = stdout_handle.join();
-        let _ = stderr_handle.join();
+        let stdout_join_failed = stdout_handle.join().is_err();
+        let stderr_join_failed = stderr_handle.join().is_err();
 
         let stdout_drain = Arc::try_unwrap(stdout_buf)
             .ok()
@@ -1236,8 +1292,8 @@ impl LeanRunner {
             .into_inner()
             .map_err(|err| anyhow!("stderr mutex poisoned: {err}"))?;
 
-        let mut stdout = String::from_utf8_lossy(&stdout_drain.bytes).to_string();
-        let mut stderr = String::from_utf8_lossy(&stderr_drain.bytes).to_string();
+        let mut stdout = String::from_utf8_lossy(&stdout_drain.retained()).to_string();
+        let mut stderr = String::from_utf8_lossy(&stderr_drain.retained()).to_string();
         let mut stdout_truncated = stdout_drain.truncated;
         let mut stderr_truncated = stderr_drain.truncated;
         if timed_out {
@@ -1265,6 +1321,14 @@ impl LeanRunner {
             stderr,
             timed_out,
             output_truncated: stdout_truncated || stderr_truncated,
+            stdout_truncated,
+            stdout_bytes: stdout_drain.total,
+            stderr_bytes: stderr_drain.total,
+            stderr_final_line: stderr_drain.final_line(),
+            capture_failed: stdout_drain.capture_failed
+                || stderr_drain.capture_failed
+                || stdout_join_failed
+                || stderr_join_failed,
         })
     }
 
@@ -1327,22 +1391,19 @@ struct SandboxedRunOutcome {
     stderr: String,
     timed_out: bool,
     output_truncated: bool,
+    stdout_truncated: bool,
+    stdout_bytes: u64,
+    stderr_bytes: u64,
+    stderr_final_line: Option<String>,
+    capture_failed: bool,
 }
-
-/// The three axioms Lean's core library trusts as sound by long-standing
-/// convention: `propext` (propositional extensionality), `Classical.choice`
-/// (excluded middle via choice), and `Quot.sound` (quotient soundness). Any
-/// other axiom in a submitted proof's closure means either the proof itself
-/// declared a new axiom (directly via `axiom`, or indirectly via
-/// `Lean.addDecl` from inside a custom `elab`), or it depends on a
-/// Lean-internal axiom whose name contains no blacklisted token (e.g.
-/// `Lean.trustCompiler`) — the blacklist alone cannot catch that case, which
-/// is exactly why the audit below exists as the primary boundary.
-const ALLOWED_AXIOMS: &[&str] = &["propext", "Classical.choice", "Quot.sound"];
 
 /// Relative path (from the checker package root) to the source-reading
 /// primary checker. The package-pinned Lean executable runs this source
 /// directly; there is no prebuilt checker executable in the request path.
+pub const CHECKER_RELEASE_HASH: &str =
+    "d899db43fc2585e912995addef7e6c815428aa985c5415ce73e9bc026ba39b57";
+
 const PRIMARY_CHECKER_SCRIPT: &str = "BooleCheck/Main.lean";
 
 /// Relative path (from the checker package root) to the dedicated axiom
@@ -1359,8 +1420,8 @@ const TRUSTED_HELPER_MAX_HEARTBEATS: u64 = 400_000;
 const TRUSTED_HELPER_MAX_REC_DEPTH: u64 = 512;
 
 /// Line prefix `BooleCheck/Audit.lean` prints once per axiom in the closure,
-/// e.g. `BOOLE_AXIOM propext`.
-const AXIOM_AUDIT_LINE_PREFIX: &str = "BOOLE_AXIOM ";
+/// e.g. `BOOLE_AXIOM_JSON ["propext"]`.
+const AXIOM_AUDIT_LINE_PREFIX: &str = "BOOLE_AXIOM_JSON ";
 
 const AUDIT_SEMANTIC_REJECT_PREFIXES: &[&str] = &[
     "BOOLE_UNSUPPORTED_MODULE_ARTIFACT",
@@ -1372,112 +1433,98 @@ const AUDIT_SEMANTIC_REJECT_PREFIXES: &[&str] = &[
 /// Sentinel line `BooleCheck/Audit.lean` prints only after it has finished
 /// walking the full axiom closure. Its absence (crash, timeout, SIGKILL)
 /// must be treated as rejection, never as silent acceptance.
-const AXIOM_AUDIT_DONE_SENTINEL: &str = "BOOLE_AXIOM_AUDIT_DONE";
+const AXIOM_AUDIT_DONE_SENTINEL: &str = "BOOLE_AXIOM_AUDIT_DONE count=";
 
-/// TB.1 / ADR-0013 — the PRIMARY soundness boundary. `outcome` is the result
-/// of running `BooleCheck/Audit.lean` in its own process, AFTER the primary
-/// checker has already accepted the submission.
-///
-/// Mechanization / isolation argument (mirrors the header comment in
-/// `BooleCheck/Audit.lean`): the primary process serializes the elaborated
-/// declarations to a request-local `.olean`. The fresh audit process receives
-/// only that artifact, reloads trusted imports without initializers, replays
-/// every safe declaration through Lean's kernel, and computes the transitive
-/// axiom closure with `Lean.CollectAxioms.collect`. It is never given the
-/// submitted source path or bytes, so elaboration-time commands cannot run a
-/// second time inside the auditor.
-///
-/// A submission is accepted only if every printed axiom is in
-/// [`ALLOWED_AXIOMS`] AND the [`AXIOM_AUDIT_DONE_SENTINEL`] line is present;
-/// a missing sentinel (crash, timeout, kill) is retryable unavailability,
-/// never a proof verdict or silent acceptance.
+/// Only a complete grammar-v2 audit transcript can establish acceptance.
 fn enforce_axiom_allowlist(
     outcome: &SandboxedRunOutcome,
 ) -> std::result::Result<(), (LeanVerdict, String)> {
-    // SC.9a / ADR-0016 (a-3) — a containment kill of the audit process is an
-    // availability failure, never a verdict; everything below this guard is
-    // deterministic (same bytes + same budget reproduce it on every node).
-    if outcome.timed_out {
-        return Err((
+    let unavailable = |reason: &str| {
+        (
             LeanVerdict::RetryableUnavailable {
-                reason: "containment_wall_clock_kill".to_string(),
+                reason: reason.into(),
             },
-            "axiom audit timed out".to_string(),
-        ));
+            reason.into(),
+        )
+    };
+    let rejected = || {
+        (
+            LeanVerdict::DeterministicReject {
+                reason: REJECT_AXIOM_AUDIT.into(),
+            },
+            "audit grammar or axiom allowlist rejected".into(),
+        )
+    };
+    if outcome.timed_out {
+        return Err(unavailable("containment_wall_clock_kill"));
     }
     if outcome.exit_code < 0 {
-        return Err((
-            LeanVerdict::RetryableUnavailable {
-                reason: "containment_killed".to_string(),
-            },
-            "axiom audit killed before completion".to_string(),
-        ));
+        return Err(unavailable("containment_killed"));
     }
-    if lean_output_reports_budget_exhaustion(&combined_output(outcome)) {
-        return Err((
-            LeanVerdict::DeterministicReject {
-                reason: REJECT_BUDGET_EXCEEDED.to_string(),
-            },
-            "axiom audit exhausted the committed step budget".to_string(),
-        ));
+    if outcome.capture_failed {
+        return Err(unavailable("capture_failed"));
     }
     if !outcome.success {
-        let output = combined_output(outcome);
-        if AUDIT_SEMANTIC_REJECT_PREFIXES
-            .iter()
-            .any(|prefix| output.lines().any(|line| line.starts_with(prefix)))
-        {
+        if lean_output_reports_budget_exhaustion(&outcome.stderr) {
             return Err((
                 LeanVerdict::DeterministicReject {
-                    reason: REJECT_AXIOM_AUDIT.to_string(),
+                    reason: REJECT_BUDGET_EXCEEDED.into(),
                 },
+                "audit exhausted committed budget".into(),
+            ));
+        }
+        if outcome.stderr_final_line.as_ref().is_some_and(|line| {
+            AUDIT_SEMANTIC_REJECT_PREFIXES
+                .iter()
+                .any(|prefix| line.starts_with(prefix))
+        }) {
+            let (verdict, _) = rejected();
+            return Err((
+                verdict,
                 format!(
-                    "artifact audit rejected a submitted declaration (exit_code={}): {}",
-                    outcome.exit_code, output
+                    "artifact audit rejected (exit_code={}): {}",
+                    outcome.exit_code, outcome.stderr
                 ),
             ));
         }
-        return Err((
-            LeanVerdict::RetryableUnavailable {
-                reason: "axiom_audit_unavailable".to_string(),
-            },
-            format!(
-                "artifact audit failed without a semantic verdict (exit_code={}): {}",
-                outcome.exit_code, output
-            ),
-        ));
+        return Err(unavailable("axiom_audit_unavailable"));
     }
-    let mut saw_sentinel = false;
-    let mut offending: Vec<String> = Vec::new();
-    for line in outcome.stdout.lines() {
-        if line == AXIOM_AUDIT_DONE_SENTINEL {
-            saw_sentinel = true;
-            continue;
+    if outcome.stdout_truncated || !outcome.stdout.ends_with('\n') || outcome.stdout.contains('\r')
+    {
+        return Err(rejected());
+    }
+    let lines: Vec<_> = outcome.stdout[..outcome.stdout.len() - 1]
+        .split('\n')
+        .collect();
+    let count = lines
+        .last()
+        .and_then(|line| line.strip_prefix(AXIOM_AUDIT_DONE_SENTINEL))
+        .ok_or_else(rejected)?;
+    if count.is_empty()
+        || !count.bytes().all(|b| b.is_ascii_digit())
+        || (count.len() > 1 && count.starts_with('0'))
+        || count.parse::<usize>().ok() != Some(lines.len() - 1)
+    {
+        return Err(rejected());
+    }
+    for line in &lines[..lines.len() - 1] {
+        let json = line
+            .strip_prefix(AXIOM_AUDIT_LINE_PREFIX)
+            .ok_or_else(rejected)?;
+        let components: serde_json::Value = serde_json::from_str(json).map_err(|_| rejected())?;
+        let array = components
+            .as_array()
+            .filter(|a| !a.is_empty())
+            .ok_or_else(rejected)?;
+        if !array.iter().all(|v| v.is_string() || v.as_u64().is_some()) {
+            return Err(rejected());
         }
-        if let Some(axiom) = line.strip_prefix(AXIOM_AUDIT_LINE_PREFIX) {
-            if !ALLOWED_AXIOMS.contains(&axiom) {
-                offending.push(axiom.to_string());
-            }
+        if components != serde_json::json!(["propext"])
+            && components != serde_json::json!(["Classical", "choice"])
+            && components != serde_json::json!(["Quot", "sound"])
+        {
+            return Err(rejected());
         }
-    }
-    if !saw_sentinel {
-        return Err((
-            LeanVerdict::RetryableUnavailable {
-                reason: "axiom_audit_incomplete".to_string(),
-            },
-            "artifact audit did not reach completion (missing sentinel)".to_string(),
-        ));
-    }
-    if !offending.is_empty() {
-        return Err((
-            LeanVerdict::DeterministicReject {
-                reason: REJECT_AXIOM_AUDIT.to_string(),
-            },
-            format!(
-                "proof depends on non-allowlisted axiom(s): {}",
-                offending.join(", ")
-            ),
-        ));
     }
     Ok(())
 }
@@ -1485,7 +1532,7 @@ fn enforce_axiom_allowlist(
 /// Typed marker line `BooleCheck/Main.lean` prints (and exits non-zero on)
 /// when the submitted source contains a budget-bearing option token —
 /// ADR-0016 (a-2) layer 2, independent of the Rust-side intake scan.
-const BUDGET_OVERRIDE_MARKER_PREFIX: &str = "BOOLE_BUDGET_OVERRIDE";
+const BUDGET_OVERRIDE_MARKER_PREFIX: &str = "BOOLE_BUDGET_OVERRIDE ";
 
 /// Printed only when the primary completed normal elaboration and Lean
 /// rejected the submitted source. A non-zero exit without this marker is a
@@ -1527,25 +1574,28 @@ fn classify_failed_run(outcome: &SandboxedRunOutcome) -> LeanVerdict {
             reason: "containment_killed".to_string(),
         };
     }
-    if combined_output(outcome)
-        .lines()
-        .any(|line| line.starts_with(BUDGET_OVERRIDE_MARKER_PREFIX))
-    {
-        return LeanVerdict::DeterministicReject {
-            reason: REJECT_BUDGET_OVERRIDE_FORBIDDEN.to_string(),
+    if outcome.capture_failed {
+        return LeanVerdict::RetryableUnavailable {
+            reason: "capture_failed".into(),
         };
     }
-    if lean_output_reports_budget_exhaustion(&combined_output(outcome)) {
-        return LeanVerdict::DeterministicReject {
-            reason: REJECT_BUDGET_EXCEEDED.to_string(),
-        };
-    }
-    if combined_output(outcome)
-        .lines()
-        .any(|line| line == PRIMARY_REJECT_MARKER)
+    if outcome
+        .stderr_final_line
+        .as_ref()
+        .is_some_and(|line| line.starts_with(BUDGET_OVERRIDE_MARKER_PREFIX))
     {
         return LeanVerdict::DeterministicReject {
-            reason: REJECT_LEAN_REJECTED.to_string(),
+            reason: REJECT_BUDGET_OVERRIDE_FORBIDDEN.into(),
+        };
+    }
+    if outcome.stderr_final_line.as_deref() == Some(PRIMARY_REJECT_MARKER) {
+        return LeanVerdict::DeterministicReject {
+            reason: if lean_output_reports_budget_exhaustion(&combined_output(outcome)) {
+                REJECT_BUDGET_EXCEEDED
+            } else {
+                REJECT_LEAN_REJECTED
+            }
+            .into(),
         };
     }
     LeanVerdict::RetryableUnavailable {
@@ -1554,32 +1604,60 @@ fn classify_failed_run(outcome: &SandboxedRunOutcome) -> LeanVerdict {
 }
 
 struct DrainBuffer {
-    bytes: Vec<u8>,
+    head: Vec<u8>,
+    tail: Vec<u8>,
     limit: usize,
+    total: u64,
     truncated: bool,
+    capture_failed: bool,
 }
 
 impl DrainBuffer {
     fn new(limit: usize) -> Self {
         Self {
-            bytes: Vec::new(),
+            head: Vec::new(),
+            tail: Vec::new(),
             limit,
+            total: 0,
             truncated: false,
+            capture_failed: false,
         }
     }
-
     fn push(&mut self, chunk: &[u8]) {
-        if self.bytes.len() >= self.limit {
-            self.truncated = true;
+        self.total = self.total.saturating_add(chunk.len() as u64);
+        self.truncated = self.total > self.limit as u64;
+        let head_limit = self.limit / 2;
+        let tail_limit = self.limit - head_limit;
+        let n = chunk.len().min(head_limit.saturating_sub(self.head.len()));
+        self.head.extend_from_slice(&chunk[..n]);
+        if tail_limit == 0 {
             return;
         }
-        let remaining = self.limit - self.bytes.len();
-        if chunk.len() > remaining {
-            self.bytes.extend_from_slice(&chunk[..remaining]);
-            self.truncated = true;
+        if chunk.len() >= tail_limit {
+            self.tail.clear();
+            self.tail
+                .extend_from_slice(&chunk[chunk.len() - tail_limit..]);
         } else {
-            self.bytes.extend_from_slice(chunk);
+            let excess = (self.tail.len() + chunk.len()).saturating_sub(tail_limit);
+            self.tail.drain(..excess);
+            self.tail.extend_from_slice(chunk);
         }
+    }
+    fn retained(&self) -> Vec<u8> {
+        let overlap = (self.head.len() + self.tail.len())
+            .saturating_sub(self.total.min(usize::MAX as u64) as usize);
+        let mut out = self.head.clone();
+        out.extend_from_slice(&self.tail[overlap..]);
+        out
+    }
+    fn final_line(&self) -> Option<String> {
+        let body = self.tail.strip_suffix(b"\n")?;
+        let start = match body.iter().rposition(|b| *b == b'\n') {
+            Some(position) => position + 1,
+            None if self.total == self.tail.len() as u64 => 0,
+            None => return None,
+        };
+        std::str::from_utf8(&body[start..]).ok().map(str::to_owned)
     }
 }
 
@@ -1599,7 +1677,13 @@ where
                         break;
                     }
                 }
-                Err(_) => break,
+                Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(_) => {
+                    if let Ok(mut guard) = sink.lock() {
+                        guard.capture_failed = true;
+                    }
+                    break;
+                }
             }
         }
     })
@@ -1686,7 +1770,7 @@ fn text_policy() -> &'static TextPolicy {
         // This internal workspace crate is built from the repository and is
         // never packaged with `cargo package`; the shared authority stays here.
         serde_json::from_str(include_str!(
-            "../../../scripts/zk_registry/data/submission_policy_v4.json"
+            "../../../scripts/zk_registry/data/submission_policy_v5.json"
         ))
         .expect("valid shared text policy")
     })
@@ -1917,6 +2001,59 @@ fn disallowed_import_on_line(line: &str) -> Option<String> {
 /// Returns the first forbidden token (or disallowed import) found in `path`
 /// together with its 1-based line number, or `None` if the proof is free of
 /// all of them.
+fn output_option_position(text: &str) -> Option<usize> {
+    let bytes = text.as_bytes();
+    for (start, _) in text.match_indices("set_option") {
+        let end = start + 10;
+        if (start > 0 && ascii_word(bytes[start - 1]))
+            || bytes.get(end).is_some_and(|b| ascii_word(*b))
+        {
+            continue;
+        }
+        let mut pos = end;
+        while bytes.get(pos).is_some_and(|b| ascii_space(*b)) {
+            pos += 1;
+        }
+        if pos == end
+            || !bytes
+                .get(pos)
+                .is_some_and(|b| b.is_ascii_alphabetic() || *b == b'_')
+        {
+            return Some(start);
+        }
+        let name_start = pos;
+        while bytes.get(pos).is_some_and(|b| ascii_word(*b) || *b == b'.') {
+            pos += 1;
+        }
+        if matches!(
+            text[name_start..pos].split('.').next(),
+            Some("trace" | "profiler" | "diagnostics")
+        ) {
+            return Some(start);
+        }
+    }
+    None
+}
+fn forbidden_name_position(text: &str) -> Option<usize> {
+    let mut position = 0;
+    while let Some(relative) = text[position..].find('«') {
+        let start = position + relative;
+        let body = start + '«'.len_utf8();
+        let end = text[body..].find('»').map_or(text.len(), |n| body + n);
+        if text[body..end]
+            .chars()
+            .any(|c| matches!(c as u32, 0..=31 | 127..=159 | 0x2028 | 0x2029))
+        {
+            return Some(start);
+        }
+        if end == text.len() {
+            break;
+        }
+        position = end + '»'.len_utf8();
+    }
+    None
+}
+
 fn scan_for_forbidden_tokens_in_bytes(bytes: &[u8]) -> Option<(String, usize)> {
     let Ok(text) = std::str::from_utf8(bytes) else {
         return Some(("submission-source-encoding".to_string(), 1));
@@ -1938,6 +2075,14 @@ fn scan_for_forbidden_tokens_in_bytes(bytes: &[u8]) -> Option<(String, usize)> {
                 format!("{} [forbidden word: {word}]", rule.label)
             };
             return Some((reason, line_at(position)));
+        }
+    }
+    for (label, position) in [
+        ("output-option", output_option_position(text)),
+        ("forbidden-name-character", forbidden_name_position(text)),
+    ] {
+        if let Some(position) = position {
+            return Some((label.into(), line_at(position)));
         }
     }
     let (lines, more) = forbidden_attribute(text);
@@ -3002,6 +3147,9 @@ fn run_toolchain_probe(command: Command, config: &LeanRunnerConfig) -> Result<St
             config.timeout_ms
         ));
     }
+    if output.capture_failed {
+        return Err(anyhow!("capture_failed"));
+    }
     if output.output_truncated {
         return Err(anyhow!("toolchain probe output exceeded its byte limit"));
     }
@@ -3017,11 +3165,195 @@ fn run_toolchain_probe(command: Command, config: &LeanRunnerConfig) -> Result<St
 
 #[cfg(test)]
 mod tests {
+    fn det2_outcome(stdout: &str, stderr: &str, success: bool) -> SandboxedRunOutcome {
+        SandboxedRunOutcome {
+            success,
+            exit_code: if success { 0 } else { 1 },
+            stdout: stdout.into(),
+            stderr: stderr.into(),
+            timed_out: false,
+            output_truncated: false,
+            stdout_truncated: false,
+            stdout_bytes: stdout.len() as u64,
+            stderr_bytes: stderr.len() as u64,
+            stderr_final_line: {
+                let mut drain = DrainBuffer::new(65536);
+                drain.push(stderr.as_bytes());
+                drain.final_line()
+            },
+            capture_failed: false,
+        }
+    }
+    #[test]
+    fn det2_audit_rejection_preserves_bounded_marker_diagnostic() {
+        let outcome = det2_outcome(
+            "",
+            "BOOLE_UNEXPECTED_IMPORT exact-import-set-required\n",
+            false,
+        );
+        let (verdict, diagnostic) =
+            enforce_axiom_allowlist(&outcome).expect_err("semantic rejection");
+        assert!(matches!(verdict, LeanVerdict::DeterministicReject { .. }));
+        assert!(diagnostic.contains("BOOLE_UNEXPECTED_IMPORT"));
+    }
+    #[test]
+    fn det2_unavailability_error_groups() {
+        for (reason, group) in [
+            ("trusted_helper_compile_unavailable", "D-node"),
+            ("checker package changed during verification", "D-node"),
+            ("sandbox_unavailable", "T"),
+            ("containment_killed", "I"),
+            ("replay_unavailable", "D-input"),
+            ("future_reason", "T"),
+        ] {
+            assert_eq!(
+                LeanVerdict::RetryableUnavailable {
+                    reason: reason.into()
+                }
+                .error_group(),
+                Some(group),
+                "{reason}"
+            );
+        }
+        assert_eq!(LeanVerdict::Accepted.error_group(), None);
+    }
+    #[test]
+    fn det2_drain_tail_and_read_error() {
+        let mut drain = DrainBuffer::new(65536);
+        drain.push(&vec![b'x'; 102400]);
+        drain.push(b"\nBOOLE_PRIMARY_REJECT\n");
+        assert_eq!(drain.retained().len(), 65536);
+        assert_eq!(drain.total, 102422);
+        assert_eq!(drain.final_line().as_deref(), Some("BOOLE_PRIMARY_REJECT"));
+        let mut outcome = det2_outcome("", "", false);
+        outcome.stderr_final_line = drain.final_line();
+        assert_eq!(
+            classify_failed_run(&outcome),
+            LeanVerdict::DeterministicReject {
+                reason: REJECT_LEAN_REJECTED.into()
+            }
+        );
+        struct Bad;
+        impl Read for Bad {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::other("read failed"))
+            }
+        }
+        let sink = Arc::new(Mutex::new(DrainBuffer::new(65536)));
+        spawn_drain(Bad, Arc::clone(&sink)).join().unwrap();
+        assert!(sink.lock().unwrap().capture_failed);
+        outcome.capture_failed = true;
+        assert_eq!(classify_failed_run(&outcome).error_group(), Some("T"));
+        assert!(classify_failed_run(&outcome).is_retryable_unavailable());
+        let mut audit = det2_outcome("BOOLE_AXIOM_AUDIT_DONE count=0\n", "", true);
+        audit.stdout_truncated = true;
+        assert!(matches!(
+            enforce_axiom_allowlist(&audit),
+            Err((LeanVerdict::DeterministicReject { .. }, _))
+        ));
+        audit.stdout_truncated = false;
+        audit.capture_failed = true;
+        assert!(matches!(
+            enforce_axiom_allowlist(&audit),
+            Err((LeanVerdict::RetryableUnavailable { .. }, _))
+        ));
+    }
+    #[test]
+    fn det2_release_mismatch_is_unavailable_before_toolchain() {
+        let root = std::env::temp_dir().join(format!("boole-release-pin-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("Boole/Family")).unwrap();
+        for name in [
+            "lean-toolchain",
+            "lakefile.lean",
+            "lake-manifest.json",
+            "Boole/Family/V0Helpers.lean",
+        ] {
+            std::fs::write(root.join(name), "different release").unwrap();
+        }
+        let proof = root.join("Proof.lean");
+        std::fs::write(&proof, "theorem t : True := trivial\n").unwrap();
+        let result =
+            LeanRunner::new(LeanRunnerConfig::new("pin-test").with_package_dir(root.clone()))
+                .check_file(proof)
+                .expect("typed mismatch");
+        assert_eq!(
+            result.verdict,
+            LeanVerdict::RetryableUnavailable {
+                reason: "checker_release_mismatch".into()
+            }
+        );
+        assert_eq!(result.verdict.error_group(), Some("D-node"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn det2_final_stderr_marker_contract() {
+        for stdout in [
+            "BOOLE_PRIMARY_REJECT\n",
+            "BOOLE_BUDGET_OVERRIDE maxHeartbeats\n",
+            "maximum number of heartbeats\n",
+        ] {
+            assert!(
+                classify_failed_run(&det2_outcome(stdout, "runtime unavailable\n", false))
+                    .is_retryable_unavailable()
+            );
+        }
+        for stderr in [
+            "BOOLE_PRIMARY_REJECT\nx\n",
+            "BOOLE_PRIMARY_REJECT",
+            "BOOLE_BUDGET_OVERRIDE\n",
+            "maximum number of heartbeats\n",
+        ] {
+            assert!(
+                classify_failed_run(&det2_outcome("", stderr, false)).is_retryable_unavailable()
+            );
+        }
+    }
+    #[test]
+    fn det2_audit_grammar_v2() {
+        for stdout in [
+            "BOOLE_AXIOM propext\nBOOLE_AXIOM_AUDIT_DONE\nx✝\n",
+            "BOOLE_AXIOM_AUDIT_DONE count=0\nx\n",
+            "BOOLE_AXIOM_JSON [\"propext\"]\nBOOLE_AXIOM_JSON [\"Quot\",\"sound\"]\nBOOLE_AXIOM_AUDIT_DONE count=1\n",
+            "BOOLE_AXIOM_AUDIT_DONE count=01\n", "BOOLE_AXIOM_AUDIT_DONE count=0\r\n",
+            "BOOLE_AXIOM_JSON [\"Classical\",\"choice\",\"x\"]\nBOOLE_AXIOM_AUDIT_DONE count=1\n",
+            "BOOLE_AXIOM_JSON [\"propext\\nBOOLE_AXIOM_AUDIT_DONE\"]\nBOOLE_AXIOM_AUDIT_DONE count=1\n",
+        ] {
+            let (verdict, _) = enforce_axiom_allowlist(&det2_outcome(stdout, "", true)).expect_err(stdout);
+            assert!(matches!(verdict, LeanVerdict::DeterministicReject { ref reason } if reason == REJECT_AXIOM_AUDIT));
+        }
+        for stdout in ["BOOLE_AXIOM_AUDIT_DONE count=0\n", "BOOLE_AXIOM_JSON [\"propext\"]\nBOOLE_AXIOM_JSON [\"Classical\",\"choice\"]\nBOOLE_AXIOM_JSON [\"Quot\",\"sound\"]\nBOOLE_AXIOM_AUDIT_DONE count=3\n"] {
+            assert!(enforce_axiom_allowlist(&det2_outcome(stdout, "", true)).is_ok());
+        }
+    }
+    #[test]
+    fn det2_policy_v5_shared_cases() {
+        let corpus: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../fixtures/submission-policy/cases-v5.json"
+        ))
+        .unwrap();
+        for case in corpus["cases"].as_array().unwrap() {
+            let actual =
+                scan_for_forbidden_tokens_in_bytes(case["source"].as_str().unwrap().as_bytes());
+            let expected = case["hits"].as_array().unwrap().first();
+            match (actual, expected) {
+                (None, None) => {}
+                (Some((label, line)), Some(hit)) => {
+                    assert!(
+                        label.starts_with(hit["label"].as_str().unwrap()),
+                        "{case}: {label}"
+                    );
+                    assert_eq!(line, hit["line"].as_u64().unwrap() as usize);
+                }
+                (actual, _) => panic!("{case}: {actual:?}"),
+            }
+        }
+    }
     #[test]
     fn policy_loader_rejects_word_patterns_with_nonword_edges() {
         for word in ["#eval", "debug.", "αnative", "nativeα", ""] {
             let mut data: serde_json::Value = serde_json::from_str(include_str!(
-                "../../../scripts/zk_registry/data/submission_policy_v4.json"
+                "../../../scripts/zk_registry/data/submission_policy_v5.json"
             ))
             .unwrap();
             data["patterns"][0]["text"] = word.into();
@@ -3035,7 +3367,7 @@ mod tests {
     #[test]
     fn policy_loader_rejects_non_ascii_whitespace_and_bad_bounded_edges() {
         let original: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../scripts/zk_registry/data/submission_policy_v4.json"
+            "../../../scripts/zk_registry/data/submission_policy_v5.json"
         ))
         .unwrap();
         let mut data = original.clone();
@@ -3411,7 +3743,7 @@ mod tests {
     fn rejects_an_empty_import_before_a_continuation_line_can_escape_the_allowlist() {
         assert_eq!(
             scan_for_forbidden_tokens_in_bytes(
-                b"import\n Lean\n#check Lean.Environment\n",
+                b"import\n Lean\nexample : True := trivial\n",
             ),
             Some(("import <missing module>".to_string(), 1)),
             "an empty import tail must be rejected before Lean can continue the command on the next line",
@@ -3437,14 +3769,7 @@ mod tests {
 
     #[test]
     fn primary_budget_override_marker_keeps_its_typed_reject() {
-        let outcome = SandboxedRunOutcome {
-            success: false,
-            exit_code: 1,
-            stdout: String::new(),
-            stderr: "BOOLE_BUDGET_OVERRIDE maxHeartbeats\n".to_string(),
-            timed_out: false,
-            output_truncated: false,
-        };
+        let outcome = det2_outcome("", "BOOLE_BUDGET_OVERRIDE maxHeartbeats\n", false);
         assert_eq!(
             classify_failed_run(&outcome),
             LeanVerdict::DeterministicReject {
@@ -3455,14 +3780,7 @@ mod tests {
 
     #[test]
     fn primary_lean_reject_requires_its_typed_marker() {
-        let outcome = SandboxedRunOutcome {
-            success: false,
-            exit_code: 1,
-            stdout: String::new(),
-            stderr: format!("{PRIMARY_REJECT_MARKER}\n"),
-            timed_out: false,
-            output_truncated: false,
-        };
+        let outcome = det2_outcome("", &(format!("{PRIMARY_REJECT_MARKER}\n")), false);
         assert_eq!(
             classify_failed_run(&outcome),
             LeanVerdict::DeterministicReject {
@@ -3473,14 +3791,7 @@ mod tests {
 
     #[test]
     fn untyped_primary_failure_is_retryable_unavailable() {
-        let outcome = SandboxedRunOutcome {
-            success: false,
-            exit_code: 1,
-            stdout: String::new(),
-            stderr: "failed to initialize checker runtime".to_string(),
-            timed_out: false,
-            output_truncated: false,
-        };
+        let outcome = det2_outcome("", "failed to initialize checker runtime", false);
         assert_eq!(
             classify_failed_run(&outcome),
             LeanVerdict::RetryableUnavailable {
@@ -3491,14 +3802,7 @@ mod tests {
 
     #[test]
     fn audit_internal_failure_is_unavailable_not_a_proof_reject() {
-        let outcome = SandboxedRunOutcome {
-            success: false,
-            exit_code: 1,
-            stdout: String::new(),
-            stderr: "failed to deserialize checker artifact".to_string(),
-            timed_out: false,
-            output_truncated: false,
-        };
+        let outcome = det2_outcome("", "failed to deserialize checker artifact", false);
         let (verdict, _) = enforce_axiom_allowlist(&outcome).expect_err("audit must not accept");
         assert_eq!(
             verdict,
@@ -3510,14 +3814,7 @@ mod tests {
 
     #[test]
     fn audit_explicit_semantic_marker_is_a_deterministic_reject() {
-        let outcome = SandboxedRunOutcome {
-            success: false,
-            exit_code: 1,
-            stdout: String::new(),
-            stderr: "BOOLE_UNREPLAYABLE_CONSTANT uncheckedValue".to_string(),
-            timed_out: false,
-            output_truncated: false,
-        };
+        let outcome = det2_outcome("", "BOOLE_UNREPLAYABLE_CONSTANT uncheckedValue\n", false);
         let (verdict, _) = enforce_axiom_allowlist(&outcome).expect_err("audit must reject");
         assert_eq!(
             verdict,
@@ -3529,14 +3826,11 @@ mod tests {
 
     #[test]
     fn audit_malformed_artifact_marker_is_a_deterministic_reject() {
-        let outcome = SandboxedRunOutcome {
-            success: false,
-            exit_code: 1,
-            stdout: String::new(),
-            stderr: "BOOLE_MALFORMED_ARTIFACT constant-count-mismatch".to_string(),
-            timed_out: false,
-            output_truncated: false,
-        };
+        let outcome = det2_outcome(
+            "",
+            "BOOLE_MALFORMED_ARTIFACT constant-count-mismatch\n",
+            false,
+        );
         let (verdict, _) = enforce_axiom_allowlist(&outcome).expect_err("audit must reject");
         assert_eq!(
             verdict,

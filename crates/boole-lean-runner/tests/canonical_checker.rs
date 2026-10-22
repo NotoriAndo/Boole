@@ -54,6 +54,7 @@ fn canonical_checker_artifact_hash_matches_readme_pin() {
         dir.display()
     );
     let pinned = pinned_hash_from_readme();
+    assert_eq!(pinned, boole_lean_runner::CHECKER_RELEASE_HASH);
     let runner = LeanRunner::new(
         LeanRunnerConfig::new("canonical-checker-test")
             .with_package_dir(dir.clone())

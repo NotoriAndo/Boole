@@ -19,6 +19,7 @@ on:
     paths:
       - "crates/boole-lean-runner/**"
       - "scripts/zk_registry/data/submission_policy_v4.json"
+      - "scripts/zk_registry/data/submission_policy_v5.json"
       - "fixtures/submission-policy/**"
       - "lean/checker/**"
       - "native/mac3/**"
@@ -29,6 +30,7 @@ on:
     paths:
       - "crates/boole-lean-runner/**"
       - "scripts/zk_registry/data/submission_policy_v4.json"
+      - "scripts/zk_registry/data/submission_policy_v5.json"
       - "fixtures/submission-policy/**"
       - "lean/checker/**"
       - "native/mac3/**"

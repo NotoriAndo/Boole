@@ -319,7 +319,8 @@ class Registry:
                         raise RegistryError('catalog snapshot differs from validated input')
                 packages[entry['id']] = manifest
             payload = dict(entries=catalog['entries'], packages=packages, excluded=catalog['excluded'],
-                           reveal_window=reveal_window, challenge_window=challenge_window)
+                           reveal_window=reveal_window, challenge_window=challenge_window,
+                           submission_policy=dict(version=5, sha256=P.sha256_file(str(Path(__file__).parent / 'data/submission_policy_v5.json'))))
             registry._append('catalog', payload, 0, [])
         return registry
 
@@ -499,6 +500,8 @@ class Registry:
             state.update(problems={row['id']: copy.deepcopy(row) for row in payload['entries']},
                          packages=payload['packages'], excluded=payload['excluded'],
                          reveal_window=payload['reveal_window'], challenge_window=payload['challenge_window'])
+            if 'submission_policy' in payload:
+                state['submission_policy'] = copy.deepcopy(payload['submission_policy'])
         elif kind == 'commit':
             sequence = payload['sequence']
             if sequence != len(state['commits']) + 1:

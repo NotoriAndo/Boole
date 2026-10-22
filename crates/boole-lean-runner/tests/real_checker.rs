@@ -142,7 +142,7 @@ fn multiline_import_continuation_is_rejected_before_any_checker_child_runs() {
     let workspace = TestLeanWorkspace::new("multiline-import-continuation");
     let proof = workspace.write_proof(
         "MultilineImport.lean",
-        "import\n Lean\n#check Lean.Environment\n",
+        "import\n Lean\nexample : True := trivial\n",
     );
     let runner = LeanRunner::new(
         LeanRunnerConfig::new("fixture-verifier-hash")
@@ -163,7 +163,7 @@ fn multiline_import_continuation_is_rejected_before_any_checker_child_runs() {
 }
 
 #[test]
-fn audit_process_receives_checker_artifact_not_submitted_source() {
+fn nonrelease_primary_and_audit_are_unavailable_before_execution() {
     if !lake_and_lean_available() {
         eprintln!("skipping artifact-boundary test: lake/lean unavailable");
         return;
@@ -203,10 +203,7 @@ fn audit_process_receives_checker_artifact_not_submitted_source() {
     );
 
     let result = runner.check_file(&proof).expect("checker runs");
-    assert!(
-        result.accepted,
-        "the audit must receive only the checker-produced artifact: {result:?}"
-    );
+    assert_release_mismatch(&result);
 }
 
 #[cfg(target_os = "linux")]
@@ -249,7 +246,7 @@ fn primary_cannot_modify_the_trusted_checker_package() {
 
 #[cfg(target_os = "linux")]
 #[test]
-fn audit_cannot_modify_the_trusted_checker_package_or_artifact() {
+fn nonrelease_audit_cannot_modify_the_trusted_checker_package_or_artifact() {
     if !lake_and_lean_available() {
         eprintln!("skipping audit-readonly test: lake/lean unavailable");
         return;
@@ -280,10 +277,7 @@ fn audit_cannot_modify_the_trusted_checker_package_or_artifact() {
             .with_timeout_ms(5_000),
     );
     let result = runner.check_file(&proof).expect("checker returns envelope");
-    assert!(
-        result.accepted,
-        "denied mutation attempts must not stop a synthetic semantic audit: {result:?}"
-    );
+    assert_release_mismatch(&result);
     assert_eq!(
         std::fs::read(&main_path).expect("reread trusted primary"),
         before,
@@ -329,7 +323,7 @@ def main (_args : List String) : IO UInt32 := do
         matches!(
             result.verdict,
             boole_lean_runner::LeanVerdict::RetryableUnavailable { ref reason }
-                if reason == "axiom_audit_unavailable"
+                if reason == "checker_release_mismatch"
         ),
         "a blocked audit process spawn is an audit availability failure: {result:?}"
     );
@@ -631,13 +625,7 @@ fn direct_source_checker_times_out_and_returns_rejection_envelope() {
         return;
     }
     let workspace = TestLeanWorkspace::new("timeout");
-    workspace.write_checker_project_with_main(
-        r#"def main (_args : List String) : IO UInt32 := do
-  IO.sleep 1000
-  IO.println "unexpected completion"
-  return 0
-"#,
-    );
+    workspace.write_checker_project();
     let proof = workspace.write_proof(
         "ValidProof.lean",
         "theorem trivial : True := by\n  trivial\n",
@@ -668,21 +656,13 @@ fn direct_source_checker_caps_captured_output_and_marks_truncation() {
         return;
     }
     let workspace = TestLeanWorkspace::new("output-cap");
-    workspace.write_checker_project_with_main(
-        r#"partial def repeatPrint : Nat -> IO Unit
-  | 0 => pure ()
-  | n + 1 => do
-    IO.print "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-    repeatPrint n
-
-def main (_args : List String) : IO UInt32 := do
-  repeatPrint 64
-  return 1
-"#,
-    );
+    workspace.write_checker_project();
     let proof = workspace.write_proof(
-        "ValidProof.lean",
-        "theorem trivial : True := by\n  trivial\n",
+        "InvalidProof.lean",
+        &format!(
+            "import Boole.Family.V0Helpers\ntheorem invalid : True := by\n  exact {}\n",
+            "unknown_identifier".repeat(200)
+        ),
     );
 
     let runner = LeanRunner::new(
@@ -705,6 +685,9 @@ def main (_args : List String) : IO UInt32 := do
         result.stdout
     );
     assert_eq!(result.evidence.output_limit_bytes, 256);
+    assert!(
+        matches!(result.verdict, boole_lean_runner::LeanVerdict::DeterministicReject { ref reason } if reason == "lean_rejected")
+    );
 }
 
 #[test]
@@ -784,36 +767,22 @@ impl TestLeanWorkspace {
     }
 
     fn write_checker_project_with_scripts(&self, main_lean: &str, audit_lean: &str) {
-        std::fs::write(
-            self.root.join("lean-toolchain"),
-            "leanprover/lean4:v4.29.1\n",
-        )
-        .expect("write lean-toolchain");
-        std::fs::write(
-            self.root.join("lakefile.lean"),
-            r#"import Lake
-open Lake DSL
-
-package boole_check_fixture
-
-lean_lib «Boole» where
-  globs := #[.submodules `Boole.Family]
-
-lean_exe boole_check where
-  root := `BooleCheck.Main
-"#,
-        )
-        .expect("write lakefile");
-        std::fs::write(
-            self.root.join("lake-manifest.json"),
-            r#"{"version": "1.1.0",
- "packagesDir": ".lake/packages",
- "packages": [],
- "name": "boole_check_fixture",
- "lakeDir": ".lake"}
-"#,
-        )
-        .expect("write lake-manifest");
+        for (relative, bytes) in [
+            (
+                "lean-toolchain",
+                include_str!("../../../lean/checker/lean-toolchain"),
+            ),
+            (
+                "lakefile.lean",
+                include_str!("../../../lean/checker/lakefile.lean"),
+            ),
+            (
+                "lake-manifest.json",
+                include_str!("../../../lean/checker/lake-manifest.json"),
+            ),
+        ] {
+            std::fs::write(self.root.join(relative), bytes).expect("copy release configuration");
+        }
         std::fs::write(self.root.join("BooleCheck/Main.lean"), main_lean)
             .expect("write checker main");
         // TB.1 / ADR-0013 — `check_file` now runs a second, separate
@@ -827,7 +796,7 @@ lean_exe boole_check where
         std::fs::create_dir_all(self.root.join("Boole/Family")).expect("create Boole/Family");
         std::fs::write(
             self.root.join("Boole/Family/V0Helpers.lean"),
-            "-- fixture stub: pinned by checker_artifact_hash\n",
+            include_str!("../../../lean/checker/Boole/Family/V0Helpers.lean"),
         )
         .expect("write V0Helpers stub");
         // Leave `.lake/build` cold. Production verification must compile the
@@ -885,4 +854,15 @@ fn unique_nanos() -> u128 {
         .duration_since(std::time::UNIX_EPOCH)
         .expect("time")
         .as_nanos()
+}
+
+fn assert_release_mismatch(result: &boole_lean_runner::LeanCheckResult) {
+    assert_eq!(
+        result.verdict,
+        boole_lean_runner::LeanVerdict::RetryableUnavailable {
+            reason: "checker_release_mismatch".into()
+        }
+    );
+    assert_eq!(result.verdict.error_group(), Some("D-node"));
+    assert_eq!((result.stdout_bytes, result.stderr_bytes), (0, 0));
 }

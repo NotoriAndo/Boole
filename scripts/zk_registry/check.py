@@ -69,7 +69,7 @@ FORBIDDEN_V2 = FORBIDDEN_V1 + [
     (r"\bbuiltin_initialize\b", "builtin_initialize"), (r"@\s*\[", "elaboration-attribute"),
     (r"\btrustCompiler\b", "Lean.trustCompiler"),
 ]
-FORBIDDEN_VERSION = 4
+FORBIDDEN_VERSION = 5
 CODE_DEFINING_COMMANDS = (
     'elab', 'elab_rules', 'simproc', 'dsimproc', 'simproc_decl', 'dsimproc_decl',
     'builtin_simproc', 'builtin_dsimproc', 'builtin_simproc_decl', 'builtin_dsimproc_decl',
@@ -80,7 +80,7 @@ FORBIDDEN = [entry for entry in FORBIDDEN_V2 if entry[1] != 'elaboration-attribu
 ] + [(r'\b(?:register|declare)_\w+\b', 'elaboration-registration')]
 FORBIDDEN_LABELS_V3 = [label for _, label in FORBIDDEN] + ['forbidden-attribute']
 # Both runners read this list. ASCII boundaries mean [A-Za-z0-9_] only.
-with open(os.path.join(os.path.dirname(__file__), 'data', 'submission_policy_v4.json'), encoding='utf-8') as policy_file:
+with open(os.path.join(os.path.dirname(__file__), 'data', 'submission_policy_v5.json'), encoding='utf-8') as policy_file:
     TEXT_POLICY = json.load(policy_file)
 
 
@@ -113,9 +113,11 @@ TEXT_PATTERNS = [(re.compile(pattern, re.ASCII), label) for pattern, label in FO
 FORBIDDEN_LABELS_V1 = [label for _, label in FORBIDDEN_V1]
 FORBIDDEN_LABELS_V2 = [label for _, label in FORBIDDEN_V2]
 # Historical v1-v3 vocabularies stay readable; v4 records every current label.
-FORBIDDEN_LABELS = FORBIDDEN_LABELS_V3[:-1] + ['limit-override', 'native-evaluation', 'addDecl', 'debug.', 'forbidden-attribute']
+FORBIDDEN_LABELS_V4 = FORBIDDEN_LABELS_V3[:-1] + ['limit-override', 'native-evaluation', 'addDecl', 'debug.', 'forbidden-attribute']
 FORBIDDEN_SETS = {1: FORBIDDEN_LABELS_V1, 2: FORBIDDEN_LABELS_V2,
-                  3: FORBIDDEN_LABELS_V3, 4: FORBIDDEN_LABELS}
+                  3: FORBIDDEN_LABELS_V3, 4: FORBIDDEN_LABELS_V4,
+                  5: FORBIDDEN_LABELS_V4 + ['output-command', 'output-option', 'forbidden-name-character']}
+FORBIDDEN_LABELS = FORBIDDEN_SETS[5]
 EXIT = {"PASS": 0, "FAIL": 1, "INVALID": 2, "ERROR": 3}
 
 
@@ -276,6 +278,32 @@ def forbidden_attributes(text: str) -> tuple[list[int], bool]:
     return sorted(bad), more
 
 
+def output_option_positions(text: str):
+    for match in re.finditer(r'\bset_option\b', text, re.ASCII):
+        option = re.compile(r'[' + ASCII_WHITESPACE + r']+([A-Za-z_][A-Za-z0-9_.]*)').match(text, match.end())
+        if option is None or option[1].split('.')[0] in ('trace', 'profiler', 'diagnostics'):
+            yield match.start()
+
+
+def forbidden_name_positions(text: str):
+    start = text.find('«')
+    bad = re.compile(r'[\x00-\x1f\x7f-\x9f\u2028\u2029]')
+    while start >= 0:
+        close = text.find('»', start + 1)
+        end = len(text) if close < 0 else close
+        last_bad = -1
+        for match in bad.finditer(text, start + 1, end):
+            last_bad = match.start()
+        if last_bad >= 0:
+            opening = start
+            while opening >= 0 and opening < last_bad:
+                yield opening
+                opening = text.find('«', opening + 1, end)
+        if close < 0:
+            break
+        start = text.find('«', close + 1)
+
+
 def forbidden_scan(parts: list[tuple[str, str]]) -> list[str]:
     """Scan all solver-written text, including comments and strings, with ASCII boundaries."""
     hits = []
@@ -288,6 +316,13 @@ def forbidden_scan(parts: list[tuple[str, str]]) -> list[str]:
                 word = match.group()
                 detail = '' if word in label else f' [forbidden word: {word}]'
                 hits.append(f'{label} in {name} (line {line} of that part){detail}')
+        for label, positions in [('output-option', output_option_positions(text)),
+                                 ('forbidden-name-character', forbidden_name_positions(text))]:
+            line, previous = 1, 0
+            for position in positions:
+                line += text.count('\n', previous, position)
+                previous = position
+                hits.append(f'{label} in {name} (line {line} of that part)')
         lines, more = forbidden_attributes(text)
         for index, line in enumerate(lines):
             detail = ' [more offending lines omitted]' if more and index == len(lines) - 1 else ''

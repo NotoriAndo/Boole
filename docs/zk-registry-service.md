@@ -92,7 +92,7 @@ packages give ERROR `environment-retired`. Their old stores remain metadata-read
 retired under this judge. Linux execution evidence is outside Task Y; Linux kernel provisioning remains unavailable
 because the current checked binary profile is Darwin-only.
 Submission attributes use the fixed safe allowlist; code-defining/elaboration-registration commands remain forbidden.
-The current forbidden policy is v3 while historical v1/v2 metadata stays readable. The package's declared target name
+The current forbidden policy is v5 while historical v1–v4 metadata stays readable. The package's declared target name
 is used throughout. A tool-descriptor change does not silently rewrite or qualify an older root's reference bindings.
 
 New entries expose v2 manifest/reference/environment/tool digests bound in their immutable package snapshot.
@@ -174,3 +174,8 @@ and task-local output root for actual accepted R/C, sorry/changed-statement reje
 Such fixtures and their logs are never tracked or exported.
 `catalog build` records the service's informational source digest separately from generator identities;
 this is run provenance, not executable attestation or a replacement for independent checker replay.
+
+New stores record submission policy v5 and its byte digest in the catalog event.
+Historical catalogs retain their original descriptor. Policy v5 scans submitted
+text for output commands, output options and control characters in escaped names.
+The gate adds its own bound axiom-print command only after scanning submitted text.

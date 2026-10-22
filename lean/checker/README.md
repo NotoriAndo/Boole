@@ -33,7 +33,7 @@ smuggle a file in via a symlink that resolves outside the package.
 The hash of the files committed to this repo:
 
 ```
-f9da3a1c5bcb605a26c8f778e2661e471398864c69393079aed461dd1453d7b4
+d899db43fc2585e912995addef7e6c815428aa985c5415ce73e9bc026ba39b57
 ```
 
 Recompute and verify with:
@@ -79,3 +79,22 @@ pinning the canonical hash. The compiler binary itself is still installed
 on the host PATH (Lake style); the runtime additionally records the
 output of `lean --version` and `lake --version` in evidence so a build
 that links against an unexpected compiler is detectable post-hoc.
+
+## Audit transcript v2 and policy v5
+
+The runner accepts only this release hash. A different checker is retryable
+`checker_release_mismatch` before any toolchain is run. Existing network genesis
+pins remain unchanged; operators activate this release through a new gate epoch
+or a new genesis and an explicit checker hash allowlist.
+
+A successful audit writes zero or more `BOOLE_AXIOM_JSON <array>` lines followed
+by exactly `BOOLE_AXIOM_AUDIT_DONE count=<n>` and LF. Names are root-first JSON
+components. The count must equal the number of records, and the complete stdout
+must contain only the three permitted names: `["propext"]`,
+`["Classical","choice"]`, `["Quot","sound"]`. Incomplete or malformed successful
+audit output is `axiom_audit_rejected`. Capture failures remain retryable.
+
+Primary failure markers are authoritative only as the final complete stderr
+line. Drains retain bounded head and tail bytes and record total byte counts.
+Policy v5 adds output commands, output options and name control characters to
+the shared text scan. Policies v1–v4 remain readable for historical metadata.
