@@ -1,11 +1,16 @@
 use crate::{engine::Engine, l1::L1Source};
 use anyhow::{bail, Context, Result};
-use boole_derivation::{derive, Derived};
+use boole_derivation::{
+    derive_with_m2,
+    m2::{Config, State},
+    Derived, ParentHeader,
+};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::{
     fs::{File, OpenOptions},
     io::Write,
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 #[derive(Debug)]
@@ -31,15 +36,171 @@ pub struct Driver<L, E> {
     pub engine: E,
     stalled: Option<Stall>,
     evidence: Option<File>,
+    config: Config,
+    l2_gas_limit: u64,
+    m2: State,
+    pending: Option<State>,
+    selected_head: Option<String>,
+    journal: Option<PathBuf>,
+    checkpoint: Option<Value>,
 }
 impl<L: L1Source, E: Engine> Driver<L, E> {
     pub fn new(l1: L, engine: E) -> Self {
-        Self {
+        Self::construct(l1, engine, Config::devnet(), 30_000_000)
+            .expect("valid built-in devnet config")
+    }
+    pub fn with_config(mut l1: L, engine: E, config: Config, l2_gas_limit: u64) -> Result<Self> {
+        l1.validate_m2_inbox()?;
+        Self::construct(l1, engine, config, l2_gas_limit)
+    }
+    fn construct(l1: L, engine: E, config: Config, l2_gas_limit: u64) -> Result<Self> {
+        config
+            .validate(l2_gas_limit)
+            .map_err(|s| anyhow::anyhow!("M2 startup invariant S{s}"))?;
+        let m2 = State::new(&config, l2_gas_limit)?;
+        Ok(Self {
             l1,
             engine,
             stalled: None,
             evidence: None,
+            config,
+            l2_gas_limit,
+            m2,
+            pending: None,
+            selected_head: None,
+            journal: None,
+            checkpoint: None,
+        })
+    }
+    pub fn m2_state(&self) -> &State {
+        &self.m2
+    }
+    pub fn set_journal(&mut self, path: &Path) -> Result<()> {
+        self.checkpoint = match std::fs::read(path) {
+            Ok(bytes) => Some(serde_json::from_slice(&bytes).context("decode M2 checkpoint")?),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => return Err(e).context("read M2 checkpoint"),
+        };
+        self.journal = Some(path.to_owned());
+        Ok(())
+    }
+    fn config_digest(&self) -> Result<String> {
+        Ok(boole_derivation::attributes::hex_string(&Sha256::digest(
+            serde_json::to_vec(&json!({"config":self.config,"l2_gas_limit":self.l2_gas_limit}))?,
+        )))
+    }
+    fn check_m2_transport(&mut self, logs: &[boole_derivation::InboxLog]) -> Result<()> {
+        for log in logs {
+            if let Ok(bytes) = boole_derivation::attributes::hex_bytes(&log.data, "log") {
+                if let Ok((2..=15, _)) = boole_derivation::inbox::item(&bytes) {
+                    self.l1.validate_m2_inbox()?;
+                    break;
+                }
+            }
         }
+        Ok(())
+    }
+    fn state_for_parent(&mut self, parent: &ParentHeader) -> Result<State> {
+        if let Some(saved) = &self.checkpoint {
+            if saved["version"] != 1
+                || saved["config_digest"] != self.config_digest()?
+                || saved["height"].as_u64().is_none_or(|h| h > parent.number)
+            {
+                bail!("M2 checkpoint configuration or height mismatch");
+            }
+        }
+        if self.m2.height() == parent.number {
+            if self
+                .selected_head
+                .as_ref()
+                .is_some_and(|hash| hash != &parent.hash)
+            {
+                bail!("cached L2 parent changed");
+            }
+            return Ok(self.m2.clone());
+        }
+        let mut state = State::new(&self.config, self.l2_gas_limit)?;
+        let mut previous = self.engine.header(0).context("L2 genesis for re-fold")?;
+        for height in 1..=parent.number {
+            let header = if height == parent.number {
+                parent.clone()
+            } else {
+                self.engine
+                    .header(height)
+                    .context("L2 history for re-fold")?
+            };
+            if header.number != height
+                || header.parent_hash.as_deref() != Some(previous.hash.as_str())
+            {
+                bail!("L2 re-fold parentHash chain mismatch");
+            }
+            let deposit = header
+                .l1_info
+                .as_deref()
+                .context("L2 history missing L1-info")?;
+            let origin = boole_derivation::system::l1_origin(deposit, height)
+                .context("decode re-fold L1-info")?;
+            let l1 = self
+                .l1
+                .block_by_hash(&origin)
+                .context("anchored L1 re-fold")?;
+            if l1.number != height || !l1.hash.eq_ignore_ascii_case(&origin) {
+                bail!("anchored L1 re-fold identity mismatch");
+            }
+            let logs = self
+                .l1
+                .inbox_logs(&origin)
+                .context("anchored re-fold logs")?;
+            self.check_m2_transport(&logs)?;
+            let (derived, next) = derive_with_m2(&state, &self.config, &l1, &logs, &previous)
+                .context("pure anchored re-fold")?;
+            if derived.attributes.transactions.first().map(String::as_str) != Some(deposit) {
+                bail!("anchored L1-info bytes mismatch");
+            }
+            if let Some(saved) = &self.checkpoint {
+                if saved["height"] == height
+                    && (saved["m2_root"] != boole_derivation::attributes::hex_string(&next.root)
+                        || saved["l2_hash"] != header.hash
+                        || saved["l1_hash"] != l1.hash)
+                {
+                    bail!("M2 checkpoint disagrees with anchored re-fold");
+                }
+            }
+            state = next;
+            previous = header;
+        }
+        self.m2 = state.clone();
+        self.selected_head = Some(parent.hash.clone());
+        Ok(state)
+    }
+    fn persist_checkpoint(&mut self, state: &State, record: &Value) -> Result<()> {
+        let Some(path) = &self.journal else {
+            return Ok(());
+        };
+        let value = json!({"version":1,"height":state.height(),"m2_root":boole_derivation::attributes::hex_string(&state.root),"l2_hash":record["block_hash"],"l1_hash":record["l1"]["hash"],"config_digest":self.config_digest()?});
+        let temporary = path.with_extension(format!("tmp-{}", std::process::id()));
+        let mut created = false;
+        let result = (|| -> Result<()> {
+            let mut file = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&temporary)?;
+            created = true;
+            serde_json::to_writer(&mut file, &value)?;
+            file.write_all(b"\n")?;
+            file.sync_all()?;
+            std::fs::rename(&temporary, path)?;
+            if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+                File::open(parent)?.sync_all()?;
+            }
+            Ok(())
+        })();
+        if result.is_err() && created {
+            let _ = std::fs::remove_file(&temporary);
+        }
+        result.context("persist M2 checkpoint")?;
+        self.checkpoint = Some(value);
+        Ok(())
     }
     pub fn set_evidence(&mut self, path: &Path) -> Result<()> {
         self.evidence = Some(OpenOptions::new().create(true).append(true).open(path)?);
@@ -84,6 +245,7 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
         if let Err(error) = &result {
             record["outcome"] = json!("STALL");
             record["error"] = json!(format!("{error:#}"));
+            record["m2_root"] = json!(boole_derivation::attributes::hex_string(&self.m2.root));
         }
         let persisted = (|| -> Result<()> {
             if let Some(file) = &mut self.evidence {
@@ -94,6 +256,43 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
             Ok(())
         })();
         let result = result.and_then(|outcome| persisted.map(|_| outcome));
+        let checkpoint_attempt = result.is_ok();
+        let pending = self.pending.take();
+        let result = result.and_then(|outcome| {
+            if let Some(state) = pending {
+                let hash = record["block_hash"]
+                    .as_str()
+                    .context("selected block hash missing")?
+                    .to_owned();
+                self.persist_checkpoint(&state, &record)?;
+                self.selected_head = Some(hash);
+                self.m2 = state;
+            }
+            Ok(outcome)
+        });
+        if checkpoint_attempt {
+            if let Err(error) = &result {
+                record["outcome"] = json!("STALL");
+                record["error"] = json!(format!("{error:#}"));
+                record["m2_root"] = json!(boole_derivation::attributes::hex_string(&self.m2.root));
+                if let Some(file) = &mut self.evidence {
+                    let appended = (|| -> Result<()> {
+                        serde_json::to_writer(&mut *file, &record)?;
+                        file.write_all(b"\n")?;
+                        file.flush()?;
+                        Ok(())
+                    })();
+                    if let Err(write_error) = appended {
+                        let stall = Stall {
+                            height,
+                            reason: format!("{error:#}; append STALL evidence: {write_error:#}"),
+                        };
+                        self.stalled = Some(stall.clone());
+                        return Err(stall);
+                    }
+                }
+            }
+        }
         match result {
             Ok(outcome) => Ok(outcome),
             Err(error) => {
@@ -138,7 +337,11 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
         if serde_json::to_value(&l1)? != serde_json::to_value(&reread)? {
             bail!("L1 block changed between reads");
         }
-        let derived = derive(&l1, &logs, &parent).context("pure derivation input")?;
+        self.check_m2_transport(&logs)?;
+        let previous = self.state_for_parent(&parent)?;
+        let (derived, next) = derive_with_m2(&previous, &self.config, &l1, &logs, &parent)
+            .context("pure derivation input")?;
+        record["m2_root"] = json!(boole_derivation::attributes::hex_string(&next.root));
         record["l1"] = json!(l1);
         record["parent"] = json!(parent);
         record["attributes"] = json!(derived.attributes);
@@ -189,6 +392,7 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
             bail!("L2 head does not match selected payload");
         }
         record["block_hash"] = json!(hash);
+        self.pending = Some(next);
         Ok(StepOutcome::Derived(Box::new(derived)))
     }
 }
@@ -221,6 +425,7 @@ pub fn check_payload_transactions(payload: &Value, derived: &Derived) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use boole_derivation::derive;
     struct Unused;
     impl L1Source for Unused {
         fn finalized(&mut self) -> Result<u64> {
