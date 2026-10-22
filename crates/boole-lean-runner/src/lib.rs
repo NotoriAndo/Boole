@@ -1169,8 +1169,22 @@ impl LeanRunner {
         // descriptor through fd 0; submitted source bytes never enter it.
         let mut audit_command = Command::new(&toolchain_runtime.lean_executable);
         audit_command
-            .arg(format!("-DmaxHeartbeats={}", self.config.max_heartbeats))
-            .arg(format!("-DmaxRecDepth={}", self.config.max_rec_depth))
+            .arg(format!(
+                "-DmaxHeartbeats={}",
+                if release_v1 {
+                    self.config.max_heartbeats
+                } else {
+                    TRUSTED_HELPER_MAX_HEARTBEATS
+                }
+            ))
+            .arg(format!(
+                "-DmaxRecDepth={}",
+                if release_v1 {
+                    self.config.max_rec_depth
+                } else {
+                    TRUSTED_HELPER_MAX_REC_DEPTH
+                }
+            ))
             .arg("--run")
             .arg(AXIOM_AUDIT_SCRIPT)
             .arg(inherited_descriptor_path)
@@ -1525,10 +1539,9 @@ const PRIMARY_CHECKER_SCRIPT: &str = "BooleCheck/Main.lean";
 /// check folded into `BooleCheck.Main`.
 const AXIOM_AUDIT_SCRIPT: &str = "BooleCheck/Audit.lean";
 
-// Compiling the pinned helper is trusted request setup, not submitted proof
-// elaboration. Charging it to the committed proof budget can turn a
-// deterministic low-budget rejection into availability before the proof is
-// elaborated. The primary and audit stages still receive the proof budget.
+// Compiling pinned setup sources is separate from submitted elaboration.
+// V2 applies committed counters inside its source-reading frontend; trusted
+// script/helper startup must not turn a small valid submission into availability.
 const TRUSTED_HELPER_MAX_HEARTBEATS: u64 = 400_000;
 const TRUSTED_HELPER_MAX_REC_DEPTH: u64 = 512;
 

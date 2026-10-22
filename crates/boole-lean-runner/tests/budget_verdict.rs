@@ -161,6 +161,26 @@ fn budget_words_without_a_structured_limit_are_an_ordinary_reject() {
 }
 
 #[test]
+fn small_valid_proof_does_not_charge_auditor_startup_to_submission() {
+    if !lake_and_lean_available() {
+        return;
+    }
+    let proof = write_proof(
+        "small-valid",
+        "import Boole.Family.V0Helpers\ntheorem small_valid : True := trivial\n",
+    );
+    let result = LeanRunner::new(
+        LeanRunnerConfig::new("small-valid")
+            .with_package_dir(canonical_checker_dir())
+            .with_max_heartbeats(1)
+            .with_timeout_ms(120_000),
+    )
+    .check_file(proof)
+    .unwrap();
+    assert!(result.accepted, "{result:?}");
+}
+
+#[test]
 fn checker_failure_paths_end_in_one_marker() {
     if !lake_and_lean_available() {
         return;
