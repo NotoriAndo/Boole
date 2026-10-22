@@ -1,0 +1,543 @@
+//! Opt-in closed-local MCP stdio -> L1 -> driver -> pinned op-reth round.
+#[path = "../../boole-devnet-driver/tests/support/mod.rs"]
+#[allow(dead_code)]
+mod support;
+use anyhow::{ensure, Context, Result};
+use boole_derivation::{
+    attributes::{hex_bytes, hex_string},
+    m2::*,
+    L1Block,
+};
+use boole_devnet_driver::{
+    driver::{Driver, StepOutcome},
+    engine::{Rpc, RpcEngine},
+    l1::{L1Source, RpcL1},
+};
+use serde_json::{json, Value};
+use std::{
+    fs::{self, File, OpenOptions},
+    io::{BufRead, BufReader, Write},
+    path::{Path, PathBuf},
+    process::{Child, ChildStdin, Command, Stdio},
+    sync::mpsc,
+    thread,
+    time::{Duration, Instant},
+};
+use support::{m2::*, *};
+
+struct Server {
+    child: Child,
+    input: Option<ChildStdin>,
+    output: mpsc::Receiver<String>,
+    next: u64,
+    pids: PathBuf,
+}
+impl Server {
+    fn start(root: &Path, c: &Config, user: &str, state: &Path, extra: &[String]) -> Result<Self> {
+        fs::create_dir_all(root)?;
+        let config = root.join("config.json");
+        fs::write(&config, serde_json::to_vec(c)?)?;
+        let codec = zstd_binary()?;
+        let mut child = Command::new(env!("CARGO_BIN_EXE_boole-devnet-mcp"))
+            .args([
+                "--devnet",
+                "--l1-rpc",
+                "http://127.0.0.1:28545",
+                "--account",
+                user,
+                "--m2-config",
+            ])
+            .arg(config)
+            .arg("--state-dir")
+            .arg(state)
+            .arg("--zstd")
+            .arg(codec)
+            .args(extra)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(File::create(root.join("stderr.log"))?)
+            .spawn()?;
+        let pids = root.join("owned-pids.jsonl");
+        record_pid(&pids, child.id(), "started")?;
+        let input = child.stdin.take().context("MCP stdin")?;
+        let stdout = child.stdout.take().context("MCP stdout")?;
+        let (sender, output) = mpsc::channel();
+        thread::spawn(move || {
+            for line in BufReader::new(stdout).lines() {
+                match line {
+                    Ok(s) => {
+                        if sender.send(s).is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+        let mut s = Self {
+            child,
+            input: Some(input),
+            output,
+            next: 0,
+            pids,
+        };
+        let init=s.rpc("initialize",json!({"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"devnet-live-test","version":"1"}}))?;
+        ensure!(
+            init["result"]["serverInfo"]["name"] == "boole-devnet-mcp",
+            "MCP initialize"
+        );
+        let list = s.rpc("tools/list", json!({}))?;
+        ensure!(
+            list["result"]["tools"].as_array().context("tools")?.len() == 5,
+            "five tools"
+        );
+        Ok(s)
+    }
+    fn rpc(&mut self, method: &str, params: Value) -> Result<Value> {
+        self.next += 1;
+        let request = json!({"jsonrpc":"2.0","id":self.next,"method":method,"params":params});
+        writeln!(self.input.as_mut().context("MCP stopped")?, "{request}")?;
+        self.input.as_mut().context("MCP input")?.flush()?;
+        let response: Value = serde_json::from_str(
+            &self
+                .output
+                .recv_timeout(Duration::from_secs(15))
+                .context("MCP response timeout/exit")?,
+        )?;
+        ensure!(response["id"] == self.next, "MCP response id");
+        Ok(response)
+    }
+    fn tool(&mut self, name: &str, args: Value) -> Result<Value> {
+        let out = self.rpc("tools/call", json!({"name":name,"arguments":args}))?;
+        ensure!(
+            out["result"]["isError"] == false,
+            "MCP tool rejected: {out}"
+        );
+        Ok(serde_json::from_str(
+            out["result"]["content"][0]["text"]
+                .as_str()
+                .context("tool text")?,
+        )?)
+    }
+    fn submission(&mut self, id: &str) -> Result<Value> {
+        self.tool("boole.devnet_submission", json!({"submission_id":id}))
+    }
+    fn posted(&mut self, id: &str, stage: &str) -> Result<String> {
+        let start = Instant::now();
+        loop {
+            let view = self.submission(id)?;
+            if let Some(tx) = view["transactions"]
+                .as_array()
+                .context("transactions")?
+                .iter()
+                .find(|x| x["stage"] == stage)
+                .and_then(|x| x["transaction_hash"].as_str())
+            {
+                return Ok(tx.into());
+            }
+            ensure!(
+                start.elapsed() < Duration::from_secs(5),
+                "MCP did not post {stage}: {view}"
+            );
+            thread::sleep(Duration::from_millis(20));
+        }
+    }
+    fn stop(&mut self) -> Result<()> {
+        self.input.take();
+        let start = Instant::now();
+        loop {
+            if let Some(status) = self.child.try_wait()? {
+                record_pid(&self.pids, self.child.id(), "stopped")?;
+                ensure!(status.success(), "MCP exit {status}");
+                return Ok(());
+            }
+            ensure!(
+                start.elapsed() < Duration::from_secs(3),
+                "MCP EOF stop timeout"
+            );
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+}
+impl Drop for Server {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+        let _ = record_pid(&self.pids, self.child.id(), "stopped");
+    }
+}
+fn record_pid(path: &Path, pid: u32, state: &str) -> Result<()> {
+    let line = json!({"name":"mcp1-stdio","pid":pid,"state":state});
+    writeln!(
+        OpenOptions::new().create(true).append(true).open(path)?,
+        "{line}"
+    )?;
+    if let Some(p) = std::env::var_os("BOOLE_DEVNET_OWNED_PIDS") {
+        writeln!(
+            OpenOptions::new().create(true).append(true).open(p)?,
+            "{line}"
+        )?;
+    }
+    Ok(())
+}
+type LiveDriver = Driver<RpcL1, RpcEngine>;
+fn mine(
+    l1: &Rpc,
+    driver: &mut LiveDriver,
+    server: Option<&mut Server>,
+    rows: &mut Vec<Value>,
+) -> Result<Value> {
+    let h = quantity(&l1.call("eth_blockNumber", json!([]))?)? + 1;
+    l1.call("evm_mine", json!([1_800_000_000 + 12 * h]))?;
+    let mut source = RpcL1::new_m2("http://127.0.0.1:28545")?;
+    let f = source.finalized()?;
+    while driver.m2_state().height() < f {
+        let n = driver.m2_state().height() + 1;
+        ensure!(
+            matches!(driver.step(n)?, StepOutcome::Derived(_)),
+            "driver finality wait"
+        );
+    }
+    let expected = hex_string(&driver.m2_state().root);
+    let status = if let Some(server) = server {
+        let status = server.tool("boole.devnet_status", json!({}))?;
+        ensure!(
+            status["fold_height"] == f && status["m2_root"] == expected,
+            "MCP/driver root mismatch at latest {h}: {status}"
+        );
+        status
+    } else {
+        Value::Null
+    };
+    rows.push(json!({"latest_height":h,"finalized_height":f,"driver_m2_root":expected,"client_status":status}));
+    Ok(rows.last().context("row")?.clone())
+}
+fn last_tx(view: &Value, stage: &str) -> bool {
+    view["transactions"]
+        .as_array()
+        .is_some_and(|xs| xs.iter().any(|x| x["stage"] == stage))
+}
+
+#[test]
+fn mcp_live_round_checking_cancel_offline_expiry_and_equal_roots() -> Result<()> {
+    let Some(op) = pinned("BOOLE_DEVNET_OP_RETH", "op_reth")? else {
+        return Ok(());
+    };
+    let Some(anvil) = pinned("BOOLE_DEVNET_ANVIL", "anvil")? else {
+        return Ok(());
+    };
+    let mut rt = Runtime::new("mcp1-round")?;
+    let l1_genesis = rt.path.join("l1-genesis.json");
+    fs::write(
+        &l1_genesis,
+        serde_json::to_vec_pretty(&l1_genesis_value()?)?,
+    )?;
+    let l1 = rt.anvil_with_genesis(&anvil, &l1_genesis)?;
+    let accounts = l1.call("eth_accounts", json!([]))?;
+    let user = accounts[0].as_str().context("account")?;
+    let c = config();
+    let l2_genesis = rt.path.join("l2-genesis.json");
+    fs::write(&l2_genesis, serde_json::to_vec_pretty(&genesis()?)?)?;
+    let node = rt.node(&op, &l2_genesis, "miner-replica", 0)?;
+    let mut driver = Driver::with_config(
+        RpcL1::new_m2("http://127.0.0.1:28545")?,
+        node.engine()?,
+        c.clone(),
+        30_000_000,
+    )?;
+    driver.set_evidence(&rt.path.join("driver.jsonl"))?;
+    let state = rt.path.join("miner-state");
+    let mut server = Server::start(&rt.path.join("mcp-first"), &c, user, &state, &[])?;
+    let package: Value = serde_json::from_str(include_str!(
+        "../../../fixtures/devnet-m2/package-codec-v1.1.json"
+    ))?;
+    let carried = hex_bytes(
+        &format!("0x{}", package["carried_hex"].as_str().context("package")?),
+        "package",
+    )?;
+    let root =
+        boole_derivation::m2::pool_leaf(c.chain_id, 2, &[], 1, 1_048_576, &carried, &[9; 32]);
+    post(&l1, user, &[(8, pool(&c, root, 1, 3, 1))], false)?;
+    let (raw, _, _) = frame(&rt.path)?;
+    let export = rt.path.join("export.raw");
+    let mut rows = vec![];
+    loop {
+        let h = quantity(&l1.call("eth_blockNumber", json!([]))?)? + 1;
+        if h == 5 {
+            post(
+                &l1,
+                user,
+                &[(
+                    9,
+                    problem_encoded(0, 1, 0, [9; 32], &[], &carried, (1, 1_048_576)),
+                )],
+                false,
+            )?;
+        }
+        mine(&l1, &mut driver, Some(&mut server), &mut rows)?;
+        if driver.m2_state().height() >= 5 {
+            break;
+        }
+        ensure!(h < 24, "problem did not finalize");
+    }
+    let p = driver.m2_state().rounds[&(0, 1)]
+        .problem
+        .context("problem")?;
+    let problem = server.tool("boole.devnet_problem", json!({"slot":0}))?;
+    ensure!(
+        problem["problem_id"] == hex_string(&p) && problem["decoded_len"] == 1_048_576,
+        "MCP decoded problem"
+    );
+    ensure!(
+        problem["package_utf8"]
+            .as_str()
+            .is_some_and(|s| s.as_bytes() == vec![b'a'; 1_048_576]),
+        "decoded package bytes"
+    );
+    let arguments =
+        json!({"problem_id":hex_string(&p),"payee":hex_string(&[6;20]),"export_file":export});
+    // A configured deterministic reject must not create a COMMIT or submission.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let hook = rt.path.join("reject-hook");
+        let bytes = b"#!/bin/sh\nexit 10\n";
+        fs::write(&hook, bytes)?;
+        fs::set_permissions(&hook, fs::Permissions::from_mode(0o700))?;
+        let extra = vec![
+            "--precheck".into(),
+            hook.display().to_string(),
+            "--precheck-sha256".into(),
+            hex_string(&hash(bytes)),
+        ];
+        let reject_state = rt.path.join("reject-state");
+        let mut rejected =
+            Server::start(&rt.path.join("mcp-reject"), &c, user, &reject_state, &extra)?;
+        let nonce = l1.call("eth_getTransactionCount", json!([user, "pending"]))?;
+        let out = rejected.rpc(
+            "tools/call",
+            json!({"name":"boole.devnet_commit","arguments":arguments}),
+        )?;
+        ensure!(
+            out["result"]["isError"] == true && out.to_string().contains("deterministic reject"),
+            "pre-check refusal"
+        );
+        ensure!(
+            nonce == l1.call("eth_getTransactionCount", json!([user, "pending"]))?,
+            "reject posted a transaction"
+        );
+        ensure!(
+            !fs::read_dir(&reject_state)?.any(
+                |e| e.is_ok_and(|e| e.file_name().to_string_lossy().starts_with("submission-"))
+            ),
+            "reject persisted a submission"
+        );
+        rejected.stop()?;
+    }
+    let primary = server.tool("boole.devnet_commit", arguments.clone())?;
+    let primary_id = primary["submission_id"]
+        .as_str()
+        .context("submission id")?
+        .to_owned();
+    ensure!(
+        primary["local_check"] == "not_run",
+        "local check disclosure"
+    );
+    server.posted(&primary_id, "commit")?;
+    let mut primary_final = Value::Null;
+    for _ in 0..45 {
+        mine(&l1, &mut driver, Some(&mut server), &mut rows)?;
+        let view = server.submission(&primary_id)?;
+        if view["status"] == "CHECKING" {
+            primary_final = view;
+            break;
+        }
+    }
+    ensure!(!primary_final.is_null(), "MCP did not complete the reveal");
+    let primary_hash: Hash = boole_devnet_mcp::client::fixed(&primary_id)?;
+    let candidate = &driver.m2_state().candidates[&(p, primary_hash)];
+    ensure!(candidate.status() == Status::Checking, "driver CHECKING");
+    let open = candidate
+        .live()
+        .and_then(|c| c.open.as_ref())
+        .context("completed OPEN")?;
+    ensure!(
+        open.n == 14 && open.raw_len == raw.len() as u64,
+        "14-part export layout"
+    );
+    let cancel = server.tool("boole.devnet_commit", arguments.clone())?;
+    let cancel_id = cancel["submission_id"]
+        .as_str()
+        .context("cancel id")?
+        .to_owned();
+    server.posted(&cancel_id, "commit")?;
+    server.tool("boole.devnet_cancel", json!({"submission_id":cancel_id}))?;
+    // This independent miner goes offline immediately after its COMMIT, before
+    // finality can automatically trigger OPEN. The online miner still cancels.
+    let expiry_state = rt.path.join("expiry-state");
+    let mut expiry_server = Server::start(
+        &rt.path.join("mcp-expiry-first"),
+        &c,
+        user,
+        &expiry_state,
+        &[],
+    )?;
+    let expire = expiry_server.tool("boole.devnet_commit", arguments)?;
+    let expire_id = expire["submission_id"]
+        .as_str()
+        .context("expire id")?
+        .to_owned();
+    ensure!(
+        primary_id != cancel_id && cancel_id != expire_id,
+        "fresh submission identities"
+    );
+    expiry_server.posted(&expire_id, "commit")?;
+    ensure!(
+        !last_tx(&expiry_server.submission(&expire_id)?, "open"),
+        "offline candidate already opening"
+    );
+    expiry_server.stop()?;
+    for _ in 0..40 {
+        mine(&l1, &mut driver, Some(&mut server), &mut rows)?;
+        if server.submission(&cancel_id)?["status"] == "CANCELLED" {
+            break;
+        }
+    }
+    ensure!(
+        server.submission(&cancel_id)?["status"] == "CANCELLED",
+        "cancel finality"
+    );
+    let expiry_hash: Hash = boole_devnet_mcp::client::fixed(&expire_id)?;
+    let hc = driver.m2_state().candidates[&(p, expiry_hash)]
+        .live()
+        .context("expiry candidate")?
+        .h_c;
+    server.stop()?;
+    while driver.m2_state().height() < hc + c.w + 1 {
+        mine(&l1, &mut driver, None, &mut rows)?;
+        ensure!(rows.len() < 200, "expiry finality timeout");
+    }
+    let mut restarted = Server::start(&rt.path.join("mcp-restarted"), &c, user, &state, &[])?;
+    let status = restarted.tool("boole.devnet_status", json!({}))?;
+    ensure!(
+        status["m2_root"] == hex_string(&driver.m2_state().root),
+        "restart root equality"
+    );
+    ensure!(
+        restarted.submission(&primary_id)?["status"] == "CHECKING",
+        "primary survives restart"
+    );
+    ensure!(
+        restarted.submission(&cancel_id)?["status"] == "CANCELLED",
+        "CANCEL finalized"
+    );
+    let mut expiry_restarted = Server::start(
+        &rt.path.join("mcp-expiry-restarted"),
+        &c,
+        user,
+        &expiry_state,
+        &[],
+    )?;
+    let expiry_status = expiry_restarted.tool("boole.devnet_status", json!({}))?;
+    ensure!(
+        expiry_status["m2_root"] == status["m2_root"],
+        "independent expiry miner root"
+    );
+    let expired = expiry_restarted.submission(&expire_id)?;
+    ensure!(
+        expired["status"] == "EXPIRED" && !last_tx(&expired, "open"),
+        "offline expiry without late OPEN"
+    );
+    let mut salts = vec![];
+    let mut secrets = vec![];
+    for id in [&primary_id, &cancel_id, &expire_id] {
+        let path = if *id == expire_id {
+            &expiry_state
+        } else {
+            &state
+        }
+        .join(format!("submission-{id}.json"));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            ensure!(
+                fs::metadata(&path)?.permissions().mode() & 0o777 == 0o600,
+                "0600 submission"
+            );
+        }
+        let local: Value = serde_json::from_slice(&fs::read(path)?)?;
+        let body: Vec<u8> = serde_json::from_value(local["prepared"]["body"].clone())?;
+        let secret: Hash = serde_json::from_value(local["prepared"]["cancel_secret"].clone())?;
+        salts.push(body[53..85].to_vec());
+        secrets.push(secret);
+        let progress = if *id == expire_id {
+            expiry_restarted.submission(id)?
+        } else {
+            restarted.submission(id)?
+        };
+        ensure!(
+            !progress.to_string().contains(&hex_string(&secret)),
+            "secret in progress response"
+        );
+    }
+    ensure!(
+        salts[0] != salts[1]
+            && salts[1] != salts[2]
+            && secrets[0] != secrets[1]
+            && secrets[1] != secrets[2],
+        "independent fresh salts/tokens"
+    );
+    // Every real OPEN obeyed finality/minimum delay and the conservative W3 cap.
+    let mut posting = vec![];
+    let mut posted_items = vec![];
+    let mut l1_inputs = vec![];
+    for h in 1..=quantity(&l1.call("eth_blockNumber", json!([]))?)? {
+        let block: L1Block = serde_json::from_value(
+            l1.call("eth_getBlockByNumber", json!([format!("0x{h:x}"), false]))?,
+        )?;
+        let logs = RpcL1::new_m2("http://127.0.0.1:28545")?.inbox_logs(&block.hash)?;
+        l1_inputs.push(json!({"l1":block,"logs":logs}));
+        for log in logs {
+            let bytes = hex_bytes(&log.data, "log")?;
+            if let Ok((kind, body)) = boole_derivation::inbox::item(&bytes) {
+                posting.push(json!({"height":h,"kind":kind,"body_bytes":body.len()}));
+                posted_items.push((h, kind, body.to_vec()));
+            }
+        }
+    }
+    let primary_commit = driver.m2_state().candidates[&(p, primary_hash)]
+        .live()
+        .context("primary")?
+        .h_c;
+    for (h, kind, body) in &posted_items {
+        if *kind == 3 {
+            ensure!(
+                *h >= primary_commit + c.d
+                    && *h <= primary_commit + c.w - 14u64.div_ceil(c.p_blk) - 2,
+                "OPEN schedule"
+            );
+            ensure!(body[53 + 33..53 + 53] == [6; 20], "payee binding");
+        }
+        if *kind != 7 {
+            ensure!(
+                !body.windows(32).any(|w| w == secrets[1] || w == secrets[2]),
+                "cancel secret outside CANCEL"
+            );
+        }
+    }
+    ensure!(
+        posted_items.iter().filter(|(_, k, _)| *k == 4).count() >= 14,
+        "parts posted"
+    );
+    restarted.stop()?;
+    expiry_restarted.stop()?;
+    let provenance = json!({"generator":"crates/boole-devnet-mcp/tests/live.rs","generator_sha256":hex_string(&hash(include_bytes!("live.rs"))),"client_binary_sha256":hex_string(&hash(&fs::read(env!("CARGO_BIN_EXE_boole-devnet-mcp"))?)),"client_pins":fixture_json("pins.json")?,"l1_genesis_sha256":hex_string(&hash(&fs::read(&l1_genesis)?)),"l2_genesis_sha256":hex_string(&hash(&fs::read(&l2_genesis)?)),"l1_genesis_hash":RpcL1::new_m2("http://127.0.0.1:28545")?.genesis_hash()?});
+    let result = json!({"schema":"boole-devnet-mcp-round-v0","config":c,"config_digest":hex_string(&c.digest()),"slot_table_digest":hex_string(&c.slot_table_digest()),"package_codec":1,"package_raw_len":1_048_576,"export_raw_len":raw.len(),"primary":primary_final,"cancel_status":"CANCELLED","expiry_status":"EXPIRED","restart_m2_root":status["m2_root"],"driver_m2_root":hex_string(&driver.m2_state().root),"rows":rows,"postings":posting,"l1_inputs":l1_inputs,"provenance":provenance,"strict_cleanup":"pending"});
+    rt.finish(true)?;
+    if let Some(path) = std::env::var_os("BOOLE_DEVNET_MCP_RECORDING") {
+        let mut result = result;
+        result["strict_cleanup"] = json!("PASS");
+        fs::write(path, serde_json::to_vec_pretty(&result)?)?;
+    }
+    Ok(())
+}

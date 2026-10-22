@@ -18,6 +18,14 @@ fn finalized_genesis_needs_only_number() {
         for (method, result) in [
             ("eth_chainId", json!("0x7a69")),
             ("eth_getBlockByNumber", json!({"number":"0x0"})),
+            (
+                "eth_getBlockByNumber",
+                json!({"number":"0x0","hash":format!("0x{}","ab".repeat(32))}),
+            ),
+            (
+                "eth_getBlockByNumber",
+                json!({"number":"0x0","hash":"0xab"}),
+            ),
         ] {
             let (mut stream, _) = listener.accept().unwrap();
             let mut reader = BufReader::new(&mut stream);
@@ -37,7 +45,17 @@ fn finalized_genesis_needs_only_number() {
             let request: Value = serde_json::from_slice(&body).unwrap();
             assert_eq!(request["method"], method);
             if method == "eth_getBlockByNumber" {
-                assert_eq!(request["params"], json!(["finalized", false]));
+                assert_eq!(
+                    request["params"],
+                    json!([
+                        if result.get("hash").is_some() {
+                            "0x0"
+                        } else {
+                            "finalized"
+                        },
+                        false
+                    ])
+                );
             }
             let body =
                 serde_json::to_vec(&json!({"jsonrpc":"2.0","id":1,"result":result})).unwrap();
@@ -47,8 +65,12 @@ fn finalized_genesis_needs_only_number() {
     });
     let mut l1 = RpcL1::new(&url).unwrap();
     let actual = l1.finalized();
+    let genesis = l1.genesis_hash();
+    let invalid = l1.genesis_hash();
     server.join().unwrap();
     assert_eq!(actual.unwrap(), 0);
+    assert_eq!(genesis.unwrap(), format!("0x{}", "ab".repeat(32)));
+    assert!(invalid.is_err());
 }
 
 #[test]
