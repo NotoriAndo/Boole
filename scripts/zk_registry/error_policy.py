@@ -35,6 +35,7 @@ def _healthy(attempt):
 def quarantine_trigger(attempts):
     """Return a reproducible trigger only for independently healthy observations."""
     groups={}
+    components={}
     for a in attempts:
         reason,stage,detail=a.get('reason'),a.get('stage',''),a.get('detail','')
         group=a.get('class')
@@ -44,9 +45,15 @@ def quarantine_trigger(attempts):
             continue
         key=(stage,reason)
         groups.setdefault(key,[]).append(a)
+        if (stage in RULES['triggers'].get('component_stages', []) and
+                reason in RULES['triggers'].get('component_reasons', []) and not a.get('resource_events')):
+            components.setdefault(stage,[]).append(a)
     for (stage,reason),rows in groups.items():
         if len({a['host'] for a in rows})<RULES['triggers']['independent_hosts']:continue
         if reason=='resource-unavailable' and not any(a.get('envelope')=='escalated' or
                 isinstance(a.get('envelope'),dict) and a['envelope'].get('wall_s')==3600 for a in rows):continue
         return dict(stage=stage,reason=reason,hosts=sorted({a['host'] for a in rows}))
+    for stage,rows in components.items():
+        if len({a['host'] for a in rows})>=RULES['triggers']['independent_hosts']:
+            return dict(stage=stage,reasons=sorted({a['reason'] for a in rows}),hosts=sorted({a['host'] for a in rows}),kind='component-failure')
     return None

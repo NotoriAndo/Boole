@@ -100,9 +100,28 @@ R's runtime candidate-specific Challenge is separate from its pinned catalog tem
 the allowed digests, not proofs or private migration diagnostics. Old catalogs and indexes are not re-pinned in place.
 
 Deterministic resource limits are INVALID `resource-cap`; wall/memory/observation limits are ERROR
-`resource-unavailable`. A matched ERROR records last-check evidence but leaves its commitment COMMITTED. The same
-bound reveal can retry before the original deadline without resetting the interval, winning or releasing its
-ordering barrier early. Deterministic matched rejection still consumes the commitment.
+`resource-unavailable`. New stores pin `error_policy` version1 and its rules digest in the catalog.
+A matched nonterminal ERROR consumes the reveal, sets CHECKING and clears its deadline.
+CHECKING and QUARANTINED hold the earliest-commit barrier without expiring. A repeated reveal returns
+`already-revealed` without invoking the checker. Terminal submission `output-cap` consumes the commitment
+as REJECTED; reference output caps remain node errors. Stores without `error_policy` retain the original
+COMMITTED/deadline retry rule and replay their original events unchanged.
+
+Only the operator can `recheck --sequence N` against the immutable recorded submission. Rechecks record the
+gate digest and attempt observations. A private ledger enforces60-second A2,600-second eligible A3 and
+3600-second slow retry intervals after the previous attempt finishes and before any event. A new healthy worker is required; at most one escalation
+is permitted. Healthy independent host observations under the pinned rule derive QUARANTINED, which keeps
+the original position. Transient and node/input availability failures never exhaust a commitment.
+
+A fixed gate can resolve that same position with PASS or deterministic rejection. When a fixed-gate recheck
+still leaves QUARANTINED unresolved, operator `void --sequence N` records VOID and releases the barrier.
+The CLI's configured gate digest must identify the selected checker configuration; a missing recorded gate
+is `replay-gate-unavailable`. Re-posing uses a new problem identity; it does not rewrite the old quarantine.
+No attempt, quarantine, void or later reversal mints rewards or claws back prior effects. Only suspected-input
+attempt counts are recorded. Operational alerts live in private `alerts.jsonl` outside the event log;24h/7d
+response values remain proposals. Worker builds/exports are removed after an attempt, retaining bounded
+logs, digests and export-integrity evidence.
+
 
 Production checks execute in a clean-environment worker with explicit local tool/environment configuration,
 task-local scratch/cache paths, anonymous/config-disabled Git settings and no inherited credentials.
@@ -129,7 +148,7 @@ evidence. An exclusive lock serializes writers. Filesystem/power-loss guarantees
 
 Package and submission bytes are immutable SHA256 objects, with manifests in the log. `replay` requires a new
 empty destination, copies/verifies only referenced objects, revalidates the initial catalog, recomputes intake
-binding and reruns **every deterministic matched verdict** with its own production checker. ERROR is availability
+binding and reruns **every deterministic matched verdict** with its own production checker. Nonterminal ERROR is availability
 evidence, not a mathematical decision: replay preserves it without recreating incidental resource exhaustion.
 It must reproduce the event log
 and final canonical state byte for byte. Verdicts cannot be trusted from hash chaining alone: a local owner can
@@ -152,6 +171,9 @@ python3 -m zk_registry.service --store STORE --time 100 commit \
 python3 -m zk_registry.service --store STORE --config CHECKER_CONFIG --time 101 reveal \
   --sequence 1 --problem PROBLEM_ID --solver OPAQUE_ID --submission ANSWER_DIR --salt SALT
 python3 -m zk_registry.service --store STORE status
+python3 -m zk_registry.service --store STORE --config HEALTHY_WORKER_CONFIG recheck --sequence 1
+python3 -m zk_registry.service --store STORE --config FIXED_GATE_CONFIG recheck --sequence 1 --gate GATE_SHA256
+python3 -m zk_registry.service --store STORE void --sequence 1
 python3 -m zk_registry.service --store STORE --time 3700 advance
 python3 -m zk_registry.service --store STORE --config CHECKER_CONFIG replay --out NEW_REPLICA
 python3 -m zk_registry.service --store STORE export-public --out NEW_PUBLIC_DIR
@@ -179,3 +201,7 @@ New stores record submission policy v5 and its byte digest in the catalog event.
 Historical catalogs retain their original descriptor. Policy v5 scans submitted
 text for output commands, output options and control characters in escaped names.
 The gate adds its own bound axiom-print command only after scanning submitted text.
+
+Replay preserves logged nonterminal ERROR observations without reclassifying them. Deterministic reveal
+and recheck verdicts, including terminal output-cap, are checked again. Transient replay failures follow
+the retry ladder and end as `replay-unavailable` if unresolved. They do not become a verdict mismatch.

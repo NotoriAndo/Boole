@@ -24,6 +24,7 @@ import time
 
 from . import package as P
 from . import spec_problem as SP
+from . import error_policy as E
 
 RATCHET_KINDS = {
     P.RATCHET_SCHEMA_VERSION: 'circom',
@@ -291,13 +292,22 @@ def event_hash(event: dict) -> str:
 class Registry:
     """One locked append-only log plus immutable objects; state is derived, never authoritative cache."""
 
-    def __init__(self, directory: str, verifier=None):
+    def __init__(self, directory: str, verifier=None, *, gate=None, gates=None, clock=None):
         self.root = Path(directory).resolve()
         self.verifier = verifier
+        self.clock = clock or time.time
+        config = getattr(verifier, 'config', {})
+        resource_keys = {'wall_s','rss_mb','memory_max','worker_id','host_id','canary','attempt_index','gate_sha256'}
+        self.gate = gate or config.get('gate_sha256') or digest(dict(service=source_info(), generator=P.generator_info(),
+                                       configuration={key:value for key,value in config.items() if key not in resource_keys}))
+        if not isinstance(self.gate, str) or not re.fullmatch(r'[0-9a-f]{64}', self.gate):
+            raise RegistryError('invalid gate digest')
+        self.gates = dict(gates or {})
+        self.gates[self.gate] = verifier
 
     @classmethod
-    def create(cls, directory: str, catalog: dict, reveal_window=3600, challenge_window=86400, verifier=None):
-        registry = cls(directory, verifier)
+    def create(cls, directory: str, catalog: dict, reveal_window=3600, challenge_window=86400, verifier=None, *, error_policy='current', gate=None):
+        registry = cls(directory, verifier, gate=gate)
         for value in (reveal_window, challenge_window):
             if type(value) is not int or value < 1:
                 raise RegistryError('positive integer windows required')
@@ -321,6 +331,11 @@ class Registry:
             payload = dict(entries=catalog['entries'], packages=packages, excluded=catalog['excluded'],
                            reveal_window=reveal_window, challenge_window=challenge_window,
                            submission_policy=dict(version=5, sha256=P.sha256_file(str(Path(__file__).parent / 'data/submission_policy_v5.json'))))
+            if error_policy is not None:
+                payload['error_policy'] = (dict(version=1, rules_sha256=P.sha256_file(str(E.POLICY_PATH)))
+                                           if error_policy == 'current' else copy.deepcopy(error_policy))
+                payload['gate'] = registry.gate
+                registry._policy(payload)
             registry._append('catalog', payload, 0, [])
         return registry
 
@@ -425,6 +440,7 @@ class Registry:
         if any(type(payload.get(key)) is not int or payload[key] < 1
                for key in ('reveal_window', 'challenge_window')):
             raise RegistryError('invalid catalog windows')
+        Registry._policy(payload)
         entries = payload.get('entries')
         if not isinstance(entries, list) or any(not isinstance(row, dict) or not isinstance(row.get('id'), str)
                                                 for row in entries):
@@ -434,6 +450,29 @@ class Registry:
             raise RegistryError('duplicate or invalid catalog identities')
         if set(payload['packages']) != set(ids):
             raise RegistryError('catalog package identities differ')
+
+    @staticmethod
+    def _policy(state):
+        descriptor = state.get('error_policy')
+        if descriptor is None:
+            return None
+        try:
+            raw = E.POLICY_PATH.read_bytes()
+            rules = json.loads(raw)
+            if (set(descriptor) != {'version', 'rules_sha256'} or descriptor['version'] != 1
+                    or rules['version'] != 1 or hashlib.sha256(raw).hexdigest() != descriptor['rules_sha256']
+                    or hashlib.sha256(raw).hexdigest() != E.RULES_SHA256):
+                raise ValueError('mismatch')
+        except (OSError, ValueError, KeyError, TypeError) as ex:
+            raise RegistryError('error-policy-mismatch') from ex
+        return rules
+
+    @staticmethod
+    def _terminal(verdict, rules):
+        if verdict['verdict'] != 'ERROR':
+            return verdict['verdict'] != 'PASS'
+        return bool(rules and verdict.get('reason') in rules['terminal_reasons']
+                    and verdict.get('attempt', {}).get('class') in rules['terminal_groups'])
 
     @staticmethod
     def _advance(state, logical_time):
@@ -461,7 +500,7 @@ class Registry:
                 continue
             earlier = [row for seq, row in state['commits'].items()
                        if int(seq) < int(key) and row['problem'] == commit['problem']
-                       and row['status'] in ('COMMITTED', 'VALID-REVEAL')]
+                       and row['status'] in ('COMMITTED', 'VALID-REVEAL', 'CHECKING', 'QUARANTINED')]
             if earlier:
                 continue
             commit['status'] = 'ACCEPTED'
@@ -500,6 +539,8 @@ class Registry:
             state.update(problems={row['id']: copy.deepcopy(row) for row in payload['entries']},
                          packages=payload['packages'], excluded=payload['excluded'],
                          reveal_window=payload['reveal_window'], challenge_window=payload['challenge_window'])
+            if 'error_policy' in payload:
+                state.update(error_policy=copy.deepcopy(payload['error_policy']), gate=payload['gate'])
             if 'submission_policy' in payload:
                 state['submission_policy'] = copy.deepcopy(payload['submission_policy'])
         elif kind == 'commit':
@@ -508,14 +549,54 @@ class Registry:
                 raise RegistryError('commit sequence differs')
             state['commits'][str(sequence)] = dict(payload, status='COMMITTED',
                                                    deadline=event['time'] + state['reveal_window'])
-        elif kind == 'reveal':
-            if payload['matched']:
+        elif kind in ('reveal', 'recheck'):
+            if kind == 'recheck' or payload['matched']:
                 commit = state['commits'][str(payload['sequence'])]
-                if payload['verdict']['verdict'] == 'ERROR':
-                    commit['last_check_error'] = dict(verdict=payload['verdict'], receipt=event['hash'])
+                verdict = payload['verdict']
+                rules = Registry._policy(state)
+                if rules is None:
+                    if kind == 'recheck':
+                        raise RegistryError('legacy recheck unavailable')
+                    if verdict['verdict'] == 'ERROR':
+                        commit['last_check_error'] = dict(verdict=verdict, receipt=event['hash'])
+                    else:
+                        commit.update(verdict=verdict, submission=payload['submission'], receipt=event['hash'],
+                                      status='VALID-REVEAL' if verdict['verdict'] == 'PASS' else 'REJECTED')
                 else:
-                    commit.update(verdict=payload['verdict'], submission=payload['submission'], receipt=event['hash'],
-                                  status='VALID-REVEAL' if payload['verdict']['verdict'] == 'PASS' else 'REJECTED')
+                    if kind == 'recheck' and commit['status'] not in ('CHECKING', 'QUARANTINED'):
+                        raise RegistryError('recheck requires unresolved reveal')
+                    prior = commit['status']
+                    if kind == 'reveal':
+                        commit.update(submission=payload['submission'], salt=payload['salt'],
+                                      initial_gate=payload['gate'], checking_since=event['time'])
+                    commit.update(verdict=copy.deepcopy(verdict), receipt=event['hash'], deadline=None,
+                                  gate=payload['gate'])
+                    if verdict['verdict'] == 'ERROR':
+                        attempt = copy.deepcopy(payload.get('attempt') or verdict.get('attempt'))
+                        if not isinstance(attempt, dict) or attempt.get('class') not in ('T','D-node','D-input','I','S'):
+                            raise RegistryError('invalid logged attempt')
+                        commit.setdefault('attempts', []).append(attempt)
+                        if attempt['class'] == 'I':
+                            commit['suspected_input_attempts'] = commit.get('suspected_input_attempts', 0)+1
+                    if verdict['verdict'] == 'PASS':
+                        commit['status'] = 'VALID-REVEAL'
+                    elif Registry._terminal(verdict, rules):
+                        commit['status'] = 'REJECTED'
+                    else:
+                        commit['status'] = 'CHECKING'
+                        trigger = E.quarantine_trigger([row for row in commit['attempts'] if row.get('gate') == payload['gate']])
+                        if prior == 'QUARANTINED' or trigger:
+                            commit['status'] = 'QUARANTINED'
+                            if trigger:
+                                commit['quarantine'] = trigger
+                            if kind == 'recheck' and payload['gate'] != commit['initial_gate']:
+                                commit['fixed_gate_unresolved'] = payload['gate']
+        elif kind == 'void':
+            commit = state['commits'].get(str(payload['sequence']))
+            if (not commit or commit['status'] != 'QUARANTINED'
+                    or not commit.get('fixed_gate_unresolved') or payload['gate'] != commit['fixed_gate_unresolved']):
+                raise RegistryError('void requires unresolved fixed-gate recheck')
+            commit.update(status='VOID', cause='void', receipt=event['hash'], deadline=None)
         elif kind != 'advance':
             raise RegistryError('unknown event type')
         Registry._settle(state)
@@ -531,7 +612,9 @@ class Registry:
     def status(self):
         """Canonical private state, including recorded failures and duplicate outcomes."""
         with self._locked():
-            return copy.deepcopy(self._load()[1])
+            state = self._load()[1]
+            self._alerts(state)
+            return copy.deepcopy(state)
 
     def list(self):
         """Only public problem fields, sorted by stable problem identity."""
@@ -560,7 +643,7 @@ class Registry:
             event = self._append('commit', payload, logical_time, events)
             return dict(sequence=sequence, receipt=event['hash'])
 
-    def _check(self, state, problem_id, manifest):
+    def _check(self, state, problem_id, manifest, verifier=None):
         problem = state['problems'][problem_id]
         with self._materialize(state['packages'][problem['root_id']]) as package_dir:
             with self._materialize(manifest) as submission_dir:
@@ -573,21 +656,240 @@ class Registry:
                     if problem['kind'] == 'R' and problem['rung']:
                         metadata['record'] = copy.deepcopy(problem['record'])
                         metadata_path.write_bytes(canonical(metadata) + b'\n')
-                    if self.verifier is None:
+                    selected = verifier if verifier is not None else self.verifier
+                    if selected is None:
                         raise RegistryError('production checker configuration required')
                     from . import check as C
                     with C.submission_policy(state.get('submission_policy')):
-                        verdict = self.verifier(package_dir, submission_dir, work_dir)
+                        try:
+                            verdict = selected(package_dir, submission_dir, work_dir)
+                        except Exception:
+                            verdict = dict(verdict='ERROR', reason='checker-internal-error')
                     if not isinstance(verdict, dict) or verdict.get('verdict') not in (
                             'PASS', 'INVALID', 'FAIL', 'ERROR', 'REJECTED'):
-                        raise RegistryError('checker returned an invalid verdict')
+                        verdict = dict(verdict='ERROR',reason='checker-worker-error')
                     if problem['kind'] == 'R' and verdict['verdict'] == 'PASS' and not verdict.get('record'):
-                        raise RegistryError('accepted ratchet lacks new record')
+                        verdict = dict(verdict='ERROR',reason='checker-worker-error')
                     if 'process_receipts' in verdict:
                         (Path(work_dir) / 'process-receipts.json').write_bytes(canonical(dict(
                             process_receipts=verdict['process_receipts'])) + b'\n')
+                    self._cleanup_check(Path(work_dir), verdict)
                     return {key: value for key, value in verdict.items()
                             if key in ('verdict', 'reason', 'assurance', 'record', 'artifact', 'attempt')}
+
+    @staticmethod
+    def _cleanup_check(root, verdict):
+        """Keep bounded diagnostics; remove disposable worker payloads after the attempt."""
+        from .bounded_capture import RawSink
+        preserve = verdict.get('reason') == 'export-integrity'
+        records = []
+        budget = 64*1024*1024
+        for parent, dirs, files in os.walk(root, topdown=False, followlinks=False):
+            for name in files:
+                path = Path(parent)/name
+                if path.is_symlink():
+                    path.unlink()
+                    continue
+                if preserve and path.suffix == '.ndjson':
+                    continue
+                diagnostic = path.suffix in ('.json','.jsonl','.log','.stdout','.stderr') or name == 'compile.stderr'
+                if diagnostic and budget > 0 and len(records) < 256:
+                    sink = RawSink(head=min(512*1024,budget),tail=min(512*1024,max(0,budget-512*1024)),guard=None)
+                    with path.open('rb') as stream:
+                        for block in iter(lambda:stream.read(65536),b''):
+                            sink.feed(block)
+                    records.append(dict(path=str(path.relative_to(root)), **sink.receipt()))
+                    retained = sink.retained
+                    if sink.bytes != len(retained):
+                        with path.open('wb') as stream:
+                            stream.write(retained)
+                    budget -= len(retained)
+                else:
+                    path.unlink()
+            for name in dirs:
+                path = Path(parent)/name
+                if path.is_symlink():
+                    path.unlink()
+                elif not any(path.iterdir()):
+                    path.rmdir()
+        (root/'artifact-digests.json').write_bytes(canonical(records)+b'\n')
+
+    def _history(self, sequence):
+        path = self.root / 'attempts.jsonl'
+        if not path.exists():
+            return []
+        starts = {}
+        for row in (json.loads(line) for line in path.read_text().splitlines()):
+            if row['sequence'] != sequence:
+                continue
+            if row['event'] == 'start':
+                starts[row['index']] = row
+            elif row['index'] in starts:
+                starts[row['index']]['finished_time'] = row['time']
+                starts[row['index']].update(row.get('context', {}))
+        return list(starts.values())
+
+    def _attempt_record(self, row):
+        with (self.root / 'attempts.jsonl').open('ab') as stream:
+            stream.write(canonical(row)+b'\n')
+            stream.flush()
+            os.fsync(stream.fileno())
+
+    @staticmethod
+    def _healthy(context):
+        canary = context.get('canary')
+        return (context.get('profile') == 'production' and
+                (canary is True or isinstance(canary, dict) and canary.get('before') == 'PASS' and canary.get('after') == 'PASS'))
+
+    def _context(self, verifier, supplied=None):
+        config = getattr(verifier, 'config', {})
+        context = dict(host=config.get('host_id', 'local'), worker=config.get('worker_id', 'local/worker'),
+                       profile='production' if config else 'unknown', canary=config.get('canary'),
+                       envelope='escalated' if config.get('wall_s') == 3600 else 'standard')
+        context.update(supplied or {})
+        return context
+
+    @staticmethod
+    def _escalated(context):
+        envelope = context.get('envelope')
+        return envelope == 'escalated' or isinstance(envelope, dict) and envelope.get('wall_s') == 3600
+
+    @staticmethod
+    def _resource_envelope(context):
+        envelope = context.get('envelope')
+        if isinstance(envelope, dict):
+            return {key:envelope.get(key) for key in ('wall_s','rss_mb','memory_max')}
+        return E.RULES.get(envelope) if envelope in ('standard','escalated') else None
+
+    def _execute(self, state, sequence, manifest, gate, context=None):
+        verifier = self.verifier if gate == self.gate else self.gates.get(gate)
+        if verifier is None:
+            raise RegistryError('replay-gate-unavailable')
+        commit = state['commits'][str(sequence)]
+        supplied = context is not None
+        context = self._context(verifier, context)
+        history = self._history(sequence)
+        index = len(history)+1
+        start = dict(event='start', sequence=sequence, index=index, time=self.clock(), gate=gate,
+                     submission_sha256=digest(manifest), **context)
+        self._attempt_record(start)
+        if hasattr(verifier, 'config'):
+            from .service_check import ProductionVerifier
+            config = copy.deepcopy(verifier.config)
+            profile = E.RULES['escalated' if self._escalated(context) else 'standard']
+            config.update(profile, worker_id=context['worker'], host_id=context['host'],
+                          canary=context.get('canary'), attempt_index=index)
+            verifier = ProductionVerifier(config)
+        verdict = self._check(state, commit['problem'], manifest, verifier)
+        if verdict['verdict'] == 'ERROR':
+            observed = dict(context)
+            observed.update(copy.deepcopy(verdict.get('attempt') or {}))
+            mismatch = supplied and (any(observed.get(key) != context.get(key) for key in ('worker','host')) or
+                                     self._resource_envelope(observed) != self._resource_envelope(context))
+            observed.update(index=index, gate=gate, reason=verdict.get('reason', 'checker-unavailable'))
+            observed.setdefault('stage', 'worker')
+            observed.setdefault('detail', '')
+            observed.setdefault('resource_events', [])
+            observed.setdefault('evidence_sha256', digest(verdict))
+            observed['class'] = observed.get('class') or E.classify(observed['reason'], observed['stage'], observed['detail'])
+            if mismatch or index > 1 and not self._healthy(observed):
+                observed['class'] = 'D-node'
+            if E.quarantine_trigger([row for row in commit.get('attempts', []) if row.get('gate') == gate]+[observed]) and observed['class'] == 'T':
+                observed['class'] = 'I'
+            verdict['attempt'] = observed
+        self._attempt_record(dict(event='finish', sequence=sequence, index=index, time=self.clock(),
+                                  verdict=verdict['verdict'], group=verdict.get('attempt', {}).get('class'),
+                                  context={key:verdict.get('attempt',context).get(key) for key in ('worker','host','envelope','profile','canary')}))
+        return verdict
+
+    def _alerts(self, state):
+        if 'error_policy' not in state:
+            return
+        path = self.root / 'alerts.jsonl'
+        prior = {row['id'] for row in (json.loads(line) for line in path.read_text().splitlines())} if path.exists() else set()
+        rows = []
+        for sequence, commit in state['commits'].items():
+            attempts = commit.get('attempts', [])
+            notices = []
+            if attempts:
+                notices.append(('checking', 'info'))
+            if any(row['class'] == 'D-node' for row in attempts):
+                notices.append(('worker-unhealthy', 'page'))
+            counted = [row for row in attempts if row['class'] != 'D-node']
+            if len(counted) >= 3 or len(counted) >= 2 and counted[0]['class'] == counted[1]['class']:
+                notices.append(('ladder-exhausted', 'page'))
+            if commit['status'] == 'QUARANTINED':
+                notices.append(('quarantine', 'page'))
+            if commit['status'] in ('CHECKING','QUARANTINED') and self.clock()-commit['checking_since'] >= 86400:
+                notices.append(('checking-age', 'page'))
+            for kind, level in notices:
+                ident = digest([sequence,kind])
+                if ident not in prior:
+                    rows.append(dict(id=ident, sequence=int(sequence), kind=kind, level=level, time=self.clock()))
+        if rows:
+            with path.open('ab') as stream:
+                for row in rows:
+                    stream.write(canonical(row)+b'\n')
+
+    def _retry(self, commit, sequence, context, rules):
+        history = self._history(sequence)
+        if not history:
+            raise RegistryError('retry-ledger-unavailable')
+        counted = [row for row in commit.get('attempts', []) if row['class'] != 'D-node']
+        wait = rules['retry']['a2_backoff_s']
+        if len(counted) >= 2:
+            a3 = len(counted) == 2 and (counted[0]['class'] != counted[1]['class'] or
+                  any(not self._healthy(row) for row in counted))
+            wait = rules['retry']['a3_backoff_s'] if a3 else rules['retry']['slow_backoff_s']
+        if self.clock()-history[-1].get('finished_time',history[-1]['time']) < wait:
+            raise RegistryError('retry-backoff')
+        if not self._healthy(context) or context.get('worker') == history[0]['worker']:
+            raise RegistryError('retry-worker-unhealthy')
+        if self._escalated(context):
+            if any(self._escalated(row) for row in history):
+                raise RegistryError('retry-escalation-used')
+            a1 = counted[0] if counted else {}
+            allowed = (len(counted) == 1 and (a1.get('reason') == 'resource-unavailable' or a1.get('resource_events'))
+                       or len(counted) == 2 and counted[0]['class'] != counted[1]['class'])
+            if not allowed or a1.get('class') == 'D-input':
+                raise RegistryError('retry-escalation-unavailable')
+
+    def recheck(self, sequence, logical_time, gate=None, *, attempt=None):
+        """Operator-only check of the immutable consumed reveal at its original sequence."""
+        with self._locked():
+            events, state = self._load()
+            self._advance(state, logical_time)
+            rules = self._policy(state)
+            commit = state['commits'].get(str(sequence))
+            if rules is None or not commit or commit['status'] not in ('CHECKING','QUARANTINED'):
+                raise RegistryError('recheck requires unresolved reveal')
+            gate = gate or commit['gate']
+            selected = self.verifier if gate == self.gate else self.gates.get(gate)
+            if not isinstance(gate,str) or not re.fullmatch(r'[0-9a-f]{64}',gate) or selected is None:
+                raise RegistryError('replay-gate-unavailable')
+            context = self._context(selected, attempt)
+            self._retry(commit, sequence, context, rules)
+            verdict = self._execute(state, sequence, commit['submission'], gate, context)
+            payload = dict(sequence=sequence, verdict=verdict, gate=gate)
+            if 'attempt' in verdict:
+                payload['attempt'] = verdict['attempt']
+            event = self._append('recheck', payload, logical_time, events)
+            self._apply(state, event)
+            self._alerts(state)
+            return dict(outcome=state['commits'][str(sequence)]['status'], reason=verdict.get('reason'), receipt=event['hash'])
+
+    def void(self, sequence, logical_time):
+        """Operator-only release after a fixed gate still leaves a quarantine unresolved."""
+        with self._locked():
+            events, state = self._load()
+            self._advance(state, logical_time)
+            commit = state['commits'].get(str(sequence))
+            if not commit or commit['status'] != 'QUARANTINED' or not commit.get('fixed_gate_unresolved'):
+                raise RegistryError('void requires unresolved fixed-gate recheck')
+            payload = dict(sequence=sequence, gate=commit['fixed_gate_unresolved'], cause='void')
+            event = self._append('void', payload, logical_time, events)
+            self._apply(state, event)
+            return dict(outcome='VOID', receipt=event['hash'])
 
     def reveal(self, sequence, problem_id, solver_id, submission_dir, salt, logical_time):
         """Snapshot and recheck a bound reveal; wrong bindings never consume the intended commit."""
@@ -600,18 +902,34 @@ class Registry:
             matched = bool(commit and commit['problem'] == problem_id and commit['solver'] == solver_id
                            and commit['commitment'] == value and commit['status'] == 'COMMITTED')
             if matched:
-                verdict = self._check(state, problem_id, manifest)
+                if 'error_policy' in state:
+                    verdict = self._execute(state, sequence, manifest, state['gate'])
+                else:
+                    verdict = self._check(state, problem_id, manifest)
             else:
-                reason = 'expired-window' if commit and commit['status'] == 'EXPIRED' else 'commitment-mismatch'
+                reason = self._unmatched(commit, 'error_policy' in state)
                 verdict = dict(verdict='REJECTED', reason=reason)
             payload = dict(sequence=sequence, problem=problem_id, solver=solver_id, salt=salt,
                            submission=manifest, matched=matched, verdict=verdict)
+            if matched and 'error_policy' in state:
+                payload['gate'] = state['gate']
+                if 'attempt' in verdict:
+                    payload['attempt'] = verdict['attempt']
             event = self._append('reveal', payload, logical_time, events)
             self._apply(state, event)
             status = state['commits'][str(sequence)]['status'] if matched else 'REJECTED'
-            outcome = 'ERROR' if matched and verdict['verdict'] == 'ERROR' else status
+            self._alerts(state)
+            outcome = 'ERROR' if matched and verdict['verdict'] == 'ERROR' and 'error_policy' not in state else status
             return dict(outcome='PENDING' if outcome == 'VALID-REVEAL' else outcome,
                         reason=verdict.get('reason'), receipt=event['hash'])
+
+    @staticmethod
+    def _unmatched(commit, current):
+        if commit and commit['status'] == 'EXPIRED':
+            return 'expired-window'
+        if current and commit and ('submission' in commit or commit['status'] in ('CHECKING','QUARANTINED','VOID')):
+            return 'already-revealed'
+        return 'commitment-mismatch'
 
     def advance(self, logical_time):
         """Explicitly expire commitments/finalize supported S windows without hidden wall-clock reads."""
@@ -620,16 +938,17 @@ class Registry:
             self._advance(state, logical_time)
             event = self._append('advance', {}, logical_time, events)
             self._apply(state, event)
+            self._alerts(state)
             return copy.deepcopy(state)
 
-    def replay(self, directory: str, verifier=None):
+    def replay(self, directory: str, verifier=None, *, gates=None):
         """Rebuild an empty second store, revalidate packages and independently recheck every matched reveal."""
         target = Path(directory).resolve()
         if target == self.root or target.exists():
             raise RegistryError('replay requires a new empty destination')
         with self._locked():
             source_events, source_state = self._load()
-            replica = Registry(str(target), verifier or self.verifier)
+            replica = Registry(str(target), verifier if verifier is not None else self.verifier, gate=self.gate, gates=gates)
             target.mkdir(parents=True)
             (target / 'objects').mkdir()
             state = self._empty_state()
@@ -669,25 +988,36 @@ class Registry:
                     commitment(payload['problem'], payload['solver'], payload['commitment'], 'validation')
                     if not entry or not entry['submittable'] or entry['status'] != 'OPEN':
                         raise RegistryError('replay commit admission differs')
-                elif event['type'] == 'reveal':
+                elif event['type'] in ('reveal','recheck'):
                     commit = state['commits'].get(str(payload['sequence']))
-                    value = commitment(payload['problem'], payload['solver'], digest(payload['submission']),
-                                       payload['salt'])
-                    matched = bool(commit and commit['problem'] == payload['problem']
-                                   and commit['solver'] == payload['solver'] and commit['commitment'] == value
-                                   and commit['status'] == 'COMMITTED')
-                    if matched != payload['matched']:
-                        raise RegistryError('replay commitment binding differs')
-                    if matched and payload['verdict']['verdict'] == 'ERROR':
-                        # Availability is recorded evidence, not a mathematical decision to reproduce.
-                        verdict = payload['verdict']
-                    elif matched:
-                        verdict = replica._check(state, payload['problem'], payload['submission'])
+                    current = 'error_policy' in state
+                    if event['type'] == 'reveal':
+                        value = commitment(payload['problem'], payload['solver'], digest(payload['submission']), payload['salt'])
+                        matched = bool(commit and commit['problem'] == payload['problem']
+                                       and commit['solver'] == payload['solver'] and commit['commitment'] == value
+                                       and commit['status'] == 'COMMITTED')
+                        if matched != payload['matched']:
+                            raise RegistryError('replay commitment binding differs')
                     else:
-                        reason = ('expired-window' if commit and commit['status'] == 'EXPIRED'
-                                  else 'commitment-mismatch')
-                        verdict = dict(verdict='REJECTED', reason=reason)
-                    if verdict != payload['verdict']:
+                        matched = bool(commit and commit['status'] in ('CHECKING','QUARANTINED'))
+                        if not matched:
+                            raise RegistryError('replay recheck admission differs')
+                    selected = replica.verifier
+                    if matched and current:
+                        selected = replica.gates.get(payload['gate'])
+                        if selected is None:
+                            raise RegistryError('replay-gate-unavailable')
+                    logged = payload['verdict']
+                    rules = self._policy(state)
+                    if matched and logged['verdict'] == 'ERROR' and not self._terminal(logged, rules):
+                        verdict = logged
+                    elif matched:
+                        manifest = payload['submission'] if event['type'] == 'reveal' else commit['submission']
+                        problem = payload['problem'] if event['type'] == 'reveal' else commit['problem']
+                        verdict = replica._replay_check(state, problem, manifest, selected, logged, rules)
+                    else:
+                        verdict = dict(verdict='REJECTED', reason=self._unmatched(commit, current))
+                    if verdict != logged:
                         raise RegistryError('replayed verdict differs')
                 produced = replica._append(event['type'], payload, event['time'], output_events)
                 if produced != event:
@@ -697,6 +1027,41 @@ class Registry:
             if canonical(state) != canonical(source_state) or replica.log.read_bytes() != self.log.read_bytes():
                 raise RegistryError('replayed final state differs')
             return replica
+
+    def _replay_check(self, state, problem, manifest, verifier, logged, rules):
+        rules = rules or E.RULES
+        failures = []
+        for index in range(3):
+            selected = verifier
+            if index and hasattr(verifier,'config'):
+                from .service_check import ProductionVerifier
+                config = copy.deepcopy(verifier.config)
+                context = self._context(verifier)
+                if not self._healthy(context):
+                    raise RegistryError('replay-unavailable')
+                config.update({key:value for key,value in E.envelope(index+1,failures[0]).items()
+                               if key in ('wall_s','rss_mb','memory_max')})
+                if index == 2 and failures[1].get('envelope') == 'escalated':
+                    config.update(rules['standard'])
+                config['worker_id'] = context['worker']+'/replay-'+str(index+1)
+                selected = ProductionVerifier(config)
+            verdict = self._check(state, problem, manifest, selected)
+            if verdict['verdict'] == 'ERROR' and 'attempt' not in verdict:
+                verdict['attempt'] = dict(reason=verdict.get('reason'), stage='worker', **{'class':E.classify(verdict.get('reason'),'worker','')})
+            if verdict['verdict'] != 'ERROR' or self._terminal(verdict, rules):
+                if logged['verdict'] == 'ERROR' and verdict['verdict'] == 'ERROR':
+                    if verdict.get('reason') == logged.get('reason'):
+                        return logged
+                return verdict
+            failure = dict(verdict['attempt'])
+            failure.setdefault('reason', verdict.get('reason'))
+            failures.append(failure)
+            if index == 1 and (failures[0]['class'] == failures[1]['class'] and
+                    all(row.get('canary') is not False for row in failures)):
+                break
+            if index < 2:
+                time.sleep(rules['retry']['a2_backoff_s' if index == 0 else 'a3_backoff_s'])
+        raise RegistryError('replay-unavailable')
 
     def export_public(self, directory: str):
         """New-directory-only allowlisted request/model export; never export log, evidence or submissions."""
@@ -774,6 +1139,11 @@ def main(argv=None):
     reveal.add_argument('--solver', required=True)
     reveal.add_argument('--submission', required=True)
     reveal.add_argument('--salt', required=True)
+    recheck = commands.add_parser('recheck')
+    recheck.add_argument('--sequence', type=int, required=True)
+    recheck.add_argument('--gate')
+    void = commands.add_parser('void')
+    void.add_argument('--sequence', type=int, required=True)
     commands.add_parser('status')
     commands.add_parser('advance')
     replay = commands.add_parser('replay')
@@ -786,7 +1156,9 @@ def main(argv=None):
         if args.config:
             from .service_check import ProductionVerifier
             verifier = ProductionVerifier(read_json(Path(args.config)))
-        registry = Registry(args.store, verifier)
+        registry = Registry(args.store, verifier, gate=(verifier.config.get('gate_sha256') if verifier else None))
+        if args.command == 'recheck' and args.gate and args.gate != registry.gate:
+            raise RegistryError('replay-gate-unavailable')
         logical_time = int(time.time()) if args.time is None else args.time
         if args.command == 'catalog':
             if args.action == 'build':
@@ -807,6 +1179,10 @@ def main(argv=None):
         elif args.command == 'reveal':
             result = registry.reveal(args.sequence, args.problem, args.solver, args.submission,
                                      args.salt, logical_time)
+        elif args.command == 'recheck':
+            result = registry.recheck(args.sequence, logical_time, gate=args.gate)
+        elif args.command == 'void':
+            result = registry.void(args.sequence, logical_time)
         elif args.command == 'status':
             result = registry.status()
         elif args.command == 'advance':
