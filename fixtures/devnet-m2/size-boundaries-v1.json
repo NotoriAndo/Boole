@@ -1,0 +1,73 @@
+{
+  "schema": "boole-devnet-m2-size-boundaries-v1",
+  "provenance": {
+    "source": "EENV3 project-library root summary, 2026-10-21",
+    "sha256": "175249267eea6ff274d31530024bb0ed64c380a1af0857321f2d2a903d149a90",
+    "scope": "Quantile boundary rows; not the underlying per-receipt distribution."
+  },
+  "rows": [
+    {
+      "root": "L1",
+      "quantile": "p50",
+      "z_len": 665333,
+      "n": 6,
+      "within_z_cap": true
+    },
+    {
+      "root": "L1",
+      "quantile": "p95",
+      "z_len": 5789990,
+      "n": 48,
+      "within_z_cap": true
+    },
+    {
+      "root": "L1",
+      "quantile": "max",
+      "z_len": 62102141,
+      "n": 506,
+      "within_z_cap": false
+    },
+    {
+      "root": "R-union",
+      "quantile": "p50",
+      "z_len": 2886836,
+      "n": 24,
+      "within_z_cap": true
+    },
+    {
+      "root": "R-union",
+      "quantile": "p95",
+      "z_len": 8021546,
+      "n": 66,
+      "within_z_cap": true
+    },
+    {
+      "root": "R-union",
+      "quantile": "max",
+      "z_len": 63832907,
+      "n": 520,
+      "within_z_cap": false
+    },
+    {
+      "root": "R3L1",
+      "quantile": "p50",
+      "z_len": 1076233,
+      "n": 9,
+      "within_z_cap": true
+    },
+    {
+      "root": "R3L1",
+      "quantile": "p95",
+      "z_len": 1876041,
+      "n": 16,
+      "within_z_cap": true
+    },
+    {
+      "root": "R3L1",
+      "quantile": "max",
+      "z_len": 1933886,
+      "n": 16,
+      "within_z_cap": true
+    }
+  ]
+}

@@ -82,6 +82,14 @@ pub struct ItemDecision {
     pub rule: &'static str,
     pub forward: bool,
     pub user: Option<UserTxDecision>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub m2: Option<M2Decision>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct M2Decision {
+    pub kind: u8,
+    pub code: u8,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -98,6 +106,8 @@ impl Derived {
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum InputError {
+    #[error(transparent)]
+    M2(#[from] crate::m2::FoldError),
     #[error("L1 height must be parent + 1")]
     Height,
     #[error("invalid input field: {0}")]
@@ -131,7 +141,7 @@ pub(crate) fn fixed_bytes(s: &str, len: usize, field: &'static str) -> Result<Ve
     Ok(bytes)
 }
 
-pub fn derive(
+fn derive_base(
     l1: &L1Block,
     logs: &[InboxLog],
     parent: &ParentHeader,
@@ -204,10 +214,11 @@ pub fn derive(
             rule: "INBOX-ENVELOPE-INVALID",
             forward: false,
             user: None,
+            m2: None,
         };
-        match crate::inbox::user_body(&data) {
+        match crate::inbox::item(&data) {
             Err(rule) => decision.rule = rule,
-            Ok(body) => {
+            Ok((1, body)) => {
                 let user = crate::user_tx::filter_user(body, &mut budget);
                 decision.rule = user.rule;
                 decision.forward = user.forward;
@@ -215,6 +226,12 @@ pub fn derive(
                     attributes.transactions.push(hex_string(body));
                 }
                 decision.user = Some(user);
+            }
+            Ok((kind, _)) => {
+                decision.rule = "ITEM-KIND-NOT-ACCEPTED";
+                if (2..=15).contains(&kind) {
+                    decision.m2 = Some(M2Decision { kind, code: 0x3f });
+                }
             }
         }
         decisions.push(decision);
@@ -234,4 +251,61 @@ pub fn check_l1_link(l1: &L1Block, parent: &ParentHeader) -> Result<(), InputErr
         }
     }
     Ok(())
+}
+
+/// Stateless M1-compatible attributes. Stateful callers use `derive_with_m2`.
+pub fn derive(
+    l1: &L1Block,
+    logs: &[InboxLog],
+    parent: &ParentHeader,
+) -> Result<Derived, InputError> {
+    let baseline = derive_base(l1, logs, parent)?;
+    if baseline.decisions.iter().all(|d| d.m2.is_none()) {
+        return Ok(baseline);
+    }
+    let c = crate::m2::Config::devnet();
+    let mut state = crate::m2::State::new(&c, parent.gas_limit)?;
+    state.height = parent.number;
+    derive_with_m2(&state, &c, l1, logs, parent).map(|x| x.0)
+}
+
+pub fn derive_with_m2(
+    state: &crate::m2::State,
+    config: &crate::m2::Config,
+    l1: &L1Block,
+    logs: &[InboxLog],
+    parent: &ParentHeader,
+) -> Result<(Derived, crate::m2::State), InputError> {
+    let mut derived = derive_base(l1, logs, parent)?;
+    state.validate_next(config, l1)?;
+    config
+        .validate(parent.gas_limit)
+        .map_err(crate::m2::FoldError::Startup)?;
+    let mut inputs = Vec::new();
+    for log in logs {
+        let data = hex_bytes(&log.data, "log data")?;
+        if let Ok((kind, body)) = crate::inbox::item(&data) {
+            if (2..=15).contains(&kind) {
+                inputs.push(crate::m2::Input {
+                    transaction_index: log.transaction_index,
+                    log_index: log.log_index,
+                    kind,
+                    body: body.to_vec(),
+                });
+            }
+        }
+    }
+    let step = state.step(config, l1, &inputs)?;
+    for (decision, code) in derived
+        .decisions
+        .iter_mut()
+        .filter(|d| d.m2.is_some())
+        .zip(step.codes)
+    {
+        decision.rule = crate::m2::rule(code);
+        if let Some(m2) = &mut decision.m2 {
+            m2.code = code;
+        }
+    }
+    Ok((derived, step.state))
 }
