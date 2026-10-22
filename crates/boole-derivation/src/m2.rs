@@ -13,6 +13,7 @@ pub const RAW_CAP: u64 = 134_217_728;
 
 /// Untrusted configuration values. `State::new` validates and pins them before folding.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     pub chain_id: u64,
     pub d: u64,
@@ -27,10 +28,9 @@ pub struct Config {
     pub verdict_gas: u64,
     pub l1_gas_limit: u64,
     pub pool_limit: usize,
-    pub k_open: u8,
-    pub solve_deadline: u64,
-    pub announce_gap: u64,
-    pub reveal_grace: u64,
+    pub slot_table: Vec<SlotParams>,
+    pub statement_raw_max: usize,
+    pub slot_leaves_max: u32,
     pub pool_lead: u64,
     pub pool_max: u32,
     pub statement_max: usize,
@@ -43,7 +43,33 @@ pub struct Config {
     pub terms_table: BTreeMap<u8, Hash>,
     pub pool_key: [u8; 20],
 }
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SlotParams {
+    pub lane: u8,
+    pub solve_deadline: u64,
+    pub announce_gap: u64,
+    pub reveal_grace: u64,
+}
 impl Config {
+    pub fn slot_table_digest(&self) -> Hash {
+        let mut bytes = vec![self.slot_table.len() as u8];
+        for s in &self.slot_table {
+            bytes.push(s.lane);
+            bytes.extend(s.solve_deadline.to_be_bytes());
+            bytes.extend(s.announce_gap.to_be_bytes());
+            bytes.extend(s.reveal_grace.to_be_bytes());
+        }
+        sha(&[b"BOOLE-M2/SLOTS/v1", &bytes])
+    }
+    /// Normative compact JSON in declaration order; collections are ordered.
+    pub fn digest(&self) -> Hash {
+        sha(&[
+            b"BOOLE-M2/CONFIG/v1",
+            &serde_json::to_vec(self).expect("integer config serializes"),
+        ])
+    }
+
     /// Explicit devnet identities; these do not attest to a kernel environment.
     pub fn devnet() -> Self {
         let mut pkg_table = vec![
@@ -65,10 +91,22 @@ impl Config {
             verdict_gas: 1_000_000,
             l1_gas_limit: 30_000_000,
             pool_limit: 131_072,
-            k_open: 1,
-            solve_deadline: 48,
-            announce_gap: 4,
-            reveal_grace: 4,
+            slot_table: vec![
+                SlotParams {
+                    lane: 2,
+                    solve_deadline: 48,
+                    announce_gap: 4,
+                    reveal_grace: 4,
+                },
+                SlotParams {
+                    lane: 1,
+                    solve_deadline: 96,
+                    announce_gap: 8,
+                    reveal_grace: 4,
+                },
+            ],
+            statement_raw_max: 1_048_576,
+            slot_leaves_max: 1_048_576,
             pool_lead: 2,
             pool_max: 65_536,
             statement_max: 122_880,
@@ -98,9 +136,26 @@ impl Config {
         c.c_commit = 1875;
         c.v_per_deposit = 256;
         c.l1_gas_limit = 60_000_000;
-        c.solve_deadline = 7200;
-        c.announce_gap = 300;
-        c.reveal_grace = 25;
+        c.slot_table = vec![
+            SlotParams {
+                lane: 2,
+                solve_deadline: 1800,
+                announce_gap: 300,
+                reveal_grace: 25,
+            },
+            SlotParams {
+                lane: 1,
+                solve_deadline: 7200,
+                announce_gap: 3600,
+                reveal_grace: 25,
+            },
+            SlotParams {
+                lane: 2,
+                solve_deadline: 1800,
+                announce_gap: 300,
+                reveal_grace: 25,
+            },
+        ];
         c.pool_lead = 7200;
         c
     }
@@ -141,10 +196,20 @@ impl Config {
         {
             return Err(4);
         }
-        if self.pool_limit < 123_236 {
+        let problem_size = self
+            .pkg_table
+            .len()
+            .checked_mul(32)
+            .and_then(|n| n.checked_add(1 + 54 + 32 * depth(self.pool_max)))
+            .and_then(|n| n.checked_add(self.statement_max))
+            .and_then(|n| n.checked_add(31))
+            .map(|n| n / 32 * 32)
+            .and_then(|n| n.checked_add(68));
+        if self.pool_limit < 123_236 || problem_size.is_none_or(|n| n > self.pool_limit) {
             return Err(5);
         }
-        if !(1..=3).contains(&self.k_open)
+        if !(1..=3).contains(&self.slot_table.len())
+            || self.slot_table.iter().any(|s| ![1, 2].contains(&s.lane))
             || self.k_max > 4
             || !ascending(&self.pkg_table)
             || self.env_allowed.iter().any(|p| {
@@ -156,6 +221,23 @@ impl Config {
             })
         {
             return Err(6);
+        }
+        if self.pool_lead == 0
+            || self.slot_table.iter().any(|s| {
+                [s.solve_deadline, s.announce_gap, s.reveal_grace]
+                    .iter()
+                    .any(|n| !(1..=(1u64 << 32)).contains(n))
+            })
+        {
+            return Err(7);
+        }
+        if self.statement_max == 0
+            || self.statement_max > self.statement_raw_max
+            || self.statement_raw_max > (1 << 27)
+            || self.slot_leaves_max < self.pool_max
+            || self.slot_leaves_max > (1 << 20)
+        {
+            return Err(8);
         }
         Ok(())
     }
@@ -201,17 +283,27 @@ pub fn part_leaf(solver: &[u8; 20], salt: &Hash, index: u16, data: &[u8]) -> Has
         &sha(&[data]),
     ])
 }
-pub fn pool_leaf(chain: u64, kind: u8, req: &[Hash], package: &[u8], salt: &Hash) -> Hash {
+pub fn pool_leaf(
+    chain: u64,
+    kind: u8,
+    req: &[Hash],
+    codec: u8,
+    raw_len: u32,
+    package: &[u8],
+    salt: &Hash,
+) -> Hash {
     let mut b = Vec::new();
     for p in req {
         b.extend(p);
     }
     sha(&[
         &[0],
-        b"BOOLE-M2/POOL-LEAF/v1",
+        b"BOOLE-M2/POOL-LEAF/v2",
         &chain.to_be_bytes(),
         &[kind, req.len() as u8],
         &b,
+        &[codec],
+        &raw_len.to_be_bytes(),
         &sha(&[package]),
         salt,
     ])
@@ -332,6 +424,7 @@ impl Candidate {
 }
 #[derive(Debug, Clone)]
 pub struct Pool {
+    pub slot: u8,
     pub root: Hash,
     pub start: u64,
     pub count: u32,
@@ -361,6 +454,7 @@ pub struct Slot {
 }
 #[derive(Debug, Clone)]
 pub struct Problem {
+    pub slot: u8,
     pub id: Hash,
     pub required_pkgs: Vec<Hash>,
     pub h_v: u64,
@@ -383,7 +477,7 @@ pub struct State {
     pub problems: BTreeMap<Hash, Problem>,
     opened: BTreeMap<Hash, Key>,
     expiry: BTreeSet<(u64, u64, Hash, Key)>,
-    repose: VecDeque<Problem>,
+    repose: Vec<VecDeque<Problem>>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum FoldError {
@@ -406,11 +500,11 @@ impl State {
             config: c.clone(),
             l2_gas_limit,
             height: 0,
-            root: [0; 32],
+            root: c.digest(),
             candidates: BTreeMap::new(),
             pools: BTreeMap::new(),
             rounds: BTreeMap::new(),
-            slots: (0..c.k_open)
+            slots: (0..c.slot_table.len())
                 .map(|_| Slot {
                     round: 0,
                     scheduled: None,
@@ -420,7 +514,7 @@ impl State {
             problems: BTreeMap::new(),
             opened: BTreeMap::new(),
             expiry: BTreeSet::new(),
-            repose: VecDeque::new(),
+            repose: vec![VecDeque::new(); c.slot_table.len()],
         })
     }
     pub fn height(&self) -> u64 {
@@ -458,15 +552,17 @@ impl State {
     }
     /// M3 seam only: queue a known problem for an epoch-incremented re-pose.
     pub fn enqueue_repose(&mut self, p: Hash) -> bool {
-        if self.repose.iter().any(|x| x.id == p) {
+        let Some(p) = self.problems.get(&p) else {
+            return false;
+        };
+        let Some(queue) = self.repose.get_mut(p.slot as usize) else {
+            return false;
+        };
+        if queue.iter().any(|x| x.id == p.id) {
             return false;
         }
-        if let Some(p) = self.problems.get(&p) {
-            self.repose.push_back(p.clone());
-            true
-        } else {
-            false
-        }
+        queue.push_back(p.clone());
+        true
     }
     pub fn step(&self, c: &Config, l1: &L1Block, items: &[Input]) -> Result<Step, FoldError> {
         self.validate_next(c, l1)?;
@@ -546,7 +642,7 @@ impl State {
         }
         let l1hash = hex::decode(l1.hash.strip_prefix("0x").unwrap_or("")).unwrap_or_default();
         s.root = sha(&[
-            b"BOOLE-M2/ROOT/v1",
+            b"BOOLE-M2/ROOT/v2",
             &self.root,
             &h.to_be_bytes(),
             &l1hash,
@@ -559,10 +655,19 @@ impl State {
             events,
         })
     }
-    fn round_event(e: &mut Vec<u8>, slot: u8, round: u32, event: u8, index: u32, p: Option<Hash>) {
+    fn round_event(
+        e: &mut Vec<u8>,
+        slot: u8,
+        round: u32,
+        event: u8,
+        pool_seq: u32,
+        index: u32,
+        p: Option<Hash>,
+    ) {
         e.extend([3, slot]);
         e.extend(round.to_be_bytes());
         e.push(event);
+        e.extend(pool_seq.to_be_bytes());
         e.extend(index.to_be_bytes());
         e.extend(p.unwrap_or([0; 32]));
     }
@@ -572,16 +677,17 @@ impl State {
         };
         for slot in 0..self.slots.len() {
             let sn = slot as u8;
+            let params = &c.slot_table[slot];
             if let Some(key) = self.slots[slot].active {
                 if let Some(r) = self.rounds.get_mut(&key) {
                     let end = match r.status {
-                        RoundStatus::Drawn if plus(plus(r.h_d, 1), c.reveal_grace) < h => {
+                        RoundStatus::Drawn if plus(plus(r.h_d, 1), params.reveal_grace) < h => {
                             Some((RoundStatus::Withheld, 0xc2))
                         }
                         RoundStatus::Open
                             if r.problem
                                 .and_then(|p| self.problems.get(&p))
-                                .is_some_and(|p| plus(p.h_v, c.solve_deadline) < h) =>
+                                .is_some_and(|p| plus(p.h_v, params.solve_deadline) < h) =>
                         {
                             Some((RoundStatus::Closed, 0xc3))
                         }
@@ -594,9 +700,9 @@ impl State {
                                 p.closed = Some(h);
                             }
                         }
-                        Self::round_event(e, sn, key.1, code, r.leaf_index, r.problem);
+                        Self::round_event(e, sn, key.1, code, r.pool_seq, r.leaf_index, r.problem);
                         self.slots[slot].active = None;
-                        self.slots[slot].scheduled = h.checked_add(c.announce_gap);
+                        self.slots[slot].scheduled = h.checked_add(params.announce_gap);
                     }
                 }
             }
@@ -608,7 +714,7 @@ impl State {
             let Some(round) = self.slots[slot].round.checked_add(1) else {
                 continue;
             };
-            if let Some(old) = self.repose.pop_front() {
+            if let Some(old) = self.repose[slot].pop_front() {
                 let Some(epoch) = old.epoch.checked_add(1) else {
                     continue;
                 };
@@ -642,44 +748,55 @@ impl State {
                     scheduled: None,
                     active: Some((sn, round)),
                 };
-                Self::round_event(e, sn, round, 0xc1, old.leaf_index, Some(id));
+                Self::round_event(e, sn, round, 0xc1, old.pool_seq, old.leaf_index, Some(id));
                 continue;
             }
             let hd = self.slots[slot].scheduled.unwrap_or(h);
-            let pool = self
+            let eligible: Vec<_> = self
                 .pools
-                .iter_mut()
-                .find(|(_, p)| p.start <= hd && !p.unused.is_empty());
-            if let Some((seq, p)) = pool {
+                .iter()
+                .filter(|(_, p)| p.slot == sn && p.start <= hd && !p.unused.is_empty())
+                .map(|(seq, p)| (*seq, p.unused.len() as u64))
+                .collect();
+            let total = eligible
+                .iter()
+                .try_fold(0u64, |n, (_, len)| n.checked_add(*len));
+            if let Some(total) = total.filter(|n| *n > 0) {
                 let seed = sha(&[
-                    b"BOOLE-M2/DRAW/v1",
+                    b"BOOLE-M2/DRAW/v2",
                     &c.chain_id.to_be_bytes(),
-                    &p.root,
                     &[sn],
                     &round.to_be_bytes(),
                     &mix,
                 ]);
-                let number = u64::from_be_bytes(seed[..8].try_into().unwrap_or([0; 8]));
-                let nth = (number % (p.unused.len() as u64)) as usize;
-                if let Some(index) = p.unused.iter().nth(nth).copied() {
-                    p.unused.remove(&index);
-                    self.rounds.insert(
-                        (sn, round),
-                        Round {
-                            pool_seq: *seq,
-                            leaf_index: index,
-                            instance_seed: seed,
-                            h_d: announcement,
-                            status: RoundStatus::Drawn,
-                            problem: None,
-                        },
-                    );
-                    self.slots[slot] = Slot {
-                        round,
-                        scheduled: None,
-                        active: Some((sn, round)),
-                    };
-                    Self::round_event(e, sn, round, 0xc1, index, None);
+                let mut j = u64::from_be_bytes(seed[..8].try_into().unwrap_or([0; 8])) % total;
+                for (seq, len) in eligible {
+                    if j >= len {
+                        j -= len;
+                        continue;
+                    }
+                    let p = self.pools.get_mut(&seq).expect("eligible pool");
+                    if let Some(index) = p.unused.iter().nth(j as usize).copied() {
+                        p.unused.remove(&index);
+                        self.rounds.insert(
+                            (sn, round),
+                            Round {
+                                pool_seq: seq,
+                                leaf_index: index,
+                                instance_seed: seed,
+                                h_d: announcement,
+                                status: RoundStatus::Drawn,
+                                problem: None,
+                            },
+                        );
+                        self.slots[slot] = Slot {
+                            round,
+                            scheduled: None,
+                            active: Some((sn, round)),
+                        };
+                        Self::round_event(e, sn, round, 0xc1, seq, index, None);
+                    }
+                    break;
                 }
             } else {
                 self.slots[slot].scheduled = Some(h);
@@ -706,7 +823,12 @@ impl State {
                 if h <= problem.h_v {
                     return 9;
                 }
-                if problem.closed.is_some() || h > plus(problem.h_v, c.solve_deadline) {
+                if problem.closed.is_some()
+                    || h > plus(
+                        problem.h_v,
+                        c.slot_table[problem.slot as usize].solve_deadline,
+                    )
+                {
                     return 5;
                 }
                 if self.candidates.contains_key(&(p, ch)) {
@@ -753,7 +875,9 @@ impl State {
                 let Some(problem) = self.problems.get(&o.problem) else {
                     return 4;
                 };
-                if !problem.required_pkgs.iter().all(|p| o.packages.contains(p)) {
+                if !problem.required_pkgs.iter().all(|p| o.packages.contains(p))
+                    || o.export_format != c.slot_table[problem.slot as usize].lane
+                {
                     return 2;
                 }
                 if h < plus(l.h_c, c.d) || h > plus(l.h_c, c.w) {
@@ -868,11 +992,12 @@ impl State {
         }
     }
     fn pool(&mut self, c: &Config, h: u64, b: &[u8]) -> u8 {
-        let Ok(mut r) = Reader::version(b) else {
+        let Ok(mut r) = Reader::with_version(b, 2) else {
             return 1;
         };
-        let Some((seq, root, count, start, _battery, sig)) = (|| {
+        let Some((slot, seq, root, count, start, _battery, sig)) = (|| {
             Some((
+                r.u8()?,
                 r.u32()?,
                 r.array::<32>()?,
                 r.u32()?,
@@ -886,7 +1011,7 @@ impl State {
         if !r.done() {
             return 1;
         }
-        let digest = sha(&[b"BOOLE-M2/POOL/v1", &c.chain_id.to_be_bytes(), &b[..81]]);
+        let digest = sha(&[b"BOOLE-M2/POOL/v2", &c.chain_id.to_be_bytes(), &b[..82]]);
         let valid = (|| {
             let signature = Signature::from_slice(&sig[..64]).ok()?;
             if signature.normalize_s().is_some() || sig[64] > 1 {
@@ -902,7 +1027,16 @@ impl State {
             return 13;
         }
         let last = self.pools.last_key_value().map(|(s, _)| *s).unwrap_or(0);
-        if last.checked_add(1) != Some(seq)
+        let unused = self
+            .pools
+            .values()
+            .filter(|p| p.slot == slot)
+            .try_fold(0u64, |n, p| n.checked_add(p.unused.len() as u64));
+        if usize::from(slot) >= c.slot_table.len()
+            || unused
+                .and_then(|n| n.checked_add(u64::from(count)))
+                .is_none_or(|n| n > u64::from(c.slot_leaves_max))
+            || last.checked_add(1) != Some(seq)
             || count == 0
             || count > c.pool_max
             || h.checked_add(c.pool_lead).is_none_or(|min| start < min)
@@ -915,24 +1049,24 @@ impl State {
         self.pools.insert(
             seq,
             Pool {
+                slot,
                 root,
                 start,
                 count,
                 unused: (0..count).collect(),
             },
         );
-        for s in &mut self.slots {
-            if s.active.is_none() && s.scheduled.is_none() {
-                s.scheduled = Some(start);
-            }
+        let s = &mut self.slots[slot as usize];
+        if s.active.is_none() && s.scheduled.is_none() {
+            s.scheduled = Some(start);
         }
         0x85
     }
     fn problem(&mut self, c: &Config, h: u64, b: &[u8]) -> u8 {
-        let Ok(mut r) = Reader::version(b) else {
+        let Ok(mut r) = Reader::with_version(b, 2) else {
             return 1;
         };
-        let Some((slot, round, index, kind, req, salt, path, package)) = (|| {
+        let Some((slot, round, index, kind, req, salt, codec, raw_len, path, package)) = (|| {
             let slot = r.u8()?;
             let round = r.u32()?;
             let index = r.u32()?;
@@ -940,12 +1074,17 @@ impl State {
             let k = usize::from(r.u8()?);
             let req = r.hashes(k)?;
             let salt = r.array::<32>()?;
+            let codec = r.u8()?;
+            let raw_len = r.u32()?;
             let d = usize::from(r.u8()?);
             let path = r.hashes(d)?;
             let n = usize::try_from(r.u32()?).ok()?;
             let package = r.take(n)?;
-            Some((slot, round, index, kind, req, salt, path, package))
-        })() else {
+            Some((
+                slot, round, index, kind, req, salt, codec, raw_len, path, package,
+            ))
+        })(
+        ) else {
             return 1;
         };
         if !r.done() {
@@ -964,6 +1103,14 @@ impl State {
         }
         if package.len() > c.statement_max
             || ![1, 2].contains(&kind)
+            || ![0, 1].contains(&codec)
+            || (codec == 0 && usize::try_from(raw_len).ok() != Some(package.len()))
+            || (codec == 1
+                && (package.is_empty()
+                    || raw_len == 0
+                    || usize::try_from(raw_len)
+                        .ok()
+                        .is_none_or(|n| n > c.statement_raw_max)))
             || !ascending(&req)
             || !req.iter().all(|p| c.pkg_table.binary_search(p).is_ok())
         {
@@ -972,7 +1119,7 @@ impl State {
         let pool = &self.pools[&draw.pool_seq];
         if path.len() != depth(pool.count)
             || !verify(
-                pool_leaf(c.chain_id, kind, &req, package, &salt),
+                pool_leaf(c.chain_id, kind, &req, codec, raw_len, package, &salt),
                 index,
                 &path,
                 pool.root,
@@ -986,6 +1133,7 @@ impl State {
         self.problems.insert(
             id,
             Problem {
+                slot,
                 id,
                 required_pkgs: req,
                 h_v: h,
@@ -1015,7 +1163,10 @@ struct Reader<'a> {
 }
 impl<'a> Reader<'a> {
     fn version(b: &'a [u8]) -> Result<Self, u8> {
-        if b.first() != Some(&1) {
+        Self::with_version(b, 1)
+    }
+    fn with_version(b: &'a [u8], version: u8) -> Result<Self, u8> {
+        if b.first() != Some(&version) {
             Err(1)
         } else {
             Ok(Self { b, at: 1 })
@@ -1056,6 +1207,7 @@ impl<'a> Reader<'a> {
     }
 }
 struct ParsedOpen {
+    export_format: u8,
     problem: Hash,
     cancel: Hash,
     packages: Vec<Hash>,
@@ -1130,7 +1282,7 @@ fn parse_open(c: &Config, b: &[u8]) -> Result<ParsedOpen, u8> {
         || !c.valid_pkgs(&packages)
         || !c.env_allowed.contains(&packages)
         || codec != 1
-        || format != 1
+        || ![1, 2].contains(&format)
         || deps != 0
         || ext != 0
     {
@@ -1171,6 +1323,7 @@ fn parse_open(c: &Config, b: &[u8]) -> Result<ParsedOpen, u8> {
         return Err(3);
     }
     Ok(ParsedOpen {
+        export_format: format,
         problem,
         cancel,
         record: OpenRecord {

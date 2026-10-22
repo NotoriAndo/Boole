@@ -18,16 +18,19 @@ twelve-hour delegation.
 
 ## Current boundary
 
-**Devnet M2 (October 22, devnet only).** The
-[commit/reveal spec](devnet-commit-reveal-v1.md) defines deterministic candidate,
-pool and problem-round state. The driver records `m2_root`, persists checkpoints
+**Devnet M2 v1.1 (October 22, devnet only).** The
+[commit/reveal spec](devnet-commit-reveal-v1.1.md) defines deterministic candidate,
+pool and problem-round state with per-slot union draws, package codec declarations
+and lane-bound export formats. Testnet has three configured slots; devnet resets
+use two. Roots are seeded with the config digest. The driver records `m2_root`,
+persists checkpoints
 and re-folds from L1 hashes anchored in L2 L1-info deposits after restart, checking
 the L2 parent-hash chain. M2 startup pins the deployed inbox runtime; stall evidence
 retains the adopted root. The
 [pure tests](../crates/boole-derivation/tests/m2.rs) cover boundaries, 50,000 mutated
 items and vectors from the registry service; the
 [client tests](../crates/boole-devnet-driver/tests/m2_devnet.rs) compare A/B/C through
-84 commit/reveal heights, 72 adversarial heights and 80 round-lifecycle heights.
+84 commit/reveal heights, 72 adversarial heights and 140 round-lifecycle heights.
 A [new M1 schedule](../crates/boole-devnet-driver/tests/m1_schedule.rs) preserves
 every original transaction occurrence and exercises duplicate and status-0 fee
 cases through 35 live and recorded heights. The

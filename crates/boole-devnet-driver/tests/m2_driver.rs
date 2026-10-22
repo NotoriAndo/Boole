@@ -244,7 +244,7 @@ fn t16_checkpoint_roundtrip_and_tamper_stalls() {
 #[test]
 fn t16_invalid_startup_and_actual_parent_s4_stall_before_engine() {
     let mut c = Config::devnet();
-    c.k_open = 0;
+    c.slot_table.clear();
     assert!(Driver::with_config(Source::new(), Client::new(), c, 30_000_000).is_err());
     assert!(
         Driver::with_config(Source::new(), Client::new(), Config::devnet(), 25_000_000).is_err()
@@ -405,10 +405,48 @@ impl Drop for TestDir {
 }
 
 #[test]
+fn review_cli_startup_reports_the_actual_slot_table_digest() {
+    let dir = TestDir::new("startup-slot-digest");
+    for c in [Config::devnet(), Config::lean_testnet(99)] {
+        let config = dir.0.join("config.json");
+        std::fs::write(&config, serde_json::to_vec(&c).unwrap()).unwrap();
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_boole-devnet-driver"))
+            .args([
+                "--l1-rpc",
+                "http://127.0.0.1:0",
+                "--engine-rpc",
+                "http://127.0.0.1:0",
+                "--node-rpc",
+                "http://127.0.0.1:0",
+                "--until",
+                "0",
+                "--jwt-secret",
+            ])
+            .arg(dir.0.join("unused-jwt"))
+            .arg("--m2-config")
+            .arg(&config)
+            .output()
+            .unwrap();
+        // The banner must precede the RPC attempt, even when no node is up.
+        assert!(!output.status.success());
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        let expected = format!(
+            "slot_table_digest={}",
+            boole_derivation::attributes::hex_string(&c.slot_table_digest())
+        );
+        assert_eq!(stderr.lines().next(), Some(expected.as_str()));
+    }
+}
+
+#[test]
 fn review_restart_from_open_reveal_and_round_matches_full_state() {
-    let fixture: Value = serde_json::from_str(include_str!(
-        "../../../fixtures/devnet-m2/commit-reveal-v1.json"
-    ))
+    let fixture: Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../fixtures/devnet-m2/commit-reveal-v1.1.json"),
+        )
+        .unwrap(),
+    )
     .unwrap();
     let config: Config = serde_json::from_value(fixture["config"].clone()).unwrap();
     let rows = fixture["heights"].as_array().unwrap();
@@ -474,4 +512,31 @@ fn review_temp_directory_honors_target_and_cleans_on_unwind() {
     });
     assert!(failure.is_err());
     assert!(!path.exists());
+}
+
+#[test]
+fn v11_slot_digests_are_on_wait_derived_and_stall_evidence() {
+    let dir = TestDir::new("slot-digests");
+    let path = dir.0.join("evidence.jsonl");
+    let mut d = Driver::new(Source::new(), Client::new());
+    d.set_evidence(&path).unwrap();
+    assert!(matches!(
+        d.step(36).unwrap(),
+        StepOutcome::WaitingForFinality
+    ));
+    d.step(1).unwrap();
+    d.engine.fail = true;
+    assert!(d.step(2).is_err());
+    let rows = evidence_rows(&path);
+    assert_eq!(rows.len(), 3);
+    for row in rows {
+        assert_eq!(
+            row["slot_table_digest"],
+            boole_derivation::attributes::hex_string(&Config::devnet().slot_table_digest())
+        );
+        assert_eq!(
+            row["m2_config_digest"],
+            boole_derivation::attributes::hex_string(&Config::devnet().digest())
+        );
+    }
 }

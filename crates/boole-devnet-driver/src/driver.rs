@@ -213,7 +213,7 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
         if let Some(stall) = &self.stalled {
             return Err(stall.clone());
         }
-        let mut record = json!({"height":height,"engine_calls":[]});
+        let mut record = json!({"height":height,"engine_calls":[],"slot_table_digest":boole_derivation::attributes::hex_string(&self.config.slot_table_digest()),"m2_config_digest":boole_derivation::attributes::hex_string(&self.config.digest())});
         let result = self.try_step(height, &mut record);
         self.complete_step(height, record, result, Derived::canonical_bytes)
     }

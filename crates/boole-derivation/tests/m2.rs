@@ -8,6 +8,12 @@ fn hash(b: &[u8]) -> Hash {
 }
 fn cfg() -> Config {
     let mut c = Config::devnet();
+    c.slot_table = vec![SlotParams {
+        lane: 1,
+        solve_deadline: 48,
+        announce_gap: 4,
+        reveal_grace: 4,
+    }];
     let key = key();
     let enc = key.verifying_key().to_encoded_point(false);
     c.pool_key
@@ -54,25 +60,12 @@ fn until(s: &mut State, c: &Config, h: u64) {
     }
 }
 fn pool(c: &Config, root: Hash, count: u32, start: u64, seq: u32) -> Vec<u8> {
-    let mut b = vec![1];
-    b.extend(seq.to_be_bytes());
-    b.extend(root);
-    b.extend(count.to_be_bytes());
-    b.extend(start.to_be_bytes());
-    b.extend([0; 32]);
-    let pre = hash(
-        &[
-            b"BOOLE-M2/POOL/v1".as_slice(),
-            &c.chain_id.to_be_bytes(),
-            &b,
-        ]
-        .concat(),
-    );
-    let (sig, id) = key().sign_prehash_recoverable(&pre).unwrap();
-    b.extend(sig.to_bytes());
-    b.push(id.to_byte());
-    b
+    pool_at(c, 0, root, count, start, seq)
 }
+fn pool_leaf(chain: u64, kind: u8, req: &[Hash], package: &[u8], salt: &Hash) -> Hash {
+    boole_derivation::m2::pool_leaf(chain, kind, req, 0, package.len() as u32, package, salt)
+}
+
 fn problem_body(
     slot: u8,
     round: u32,
@@ -82,7 +75,7 @@ fn problem_body(
     path: &[Hash],
     package: &[u8],
 ) -> Vec<u8> {
-    let mut b = vec![1, slot];
+    let mut b = vec![2, slot];
     b.extend(round.to_be_bytes());
     b.extend(index.to_be_bytes());
     b.extend([2, req.len() as u8]);
@@ -90,6 +83,8 @@ fn problem_body(
         b.extend(p);
     }
     b.extend(salt);
+    b.push(0);
+    b.extend((package.len() as u32).to_be_bytes());
     b.push(path.len() as u8);
     for p in path {
         b.extend(p);
@@ -226,7 +221,7 @@ fn t7_r1_r2_r3_r4_r12_r20_r24_r26_layouts() {
             }
         }
         let mut bad = good;
-        bad[0] = 2;
+        bad[0] = if [8, 9].contains(&kind) { 1 } else { 2 };
         assert_eq!(
             s.step(&c, &block(s.height() + 1), &[input(kind, bad, 0)])
                 .unwrap()
@@ -445,8 +440,8 @@ fn t12_r5_r6_r14_r16_r28_order_refold_and_root_golden() {
         a.state.root,
         hash(
             &[
-                b"BOOLE-M2/ROOT/v1".as_slice(),
-                &[0; 32],
+                b"BOOLE-M2/ROOT/v2".as_slice(),
+                &c.digest(),
                 &1u64.to_be_bytes(),
                 &hex::decode(&b.hash[2..]).unwrap(),
                 &hash(&e)
@@ -571,15 +566,14 @@ fn t17_r20_cancel_releases_barrier_and_tombstone() {
         s.candidates[&(p, ch)],
         Candidate::Tombstone(Status::Cancelled)
     ));
-    let close = s.problems[&p].h_v + c.solve_deadline + 1;
+    let close = s.problems[&p].h_v + c.slot_table[0].solve_deadline + 1;
     until(&mut s, &c, close + c.w + 1);
     assert!(!s.candidates.contains_key(&(p, ch)));
     assert_eq!(run(&mut s, &c, vec![input(2, commit(p, ch), 0)]), [5]);
 }
 #[test]
 fn t18_r24_r25_pool_signature_draw_no_replacement() {
-    let mut c = cfg();
-    c.k_open = 2;
+    let c = cfg();
     let mut s = State::new(&c, 30_000_000).unwrap();
     let leaves = [
         pool_leaf(c.chain_id, 2, &[], b"a", &[1; 32]),
@@ -595,13 +589,10 @@ fn t18_r24_r25_pool_signature_draw_no_replacement() {
     );
     until(&mut s, &c, 5);
     let a = &s.rounds[&(0, 1)];
-    let b = &s.rounds[&(1, 1)];
-    assert_ne!(a.leaf_index, b.leaf_index);
     let seed = hash(
         &[
-            b"BOOLE-M2/DRAW/v1".as_slice(),
+            b"BOOLE-M2/DRAW/v2".as_slice(),
             &c.chain_id.to_be_bytes(),
-            &root,
             &[0],
             &1u32.to_be_bytes(),
             &hex::decode(&block(5).mix_hash[2..]).unwrap(),
@@ -619,6 +610,7 @@ fn t18_r24_r25_pool_signature_draw_no_replacement() {
     );
     until(&mut s, &c, 50);
     assert_eq!(s.rounds.len(), 2);
+    assert_ne!(s.rounds[&(0, 1)].leaf_index, s.rounds[&(0, 2)].leaf_index);
 }
 #[test]
 fn t19_r26_r27_problem_reveal_deadline_withheld_repose() {
@@ -645,17 +637,24 @@ fn t19_r26_r27_problem_reveal_deadline_withheld_repose() {
         ),
         [10]
     );
-    until(&mut s, &c, hv + c.solve_deadline);
+    until(&mut s, &c, hv + c.slot_table[0].solve_deadline);
     assert_eq!(run(&mut s, &c, vec![input(2, commit(p, [2; 32]), 0)]), [5]);
-    assert_eq!(s.slots[0].scheduled, Some(s.height() + c.announce_gap));
+    assert_eq!(
+        s.slots[0].scheduled,
+        Some(s.height() + c.slot_table[0].announce_gap)
+    );
     assert!(s.enqueue_repose(p));
-    until(&mut s, &c, hv + c.solve_deadline + 1 + c.announce_gap + 1);
+    until(
+        &mut s,
+        &c,
+        hv + c.slot_table[0].solve_deadline + 1 + c.slot_table[0].announce_gap + 1,
+    );
     let new = s.problems.values().find(|x| x.epoch == 1).unwrap();
     assert_ne!(new.id, p);
     let mut s = State::new(&c, 30_000_000).unwrap();
     let root = pool_leaf(c.chain_id, 2, &[], b"a", &[1; 32]);
     run(&mut s, &c, vec![input(8, pool(&c, root, 1, 3, 1), 0)]);
-    until(&mut s, &c, 5 + c.reveal_grace);
+    until(&mut s, &c, 5 + c.slot_table[0].reveal_grace);
     assert_eq!(s.rounds[&(0, 1)].status, RoundStatus::Withheld);
     assert_eq!(
         run(
@@ -706,6 +705,9 @@ fn t20_r17_r18_r22_r23_environment_policy_order() {
     for at in [85, 86, 118, 151, 152, 231, 233, 239, 240, 273] {
         let mut x = b.clone();
         x[at] ^= 3;
+        if at == 152 {
+            x[at] = 3;
+        }
         let code = s
             .step(
                 &c,
@@ -768,7 +770,7 @@ fn t22_s1_s6_profiles_startup() {
             3 => c.c_commit = c.q_max * c.v_per_deposit + 1,
             4 => c.verdict_gas = 30_000_000,
             5 => c.pool_limit = 1,
-            6 => c.k_open = 4,
+            6 => c.slot_table = vec![c.slot_table[0].clone(); 4],
             _ => unreachable!(),
         }
         assert_eq!(c.validate(30_000_000), Err(which));
@@ -899,7 +901,7 @@ fn t7_r23_all_rows_and_k0_k4_layout() {
         (86, 0, 2),
         (118, 0, 2),
         (151, 2, 2),
-        (152, 2, 2),
+        (152, 3, 2),
         (237, 2, 1),
         (239, 0, 2),
         (240, 1, 2),
@@ -929,18 +931,18 @@ fn t18_pool_rejects_high_s_seq_lead_chain_and_reserved_parity() {
                 other.chain_id += 1;
                 b = pool(&other, [1; 32], 1, 3, 1);
             }
-            3 => b[145] = 2,
+            3 => b[146] = 2,
             4 => {
                 let order =
                     hex::decode("fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141")
                         .unwrap();
                 let mut borrow = 0i16;
                 for i in (0..32).rev() {
-                    let n = i16::from(order[i]) - i16::from(b[113 + i]) - borrow;
-                    b[113 + i] = n.rem_euclid(256) as u8;
+                    let n = i16::from(order[i]) - i16::from(b[114 + i]) - borrow;
+                    b[114 + i] = n.rem_euclid(256) as u8;
                     borrow = i16::from(n < 0);
                 }
-                b[145] ^= 1;
+                b[146] ^= 1;
             }
             _ => unreachable!(),
         }
@@ -1145,15 +1147,20 @@ fn model_shared_subset_with_injected_verdicts() {
 #[test]
 fn review_prune_same_hash_other_problem_keeps_live_parts_k2() {
     let mut c = cfg();
-    c.k_open = 2;
+    c.slot_table = vec![c.slot_table[0].clone(); 2];
     let leaves: Vec<_> = (0u8..4)
         .map(|i| pool_leaf(c.chain_id, 2, &[], &[b'G', i], &[i; 32]))
         .collect();
+    let mut leaves1 = leaves.clone();
+    leaves1.push(pool_leaf(c.chain_id, 2, &[], &[b'G', 4], &[4; 32]));
     let mut s = State::new(&c, 30_000_000).unwrap();
     run(
         &mut s,
         &c,
-        vec![input(8, pool(&c, merkle_root(&leaves), 4, 3, 1), 0)],
+        vec![
+            input(8, pool(&c, merkle_root(&leaves), 4, 3, 1), 0),
+            input(8, pool_at(&c, 1, merkle_root(&leaves1), 5, 3, 2), 1),
+        ],
     );
     until(&mut s, &c, 4);
     let i = s.rounds[&(0, 1)].leaf_index as usize;
@@ -1192,7 +1199,7 @@ fn review_prune_same_hash_other_problem_keeps_live_parts_k2() {
                     i as u32,
                     &[],
                     [i as u8; 32],
-                    &merkle_path(&leaves, i),
+                    &merkle_path(&leaves1, i),
                     &[b'G', i as u8]
                 ),
                 0
@@ -1279,7 +1286,7 @@ fn review_prune_same_hash_keeps_checking_index_k1() {
         run(&mut s, &c, vec![input(2, commit(other, ch), 0)]),
         [0x80]
     );
-    let prune = s.problems[&other].h_v + c.solve_deadline + 1 + c.w + 1;
+    let prune = s.problems[&other].h_v + c.slot_table[0].solve_deadline + 1 + c.w + 1;
     until(&mut s, &c, prune - 1);
     assert!(s.candidates.contains_key(&(other, ch)));
     run(&mut s, &c, vec![]);
@@ -1337,7 +1344,7 @@ fn review_every_startup_violation_cannot_construct_or_fold() {
             3 => c.c_commit = c.q_max * c.v_per_deposit + 1,
             4 => l2 = 1,
             5 => c.pool_limit = 1,
-            6 => c.k_open = 0,
+            6 => c.slot_table.clear(),
             _ => unreachable!(),
         };
         assert!(matches!(State::new(&c,l2),Err(FoldError::Startup(n)) if n==which));
@@ -1353,7 +1360,7 @@ fn review_every_startup_violation_cannot_construct_or_fold() {
     ));
     let mut from_json: Config =
         serde_json::from_str(&serde_json::to_string(&good).unwrap()).unwrap();
-    from_json.k_open = 0;
+    from_json.slot_table.clear();
     assert!(State::new(&from_json, 30_000_000).is_err());
 }
 #[test]
@@ -1529,7 +1536,7 @@ fn review_commit_deadline_and_problem_grace_boundaries() {
     let c = cfg();
     let (mut s, p) = opened(&c);
     let hv = s.height();
-    until(&mut s, &c, hv + c.solve_deadline - 1);
+    until(&mut s, &c, hv + c.slot_table[0].solve_deadline - 1);
     assert_eq!(
         run(&mut s, &c, vec![input(2, commit(p, [1; 32]), 0)]),
         [0x80]
@@ -1687,16 +1694,23 @@ fn t13_real_service_vectors() {
 #[test]
 fn review_expiry_cross_problem_order() {
     let mut c = cfg();
-    c.k_open = 2;
+    c.slot_table = vec![c.slot_table[0].clone(); 2];
     let mut s = State::new(&c, 30_000_000).unwrap();
     let leaves = [
         pool_leaf(c.chain_id, 2, &[], b"a", &[1; 32]),
         pool_leaf(c.chain_id, 2, &[], b"b", &[2; 32]),
     ];
+    let leaves1 = [
+        pool_leaf(c.chain_id, 2, &[], b"a", &[3; 32]),
+        pool_leaf(c.chain_id, 2, &[], b"b", &[4; 32]),
+    ];
     run(
         &mut s,
         &c,
-        vec![input(8, pool(&c, merkle_root(&leaves), 2, 3, 1), 0)],
+        vec![
+            input(8, pool(&c, merkle_root(&leaves), 2, 3, 1), 0),
+            input(8, pool_at(&c, 1, merkle_root(&leaves1), 2, 3, 2), 1),
+        ],
     );
     until(&mut s, &c, 4);
     let mut reveal = vec![];
@@ -1709,8 +1723,8 @@ fn review_expiry_cross_problem_order() {
                 1,
                 i as u32,
                 &[],
-                [(i + 1) as u8; 32],
-                &merkle_path(&leaves, i),
+                [(i + 1 + usize::from(slot) * 2) as u8; 32],
+                &merkle_path(if slot == 0 { &leaves } else { &leaves1 }, i),
                 if i == 0 { b"a" } else { b"b" },
             ),
             slot as u64,
@@ -1747,7 +1761,7 @@ fn review_expiry_cross_problem_order() {
 #[test]
 fn review_fixed_event_hex_and_next_header_tie_order() {
     let fixture: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../fixtures/devnet-m2/event-golden-v1.json"
+        "../../../fixtures/devnet-m2/event-golden-v1.1.json"
     ))
     .unwrap();
     let c = cfg();
@@ -1807,7 +1821,7 @@ fn review_fixed_event_hex_and_next_header_tie_order() {
 fn review_incremental_mixed_fold_equals_full_refold() {
     let c = cfg();
     let fixture: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../fixtures/devnet-m2/event-golden-v1.json"
+        "../../../fixtures/devnet-m2/event-golden-v1.1.json"
     ))
     .unwrap();
     let p: Hash = hex::decode(fixture["problem_id"].as_str().unwrap())
@@ -1891,4 +1905,897 @@ fn review_s4_stateful_parent_gas_is_checked() {
         boole_derivation::derive_with_m2(&state, &c, &l1, &[], &parent),
         Err(boole_derivation::InputError::M2(FoldError::Startup(4)))
     ));
+}
+
+#[test]
+fn v11_t24_legacy_config_is_refused() {
+    let mut value = serde_json::to_value(Config::devnet()).unwrap();
+    value["k_open"] = serde_json::json!(1);
+    assert!(serde_json::from_value::<Config>(value).is_err());
+}
+
+fn pool_at(c: &Config, slot: u8, root: Hash, count: u32, start: u64, seq: u32) -> Vec<u8> {
+    let mut b = vec![2, slot];
+    b.extend(seq.to_be_bytes());
+    b.extend(root);
+    b.extend(count.to_be_bytes());
+    b.extend(start.to_be_bytes());
+    b.extend([0; 32]);
+    let pre = hash(
+        &[
+            b"BOOLE-M2/POOL/v2".as_slice(),
+            &c.chain_id.to_be_bytes(),
+            &b,
+        ]
+        .concat(),
+    );
+    let (sig, id) = key().sign_prehash_recoverable(&pre).unwrap();
+    b.extend(sig.to_bytes());
+    b.push(id.to_byte());
+    b
+}
+// Keep the independent wire encoder arguments in field order.
+#[allow(clippy::too_many_arguments)]
+fn pkg_body(
+    slot: u8,
+    round: u32,
+    index: u32,
+    codec: u8,
+    raw: u32,
+    salt: Hash,
+    path: &[Hash],
+    pkg: &[u8],
+) -> Vec<u8> {
+    let mut b = vec![2, slot];
+    b.extend(round.to_be_bytes());
+    b.extend(index.to_be_bytes());
+    b.extend([2, 0]);
+    b.extend(salt);
+    b.push(codec);
+    b.extend(raw.to_be_bytes());
+    b.push(path.len() as u8);
+    for h in path {
+        b.extend(h);
+    }
+    b.extend((pkg.len() as u32).to_be_bytes());
+    b.extend(pkg);
+    b
+}
+#[test]
+fn v11_t24_slot_table_startup_and_profiles() {
+    let c = cfg();
+    for n in [0, 4] {
+        let mut bad = c.clone();
+        bad.slot_table = vec![c.slot_table[0].clone(); n];
+        assert_eq!(bad.validate(30_000_000), Err(6));
+    }
+    for lane in [0, 3] {
+        let mut bad = c.clone();
+        bad.slot_table[0].lane = lane;
+        assert_eq!(bad.validate(30_000_000), Err(6));
+    }
+    for field in 0..3 {
+        for value in [0, (1u64 << 32) + 1] {
+            let mut bad = c.clone();
+            let row = &mut bad.slot_table[0];
+            match field {
+                0 => row.solve_deadline = value,
+                1 => row.announce_gap = value,
+                _ => row.reveal_grace = value,
+            };
+            assert_eq!(bad.validate(30_000_000), Err(7));
+        }
+    }
+    let mut bad = c.clone();
+    bad.pool_lead = 0;
+    assert_eq!(bad.validate(30_000_000), Err(7));
+    for raw in [c.statement_max - 1, (1usize << 27) + 1] {
+        let mut bad = c.clone();
+        bad.statement_raw_max = raw;
+        assert_eq!(bad.validate(30_000_000), Err(8));
+    }
+    for leaves in [c.pool_max - 1, (1 << 20) + 1] {
+        let mut bad = c.clone();
+        bad.slot_leaves_max = leaves;
+        assert_eq!(bad.validate(30_000_000), Err(8));
+    }
+    let mut bad = c.clone();
+    bad.pkg_table = (0..400u32).map(|n| hash(&n.to_be_bytes())).collect();
+    bad.pkg_table.sort();
+    bad.env_allowed = [vec![]].into();
+    assert_eq!(bad.validate(30_000_000), Err(5));
+    for profile in [
+        Config::devnet(),
+        Config::lean_testnet(99),
+        Config::production(99),
+    ] {
+        assert_eq!(profile.validate(60_000_000), Ok(()));
+    }
+    let mut edge = c.clone();
+    edge.statement_raw_max = 1 << 27;
+    assert_eq!(edge.validate(30_000_000), Ok(()));
+    for value in [1, 1u64 << 32] {
+        let mut edge = c.clone();
+        let row = &mut edge.slot_table[0];
+        row.solve_deadline = value;
+        row.announce_gap = value;
+        row.reveal_grace = value;
+        assert_eq!(edge.validate(30_000_000), Ok(()));
+    }
+    let t = Config::lean_testnet(99);
+    assert_eq!(
+        t.slot_table
+            .iter()
+            .map(|s| (s.lane, s.solve_deadline, s.announce_gap, s.reveal_grace))
+            .collect::<Vec<_>>(),
+        vec![(2, 1800, 300, 25), (1, 7200, 3600, 25), (2, 1800, 300, 25)]
+    );
+}
+#[test]
+fn v11_t25_pool_versions_slot_signature_union_cap_and_global_sequence() {
+    let mut c = cfg();
+    c.slot_table.push(c.slot_table[0].clone());
+    c.pool_max = 2;
+    c.slot_leaves_max = 2;
+    let s = State::new(&c, 30_000_000).unwrap();
+    let mut future = State::new(&c, 30_000_000).unwrap();
+    assert_eq!(
+        run(
+            &mut future,
+            &c,
+            vec![input(8, pool_at(&c, 0, [7; 32], 2, 100, 1), 0)]
+        ),
+        [0x85]
+    );
+    assert_eq!(
+        run(
+            &mut future,
+            &c,
+            vec![input(8, pool_at(&c, 0, [8; 32], 1, 4, 2), 0)]
+        ),
+        [13]
+    );
+    let good = pool_at(&c, 0, [1; 32], 1, 3, 1);
+    let mut old = good.clone();
+    old[0] = 1;
+    assert_eq!(
+        s.step(&c, &block(1), &[input(8, old, 0)]).unwrap().codes,
+        [1]
+    );
+    let mut v1 = good.clone();
+    v1.remove(1);
+    v1[0] = 1;
+    assert_eq!(
+        s.step(&c, &block(1), &[input(8, v1, 0)]).unwrap().codes,
+        [1]
+    );
+    let mut flipped = good.clone();
+    flipped[1] = 1;
+    assert_eq!(
+        s.step(&c, &block(1), &[input(8, flipped, 0)])
+            .unwrap()
+            .codes,
+        [13]
+    );
+    let mut wrong_domain = good[..82].to_vec();
+    let pre = hash(
+        &[
+            b"BOOLE-M2/POOL/v1".as_slice(),
+            &c.chain_id.to_be_bytes(),
+            &wrong_domain,
+        ]
+        .concat(),
+    );
+    let (sig, id) = key().sign_prehash_recoverable(&pre).unwrap();
+    wrong_domain.extend(sig.to_bytes());
+    wrong_domain.push(id.to_byte());
+    assert_eq!(
+        s.step(&c, &block(1), &[input(8, wrong_domain, 0)])
+            .unwrap()
+            .codes,
+        [13]
+    );
+    assert_eq!(
+        s.step(
+            &c,
+            &block(1),
+            &[input(8, pool_at(&c, 2, [1; 32], 1, 3, 1), 0)]
+        )
+        .unwrap()
+        .codes,
+        [13]
+    );
+    let mut s = s;
+    assert_eq!(run(&mut s, &c, vec![input(8, good, 0)]), [0x85]);
+    assert!(s.slots[1].scheduled.is_none());
+    assert_eq!(
+        run(
+            &mut s,
+            &c,
+            vec![input(8, pool_at(&c, 1, [2; 32], 1, 4, 2), 0)]
+        ),
+        [0x85]
+    );
+    assert_eq!(
+        run(
+            &mut s,
+            &c,
+            vec![input(8, pool_at(&c, 0, [3; 32], 2, 5, 3), 0)]
+        ),
+        [13]
+    );
+    assert_eq!(
+        run(
+            &mut s,
+            &c,
+            vec![input(8, pool_at(&c, 1, [1; 32], 1, 6, 3), 0)]
+        ),
+        [10]
+    );
+}
+#[test]
+fn v11_t26_union_mapping_seed_and_no_replacement() {
+    let mut c = cfg();
+    c.slot_table[0].reveal_grace = 1;
+    c.slot_table[0].announce_gap = 1;
+    c.slot_table.push(c.slot_table[0].clone());
+    let mut s = State::new(&c, 30_000_000).unwrap();
+    assert_eq!(
+        run(
+            &mut s,
+            &c,
+            vec![
+                input(8, pool_at(&c, 0, [1; 32], 6, 3, 1), 0),
+                input(8, pool_at(&c, 1, [2; 32], 2, 3, 2), 1),
+                input(8, pool_at(&c, 0, [3; 32], 2, 3, 3), 2),
+                input(8, pool_at(&c, 0, [4; 32], 1, 100, 4), 3)
+            ]
+        ),
+        [0x85; 4]
+    );
+    s.pools.get_mut(&1).unwrap().unused = [0, 2, 5].into();
+    s.pools.get_mut(&3).unwrap().unused = [1].into();
+    until(&mut s, &c, 3);
+    let golden: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../fixtures/devnet-m2/event-golden-v1.1.json"
+    ))
+    .unwrap();
+    for row in golden["union_draws"].as_array().unwrap() {
+        let mut b = block(4);
+        b.mix_hash = format!("0x{}", row["mix"].as_str().unwrap());
+        let out = s.step(&c, &b, &[]).unwrap();
+        let draw = &out.state.rounds[&(0, 1)];
+        assert_eq!(hex::encode(draw.instance_seed), row["seed"]);
+        assert_eq!(
+            serde_json::json!([draw.pool_seq, draw.leaf_index]),
+            row["pair"]
+        );
+        if row["j"] == 3 {
+            s = out.state;
+            break;
+        }
+    }
+    assert_eq!(
+        (s.rounds[&(0, 1)].pool_seq, s.rounds[&(0, 1)].leaf_index),
+        (3, 1)
+    );
+    assert!(!s.pools[&1].unused.is_empty());
+    until(&mut s, &c, 20);
+    let selected: std::collections::BTreeSet<_> = s
+        .rounds
+        .iter()
+        .filter(|((slot, _), _)| *slot == 0)
+        .map(|(_, r)| (r.pool_seq, r.leaf_index))
+        .collect();
+    assert_eq!(selected, [(1, 0), (1, 2), (1, 5), (3, 1)].into());
+    assert_eq!(s.pools[&4].unused.len(), 1);
+}
+fn package_state(c: &Config, codec: u8, raw: u32, pkg: &[u8]) -> State {
+    let root = boole_derivation::m2::pool_leaf(c.chain_id, 2, &[], codec, raw, pkg, &[9; 32]);
+    let mut s = State::new(c, 30_000_000).unwrap();
+    assert_eq!(
+        run(&mut s, c, vec![input(8, pool_at(c, 0, root, 1, 3, 1), 0)]),
+        [0x85]
+    );
+    until(&mut s, c, 4);
+    s
+}
+#[test]
+fn v11_t27_carried_package_policy_membership_and_caps() {
+    let c = cfg();
+    let s = package_state(&c, 0, 1, b"a");
+    for (codec, raw, pkg) in [
+        (2, 1, b"a".to_vec()),
+        (0, 2, b"a".to_vec()),
+        (1, 0, b"a".to_vec()),
+        (1, c.statement_raw_max as u32 + 1, b"a".to_vec()),
+        (1, 1, vec![]),
+        (0, c.statement_max as u32 + 1, vec![1; c.statement_max + 1]),
+    ] {
+        assert_eq!(
+            s.step(
+                &c,
+                &block(5),
+                &[input(
+                    9,
+                    pkg_body(0, 1, 0, codec, raw, [9; 32], &[], &pkg),
+                    0
+                )]
+            )
+            .unwrap()
+            .codes,
+            [2]
+        );
+    }
+    let mut old = pkg_body(0, 1, 0, 0, 1, [9; 32], &[], b"a");
+    old[0] = 1;
+    assert_eq!(
+        s.step(&c, &block(5), &[input(9, old, 0)]).unwrap().codes,
+        [1]
+    );
+    let pkg = vec![1; c.statement_max];
+    let mut exact = package_state(&c, 0, pkg.len() as u32, &pkg);
+    assert_eq!(
+        run(
+            &mut exact,
+            &c,
+            vec![input(
+                9,
+                pkg_body(0, 1, 0, 0, pkg.len() as u32, [9; 32], &[], &pkg),
+                0
+            )]
+        ),
+        [0x86]
+    );
+    // Valid carried bytes need not be decoded, and no ratio cap applies to packages.
+    let fixture: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../fixtures/devnet-m2/package-codec-v1.1.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let pkg = hex::decode(fixture["carried_hex"].as_str().unwrap()).unwrap();
+    let raw = c.statement_raw_max as u32;
+    let mut compressed = package_state(&c, 1, raw, &pkg);
+    assert!(u64::from(raw) > pkg.len() as u64 * c.ratio_max);
+    assert_eq!(
+        run(
+            &mut compressed,
+            &c,
+            vec![input(9, pkg_body(0, 1, 0, 1, raw, [9; 32], &[], &pkg), 0)]
+        ),
+        [0x86]
+    );
+    let wrong = pool_leaf(c.chain_id, 2, &[], b"a", &[9; 32]);
+    let mut s = State::new(&c, 30_000_000).unwrap();
+    run(
+        &mut s,
+        &c,
+        vec![input(8, pool_at(&c, 0, wrong, 1, 3, 1), 0)],
+    );
+    until(&mut s, &c, 4);
+    assert_eq!(
+        run(
+            &mut s,
+            &c,
+            vec![input(9, pkg_body(0, 1, 0, 1, 1, [9; 32], &[], b"a"), 0)]
+        ),
+        [14]
+    );
+}
+#[test]
+fn v11_t28_lane_formats_and_cancel_after_wrong_lane() {
+    for (lane, format, expected) in [(1, 1, 0x81), (2, 2, 0x81), (1, 2, 2), (2, 1, 2)] {
+        let mut c = cfg();
+        c.slot_table[0].lane = lane;
+        let (mut s, p) = opened(&c);
+        let (mut b, _, _) = body(&c, p, [6; 20], [7; 32], b"a", &[]);
+        b[152] = format;
+        let ch = commit_hash(c.chain_id, p, cancel_hash(&[8; 32]), body_digest(&b));
+        run(&mut s, &c, vec![input(2, commit(p, ch), 0)]);
+        let hc = s.height();
+        until(&mut s, &c, hc + c.d - 1);
+        assert_eq!(
+            run(
+                &mut s,
+                &c,
+                vec![input(3, open(&b, cancel_hash(&[8; 32])), 0)]
+            ),
+            [expected]
+        );
+        if expected == 2 {
+            assert_eq!(s.candidates[&(p, ch)].status(), Status::Committed);
+            assert_eq!(
+                run(&mut s, &c, vec![input(7, cancel(p, ch, &b, [8; 32]), 0)]),
+                [0x84]
+            );
+        }
+    }
+}
+
+#[test]
+fn review_real_multislot_tables_select_the_problem_lane() {
+    for profile in [Config::devnet(), Config::lean_testnet(99)] {
+        let mut c = profile.clone();
+        c.pool_key = cfg().pool_key;
+        // Only shorten pool admission lead; retain every real slot row and D/W.
+        c.pool_lead = 2;
+        assert_eq!(c.slot_table, profile.slot_table);
+        let mut s = State::new(&c, 30_000_000).unwrap();
+        let pools = (0..c.slot_table.len())
+            .map(|slot| {
+                let salt = [slot as u8 + 1; 32];
+                let root = pool_leaf(c.chain_id, 2, &[], b"a", &salt);
+                input(
+                    8,
+                    pool_at(&c, slot as u8, root, 1, 3, slot as u32 + 1),
+                    slot as u64,
+                )
+            })
+            .collect();
+        assert_eq!(run(&mut s, &c, pools), vec![0x85; c.slot_table.len()]);
+        until(&mut s, &c, 4);
+        let reveals = (0..c.slot_table.len())
+            .map(|slot| {
+                input(
+                    9,
+                    problem_body(slot as u8, 1, 0, &[], [slot as u8 + 1; 32], &[], b"a"),
+                    slot as u64,
+                )
+            })
+            .collect();
+        assert_eq!(run(&mut s, &c, reveals), vec![0x86; c.slot_table.len()]);
+        let mut commits = vec![];
+        let mut opens = vec![];
+        let mut expected = vec![];
+        for slot in 0..c.slot_table.len() {
+            let p = s.rounds[&(slot as u8, 1)].problem.unwrap();
+            assert_eq!(s.problems[&p].slot, slot as u8);
+            for format in [1, 2] {
+                let (mut b, _, _) = body(&c, p, [6; 20], [7; 32], b"a", &[]);
+                b[152] = format;
+                let ch = commit_hash(c.chain_id, p, cancel_hash(&[8; 32]), body_digest(&b));
+                let index = commits.len() as u64;
+                commits.push(input(2, commit(p, ch), index));
+                opens.push(input(3, open(&b, cancel_hash(&[8; 32])), index));
+                expected.push(if format == c.slot_table[slot].lane {
+                    0x81
+                } else {
+                    2
+                });
+            }
+        }
+        assert_eq!(run(&mut s, &c, commits), vec![0x80; expected.len()]);
+        let hc = s.height();
+        until(&mut s, &c, hc + c.d - 1);
+        assert_eq!(run(&mut s, &c, opens), expected);
+        assert_eq!(
+            expected,
+            if c.slot_table.len() == 2 {
+                vec![2, 0x81, 0x81, 2]
+            } else {
+                vec![2, 0x81, 0x81, 2, 2, 0x81]
+            }
+        );
+    }
+}
+
+#[test]
+fn review_union_excludes_pool_starting_at_draw_execution_height() {
+    let c = cfg();
+    let mut s = State::new(&c, 30_000_000).unwrap();
+    assert_eq!(
+        run(
+            &mut s,
+            &c,
+            vec![
+                input(8, pool_at(&c, 0, [1; 32], 1, 3, 1), 0),
+                input(8, pool_at(&c, 0, [2; 32], 1, 4, 2), 1),
+            ]
+        ),
+        [0x85, 0x85]
+    );
+    until(&mut s, &c, 3);
+    assert_eq!(s.slots[0].scheduled, Some(3));
+    // Choose j=1 for a wrongly enlarged two-leaf union, so the boundary error
+    // cannot hide behind a draw that happens to select the first pool.
+    let mix = (0u64..256)
+        .map(|n| hash(&n.to_be_bytes()))
+        .find(|mix| {
+            let seed = hash(
+                &[
+                    b"BOOLE-M2/DRAW/v2".as_slice(),
+                    &c.chain_id.to_be_bytes(),
+                    &[0],
+                    &1u32.to_be_bytes(),
+                    mix,
+                ]
+                .concat(),
+            );
+            u64::from_be_bytes(seed[..8].try_into().unwrap()) % 2 == 1
+        })
+        .unwrap();
+    let mut execution = block(4);
+    execution.mix_hash = format!("0x{}", hex::encode(mix));
+    let out = s.step(&c, &execution, &[]).unwrap();
+    assert_eq!(
+        (
+            out.state.rounds[&(0, 1)].pool_seq,
+            out.state.rounds[&(0, 1)].leaf_index
+        ),
+        (1, 0)
+    );
+    assert!(out.state.pools[&1].unused.is_empty());
+    assert_eq!(out.state.pools[&2].unused, [0].into());
+}
+
+#[test]
+fn review_unused_leaf_capacity_is_per_slot_including_future_pools() {
+    let mut c = cfg();
+    c.slot_table.push(c.slot_table[0].clone());
+    c.pool_max = 2;
+    c.slot_leaves_max = 2;
+    let mut s = State::new(&c, 30_000_000).unwrap();
+    assert_eq!(
+        run(
+            &mut s,
+            &c,
+            vec![
+                input(8, pool_at(&c, 0, [1; 32], 2, 100, 1), 0),
+                input(8, pool_at(&c, 1, [2; 32], 2, 100, 2), 1),
+            ]
+        ),
+        [0x85, 0x85]
+    );
+    assert_eq!(s.pools.values().map(|p| p.unused.len()).sum::<usize>(), 4);
+    assert_eq!(
+        run(
+            &mut s,
+            &c,
+            vec![input(8, pool_at(&c, 1, [3; 32], 1, 100, 3), 0)]
+        ),
+        [13]
+    );
+    assert_eq!(s.pools.len(), 2);
+}
+
+#[test]
+fn review_s8_statement_max_zero_and_one() {
+    let mut c = cfg();
+    c.statement_max = 0;
+    assert_eq!(c.validate(30_000_000), Err(8));
+    assert!(matches!(
+        State::new(&c, 30_000_000),
+        Err(FoldError::Startup(8))
+    ));
+    c.statement_max = 1;
+    assert_eq!(c.validate(30_000_000), Ok(()));
+}
+
+#[test]
+fn review_s5_exact_abi_padding_boundary() {
+    let mut c = cfg();
+    c.pool_max = 1 << 20;
+    c.slot_leaves_max = 1 << 20;
+    c.pkg_table = (0u8..4).map(|i| hash(&[i])).collect();
+    c.pkg_table.sort();
+    c.env_allowed = [vec![]].into();
+    // 55 bytes including kind + 4 required packages + 20 siblings. The
+    // middle case ends exactly on a 32-byte ABI boundary; its neighbors do not.
+    for (statement_len, exact_call_len) in
+        [(122_888, 123_780), (122_889, 123_780), (122_890, 123_812)]
+    {
+        c.statement_max = statement_len;
+        let wire = problem_body(
+            0,
+            1,
+            0,
+            &c.pkg_table,
+            [9; 32],
+            &[[0; 32]; 20],
+            &vec![1; statement_len],
+        );
+        let mut item = vec![9];
+        item.extend(wire);
+        while item.len() % 32 != 0 {
+            item.push(0);
+        }
+        assert_eq!(4 + 64 + item.len(), exact_call_len);
+        c.pool_limit = exact_call_len;
+        assert_eq!(c.validate(30_000_000), Ok(()));
+        c.pool_limit -= 1;
+        assert_eq!(c.validate(30_000_000), Err(5));
+    }
+}
+fn two_slots() -> (Config, State, [Hash; 2]) {
+    let mut c = cfg();
+    c.slot_table = vec![
+        SlotParams {
+            lane: 1,
+            solve_deadline: 8,
+            announce_gap: 2,
+            reveal_grace: 1,
+        },
+        SlotParams {
+            lane: 2,
+            solve_deadline: 16,
+            announce_gap: 4,
+            reveal_grace: 3,
+        },
+    ];
+    let mut s = State::new(&c, 30_000_000).unwrap();
+    let roots = [
+        pool_leaf(c.chain_id, 2, &[], b"a", &[1; 32]),
+        pool_leaf(c.chain_id, 2, &[], b"a", &[2; 32]),
+    ];
+    run(
+        &mut s,
+        &c,
+        vec![
+            input(8, pool_at(&c, 0, roots[0], 1, 3, 1), 0),
+            input(8, pool_at(&c, 1, roots[1], 1, 3, 2), 1),
+        ],
+    );
+    until(&mut s, &c, 4);
+    (c, s, roots)
+}
+#[test]
+fn v11_t29_per_slot_deadlines_grace_and_gaps() {
+    let (c, mut s, _) = two_slots();
+    let withheld = s.clone();
+    run(
+        &mut s,
+        &c,
+        vec![
+            input(9, pkg_body(0, 1, 0, 0, 1, [1; 32], &[], b"a"), 0),
+            input(9, pkg_body(1, 1, 0, 0, 1, [2; 32], &[], b"a"), 1),
+        ],
+    );
+    let p0 = s.rounds[&(0, 1)].problem.unwrap();
+    let p1 = s.rounds[&(1, 1)].problem.unwrap();
+    until(&mut s, &c, 13);
+    assert_eq!(
+        run(
+            &mut s,
+            &c,
+            vec![
+                input(2, commit(p0, [1; 32]), 0),
+                input(2, commit(p1, [2; 32]), 1)
+            ]
+        ),
+        [5, 0x80]
+    );
+    assert_eq!(s.slots[0].scheduled, Some(16));
+    until(&mut s, &c, 22);
+    assert_eq!(s.problems[&p1].closed, Some(22));
+    assert_eq!(s.slots[1].scheduled, Some(26));
+    let mut s = withheld;
+    until(&mut s, &c, 6);
+    assert_eq!(s.rounds[&(0, 1)].status, RoundStatus::Withheld);
+    assert_eq!(s.rounds[&(1, 1)].status, RoundStatus::Drawn);
+    until(&mut s, &c, 8);
+    assert_eq!(s.rounds[&(1, 1)].status, RoundStatus::Withheld);
+}
+#[test]
+fn v11_t30_config_seed_root_domain_and_round_pool_sequence() {
+    let c = cfg();
+    let mut bytes = b"BOOLE-M2/CONFIG/v1".to_vec();
+    bytes.extend(serde_json::to_vec(&c).unwrap());
+    let digest = hash(&bytes);
+    assert_eq!(c.digest(), digest);
+    let mut s = State::new(&c, 30_000_000).unwrap();
+    assert_eq!(s.root, digest);
+    let mut other = c.clone();
+    other.slot_table[0].lane = 2;
+    assert_ne!(s.root, State::new(&other, 30_000_000).unwrap().root);
+    let root = pool_leaf(c.chain_id, 2, &[], b"a", &[9; 32]);
+    run(&mut s, &c, vec![input(8, pool_at(&c, 0, root, 1, 3, 1), 0)]);
+    until(&mut s, &c, 3);
+    let previous = s.root;
+    let step = s.step(&c, &block(4), &[]).unwrap();
+    let mut event = vec![3, 0];
+    event.extend(1u32.to_be_bytes());
+    event.push(0xc1);
+    event.extend(1u32.to_be_bytes());
+    event.extend(0u32.to_be_bytes());
+    event.extend([0; 32]);
+    assert_eq!(step.events, event);
+    assert_eq!(event.len(), 47);
+    assert_eq!(
+        step.state.root,
+        hash(
+            &[
+                b"BOOLE-M2/ROOT/v2".as_slice(),
+                &previous,
+                &4u64.to_be_bytes(),
+                &hex::decode(&block(4).hash[2..]).unwrap(),
+                &hash(&event)
+            ]
+            .concat()
+        )
+    );
+}
+#[test]
+fn v11_t31_repose_cannot_cross_slots() {
+    let (c, mut s, _) = two_slots();
+    run(
+        &mut s,
+        &c,
+        vec![
+            input(9, pkg_body(0, 1, 0, 0, 1, [1; 32], &[], b"a"), 0),
+            input(9, pkg_body(1, 1, 0, 0, 1, [2; 32], &[], b"a"), 1),
+        ],
+    );
+    let p = s.rounds[&(1, 1)].problem.unwrap();
+    until(&mut s, &c, 22);
+    assert!(s.enqueue_repose(p));
+    assert!(!s.enqueue_repose(p));
+    until(&mut s, &c, 26);
+    assert!(!s.problems.values().any(|p| p.epoch == 1));
+    run(&mut s, &c, vec![]);
+    let new = s.problems.values().find(|p| p.epoch == 1).unwrap();
+    assert_eq!(new.slot, 1);
+    assert_eq!(new.pool_seq, 2);
+    assert_eq!(s.rounds[&(1, 2)].problem, Some(new.id));
+    assert_eq!(s.rounds[&(1, 2)].pool_seq, 2);
+}
+
+#[test]
+fn v11_t24_t30_independent_config_and_slot_digest_goldens() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../fixtures/devnet-m2/config-golden-v1.1.json"
+    ))
+    .unwrap();
+    assert_eq!(
+        fixture["provenance"]["generator_sha256"],
+        hex::encode(hash(include_bytes!("generate_v11_vectors.py")))
+    );
+    for (at, c) in [
+        Config::devnet(),
+        Config::lean_testnet(720927),
+        Config::production(720928),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let row = &fixture["profiles"][at];
+        assert_eq!(serde_json::to_value(&c).unwrap(), row["config"]);
+        assert_eq!(
+            hex::encode(serde_json::to_vec(&c).unwrap()),
+            row["canonical_json_hex"]
+        );
+        assert_eq!(hex::encode(c.digest()), row["config_digest"]);
+        assert_eq!(hex::encode(c.slot_table_digest()), row["slot_table_digest"]);
+    }
+}
+
+#[test]
+fn v11_t27_leaf_binds_transmission_codec_and_raw_length() {
+    let c = cfg();
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../fixtures/devnet-m2/package-codec-v1.1.json"
+    ))
+    .unwrap();
+    let pkg = hex::decode(fixture["carried_hex"].as_str().unwrap()).unwrap();
+    let raw = fixture["raw_len"].as_u64().unwrap() as u32;
+    let legacy = hash(
+        &[
+            &[0u8][..],
+            b"BOOLE-M2/POOL-LEAF/v1",
+            &c.chain_id.to_be_bytes(),
+            &[2, 0],
+            &hash(&pkg),
+            &[9; 32],
+        ]
+        .concat(),
+    );
+    let decoded = boole_derivation::m2::pool_leaf(
+        c.chain_id,
+        2,
+        &[],
+        1,
+        raw,
+        &vec![b'a'; raw as usize],
+        &[9; 32],
+    );
+    for root in [legacy, decoded] {
+        let mut s = State::new(&c, 30_000_000).unwrap();
+        run(&mut s, &c, vec![input(8, pool_at(&c, 0, root, 1, 3, 1), 0)]);
+        until(&mut s, &c, 4);
+        assert_eq!(
+            run(
+                &mut s,
+                &c,
+                vec![input(9, pkg_body(0, 1, 0, 1, raw, [9; 32], &[], &pkg), 0)]
+            ),
+            [14]
+        );
+    }
+    let s = package_state(&c, 1, raw, &pkg);
+    assert_eq!(
+        s.step(
+            &c,
+            &block(5),
+            &[input(
+                9,
+                pkg_body(0, 1, 0, 1, raw - 1, [9; 32], &[], &pkg),
+                0
+            )]
+        )
+        .unwrap()
+        .codes,
+        [14]
+    );
+    let mut s = package_state(&c, 1, 100, b"not a compressed frame");
+    assert_eq!(
+        run(
+            &mut s,
+            &c,
+            vec![input(
+                9,
+                pkg_body(0, 1, 0, 1, 100, [9; 32], &[], b"not a compressed frame"),
+                0
+            )]
+        ),
+        [0x86]
+    );
+}
+
+#[test]
+fn v11_t12_fixed_root_and_events_match_independent_vector() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../fixtures/devnet-m2/config-golden-v1.1.json"
+    ))
+    .unwrap();
+    let c = Config::devnet();
+    let state = State::new(&c, 30_000_000).unwrap();
+    let step = state
+        .step(&c, &block(1), &[input(5, vec![1], 4), input(2, vec![], 2)])
+        .unwrap();
+    assert_eq!(
+        hex::encode(&step.events),
+        fixture["profiles"][0]["probe_event_hex"]
+    );
+    assert_eq!(
+        hex::encode(step.state.root),
+        fixture["profiles"][0]["root_height1_probe"]
+    );
+}
+
+#[test]
+fn v11_t27_package_fixture_has_required_frame_header() {
+    let value: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../fixtures/devnet-m2/package-codec-v1.1.json"
+    ))
+    .unwrap();
+    let b = hex::decode(value["carried_hex"].as_str().unwrap()).unwrap();
+    assert_eq!(&b[..4], &[0x28, 0xb5, 0x2f, 0xfd]);
+    let d = b[4];
+    assert_eq!(d & 3, 0);
+    assert_ne!(d & 4, 0);
+    assert_eq!(d & 0x18, 0);
+    let single = d & 32 != 0;
+    let mut at = 5;
+    let window = if single {
+        None
+    } else {
+        let w = b[at];
+        at += 1;
+        let base = 1u64 << (10 + (w >> 3));
+        Some(base + base / 8 * u64::from(w & 7))
+    };
+    let n = match d >> 6 {
+        0 => usize::from(single),
+        1 => 2,
+        2 => 4,
+        _ => 8,
+    };
+    assert_ne!(n, 0, "R32 requires Frame_Content_Size");
+    let mut raw = [0; 8];
+    raw[..n].copy_from_slice(&b[at..at + n]);
+    let raw = u64::from_le_bytes(raw) + if n == 2 { 256 } else { 0 };
+    assert_eq!(raw, value["raw_len"].as_u64().unwrap());
+    assert!(window.unwrap_or(raw) <= raw);
 }

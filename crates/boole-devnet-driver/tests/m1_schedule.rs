@@ -12,7 +12,7 @@ use serde_json::{json, Value};
 use std::fs;
 use support::m2::hash;
 use support::*;
-const NEW: &str = "s1b-recorded-schedule-budget-v2.json";
+const NEW: &str = "s1b-recorded-schedule-budget-v3.json";
 fn derived(out: StepOutcome) -> Result<Derived> {
     match out {
         StepOutcome::Derived(d) => Ok(*d),
@@ -67,6 +67,22 @@ fn new_schedule_fixture_preserves_raws_and_binds_provenance() -> Result<()> {
         "0x0"
     );
     assert!(f["heights"][33]["result"]["execution_failure_fee"].is_object());
+    let c: boole_derivation::m2::Config =
+        serde_json::from_value(f["provenance"]["m2_config"].clone())?;
+    assert_eq!(f["provenance"]["m2_config_digest"], hex_string(&c.digest()));
+    let mut state = boole_derivation::m2::State::new(&c, 30_000_000)?;
+    for row in f["heights"].as_array().context("heights")? {
+        let (d, next) = boole_derivation::derive_with_m2(
+            &state,
+            &c,
+            &serde_json::from_value(row["l1"].clone())?,
+            &serde_json::from_value::<Vec<boole_derivation::InboxLog>>(row["logs"].clone())?,
+            &serde_json::from_value(row["parent"].clone())?,
+        )?;
+        assert_eq!(hex_string(&next.root), row["result"]["m2_root"]);
+        assert_eq!(json!(d.attributes), row["result"]["attributes"]);
+        state = next;
+    }
     Ok(())
 }
 #[test]
@@ -77,7 +93,7 @@ fn m1_budget_compliant_schedule_live_and_recorded_abc() -> Result<()> {
     let Some(anvil) = pinned("BOOLE_DEVNET_ANVIL", "anvil")? else {
         return Ok(());
     };
-    let mut rt = Runtime::new("m1-schedule-budget-v2")?;
+    let mut rt = Runtime::new("m1-schedule-budget-v3")?;
     let l1 = rt.anvil(&anvil)?;
     let accounts = l1.call("eth_accounts", json!([]))?;
     let user = accounts[0].as_str().context("account")?;
@@ -170,7 +186,11 @@ fn m1_budget_compliant_schedule_live_and_recorded_abc() -> Result<()> {
         }
         rt.stop(name)?;
     }
-    let data = json!({"schema":"boole-devnet-m1-schedule-budget-v2","provenance":{"source_cases":"s1b-cases.json","source_cases_sha256":hex_string(&hash(&fs::read(fixture("s1b-cases.json"))?)),"pins":fixture_json("pins.json")?,"change":"Move the third 12M-gas candidate from height 24 to the beginning of height 25. Preserve every original raw transaction occurrence and restore the sender nonce sequence."},"acceptance":{"live_abc":true,"recorded_abc":true,"case10_included_and_duplicate_skipped":true,"case13_included_status0_and_fee_charged":true},"schedule":plan,"heights":rows});
+    let mut data = json!({"schema":"boole-devnet-m1-schedule-budget-v3","provenance":{"source_cases":"s1b-cases.json","source_cases_sha256":hex_string(&hash(&fs::read(fixture("s1b-cases.json"))?)),"pins":fixture_json("pins.json")?,"change":"Move the third 12M-gas candidate from height 24 to the beginning of height 25. Preserve every original raw transaction occurrence and restore the sender nonce sequence."},"acceptance":{"live_abc":true,"recorded_abc":true,"case10_included_and_duplicate_skipped":true,"case13_included_status0_and_fee_charged":true},"schedule":plan,"heights":rows});
+    let c = boole_derivation::m2::Config::devnet();
+    data["provenance"]["m2_config"] = json!(c);
+    data["provenance"]["m2_config_digest"] = json!(hex_string(&c.digest()));
+    data["provenance"]["m2_rules"] = json!("v1.1 reset");
     fs::write(
         rt.path.join("recording.json"),
         serde_json::to_vec_pretty(&data)?,
