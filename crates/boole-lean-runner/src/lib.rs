@@ -858,9 +858,9 @@ impl LeanRunner {
     pub fn check_file(&self, proof_path: impl AsRef<Path>) -> Result<LeanCheckResult> {
         let proof_path = proof_path.as_ref();
         if !self.config.package_dir.is_dir() {
-            return Ok(unavailable_result(
-                &self.unprobed_evidence(String::new()),
-                "checker_release_mismatch",
+            return Err(anyhow!(
+                "Lean package directory does not exist: {}",
+                self.config.package_dir.display()
             ));
         }
         let artifact_workspace = CheckerArtifactWorkspace::create()?;

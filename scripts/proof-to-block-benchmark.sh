@@ -38,51 +38,15 @@ def node_cmd(args):
 def write_lean_checker_workspace(workspace: pathlib.Path) -> pathlib.Path:
     if workspace.exists():
         shutil.rmtree(workspace)
-    (workspace / "BooleCheck").mkdir(parents=True)
-    (workspace / "lean-toolchain").write_text("leanprover/lean4:v4.29.1\n")
-    (workspace / "lakefile.lean").write_text(
-        """import Lake
-open Lake DSL
-
-package boole_check_fixture
-
-lean_lib «Boole» where
-  globs := #[.submodules `Boole.Family]
-
-lean_exe boole_check where
-  root := `BooleCheck.Main
-"""
-    )
-    (workspace / "lake-manifest.json").write_text(
-        """{"version": "1.1.0",
- "packagesDir": ".lake/packages",
- "packages": [],
- "name": "boole_check_fixture",
- "lakeDir": ".lake"}
-"""
-    )
-    (workspace / "BooleCheck" / "Main.lean").write_text(
-        (root / "lean" / "checker" / "BooleCheck" / "Main.lean").read_text()
-    )
-    # TB.1 / ADR-0013 — `check_file` now runs a second, separate process
-    # (`lake env lean --run BooleCheck/Audit.lean`) after the primary
-    # checker accepts, so this synthetic workspace needs its own copy of
-    # the real audit script or that stage fails to spawn. Copied verbatim
-    # from the shipped file (not duplicated by hand) so it can never drift.
-    (workspace / "BooleCheck" / "Audit.lean").write_text(
-        (root / "lean" / "checker" / "BooleCheck" / "Audit.lean").read_text()
-    )
-    # D#6 — checker_artifact_hash strictly pins Boole/Family/V0Helpers.lean.
-    (workspace / "Boole" / "Family").mkdir(parents=True)
-    (workspace / "Boole" / "Family" / "V0Helpers.lean").write_text(
-        "-- fixture stub: pinned by checker_artifact_hash\n"
-    )
-    subprocess.run(
-        ["lake", "build", "Boole.Family.V0Helpers"],
-        cwd=workspace,
-        check=True,
-        stdout=sys.stderr,
-    )
+    release = root / "lean" / "checker"
+    # Verification compiles the exact helper into its request-private import tree.
+    for relative in [
+        "lean-toolchain", "lakefile.lean", "lake-manifest.json",
+        "BooleCheck/Main.lean", "BooleCheck/Audit.lean", "Boole/Family/V0Helpers.lean",
+    ]:
+        destination = workspace / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(release / relative, destination)
     proof = workspace / "LeanSubmitProofToBlock.lean"
     proof.write_text(
         """import Boole.Family.V0Helpers

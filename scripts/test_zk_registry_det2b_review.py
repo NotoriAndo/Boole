@@ -58,5 +58,18 @@ class Review(unittest.TestCase):
             self.assertIn('#print axioms N.t',written)
             self.assertTrue(C.forbidden_scan([('proof',written)]))
             self.assertEqual(result['n_errors'],0)
+        import test_zk_registry_check as F
+        from test_zk_registry_package import make_package
+        with tempfile.TemporaryDirectory() as root:
+            pkg,_=make_package(root);proof=Path(root)/'Proof.lean'
+            proof.write_text(F.submission(Path(pkg,'Statement.lean').read_text(),'  trivial\n'))
+            env=F.fake_env(root)
+            with patch.object(L,'run_lean',return_value=L.RunResult(0,'',0,False)) as run:
+                report=C.check(pkg,str(proof),env,keep=True,policy_fixture=env.pins())
+            self.assertTrue(run.called)
+            self.assertEqual(report['verdict'],'FAIL',report)
+            self.assertTrue(any('output missing' in reason for reason in report['fail']))
+            self.assertIn('#print axioms',Path(report['check_dir'],'proof/ProofMod.lean').read_text())
+
 
 if __name__=='__main__':unittest.main()
