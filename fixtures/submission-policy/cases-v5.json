@@ -1,0 +1,306 @@
+{
+  "cases": [
+    {
+      "name": "output-0",
+      "source": "first\n#print \"x\"",
+      "hits": [
+        {
+          "label": "output-command",
+          "line": 2
+        }
+      ]
+    },
+    {
+      "name": "output-1",
+      "source": "first\n#check Nat",
+      "hits": [
+        {
+          "label": "output-command",
+          "line": 2
+        }
+      ]
+    },
+    {
+      "name": "output-2",
+      "source": "first\n#check_failure x",
+      "hits": [
+        {
+          "label": "output-command",
+          "line": 2
+        }
+      ]
+    },
+    {
+      "name": "output-3",
+      "source": "first\n#reduce 1",
+      "hits": [
+        {
+          "label": "output-command",
+          "line": 2
+        }
+      ]
+    },
+    {
+      "name": "output-4",
+      "source": "first\n#synth Inhabited Nat",
+      "hits": [
+        {
+          "label": "output-command",
+          "line": 2
+        }
+      ]
+    },
+    {
+      "name": "option-0",
+      "source": "first\nset_option trace.Meta.synthInstance true in",
+      "hits": [
+        {
+          "label": "output-option",
+          "line": 2
+        }
+      ]
+    },
+    {
+      "name": "option-1",
+      "source": "first\nset_option «trace».Meta true",
+      "hits": [
+        {
+          "label": "output-option",
+          "line": 2
+        }
+      ]
+    },
+    {
+      "name": "option-2",
+      "source": "first\nset_option /- c -/ trace.x true",
+      "hits": [
+        {
+          "label": "output-option",
+          "line": 2
+        }
+      ]
+    },
+    {
+      "name": "option-3",
+      "source": "first\nset_option profiler true",
+      "hits": [
+        {
+          "label": "output-option",
+          "line": 2
+        }
+      ]
+    },
+    {
+      "name": "option-4",
+      "source": "first\nset_option diagnostics true",
+      "hits": [
+        {
+          "label": "output-option",
+          "line": 2
+        }
+      ]
+    },
+    {
+      "name": "option-5",
+      "source": "first\nset_option",
+      "hits": [
+        {
+          "label": "output-option",
+          "line": 2
+        }
+      ]
+    },
+    {
+      "name": "option-6",
+      "source": "first\nset_option«x» true",
+      "hits": [
+        {
+          "label": "output-option",
+          "line": 2
+        }
+      ]
+    },
+    {
+      "name": "name-0",
+      "source": "«a\nb»",
+      "hits": [
+        {
+          "label": "forbidden-name-character",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "name": "name-1",
+      "source": "«a\tb»",
+      "hits": [
+        {
+          "label": "forbidden-name-character",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "name": "name-2",
+      "source": "«ab»",
+      "hits": [
+        {
+          "label": "forbidden-name-character",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "name": "name-3",
+      "source": "«a b»",
+      "hits": [
+        {
+          "label": "forbidden-name-character",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "name": "name-4",
+      "source": "«a\n",
+      "hits": [
+        {
+          "label": "forbidden-name-character",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "name": "name-5",
+      "source": "«a\rb»",
+      "hits": [
+        {
+          "label": "forbidden-name-character",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "name": "name-6",
+      "source": "««a\u0000b»",
+      "hits": [
+        {
+          "label": "forbidden-name-character",
+          "line": 1
+        },
+        {
+          "label": "forbidden-name-character",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "name": "allowed-0",
+      "source": "set_option autoImplicit false in",
+      "hits": []
+    },
+    {
+      "name": "allowed-1",
+      "source": "set_option pp.all true",
+      "hits": []
+    },
+    {
+      "name": "allowed-2",
+      "source": "trace_row",
+      "hits": []
+    },
+    {
+      "name": "allowed-3",
+      "source": "traceOf",
+      "hits": []
+    },
+    {
+      "name": "allowed-4",
+      "source": "«a b»",
+      "hits": []
+    },
+    {
+      "name": "allowed-5",
+      "source": "«α»",
+      "hits": []
+    },
+    {
+      "name": "allowed-6",
+      "source": "««ok»",
+      "hits": []
+    },
+    {
+      "name": "allowed-7",
+      "source": "set_option trace_row true",
+      "hits": []
+    },
+    {
+      "name": "allowed-8",
+      "source": "set_option traceOf true",
+      "hits": []
+    },
+    {
+      "name": "multiple-output-forms",
+      "source": "#check Nat\n#synth Inhabited Nat\nset_option trace.foo true\nset_option diagnostics true\n",
+      "hits": [
+        {
+          "label": "output-command",
+          "line": 1,
+          "word": "#check"
+        },
+        {
+          "label": "output-command",
+          "line": 2,
+          "word": "#synth"
+        },
+        {
+          "label": "output-option",
+          "line": 3,
+          "word": "set_option"
+        },
+        {
+          "label": "output-option",
+          "line": 4,
+          "word": "set_option"
+        }
+      ]
+    },
+    {
+      "name": "multiple-name-and-command-findings",
+      "source": "example «first name» : True := trivial\n#check Nat\nexample «second name» : True := trivial\n",
+      "hits": [
+        {
+          "label": "output-command",
+          "line": 2,
+          "word": "#check"
+        },
+        {
+          "label": "forbidden-name-character",
+          "line": 1,
+          "word": "«"
+        },
+        {
+          "label": "forbidden-name-character",
+          "line": 3,
+          "word": "«"
+        }
+      ]
+    },
+    {
+      "name": "duplicate-command-hits",
+      "source": "#check Nat; #check Bool\n",
+      "hits": [
+        {
+          "label": "output-command",
+          "line": 1,
+          "word": "#check"
+        },
+        {
+          "label": "output-command",
+          "line": 1,
+          "word": "#check"
+        }
+      ]
+    }
+  ]
+}

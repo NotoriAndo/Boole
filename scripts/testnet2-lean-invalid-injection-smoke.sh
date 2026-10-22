@@ -17,7 +17,7 @@
 #          with no checker its own admission Lean gate is inactive — so it
 #          admits the tampered share and self-produces a block carrying it,
 #          then gossips that block.
-#   * H1, H2 — HONEST nodes booted `--lean-checker-dir lean/checker`, i.e.
+#   * H1, H2 — HONEST nodes booted `--lean-checker-dir lean/checker-v1`, i.e.
 #          checker-PINNED. The SC.9b pin + executable-toolchain gate and the
 #          SC.10-ii ingest Lean re-verify are live for them.
 #
@@ -57,7 +57,7 @@ cd "$ROOT"
 SCENARIO="fixtures/protocol/runtime-smoke/testnet2-pinned-highrate.v1.json"
 HONEST_FIXTURE="fixtures/protocol/runtime-smoke/testnet2-lenbound-share.v1.json"
 INVALID_FIXTURE="fixtures/protocol/runtime-smoke/testnet2-lean-invalid.v1.json"
-CHECKER_DIR="lean/checker"
+CHECKER_DIR="lean/checker-v1"
 WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/boole-testnet2-lean-invalid.XXXXXX")"
 
 cargo build -q -p boole-node -p boole-cli --locked

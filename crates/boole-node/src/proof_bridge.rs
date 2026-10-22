@@ -104,6 +104,13 @@ impl LeanProofBridge {
         policy: LeanProofBridgePolicy,
     ) -> anyhow::Result<Self> {
         policy.validate_required()?;
+        let runner = runner.with_checker_artifact_allowlist(
+            policy
+                .allowed_checker_artifact_hashes
+                .iter()
+                .cloned()
+                .collect(),
+        );
         Ok(Self { runner, policy })
     }
 
@@ -233,6 +240,8 @@ fn runner_error_result(error: String) -> LeanCheckResult {
         stderr: error.clone(),
         timed_out: false,
         output_truncated: false,
+        stdout_bytes: 0,
+        stderr_bytes: 0,
         // A runner-level error (spawn failure, missing package) is an
         // availability condition, not a judgement of the proof bytes
         // (ADR-0016 (a-3)).

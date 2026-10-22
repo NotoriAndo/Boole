@@ -300,6 +300,8 @@ mod tests {
             stderr: String::new(),
             timed_out,
             output_truncated: false,
+            stdout_bytes: 0,
+            stderr_bytes: 0,
             verdict,
             evidence: boole_lean_runner::LeanRunnerEvidence {
                 verifier_hash: "vh".to_string(),

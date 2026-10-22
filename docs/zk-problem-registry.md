@@ -167,9 +167,9 @@ All others are INVALID `forbidden-attribute`; this does not authorize custom ela
 `sorry`, `native_decide`,
 `Lean.ofReduceBool/Nat`, `Lean.trustCompiler`, `implemented_by`, `extern`, unsafe and generated
 `_native.native_decide.ax_*` / `_native.decide.ax_*` axioms remain unconditionally forbidden.
-New CG1 metadata records `forbidden_version: 4`;
-the immutable v1/v2 label sets remain readable. Live checking applies the current policy without editing historical
-package roots. The checker reads each validated package's declared theorem name; it never assumes `soundness`.
+New metadata records `forbidden_version: 5`; historical label sets remain readable.
+The store descriptor selects the intake policy and its SHA-256 for checking and replay.
+Legacy stores without a descriptor use v4; immutable package roots keep their metadata. The checker reads each validated package's declared theorem name; it never assumes `soundness`.
 
 After text/import identity and compilation/postchecking, export the target's full transitive type/value closure,
 including Init, Mathlib and all imports, once inside the boundary. Comparator's empty-environment Lean v4.34.1 kernel
@@ -228,12 +228,15 @@ produce ERROR `replay-unavailable` with detail `malformed-record`. Unexpected ch
 errors exit 3 with an ERROR report; a consumer requires agreement between the report and exit code.
 Error groups, reference-stage handling and resource-only retry envelopes are pinned in `error_policy_v1.json`.
 
-Current submission policy v4 scans all solver-written helper declarations and proof text exactly as written.
+New store submission policy v5 scans all solver-written helper declarations and proof text exactly as written.
 Forbidden words may not appear anywhere in that text, including comments and string literals. The reason gives
 the policy label, the forbidden word and the line within the helper/proof part. There is no comment or string stripping.
 Ordinary Lean notation, nested/doc comments and interpolated strings need no separate lexical classification.
-The Python checker and Rust runner read one shared pattern list in `data/submission_policy_v4.json` and the
-same test cases. Word boundaries are ASCII: only `[A-Za-z0-9_]` counts as a word character, including next to
+The Python checker and Rust runner read one shared pattern list in `data/submission_policy_v5.json` and the
+same test cases, including every hit. Policy v5 is independent of the selected checker release.
+The Rust release table binds frozen `lean/checker-v1` (`f9da3a1c…`) to strict audit grammar v1,
+and `lean/checker` (`8174cf67…`) to grammar v2. Existing genesis pins remain unchanged;
+unknown hashes return D-node `checker_release_mismatch`. Word boundaries are ASCII: only `[A-Za-z0-9_]` counts as a word character, including next to
 Unicode text. Attribute whitespace is the shared explicit ASCII set: space, HT, LF, CR, VT and FF
 (`0x20`, `0x09`, `0x0a`, `0x0d`, `0x0b`, `0x0c`). Both also check attributes on the text as written. The shared list retains the Rust runner's
 `addDecl` and `debug.` restrictions; its import allowlist remains an additional interface check.

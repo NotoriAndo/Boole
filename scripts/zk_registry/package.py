@@ -99,7 +99,7 @@ GENERATOR_SOURCES = ["__init__.py", "r1cs.py", "circom_source.py", "circom_eval.
                      "sandbox_backend/launcher.py", "sandbox_backend/isolate.c", "sandbox_backend/filter.c",
                      "sandbox_backend/probes.c", "sandbox_backend/comparator-landrun", "sandbox_backend/apparmor-bwrap",
                      "data/acceptance_environment_v2.json", "data/acceptance_tools_v2.json",
-                     "artifact_pins.py", "data/submission_policy_v4.json", "data/testnet_caps_v1.json",
+                     "artifact_pins.py", "data/submission_policy_v4.json", "data/submission_policy_v5.json", "data/testnet_caps_v1.json",
                      "bounded_capture.py", "data/testnet_caps_v2.json", "error_policy.py", "data/error_policy_v1.json",
                      "data/measuring_stick_conformance_v2.json", "data/comparator-d03acab-export-files.patch",
                      "data/comparator-d03acab-lean4341.patch", "data/comparator-d03acab-transport.patch",

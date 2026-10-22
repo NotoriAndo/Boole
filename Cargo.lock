@@ -434,6 +434,7 @@ dependencies = [
  "hex",
  "landlock",
  "libc",
+ "regex-automata",
  "seccompiler",
  "serde",
  "serde_json",

@@ -37,7 +37,7 @@ CARGO_TOML = MINER_CRATE / "Cargo.toml"
 CLI_RS = MINER_CRATE / "src" / "cli.rs"
 LOCAL_VERIFY_RS = MINER_CRATE / "src" / "local_verify.rs"
 LEAN_RUNNER_LIB = ROOT / "crates" / "boole-lean-runner" / "src" / "lib.rs"
-SUBMISSION_POLICY = ROOT / "scripts" / "zk_registry" / "data" / "submission_policy_v4.json"
+SUBMISSION_POLICY = ROOT / "scripts" / "zk_registry" / "data" / "submission_policy_v5.json"
 NODE_MAIN_RS = ROOT / "crates" / "boole-node" / "src" / "main.rs"
 
 
@@ -148,7 +148,7 @@ class ForbiddenTokenScannerContractTests(unittest.TestCase):
 
     def test_forbidden_tokens_const_covers_all_unsound_escapes(self) -> None:
         self.assertIn(
-            'include_str!(\n            "../../../scripts/zk_registry/data/submission_policy_v4.json"',
+            'include_str!(\n            "../../../scripts/zk_registry/data/submission_policy_v5.json"',
             self.lib,
             "P1.9: boole-lean-runner must load the shared submission text policy.",
         )
@@ -166,7 +166,7 @@ class ForbiddenTokenScannerContractTests(unittest.TestCase):
         scan_idx = self.lib.find(
             "scan_for_forbidden_tokens_in_bytes(&submitted_source.bytes)"
         )
-        evidence_idx = self.lib.find("let evidence = self.evidence()?;")
+        evidence_idx = self.lib.find("self.evidence()")
         spawn_idx = self.lib.find(
             "let mut primary_command = Command::new(&toolchain_runtime.lean_executable)"
         )

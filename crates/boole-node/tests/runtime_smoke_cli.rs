@@ -5,6 +5,9 @@ use serde_json::{json, Value};
 
 #[test]
 fn proof_to_block_benchmark_script_reports_smoke_metrics() {
+    if !boole_testkit::lake_and_lean_available() {
+        return;
+    }
     let repo_root = env!("CARGO_MANIFEST_DIR").trim_end_matches("/crates/boole-node");
     let script_path = format!("{repo_root}/scripts/proof-to-block-benchmark.sh");
 
@@ -60,6 +63,9 @@ fn proof_to_block_benchmark_script_reports_smoke_metrics() {
 
 #[test]
 fn proof_to_block_benchmark_can_opt_into_agent_fixture_candidate_case() {
+    if !boole_testkit::lake_and_lean_available() {
+        return;
+    }
     let repo_root = env!("CARGO_MANIFEST_DIR").trim_end_matches("/crates/boole-node");
     let script_path = format!("{repo_root}/scripts/proof-to-block-benchmark.sh");
 
@@ -628,6 +634,9 @@ fn runtime_smoke_rejects_expected_prev_c_mismatch_before_admission() {
 
 #[test]
 fn proof_to_block_benchmark_includes_restart_nblock_and_multiminer_cases() {
+    if !boole_testkit::lake_and_lean_available() {
+        return;
+    }
     let repo_root = env!("CARGO_MANIFEST_DIR").trim_end_matches("/crates/boole-node");
     let script_path = format!("{repo_root}/scripts/proof-to-block-benchmark.sh");
 

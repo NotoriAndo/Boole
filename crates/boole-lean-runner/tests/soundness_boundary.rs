@@ -1,15 +1,6 @@
-//! TB.1 / ADR-0013 — checker soundness boundary.
-//!
-//! Each PoC below demonstrates a distinct way a submitted proof could escape
-//! the checker's intended trust boundary before this slice landed. All four
-//! are `accepted` under the OLD (pre-TB.1) `FORBIDDEN_TOKENS` list, since
-//! none of them writes `sorry`, a top-level `axiom` declaration,
-//! `native_decide`, or `#eval`. TB.1 closes each gap either via the extended
-//! pre-spawn blacklist (PoC1/2/3) or, for PoC4, which is specifically
-//! constructed to slip past every blacklist entry, via the post-elaboration
-//! axiom-closure audit — the PRIMARY boundary. See
-//! `crates/boole-lean-runner/src/lib.rs`'s `enforce_axiom_allowlist` and
-//! `lean/checker/BooleCheck/Audit.lean` for the mechanism.
+//! Source policy runs before toolchain execution. The runner executes only the
+//! pinned checker release and preserves nonrelease helpers as unavailable.
+//! Canonical helper proofs must still pass the artifact-only axiom audit.
 
 use boole_lean_runner::{LeanCheckResult, LeanRunner, LeanRunnerConfig};
 use std::path::PathBuf;
@@ -150,11 +141,7 @@ fn rejects_debug_skip_kernel_tc() {
 }
 
 #[test]
-fn rejects_proof_depending_on_non_allowlisted_axiom() {
-    if !lake_and_lean_available() {
-        eprintln!("skipping real Lean runner test: lake/lean unavailable");
-        return;
-    }
+fn nonrelease_helper_is_unavailable_before_audit() {
     let workspace = TestLeanWorkspace::new("poc4-helper-closure");
     workspace.write_checker_project();
     std::fs::write(
@@ -167,28 +154,19 @@ fn rejects_proof_depending_on_non_allowlisted_axiom() {
 
     let result = runner_for(&workspace)
         .check_file(&proof)
-        .expect("source intake must allow this proof to reach the real artifact audit");
+        .expect("release mismatch returns an envelope");
     assert!(
         !result.accepted,
-        "bad helper closure must reject: {result:?}"
+        "unreleased helper must remain unavailable: {result:?}"
     );
     assert_eq!(
-        result.exit_code, 0,
-        "primary elaboration must succeed: {result:?}"
+        result.verdict,
+        boole_lean_runner::LeanVerdict::RetryableUnavailable {
+            reason: "checker_release_mismatch".into()
+        }
     );
-    assert!(
-        matches!(&result.verdict,
-        boole_lean_runner::LeanVerdict::DeterministicReject { reason }
-            if reason == boole_lean_runner::REJECT_AXIOM_AUDIT),
-        "{result:?}"
-    );
-    assert!(
-        result.stderr.contains("axiom audit rejected:")
-            && result
-                .stderr
-                .contains("Boole.Family.V0Helpers.forbiddenWitness"),
-        "{result:?}"
-    );
+    assert_eq!(result.verdict.error_group(), Some("D-node"));
+    assert_eq!((result.stdout_bytes, result.stderr_bytes), (0, 0));
 }
 
 #[test]
@@ -248,7 +226,7 @@ fn accepts_lenbound_style_proof_importing_helper_surface() {
 fn assert_rejected(outcome: anyhow::Result<LeanCheckResult>, context: &str) {
     // These three PoCs exercise intake, before a toolchain is needed. An
     // unavailable runner or missing package must not satisfy this assertion;
-    // the separate PoC4 below requires the real post-elaboration axiom audit.
+    // Release identity and canonical helper acceptance are checked separately.
     let error = outcome.expect_err("a forbidden source must fail before checker execution");
     assert!(
         error
@@ -301,36 +279,22 @@ impl TestLeanWorkspace {
     }
 
     fn write_checker_project(&self) {
-        std::fs::write(
-            self.root.join("lean-toolchain"),
-            "leanprover/lean4:v4.29.1\n",
-        )
-        .expect("write lean-toolchain");
-        std::fs::write(
-            self.root.join("lakefile.lean"),
-            r#"import Lake
-open Lake DSL
-
-package boole_check_fixture
-
-lean_lib «Boole» where
-  globs := #[.submodules `Boole.Family]
-
-lean_exe boole_check where
-  root := `BooleCheck.Main
-"#,
-        )
-        .expect("write lakefile");
-        std::fs::write(
-            self.root.join("lake-manifest.json"),
-            r#"{"version": "1.1.0",
- "packagesDir": ".lake/packages",
- "packages": [],
- "name": "boole_check_fixture",
- "lakeDir": ".lake"}
-"#,
-        )
-        .expect("write lake-manifest");
+        for (relative, bytes) in [
+            (
+                "lean-toolchain",
+                include_str!("../../../lean/checker/lean-toolchain"),
+            ),
+            (
+                "lakefile.lean",
+                include_str!("../../../lean/checker/lakefile.lean"),
+            ),
+            (
+                "lake-manifest.json",
+                include_str!("../../../lean/checker/lake-manifest.json"),
+            ),
+        ] {
+            std::fs::write(self.root.join(relative), bytes).expect("copy release configuration");
+        }
         std::fs::write(
             self.root.join("BooleCheck/Main.lean"),
             include_str!("../../../lean/checker/BooleCheck/Main.lean"),
@@ -350,7 +314,7 @@ lean_exe boole_check where
         std::fs::create_dir_all(self.root.join("Boole/Family")).expect("create Boole/Family");
         std::fs::write(
             self.root.join("Boole/Family/V0Helpers.lean"),
-            "-- fixture stub: pinned by checker_artifact_hash\n",
+            include_str!("../../../lean/checker/Boole/Family/V0Helpers.lean"),
         )
         .expect("write V0Helpers stub");
     }

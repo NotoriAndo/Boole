@@ -42,6 +42,7 @@ import sys
 import time
 import uuid
 from contextvars import ContextVar
+from contextlib import contextmanager
 
 if __package__ in (None, ""):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -69,7 +70,7 @@ FORBIDDEN_V2 = FORBIDDEN_V1 + [
     (r"\bbuiltin_initialize\b", "builtin_initialize"), (r"@\s*\[", "elaboration-attribute"),
     (r"\btrustCompiler\b", "Lean.trustCompiler"),
 ]
-FORBIDDEN_VERSION = 4
+FORBIDDEN_VERSION = 5
 CODE_DEFINING_COMMANDS = (
     'elab', 'elab_rules', 'simproc', 'dsimproc', 'simproc_decl', 'dsimproc_decl',
     'builtin_simproc', 'builtin_dsimproc', 'builtin_simproc_decl', 'builtin_dsimproc_decl',
@@ -80,8 +81,38 @@ FORBIDDEN = [entry for entry in FORBIDDEN_V2 if entry[1] != 'elaboration-attribu
 ] + [(r'\b(?:register|declare)_\w+\b', 'elaboration-registration')]
 FORBIDDEN_LABELS_V3 = [label for _, label in FORBIDDEN] + ['forbidden-attribute']
 # Both runners read this list. ASCII boundaries mean [A-Za-z0-9_] only.
-with open(os.path.join(os.path.dirname(__file__), 'data', 'submission_policy_v4.json'), encoding='utf-8') as policy_file:
+with open(os.path.join(os.path.dirname(__file__), 'data', 'submission_policy_v5.json'), encoding='utf-8') as policy_file:
     TEXT_POLICY = json.load(policy_file)
+
+
+_SUBMISSION_POLICY=ContextVar('submission_policy',default=None)
+
+
+def policy_descriptor(version=5):
+    raw=(FS.Path(__file__).parent/f'data/submission_policy_v{version}.json').read_bytes()
+    return dict(version=version,sha256=hashlib.sha256(raw).hexdigest())
+
+
+def current_policy_descriptor():
+    selected=_SUBMISSION_POLICY.get()
+    return selected[0] if selected else policy_descriptor()
+
+
+def current_text_policy():
+    selected=_SUBMISSION_POLICY.get()
+    return selected[1] if selected else TEXT_POLICY
+
+
+@contextmanager
+def submission_policy(descriptor):
+    descriptor=policy_descriptor(4) if descriptor is None else descriptor
+    version=descriptor.get('version')
+    if type(version) is not int or version not in (4,5):raise ValueError('unsupported submission policy')
+    raw=(FS.Path(__file__).parent/f'data/submission_policy_v{version}.json').read_bytes()
+    if hashlib.sha256(raw).hexdigest()!=descriptor.get('sha256'):raise ValueError('submission policy digest mismatch')
+    token=_SUBMISSION_POLICY.set((dict(descriptor),json.loads(raw)))
+    try:yield
+    finally:_SUBMISSION_POLICY.reset(token)
 
 
 def validate_text_policy(policy: dict) -> None:
@@ -113,9 +144,11 @@ TEXT_PATTERNS = [(re.compile(pattern, re.ASCII), label) for pattern, label in FO
 FORBIDDEN_LABELS_V1 = [label for _, label in FORBIDDEN_V1]
 FORBIDDEN_LABELS_V2 = [label for _, label in FORBIDDEN_V2]
 # Historical v1-v3 vocabularies stay readable; v4 records every current label.
-FORBIDDEN_LABELS = FORBIDDEN_LABELS_V3[:-1] + ['limit-override', 'native-evaluation', 'addDecl', 'debug.', 'forbidden-attribute']
+FORBIDDEN_LABELS_V4 = FORBIDDEN_LABELS_V3[:-1] + ['limit-override', 'native-evaluation', 'addDecl', 'debug.', 'forbidden-attribute']
 FORBIDDEN_SETS = {1: FORBIDDEN_LABELS_V1, 2: FORBIDDEN_LABELS_V2,
-                  3: FORBIDDEN_LABELS_V3, 4: FORBIDDEN_LABELS}
+                  3: FORBIDDEN_LABELS_V3, 4: FORBIDDEN_LABELS_V4,
+                  5: FORBIDDEN_LABELS_V4 + ['output-command', 'output-option', 'forbidden-name-character']}
+FORBIDDEN_LABELS = FORBIDDEN_SETS[5]
 EXIT = {"PASS": 0, "FAIL": 1, "INVALID": 2, "ERROR": 3}
 
 
@@ -196,8 +229,12 @@ def forbidden_attributes(text: str) -> tuple[list[int], bool]:
     verdict is already INVALID; count brackets until that region ends, without
     retaining more frames. Marker recognition happens only when `[` is reached.
     """
-    limits = TEXT_POLICY['attribute_limits']
-    whitespace = TEXT_POLICY['ascii_whitespace']
+    policy=current_text_policy()
+    limits = policy['attribute_limits']
+    whitespace = policy['ascii_whitespace']
+    safe_attributes=frozenset(policy['safe_attributes'])
+    max_safe_attribute_length=max(map(len,safe_attributes))
+    ascii_whitespace=re.escape(whitespace)
     bad = set()
     more = False
     closers = bytearray()
@@ -205,7 +242,7 @@ def forbidden_attributes(text: str) -> tuple[list[int], bool]:
     overflow = 0
     line = 1
     pairs = {'[': ord(']'), '(': ord(')'), '{': ord('}')}
-    entry_pattern = re.compile(r'[' + ASCII_WHITESPACE + r']*(?:(?:local|scoped)[' + ASCII_WHITESPACE + r']+)?-?([^' + ASCII_WHITESPACE + r',()\[\]{}]+)', re.ASCII)
+    entry_pattern = re.compile(r'[' + ascii_whitespace + r']*(?:(?:local|scoped)[' + ascii_whitespace + r']+)?-?([^' + ascii_whitespace + r',()\[\]{}]+)', re.ASCII)
 
     def reject(marker_line):
         nonlocal more
@@ -222,8 +259,8 @@ def forbidden_attributes(text: str) -> tuple[list[int], bool]:
 
     def check_entry(frame, end):
         entry = entry_pattern.match(text, frame[2], end)
-        if (entry is None or entry.end(1) - entry.start(1) > MAX_SAFE_ATTRIBUTE_LENGTH
-                or entry[1] not in SAFE_ATTRIBUTES):
+        if (entry is None or entry.end(1) - entry.start(1) > max_safe_attribute_length
+                or entry[1] not in safe_attributes):
             reject(frame[1])
 
     for index, char in enumerate(text):
@@ -276,11 +313,44 @@ def forbidden_attributes(text: str) -> tuple[list[int], bool]:
     return sorted(bad), more
 
 
+def output_option_positions(text: str):
+    policy=current_text_policy()
+    options=policy.get('output_options')
+    if options is None:return
+    for match in re.finditer(r'\bset_option\b', text, re.ASCII):
+        option = re.compile(r'['+re.escape(policy['ascii_whitespace'])+r']+('+options['name_grammar']+')',re.ASCII).match(text, match.end())
+        if option is None or option[1].split('.')[0] in options['forbidden_roots']:
+            yield match.start()
+
+
+def forbidden_name_positions(text: str):
+    start = text.find('«')
+    ranges=[]
+    for value in current_text_policy().get('forbidden_name_characters',[]):
+        ends=value.split('-');lo=int(ends[0].removeprefix('U+'),16);hi=int(ends[-1].removeprefix('U+'),16)
+        ranges.append((lo,hi))
+    while start >= 0:
+        close = text.find('»', start + 1)
+        end = len(text) if close < 0 else close
+        last_bad = -1
+        for index in range(start+1,end):
+            if any(lo<=ord(text[index])<=hi for lo,hi in ranges):last_bad=index
+        if last_bad >= 0:
+            opening = start
+            while opening >= 0 and opening < last_bad:
+                yield opening
+                opening = text.find('«', opening + 1, end)
+        if close < 0:
+            break
+        start = text.find('«', close + 1)
+
+
 def forbidden_scan(parts: list[tuple[str, str]]) -> list[str]:
     """Scan all solver-written text, including comments and strings, with ASCII boundaries."""
     hits = []
+    patterns=[(re.compile(text_pattern(rule),re.ASCII),rule['label']) for rule in current_text_policy()['patterns']]
     for name, text in parts:
-        for pattern, label in TEXT_PATTERNS:
+        for pattern, label in patterns:
             line, previous = 1, 0
             for match in pattern.finditer(text):
                 line += text.count('\n', previous, match.start())
@@ -288,6 +358,13 @@ def forbidden_scan(parts: list[tuple[str, str]]) -> list[str]:
                 word = match.group()
                 detail = '' if word in label else f' [forbidden word: {word}]'
                 hits.append(f'{label} in {name} (line {line} of that part){detail}')
+        for label, positions in [('output-option', output_option_positions(text)),
+                                 ('forbidden-name-character', forbidden_name_positions(text))]:
+            line, previous = 1, 0
+            for position in positions:
+                line += text.count('\n', previous, position)
+                previous = position
+                hits.append(f'{label} in {name} (line {line} of that part)')
         lines, more = forbidden_attributes(text)
         for index, line in enumerate(lines):
             detail = ' [more offending lines omitted]' if more and index == len(lines) - 1 else ''

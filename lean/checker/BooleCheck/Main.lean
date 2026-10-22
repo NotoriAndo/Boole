@@ -14,62 +14,66 @@ import Lean
 
 open Lean
 
-/-- ADR-0016 (a-2) layer 2, independent from the Rust intake scan. -/
+/-- ADR-0016 (a-2) layer 2, independent of the Rust intake scan. -/
 def budgetOverrideTokens : List String := ["maxHeartbeats", "maxRecDepth"]
 
-private def parseBudget (name value : String) : IO (Option Nat) := do
-  match value.toNat? with
-  | some parsed => return some parsed
-  | none =>
-    IO.eprintln s!"invalid {name}: expected an unsigned integer"
-    return none
+private def reject (marker : String := "BOOLE_PRIMARY_REJECT") : IO UInt32 := do
+  IO.eprintln marker
+  return 1
 
-def main (args : List String) : IO UInt32 := do
-  let some proofPath := args.head?
-    | IO.eprintln "usage: boole_check <proof.lean> <maxHeartbeats> <maxRecDepth> <proof.olean>"
-      return 64
-  let some maxHeartbeats := (args.drop 1).head?
-    | IO.eprintln "missing maxHeartbeats"; return 64
-  let some maxRecDepth := (args.drop 2).head?
-    | IO.eprintln "missing maxRecDepth"; return 64
-  let some artifactPath := (args.drop 3).head?
-    | IO.eprintln "missing checker artifact path"; return 64
-  if args.length != 4 then
-    IO.eprintln "usage: boole_check <proof.lean> <maxHeartbeats> <maxRecDepth> <proof.olean>"
-    return 64
+/-- The same snapshot frontend as `Lean.Elab.runFrontend`, retaining its typed diagnostics.
+    Lean 4.29.1 uses `runtime.maxHeartbeats` and `runtime.maxRecDepth` tags;
+    `stripNestedTags` also recognizes limits propagated through nested tactics. -/
+private def checkedFrontend (input : String) (opts : Options) (fileName : String)
+    (artifact : System.FilePath) : ExceptT Exception IO Unit := do
+  let opts := Lean.internal.cmdlineSnapshots.setIfNotSet opts true
+  let inputCtx := Parser.mkInputContext input fileName
+  let snap ← Language.Lean.process (fun stx => pure (.ok {
+    imports := stx.imports, isModule := stx.isModule,
+    mainModuleName := `BooleSubmission, opts := opts, trustLevel := 0
+  })) none {inputCtx with}
+  let tree := Language.toSnapshotTree snap
+  let hasErrors ← tree.runAndReport opts false {}
+  if hasErrors then
+    for child in tree.getAll do
+      for msg in child.diagnostics.msgLog.toList do
+        let data := msg.data.stripNestedTags
+        if msg.severity == .error &&
+            (data.kind == `runtime.maxHeartbeats || data.kind == `runtime.maxRecDepth) then
+          throw (Exception.error .missing data)
+    throw (Exception.error .missing MessageData.nil)
+  let some state := Language.Lean.waitForFinalCmdState? snap
+    | throw (Exception.error .missing MessageData.nil)
+  writeModule state.env artifact
 
-  let some maxHeartbeats ← parseBudget "maxHeartbeats" maxHeartbeats
-    | return 64
-  let some maxRecDepth ← parseBudget "maxRecDepth" maxRecDepth
-    | return 64
-
-  -- Keep the second budget-ceiling guard in the one process that is allowed
-  -- to see the submitted bytes. The artifact-only auditor never opens them.
+private def check (args : List String) : IO UInt32 := do
+  let [proofPath, heartbeats, recursion, artifactPath] := args
+    | return ← reject
+  let some maxHeartbeats := heartbeats.toNat?
+    | return ← reject
+  let some maxRecDepth := recursion.toNat?
+    | return ← reject
   let input ← IO.FS.readFile proofPath
   for token in budgetOverrideTokens do
     if (input.splitOn token).length > 1 then
-      IO.eprintln s!"BOOLE_BUDGET_OVERRIDE {token}"
-      return 1
-
-  -- Elaboration happens inside this process. In particular, there is no
-  -- nested `lean` process that submitted syntax could leave detached after
-  -- the primary exits. Async elaboration is disabled so the request also has
-  -- no background task that can outlive artifact serialization.
-  let opts : Options := {}
-  let opts := opts.set `maxHeartbeats maxHeartbeats
-  let opts := opts.set `maxRecDepth maxRecDepth
-  let opts := Elab.async.set opts false
+      return ← reject s!"BOOLE_BUDGET_OVERRIDE {token}"
   let some leanSysroot ← IO.getEnv "LEAN_SYSROOT"
-    | IO.eprintln "missing trusted LEAN_SYSROOT"; return 64
+    | return ← reject
   initSearchPath ⟨leanSysroot⟩
-  let env? ← Elab.runFrontend
-    input
-    opts
-    proofPath
-    `BooleSubmission
-    0
-    (some ⟨artifactPath⟩)
-  if env?.isSome then
-    return 0
-  IO.eprintln "BOOLE_PRIMARY_REJECT"
-  return 1
+  let opts := ({} : Options) |>.set `maxHeartbeats maxHeartbeats
+    |>.set `maxRecDepth maxRecDepth |>.set `Elab.async false
+  -- Lean exceptions retain their structured kinds until this single handler.
+  -- IO failures escaping the frontend are handled by `main`, without text inference.
+  match ← (checkedFrontend input opts proofPath ⟨artifactPath⟩).run with
+  | .ok () => return 0
+  | .error ex =>
+    if ex.isMaxHeartbeat then
+      reject "BOOLE_BUDGET_EXCEEDED maxHeartbeats"
+    else if ex.isMaxRecDepth then
+      reject "BOOLE_BUDGET_EXCEEDED maxRecDepth"
+    else
+      reject
+
+def main (args : List String) : IO UInt32 := do
+  try check args
+  catch _ => reject
