@@ -21,6 +21,7 @@ on:
       - scripts/test_zk_registry_correctness_gnark.py
       - scripts/test_zk_registry_acceptance_v2.py
       - scripts/test_zk_registry_det1c.py
+      - scripts/test_zk_registry_det2a_review2.py
       - scripts/test_zk_registry_det1b.py
       - .github/workflows/acceptance-gate-linux.yml
   pull_request:
@@ -42,6 +43,7 @@ on:
       - scripts/test_zk_registry_correctness_gnark.py
       - scripts/test_zk_registry_acceptance_v2.py
       - scripts/test_zk_registry_det1c.py
+      - scripts/test_zk_registry_det2a_review2.py
       - scripts/test_zk_registry_det1b.py
       - .github/workflows/acceptance-gate-linux.yml
   workflow_dispatch:

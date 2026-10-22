@@ -209,6 +209,8 @@ def prepare_reference(env: L.LeanEnv, problem: dict, package: str, work: str, se
     if compiled.get('compile_rc') != 0 or compiled.get('n_errors') or compiled.get('post') is None:
         return dict(verdict='ERROR', reason='challenge-build-unavailable', compiled=compiled)
     post = compiled['post']
+    if post.get('error')=='checker-input-unavailable':
+        return dict(verdict='ERROR',reason='checker-input-unavailable',compiled=compiled)
     if post.get('error')=='output-cap' or str(post.get('killed_by','')).startswith('output-cap'):
         return dict(verdict='ERROR',reason='output-cap',compiled=compiled)
     if str(post.get('killed_by','')).startswith('capture-failed'):

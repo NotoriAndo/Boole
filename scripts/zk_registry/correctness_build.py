@@ -242,10 +242,14 @@ def battery(unit: dict, kind: str, stage: Path, build: Path, type_sha: str,
                                 '-DsynthInstance.maxSize=100000', '--json', str(path)], str(stage), remaining,
                             extra_lean_path=[str(build)])
         put(path.with_suffix('.stdout'), result.out)
-        messages = L.parse_messages(result.out)
+        messages = L.complete_messages(result)
+        messages_path=path.with_suffix('.messages.ndjson')
+        put(messages_path,''.join(json.dumps(message,ensure_ascii=False)+'\n' for message in messages))
         completed = battery_completed(result, messages)
         closed = result.rc == 0 and completed and not L.errors(messages)
-        attempts.append(dict(index=index, form=CG.qualify_battery(unit, kind, form), completed=completed, closed=closed,
+        attempts.append(dict(messages_file=str(messages_path.relative_to(stage)),
+                             messages_sha256=P.sha256_file(str(messages_path)),streams=result.streams,
+                             index=index, form=CG.qualify_battery(unit, kind, form), completed=completed, closed=closed,
                              exit_code=result.rc, reason=result.killed_by, seconds=result.secs,
                              peak_rss_mb=result.peak_rss_mb, source_sha256=P.sha256_file(str(path)),
                              stdout_sha256=P.sha256_file(str(path.with_suffix('.stdout'))),

@@ -472,7 +472,7 @@ def check(pkg_dir: str, proof_path: str, env: L.LeanEnv, workdir: str | None = N
         return rep
     except (L.ResourceUnavailable,L.BoundaryInvalid,SandboxUnavailable):
         raise
-    except (OSError,ValueError,KeyError,TypeError,RuntimeError) as ex:
+    except OSError as ex:
         rep=_finish(dict(error=['checker-input-unavailable'],invalid=[],fail=[],reason='checker-input-unavailable',detail='exception:'+type(ex).__name__))
         return rep
     except Exception as ex:
@@ -762,6 +762,7 @@ def apply_compile_result(r: dict, chk: dict, invalid: list[str], fail: list[str]
         ([], [], ['resource-unavailable'] if resource_failure else []),
         ([], [], ['output-cap'] if output_cap else []),
         ([], [], ['capture-failed'] if capture_failure else []),
+        ([], [], ['checker-input-unavailable'] if post_record.get('error')=='checker-input-unavailable' else []),
         ([], [], boundary_reasons('ERROR')[:1]),
         (boundary_reasons('INVALID')[:1], [], []),
         ([], [], ['silent-exit'] if r.get('compile_rc') not in (0, None) and not r.get('n_errors') else []),
@@ -783,17 +784,23 @@ def verdict_of(rep: dict) -> str:
     return "ERROR" if rep["error"] else "INVALID" if rep["invalid"] else "FAIL" if rep["fail"] else "PASS"
 
 
+def error_reason(candidate):
+    """Keep named reason codes stable; diagnostics belong in private detail."""
+    if isinstance(candidate,str) and re.fullmatch(r'[a-z][a-z0-9_-]*(?::[a-z0-9_-]+)?',candidate):
+        return candidate,''
+    text=str(candidate)
+    prefixes=(('pristine import ','challenge-build-unavailable'),('pristine copy ','environment-mismatch'),
+              ('checker package changed','checker_release_mismatch'),('environment ','environment-mismatch'),
+              ('replay tool ','replay-tool-mismatch'),('package:','invalid-package'))
+    return next((token for prefix,token in prefixes if text.startswith(prefix)),'checker-input-unavailable'),text
+
+
 def _finish(rep: dict) -> dict:
     rep["verdict"] = verdict_of(rep)
     from . import error_policy as E
     if rep['error']:
-        candidate=rep.get('reason',rep['error'][0])
-        if not isinstance(candidate,str) or not re.fullmatch(r'[a-z][a-z0-9_-]*',candidate):
-            rep['detail']=str(candidate)
-            candidate=('environment-mismatch' if str(candidate).startswith('environment ') else
-                       'replay-tool-mismatch' if str(candidate).startswith('replay tool ') else
-                       'invalid-package' if str(candidate).startswith('package:') else 'checker-input-unavailable')
-        rep['reason']=candidate
+        rep['reason'],diagnostic=error_reason(rep.get('reason',rep['error'][0]))
+        if diagnostic:rep['detail']=diagnostic
         rep.setdefault('stage','checker')
         compile_record=rep.get('compile') if isinstance(rep.get('compile'),dict) else {}
         detail=('silent-exit:'+str(compile_record.get('compile_rc')) if rep['reason']=='silent-exit' else

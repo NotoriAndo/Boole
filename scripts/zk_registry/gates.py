@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import hashlib
+import errno
 import json
 import os
 import re
@@ -58,9 +59,14 @@ class Gate:
 
 def parse_replay(path: str) -> dict:
     try:return _parse_replay(path)
-    except (OSError,ValueError,TypeError):
+    except OSError as ex:
+        if ex.errno not in (errno.ELOOP,errno.ENOTDIR,errno.EINVAL):
+            return dict(consts=[],axioms=[],target=None,type_str=None,replay=None,error='checker-input-unavailable')
         return dict(consts=[],axioms=[],target=None,type_str=None,replay='FAIL: malformed record',
                     malformed=dict(line=0,tag='file'),error='replay-unavailable')
+    except (ValueError,TypeError):
+        return dict(consts=[],axioms=[],target=None,type_str=None,replay='FAIL: malformed record',
+                    malformed=dict(line=0,tag='record'),error='replay-unavailable')
 
 
 def _parse_replay(path: str) -> dict:
@@ -139,6 +145,8 @@ def g_elab(env: L.LeanEnv, pkg_dir: str, build_dir: str, ns: str, work: str, tim
     fqn = f"{ns}.{theorem}"
     rr, post = run_replay(env, os.path.join(build_dir, "Statement.olean"), fqn, os.path.join(work, "replay.out"),
                           E.LEAN_OPTIONS, [build_dir], timeout)
+    if post.get('error') in ('output-cap','checker-input-unavailable'):
+        return Gate('G-ELAB','ERROR',dict(detail,reason=post['error'],stage='reference:replay'))
     detail.update(replay=post["replay"], replay_secs=rr.secs, replay_peak_rss_mb=rr.peak_rss_mb, axioms=post["axioms"],
                   target=post["target"])
     ok = (post["replay"] == "ok" and isinstance(post["target"], dict) and post["target"]["kind"] == "theorem"

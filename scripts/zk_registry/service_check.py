@@ -11,7 +11,6 @@ import argparse
 import copy
 import json
 import os
-import re
 import socket
 from dataclasses import replace
 from .safe_fs import Path
@@ -290,9 +289,9 @@ def run(config, package_dir, submission_dir, work_dir, *, sandbox=None, acceptan
         result['reason'] = proof_report.get('reason') or next(iter(proof_report.get('error') or []),'checker-unavailable')
         result['stage'] = proof_report.get('stage','checker')
         result['detail'] = proof_report.get('detail','')
-        if not isinstance(result['reason'],str) or not re.fullmatch(r'[a-z][a-z0-9_-]*',result['reason']):
-            result['detail']=str(result['reason'])
-            result['reason']='checker-input-unavailable'
+        from . import check as C
+        result['reason'],diagnostic=C.error_reason(result['reason'])
+        if diagnostic:result['detail']=diagnostic
     if schema in RATCHET_KINDS and verdict == 'PASS':
         result['record'] = _ratchet_record(problem, report['candidate'])
         result['artifact'] = ratchet_artifact(problem, report)

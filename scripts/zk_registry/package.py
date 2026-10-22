@@ -486,6 +486,22 @@ def _correctness_closure_errors(report: dict, checker: dict) -> list[str]:
     return invalid + fail + error
 
 
+def _battery_messages(root,attempt,source_file,stdout_file):
+    from . import bounded_capture as BC,lean_runner as L
+    if 'messages_file' in attempt:
+        name=source_file[:-5]+'.messages.ndjson'
+        if attempt['messages_file']!=name or attempt.get('messages_sha256')!=sha256_file(str(root/name)):
+            raise ValueError('battery complete-message binding differs')
+        sink=BC.MessageSink(retain_all=True)
+        with open(root/name,'rb') as stream:BC.drain(stream,sink)
+        if sink.capped or sink.capture_failed:raise ValueError('battery complete messages unavailable')
+        return sink.messages
+    # Historical records bound the entire stdout file before bounded log retention.
+    if attempt.get('streams',{}).get('stdout',{}).get('truncated'):
+        raise ValueError('battery raw output is incomplete')
+    with open(root/stdout_file) as stream:return L.parse_messages(stream.read())
+
+
 def _correctness_content_errors(problem: dict, pkg_dir: str) -> list[str]:
     """Recheck the embedded S record, original R1CS, concrete row and bound evaluation result."""
     from pathlib import Path
@@ -600,7 +616,7 @@ def _correctness_content_errors(problem: dict, pkg_dir: str) -> list[str]:
                     or attempt.get('stdout_sha256') != sha256_file(str(root / stdout_file))):
                 errs.append('battery attempt source, form or output binding differs')
             result = L.RunResult(attempt.get('exit_code'), '', 0, False, False, 0, attempt.get('reason', ''))
-            messages = L.parse_messages((root / stdout_file).read_text())
+            messages = _battery_messages(root,attempt,source_file,stdout_file)
             completed = CB.battery_completed(result, messages)
             closed = completed and result.rc == 0 and not L.errors(messages)
             if attempt.get('completed') is not completed or attempt.get('closed') is not closed:
