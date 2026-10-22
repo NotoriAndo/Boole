@@ -197,7 +197,7 @@ INVALID `kernel-disagreement`. A nanoda acceptance with a legacy, untyped Lean n
 `replay-unavailable`: changing only the local worker stack can produce that negative. Legacy ZkReplay failure gives ERROR only when compilation has established no deterministic INVALID/FAIL.
 Observed resource failures take precedence, followed by structured boundary ERROR and INVALID, then an
 exit-code-only availability rule, deterministic compile/postcheck findings, and missing print or replay output.
-A nonzero compile exit without structured Lean error diagnostics is ERROR `resource-unavailable`; raw stdout/stderr
+A nonzero compile exit without structured Lean error diagnostics is ERROR `silent-exit`; raw stdout/stderr
 lines do not count toward the submission compile error count. Other message consumers retain bounded,
 prefixed raw-line reports. A boundary verdict is applied before that exit-code-only rule. Missing
 `#print axioms` output is FAIL only when no deterministic finding exists: a submission can capture the appended
@@ -213,6 +213,20 @@ diagnostic kinds for INVALID `resource-cap`; English message text does not decid
 The exported-constant cap remains deterministic INVALID `resource-cap`. Wall/memory/observation interruption is
 retryable ERROR `resource-unavailable`, not mathematical rejection. Time/RSS cover the owned process tree;
 sampled cooperative guards are not certified adversarial peak-memory bounds.
+
+The tracked v2 cap profile declares every stream kind. Compile stdout is measured while draining by JSON
+message count and UTF-8 diagnostic data bytes, excluding file names and positions. Limits are 16,384 messages
+and 16 MiB data; replay records 128 MiB, sealed exports 2 GiB and identity stdout 1 MiB. Stdout/stderr use separate
+pipes and streaming byte counts/SHA-256. Raw logs retain 512 KiB head plus 512 KiB tail, with a registry 256 MiB
+guard. Raw diagnostics do not establish verdicts. Structured overflow is ERROR `output-cap` before partial
+findings can be applied; reference-stage overflow is a node fault. A drain error is ERROR `capture-failed`.
+These caps are fixed across retry envelopes. Without `--keep`, attempt builds and exports are removed after
+success or failure; bounded diagnostics and digests remain, and export-integrity evidence is retained.
+
+Replay records have exact tab-separated field counts, LF termination and bounded reads. Malformed records
+produce ERROR `replay-unavailable` with detail `malformed-record`. Unexpected checker exceptions and usage
+errors exit3 with an ERROR report; a consumer requires agreement between the report and exit code.
+Error groups, reference-stage handling and resource-only retry envelopes are pinned in `error_policy_v1.json`.
 
 Current submission policy v4 scans all solver-written helper declarations and proof text exactly as written.
 Forbidden words may not appear anywhere in that text, including comments and string literals. The reason gives

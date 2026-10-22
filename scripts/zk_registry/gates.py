@@ -57,30 +57,45 @@ class Gate:
 # ------------------------------------------------------------------------------------------ replay
 
 def parse_replay(path: str) -> dict:
+    try:return _parse_replay(path)
+    except (OSError,ValueError,TypeError):
+        return dict(consts=[],axioms=[],target=None,type_str=None,replay=None,error='replay-unavailable')
+
+
+def _parse_replay(path: str) -> dict:
+    """Read a bounded newline-terminated replay record with exact field grammar."""
     post = {"consts": [], "axioms": [], "target": None, "type_str": None, "replay": None}
-    if not os.path.exists(path):
-        return post
-    with open(path, encoding="utf-8") as f:
-        for ln in f.read().splitlines():
-            parts = ln.split("\t")
-            tag = parts[0]
-            if tag == "CONST":
-                post["consts"].append({"name": parts[1], "kind": parts[2], "unsafe": parts[3] == "true",
-                                       "partial": parts[4] == "true"})
-            elif tag == "REPLAY":
-                post["replay"] = "ok"
-            elif tag == "REPLAY-FAIL":
-                post["replay"] = "FAIL: " + (parts[1] if len(parts) > 1 else "")
-            elif tag == "TARGET":
-                post["target"] = {"kind": parts[1], "levels": parts[2]}
-            elif tag == "TARGET-MISSING":
-                post["target"] = "missing"
-            elif tag == "AXIOM":
-                post["axioms"].append(parts[1])
-            elif tag == "TYPE":
-                post["type_str"] = ln[len("TYPE\t"):]
-    if post["type_str"] is not None:
-        post["type_sha256"] = sha256_text(post["type_str"])
+    if not os.path.exists(path):return post
+    cap = L.testnet_caps()['output']['replay_bytes']
+    size=os.stat(path).st_size
+    post['replay_bytes']=size
+    if size > cap:
+        return dict(post,error='output-cap')
+    with open(path,'rb') as f:raw=f.read(cap+1)
+    if len(raw)>cap:return dict(post,error='output-cap')
+    post.update(replay_bytes=len(raw),replay_sha256=hashlib.sha256(raw).hexdigest())
+    try:text=raw.decode('utf-8')
+    except UnicodeError:return dict(post,replay='FAIL: malformed record',malformed=dict(line=1,tag='encoding'))
+    if not raw:return dict(post,replay='FAIL: malformed record',malformed=dict(line=1,tag=''))
+    lines=text.split('\n')
+    if lines[-1]!='':return dict(post,replay='FAIL: malformed record',malformed=dict(line=len(lines),tag=lines[-1].split('\t')[0]))
+    for number,ln in enumerate(lines[:-1],1):
+        parts=ln.split('\t');tag=parts[0]
+        valid=((tag=='CONST' and len(parts)==5 and parts[3] in ('true','false') and parts[4] in ('true','false'))
+               or (tag=='REPLAY' and parts==['REPLAY','ok'])
+               or (tag in ('REPLAY-FAIL','TYPE') and len(parts)>=2)
+               or (tag=='TARGET' and len(parts)==3)
+               or (tag=='TARGET-MISSING' and len(parts)==1)
+               or (tag=='AXIOM' and len(parts)==2))
+        if not valid:return dict(post,replay='FAIL: malformed record',malformed=dict(line=number,tag=tag))
+        if tag=='CONST':post['consts'].append(dict(name=parts[1],kind=parts[2],unsafe=parts[3]=='true',partial=parts[4]=='true'))
+        elif tag=='REPLAY':post['replay']='ok'
+        elif tag=='REPLAY-FAIL':post['replay']='FAIL: '+ln[len(tag)+1:]
+        elif tag=='TARGET':post['target']=dict(kind=parts[1],levels=parts[2])
+        elif tag=='TARGET-MISSING':post['target']='missing'
+        elif tag=='AXIOM':post['axioms'].append(parts[1])
+        elif tag=='TYPE':post['type_str']=ln[len(tag)+1:]
+    if post['type_str'] is not None:post['type_sha256']=sha256_text(post['type_str'])
     return post
 
 
@@ -100,6 +115,9 @@ def g_elab(env: L.LeanEnv, pkg_dir: str, build_dir: str, ns: str, work: str, tim
     rel = E.model_relpath(ns)
     r, msgs = L.compile_module(env, pkg_dir, rel, build_dir, E.LEAN_OPTIONS, timeout)
     detail = {"model_compile_secs": r.secs, "model_compile_rc": r.rc, "model_compile_peak_rss_mb": r.peak_rss_mb}
+    if r.output_capped or r.killed_by.startswith(('output-cap','capture-failed')):
+        from .closure import resource_reason
+        return Gate('G-ELAB','ERROR',dict(detail,reason=resource_reason(r),stage='reference:compile'))
     if r.rc != 0 or r.timeout or L.errors(msgs):
         detail["errors"] = [L.fmt_msg(m) for m in L.errors(msgs)[:5]] or [r.out[-500:]]
         return Gate("G-ELAB", "FAIL", detail)
@@ -107,6 +125,9 @@ def g_elab(env: L.LeanEnv, pkg_dir: str, build_dir: str, ns: str, work: str, tim
     warns = [m for m in msgs if m.get("severity") == "warning"]
     detail.update(statement_compile_secs=r.secs, statement_compile_rc=r.rc, statement_compile_peak_rss_mb=r.peak_rss_mb,
                   statement_warnings=[m.get("data", "")[:200] for m in warns])
+    if r.output_capped or r.killed_by.startswith(('output-cap','capture-failed')):
+        from .closure import resource_reason
+        return Gate('G-ELAB','ERROR',dict(detail,reason=resource_reason(r),stage='reference:compile'))
     if r.rc != 0 or r.timeout or L.errors(msgs):
         detail["errors"] = [L.fmt_msg(m) for m in L.errors(msgs)[:5]] or [r.out[-500:]]
         return Gate("G-ELAB", "FAIL", detail)
@@ -145,11 +166,11 @@ def lean_verdicts(env: L.LeanEnv, build_dir: str, ns: str, n_constraints: int, f
     with open(src, "w", encoding="utf-8") as f:
         f.write(E.emit_fid_runner(ns, n_constraints, files, preconditions))
     r = L.run_lean(env, E.LEAN_OPTIONS + ["--json", src], work, timeout, extra_lean_path=[build_dir])
-    text = "\n".join(m.get("data", "") for m in L.parse_messages(r.out))
+    text = "\n".join(m.get("data", "") for m in (r.messages if r.messages is not None else L.parse_messages(r.out)))
     verdicts = dict(re.findall(r"^FID (\S+) (ACCEPT|REJECT)$", text, re.M))
     verdicts.update({f"PRE:{k}": v for k, v in re.findall(r"^PRE (\S+) (ACCEPT|REJECT)$", text, re.M)})
     if "FID-DONE" not in text:
-        verdicts["__incomplete__"] = "; ".join(L.fmt_msg(m) for m in L.errors(L.parse_messages(r.out))[:3]) or r.out[-300:]
+        verdicts["__incomplete__"] = "; ".join(L.fmt_msg(m) for m in L.errors((r.messages if r.messages is not None else L.parse_messages(r.out)))[:3]) or r.out[-300:]
     return verdicts, r
 
 
@@ -267,8 +288,10 @@ def _battery_file(env: L.LeanEnv, build_dir: str, ns: str, n_constraints: int, w
         f.write(r.out[-200000:])
     run = {"variant": fname.replace("Battery_", ""), "secs": r.secs, "timeout": r.timeout, "memkill": r.memkill,
            "peak_rss_mb": r.peak_rss_mb}
+    if r.output_capped:run['error']='output-cap'
+    if r.killed_by.startswith('capture-failed'):run['error']='capture-failed'
     results = {}
-    for name, c in classify_battery(text, L.parse_messages(r.out), r.timeout or r.memkill).items():
+    for name, c in classify_battery(text, (r.messages if r.messages is not None else L.parse_messages(r.out)), r.timeout or r.memkill).items():
         if c["status"] == "timeout":
             form = next(fm for fm in forms if E.battery_theorem_name(*fm) == name)
             single = emit([form])
@@ -277,13 +300,17 @@ def _battery_file(env: L.LeanEnv, build_dir: str, ns: str, n_constraints: int, w
                 f.write(single)
             rs = L.run_lean(env, E.LEAN_OPTIONS + ["--json", spath], work, single_wall,
                             extra_lean_path=[build_dir], rss_limit_mb=rss_limit_mb)
-            c = classify_battery(single, L.parse_messages(rs.out), rs.timeout or rs.memkill)[name]
+            if rs.output_capped:run['error']='output-cap'
+            if rs.killed_by.startswith('capture-failed'):run['error']='capture-failed'
+            c = classify_battery(single, (rs.messages if rs.messages is not None else L.parse_messages(rs.out)), rs.timeout or rs.memkill)[name]
             c["rerun_single"] = {"secs": rs.secs, "timeout": rs.timeout, "memkill": rs.memkill}
         results[name] = c
     return results, run
 
 
 def _triv_gate(results: dict, runs: list, budget: dict, battery: str) -> Gate:
+    stopped=next((run['error'] for run in runs if run.get('error')),None)
+    if stopped:return Gate('G-TRIV','ERROR',dict(reason=stopped,stage='reference:compile',runs=runs))
     closed = sorted(n for n, c in results.items() if c["closed"])
     detail = {"forms": len(results), "closed_by": closed, "battery": battery,
               "timeouts": sorted(n for n, c in results.items() if c["status"] == "timeout"),

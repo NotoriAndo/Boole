@@ -1,6 +1,7 @@
 """Owned-PID guard controls; signalling is limited to mocked handles or one actual test-owned child."""
 
 import signal
+import io
 import subprocess
 import sys
 import tempfile
@@ -85,7 +86,9 @@ class RuntimeTests(unittest.TestCase):
         """A fast exit whose own identity was never observed fails closed."""
         child = Mock(pid=900001, returncode=0)
         child.poll.return_value = 0
-        child.communicate.return_value = (b'finished', None)
+        child.stdout=io.BytesIO(b'finished')
+        child.stderr=io.BytesIO()
+        child.wait.return_value=0
         original = L.run_process
         self.addCleanup(setattr, L, 'run_process', original)
         with tempfile.TemporaryDirectory() as root, patch.object(R.subprocess, 'Popen', return_value=child), \
@@ -100,8 +103,9 @@ class RuntimeTests(unittest.TestCase):
         """A descendant retaining the pipe cannot make timeout cleanup wait indefinitely."""
         child = Mock(pid=900001, returncode=0)
         child.poll.return_value = 0
-        child.communicate.side_effect = subprocess.TimeoutExpired(['mock'], 1, output=b'partial')
-        child.stdout = Mock()
+        child.wait.side_effect = subprocess.TimeoutExpired(['mock'], 1)
+        child.stdout = io.BytesIO(b'partial')
+        child.stderr = io.BytesIO()
         original = L.run_process
         self.addCleanup(setattr, L, 'run_process', original)
         table = {900001: (1, 0, 'owned-root')}
@@ -113,8 +117,8 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(result.killed_by, 'timeout')
         self.assertTrue(result.timeout)
         self.assertEqual(result.out, 'partial')
-        self.assertEqual([item.kwargs['timeout'] for item in child.communicate.call_args_list], [1, 1])
-        child.stdout.close.assert_called_once()
+        self.assertEqual([item.kwargs['timeout'] for item in child.wait.call_args_list], [1, 1])
+        self.assertTrue(child.stdout.closed)
         terminate.assert_called_once()
 
 

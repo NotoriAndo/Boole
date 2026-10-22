@@ -120,7 +120,7 @@ def production_descriptor() -> dict:
 
 def testnet_caps() -> dict:
     """One tracked cap profile; deterministic fuel enforcement is a separate upgrade."""
-    path = os.path.join(os.path.dirname(__file__), 'data', 'testnet_caps_v1.json')
+    path = os.path.join(os.path.dirname(__file__), 'data', 'testnet_caps_v2.json')
     with open(path, encoding='utf-8') as stream:
         return json.load(stream)
 
@@ -210,6 +210,11 @@ class RunResult:
     killed_by: str = ""                   # reason returned by the ``watch`` hook, if it stopped the run
     boundary: dict | None = None          # trusted production namespace/cgroup receipt
     process_receipt: dict | None = None   # copied host observation, independent of temporary receipt files
+    streams: dict = field(default_factory=dict)
+    output_capped: bool = False
+    messages: list | None = None
+    message_summary: dict | None = None
+    stderr: str = ""
 
 
 class ResourceUnavailable(RuntimeError):
@@ -230,7 +235,8 @@ def enforce_boundary(result):
     from .sandbox import SandboxUnavailable, normalized_boundary
     result.boundary = normalized_boundary(result.boundary)
     if result.timeout or result.memkill or result.killed_by:
-        raise ResourceUnavailable('resource-unavailable')
+        from .closure import resource_reason
+        raise ResourceUnavailable(resource_reason(result) or 'resource-unavailable')
     if result.boundary and result.boundary.get('verdict') != 'PASS':
         reason = result.boundary.get('reason', 'sandbox-unavailable')
         if result.boundary.get('verdict') == 'INVALID':
@@ -258,7 +264,7 @@ def run_process(cmd: list[str], env: dict, cwd: str, timeout: float, rss_limit_m
     """Run ``cmd`` in its own session; kill the whole group on timeout, when RSS exceeds the limit, or
     when ``watch()`` (called every poll) returns a non-empty reason."""
     t0 = time.time()
-    p = subprocess.Popen(cmd, env=env, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+    p = subprocess.Popen(cmd, env=env, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                          start_new_session=True)
     state = {"memkill": False, "peak": 0, "killed_by": ""}
     stop = threading.Event()
@@ -267,8 +273,7 @@ def run_process(cmd: list[str], env: dict, cwd: str, timeout: float, rss_limit_m
         while not stop.wait(poll_s):
             why = watch() if watch else ""
             if why:
-                state["killed_by"] = why
-                _kill(p)
+                capture_stop(why)
                 return
             try:
                 o = subprocess.run(["ps", "-o", "rss=", "-p", str(p.pid)], capture_output=True, text=True).stdout.strip()
@@ -277,22 +282,32 @@ def run_process(cmd: list[str], env: dict, cwd: str, timeout: float, rss_limit_m
                 kb = 0
             state["peak"] = max(state["peak"], kb)
             if rss_limit_mb and kb > rss_limit_mb * 1024:
-                state["memkill"] = True
-                _kill(p)
+                capture_stop('rss-limit')
                 return
 
+    from . import bounded_capture as BC
+    reason_lock = threading.Lock()
+    def capture_stop(reason):
+        with reason_lock:
+            if state["killed_by"] or state["memkill"]:return
+            state["killed_by"] = reason
+            if reason=='rss-limit':state['memkill']=True
+        _kill(p)
+    captured = BC.Capture(p, capture_stop)
     th = threading.Thread(target=guard, daemon=True)
     th.start()
     timed_out = False
     try:
-        out, _ = p.communicate(timeout=timeout)
+        p.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
-        timed_out = True
-        _kill(p)
-        out, _ = p.communicate()
+        capture_stop('timeout')
+        timed_out = state['killed_by']=='timeout'
+        p.wait()
     stop.set()
-    return RunResult(p.returncode, out.decode("utf-8", "replace"), round(time.time() - t0, 2), timed_out,
-                     state["memkill"], state["peak"] // 1024, state["killed_by"])
+    th.join(timeout=2)
+    captured.join()
+    return captured.apply(RunResult(p.returncode, '', round(time.time() - t0, 2), timed_out,
+                     state["memkill"], state["peak"] // 1024, state["killed_by"]))
 
 
 def _kill(p: subprocess.Popen) -> None:
@@ -327,10 +342,14 @@ def run_lean(env: LeanEnv, args: list[str], cwd: str, timeout: float, extra_lean
         command = sandbox.command(command, task_env, [os.path.realpath(env.toolchain),
                                   *(os.path.realpath(path) for path in env.lean_path), *readable],
                                   [task_env['TMPDIR'], *writable], submission_controlled=submission_controlled)
-    if slots is None:
-        return runner(command, task_env, cwd, timeout, rss)
-    with slots:
-        return runner(command, task_env, cwd, timeout, rss)
+    from . import bounded_capture as BC
+    def execute():
+        if slots is None:return runner(command, task_env, cwd, timeout, rss)
+        with slots:return runner(command, task_env, cwd, timeout, rss)
+    if BC.configured():return execute()
+    from .sandbox import stage_kind
+    sink = BC.MessageSink(retain_all=True) if stage_kind([env.lean, *args]) == 'compile' else BC.RawSink()
+    with BC.capture(stdout=sink):return execute()
 
 
 def parse_messages(out: str, *, structured_only: bool = False) -> list[dict]:
@@ -364,7 +383,7 @@ def compile_module(env: LeanEnv, src_root: str, rel_path: str, build_dir: str, o
     args = elaboration_options(opts) + ["--json", "-R", src_root, "-o", olean, "-i", os.path.join(build_dir, stem + ".ilean"),
                    os.path.join(src_root, rel_path)]
     r = run_lean(env, args, src_root, timeout, extra_lean_path=[build_dir, *extra_lean_path])
-    return r, parse_messages(r.out)
+    return r, (r.messages if r.messages is not None else parse_messages(r.out))
 
 
 def errors(msgs: list[dict]) -> list[dict]:

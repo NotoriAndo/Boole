@@ -276,7 +276,7 @@ def runner(log_directory: str, total_timeout: float | None = None, *, sandbox=No
                 return copy_step_report(label, record, result)
             timeout = min(timeout, remaining)
         child = subprocess.Popen(cmd, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
-                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
         owned, state, stop = {}, dict(reason='', peak=0, errors=[]), threading.Event()
         try:
             table = processes()
@@ -306,27 +306,30 @@ def runner(log_directory: str, total_timeout: float | None = None, *, sandbox=No
                 except Exception as ex:
                     reason = 'process-watch-error:' + type(ex).__name__
                 if reason:
-                    state['reason'] = reason
-                    state['errors'] += terminate_owned(child, owned)
+                    capture_stop(reason)
                     return
 
+        from . import bounded_capture as BC
+        reason_lock = threading.Lock()
+        def capture_stop(reason):
+            with reason_lock:
+                if state['reason']:return
+                state['reason'] = reason
+            state['errors'] += terminate_owned(child, owned)
+        captured = BC.Capture(child, capture_stop)
         thread = threading.Thread(target=guard, daemon=True)
         thread.start()
         try:
-            output, _ = child.communicate(timeout=timeout)
+            child.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
-            state['reason'] = ('checker-deadline'
-                               if deadline is not None and time.monotonic() >= deadline else 'timeout')
-            state['errors'] += terminate_owned(child, owned)
+            capture_stop('checker-deadline' if deadline is not None and time.monotonic() >= deadline else 'timeout')
             try:
-                output, _ = child.communicate(timeout=1)
-            except subprocess.TimeoutExpired as ex:
-                output = ex.output or b''
-                child.stdout.close()
+                child.wait(timeout=1)
+            except subprocess.TimeoutExpired:
                 if child.poll() is None:
                     child.kill()
                     child.wait(timeout=1)
-                state['errors'].append('owned-or-unobserved descendant retained output pipe')
+                state['errors'].append('owned child did not exit after cleanup')
         except BaseException:
             terminate_owned(child, owned)
             raise
@@ -344,17 +347,19 @@ def runner(log_directory: str, total_timeout: float | None = None, *, sandbox=No
                 state['errors'] += terminate_owned(child, owned)
         if not owned:
             state['reason'] = state['reason'] or 'unobserved-owned-root'
+        captured.join()
         code = 125 if state['reason'] and child.returncode == 0 else child.returncode
-        result = L.RunResult(code, output.decode('utf-8', 'replace'), round(time.monotonic() - epoch, 3),
+        result = L.RunResult(code, '', round(time.monotonic() - epoch, 3),
                              state['reason'] in ('timeout', 'checker-deadline'), state['reason'] == 'rss-limit',
                              int(state['peak']), state['reason'])
+        result = captured.apply(result)
         from .sandbox import capture_result
         result = capture_result(cmd, result)
         record = dict(argv=cmd, cwd=cwd, start_utc=started,
                       end_utc=datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
                       exit_code=code, child_exit_code=child.returncode, reason=state['reason'],
                       peak_rss_mb=state['peak'], rss_limit_mb=rss_limit_mb or 12000,
-                      owned_identities=owned, cleanup_observation_errors=state['errors'], boundary=result.boundary)
+                      owned_identities=owned, cleanup_observation_errors=state['errors'], boundary=result.boundary, streams=result.streams)
         return copy_step_report(label, record, result)
 
     def copy_step_report(label, record, result):

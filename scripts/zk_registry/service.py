@@ -37,7 +37,7 @@ UNSUPPORTED_SPEC = 'tracked tooling has no general reference-differential/mutant
 COMMIT_DOMAIN = 'boole-zk-registry-commit/v1'
 EVENT_DOMAIN = b'boole-zk-registry-event/v1\0'
 ZERO_HASH = '0' * 64
-SERVICE_SOURCES = ('service.py', 'service_check.py', 'catalog_v2.py')
+SERVICE_SOURCES = ('service.py', 'service_check.py', 'catalog_v2.py', 'error_policy.py', 'data/error_policy_v1.json')
 
 
 class RegistryError(ValueError):
@@ -582,7 +582,7 @@ class Registry:
                         (Path(work_dir) / 'process-receipts.json').write_bytes(canonical(dict(
                             process_receipts=verdict['process_receipts'])) + b'\n')
                     return {key: value for key, value in verdict.items()
-                            if key in ('verdict', 'reason', 'assurance', 'record', 'artifact')}
+                            if key in ('verdict', 'reason', 'assurance', 'record', 'artifact', 'attempt')}
 
     def reveal(self, sequence, problem_id, solver_id, submission_dir, salt, logical_time):
         """Snapshot and recheck a bound reveal; wrong bindings never consume the intended commit."""

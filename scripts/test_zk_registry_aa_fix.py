@@ -78,8 +78,7 @@ class NativeBoundaryOutcomes(unittest.TestCase):
                     C._compile_and_postcheck(env, problem, temp, 'theorem goal : True := by trivial', str(work), 1)
             self.assertEqual(canary.read_text(), 'must remain unchanged')
             (work / 'replay.out').symlink_to(canary)
-            with self.assertRaises(OSError):
-                G.parse_replay(str(work / 'replay.out'))
+            self.assertEqual(G.parse_replay(str(work / 'replay.out'))['error'],'replay-unavailable')
             (work / 'linked').symlink_to(root, target_is_directory=True)
             with self.assertRaises(OSError):
                 RT.put(str(work / 'linked/host-canary'), 'overwrite')

@@ -113,6 +113,11 @@ guard, not the OS sandbox or a certified exact peak-memory bound. Landrun suppli
 boundary separately. Native output roots cannot write generated packages, Lean proof roots or sealed exports.
 Linux qualification and network activation are not supplied by this CLI.
 
+Worker results retain the underlying ERROR reason. Private attempt evidence identifies worker/host,
+resource envelope, trusted stage, group, canary/resource observations and receipt digest. Trusted verdict files
+are read up to 64 KiB; larger files are node errors. Worker exit and reported verdict must agree. Retry envelopes
+may change wall time, RSS and payload memory only, within the pinned node envelope; output and kernel caps stay fixed.
+
 ## Event log and replay
 
 `events.jsonl` is append-only, canonical JSONL. Each event binds its sequence, previous event hash, logical

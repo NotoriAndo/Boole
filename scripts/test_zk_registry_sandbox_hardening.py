@@ -129,7 +129,7 @@ class OutcomePrecedence(unittest.TestCase):
 
             def child(*args, **kwargs):
                 self.assertEqual(state, ['delegated'])
-                return L.RunResult(0, '', 0, False)
+                return L.RunResult(3, '', 0, False)
 
             with patch.object(SC, 'delegated_cgroup', side_effect=lambda: state.append('delegated'), create=True), \
                  patch.object(SC.CR, 'runner', return_value=child):
