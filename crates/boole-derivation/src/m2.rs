@@ -191,6 +191,7 @@ impl Config {
             .q_max
             .checked_mul(self.verdict_gas)
             .and_then(|x| x.checked_add(crate::config::L1INFO_GAS))
+            .and_then(|x| x.checked_add(crate::config::M2ROOT_GAS))
             .and_then(|x| x.checked_add(16_777_216))
             .is_none_or(|x| x > l2_gas_limit)
         {

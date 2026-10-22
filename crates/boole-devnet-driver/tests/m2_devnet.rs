@@ -514,7 +514,7 @@ fn i4_i5_live_and_recorded_abc_mid_reveal_restart_reorg() -> Result<()> {
         .collect();
     assert_eq!(full.len(), 13);
     assert!(full.iter().all(|g| g["gas_used"] == g["calldata_floor"]));
-    let mut data = json!({"schema":"boole-devnet-m2-recording-v1.1","provenance":{"pins":fixture_json("pins.json")?,"source_genesis_sha256":hex_string(&hash(&fs::read(fixture("l2-genesis.json"))?)),"rules":"M2 v1.1; finalized L1 inbox; synthetic generator and environment identities"},"acceptance":{"live_abc":true,"recorded_abc":true,"restart_height":17,"unfinalized_reorg":true},"config":c,"l2_genesis":g,"codec":codec,"gate_seam":gate_seam,"mix_hash":{"unique":mix,"count":mix.len()},"eip7825":eip7825,"gas":gas,"heights":rows});
+    let mut data = json!({"schema":"boole-devnet-m2-recording-v1.2","provenance":{"pins":fixture_json("pins.json")?,"source_genesis_sha256":hex_string(&hash(&fs::read(current_genesis())?)),"rules":"M2 v1.2; finalized L1 inbox; synthetic generator and environment identities"},"acceptance":{"live_abc":true,"recorded_abc":true,"restart_height":17,"unfinalized_reorg":true},"config":c,"l2_genesis":g,"codec":codec,"gate_seam":gate_seam,"mix_hash":{"unique":mix,"count":mix.len()},"eip7825":eip7825,"gas":gas,"heights":rows});
     data["package_encoding"] = json!({"codec":1,"raw_len":package_raw,"carried_len":package.len(),"carried_sha256":hex_string(&hash(&package)),"fixture":"package-codec-v1.1.json"});
     bind_provenance(&mut data)?;
     fs::write(
@@ -749,7 +749,7 @@ fn i6_adversarial_uncapped_reveal_copy_cap_and_gas_abc() -> Result<()> {
         "USER-GAS-EXCEEDS-BLOCK-BUDGET"
     );
     recorded_abc(&mut rt, &binary, &g, &c, &rows)?;
-    let mut data = json!({"schema":"boole-devnet-m2-adversarial-v1.1","provenance":{"pins":fixture_json("pins.json")?},"acceptance":{"live_abc":true,"recorded_abc":true},"config":c,"l2_genesis":genesis()?,"heights":rows,"gas":gas});
+    let mut data = json!({"schema":"boole-devnet-m2-adversarial-v1.2","provenance":{"pins":fixture_json("pins.json")?},"acceptance":{"live_abc":true,"recorded_abc":true},"config":c,"l2_genesis":genesis()?,"heights":rows,"gas":gas});
     bind_provenance(&mut data)?;
     fs::write(
         rt.path.join("adversarial.json"),
@@ -889,7 +889,7 @@ fn i7_rounds_two_slots_deadline_withheld_next_draw_abc() -> Result<()> {
     fs::write(&g, serde_json::to_vec_pretty(&genesis()?)?)?;
     compare_live_rows(&mut rt, &binary, &g, &c, &mut rows)?;
     recorded_abc(&mut rt, &binary, &g, &c, &rows)?;
-    let mut data = json!({"schema":"boole-devnet-m2-rounds-v1.1","provenance":{"pins":fixture_json("pins.json")?},"acceptance":{"live_abc":true,"recorded_abc":true},"config":c,"l2_genesis":genesis()?,"heights":rows,"gas":gas});
+    let mut data = json!({"schema":"boole-devnet-m2-rounds-v1.2","provenance":{"pins":fixture_json("pins.json")?},"acceptance":{"live_abc":true,"recorded_abc":true},"config":c,"l2_genesis":genesis()?,"heights":rows,"gas":gas});
     bind_provenance(&mut data)?;
     fs::write(
         rt.path.join("rounds.json"),

@@ -20,7 +20,26 @@ impl FakeEngine {
         let rows: Vec<Value> = serde_json::from_str(MAIN).unwrap();
         Self {
             parent: serde_json::from_value(rows[0]["parent"].clone()).unwrap(),
-            transactions: rows[0]["attributes"]["transactions"].clone(),
+            transactions: {
+                let l1 = serde_json::from_value(rows[0]["l1"].clone()).unwrap();
+                let p = serde_json::from_value(rows[0]["parent"].clone()).unwrap();
+                let logs = serde_json::from_value::<Vec<_>>(rows[0]["logs"].clone()).unwrap();
+                let c = boole_derivation::m2::Config::devnet();
+                serde_json::to_value(
+                    boole_derivation::derive_with_m2(
+                        &boole_derivation::m2::State::new(&c, 30_000_000).unwrap(),
+                        &c,
+                        &l1,
+                        &logs,
+                        &p,
+                    )
+                    .unwrap()
+                    .0
+                    .attributes
+                    .transactions,
+                )
+                .unwrap()
+            },
             status_call: None,
             calls: vec![],
         }
@@ -41,6 +60,7 @@ impl Engine for FakeEngine {
             "engine_forkchoiceUpdatedV3" => {
                 if params[1].is_null() {
                     self.parent.number = 1;
+                    self.parent.m2_root_deposit = self.transactions[1].as_str().map(str::to_owned);
                     self.parent.hash = format!("0x{}", "12".repeat(32));
                 }
                 json!({"payloadStatus":{"status":status},"payloadId":"0x1234"})

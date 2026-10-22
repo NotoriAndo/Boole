@@ -93,6 +93,7 @@ struct Client {
     attrs: Value,
     calls: Vec<(String, Value)>,
     fail: bool,
+    tamper_root: u8,
 }
 impl Client {
     fn new() -> Self {
@@ -107,6 +108,7 @@ impl Client {
             attrs: Value::Null,
             calls: vec![],
             fail: false,
+            tamper_root: 0,
         }
     }
 }
@@ -138,6 +140,8 @@ impl Engine for Client {
                     .unwrap();
                     self.head.l1_info =
                         Some(self.attrs["transactions"][0].as_str().unwrap().into());
+                    self.head.m2_root_deposit =
+                        self.attrs["transactions"][1].as_str().map(str::to_owned);
                     self.history.insert(self.head.number, self.head.clone());
                 } else {
                     self.attrs = p[1].clone();
@@ -145,15 +149,35 @@ impl Engine for Client {
                 json!({"payloadStatus":{"status":"VALID"},"payloadId":"0x1"})
             }
             "engine_getPayloadV5" => {
-                json!({"executionPayload":{"transactions":self.attrs["transactions"],"blockNumber":format!("0x{:x}",self.head.number+1),"blockHash":format!("0x{:064x}",self.head.number+1),"parentHash":self.head.hash,"timestamp":self.attrs["timestamp"],"gasLimit":self.attrs["gasLimit"]}})
+                let mut txs = self.attrs["transactions"].as_array().unwrap().clone();
+                match self.tamper_root {
+                    1 => {
+                        txs.remove(1);
+                    }
+                    2 => {
+                        let mut bytes = boole_derivation::attributes::hex_bytes(
+                            txs[1].as_str().unwrap(),
+                            "root",
+                        )
+                        .unwrap();
+                        *bytes.last_mut().unwrap() ^= 1;
+                        txs[1] = json!(boole_derivation::attributes::hex_string(&bytes));
+                    }
+                    3 => txs.swap(0, 1),
+                    _ => {}
+                }
+                json!({"executionPayload":{"transactions":txs,"blockNumber":format!("0x{:x}",self.head.number+1),"blockHash":format!("0x{:064x}",self.head.number+1),"parentHash":self.head.hash,"timestamp":self.attrs["timestamp"],"gasLimit":self.attrs["gasLimit"]}})
             }
-            "engine_newPayloadV4" => json!({"status":"VALID"}),
+            "engine_newPayloadV4" => {
+                self.attrs = p[0].clone();
+                json!({"status":"VALID"})
+            }
             _ => panic!("unexpected Engine method"),
         })
     }
 }
 #[test]
-fn t15_m2_adds_no_engine_call_or_payload() {
+fn t15_m2root_adds_one_deposit_and_no_engine_call() {
     let mut l = Source::new();
     let mut client = Client::new();
     let parent = client.head().unwrap();
@@ -162,7 +186,16 @@ fn t15_m2_adds_no_engine_call_or_payload() {
     let StepOutcome::Derived(actual) = d.step(1).unwrap() else {
         panic!("wait")
     };
-    assert_eq!(actual.attributes, expected.attributes);
+    let mut users = actual.attributes.clone();
+    users.transactions.remove(1);
+    assert_eq!(users, expected.attributes);
+    boole_derivation::system::check_m2_root(
+        actual.attributes.transactions.get(1).map(String::as_str),
+        1,
+        &d.l1.rows[&1].0.hash,
+        d.m2_state().root,
+    )
+    .unwrap();
     assert_eq!(d.engine.calls.len(), 4);
     assert_eq!(d.m2_state().height(), 1);
     assert_ne!(d.m2_state().root, [0; 32]);
@@ -538,5 +571,86 @@ fn v11_slot_digests_are_on_wait_derived_and_stall_evidence() {
             row["m2_config_digest"],
             boole_derivation::attributes::hex_string(&Config::devnet().digest())
         );
+    }
+}
+
+#[test]
+fn m2root_missing_or_divergent_payload_stops_before_engine_import() {
+    for mode in 1..=3 {
+        let mut engine = Client::new();
+        engine.tamper_root = mode;
+        let mut driver = Driver::new(Source::new(), engine);
+        let error = driver
+            .step(1)
+            .expect_err("must refuse missing or changed M2ROOT");
+        assert_eq!(
+            error.kind,
+            boole_devnet_driver::driver::StallKind::M2Root { height: 1 }
+        );
+        assert_eq!(
+            driver.engine.calls.len(),
+            2,
+            "must not import or select the block: {error}"
+        );
+        assert_eq!(driver.m2_state().height(), 0);
+        assert!(driver.step(1).is_err());
+        assert_eq!(driver.engine.calls.len(), 2, "sticky, no crash/retry loop");
+    }
+}
+#[test]
+fn m2root_restart_refold_refuses_the_first_divergent_height() {
+    let mut a = Driver::new(Source::new(), Client::new());
+    for h in 1..=3 {
+        a.step(h).unwrap();
+    }
+    let mut header = a.engine.history[&2].clone();
+    let mut bytes =
+        boole_derivation::attributes::hex_bytes(header.m2_root_deposit.as_deref().unwrap(), "root")
+            .unwrap();
+    *bytes.last_mut().unwrap() ^= 1;
+    header.m2_root_deposit = Some(boole_derivation::attributes::hex_string(&bytes));
+    a.engine.history.insert(2, header);
+    let calls = a.engine.calls.len();
+    let mut restarted = Driver::new(Source::new(), a.engine);
+    let error = restarted
+        .step(4)
+        .expect_err("must refuse divergent historic M2ROOT");
+    assert!(error.reason.contains("height 2"), "{error}");
+    assert_eq!(
+        error.kind,
+        boole_devnet_driver::driver::StallKind::M2Root { height: 2 }
+    );
+    assert_eq!(restarted.engine.calls.len(), calls);
+    assert_eq!(restarted.m2_state().height(), 0);
+}
+
+#[test]
+fn m2root_divergent_local_fold_refuses_peer_payload_while_others_continue() {
+    let mut a = Driver::new(Source::new(), Client::new());
+    let mut source = Source::new();
+    source.rows.get_mut(&2).unwrap().1.pop(); // test-only missing M2 event
+    let mut b = Driver::new(source, Client::new());
+    let mut c = Driver::new(Source::new(), Client::new());
+    for h in 1..=3 {
+        a.step(h).unwrap();
+        let payload = a.engine.calls[(h as usize - 1) * 4 + 2].1[0].clone();
+        c.import_payload(h, payload.clone()).unwrap();
+        assert_eq!(a.engine.head.hash, c.engine.head.hash);
+        assert_eq!(a.m2_state().root, c.m2_state().root);
+        if h == 1 {
+            b.import_payload(h, payload).unwrap();
+        } else {
+            let error = b.import_payload(h, payload).unwrap_err();
+            assert_eq!(
+                error.kind,
+                boole_devnet_driver::driver::StallKind::M2Root { height: 2 }
+            );
+            assert_eq!(b.engine.head.number, 1);
+            assert_eq!(
+                b.engine.calls.len(),
+                2,
+                "only the first successful import was called"
+            );
+        }
     }
 }

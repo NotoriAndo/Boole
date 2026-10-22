@@ -2,7 +2,7 @@ use anyhow::{ensure, Context, Result};
 use boole_derivation::m2::Config;
 use boole_devnet_driver::l1::RpcL1;
 use boole_devnet_mcp::{
-    client::{fixed, l2_gas_limit, Client, ClientOptions, RpcPoster},
+    client::{fixed, l2_gas_limit, Client, ClientOptions, RpcL2, RpcPoster},
     codec::Codec,
     hook::Precheck,
     protocol,
@@ -71,6 +71,7 @@ fn main() -> Result<()> {
         account,
         args.state_dir,
         ClientOptions {
+            l2: Some(Box::new(RpcL2::new(&args.node_rpc)?)),
             l2_gas_limit: l2_gas_limit(&args.node_rpc)?,
             codec,
             hook,

@@ -931,3 +931,46 @@ fn an_open_candidate_with_finalized_parts_can_cancel_instead_of_posting_parts() 
         "CANCELLED"
     );
 }
+
+struct RootNode(Option<Hash>);
+impl boole_devnet_mcp::client::L2Source for RootNode {
+    fn root(&mut self, _height: u64, _origin: &str) -> Result<Option<Hash>> {
+        Ok(self.0)
+    }
+}
+#[test]
+fn m2root_client_reports_match_and_hard_stalls_on_mismatch() {
+    let (mut source, c, rows) = fixture();
+    source.finalized = 3;
+    let expected =
+        boole_devnet_mcp::client::fixed(rows[2]["result"]["m2_root"].as_str().unwrap()).unwrap();
+    for root in [Some(expected), Some([255; 32]), None] {
+        let dir = Dir::new();
+        let mut options = ClientOptions::new(30_000_000);
+        options.l2 = Some(Box::new(RootNode(root)));
+        let mut client = Client::new(
+            source.clone(),
+            NoPosts,
+            c.clone(),
+            [1; 20],
+            dir.0.clone(),
+            options,
+        )
+        .unwrap();
+        let result = client.sync();
+        assert_eq!(result.is_ok(), root.is_none() || root == Some(expected));
+        let view = client
+            .call("boole.devnet_status", &serde_json::json!({}))
+            .unwrap();
+        assert_eq!(
+            view["l2_m2_root_match"],
+            root.map(|r| r == expected)
+                .map(serde_json::Value::Bool)
+                .unwrap_or(serde_json::Value::Null)
+        );
+        if root == Some([255; 32]) {
+            assert!(client.tick().is_err());
+            assert!(!view["stalled"].is_null());
+        }
+    }
+}

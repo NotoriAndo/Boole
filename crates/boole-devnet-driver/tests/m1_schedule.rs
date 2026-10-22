@@ -12,7 +12,7 @@ use serde_json::{json, Value};
 use std::fs;
 use support::m2::hash;
 use support::*;
-const NEW: &str = "s1b-recorded-schedule-budget-v3.json";
+const NEW: &str = "s1b-recorded-schedule-budget-v4.json";
 fn derived(out: StepOutcome) -> Result<Derived> {
     match out {
         StepOutcome::Derived(d) => Ok(*d),
@@ -93,7 +93,7 @@ fn m1_budget_compliant_schedule_live_and_recorded_abc() -> Result<()> {
     let Some(anvil) = pinned("BOOLE_DEVNET_ANVIL", "anvil")? else {
         return Ok(());
     };
-    let mut rt = Runtime::new("m1-schedule-budget-v3")?;
+    let mut rt = Runtime::new("m1-schedule-budget-v4")?;
     let l1 = rt.anvil(&anvil)?;
     let accounts = l1.call("eth_accounts", json!([]))?;
     let user = accounts[0].as_str().context("account")?;
@@ -116,7 +116,7 @@ fn m1_budget_compliant_schedule_live_and_recorded_abc() -> Result<()> {
         rows.push(json!({"height":h,"l1":block,"logs":logs}));
     }
     l1.call("anvil_mine", json!(["0x8"]))?;
-    let g = fixture("l2-genesis.json");
+    let g = support::m2::current_genesis();
     let mut expected = vec![];
     for (index, name) in ["a", "b", "c"].into_iter().enumerate() {
         let node = rt.node(&binary, &g, name, index as u16)?;
@@ -186,11 +186,13 @@ fn m1_budget_compliant_schedule_live_and_recorded_abc() -> Result<()> {
         }
         rt.stop(name)?;
     }
-    let mut data = json!({"schema":"boole-devnet-m1-schedule-budget-v3","provenance":{"source_cases":"s1b-cases.json","source_cases_sha256":hex_string(&hash(&fs::read(fixture("s1b-cases.json"))?)),"pins":fixture_json("pins.json")?,"change":"Move the third 12M-gas candidate from height 24 to the beginning of height 25. Preserve every original raw transaction occurrence and restore the sender nonce sequence."},"acceptance":{"live_abc":true,"recorded_abc":true,"case10_included_and_duplicate_skipped":true,"case13_included_status0_and_fee_charged":true},"schedule":plan,"heights":rows});
+    let mut data = json!({"schema":"boole-devnet-m1-schedule-budget-v4","provenance":{"source_cases":"s1b-cases.json","source_cases_sha256":hex_string(&hash(&fs::read(fixture("s1b-cases.json"))?)),"pins":fixture_json("pins.json")?,"change":"Move the third 12M-gas candidate from height 24 to the beginning of height 25. Preserve every original raw transaction occurrence and restore the sender nonce sequence."},"acceptance":{"live_abc":true,"recorded_abc":true,"case10_included_and_duplicate_skipped":true,"case13_included_status0_and_fee_charged":true},"schedule":plan,"heights":rows});
     let c = boole_derivation::m2::Config::devnet();
     data["provenance"]["m2_config"] = json!(c);
     data["provenance"]["m2_config_digest"] = json!(hex_string(&c.digest()));
-    data["provenance"]["m2_rules"] = json!("v1.1 reset");
+    data["provenance"]["m2_rules"] = json!("v1.2 reset");
+    data["provenance"]["engine_profile"] = engine_profile();
+    data["provenance"]["source_genesis_sha256"] = json!(hex_string(&hash(&fs::read(&g)?)));
     fs::write(
         rt.path.join("recording.json"),
         serde_json::to_vec_pretty(&data)?,

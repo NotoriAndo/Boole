@@ -117,3 +117,81 @@ fn l2_head_gas_limit_is_read_and_the_chain_identity_is_checked() {
     assert!(l2_gas_limit(&url).is_err());
     worker.join().unwrap();
 }
+
+#[test]
+fn l2_root_rpc_reads_both_real_transactions_and_checks_their_hashes() {
+    use boole_derivation::{
+        attributes::{hex_bytes, hex_string},
+        system,
+        user_tx::keccak,
+        L1Block,
+    };
+    use boole_devnet_mcp::client::{L2Source, RpcL2};
+    let rows: Vec<Value> = serde_json::from_str(include_str!(
+        "../../../fixtures/devnet-m1/s1b-recorded-main.json"
+    ))
+    .unwrap();
+    let mut l1: L1Block = serde_json::from_value(rows[0]["l1"].clone()).unwrap();
+    l1.number = 7;
+    l1.hash = hex_string(&[3; 32]);
+    let info = system::l1_info(&l1).unwrap();
+    let root = system::m2_root_deposit(&l1, [19; 32]).unwrap();
+    let hashes: Vec<_> = [&info, &root]
+        .iter()
+        .map(|raw| hex_string(&keccak(&hex_bytes(raw, "raw").unwrap())))
+        .collect();
+    for corrupt_hash in [false, true] {
+        let block = json!({"number":"0x7","hash":hex_string(&[2;32]),"timestamp":"0x1","gasLimit":"0x1c9c380","miner":hex_string(&[0;20]),"extraData":"0x","transactions":[hashes[0],if corrupt_hash {hex_string(&[255;32])}else{hashes[1].clone()}]});
+        let (url, worker) = serve(vec![
+            ("eth_chainId", 200, json!("0xb001e")),
+            ("eth_getBlockByNumber", 200, block),
+            ("eth_getRawTransactionByHash", 200, json!(info)),
+            ("eth_getRawTransactionByHash", 200, json!(root)),
+        ]);
+        let mut node = RpcL2::new(&url).unwrap();
+        let actual = node.root(7, &l1.hash);
+        if corrupt_hash {
+            assert!(matches!(
+                actual
+                    .unwrap_err()
+                    .downcast_ref::<boole_derivation::InputError>(),
+                Some(boole_derivation::InputError::M2Root { height: 7 })
+            ));
+        } else {
+            assert_eq!(actual.unwrap(), Some([19; 32]));
+        }
+        worker.join().unwrap();
+    }
+    // RPC extension fields cannot stand in for an actual block transaction.
+    // A present transaction whose raw bytes are unavailable/malformed is also
+    // a typed commitment failure, rather than a usable metadata commitment.
+    for bad_raw in [None, Some(Value::Null), Some(json!("0xzz"))] {
+        let transactions = if bad_raw.is_none() {
+            json!([hashes[0]])
+        } else {
+            json!(hashes)
+        };
+        let block = json!({"number":"0x7","hash":hex_string(&[2;32]),"timestamp":"0x1","gasLimit":"0x1c9c380","miner":hex_string(&[0;20]),"extraData":"0x","transactions":transactions,"m2RootDeposit":root});
+        let mut replies = vec![
+            ("eth_chainId", 200, json!("0xb001e")),
+            ("eth_getBlockByNumber", 200, block),
+            ("eth_getRawTransactionByHash", 200, json!(info)),
+        ];
+        if let Some(raw) = bad_raw {
+            replies.push(("eth_getRawTransactionByHash", 200, raw));
+        }
+        let (url, worker) = serve(replies);
+        let error = RpcL2::new(&url).unwrap().root(7, &l1.hash).unwrap_err();
+        assert!(matches!(
+            error.downcast_ref::<boole_derivation::InputError>(),
+            Some(boole_derivation::InputError::M2Root { height: 7 })
+        ));
+        worker.join().unwrap();
+    }
+    let (url, worker) = serve(vec![
+        ("eth_chainId", 200, json!("0xb001e")),
+        ("eth_getBlockByNumber", 200, Value::Null),
+    ]);
+    assert_eq!(RpcL2::new(&url).unwrap().root(7, &l1.hash).unwrap(), None);
+    worker.join().unwrap();
+}

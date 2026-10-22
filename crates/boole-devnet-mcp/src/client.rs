@@ -192,7 +192,50 @@ struct Submission {
     #[serde(default)]
     prune_height: Option<u64>,
 }
+pub trait L2Source {
+    /// None means the node has not built this finalized L1 height yet.
+    fn root(&mut self, height: u64, origin: &str) -> Result<Option<Hash>>;
+}
+pub struct RpcL2 {
+    rpc: Rpc,
+}
+impl RpcL2 {
+    pub fn new(url: &str) -> Result<Self> {
+        let rpc = Rpc::new(url)?;
+        ensure!(
+            retry_rpc(|| rpc.call("eth_chainId", json!([])))?
+                == format!("0x{:x}", boole_derivation::config::L2_CHAIN_ID),
+            "unexpected devnet L2 chain"
+        );
+        Ok(Self { rpc })
+    }
+}
+impl L2Source for RpcL2 {
+    fn root(&mut self, height: u64, origin: &str) -> Result<Option<Hash>> {
+        let Some(header) =
+            boole_devnet_driver::engine::read_l2_header(&self.rpc, json!(format!("0x{height:x}")))?
+        else {
+            return Ok(None);
+        };
+        ensure!(header.number == height, "L2 root height mismatch");
+        let failure = boole_derivation::InputError::M2Root { height };
+        let l1 =
+            boole_derivation::system::l1_origin(header.l1_info.as_deref().ok_or(failure)?, height)?;
+        if fixed::<32>(&l1)? != fixed::<32>(origin)? {
+            return Err(boole_derivation::InputError::M2Root { height }.into());
+        }
+        Ok(Some(boole_derivation::system::read_m2_root(
+            header
+                .m2_root_deposit
+                .as_deref()
+                .ok_or(boole_derivation::InputError::M2Root { height })?,
+            height,
+            origin,
+        )?))
+    }
+}
 pub struct ClientOptions {
+    pub l2: Option<Box<dyn L2Source>>,
     pub l2_gas_limit: u64,
     pub codec: Option<Codec>,
     pub hook: Option<Precheck>,
@@ -200,6 +243,7 @@ pub struct ClientOptions {
 impl ClientOptions {
     pub fn new(l2_gas_limit: u64) -> Self {
         Self {
+            l2: None,
             l2_gas_limit,
             codec: None,
             hook: None,
@@ -219,6 +263,8 @@ pub struct Client<L, P> {
     hook: Option<Precheck>,
     account: [u8; 20],
     stalled: Option<String>,
+    l2: Option<Box<dyn L2Source>>,
+    l2_m2_root_match: Option<bool>,
     budget_head: Option<u64>,
     posted: u64,
 }
@@ -279,6 +325,8 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             hook: options.hook,
             account,
             stalled: None,
+            l2: options.l2,
+            l2_m2_root_match: None,
             budget_head: None,
             posted: 0,
         })
@@ -290,9 +338,41 @@ impl<L: L1Source, P: Poster> Client<L, P> {
         if let Some(reason) = &self.stalled {
             bail!("{reason}");
         }
-        if let Err(e) = self.fold_finalized() {
+        if let Err(e) = self.fold_finalized().and_then(|_| self.check_l2_root()) {
             self.stalled = Some(format!("finalized fold refused: {e}"));
-            bail!("{}", self.stalled.as_deref().unwrap_or("fold stalled"));
+            return Err(e.context(
+                self.stalled
+                    .clone()
+                    .unwrap_or_else(|| "fold stalled".into()),
+            ));
+        }
+        Ok(())
+    }
+    fn check_l2_root(&mut self) -> Result<()> {
+        self.l2_m2_root_match = None;
+        if self.state.height() == 0 {
+            return Ok(());
+        }
+        let Some(node) = &mut self.l2 else {
+            return Ok(());
+        };
+        match retry_rpc(|| node.root(self.state.height(), &self.anchor.hash)) {
+            Ok(Some(root)) => {
+                self.l2_m2_root_match = Some(root == self.state.root);
+                if root != self.state.root {
+                    return Err(boole_derivation::InputError::M2Root {
+                        height: self.state.height(),
+                    }
+                    .into());
+                }
+            }
+            Ok(None) => {}
+            Err(e) => {
+                if e.is::<boole_derivation::InputError>() {
+                    self.l2_m2_root_match = Some(false);
+                }
+                return Err(e);
+            }
         }
         Ok(())
     }
@@ -436,7 +516,7 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             let pending=p.map(|p|self.state.candidates.iter().filter(|((id,_),v)|*id==p.id && matches!(v.status(),Status::Committed|Status::Open)).count()).unwrap_or(0);
             json!({"slot":slot,"lane":self.config.slot_table[slot].lane,"problem_id":p.map(|p|hex_string(&p.id)),"last_commit_height":p.and_then(|p|p.h_v.checked_add(self.config.slot_table[slot].solve_deadline)),"pending_commits":pending,"next_draw_height":s.scheduled.and_then(|h|h.checked_add(1))})
         }).collect();
-        json!({"devnet_only":true,"fold_height":self.state.height(),"m2_root":hex_string(&self.state.root),"config_digest":hex_string(&self.config.digest()),"slot_table_digest":hex_string(&self.config.slot_table_digest()),"slots":slots,"stalled":self.stalled})
+        json!({"devnet_only":true,"fold_height":self.state.height(),"m2_root":hex_string(&self.state.root),"config_digest":hex_string(&self.config.digest()),"slot_table_digest":hex_string(&self.config.slot_table_digest()),"slots":slots,"stalled":self.stalled,"l2_m2_root_match":self.l2_m2_root_match})
     }
     fn decoded_problem(&self, id: Hash) -> Result<Vec<u8>> {
         let p = self.state.problems.get(&id).context("problem not found")?;
@@ -592,6 +672,10 @@ impl<L: L1Source, P: Poster> Client<L, P> {
     }
     pub fn tick(&mut self) -> Result<()> {
         self.sync()?;
+        ensure!(
+            self.l2.is_none() || self.l2_m2_root_match == Some(true),
+            "waiting for the L2 root at the finalized fold height"
+        );
         let head = retry_rpc(|| self.poster.head())?;
         ensure!(
             head >= self.state.height(),

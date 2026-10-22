@@ -46,6 +46,8 @@ pub struct ParentHeader {
     pub extra_data: String,
     #[serde(default)]
     pub l1_info: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub m2_root_deposit: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -122,8 +124,10 @@ pub enum InputError {
     ExtraData,
     #[error("parent timestamp overflow")]
     TimestampOverflow,
-    #[error("parent gas limit is smaller than the L1-info gas reservation")]
+    #[error("parent gas limit is smaller than the system deposit gas reservation")]
     SystemGasBudget,
+    #[error("M2ROOT missing, malformed or divergent at height {height}")]
+    M2Root { height: u64 },
     #[error("L1 parent hash does not match parent L2 origin")]
     L1Link,
 }
@@ -149,13 +153,21 @@ pub fn derive_m1(
     logs: &[InboxLog],
     parent: &ParentHeader,
 ) -> Result<Derived, InputError> {
+    derive_base(l1, logs, parent, crate::config::L1INFO_GAS)
+}
+fn derive_base(
+    l1: &L1Block,
+    logs: &[InboxLog],
+    parent: &ParentHeader,
+    system_gas: u64,
+) -> Result<Derived, InputError> {
     if parent.number.checked_add(1) != Some(l1.number) {
         return Err(InputError::Height);
     }
     check_l1_link(l1, parent)?;
     let mut budget = parent
         .gas_limit
-        .checked_sub(crate::config::L1INFO_GAS)
+        .checked_sub(system_gas)
         .ok_or(InputError::SystemGasBudget)?;
     let timestamp = l1.timestamp.max(
         parent
@@ -256,7 +268,8 @@ pub fn check_l1_link(l1: &L1Block, parent: &ParentHeader) -> Result<(), InputErr
     Ok(())
 }
 
-/// Stateless M1-compatible attributes. Stateful callers use `derive_with_m2`.
+/// Archived M1 attributes with stateless M2 item annotations. This historical
+/// API cannot produce current L2 blocks; those require `derive_with_m2`.
 pub fn derive(
     l1: &L1Block,
     logs: &[InboxLog],
@@ -269,7 +282,14 @@ pub fn derive(
     let c = crate::m2::Config::devnet();
     let mut state = crate::m2::State::new(&c, parent.gas_limit)?;
     state.height = parent.number;
-    derive_with_m2(&state, &c, l1, logs, parent).map(|x| x.0)
+    let (mut annotated, _) = derive_with_m2(&state, &c, l1, logs, parent)?;
+    annotated.attributes = baseline.attributes;
+    for (decision, old) in annotated.decisions.iter_mut().zip(baseline.decisions) {
+        if old.m2.is_none() {
+            *decision = old;
+        }
+    }
+    Ok(annotated)
 }
 
 pub fn derive_with_m2(
@@ -279,7 +299,12 @@ pub fn derive_with_m2(
     logs: &[InboxLog],
     parent: &ParentHeader,
 ) -> Result<(Derived, crate::m2::State), InputError> {
-    let mut derived = derive_m1(l1, logs, parent)?;
+    let mut derived = derive_base(
+        l1,
+        logs,
+        parent,
+        crate::config::L1INFO_GAS + crate::config::M2ROOT_GAS,
+    )?;
     state.validate_next(config, l1)?;
     config
         .validate(parent.gas_limit)
@@ -310,5 +335,9 @@ pub fn derive_with_m2(
             m2.code = code;
         }
     }
+    derived
+        .attributes
+        .transactions
+        .insert(1, crate::system::m2_root_deposit(l1, step.state.root)?);
     Ok((derived, step.state))
 }
