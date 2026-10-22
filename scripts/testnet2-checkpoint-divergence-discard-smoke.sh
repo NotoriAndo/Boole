@@ -21,7 +21,7 @@ cd "$ROOT"
 
 SCENARIO="fixtures/protocol/runtime-smoke/testnet2-pinned-highrate.v1.json"
 HONEST_FIXTURE="fixtures/protocol/runtime-smoke/testnet2-lenbound-share.v1.json"
-CHECKER_DIR="lean/checker"
+CHECKER_DIR="lean/checker-v1"
 WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/boole-testnet2-checkpoint-diverge.XXXXXX")"
 
 cargo build -q -p boole-node -p boole-cli --locked

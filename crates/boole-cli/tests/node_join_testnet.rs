@@ -39,7 +39,7 @@ fn scenario_path() -> PathBuf {
 }
 
 fn checker_path() -> PathBuf {
-    repo_root().join("lean/checker")
+    repo_root().join("lean/checker-v1")
 }
 
 fn cli_binary() -> PathBuf {
@@ -58,7 +58,7 @@ fn build_pinned_checker_inputs() {
     // Main/Audit run directly from source, but every real proof still needs
     // the imported helper olean or fails with "unknown module prefix Boole". Keep
     // this multiprocess test independently runnable while matching the
-    // self-test lane's precondition exactly.
+    // existing network's frozen release exactly.
     let output = Command::new("lake")
         .current_dir(checker_path())
         .args(["build", "Boole.Family.V0Helpers"])

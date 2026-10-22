@@ -2,7 +2,7 @@
 # SC.10-iv-b — live checker-pinned named-network coverage in the gate.
 #
 # Positive: a node booted as `boole-testnet-2` with the canonical
-# `lean/checker` and a scenario whose Tier-1 params match the compiled
+# `lean/checker-v1` and a scenario whose Tier-1 params match the compiled
 # preset must come up: the boot runs the SC.9b checker-pin gate for real
 # (source artifact hash AND the executable toolchain via `lake env lean`),
 # then the N5.2 genesis gate (possible at all only since SC.10-iv-0 made
@@ -31,7 +31,7 @@ cd "$ROOT"
 SCENARIO="fixtures/protocol/runtime-smoke/testnet2-pinned.v1.json"
 DIVERGED_SCENARIO="fixtures/protocol/runtime-smoke/v1.json"
 SHARE_FIXTURE="fixtures/protocol/runtime-smoke/testnet2-lenbound-share.v1.json"
-CHECKER_DIR="lean/checker"
+CHECKER_DIR="lean/checker-v1"
 WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/boole-testnet2-pinned-boot.XXXXXX")"
 
 cargo build -q -p boole-node -p boole-cli
