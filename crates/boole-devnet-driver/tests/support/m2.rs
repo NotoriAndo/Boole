@@ -38,7 +38,13 @@ pub fn genesis() -> Result<Value> {
     Ok(g)
 }
 pub fn pool(c: &Config, root: Hash, count: u32, start: u64, seq: u32) -> Vec<u8> {
-    let mut b = vec![1];
+    pool_at(c, 0, root, count, start, seq)
+}
+pub fn pool_leaf(chain: u64, kind: u8, req: &[Hash], package: &[u8], salt: &Hash) -> Hash {
+    boole_derivation::m2::pool_leaf(chain, kind, req, 0, package.len() as u32, package, salt)
+}
+pub fn pool_at(c: &Config, slot: u8, root: Hash, count: u32, start: u64, seq: u32) -> Vec<u8> {
+    let mut b = vec![2, slot];
     b.extend(seq.to_be_bytes());
     b.extend(root);
     b.extend(count.to_be_bytes());
@@ -46,7 +52,7 @@ pub fn pool(c: &Config, root: Hash, count: u32, start: u64, seq: u32) -> Vec<u8>
     b.extend([0; 32]);
     let pre = hash(
         &[
-            b"BOOLE-M2/POOL/v1".as_slice(),
+            b"BOOLE-M2/POOL/v2".as_slice(),
             &c.chain_id.to_be_bytes(),
             &b,
         ]
@@ -54,11 +60,12 @@ pub fn pool(c: &Config, root: Hash, count: u32, start: u64, seq: u32) -> Vec<u8>
     );
     let (sig, id) = pool_key()
         .sign_prehash_recoverable(&pre)
-        .expect("pool signature");
+        .expect("public test pool key");
     b.extend(sig.to_bytes());
     b.push(id.to_byte());
     b
 }
+
 pub fn problem(
     slot: u8,
     round: u32,
@@ -67,17 +74,34 @@ pub fn problem(
     path: &[Hash],
     package: &[u8],
 ) -> Vec<u8> {
-    let mut b = vec![1, slot];
+    let mut b = vec![2, slot];
     b.extend(round.to_be_bytes());
     b.extend(index.to_be_bytes());
     b.extend([2, 0]);
     b.extend(salt);
+    b.push(0);
+    b.extend((package.len() as u32).to_be_bytes());
     b.push(path.len() as u8);
     for p in path {
         b.extend(p);
     }
     b.extend((package.len() as u32).to_be_bytes());
     b.extend(package);
+    b
+}
+/// Test wire encoder: req_k is zero, so codec/raw length are at offsets 44/45.
+pub fn problem_encoded(
+    slot: u8,
+    round: u32,
+    index: u32,
+    salt: Hash,
+    path: &[Hash],
+    package: &[u8],
+    encoding: (u8, u32),
+) -> Vec<u8> {
+    let mut b = problem(slot, round, index, salt, path, package);
+    b[44] = encoding.0;
+    b[45..49].copy_from_slice(&encoding.1.to_be_bytes());
     b
 }
 pub struct Proof {
@@ -104,7 +128,7 @@ impl Proof {
         b.extend(c.schema_id);
         b.extend(c.base_root);
         b.push(0);
-        b.extend([1, 1]);
+        b.extend([1, 2]);
         b.extend((data.len() as u64).to_be_bytes());
         b.extend(hash(data));
         b.extend((data.len() as u32).to_be_bytes());
@@ -352,6 +376,11 @@ pub fn l1_genesis_value() -> Result<Value> {
 }
 /// Called by the tracked generators before writing accepted recordings.
 pub fn bind_provenance(data: &mut Value) -> Result<()> {
+    if let Some(config) = data.get("config") {
+        let c: Config = serde_json::from_value(config.clone())?;
+        data["provenance"]["config_digest"] = json!(hex_string(&c.digest()));
+        data["provenance"]["slot_table_digest"] = json!(hex_string(&c.slot_table_digest()));
+    }
     let g = l1_genesis_value()?;
     data["l1_genesis"] = g.clone();
     data["provenance"]["l1_genesis_sha256"] = json!(format!(

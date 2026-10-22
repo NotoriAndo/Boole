@@ -1,6 +1,6 @@
 # Boole derivation specification v0
 
-Commit and reveal extend these rules in [specification v1](devnet-commit-reveal-v1.md).
+Commit and reveal extend these rules in [specification v1.1](devnet-commit-reveal-v1.1.md).
 
 Status: devnet only v0. Rules D1–D18 are normative within this version. Tests cite
 these identifiers. The devnet conventions preserve the S1b byte layout; the

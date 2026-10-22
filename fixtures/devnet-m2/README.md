@@ -1,5 +1,45 @@
 # Commit/reveal devnet fixtures
 
+Current protocol: [v1.1](../../docs/devnet-commit-reveal-v1.1.md), reset from genesis.
+The v1 JSON inputs remain archived byte-for-byte; they are not replayed as v1.1.
+
+## Active v1.1 vectors and recordings
+
+- `config-golden-v1.1.json`: independent canonical config bytes, slot encodings,
+  config/slot digests and root-v2 probe vectors for all three profiles.
+- `event-golden-v1.1.json`: 47-byte round records with pool_seq, fixed draw and
+  union-mapping seeds, status/prune events and next-header priority.
+- `package-codec-v1.1.json`: an actual pinned-zstd 1 MiB decoded package with a
+  carried size inside STATEMENT_MAX. Generation verifies decoding; derivation
+  validates the transmitted bytes and declared codec/length only.
+- `commit-reveal-v1.1.json`: 84 live and recorded A/B/C heights, v2 pool/package
+  bodies, a codec-1 statement package, lane-2 OPEN, 14-part reveal, restart, fresh
+  C and finality/reorg.
+- `adversarial-v1.1.json`: 72 live and recorded A/B/C heights, commit saturation,
+  uncapped reveal, copied parts, forgery/size/window rejection and gas probes.
+- `rounds-v1.1.json`: 140 live and recorded A/B/C heights with distinct slot
+  windows (48/4 versus 96/8), withholding, closure and later draws.
+- `../devnet-m1/s1b-recorded-schedule-budget-v3.json`: original M1 transaction
+  occurrences with the same budget schedule, recorded under root v2. Its
+  provenance includes the exact M2 config and digest.
+
+Generate the first three using
+`BOOLE_DEVNET_ZSTD=<pinned executable> python3 -I crates/boole-derivation/tests/generate_v11_vectors.py`.
+Its SHA-256 is recorded in each vector. For node recordings the tracked Rust
+integration tests write directly to BOOLE_DEVNET_M2_RECORDING,
+BOOLE_DEVNET_I6_RECORDING, BOOLE_DEVNET_I7_RECORDING and
+BOOLE_DEVNET_SCHEDULE_RECORDING after comparisons and strict cleanup.
+All node recordings retain per-height compared values and replay against the
+pure fold. Config and slot digests are included in provenance.
+
+The v1.1 event/config/recording files supersede event-golden-v1.json,
+commit-reveal-v1.json, adversarial-v1.json, rounds-v1.json and the v2 M1 schedule
+for this reset. The service parity subset, size summary, inbox genesis, gas
+observations and codec executable pin still apply unchanged. The original M1
+JSON/genesis files remain unchanged.
+
+## Retained inputs and v1 history
+
 These are derivation and client fixtures, not kernel-certified proofs or production allocations.
 
 - `service-parity-v1.json`: vectors from the registry's real commit, reveal and

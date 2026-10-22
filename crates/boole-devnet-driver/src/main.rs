@@ -29,10 +29,14 @@ struct Args {
 }
 fn main() -> Result<()> {
     let args = Args::parse();
-    let config = match args.m2_config {
+    let config: boole_derivation::m2::Config = match args.m2_config {
         Some(path) => serde_json::from_slice(&std::fs::read(path)?)?,
         None => boole_derivation::m2::Config::devnet(),
     };
+    eprintln!(
+        "slot_table_digest={}",
+        boole_derivation::attributes::hex_string(&config.slot_table_digest())
+    );
     let l1 = RpcL1::new_m2(&args.l1_rpc)?;
     let mut engine = RpcEngine::new(&args.engine_rpc, &args.node_rpc, &args.jwt_secret)?;
     let l2_gas_limit = engine.head()?.gas_limit;

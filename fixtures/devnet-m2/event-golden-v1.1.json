@@ -1,0 +1,52 @@
+{
+  "commit_hash": "2634cfd27813c38b505814b2cbd04c063f255044f4868c210c86658eee25b57e",
+  "draw_seed": "c3ea076dfc9298003bfb12cc5e0921c4c0cf9e7fe0e469064e43edb5615382c4",
+  "events": {
+    "deadline": "030000000001c3000000010000000074862419edce7c86d0670ac0bdfea1201fef2a217e05543c0b0af06f988aec29",
+    "draw": "030000000001c100000001000000000000000000000000000000000000000000000000000000000000000000000000",
+    "expiry": "0274862419edce7c86d0670ac0bdfea1201fef2a217e05543c0b0af06f988aec292634cfd27813c38b505814b2cbd04c063f255044f4868c210c86658eee25b57e04",
+    "prune": "0474862419edce7c86d0670ac0bdfea1201fef2a217e05543c0b0af06f988aec2900000001",
+    "withheld": "030000000001c200000001000000000000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "problem_id": "74862419edce7c86d0670ac0bdfea1201fef2a217e05543c0b0af06f988aec29",
+  "provenance": {
+    "generator": "crates/boole-derivation/tests/generate_v11_vectors.py",
+    "generator_sha256": "2392f4d355114c631d1fa2fc716161c826c4180920daa65832a3bcde0f3b41a3",
+    "method": "independent stdlib byte formulas; configured devnet reset"
+  },
+  "schema": "boole-devnet-m2-event-golden-v1.1",
+  "tie": {
+    "commit_height": 6,
+    "commit_mix_order": [
+      "b",
+      "a",
+      "c"
+    ],
+    "expected_order": [
+      "c",
+      "a",
+      "b"
+    ],
+    "next_mix": "4242424242424242424242424242424242424242424242424242424242424242"
+  },
+  "union_draws": [
+    {
+      "j": 2,
+      "mix": "8005f02d43fa06e7d0585fb64c961d57e318b27a145c857bcd3a6bdb413ff7fc",
+      "pair": [
+        1,
+        5
+      ],
+      "seed": "37c2f79a87e16b3adc373bfee15552fbe109d42861836f758ae2c66b00a9e71b"
+    },
+    {
+      "j": 3,
+      "mix": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "pair": [
+        3,
+        1
+      ],
+      "seed": "2907e0b52e8ff403e769ab3cdaf62f0374754568c6d88b8b21a19751d445c921"
+    }
+  ]
+}

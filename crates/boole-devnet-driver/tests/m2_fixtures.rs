@@ -15,7 +15,7 @@ use std::{fs, path::Path};
 fn accepted_m2_recording_has_provenance_and_pure_replay() -> Result<()> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures");
     let value: Value =
-        serde_json::from_slice(&fs::read(root.join("devnet-m2/commit-reveal-v1.json"))?)?;
+        serde_json::from_slice(&fs::read(root.join("devnet-m2/commit-reveal-v1.1.json"))?)?;
     assert_eq!(value["acceptance"]["live_abc"], true);
     assert_eq!(value["acceptance"]["recorded_abc"], true);
     assert_eq!(value["acceptance"]["restart_height"], 17);
@@ -40,6 +40,26 @@ fn accepted_m2_recording_has_provenance_and_pure_replay() -> Result<()> {
             Sha256::digest(serde_json::to_vec_pretty(&value["l1_genesis"])?)
         )
     );
+    assert_eq!(value["package_encoding"]["codec"], 1);
+    assert_eq!(value["package_encoding"]["raw_len"], 1_048_576);
+    let bytes = boole_derivation::attributes::hex_bytes(
+        value["heights"][4]["logs"][0]["data"]
+            .as_str()
+            .context("package log")?,
+        "package log",
+    )?;
+    let (kind, body) = boole_derivation::inbox::item(&bytes).map_err(|e| anyhow::anyhow!(e))?;
+    assert_eq!(kind, 9);
+    assert_eq!(body[0], 2);
+    assert_eq!(body[44], 1);
+    assert_eq!(u32::from_be_bytes(body[45..49].try_into()?), 1_048_576);
+    let package: Value =
+        serde_json::from_slice(&fs::read(root.join("devnet-m2/package-codec-v1.1.json"))?)?;
+    let carried = boole_derivation::attributes::hex_bytes(
+        &format!("0x{}", package["carried_hex"].as_str().context("carried")?),
+        "carried",
+    )?;
+    assert_eq!(&body[54..], carried.as_slice());
     let c: Config = serde_json::from_value(value["config"].clone())?;
     let gas = u64::from_str_radix(
         value["l2_genesis"]["gasLimit"]
@@ -101,7 +121,7 @@ fn accepted_m2_recording_has_provenance_and_pure_replay() -> Result<()> {
 
 #[test]
 fn review_i6_i7_recordings_replay_against_pure_model() -> Result<()> {
-    for name in ["adversarial-v1.json", "rounds-v1.json"] {
+    for name in ["adversarial-v1.1.json", "rounds-v1.1.json"] {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/devnet-m2");
         let value: Value = serde_json::from_slice(&fs::read(root.join(name))?)?;
         let mut generated = value.clone();
@@ -147,8 +167,11 @@ fn review_i6_i7_recordings_replay_against_pure_model() -> Result<()> {
                 state.rounds[&(1, 1)].status,
                 boole_derivation::m2::RoundStatus::Withheld
             );
-            let selected: std::collections::BTreeSet<_> =
-                state.rounds.values().map(|r| r.leaf_index).collect();
+            let selected: std::collections::BTreeSet<_> = state
+                .rounds
+                .values()
+                .map(|r| (r.pool_seq, r.leaf_index))
+                .collect();
             assert_eq!(selected.len(), state.rounds.len());
         }
     }
@@ -158,7 +181,7 @@ fn review_i6_i7_recordings_replay_against_pure_model() -> Result<()> {
 #[test]
 fn review_tracked_generator_reproduces_provenance() -> Result<()> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/devnet-m2/commit-reveal-v1.json");
+        .join("../../fixtures/devnet-m2/commit-reveal-v1.1.json");
     let value: Value = serde_json::from_slice(&fs::read(path)?)?;
     let mut generated = value.clone();
     support::m2::bind_provenance(&mut generated)?;

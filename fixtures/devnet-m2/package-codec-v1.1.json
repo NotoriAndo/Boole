@@ -1,0 +1,24 @@
+{
+  "carried_hex": "28b52ffd8448000010005400001061610100fbff39c00202001061020010610200106102001061020010610200106103001061f11321b5",
+  "codec": 1,
+  "frame": {
+    "checksum": true,
+    "content_size": 1048576,
+    "frames": 1,
+    "no_dictionary": true,
+    "window": 524288
+  },
+  "provenance": {
+    "codec_binary": {
+      "platform": "darwin-arm64",
+      "sha256": "aff8169fb421bb925fb16c44a7e0143fa2c7a941dc45cce76b15062a2ce54917",
+      "version": "1.5.7"
+    },
+    "generator": "crates/boole-derivation/tests/generate_v11_vectors.py",
+    "generator_sha256": "2392f4d355114c631d1fa2fc716161c826c4180920daa65832a3bcde0f3b41a3",
+    "method": "independent stdlib byte formulas; configured devnet reset"
+  },
+  "raw_len": 1048576,
+  "raw_sha256": "9bc1b2a288b26af7257a36277ae3816a7d4f16e89c1e7e77d0a5c48bad62b360",
+  "schema": "boole-devnet-m2-package-v1.1"
+}

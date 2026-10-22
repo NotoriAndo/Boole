@@ -1,5 +1,8 @@
 # Devnet commit and reveal specification v1
 
+This is the archived v1 baseline. [Devnet v1.1](devnet-commit-reveal-v1.1.md)
+replaces its pool, package, slot and root rules for a reset from genesis.
+
 Status: devnet only. M2-R1–M2-R28 extend [derivation v0](devnet-derivation-v0.md).
 D1–D18 still govern input validation, user transactions and Engine execution.
 M2 changes no payload transaction. All integers below are unsigned big-endian;

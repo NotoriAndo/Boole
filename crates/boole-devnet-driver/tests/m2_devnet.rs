@@ -14,6 +14,7 @@ use boole_devnet_driver::{
 };
 use serde_json::{json, Value};
 use std::{fs, path::Path};
+use support::m2::pool_leaf;
 use support::{m2::*, *};
 type Live = Driver<RpcL1, RpcEngine>;
 type InboxItem = (u8, Vec<u8>);
@@ -158,8 +159,24 @@ fn i4_i5_live_and_recorded_abc_mid_reveal_restart_reorg() -> Result<()> {
     let mut rows = vec![];
     let mut gas = vec![];
     let (raw, z, codec) = frame(&rt.path)?;
-    let package = b"unpublished-generator-fixture-v1";
-    let root = pool_leaf(c.chain_id, 2, &[], package, &[9; 32]);
+    let package_fixture: Value = serde_json::from_slice(&fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/devnet-m2/package-codec-v1.1.json"),
+    )?)?;
+    let package = hex_bytes(
+        &format!(
+            "0x{}",
+            package_fixture["carried_hex"]
+                .as_str()
+                .context("carried package")?
+        ),
+        "package",
+    )?;
+    let package_raw = package_fixture["raw_len"]
+        .as_u64()
+        .context("package raw length")? as u32;
+    let root =
+        boole_derivation::m2::pool_leaf(c.chain_id, 2, &[], 1, package_raw, &package, &[9; 32]);
     let mut proof = None;
     let mut cancelled = None;
     let mut expired = None;
@@ -185,7 +202,10 @@ fn i4_i5_live_and_recorded_abc_mid_reveal_restart_reorg() -> Result<()> {
             5 => send(
                 &l1,
                 user,
-                vec![(9, problem(0, 1, 0, [9; 32], &[], package))],
+                vec![(
+                    9,
+                    problem_encoded(0, 1, 0, [9; 32], &[], &package, (1, package_raw)),
+                )],
                 false,
                 &mut posts,
             )?,
@@ -494,7 +514,8 @@ fn i4_i5_live_and_recorded_abc_mid_reveal_restart_reorg() -> Result<()> {
         .collect();
     assert_eq!(full.len(), 13);
     assert!(full.iter().all(|g| g["gas_used"] == g["calldata_floor"]));
-    let mut data = json!({"schema":"boole-devnet-m2-recording-v1","provenance":{"pins":fixture_json("pins.json")?,"source_genesis_sha256":hex_string(&hash(&fs::read(fixture("l2-genesis.json"))?)),"rules":"M2 v1; finalized L1 inbox; synthetic generator and environment identities"},"acceptance":{"live_abc":true,"recorded_abc":true,"restart_height":17,"unfinalized_reorg":true},"config":c,"l2_genesis":g,"codec":codec,"gate_seam":gate_seam,"mix_hash":{"unique":mix,"count":mix.len()},"eip7825":eip7825,"gas":gas,"heights":rows});
+    let mut data = json!({"schema":"boole-devnet-m2-recording-v1.1","provenance":{"pins":fixture_json("pins.json")?,"source_genesis_sha256":hex_string(&hash(&fs::read(fixture("l2-genesis.json"))?)),"rules":"M2 v1.1; finalized L1 inbox; synthetic generator and environment identities"},"acceptance":{"live_abc":true,"recorded_abc":true,"restart_height":17,"unfinalized_reorg":true},"config":c,"l2_genesis":g,"codec":codec,"gate_seam":gate_seam,"mix_hash":{"unique":mix,"count":mix.len()},"eip7825":eip7825,"gas":gas,"heights":rows});
+    data["package_encoding"] = json!({"codec":1,"raw_len":package_raw,"carried_len":package.len(),"carried_sha256":hex_string(&hash(&package)),"fixture":"package-codec-v1.1.json"});
     bind_provenance(&mut data)?;
     fs::write(
         rt.path.join("recording.json"),
@@ -728,7 +749,7 @@ fn i6_adversarial_uncapped_reveal_copy_cap_and_gas_abc() -> Result<()> {
         "USER-GAS-EXCEEDS-BLOCK-BUDGET"
     );
     recorded_abc(&mut rt, &binary, &g, &c, &rows)?;
-    let mut data = json!({"schema":"boole-devnet-m2-adversarial-v1","provenance":{"pins":fixture_json("pins.json")?},"acceptance":{"live_abc":true,"recorded_abc":true},"config":c,"l2_genesis":genesis()?,"heights":rows,"gas":gas});
+    let mut data = json!({"schema":"boole-devnet-m2-adversarial-v1.1","provenance":{"pins":fixture_json("pins.json")?},"acceptance":{"live_abc":true,"recorded_abc":true},"config":c,"l2_genesis":genesis()?,"heights":rows,"gas":gas});
     bind_provenance(&mut data)?;
     fs::write(
         rt.path.join("adversarial.json"),
@@ -753,8 +774,8 @@ fn i7_rounds_two_slots_deadline_withheld_next_draw_abc() -> Result<()> {
     let l1 = rt.anvil_with_genesis(&anvil, &l1_genesis(&rt)?)?;
     let accounts = l1.call("eth_accounts", json!([]))?;
     let user = accounts[0].as_str().context("account")?;
-    let mut c = config();
-    c.k_open = 2;
+    let c = config();
+    assert_eq!(c.slot_table.len(), 2);
     c.validate(30_000_000)
         .map_err(|s| anyhow::anyhow!("S{s}"))?;
     let packages: Vec<_> = (0u8..8).map(|i| vec![b'G', b'0' + i]).collect();
@@ -763,31 +784,36 @@ fn i7_rounds_two_slots_deadline_withheld_next_draw_abc() -> Result<()> {
         .enumerate()
         .map(|(i, p)| pool_leaf(c.chain_id, 2, &[], p, &[i as u8; 32]))
         .collect();
-    let root = merkle_root(&leaves);
+    let roots = [merkle_root(&leaves[..4]), merkle_root(&leaves[4..])];
     let mut model = State::new(&c, 30_000_000)?;
     let mut rows = vec![];
     let mut gas = vec![];
     let mut first = None;
-    for h in 1..=80 {
+    for h in 1..=140 {
         let mut posts = vec![];
         if h == 1 {
             send(
                 &l1,
                 user,
-                vec![(8, pool(&c, root, 8, 3, 1))],
-                false,
+                vec![
+                    (8, pool_at(&c, 0, roots[0], 4, 3, 1)),
+                    (8, pool_at(&c, 1, roots[1], 4, 3, 2)),
+                ],
+                true,
                 &mut posts,
             )?;
         }
         if let Some((slot, round)) = match h {
             5 => Some((0, 1)),
-            15 => Some((1, 2)),
+            19 => Some((1, 2)),
             60 => Some((0, 2)),
-            70 => Some((1, 3)),
+            115 => Some((0, 3)),
+            126 => Some((1, 3)),
             _ => None,
         } {
             let draw = &model.rounds[&(slot, round)];
             let i = draw.leaf_index as usize;
+            let offset = usize::from(slot) * 4;
             send(
                 &l1,
                 user,
@@ -797,9 +823,9 @@ fn i7_rounds_two_slots_deadline_withheld_next_draw_abc() -> Result<()> {
                         slot,
                         round,
                         draw.leaf_index,
-                        [i as u8; 32],
-                        &merkle_path(&leaves, i),
-                        &packages[i],
+                        [(i + offset) as u8; 32],
+                        &merkle_path(&leaves[offset..offset + 4], i),
+                        &packages[i + offset],
                     ),
                 )],
                 false,
@@ -822,7 +848,7 @@ fn i7_rounds_two_slots_deadline_withheld_next_draw_abc() -> Result<()> {
         if h == 9 {
             assert_eq!(model.rounds[&(1, 1)].status, RoundStatus::Withheld);
         }
-        if h == 16 {
+        if h == 20 {
             assert_eq!(
                 model
                     .problems
@@ -843,17 +869,27 @@ fn i7_rounds_two_slots_deadline_withheld_next_draw_abc() -> Result<()> {
                 "earlier barrier still pending; next round independent"
             );
         }
+        if h == 116 {
+            assert_eq!(model.rounds[&(1, 2)].status, RoundStatus::Closed);
+            assert_eq!(model.slots[1].scheduled, Some(124));
+        }
+        if h == 125 {
+            assert_eq!(model.rounds[&(1, 3)].status, RoundStatus::Drawn);
+        }
         rows.push(row);
     }
-    let selected: std::collections::BTreeSet<_> =
-        model.rounds.values().map(|r| r.leaf_index).collect();
+    let selected: std::collections::BTreeSet<_> = model
+        .rounds
+        .values()
+        .map(|r| (r.pool_seq, r.leaf_index))
+        .collect();
     assert_eq!(selected.len(), model.rounds.len());
     l1.call("anvil_mine", json!(["0x8"]))?;
     let g = rt.path.join("l2-genesis.json");
     fs::write(&g, serde_json::to_vec_pretty(&genesis()?)?)?;
     compare_live_rows(&mut rt, &binary, &g, &c, &mut rows)?;
     recorded_abc(&mut rt, &binary, &g, &c, &rows)?;
-    let mut data = json!({"schema":"boole-devnet-m2-rounds-v1","provenance":{"pins":fixture_json("pins.json")?},"acceptance":{"live_abc":true,"recorded_abc":true},"config":c,"l2_genesis":genesis()?,"heights":rows,"gas":gas});
+    let mut data = json!({"schema":"boole-devnet-m2-rounds-v1.1","provenance":{"pins":fixture_json("pins.json")?},"acceptance":{"live_abc":true,"recorded_abc":true},"config":c,"l2_genesis":genesis()?,"heights":rows,"gas":gas});
     bind_provenance(&mut data)?;
     fs::write(
         rt.path.join("rounds.json"),
@@ -863,6 +899,6 @@ fn i7_rounds_two_slots_deadline_withheld_next_draw_abc() -> Result<()> {
     if let Some(path) = std::env::var_os("BOOLE_DEVNET_I7_RECORDING") {
         fs::write(path, serde_json::to_vec_pretty(&data)?)?;
     }
-    eprintln!("I7 PASS: 80 live A/B/C heights, two slots, withheld, deadline and next draw");
+    eprintln!("I7 PASS: 140 live and recorded A/B/C heights with distinct SD/GAP, two slots, withheld, deadline and next draw");
     Ok(())
 }

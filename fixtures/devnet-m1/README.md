@@ -31,3 +31,8 @@ To regenerate an ignored candidate, set `BOOLE_DEVNET_GENERATE_BUDGET` to an
 output file and run the env-gated I1 test. I2 can read that candidate via
 `BOOLE_DEVNET_BUDGET_CANDIDATE`. Normal tests require the accepted fixture's
 recorded/live acceptance flags; candidate generation alone does not accept it.
+
+The M2 v1.1 reset uses `s1b-recorded-schedule-budget-v3.json` for the same
+budget-compliant transaction schedule with a config-seeded root v2. Its tracked
+generator records the exact M2 config and digest. Original v1 and v2 files are
+retained; M1 payload attributes and transaction occurrences are unchanged.
