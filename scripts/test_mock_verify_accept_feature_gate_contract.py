@@ -166,7 +166,7 @@ class ForbiddenTokenScannerContractTests(unittest.TestCase):
         scan_idx = self.lib.find(
             "scan_for_forbidden_tokens_in_bytes(&submitted_source.bytes)"
         )
-        evidence_idx = self.lib.find("let evidence = self.evidence()?;")
+        evidence_idx = self.lib.find("self.evidence()")
         spawn_idx = self.lib.find(
             "let mut primary_command = Command::new(&toolchain_runtime.lean_executable)"
         )
