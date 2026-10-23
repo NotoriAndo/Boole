@@ -260,6 +260,9 @@ pub trait L2Source {
     fn code(&mut self, _payee: [u8; 20]) -> Result<Vec<u8>> {
         bail!("L2 payee code probe unavailable")
     }
+    fn balance(&mut self, _payee: [u8; 20], _height: u64) -> Result<Hash> {
+        bail!("L2 balance probe unavailable")
+    }
 }
 pub struct RpcL2 {
     rpc: Rpc,
@@ -276,6 +279,13 @@ impl RpcL2 {
     }
 }
 impl L2Source for RpcL2 {
+    fn balance(&mut self, payee: [u8; 20], height: u64) -> Result<Hash> {
+        let value = self.rpc.call(
+            "eth_getBalance",
+            json!([hex_string(&payee), format!("0x{height:x}")]),
+        )?;
+        crate::m3_status::quantity_word(value.as_str().context("L2 balance response")?)
+    }
     fn code(&mut self, payee: [u8; 20]) -> Result<Vec<u8>> {
         hex_bytes(
             self.rpc
@@ -351,6 +361,7 @@ pub struct ClientOptions {
     pub codec: Option<Codec>,
     pub hook: Option<Precheck>,
     pub forks: Option<boole_derivation::m3::ForkTable>,
+    pub own: Option<crate::own::OwnVerification>,
 }
 impl ClientOptions {
     pub fn new(l2_gas_limit: u64) -> Self {
@@ -360,6 +371,7 @@ impl ClientOptions {
             codec: None,
             hook: None,
             forks: None,
+            own: None,
         }
     }
 }
@@ -382,6 +394,8 @@ pub struct Client<L, P> {
     posted: u64,
     chain: Option<crate::chain::Chain>,
     waiting_l2: bool,
+    vested_at: BTreeMap<u64, u64>,
+    own: Option<crate::own::Verifier>,
 }
 impl<L: L1Source, P: Poster> Client<L, P> {
     pub fn new(
@@ -399,6 +413,10 @@ impl<L: L1Source, P: Poster> Client<L, P> {
         ensure!(
             config.m3.is_none() || options.l2.is_some(),
             "M3 client requires a canonical L2 source"
+        );
+        ensure!(
+            config.m3.is_some() || options.own.is_none(),
+            "--verify-own requires M3"
         );
         ensure!(
             config.m3.is_some() || options.forks.is_none(),
@@ -450,6 +468,17 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             );
             submissions.insert(sub.prepared.commit, sub);
         }
+        let own = if let Some(settings) = options.own {
+            Some(crate::own::Verifier::new(
+                &config,
+                &chain.as_ref().context("--verify-own requires M3")?.forks,
+                settings,
+                options.codec.clone(),
+                &store.path,
+            )?)
+        } else {
+            None
+        };
         Ok(Self {
             source,
             poster,
@@ -469,6 +498,8 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             posted: 0,
             chain,
             waiting_l2: false,
+            vested_at: BTreeMap::new(),
+            own,
         })
     }
     pub fn m2_state(&self) -> &State {
@@ -607,6 +638,23 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             let logs = retry_rpc(|| self.source.inbox_logs(&block.hash))?;
             let inputs = validated_inputs(&block, logs)?;
             let step = if let Some(chain) = &self.chain {
+                if let Some(own) = &self.own {
+                    let records = chain.inputs(&self.state, &self.config, h)?;
+                    let owned = self.submissions.keys().copied().collect();
+                    let mut history = crate::own::AnchoredHistory {
+                        chain,
+                        l1: &mut self.source,
+                        maximum: self.state.height(),
+                    };
+                    own.verify(
+                        &self.state,
+                        &self.config,
+                        &chain.forks,
+                        &records,
+                        &owned,
+                        &mut history,
+                    )?;
+                }
                 let Some(step) = chain.step(&self.state, &self.config, &block, &inputs)? else {
                     self.waiting_l2 = true;
                     break;
@@ -642,6 +690,20 @@ impl<L: L1Source, P: Poster> Client<L, P> {
                 }
             }
             self.packages.extend(additions);
+            if let Some(next) = &step.state.m3 {
+                for reward in next.rewards.values() {
+                    if reward.status == boole_derivation::m3::RewardStatus::Vested
+                        && self
+                            .state
+                            .m3
+                            .as_ref()
+                            .and_then(|m| m.rewards.get(&reward.id))
+                            .is_none_or(|r| r.status != boole_derivation::m3::RewardStatus::Vested)
+                    {
+                        self.vested_at.insert(reward.id, h);
+                    }
+                }
+            }
             self.state = step.state;
             self.anchor = Anchor {
                 number: block.number,
@@ -720,7 +782,7 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             let pending=p.map(|p|self.state.candidates.iter().filter(|((id,_),v)|*id==p.id && matches!(v.status(),Status::Committed|Status::Open)).count()).unwrap_or(0);
             json!({"slot":slot,"lane":self.config.slot_table[slot].lane,"problem_id":p.map(|p|hex_string(&p.id)),"last_commit_height":p.and_then(|p|p.h_v.checked_add(self.config.slot_table[slot].solve_deadline)),"pending_commits":pending,"next_draw_height":s.scheduled.and_then(|h|h.checked_add(1))})
         }).collect();
-        json!({"devnet_only":true,"fold_height":self.state.height(),"m2_root":hex_string(&self.state.root),"config_digest":hex_string(&self.config.digest()),"slot_table_digest":hex_string(&self.config.slot_table_digest()),"slots":slots,"stalled":self.stalled,"l2_m2_root_match":self.l2_m2_root_match})
+        json!({"devnet_only":true,"fold_height":self.state.height(),"m2_root":hex_string(&self.state.root),"config_digest":hex_string(&self.config.digest()),"slot_table_digest":hex_string(&self.config.slot_table_digest()),"slots":slots,"stalled":self.stalled,"l2_m2_root_match":self.l2_m2_root_match,"waiting_for_l2":self.waiting_l2,"m3":crate::m3_status::summary(&self.state),"verdict_trust":if self.own.is_some(){"l2-node-with-own-verification"}else if self.config.m3.is_some(){"l2-node"}else{"l1-only"}})
     }
     fn decoded_problem(&self, id: Hash) -> Result<Vec<u8>> {
         let p = self.state.problems.get(&id).context("problem not found")?;
@@ -911,8 +973,72 @@ impl<L: L1Source, P: Poster> Client<L, P> {
         let complete = open
             .map(|o| o.bitmap.iter().map(|b| b.count_ones()).sum::<u32>())
             .unwrap_or(0);
+        let mut view = json!({"schema_version":sub.schema_version,"submission_id":hex_string(&id),"problem_id":hex_string(&sub.prepared.problem),"status":status,"cancel_requested":sub.cancel_requested,"local_check":sub.local_check,"precheck_gate_rule_digest":sub.precheck_gate.map(|h|hex_string(&h)),"allow_stale_gate":sub.precheck_override,"license_id":license_id,"terms_digest":hex_string(&terms_digest),"finalized_parts":complete,"parts":sub.prepared.chunks.len(),"transactions":sub.sent.iter().map(|(stage,s)|json!({"stage":stage,"transaction_hash":s.tx,"failure":s.failure})).collect::<Vec<_>>(),"last_error":sub.last_error,"last_observed_state":sub.observed,"prune_height":sub.prune_height,"fold_height":self.state.height()});
+        view.as_object_mut()
+            .expect("submission view")
+            .extend(crate::m3_status::submission(
+                &self.state,
+                &self.config,
+                (sub.prepared.problem, id),
+            )?);
+        Ok(view)
+    }
+    pub fn rewards(&mut self, payee: [u8; 20]) -> Result<Value> {
+        let entries: Vec<_> = self
+            .state
+            .m3
+            .as_ref()
+            .map(|m| {
+                m.rewards
+                    .values()
+                    .filter(|r| r.solver == payee)
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut views = vec![];
+        let mut balances = BTreeMap::new();
+        for reward in entries {
+            let mut view = crate::m3_status::reward(&self.config, &reward);
+            let vested = self.vested_at.get(&reward.id).copied();
+            view["vested_at"] = json!(vested);
+            view["balance_before"] = Value::Null;
+            view["balance_after"] = Value::Null;
+            view["balance_change"] = Value::Null;
+            view["balance_change_scope"] = json!("payee-total-in-block");
+            if let Some(h) = vested {
+                if let std::collections::btree_map::Entry::Vacant(entry) = balances.entry(h) {
+                    let observation = (|| -> Result<(Hash, Hash)> {
+                        ensure!(
+                            self.stalled.is_none(),
+                            "stalled client cannot refresh balance observations"
+                        );
+                        let node = self.l2.as_mut().context("L2 balance source")?;
+                        let before = retry_rpc(|| {
+                            node.balance(payee, h.checked_sub(1).context("vest height")?)
+                        })?;
+                        let after = retry_rpc(|| node.balance(payee, h))?;
+                        Ok((before, after))
+                    })()
+                    .ok();
+                    entry.insert(observation);
+                }
+                if let Some((before, after)) = balances[&h] {
+                    view["balance_before"] = json!(crate::m3_status::word_hex(&before));
+                    view["balance_after"] = json!(crate::m3_status::word_hex(&after));
+                    view["balance_change"] =
+                        json!(crate::m3_status::balance_delta(&before, &after));
+                    view["balance_status"] = json!("observed");
+                } else {
+                    view["balance_status"] = json!("unavailable");
+                }
+            } else {
+                view["balance_status"] = json!("not-vested");
+            }
+            views.push(view);
+        }
         Ok(
-            json!({"schema_version":sub.schema_version,"submission_id":hex_string(&id),"problem_id":hex_string(&sub.prepared.problem),"status":status,"cancel_requested":sub.cancel_requested,"local_check":sub.local_check,"precheck_gate_rule_digest":sub.precheck_gate.map(|h|hex_string(&h)),"allow_stale_gate":sub.precheck_override,"license_id":license_id,"terms_digest":hex_string(&terms_digest),"finalized_parts":complete,"parts":sub.prepared.chunks.len(),"transactions":sub.sent.iter().map(|(stage,s)|json!({"stage":stage,"transaction_hash":s.tx,"failure":s.failure})).collect::<Vec<_>>(),"last_error":sub.last_error,"last_observed_state":sub.observed,"prune_height":sub.prune_height,"fold_height":self.state.height()}),
+            json!({"payee":hex_string(&payee),"fold_height":self.state.height(),"rewards":views,"stalled":self.stalled,"l2_m2_root_match":self.l2_m2_root_match}),
         )
     }
     pub fn cancel(&mut self, id: Hash) -> Result<Value> {
@@ -924,7 +1050,10 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             .clone();
         if let Some(c) = self.state.candidates.get(&(sub.prepared.problem, id)) {
             ensure!(
-                !matches!(c.status(), Status::Checking | Status::Expired),
+                matches!(
+                    c.status(),
+                    Status::Committed | Status::Open | Status::Cancelled
+                ),
                 "candidate can no longer cancel"
             );
         }
@@ -1012,10 +1141,7 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             }
             return Ok(());
         };
-        if matches!(
-            candidate.status(),
-            Status::Checking | Status::Expired | Status::Cancelled
-        ) {
+        if SubmissionState::from_candidate(candidate.status()).final_state() {
             return Ok(());
         }
         let live = candidate.live().context("live candidate missing")?;
@@ -1149,7 +1275,7 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             return Ok(self.status());
         }
         // Durable progress remains inspectable when a bad finalized input stalls.
-        if name != "boole.devnet_submission" {
+        if !matches!(name, "boole.devnet_submission" | "boole.devnet_rewards") {
             self.sync()?;
         } else {
             let _ = self.sync();
@@ -1198,6 +1324,7 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             ),
             "boole.devnet_submission" => self.submission(fixed(text("submission_id")?)?),
             "boole.devnet_cancel" => self.cancel(fixed(text("submission_id")?)?),
+            "boole.devnet_rewards" => self.rewards(fixed(text("payee")?)?),
             _ => bail!("unknown devnet tool"),
         }
     }
@@ -1205,7 +1332,7 @@ impl<L: L1Source, P: Poster> Client<L, P> {
 fn submission_name(id: Hash) -> String {
     format!("submission-{}.json", hex_string(&id))
 }
-fn validated_inputs(block: &L1Block, mut logs: Vec<InboxLog>) -> Result<Vec<Input>> {
+pub(crate) fn validated_inputs(block: &L1Block, mut logs: Vec<InboxLog>) -> Result<Vec<Input>> {
     logs.sort_by_key(|l| (l.transaction_index, l.log_index));
     ensure!(
         !logs

@@ -9,7 +9,8 @@ fn miner_tools_are_available_without_changing_native_mcp() {
             "boole.devnet_problem",
             "boole.devnet_commit",
             "boole.devnet_submission",
-            "boole.devnet_cancel"
+            "boole.devnet_cancel",
+            "boole.devnet_rewards"
         ]
     );
 }

@@ -11,7 +11,7 @@ fn strict_stdio_dispatch_lists_tools_and_never_executes_notifications() {
         &mut invoke,
     )
     .unwrap();
-    assert_eq!(out["result"]["tools"].as_array().unwrap().len(), 5);
+    assert_eq!(out["result"]["tools"].as_array().unwrap().len(), 6);
     assert!(boole_devnet_mcp::protocol::dispatch(r#"{"jsonrpc":"2.0","method":"tools/call","params":{"name":"boole.devnet_commit","arguments":{}}}"#,&mut invoke).is_none());
     let bad=boole_devnet_mcp::protocol::dispatch(r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"boole.devnet_commit","arguments":{"extra":true}}}"#,&mut invoke).unwrap();
     assert_eq!(bad["result"]["isError"], true);
