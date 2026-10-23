@@ -42,6 +42,9 @@ pub struct Config {
     pub incompatible: BTreeSet<(Hash, Hash)>,
     pub terms_table: BTreeMap<u8, Hash>,
     pub pool_key: [u8; 20],
+    /// Omitted entirely for the frozen v1.2 profile, including its digest bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub m3: Option<crate::m3::M3Config>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -65,7 +68,11 @@ impl Config {
     /// Normative compact JSON in declaration order; collections are ordered.
     pub fn digest(&self) -> Hash {
         sha(&[
-            b"BOOLE-M2/CONFIG/v1",
+            if self.m3.is_some() {
+                b"BOOLE-M2/CONFIG/v2"
+            } else {
+                b"BOOLE-M2/CONFIG/v1"
+            },
             &serde_json::to_vec(self).expect("integer config serializes"),
         ])
     }
@@ -125,6 +132,7 @@ impl Config {
                 0x1a, 0x64, 0x2f, 0x0e, 0x3c, 0x3a, 0xf5, 0x45, 0xe7, 0xac, 0xbd, 0x38, 0xb0, 0x72,
                 0x51, 0xb3, 0x99, 0x09, 0x14, 0xf1,
             ],
+            m3: None,
         }
     }
     pub fn lean_testnet(chain_id: u64) -> Self {
@@ -187,13 +195,14 @@ impl Config {
         {
             return Err(3);
         }
-        if self
-            .q_max
-            .checked_mul(self.verdict_gas)
-            .and_then(|x| x.checked_add(crate::config::L1INFO_GAS))
-            .and_then(|x| x.checked_add(crate::config::M2ROOT_GAS))
-            .and_then(|x| x.checked_add(16_777_216))
-            .is_none_or(|x| x > l2_gas_limit)
+        if self.m3.is_none()
+            && self
+                .q_max
+                .checked_mul(self.verdict_gas)
+                .and_then(|x| x.checked_add(crate::config::L1INFO_GAS))
+                .and_then(|x| x.checked_add(crate::config::M2ROOT_GAS))
+                .and_then(|x| x.checked_add(16_777_216))
+                .is_none_or(|x| x > l2_gas_limit)
         {
             return Err(4);
         }
@@ -239,6 +248,9 @@ impl Config {
             || self.slot_leaves_max > (1 << 20)
         {
             return Err(8);
+        }
+        if let Some(m3) = &self.m3 {
+            m3.validate(self, l2_gas_limit)?;
         }
         Ok(())
     }
@@ -376,9 +388,19 @@ pub enum Status {
     Checking = 3,
     Expired = 4,
     Cancelled = 5,
+    Passed = 6,
+    Accepted = 7,
+    Rejected = 8,
+    Void = 9,
+    Stale = 10,
+    Superseded = 11,
 }
 #[derive(Debug, Clone)]
 pub struct OpenRecord {
+    pub open_pos: (u64, u64, u64),
+    pub done_pos: Option<(u64, u64, u64)>,
+    pub export_digest: Hash,
+    pub queue_index: Option<u64>,
     pub poster: [u8; 20],
     pub h_o: u64,
     pub solver: [u8; 20],
@@ -455,6 +477,9 @@ pub struct Slot {
 }
 #[derive(Debug, Clone)]
 pub struct Problem {
+    pub reveal_pos: (u64, u64, u64),
+    pub winner: Option<Hash>,
+    pub voided: bool,
     pub slot: u8,
     pub id: Hash,
     pub required_pkgs: Vec<Hash>,
@@ -465,6 +490,12 @@ pub struct Problem {
     pub instance_seed: Hash,
     pub epoch: u32,
 }
+/// Consensus state. Re-pose admission belongs to the fold alone.
+/// ```compile_fail
+/// use boole_derivation::m2::{Config, State};
+/// let mut state = State::new(&Config::devnet(), 30_000_000).unwrap();
+/// state.enqueue_repose([0; 32]);
+/// ```
 #[derive(Debug, Clone)]
 pub struct State {
     pub(crate) height: u64,
@@ -476,12 +507,15 @@ pub struct State {
     pub rounds: BTreeMap<(u8, u32), Round>,
     pub slots: Vec<Slot>,
     pub problems: BTreeMap<Hash, Problem>,
+    pub m3: Option<Box<crate::m3::M3State>>,
     opened: BTreeMap<Hash, Key>,
     expiry: BTreeSet<(u64, u64, Hash, Key)>,
     repose: Vec<VecDeque<Problem>>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum FoldError {
+    #[error(transparent)]
+    M3(#[from] crate::m3::Error),
     #[error("M2 height must be previous + 1 (expected {expected:?}, got {actual})")]
     Height { expected: Option<u64>, actual: u64 },
     #[error("M2 startup invariant S{0}")]
@@ -493,6 +527,8 @@ pub struct Step {
     pub state: State,
     pub codes: Vec<u8>,
     pub events: Vec<u8>,
+    pub verdicts: Vec<crate::m3::IndexedVerdict>,
+    pub payments: Vec<crate::m3::RewardPayment>,
 }
 impl State {
     pub fn new(c: &Config, l2_gas_limit: u64) -> Result<Self, FoldError> {
@@ -513,6 +549,7 @@ impl State {
                 })
                 .collect(),
             problems: BTreeMap::new(),
+            m3: c.m3.as_ref().map(|_| Box::default()),
             opened: BTreeMap::new(),
             expiry: BTreeSet::new(),
             repose: vec![VecDeque::new(); c.slot_table.len()],
@@ -552,7 +589,7 @@ impl State {
         v.into_iter().map(|x| x.2).collect()
     }
     /// M3 seam only: queue a known problem for an epoch-incremented re-pose.
-    pub fn enqueue_repose(&mut self, p: Hash) -> bool {
+    pub(crate) fn enqueue_repose(&mut self, p: Hash) -> bool {
         let Some(p) = self.problems.get(&p) else {
             return false;
         };
@@ -566,10 +603,27 @@ impl State {
         true
     }
     pub fn step(&self, c: &Config, l1: &L1Block, items: &[Input]) -> Result<Step, FoldError> {
+        if c.m3.is_some() {
+            return Err(
+                crate::m3::Error::Format("M3 requires explicit verdicts and fork table").into(),
+            );
+        }
+        self.step_inner(c, l1, items, None)
+    }
+    fn step_inner(
+        &self,
+        c: &Config,
+        l1: &L1Block,
+        items: &[Input],
+        m3_input: Option<(&[crate::m3::IndexedVerdict], &crate::m3::ForkTable)>,
+    ) -> Result<Step, FoldError> {
         self.validate_next(c, l1)?;
         let mut s = self.clone();
         let h = l1.number;
         let mut events = Vec::new();
+        if let Some((_, forks)) = m3_input {
+            crate::m3::activate(&mut s, h, forks, &mut events)?;
+        }
         let mix = hex::decode(l1.mix_hash.strip_prefix("0x").unwrap_or(""))
             .ok()
             .and_then(|v| Hash::try_from(v).ok())
@@ -581,6 +635,11 @@ impl State {
                 }
             }
         }
+        let verdicts = if let Some((records, forks)) = m3_input {
+            crate::m3::apply_due(&mut s, c, h, records, forks, &mut events)?
+        } else {
+            Vec::new()
+        };
         s.slot_events(c, h, mix, &mut events);
         s.expiry.clear();
         for (k, r) in &s.candidates {
@@ -640,10 +699,27 @@ impl State {
                 events.extend(x.log_index.to_be_bytes());
                 events.extend([x.kind, code]);
             }
+            if code == 0x83 && c.m3.is_some() {
+                let ch: Hash = x.body[21..53].try_into().expect("accepted part header");
+                let key = s.opened[&ch];
+                crate::m3::complete(&mut s, key, h, &mut events)?;
+            }
         }
+        if c.m3.is_some() {
+            crate::m3::settle(&mut s, c, h, &mut events)?;
+        }
+        let payments = if c.m3.is_some() {
+            crate::m3::vest(&mut s, c, h, &mut events)?
+        } else {
+            Vec::new()
+        };
         let l1hash = hex::decode(l1.hash.strip_prefix("0x").unwrap_or("")).unwrap_or_default();
         s.root = sha(&[
-            b"BOOLE-M2/ROOT/v2",
+            if c.m3.is_some() {
+                b"BOOLE-M2/ROOT/v3"
+            } else {
+                b"BOOLE-M2/ROOT/v2"
+            },
             &self.root,
             &h.to_be_bytes(),
             &l1hash,
@@ -654,9 +730,27 @@ impl State {
             state: s,
             codes,
             events,
+            verdicts,
+            payments,
         })
     }
-    fn round_event(
+    pub fn step_with_verdicts(
+        &self,
+        c: &Config,
+        l1: &L1Block,
+        items: &[Input],
+        verdicts: &[crate::m3::IndexedVerdict],
+        forks: &crate::m3::ForkTable,
+    ) -> Result<Step, FoldError> {
+        if c.m3.is_none() {
+            return Err(crate::m3::Error::ProfileRequired.into());
+        }
+        self.validate_next(c, l1)?;
+        forks.validate(c).map_err(FoldError::Startup)?;
+        forks.validate_history(self)?;
+        self.step_inner(c, l1, items, Some((verdicts, forks)))
+    }
+    pub(crate) fn round_event(
         e: &mut Vec<u8>,
         slot: u8,
         round: u32,
@@ -731,6 +825,8 @@ impl State {
                 p.id = id;
                 p.epoch = epoch;
                 p.closed = None;
+                p.winner = None;
+                p.voided = false;
                 p.h_v = h;
                 self.problems.insert(id, p);
                 self.rounds.insert(
@@ -867,7 +963,14 @@ impl State {
                 };
                 match record.status() {
                     Status::Expired | Status::Cancelled => return 9,
-                    Status::Open | Status::Checking => return 10,
+                    Status::Open
+                    | Status::Checking
+                    | Status::Passed
+                    | Status::Accepted
+                    | Status::Rejected
+                    | Status::Void
+                    | Status::Stale
+                    | Status::Superseded => return 10,
                     _ => {}
                 }
                 let Candidate::Live(l) = record else {
@@ -886,6 +989,7 @@ impl State {
                 }
                 let mut record = o.record;
                 record.h_o = h;
+                record.open_pos = (h, x.transaction_index, x.log_index);
                 l.open = Some(record);
                 l.status = Status::Open;
                 self.opened.insert(key.1, key);
@@ -908,7 +1012,13 @@ impl State {
                 };
                 match record.status() {
                     Status::Expired | Status::Cancelled => return 9,
-                    Status::Checking => return 10,
+                    Status::Checking
+                    | Status::Passed
+                    | Status::Accepted
+                    | Status::Rejected
+                    | Status::Void
+                    | Status::Stale
+                    | Status::Superseded => return 10,
                     _ => {}
                 }
                 let Candidate::Live(l) = record else {
@@ -951,6 +1061,7 @@ impl State {
                 if o.bitmap.iter().map(|x| x.count_ones()).sum::<u32>() == u32::from(o.n) {
                     l.status = Status::Checking;
                     o.h_r = Some(h);
+                    o.done_pos = Some((h, x.transaction_index, x.log_index));
                     0x83
                 } else {
                     0x82
@@ -981,14 +1092,21 @@ impl State {
                 };
                 match record.status() {
                     Status::Cancelled => return 10,
-                    Status::Expired | Status::Checking => return 9,
+                    Status::Expired
+                    | Status::Checking
+                    | Status::Passed
+                    | Status::Accepted
+                    | Status::Rejected
+                    | Status::Void
+                    | Status::Stale
+                    | Status::Superseded => return 9,
                     _ => {}
                 }
                 *record = Candidate::Tombstone(Status::Cancelled);
                 0x84
             }
             8 => self.pool(c, h, &x.body),
-            9 => self.problem(c, h, &x.body),
+            9 => self.problem(c, h, &x.body, (x.transaction_index, x.log_index)),
             _ => 0x3f,
         }
     }
@@ -1063,7 +1181,7 @@ impl State {
         }
         0x85
     }
-    fn problem(&mut self, c: &Config, h: u64, b: &[u8]) -> u8 {
+    fn problem(&mut self, c: &Config, h: u64, b: &[u8], position: (u64, u64)) -> u8 {
         let Ok(mut r) = Reader::with_version(b, 2) else {
             return 1;
         };
@@ -1134,6 +1252,9 @@ impl State {
         self.problems.insert(
             id,
             Problem {
+                reveal_pos: (h, position.0, position.1),
+                winner: None,
+                voided: false,
                 slot,
                 id,
                 required_pkgs: req,
@@ -1234,7 +1355,7 @@ fn parse_open(c: &Config, b: &[u8]) -> Result<ParsedOpen, u8> {
         let codec = r.u8()?;
         let format = r.u8()?;
         let raw = r.u64()?;
-        let _export = r.array::<32>()?;
+        let export = r.array::<32>()?;
         let z = r.u32()?;
         let n = r.u16()?;
         let root = r.array::<32>()?;
@@ -1253,7 +1374,7 @@ fn parse_open(c: &Config, b: &[u8]) -> Result<ParsedOpen, u8> {
         }
         Some((
             poster, cancel, start, problem, solver, salt, mode, schema, base, pkgs, codec, format,
-            raw, z, n, root, deps, ext, meta,
+            raw, export, z, n, root, deps, ext, meta,
         ))
     })();
     let (
@@ -1270,6 +1391,7 @@ fn parse_open(c: &Config, b: &[u8]) -> Result<ParsedOpen, u8> {
         codec,
         format,
         raw,
+        export,
         z,
         n,
         root,
@@ -1328,6 +1450,10 @@ fn parse_open(c: &Config, b: &[u8]) -> Result<ParsedOpen, u8> {
         problem,
         cancel,
         record: OpenRecord {
+            open_pos: (0, 0, 0),
+            done_pos: None,
+            export_digest: export,
+            queue_index: None,
             poster,
             h_o: 0,
             solver,

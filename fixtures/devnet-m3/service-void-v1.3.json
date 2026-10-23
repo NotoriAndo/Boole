@@ -1,0 +1,46 @@
+{
+  "provenance": {
+    "event_log_sha256": "383732a4764559576fa3f93f8cb1e5e6747db82eeb16e5d640a020dc0b03bf59",
+    "execution": "Registry.commit/reveal/recheck/void; synthetic catalog and injected verifier; fixed integer clocks",
+    "generator": "scripts/devnet/generate_m3_service_vectors.py",
+    "generator_sha256": "fabd08f28edcae25176fb4557f25b89eda95e5a4fb1a7d8b68a544a6962da859",
+    "policy_sha256": "184c5c07f9daf185984c39600c1e3116a8c1e20e3fef17225a9faae8c3c722c2",
+    "source": "scripts/zk_registry/service.py",
+    "source_sha256": "2919ca0fef6692fd50b54d5e0b10b566780a6cf50e71d023d41f3f5b41dab3c0"
+  },
+  "rows": [
+    {
+      "phase": "earlier-checking-later-passed",
+      "statuses": {
+        "1": "CHECKING",
+        "2": "VALID-REVEAL"
+      },
+      "winner": null
+    },
+    {
+      "phase": "quarantined",
+      "statuses": {
+        "1": "QUARANTINED",
+        "2": "VALID-REVEAL"
+      },
+      "winner": null
+    },
+    {
+      "phase": "fixed-gate-unresolved",
+      "statuses": {
+        "1": "QUARANTINED",
+        "2": "VALID-REVEAL"
+      },
+      "winner": null
+    },
+    {
+      "phase": "void-releases-later-winner",
+      "statuses": {
+        "1": "VOID",
+        "2": "ACCEPTED"
+      },
+      "winner": 2
+    }
+  ],
+  "schema": "boole-devnet-m3-service-void-parity-v1.3-draft"
+}

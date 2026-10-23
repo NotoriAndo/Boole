@@ -613,7 +613,7 @@ fn t18_r24_r25_pool_signature_draw_no_replacement() {
     assert_ne!(s.rounds[&(0, 1)].leaf_index, s.rounds[&(0, 2)].leaf_index);
 }
 #[test]
-fn t19_r26_r27_problem_reveal_deadline_withheld_repose() {
+fn t19_r26_r27_problem_reveal_deadline_withheld() {
     let c = cfg();
     let (mut s, p) = opened(&c);
     let hv = s.height();
@@ -643,14 +643,6 @@ fn t19_r26_r27_problem_reveal_deadline_withheld_repose() {
         s.slots[0].scheduled,
         Some(s.height() + c.slot_table[0].announce_gap)
     );
-    assert!(s.enqueue_repose(p));
-    until(
-        &mut s,
-        &c,
-        hv + c.slot_table[0].solve_deadline + 1 + c.slot_table[0].announce_gap + 1,
-    );
-    let new = s.problems.values().find(|x| x.epoch == 1).unwrap();
-    assert_ne!(new.id, p);
     let mut s = State::new(&c, 30_000_000).unwrap();
     let root = pool_leaf(c.chain_id, 2, &[], b"a", &[1; 32]);
     run(&mut s, &c, vec![input(8, pool(&c, root, 1, 3, 1), 0)]);
@@ -1682,6 +1674,14 @@ fn t13_real_service_vectors() {
                             None => panic!("missing injected verdict"),
                         },
                         Status::Cancelled => panic!("CANCEL excluded"),
+                        Status::Passed
+                        | Status::Accepted
+                        | Status::Rejected
+                        | Status::Void
+                        | Status::Stale
+                        | Status::Superseded => {
+                            panic!("M3 profile is disabled in the frozen M2 parity test")
+                        }
                     };
                     (seq.to_string(), status)
                 })
@@ -2627,30 +2627,6 @@ fn v11_t30_config_seed_root_domain_and_round_pool_sequence() {
             .concat()
         )
     );
-}
-#[test]
-fn v11_t31_repose_cannot_cross_slots() {
-    let (c, mut s, _) = two_slots();
-    run(
-        &mut s,
-        &c,
-        vec![
-            input(9, pkg_body(0, 1, 0, 0, 1, [1; 32], &[], b"a"), 0),
-            input(9, pkg_body(1, 1, 0, 0, 1, [2; 32], &[], b"a"), 1),
-        ],
-    );
-    let p = s.rounds[&(1, 1)].problem.unwrap();
-    until(&mut s, &c, 22);
-    assert!(s.enqueue_repose(p));
-    assert!(!s.enqueue_repose(p));
-    until(&mut s, &c, 26);
-    assert!(!s.problems.values().any(|p| p.epoch == 1));
-    run(&mut s, &c, vec![]);
-    let new = s.problems.values().find(|p| p.epoch == 1).unwrap();
-    assert_eq!(new.slot, 1);
-    assert_eq!(new.pool_seq, 2);
-    assert_eq!(s.rounds[&(1, 2)].problem, Some(new.id));
-    assert_eq!(s.rounds[&(1, 2)].pool_seq, 2);
 }
 
 #[test]

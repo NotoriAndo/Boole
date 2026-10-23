@@ -341,3 +341,76 @@ pub fn derive_with_m2(
         .insert(1, crate::system::m2_root_deposit(l1, step.state.root)?);
     Ok((derived, step.state))
 }
+
+/// Staged v1.3 attributes. Verdicts are supplied by the node; no gate is run here.
+#[allow(clippy::too_many_arguments)]
+pub fn derive_with_m3(
+    state: &crate::m2::State,
+    config: &crate::m2::Config,
+    l1: &L1Block,
+    logs: &[InboxLog],
+    parent: &ParentHeader,
+    verdicts: &[crate::m3::IndexedVerdict],
+    forks: &crate::m3::ForkTable,
+) -> Result<(Derived, crate::m2::State), InputError> {
+    state.validate_next(config, l1)?;
+    config
+        .validate(parent.gas_limit)
+        .map_err(crate::m2::FoldError::Startup)?;
+    let mut inputs = Vec::new();
+    for log in logs {
+        let data = hex_bytes(&log.data, "log data")?;
+        if let Ok((kind, body)) = crate::inbox::item(&data) {
+            if (2..=15).contains(&kind) {
+                inputs.push(crate::m2::Input {
+                    transaction_index: log.transaction_index,
+                    log_index: log.log_index,
+                    kind,
+                    body: body.to_vec(),
+                });
+            }
+        }
+    }
+    let step = state.step_with_verdicts(config, l1, &inputs, verdicts, forks)?;
+    let batches = crate::m3::verdict_deposits(config, l1, &step.verdicts)
+        .map_err(crate::m2::FoldError::from)?;
+    let payments: Vec<_> = step
+        .payments
+        .iter()
+        .map(|payment| crate::m3::reward_deposit(config, l1, payment))
+        .collect::<Result<_, _>>()
+        .map_err(crate::m2::FoldError::from)?;
+    let p = config
+        .m3
+        .as_ref()
+        .ok_or(crate::m2::FoldError::M3(crate::m3::Error::ProfileRequired))?;
+    let system_gas = u64::try_from(batches.len())
+        .ok()
+        .and_then(|q| q.checked_mul(config.verdict_gas))
+        .and_then(|g| {
+            u64::try_from(payments.len())
+                .ok()
+                .and_then(|w| w.checked_mul(p.reward_gas))
+                .and_then(|w| g.checked_add(w))
+        })
+        .and_then(|g| g.checked_add(crate::config::L1INFO_GAS))
+        .and_then(|g| g.checked_add(crate::config::M2ROOT_GAS))
+        .ok_or(InputError::SystemGasBudget)?;
+    let mut derived = derive_base(l1, logs, parent, system_gas)?;
+    for (decision, code) in derived
+        .decisions
+        .iter_mut()
+        .filter(|d| d.m2.is_some())
+        .zip(step.codes)
+    {
+        decision.rule = crate::m2::rule(code);
+        if let Some(m2) = &mut decision.m2 {
+            m2.code = code;
+        }
+    }
+    let mut prefix = vec![crate::system::m2_root_deposit(l1, step.state.root)?];
+    prefix.extend(batches);
+    prefix.extend(payments);
+    derived.attributes.transactions.splice(1..1, prefix);
+    Ok((derived, step.state))
+}

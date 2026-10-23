@@ -145,6 +145,12 @@ enum SubmissionState {
     Checking,
     Expired,
     Cancelled,
+    Passed,
+    Accepted,
+    Rejected,
+    Void,
+    Stale,
+    Superseded,
     CommitNotIncluded,
     ProblemClosed,
     Aborted,
@@ -157,6 +163,12 @@ impl SubmissionState {
             Status::Checking => Self::Checking,
             Status::Expired => Self::Expired,
             Status::Cancelled => Self::Cancelled,
+            Status::Passed => Self::Passed,
+            Status::Accepted => Self::Accepted,
+            Status::Rejected => Self::Rejected,
+            Status::Void => Self::Void,
+            Status::Stale => Self::Stale,
+            Status::Superseded => Self::Superseded,
         }
     }
     fn final_state(self) -> bool {
@@ -165,6 +177,12 @@ impl SubmissionState {
             Self::Checking
                 | Self::Expired
                 | Self::Cancelled
+                | Self::Passed
+                | Self::Accepted
+                | Self::Rejected
+                | Self::Void
+                | Self::Stale
+                | Self::Superseded
                 | Self::CommitNotIncluded
                 | Self::ProblemClosed
                 | Self::Aborted
