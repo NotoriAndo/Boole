@@ -518,7 +518,11 @@ fn t84_mismatching_tail_is_refused_before_checkpoint_height_import() -> Result<(
         d.set_recover_engine_tail(true);
         d.step(2)?;
         assert_eq!(std::fs::read(&path)?, before);
-        assert!(d.step(3).is_err());
+        let error = d.step(3).unwrap_err();
+        assert!(matches!(
+            error.kind,
+            boole_devnet_driver::driver::StallKind::Integrity { height: 3 }
+        ));
         assert_eq!(d.engine.head.number, 2);
         assert_eq!(std::fs::read(&path)?, before);
     }

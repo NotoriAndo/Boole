@@ -315,10 +315,13 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
             }
             Err(e) => return Err(e).context("read M2 checkpoint"),
         };
-        anyhow::ensure!(
-            file_stamp(path)? == before,
-            "checkpoint changed while reading"
-        );
+        if file_stamp(path)? != before {
+            return Err(boole_devnet_archive::error::integrity(
+                0,
+                "checkpoint",
+                "checkpoint changed while reading",
+            ));
+        }
         self.checkpoint_stamp = before;
         self.journal = Some(path.to_owned());
         Ok(())
@@ -515,10 +518,13 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
         let Some(path) = &self.journal else {
             return Ok(());
         };
-        anyhow::ensure!(
-            file_stamp(path)? == self.checkpoint_stamp,
-            "M4 integrity: checkpoint changed before publication"
-        );
+        if file_stamp(path)? != self.checkpoint_stamp {
+            return Err(boole_devnet_archive::error::integrity(
+                state.height(),
+                "checkpoint",
+                "M4 integrity: checkpoint changed before publication",
+            ));
+        }
         let value = json!({"version":1,"height":state.height(),"m2_root":boole_derivation::attributes::hex_string(&state.root),"l2_hash":record["block_hash"],"l1_hash":record["l1"]["hash"],"config_digest":self.config_digest()?});
         let temporary = path.with_extension(format!("tmp-{}", std::process::id()));
         let mut created = false;
@@ -750,10 +756,13 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
         supplied: Option<Value>,
     ) -> Result<StepOutcome> {
         if let Some(path) = &self.journal {
-            anyhow::ensure!(
-                file_stamp(path)? == self.checkpoint_stamp,
-                "M4 integrity: checkpoint changed before derivation"
-            );
+            if file_stamp(path)? != self.checkpoint_stamp {
+                return Err(boole_devnet_archive::error::integrity(
+                    height,
+                    "checkpoint",
+                    "M4 integrity: checkpoint changed before derivation",
+                ));
+            }
         }
         let finalized = self.l1.finalized().context("L1 finalized")?;
         record["finalized"] = json!(finalized);
@@ -853,13 +862,16 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
             bail!("L1 block changed during build");
         }
         if let Some(saved) = &self.checkpoint {
-            if saved["height"] == height {
-                anyhow::ensure!(
-                    saved["m2_root"] == boole_derivation::attributes::hex_string(&next.root)
-                        && saved["l1_hash"] == l1.hash
-                        && saved["l2_hash"] == payload["blockHash"],
-                    "engine-tail recovery disagrees with saved checkpoint"
-                );
+            if saved["height"] == height
+                && (saved["m2_root"] != boole_derivation::attributes::hex_string(&next.root)
+                    || saved["l1_hash"] != l1.hash
+                    || saved["l2_hash"] != payload["blockHash"])
+            {
+                return Err(boole_devnet_archive::error::integrity(
+                    height,
+                    "engine-tail",
+                    "engine-tail recovery disagrees with saved checkpoint",
+                ));
             }
         }
         let imported = self.call(
