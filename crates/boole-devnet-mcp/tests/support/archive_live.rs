@@ -180,13 +180,9 @@ fn i14_i18_full_round_archive_fresh_driver_and_miner_with_mutating_proxy() -> Re
     let mut rt = Runtime::new("m4b1-i14-i18")?;
     let artifacts = rt.path.join("artifacts");
     install_devnet_artifacts(&c, &artifacts)?;
-    for (name, value) in [
-        ("config.json", serde_json::to_value(&c)?),
-        ("gates.json", serde_json::to_value(&workers)?),
-        ("forks.json", serde_json::to_value(&table)?),
-    ] {
-        fs::write(rt.path.join(name), serde_json::to_vec(&value)?)?;
-    }
+    fs::write(rt.path.join("config.json"), serde_json::to_vec(&c)?)?;
+    fs::write(rt.path.join("gates.json"), serde_json::to_vec(&workers)?)?;
+    fs::write(rt.path.join("forks.json"), serde_json::to_vec(&table)?)?;
     let l1p = rt.path.join("l1-genesis.json");
     fs::write(&l1p, serde_json::to_vec(&l1_genesis_value()?)?)?;
     let l1 = rt.anvil_with_genesis(&anvil, &l1p)?;
