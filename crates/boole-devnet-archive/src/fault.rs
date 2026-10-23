@@ -72,3 +72,47 @@ pub(crate) fn partial_append(
     }
     Ok(())
 }
+
+/// A qualification coordinator may read the marker only after SIGSTOP. Mere
+/// pathname presence races the writer's serialize/fsync sequence.
+pub fn stopped_marker(path: &Path, pid: u32) -> Result<Option<serde_json::Value>> {
+    if !path.try_exists()? {
+        return Ok(None);
+    }
+    anyhow::ensure!(
+        pid > 1 && pid != std::process::id(),
+        "qualification child PID"
+    );
+    let status = std::process::Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "state="])
+        .output()?;
+    if !status.status.success() || !std::str::from_utf8(&status.stdout)?.trim().starts_with('T') {
+        return Ok(None);
+    }
+    let (bytes, _) = crate::journal::read_bound(path, 65536)?;
+    let marker: serde_json::Value = serde_json::from_slice(&bytes)?;
+    anyhow::ensure!(
+        marker["pid"].as_u64() == Some(u64::from(pid)),
+        "stopped marker PID mismatch"
+    );
+    Ok(Some(marker))
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn a_partial_marker_cannot_authorize_killing_a_running_child() -> Result<()> {
+        let dir = crate::durability::PrivateTempDir::new("m4-marker")?;
+        let p = dir.path().join("marker.json");
+        std::fs::write(&p, b"{\"")?;
+        let mut child = std::process::Command::new("/bin/cat")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .spawn()?;
+        let result = stopped_marker(&p, child.id());
+        let _ = child.kill();
+        let _ = child.wait();
+        assert!(result?.is_none());
+        Ok(())
+    }
+}

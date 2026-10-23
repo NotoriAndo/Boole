@@ -448,7 +448,7 @@ fn t83_real_sigkill_at_journal_build_import_selection_evidence_and_checkpoint_bo
             .stdin(Stdio::null())
             .spawn()?;
         let end = Instant::now() + Duration::from_secs(10);
-        while !marker.exists() {
+        while boole_devnet_archive::fault::stopped_marker(&marker, child.id())?.is_none() {
             if let Some(status) = child.try_wait()? {
                 bail!(
                     "{point} child exited before boundary: {status}: {}",

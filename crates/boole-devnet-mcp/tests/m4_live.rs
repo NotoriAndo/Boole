@@ -442,8 +442,12 @@ fn c_run(
     let mut p = Process::start(cmd, &rt.path, "driver-c", &log)?;
     let end = Instant::now() + Duration::from_secs(40);
     loop {
-        if active && marker.exists() {
-            let v: Value = serde_json::from_slice(&fs::read(&marker)?)?;
+        let hit = if active {
+            boole_devnet_archive::fault::stopped_marker(&marker, p.child.id())?
+        } else {
+            None
+        };
+        if let Some(v) = hit {
             ensure!(v["pid"] == p.child.id(), "kill target identity");
             p.kill()?;
             events.push(v);
@@ -714,7 +718,12 @@ fn i15_kill_boundary_full_round_abc_tip_only_and_miner_restart() -> Result<()> {
                 )?;
                 process.child.stdin.as_mut().unwrap().flush()?;
                 let end = Instant::now() + Duration::from_secs(20);
-                while !marker.exists() {
+                let hit = loop {
+                    if let Some(hit) =
+                        boole_devnet_archive::fault::stopped_marker(&marker, process.child.id())?
+                    {
+                        break hit;
+                    }
                     if let Some(exit) = process.child.try_wait()? {
                         bail!(
                             "B11 miner exited {exit}: {}",
@@ -723,8 +732,7 @@ fn i15_kill_boundary_full_round_abc_tip_only_and_miner_restart() -> Result<()> {
                     }
                     ensure!(Instant::now() < end, "B11 marker timeout");
                     thread::sleep(Duration::from_millis(10));
-                }
-                let hit: Value = serde_json::from_slice(&fs::read(marker)?)?;
+                };
                 ensure!(hit["pid"] == process.child.id(), "B11 PID");
                 process.kill()?;
                 events.push(hit);
