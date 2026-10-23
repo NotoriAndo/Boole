@@ -536,6 +536,15 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             bail!("{reason}");
         }
         if let Err(e) = self.fold_finalized().and_then(|_| self.check_l2_root()) {
+            let available = matches!(
+                e.downcast_ref::<boole_devnet_archive::error::Error>(),
+                Some(boole_devnet_archive::error::Error::Availability { .. })
+            ) || boole_devnet_driver::engine::rpc_unavailable(&e);
+            if available {
+                self.l2_m2_root_match = None;
+                self.waiting_l2 = true;
+                return Err(e.context("availability paused; retry the same finalized height"));
+            }
             if self.config.m3.is_some() {
                 self.l2_m2_root_match = Some(false);
             }

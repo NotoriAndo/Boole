@@ -98,7 +98,7 @@ pub struct InputJournal {
     observed: FileStamp,
     positions: BTreeMap<u64, Position>,
 }
-fn regular(path: &Path, write: bool) -> Result<File> {
+pub(crate) fn regular(path: &Path, write: bool) -> Result<File> {
     let mut options = OpenOptions::new();
     options.read(true).write(write);
     #[cfg(unix)]
@@ -126,6 +126,9 @@ pub fn read_bound(path: &Path, limit: usize) -> Result<(Vec<u8>, FileStamp)> {
 }
 /// R1 create-new publication pattern: temp fsync, hard-link without replace, dir fsync.
 pub fn publish_new(path: &Path, bytes: &[u8]) -> Result<()> {
+    publish_new_at(path, bytes, None)
+}
+pub fn publish_new_at(path: &Path, bytes: &[u8], point: Option<(u64, &str)>) -> Result<()> {
     let parent = path.parent().context("new-file parent")?;
     let temp = durability::PrivateTempDir::new_in(parent, ".devnet-new")?;
     let staged = temp.path().join("value");
@@ -140,6 +143,9 @@ pub fn publish_new(path: &Path, bytes: &[u8]) -> Result<()> {
     file.write_all(bytes)?;
     file.sync_all()?;
     std::fs::hard_link(&staged, path)?;
+    if let Some((h, role)) = point {
+        crate::fault::hit("B9", h, role)?;
+    }
     std::fs::remove_file(&staged)?;
     durability::fsync_parent_dir(path)?;
     ensure!(
@@ -194,7 +200,8 @@ impl InputJournal {
         {
             return Err(startup(18, "store identity mismatch"));
         }
-        let (positions, observed) = Self::load(&path, &manifest, repair)?;
+        let (positions, observed) = Self::load(&path, &manifest, repair)
+            .map_err(|e| integrity(0, "input", format!("{e:#}")))?;
         let out = Self {
             root,
             path,
@@ -293,6 +300,10 @@ impl InputJournal {
             "journal path changed"
         );
         Ok((positions, after))
+    }
+    pub fn cleanup(&self, pins: &[[u8; 32]], checkpoint: Option<&Path>) -> Result<()> {
+        self.check()?;
+        crate::boot::cleanup(&self.root, &self.guard, pins, checkpoint)
     }
     pub fn root(&self) -> &Path {
         &self.root

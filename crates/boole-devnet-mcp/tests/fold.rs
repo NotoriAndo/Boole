@@ -657,7 +657,7 @@ fn a_commit_that_misses_its_deadline_becomes_final() {
     );
 }
 #[test]
-fn transient_rpc_reads_retry_before_stalling_and_status_is_reachable() {
+fn transient_rpc_reads_retry_and_exhaustion_remains_resumable_with_status_reachable() {
     for (failures, recovers) in [(1, true), (3, false)] {
         let (mut source, c, _) = fixture();
         source.finalized = 3;
@@ -675,13 +675,16 @@ fn transient_rpc_reads_retry_before_stalling_and_status_is_reachable() {
         let view = client
             .call("boole.devnet_status", &serde_json::json!({}))
             .unwrap();
-        assert_eq!(view["stalled"].is_null(), recovers);
+        assert!(view["stalled"].is_null());
         assert_eq!(view["fold_height"], if recovers { 3 } else { 0 });
         assert_eq!(client.source.finality_calls, if recovers { 2 } else { 3 });
         if !recovers {
-            assert!(client
-                .call("boole.devnet_problem", &serde_json::json!({"slot":0}))
-                .is_err());
+            assert_eq!(view["waiting_for_l2"], true);
+            let resumed = client
+                .call("boole.devnet_status", &serde_json::json!({}))
+                .unwrap();
+            assert!(resumed["stalled"].is_null());
+            assert_eq!(resumed["fold_height"], 3);
         }
     }
 }

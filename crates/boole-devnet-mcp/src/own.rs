@@ -176,7 +176,11 @@ impl Verifier {
                 value
             } else {
                 let GateReply::Result { value } = gate.run(&input, &self.scratch) else {
-                    anyhow::bail!("verify-own unavailable: local gate deferred")
+                    return Err(boole_devnet_archive::error::availability(
+                        h,
+                        "gate",
+                        "verify-own unavailable: local gate deferred",
+                    ));
                 };
                 value
             };

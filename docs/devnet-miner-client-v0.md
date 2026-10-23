@@ -62,7 +62,8 @@ the private directory for restart.
 
 ## Independent finalized fold
 
-With M3 enabled, the client reads finalized L1 headers and inbox logs from genesis
+With M3 enabled, the client re-verifies its own authenticated input journal from genesis
+([M4a storage](devnet-node-durability-v0.md))
 and the corresponding actual L2 transaction bytes. Every raw transaction must
 match the transaction hash listed in that block. It strictly decodes VERDICT batches, reconstructs the
 queue’s due heights from fuel, and checks every REWARD against the pure fold.
@@ -97,7 +98,8 @@ log or input error stalls that client instance and prevents posting. Status and
 submission tools remain readable with the previously verified state and stall
 reason. Transient connection,
 timeout, body-read and HTTP429/5xx failures receive at most three read attempts
-with 100/300ms backoff before a stall; format and application errors do not retry.
+with 100/300ms backoff before a resumable availability pause; subsequent polls
+retry the same height. Format and integrity errors remain sticky.
 Transaction writes are reconciled rather than blindly retried. Stop, verify the
 intended local node/config and preserve the private directory before restarting. Restart folds
 from genesis; a cached root is never accepted as a substitute for that fold.
@@ -114,6 +116,15 @@ The RPC endpoint supplies the finalized chain. This is independent derivation wi
 not an Ethereum consensus light-client proof or an RPC quorum. A server cannot
 supply an arbitrary M2 result to replace the fold; a dishonest L1 RPC remains
 outside this local trust model.
+
+The CLI creates a locked input manifest/journal pair in the private directory.
+Its manifest additionally binds the L2 genesis and fork genesis row. An old store
+without the pair is refused; preserve it and use a fresh directory. Starting
+without a journal requires finalized genesis height zero. Previously captured
+unfinalized inputs stay in a separate cache until their parent chain is proved
+against the node's own finalized tip. Expired missing inputs pause safely with
+no old-RPC fallback. `--repair-journals` explicitly permits incomplete-tail repair;
+complete malformed rows and identity mismatches remain refusals.
 
 ## Submission lifecycle and private material
 
@@ -141,8 +152,10 @@ OPEN receipt. At most P_BLK posts are attempted per observed head, and no reveal
 item is newly posted after the window. This is conservative scheduling, not an
 inclusion guarantee under censorship or a stalled chain.
 
-Finalized state determines completion. Canonical unfinalized receipts suppress
-duplicate work; missing/reorged parts can be reposted after a bounded delay.
+Finalized state determines completion. With M4a enabled, inclusion and revert
+status come from the journal's re-verified transaction and receipt proofs. The
+client waits for finalized inclusion before progressing; it never re-queries
+historical receipts through RPC. Missing parts can be reposted after a bounded delay.
 A canonical reverted receipt marks that submission step REVERTED in its private
 record and progress response, without blocking other submissions. Reposting
 remains subject to the same M2 windows and budgets. An orphaned receipt is not

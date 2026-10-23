@@ -26,6 +26,9 @@ pub trait L1Source {
     }
 
     fn finalized(&mut self) -> Result<u64>;
+    fn latest(&mut self) -> Result<u64> {
+        self.finalized()
+    }
     fn block(&mut self, number: u64) -> Result<L1Block>;
     fn inbox_logs(&mut self, hash: &str) -> Result<Vec<InboxLog>>;
     fn block_by_hash(&mut self, _hash: &str) -> Result<L1Block> {
@@ -39,6 +42,8 @@ pub struct JournalSource<L> {
     pub inner: L,
     pub journal: std::rc::Rc<std::cell::RefCell<boole_devnet_archive::journal::InputJournal>>,
     remote_tip: Option<u64>,
+    live_head: Option<(u64, String)>,
+    acquisition: boole_devnet_archive::objects::Objects,
 }
 impl<L: L1Source> JournalSource<L> {
     pub fn open(
@@ -56,13 +61,37 @@ impl<L: L1Source> JournalSource<L> {
             },
             repair,
         )?;
+        let acquisition =
+            boole_devnet_archive::objects::Objects::open(&journal.root().join("input-cache"))?;
         Ok(Self {
             inner,
             journal: std::rc::Rc::new(std::cell::RefCell::new(journal)),
             remote_tip: None,
+            live_head: None,
+            acquisition,
         })
     }
+    fn cached(&self, hash: &str) -> Result<Option<boole_devnet_archive::input::InputRow>> {
+        let result = self.acquisition.read(hash, |bytes| {
+            let row: boole_devnet_archive::input::InputRow = serde_json::from_slice(bytes)?;
+            row.verify()?;
+            anyhow::ensure!(
+                row.block_hash == hash && row.transactions.is_some() && row.receipts.is_some(),
+                "incomplete acquisition proof"
+            );
+            Ok(())
+        });
+        match result {
+            Ok(Some(bytes)) => Ok(Some(serde_json::from_slice(&bytes)?)),
+            Ok(None) => Ok(None),
+            Err(_) => Ok(None),
+        }
+    }
     fn refresh(&mut self) -> Result<u64> {
+        use boole_derivation::{
+            attributes::{hex_bytes, hex_string},
+            user_tx::keccak,
+        };
         use boole_devnet_archive::error::{availability, integrity};
         self.journal.borrow().check()?;
         let tip = crate::engine::retry_rpc(|| self.inner.finalized())?;
@@ -74,28 +103,95 @@ impl<L: L1Source> JournalSource<L> {
                 "finalized height moved backwards",
             ));
         }
-        if tip > saved.saturating_add(1) {
-            return Err(availability(saved+1,"journal","missing input before current tip; history must come from a verified journal/archive"));
+        let header = crate::engine::retry_rpc(|| self.inner.header_rlp(tip))?;
+        let hash = hex_string(&keccak(&hex_bytes(&header, "finalized header")?));
+        let latest = crate::engine::retry_rpc(|| self.inner.latest())?;
+        if latest < tip || latest - tip > 1024 {
+            return Err(availability(
+                tip,
+                "rpc",
+                "bounded live acquisition window unavailable",
+            ));
         }
-        let raw = crate::engine::retry_rpc(|| self.inner.header_rlp(tip))?;
-        let hash = boole_derivation::attributes::hex_string(&boole_derivation::user_tx::keccak(
-            &boole_derivation::attributes::hex_bytes(&raw, "tip header")?,
-        ));
+        let live_hash = if latest == tip {
+            hash.clone()
+        } else {
+            hex_string(&keccak(&hex_bytes(
+                &crate::engine::retry_rpc(|| self.inner.header_rlp(latest))?,
+                "live header",
+            )?))
+        };
+        if self.live_head.as_ref() != Some(&(latest, live_hash.clone()))
+            || self.remote_tip != Some(tip)
+        {
+            // Unfinalized cache is not fold authority. Only heights at/above the
+            // current finalized tip are read from RPC, including on restart.
+            for h in tip..=latest {
+                let expected = if h == tip {
+                    hash.clone()
+                } else if h == latest {
+                    live_hash.clone()
+                } else {
+                    hex_string(&keccak(&hex_bytes(
+                        &crate::engine::retry_rpc(|| self.inner.header_rlp(h))?,
+                        "live header",
+                    )?))
+                };
+                if self.journal.borrow().hash(h) == Some(expected.as_str())
+                    || self.cached(&expected)?.is_some()
+                {
+                    continue;
+                }
+                let row = crate::engine::retry_rpc(|| self.inner.input_row(h))?;
+                row.verify()?;
+                if row.block_hash != expected {
+                    return Err(availability(h, "rpc", "live input changed during capture"));
+                }
+                let bytes = serde_json::to_vec(&row)?;
+                self.acquisition.put(&expected, &bytes, |bytes| {
+                    let row: boole_devnet_archive::input::InputRow = serde_json::from_slice(bytes)?;
+                    row.verify()?;
+                    anyhow::ensure!(row.block_hash == expected, "acquisition address mismatch");
+                    Ok(())
+                })?;
+            }
+            self.live_head = Some((latest, live_hash));
+        }
         if tip == saved {
             if self.journal.borrow().hash(tip) != Some(hash.as_str()) {
                 return Err(integrity(tip, "l1-anchor", "finalized tip hash changed"));
             }
         } else {
-            let row = crate::engine::retry_rpc(|| self.inner.input_row(tip))?;
-            if row.block_hash != hash {
-                return Err(integrity(tip, "l1-anchor", "tip changed during capture"));
+            // Authenticate the entire cached segment back from the independently
+            // obtained finality hash before publishing even its first row.
+            let mut rows = vec![];
+            let mut cursor = hash;
+            for h in (saved + 1..=tip).rev() {
+                let row=self.cached(&cursor)?.ok_or_else(||availability(h,"input-cache","missing authenticated input below current tip; verified archive/journal recovery required"))?;
+                let block = row.block()?;
+                if block.number != h {
+                    return Err(integrity(h, "input-cache", "cached header height mismatch"));
+                }
+                cursor = block.parent_hash;
+                rows.push(row);
             }
-            self.journal.borrow_mut().append(&row)?;
+            if self.journal.borrow().hash(saved) != Some(cursor.as_str()) {
+                return Err(integrity(
+                    saved,
+                    "l1-anchor",
+                    "new finalized segment does not extend the journal",
+                ));
+            }
+            for row in rows.iter().rev() {
+                self.journal.borrow_mut().append(row)?;
+                boole_devnet_archive::fault::hit("B1", row.block()?.number, "driver")?;
+            }
         }
         self.remote_tip = Some(tip);
         Ok(tip)
     }
 }
+
 impl<L> std::ops::Deref for JournalSource<L> {
     type Target = L;
     fn deref(&self) -> &L {
@@ -245,6 +341,16 @@ impl RpcL1 {
     }
 }
 impl L1Source for RpcL1 {
+    fn latest(&mut self) -> Result<u64> {
+        let v = self.rpc.call("eth_blockNumber", json!([]))?;
+        Ok(u64::from_str_radix(
+            v.as_str()
+                .and_then(|s| s.strip_prefix("0x"))
+                .context("latest height")?,
+            16,
+        )?)
+    }
+
     fn header_rlp(&mut self, height: u64) -> Result<String> {
         let v = self.rpc.call(
             "eth_getBlockByNumber",

@@ -509,7 +509,7 @@ pub(crate) fn empty_fixture(number: u64, parent: [u8; 32]) -> InputRow {
         rlp::bytes(&[0; 32]),
         rlp::bytes(&[0; 20]),
         rlp::bytes(&[0; 32]),
-        rlp::bytes(&[0; 32]),
+        rlp::bytes(&receipts_root(&[])),
         rlp::bytes(&receipts_root(&[])),
         rlp::bytes(&[0; 256]),
         rlp::uint(0),
@@ -532,8 +532,8 @@ pub(crate) fn empty_fixture(number: u64, parent: [u8; 32]) -> InputRow {
         schema_version: 1,
         block_hash: hex_string(&keccak(&raw)),
         header_rlp: hex_string(&raw),
-        receipts: None,
-        transactions: None,
+        receipts: Some(vec![]),
+        transactions: Some(vec![]),
     }
 }
 
@@ -616,6 +616,7 @@ mod tests {
         }
         replace(&mut row, 6, rlp::bytes(&bloom));
         row.receipts = Some(bytes.iter().map(|v| hex_string(v)).collect());
+        row.transactions = None;
         let original = row.clone();
         row.receipts.as_mut().unwrap().remove(0);
         assert!(row.verify().is_err());

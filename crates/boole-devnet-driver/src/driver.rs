@@ -25,6 +25,8 @@ pub enum StallKind {
     M2Root { height: u64 },
     VerdictPending { height: u64, queue_index: u64 },
     Verdict { height: u64 },
+    Availability { height: u64 },
+    Integrity { height: u64 },
     Other,
 }
 #[derive(Debug, Clone)]
@@ -50,6 +52,21 @@ impl std::fmt::Display for VerdictMismatch {
 }
 impl std::error::Error for VerdictMismatch {}
 fn failure_kind(error: &anyhow::Error) -> StallKind {
+    if let Some(e) = error.downcast_ref::<boole_devnet_archive::error::Error>() {
+        return match e {
+            boole_devnet_archive::error::Error::Availability { height, .. } => {
+                StallKind::Availability { height: *height }
+            }
+            boole_devnet_archive::error::Error::Integrity { height, .. } => {
+                StallKind::Integrity { height: *height }
+            }
+            _ => StallKind::Other,
+        };
+    }
+    if crate::engine::rpc_unavailable(error) {
+        return StallKind::Availability { height: 0 };
+    }
+
     if let Some(v) = error.downcast_ref::<VerdictMismatch>() {
         return StallKind::Verdict { height: v.height };
     }
@@ -106,7 +123,9 @@ pub struct Driver<L, E> {
     stalled: Option<Stall>,
     pub supervisor: Option<boole_gate_supervisor::supervisor::Supervisor>,
     forks: Option<boole_derivation::m3::ForkTable>,
-    evidence: Option<File>,
+    evidence: Option<boole_devnet_archive::log::BoundLog>,
+    recover_engine_tail: bool,
+    retry_selected: Option<(u64, Derived)>,
     config: Config,
     l2_gas_limit: u64,
     m2: State,
@@ -138,6 +157,8 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
             supervisor: None,
             forks: None,
             evidence: None,
+            recover_engine_tail: false,
+            retry_selected: None,
             config,
             l2_gas_limit,
             m2,
@@ -284,9 +305,14 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
     }
     pub fn set_journal(&mut self, path: &Path) -> Result<()> {
         let before = file_stamp(path)?;
-        self.checkpoint = match std::fs::read(path) {
-            Ok(bytes) => Some(serde_json::from_slice(&bytes).context("decode M2 checkpoint")?),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        self.checkpoint = match boole_devnet_archive::journal::read_bound(path, 65536) {
+            Ok((bytes, _)) => Some(serde_json::from_slice(&bytes).context("decode M2 checkpoint")?),
+            Err(e)
+                if e.downcast_ref::<std::io::Error>()
+                    .is_some_and(|e| e.kind() == std::io::ErrorKind::NotFound) =>
+            {
+                None
+            }
             Err(e) => return Err(e).context("read M2 checkpoint"),
         };
         anyhow::ensure!(
@@ -326,9 +352,11 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
         if let Some(saved) = &self.checkpoint {
             if saved["version"] != 1
                 || saved["config_digest"] != self.config_digest()?
-                || saved["height"].as_u64().is_none_or(|h| h > parent.number)
+                || saved["height"]
+                    .as_u64()
+                    .is_none_or(|h| h == 0 || (h > parent.number && !self.recover_engine_tail))
             {
-                bail!("M2 checkpoint configuration or height mismatch");
+                return Err(boole_devnet_archive::error::integrity(parent.number,"engine-tail","M2 checkpoint configuration or height mismatch; tail recovery requires an explicit flag"));
             }
         }
         if self.m2.height() == parent.number {
@@ -367,6 +395,8 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
                 }
             }
         }
+        let mut recovered = vec![];
+        let mut last_derived = None;
         let mut state = State::new(&self.config, self.l2_gas_limit)?;
         let mut previous = self.engine.header(0).context("L2 genesis for re-fold")?;
         for height in 1..=parent.number {
@@ -423,17 +453,65 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
                         || saved["l2_hash"] != header.hash
                         || saved["l1_hash"] != l1.hash)
                 {
-                    bail!("M2 checkpoint disagrees with anchored re-fold");
+                    return Err(boole_devnet_archive::error::integrity(
+                        height,
+                        "checkpoint",
+                        "M2 checkpoint disagrees with anchored re-fold",
+                    ));
                 }
             }
+            if self.l1.input_journal().is_some() {
+                let record = json!({"height":height,"outcome":"RECOVERED","verification":"computed","block_hash":header.hash,"l1":{"hash":l1.hash},"m2_root":boole_derivation::attributes::hex_string(&next.root),"attribute_digest":boole_derivation::attributes::hex_string(&Sha256::digest(derived.canonical_bytes()?))});
+                if let Some(evidence) = &self.evidence {
+                    if let Some(saved) = evidence.record_at(height) {
+                        anyhow::ensure!(
+                            saved["block_hash"] == record["block_hash"]
+                                && saved["l1_hash"] == l1.hash
+                                && saved["m2_root"] == record["m2_root"]
+                                && saved["attribute_digest"] == record["attribute_digest"],
+                            "evidence disagrees with verified Engine replay at {height}"
+                        );
+                    } else {
+                        recovered.push(record);
+                    }
+                }
+            }
+            last_derived = Some(derived);
             state = next;
             previous = header;
         }
+        // Publish recovery evidence only after the complete replay/checkpoint comparison.
+        for record in &recovered {
+            self.evidence
+                .as_mut()
+                .expect("recovery evidence")
+                .append(record)?;
+        }
+        if self.l1.input_journal().is_some() && parent.number > 0 {
+            let origin = boole_derivation::system::l1_origin(
+                parent.l1_info.as_deref().context("recovery origin")?,
+                parent.number,
+            )?;
+            self.persist_checkpoint(
+                &state,
+                &json!({"block_hash":parent.hash,"l1":{"hash":origin}}),
+            )?;
+        }
+        self.retry_selected = last_derived.map(|d| (parent.number, d));
         self.m2 = state.clone();
         self.selected_head = Some(parent.hash.clone());
         Ok(state)
     }
     fn persist_checkpoint(&mut self, state: &State, record: &Value) -> Result<()> {
+        if self
+            .checkpoint
+            .as_ref()
+            .and_then(|v| v["height"].as_u64())
+            .is_some_and(|h| h > state.height())
+        {
+            return Ok(());
+        }
+
         let Some(path) = &self.journal else {
             return Ok(());
         };
@@ -444,6 +522,7 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
         let value = json!({"version":1,"height":state.height(),"m2_root":boole_derivation::attributes::hex_string(&state.root),"l2_hash":record["block_hash"],"l1_hash":record["l1"]["hash"],"config_digest":self.config_digest()?});
         let temporary = path.with_extension(format!("tmp-{}", std::process::id()));
         let mut created = false;
+        let mut renamed = false;
         let mut observed = None;
         let result = (|| -> Result<()> {
             let mut file = OpenOptions::new()
@@ -454,7 +533,10 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
             serde_json::to_writer(&mut file, &value)?;
             file.write_all(b"\n")?;
             file.sync_all()?;
+            boole_devnet_archive::fault::hit("B6", state.height(), "driver")?;
             std::fs::rename(&temporary, path)?;
+            renamed = true;
+            boole_devnet_archive::fault::hit("B7", state.height(), "driver")?;
             if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
                 File::open(parent)?.sync_all()?;
             }
@@ -469,13 +551,45 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
         if result.is_err() && created {
             let _ = std::fs::remove_file(&temporary);
         }
-        result.context("persist M2 checkpoint")?;
+        if let Err(error) = result {
+            if renamed {
+                return Err(boole_devnet_archive::error::integrity(
+                    state.height(),
+                    "checkpoint-publication",
+                    format!("post-rename failure; restart required: {error:#}"),
+                ));
+            }
+            if error
+                .downcast_ref::<std::io::Error>()
+                .is_some_and(|e| e.kind() == std::io::ErrorKind::StorageFull)
+            {
+                return Err(boole_devnet_archive::error::availability(
+                    state.height(),
+                    "disk",
+                    "checkpoint space unavailable; previous checkpoint preserved",
+                ));
+            }
+            return Err(error.context("persist M2 checkpoint"));
+        }
         self.checkpoint = Some(value);
         self.checkpoint_stamp = observed;
         Ok(())
     }
+    pub fn set_recover_engine_tail(&mut self, enabled: bool) {
+        self.recover_engine_tail = enabled;
+    }
+    /// Re-verify local inputs against the selected Engine chain before serving.
+    pub fn resume(&mut self) -> Result<()> {
+        let parent = self.engine.head()?;
+        self.state_for_parent(&parent)?;
+        Ok(())
+    }
     pub fn set_evidence(&mut self, path: &Path) -> Result<()> {
-        self.evidence = Some(OpenOptions::new().create(true).append(true).open(path)?);
+        self.set_evidence_repair(path, false)?;
+        Ok(())
+    }
+    pub fn set_evidence_repair(&mut self, path: &Path, repair: bool) -> Result<()> {
+        self.evidence = Some(boole_devnet_archive::log::BoundLog::open(path, repair)?);
         Ok(())
     }
     pub fn last_failure(&self) -> Option<&Stall> {
@@ -527,7 +641,11 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
                     record["outcome"] = json!("WAITING_FOR_FINALITY")
                 }
                 StepOutcome::Derived(derived) => {
-                    record["outcome"] = json!("DERIVED");
+                    record["outcome"] = json!(if record["recovered"] == true {
+                        "RECOVERED"
+                    } else {
+                        "DERIVED"
+                    });
                     record["derived"] = json!(derived);
                     let bytes = canonical(derived).context("canonical attribute encoding")?;
                     use sha2::{Digest, Sha256};
@@ -545,9 +663,12 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
         }
         let persisted = (|| -> Result<()> {
             if let Some(file) = &mut self.evidence {
-                serde_json::to_writer(&mut *file, &record)?;
-                file.write_all(b"\n")?;
-                file.flush()?;
+                if record["outcome"] != "RECOVERED" || file.record_at(height).is_none() {
+                    file.append(&record)?;
+                }
+            }
+            if record["outcome"] == "DERIVED" {
+                boole_devnet_archive::fault::hit("B5", height, "driver")?;
             }
             Ok(())
         })();
@@ -576,9 +697,7 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
                 record["m2_root"] = json!(boole_derivation::attributes::hex_string(&self.m2.root));
                 if let Some(file) = &mut self.evidence {
                     let appended = (|| -> Result<()> {
-                        serde_json::to_writer(&mut *file, &record)?;
-                        file.write_all(b"\n")?;
-                        file.flush()?;
+                        file.append(&record)?;
                         Ok(())
                     })();
                     if let Err(write_error) = appended {
@@ -601,7 +720,10 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
                     kind: failure_kind(&error),
                     reason: format!("{error:#}"),
                 };
-                if !matches!(stall.kind, StallKind::VerdictPending { .. }) {
+                if !matches!(
+                    stall.kind,
+                    StallKind::VerdictPending { .. } | StallKind::Availability { .. }
+                ) {
                     self.stalled = Some(stall.clone());
                 }
                 Err(stall)
@@ -639,6 +761,19 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
             return Ok(StepOutcome::WaitingForFinality);
         }
         let parent = self.engine.head().context("L2 parent")?;
+        if parent.number == height && self.l1.input_journal().is_some() {
+            self.state_for_parent(&parent)?;
+            if let Some((h, d)) = &self.retry_selected {
+                if *h == height {
+                    record["recovered"] = json!(true);
+                    record["block_hash"] = json!(parent.hash);
+                    record["l1"] = json!({"hash":boole_derivation::system::l1_origin(parent.l1_info.as_deref().context("recovered origin")?,height)?});
+                    record["m2_root"] =
+                        json!(boole_derivation::attributes::hex_string(&self.m2.root));
+                    return Ok(StepOutcome::Derived(Box::new(d.clone())));
+                }
+            }
+        }
         if parent.number.checked_add(1) != Some(height) {
             bail!("restart height must be node head + 1");
         }
@@ -663,6 +798,13 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
         let (derived, next) = self
             .fold(&previous, &l1, &logs, &parent)
             .context("pure derivation input")?;
+        if self
+            .supervisor
+            .as_ref()
+            .is_some_and(|s| s.evidence.iter().any(|v| v["cache_hit"] == false))
+        {
+            boole_devnet_archive::fault::hit("B8", height, "driver")?;
+        }
         record["m2_root"] = json!(boole_derivation::attributes::hex_string(&next.root));
         record["l1"] = json!(l1);
         record["parent"] = json!(parent);
@@ -683,6 +825,7 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
                 .filter(|s| !s.is_empty())
                 .context("VALID build missing payloadId")?;
             let envelope = self.call(record, "engine_getPayloadV5", json!([payload_id]))?;
+            boole_devnet_archive::fault::hit("B2", height, "driver")?;
             envelope["executionPayload"].clone()
         };
         let payload = &payload;
@@ -709,12 +852,23 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
         if serde_json::to_value(&l1)? != serde_json::to_value(&final_read)? {
             bail!("L1 block changed during build");
         }
+        if let Some(saved) = &self.checkpoint {
+            if saved["height"] == height {
+                anyhow::ensure!(
+                    saved["m2_root"] == boole_derivation::attributes::hex_string(&next.root)
+                        && saved["l1_hash"] == l1.hash
+                        && saved["l2_hash"] == payload["blockHash"],
+                    "engine-tail recovery disagrees with saved checkpoint"
+                );
+            }
+        }
         let imported = self.call(
             record,
             "engine_newPayloadV4",
             json!([payload, [], derived.attributes.parent_beacon_block_root, []]),
         )?;
         valid(&imported)?;
+        boole_devnet_archive::fault::hit("B3", height, "driver")?;
         let hash = payload["blockHash"]
             .as_str()
             .context("payload missing blockHash")?;
@@ -739,6 +893,7 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
             check_payload_transactions(&json!({"transactions":txs}), &derived)
                 .map_err(|_| VerdictMismatch { height })?;
         }
+        boole_devnet_archive::fault::hit("B4", height, "driver")?;
         record["block_hash"] = json!(hash);
         self.pending = Some(next);
         Ok(StepOutcome::Derived(Box::new(derived)))

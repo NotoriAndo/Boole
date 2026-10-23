@@ -20,7 +20,7 @@ fn empty_fixture(number: u64, parent: [u8; 32]) -> InputRow {
         rlp::bytes(&[0; 32]),
         rlp::bytes(&[0; 20]),
         rlp::bytes(&[0; 32]),
-        rlp::bytes(&[0; 32]),
+        rlp::bytes(&receipts_root(&[])),
         rlp::bytes(&receipts_root(&[])),
         rlp::bytes(&[0; 256]),
         rlp::uint(0),
@@ -43,8 +43,8 @@ fn empty_fixture(number: u64, parent: [u8; 32]) -> InputRow {
         schema_version: 1,
         block_hash: hex_string(&keccak(&raw)),
         header_rlp: hex_string(&raw),
-        receipts: None,
-        transactions: None,
+        receipts: Some(vec![]),
+        transactions: Some(vec![]),
     }
 }
 
@@ -53,11 +53,12 @@ struct TipOnly {
     rows: Vec<InputRow>,
     tip: u64,
     strict: bool,
+    latest: Option<u64>,
 }
 impl TipOnly {
     fn new() -> Self {
         let mut rows = vec![empty_fixture(0, [0; 32])];
-        for h in 1..=4 {
+        for h in 1..=8 {
             let parent = hex_bytes(&rows.last().unwrap().block_hash, "hash")
                 .unwrap()
                 .try_into()
@@ -68,6 +69,7 @@ impl TipOnly {
             rows,
             tip: 0,
             strict: false,
+            latest: None,
         }
     }
     fn read(&self, h: u64) {
@@ -79,6 +81,9 @@ impl TipOnly {
     }
 }
 impl L1Source for TipOnly {
+    fn latest(&mut self) -> Result<u64> {
+        Ok(self.latest.unwrap_or(self.tip))
+    }
     fn finalized(&mut self) -> Result<u64> {
         Ok(self.tip)
     }
@@ -203,5 +208,288 @@ fn t77_driver_restarts_from_verified_rows_without_any_historical_l1_read() -> Re
     restarted.step(3)?;
     assert_eq!(restarted.m2_state().height(), 3);
     assert_eq!(restarted.l1.journal.borrow().tip(), 3);
+    Ok(())
+}
+
+#[test]
+fn t77_finality_jump_uses_previously_captured_unfinalized_cache_only() -> Result<()> {
+    let dir = PrivateTempDir::new("m4-epoch-jump")?;
+    let engine = MemoryEngine::new();
+    let config = boole_derivation::m2::Config::devnet();
+    let network = NetworkIdentity::new(&config, None, engine.head.hash, 30_000_000)?;
+    let mut raw = TipOnly::new();
+    raw.latest = Some(8);
+    raw.strict = true;
+    let mut source = JournalSource::open(raw, dir.path(), network.clone(), false)?;
+    assert_eq!(source.finalized()?, 0);
+    assert_eq!(
+        source.journal.borrow().tip(),
+        0,
+        "unfinalized cache is never fold authority"
+    );
+    let mut raw = source.inner.clone();
+    drop(source);
+    raw.tip = 4;
+    let mut source = JournalSource::open(raw, dir.path(), network, false)?;
+    assert_eq!(source.finalized()?, 4);
+    assert_eq!(source.journal.borrow().tip(), 4);
+    assert_eq!(source.block(1)?.number, 1);
+    Ok(())
+}
+#[test]
+fn t77_missing_expired_input_is_availability_without_partial_journal_publication() -> Result<()> {
+    let dir = PrivateTempDir::new("m4-epoch-gap")?;
+    let engine = MemoryEngine::new();
+    let config = boole_derivation::m2::Config::devnet();
+    let network = NetworkIdentity::new(&config, None, engine.head.hash, 30_000_000)?;
+    let mut raw = TipOnly::new();
+    raw.strict = true;
+    let source = JournalSource::open(raw, dir.path(), network.clone(), false)?;
+    let mut raw = source.inner.clone();
+    drop(source);
+    raw.tip = 4;
+    let mut source = JournalSource::open(raw, dir.path(), network, false)?;
+    let error = source.finalized().unwrap_err();
+    assert!(matches!(
+        error.downcast_ref::<boole_devnet_archive::error::Error>(),
+        Some(boole_devnet_archive::error::Error::Availability { .. })
+    ));
+    assert_eq!(source.journal.borrow().tip(), 0);
+    Ok(())
+}
+#[test]
+fn t84_explicit_engine_tail_recovery_reaches_saved_checkpoint_without_moving_it_backwards(
+) -> Result<()> {
+    let dir = PrivateTempDir::new("m4-engine-tail")?;
+    let path = dir.path().join("checkpoint.json");
+    let mut raw = TipOnly::new();
+    raw.tip = 3;
+    let mut a = Driver::new(raw.clone(), MemoryEngine::new());
+    a.set_journal(&path)?;
+    for h in 1..=3 {
+        a.step(h)?;
+    }
+    let saved = std::fs::read(&path)?;
+    let expected = a.engine.head.clone();
+    let mut truncated = a.engine.clone();
+    truncated.head = truncated.headers[&1].clone();
+    truncated.headers.retain(|h, _| *h <= 1);
+    truncated.txs.retain(|h, _| *h <= 1);
+    drop(a);
+    let mut b = Driver::new(raw.clone(), truncated.clone());
+    b.set_journal(&path)?;
+    assert!(b.step(2).is_err());
+    assert_eq!(std::fs::read(&path)?, saved);
+    let mut c = Driver::new(raw, truncated);
+    c.set_journal(&path)?;
+    c.set_recover_engine_tail(true);
+    c.step(2)?;
+    assert_eq!(std::fs::read(&path)?, saved);
+    c.step(3)?;
+    assert_eq!(c.engine.head.hash, expected.hash);
+    assert_eq!(std::fs::read(&path)?, saved);
+    Ok(())
+}
+
+struct FileEngine {
+    inner: MemoryEngine,
+    path: std::path::PathBuf,
+}
+impl FileEngine {
+    fn open(path: &std::path::Path) -> Result<Self> {
+        Ok(Self {
+            inner: if path.exists() {
+                let v: Value = serde_json::from_slice(&std::fs::read(path)?)?;
+                MemoryEngine {
+                    head: serde_json::from_value(v["head"].clone())?,
+                    headers: serde_json::from_value(v["headers"].clone())?,
+                    txs: serde_json::from_value(v["txs"].clone())?,
+                    attributes: v["attributes"].clone(),
+                }
+            } else {
+                MemoryEngine::new()
+            },
+            path: path.into(),
+        })
+    }
+    fn save(&self) -> Result<()> {
+        let tmp = self.path.with_extension("next");
+        std::fs::write(
+            &tmp,
+            serde_json::to_vec(
+                &json!({"head":self.inner.head,"headers":self.inner.headers,"txs":self.inner.txs,"attributes":self.inner.attributes}),
+            )?,
+        )?;
+        std::fs::File::open(&tmp)?.sync_all()?;
+        std::fs::rename(tmp, &self.path)?;
+        boole_devnet_archive::durability::fsync_parent_dir(&self.path)
+    }
+}
+impl Engine for FileEngine {
+    fn head(&mut self) -> Result<ParentHeader> {
+        self.inner.head()
+    }
+    fn header(&mut self, h: u64) -> Result<ParentHeader> {
+        self.inner.header(h)
+    }
+    fn transactions(&mut self, h: u64) -> Result<Vec<String>> {
+        self.inner.transactions(h)
+    }
+    fn call(&mut self, m: &str, p: Value) -> Result<Value> {
+        let result = self.inner.call(m, p)?;
+        self.save()?;
+        Ok(result)
+    }
+}
+fn child_run(root: &std::path::Path, repair: bool) -> Result<()> {
+    let engine = FileEngine::open(&root.join("engine.json"))?;
+    let network = NetworkIdentity::new(
+        &boole_derivation::m2::Config::devnet(),
+        None,
+        engine.inner.headers[&0].hash.clone(),
+        30_000_000,
+    )?;
+    let mut raw = TipOnly::new();
+    raw.tip = 4;
+    raw.strict = true;
+    let source = JournalSource::open(raw, root, network, repair)?;
+    source
+        .journal
+        .borrow()
+        .cleanup(&[], Some(&root.join("checkpoint.json")))?;
+    let mut driver = Driver::new(source, engine);
+    driver.set_journal(&root.join("checkpoint.json"))?;
+    driver.set_evidence_repair(&root.join("evidence.jsonl"), repair)?;
+    driver.resume()?;
+    let first = driver.engine.head()?.number + 1;
+    for h in first..=4 {
+        driver.step(h)?;
+    }
+    assert_eq!(driver.m2_state().height(), 4);
+    std::fs::write(
+        root.join("result.json"),
+        serde_json::to_vec(
+            &json!({"hash":driver.engine.head()?.hash,"root":hex_string(&driver.m2_state().root)}),
+        )?,
+    )?;
+    Ok(())
+}
+#[test]
+#[ignore = "fixture subprocess only"]
+fn t83_fixture_child() -> Result<()> {
+    let Some(root) = std::env::var_os("BOOLE_M4_T83_ROOT") else {
+        return Ok(());
+    };
+    child_run(
+        std::path::Path::new(&root),
+        std::env::var_os("BOOLE_M4_REPAIR_FIXTURE").is_some(),
+    )
+}
+#[test]
+fn t83_real_sigkill_at_journal_build_import_selection_evidence_and_checkpoint_boundaries(
+) -> Result<()> {
+    use std::{
+        process::{Command, Stdio},
+        time::{Duration, Instant},
+    };
+    let mut reference = None;
+    for point in ["B1", "B2", "B3", "B4", "B5", "B6", "B7", "B9", "B10"] {
+        let dir = PrivateTempDir::new("m4-kill")?;
+        let root = dir.path().canonicalize()?;
+        let engine = MemoryEngine::new();
+        let network = NetworkIdentity::new(
+            &boole_derivation::m2::Config::devnet(),
+            None,
+            engine.head.hash,
+            30_000_000,
+        )?;
+        let mut raw = TipOnly::new();
+        raw.latest = Some(8);
+        let mut source = JournalSource::open(raw, &root, network, false)?;
+        // For B9 capture only 0..1 here and make the child publish a new tip-4 object.
+        if point == "B9" {
+            source.inner.latest = Some(1);
+        }
+        source.finalized()?;
+        drop(source);
+        // The B9 run cannot recover a gap: pre-cache 2..3 under another unfinalized live head first.
+        if point == "B9" {
+            let mut raw = TipOnly::new();
+            raw.latest = Some(3);
+            let network = NetworkIdentity::new(
+                &boole_derivation::m2::Config::devnet(),
+                None,
+                MemoryEngine::new().head.hash,
+                30_000_000,
+            )?;
+            let mut source = JournalSource::open(raw, &root, network, false)?;
+            source.finalized()?;
+            drop(source);
+        }
+        let marker = root.join("kill-marker.json");
+        let log = std::fs::File::create(root.join("child.log"))?;
+        let height = if point == "B9" { 4 } else { 2 };
+        let role = if point == "B9" {
+            "staged-input"
+        } else if point == "B10" {
+            "evidence"
+        } else {
+            "driver"
+        };
+        let mut child = Command::new(std::env::current_exe()?)
+            .args(["--exact", "t83_fixture_child", "--ignored", "--nocapture"])
+            .env("BOOLE_M4_T83_ROOT", &root)
+            .env("BOOLE_M4_KILL_POINT", point)
+            .env("BOOLE_M4_KILL_HEIGHT", height.to_string())
+            .env("BOOLE_M4_KILL_ROLE", role)
+            .env("BOOLE_M4_KILL_MARKER", &marker)
+            .stdout(log.try_clone()?)
+            .stderr(log)
+            .stdin(Stdio::null())
+            .spawn()?;
+        let end = Instant::now() + Duration::from_secs(10);
+        while !marker.exists() {
+            if let Some(status) = child.try_wait()? {
+                bail!(
+                    "{point} child exited before boundary: {status}: {}",
+                    std::fs::read_to_string(root.join("child.log"))?
+                );
+            }
+            if Instant::now() > end {
+                let _ = child.kill();
+                let _ = child.wait();
+                bail!("{point} boundary timeout");
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let hit: Value = serde_json::from_slice(&std::fs::read(marker)?)?;
+        assert_eq!(hit["pid"], child.id());
+        assert_eq!(hit["point"], point);
+        child.kill()?;
+        let status = child.wait()?;
+        assert!(!status.success());
+        if point == "B10" {
+            let before = std::fs::read(root.join("evidence.jsonl"))?;
+            let error = child_run(&root, false).unwrap_err();
+            assert!(error
+                .downcast_ref::<boole_devnet_archive::error::Error>()
+                .is_some());
+            assert_eq!(std::fs::read(root.join("evidence.jsonl"))?, before);
+            child_run(&root, true)?;
+        } else {
+            child_run(&root, false)?;
+        }
+        let result = std::fs::read(root.join("result.json"))?;
+        if let Some(expected) = &reference {
+            assert_eq!(&result, expected, "{point} diverged");
+        } else {
+            reference = Some(result);
+        }
+        if point == "B4" {
+            let log = std::fs::read_to_string(root.join("evidence.jsonl"))?;
+            assert!(log.lines().any(|s| serde_json::from_str::<Value>(s)
+                .is_ok_and(|v| v["height"] == 2 && v["outcome"] == "RECOVERED")));
+        }
+    }
     Ok(())
 }

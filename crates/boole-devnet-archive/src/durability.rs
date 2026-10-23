@@ -420,6 +420,7 @@ fn append_ndjson_transaction(
             file.write_all(&line.as_bytes()[..bytes.min(line.len())])?;
             anyhow::bail!("injected partial append failure");
         }
+        crate::fault::partial_append(file, line, path)?;
         writeln!(file, "{}", line)?;
         file.flush()?;
         #[cfg(test)]
