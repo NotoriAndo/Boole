@@ -68,6 +68,7 @@ pub(crate) struct Verifier {
     codec: Codec,
     scratch: PathBuf,
     cache: Cache,
+    _cache_guard: boole_devnet_archive::state_dir::StateDirGuard,
 }
 impl Verifier {
     pub fn new(
@@ -94,12 +95,16 @@ impl Verifier {
         );
         let codec = codec.unwrap_or_else(Codec::portable_stub);
         codec.verify()?;
+        let cache_root = root.join("verify-own-cache");
+        let cache_guard = boole_devnet_archive::state_dir::acquire(&cache_root)?;
+        boole_devnet_archive::boot::cleanup(&cache_root, &cache_guard, &[], None)?;
         let out = Self {
             gates,
             artifacts: settings.artifacts,
             codec,
             scratch: root.to_owned(),
-            cache: Cache::new(&root.join("verify-own-cache"))?,
+            cache: Cache::new(&cache_root)?,
+            _cache_guard: cache_guard,
         };
         let components: BTreeSet<_> = std::iter::once(c.base_root)
             .chain(c.env_allowed.iter().flatten().copied())

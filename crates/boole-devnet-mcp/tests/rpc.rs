@@ -32,6 +32,9 @@ fn serve(replies: Vec<(&'static str, u16, Value)>) -> (String, thread::JoinHandl
             reader.read_exact(&mut bytes).unwrap();
             let request: Value = serde_json::from_slice(&bytes).unwrap();
             assert_eq!(request["method"], method);
+            if status == 0 {
+                continue;
+            }
             let body = if status == 200 {
                 json!({"jsonrpc":"2.0","id":1,"result":result}).to_string()
             } else {
@@ -349,4 +352,20 @@ fn l2_balances_keep_all_256_bits_and_refuse_noncanonical_quantities() {
         }
         worker.join().unwrap();
     }
+}
+
+#[test]
+fn closed_http_response_is_retryable_transport_availability() {
+    let (url, worker) = serve(vec![
+        ("eth_blockNumber", 0, Value::Null),
+        ("eth_blockNumber", 200, json!("0x2")),
+    ]);
+    let rpc = Rpc::new(&url).unwrap();
+    let result = retry_rpc(|| rpc.call("eth_blockNumber", json!([])));
+    // Drop the listener safely even if the legacy classifier fails after read 1.
+    if result.is_err() {
+        let _ = rpc.call("eth_blockNumber", json!([]));
+    }
+    worker.join().unwrap();
+    assert_eq!(result.unwrap(), json!("0x2"));
 }

@@ -120,6 +120,7 @@ impl Rpc {
         }
         let response = request
             .send()
+            .map_err(|_| TransientRpcError)
             .with_context(|| format!("{method} transport"))?;
         let status = response.status();
         if status.is_server_error() || status == reqwest::StatusCode::TOO_MANY_REQUESTS {

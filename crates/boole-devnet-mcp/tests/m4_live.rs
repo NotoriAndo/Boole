@@ -58,6 +58,12 @@ impl TipProxy {
         let upstream = upstream.to_owned();
         let handle = thread::spawn(move || {
             let rpc = Rpc::new(&upstream).unwrap();
+            let transport = reqwest::blocking::Client::builder()
+                .no_proxy()
+                .redirect(reqwest::redirect::Policy::none())
+                .timeout(Duration::from_secs(10))
+                .build()
+                .unwrap();
             let mut transactions = std::collections::BTreeMap::<String, u64>::new();
             let mut blocks = std::collections::BTreeMap::<String, u64>::new();
             while !s.load(Ordering::SeqCst) {
@@ -69,6 +75,7 @@ impl TipProxy {
                     }
                     Err(_) => break,
                 };
+                let mut current_method = "HTTP-header".to_owned();
                 let result = (|| -> Result<()> {
                     stream.set_read_timeout(Some(Duration::from_secs(10)))?;
                     stream.set_write_timeout(Some(Duration::from_secs(10)))?;
@@ -93,6 +100,7 @@ impl TipProxy {
                     stream.read_exact(&mut body)?;
                     let request: Value = serde_json::from_slice(&body)?;
                     let method = request["method"].as_str().context("method")?;
+                    current_method = method.to_owned();
                     let params = request["params"].clone();
                     let finalized =
                         rpc.call("eth_getBlockByNumber", json!(["finalized", false]))?;
@@ -116,7 +124,9 @@ impl TipProxy {
                             .push(json!({"method":method,"height":n,"tip":tip}));
                         json!({"jsonrpc":"2.0","id":request["id"],"error":{"code":-32099,"message":"TIP_ONLY historical read refused"}})
                     } else {
-                        let value = rpc.call(method, params)?;
+                        let response: Value =
+                            transport.post(&upstream).json(&request).send()?.json()?;
+                        let value = &response["result"];
                         if method == "eth_getBlockByNumber" || method == "eth_getBlockByHash" {
                             if let (Ok(n), Some(h)) =
                                 (quantity(&value["number"]), value["hash"].as_str())
@@ -132,7 +142,7 @@ impl TipProxy {
                                 }
                             }
                         }
-                        json!({"jsonrpc":"2.0","id":request["id"],"result":value})
+                        response
                     };
                     let body = serde_json::to_vec(&response)?;
                     write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",body.len())?;
@@ -140,7 +150,17 @@ impl TipProxy {
                     Ok(())
                 })();
                 if let Err(e) = result {
-                    d.lock().unwrap().push(json!({"proxy_error":e.to_string()}));
+                    let issue = json!({"proxy_error":e.to_string(),"method":current_method});
+                    if let Some(root) = std::env::var_os("BOOLE_DEVNET_RUN_DIR") {
+                        if let Ok(mut f) = OpenOptions::new()
+                            .create(true)
+                            .append(true)
+                            .open(PathBuf::from(root).join("proxy-errors-private.jsonl"))
+                        {
+                            let _ = writeln!(f, "{issue}");
+                        }
+                    }
+                    d.lock().unwrap().push(issue);
                 }
             }
         });

@@ -493,3 +493,34 @@ fn t83_real_sigkill_at_journal_build_import_selection_evidence_and_checkpoint_bo
     }
     Ok(())
 }
+
+#[test]
+fn t84_mismatching_tail_is_refused_before_checkpoint_height_import() -> Result<()> {
+    for field in ["l2_hash", "m2_root"] {
+        let dir = PrivateTempDir::new("m4-bad-tail")?;
+        let path = dir.path().join("checkpoint.json");
+        let mut raw = TipOnly::new();
+        raw.tip = 3;
+        let mut a = Driver::new(raw.clone(), MemoryEngine::new());
+        a.set_journal(&path)?;
+        for h in 1..=3 {
+            a.step(h)?;
+        }
+        let mut engine = a.engine.clone();
+        engine.head = engine.headers[&1].clone();
+        drop(a);
+        let mut saved: Value = serde_json::from_slice(&std::fs::read(&path)?)?;
+        saved[field] = json!(format!("0x{}", "ff".repeat(32)));
+        std::fs::write(&path, serde_json::to_vec(&saved)?)?;
+        let before = std::fs::read(&path)?;
+        let mut d = Driver::new(raw, engine);
+        d.set_journal(&path)?;
+        d.set_recover_engine_tail(true);
+        d.step(2)?;
+        assert_eq!(std::fs::read(&path)?, before);
+        assert!(d.step(3).is_err());
+        assert_eq!(d.engine.head.number, 2);
+        assert_eq!(std::fs::read(&path)?, before);
+    }
+    Ok(())
+}

@@ -396,6 +396,13 @@ impl InputJournal {
         let written = match result {
             Ok(written) => written,
             Err(e) => {
+                if durability::any_indeterminate_write([&self.path]) {
+                    return Err(integrity(
+                        h,
+                        "durability-fence",
+                        format!("indeterminate input append; restart required: {e:#}"),
+                    ));
+                }
                 if !durability::any_indeterminate_write([&self.path])
                     && e.to_string() == "append failed; confirmed prefix restored"
                 {
