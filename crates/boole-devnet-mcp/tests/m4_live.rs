@@ -610,7 +610,10 @@ fn i15_kill_boundary_full_round_abc_tip_only_and_miner_restart() -> Result<()> {
             comparisons += 1;
             rows.push(a);
         }
-        client.as_mut().unwrap().tick()?;
+        client.as_mut().unwrap().sync()?;
+        if finalized > 0 {
+            client.as_mut().unwrap().tick()?;
+        }
         let status = client
             .as_mut()
             .unwrap()
