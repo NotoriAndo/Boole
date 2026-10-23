@@ -182,3 +182,31 @@ fn t6_wait_never_reads_unfinalized_inputs() {
         StepOutcome::WaitingForFinality
     ));
 }
+
+#[test]
+fn t47_every_system_deposit_must_be_an_exact_prefix() {
+    let rows: Vec<Value> = serde_json::from_str(MAIN).unwrap();
+    let r = &rows[0];
+    let mut d = boole_derivation::derive(
+        &serde_json::from_value(r["l1"].clone()).unwrap(),
+        &serde_json::from_value::<Vec<_>>(r["logs"].clone()).unwrap(),
+        &serde_json::from_value(r["parent"].clone()).unwrap(),
+    )
+    .unwrap();
+    d.attributes.transactions.insert(1, "0x7ef801".into());
+    d.attributes.transactions.insert(2, "0x7ef802".into());
+    d.attributes.transactions.insert(3, "0x7ef803".into());
+    let valid = json!({"transactions":d.attributes.transactions});
+    boole_devnet_driver::driver::check_payload_transactions(&valid, &d).unwrap();
+    for index in [2, 3] {
+        let mut bad = valid.clone();
+        bad["transactions"].as_array_mut().unwrap().remove(index);
+        assert!(
+            boole_devnet_driver::driver::check_payload_transactions(&bad, &d).is_err(),
+            "missing system deposit {index} accepted by subsequence check"
+        );
+    }
+    let mut fewer_users = valid.clone();
+    fewer_users["transactions"].as_array_mut().unwrap().pop();
+    boole_devnet_driver::driver::check_payload_transactions(&fewer_users, &d).unwrap();
+}

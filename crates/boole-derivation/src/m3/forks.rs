@@ -2,26 +2,30 @@ use super::Error;
 use crate::m2::{Config, Hash};
 
 /// R-4 consensus kind bytes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[repr(u8)]
+#[serde(rename_all = "SCREAMING-KEBAB-CASE")]
 pub enum ForkKind {
     Genesis = 0,
     KernelFix = 1,
     Quarantine = 2,
     Policy = 3,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[repr(u8)]
+#[serde(rename_all = "SCREAMING-KEBAB-CASE")]
 pub enum Disposition {
     Recheck = 1,
     Void = 2,
 }
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ForkItem {
     pub commit_hash: Hash,
     pub disposition: Disposition,
 }
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ForkRow {
     pub epoch: u32,
     pub height: u64,
@@ -29,7 +33,8 @@ pub struct ForkRow {
     pub kind: ForkKind,
     pub list: Vec<ForkItem>,
 }
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ForkTable {
     pub rows: Vec<ForkRow>,
 }
@@ -109,7 +114,7 @@ impl ForkTable {
             .map(|row| row.epoch)
             .ok_or(Error::Format("missing epoch"))
     }
-    pub(crate) fn validate_history(&self, state: &crate::m2::State) -> Result<(), Error> {
+    pub fn validate_history(&self, state: &crate::m2::State) -> Result<(), Error> {
         let m = state.m3.as_ref().ok_or(Error::ProfileRequired)?;
         if state.height() == 0 && m.fork_history.is_empty() {
             return Ok(());

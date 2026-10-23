@@ -1,15 +1,14 @@
-# Devnet verdicts v1.3 draft: staged pure M3 fold
+# Devnet verdicts v1.3: fold, supervisor and driver
 
-This is an inactive development profile in `boole-derivation`. The devnet still
-uses [M2 v1.2](devnet-commit-reveal-v1.2.md). This change adds no gate process,
-driver activation, reset, live proof certification or executed reward mint.
-The node supplies verdicts to a pure fold; the fold never reads files, clocks,
-RPC, peer results or host resources. M3b must supply and independently verify
-those results before enabling the profile.
+M3 is an explicit devnet profile. `boole-derivation` remains a pure byte fold;
+`boole-gate-supervisor` independently rebuilds and computes verdicts for each
+verify node. The development stub exercises protocol behavior and does not
+certify Lean proofs. The original [M2 v1.2](devnet-commit-reveal-v1.2.md)
+recordings remain frozen. Live v1.3 reset qualification is recorded separately
+from the pure wire vectors.
 
-Fork activation uses amendment R-4's canonical kind and disposition bytes,
-list digest and 69-byte body. Pure tests qualify activation, quarantine release
-and replay from genesis. The profile remains inactive on the devnet.
+Fork activation uses the canonical kind and disposition bytes, list digest and
+69-byte body below. Nodes replay roots and the complete system deposit prefix.
 
 ## Staging, configuration and startup
 
@@ -29,14 +28,15 @@ maturity, reward, mint_enabled, notice, open_licenses, bridge,
 native_is_reward_unit, genesis_gate_rule_digest
 ```
 
-The staged devnet uses K=8, RATE=1,000, COST_FIXED=100, FUEL_SLOT=10,000 per
+The explicit devnet profile uses K=8, RATE=1,000, COST_FIXED=100, FUEL_SLOT=10,000 per
 slot, Q_REWARD=16, REWARD_GAS=100,000, MATURITY=64 and REWARD=1,000×10^18 per
 slot. Its sink is `0x42000000000000000000000000000000000000b3`. It permits
 minting only with no bridge. The staged testnet parameters use K=300,
 MATURITY=50,400, NOTICE=7,200 and minting disabled. Production-shaped golden
 configs use these same provisional M3 parameters; they are not calibrated
-production parameters. The stub genesis gate identity is
-`SHA256("BOOLE-M2/BODY/v1" || "BOOLE-M3/STUB/v1")`.
+production parameters. The primitive wire vectors retain a synthetic genesis gate identity for pure
+fold tests. Active stub profiles instead bind the executable and implementation
+through the descriptor below; they never use that synthetic identity.
 
 S1–S3 and S5–S8 remain. M3 replaces S4 and adds:
 
@@ -51,7 +51,10 @@ S1–S3 and S5–S8 remain. M3 replaces S4 and adds:
 | S15 | A TERMS_TABLE id lacks an entry in `open_licenses` |
 | S17 | Minting with a bridge while the native unit is not the reward unit |
 
-Arithmetic is checked. S16 concerns node binaries/artifacts and belongs to M3b.
+Arithmetic is checked. S16 verifies every replay epoch's descriptor, authenticated
+binary, host profile, sandbox canary, codec and environment artifact. Job RAM must
+fit physical RAM; a testnet host additionally needs 3,072 MiB of headroom and four
+CPUs. The stub is admissible only on devnet chain 720926.
 
 ## Queue, retained positions and scheduling
 
@@ -66,7 +69,7 @@ OPEN records retain `open_pos=(height,txIndex,logIndex)`, `done_pos`, the parsed
 export digest and original queue index. Problems retain their original reveal
 position, winner and voided flag separately from the commit-window close height.
 Re-poses preserve the reveal position, pool, leaf and seed. No B, part or package
-bytes are added to state. M3b rebuilds them from the frozen L1 positions.
+bytes are added to state. The supervisor rebuilds them from the frozen L1 positions.
 
 For each supplied result, in queue order:
 
@@ -134,7 +137,7 @@ available draw opens epoch+1 with the original leaf, seed and reveal position.
 The old id stays closed. Reversing a kernel-fault reject after another winner
 creates one compensation entry and one admission; the earlier winner and window
 stay unchanged. Repeated ACCEPT rechecks create no further compensation.
-There are no reimbursement or deduction payments or consensus entries. M3b's
+There are no reimbursement or deduction payments or consensus entries. The supervisor's
 L1 rescan logs the evidence-only R21 formula
 `(21,000 + 48*item_length)*item_L1_base_fee` for senders of record.
 
@@ -213,7 +216,7 @@ must also compare with the locally computed records and complete system prefix.
 REWARD's source is `SHA256("BOOLE-S1/REWARD" || origin_hash || uint256(reward_id))`.
 To is the solver, mint=value=u128 amount, gas is REWARD_GAS and data is empty.
 The strict decoder binds the expected reward id; the local-payment checker also
-binds solver and amount. This draft only constructs attributes, not execution.
+binds solver and amount. The driver compares these exact bytes before Engine import and after selection.
 
 The verdict statement preimage is:
 
@@ -260,5 +263,95 @@ height's event bytes, root and VERDICT/REWARD attributes between independent
 folds from genesis, restarts at an activated checkpoint, refuses changed past
 rows and observes root divergence at a changed activation. The independent
 Python vectors cover all kind/list bytes and three-profile activation roots.
-These tests do not qualify supervisor behavior, L2 balances or live activation
-of the inactive devnet profile.
+These pure tests do not qualify L2 balances or live activation.
+
+
+## Node-local supervisor and stub descriptor
+
+The supervisor fetches original L1 blocks by the hashes in stored L2 L1-info,
+authenticates the frozen COMMIT/OPEN/reveal positions and rescans accepted PARTs
+in log order. Garbage, duplicates and parts outside the frozen interval cannot
+replace the first accepted part. It authenticates the leaf, package, component
+artifacts and export digest before invoking a byte-input worker. Missing data
+waits; missing local tools and artifacts yield D-node alerts, never REJECT.
+R21 poster, item length and base-fee observations remain evidence only.
+
+Each job runs a separate authenticated executable copied into private scratch,
+with scrubbed environment, enforced isolation, process-spawn denial, memory,
+wall and output bounds and descendant cleanup. The stub and decoder are single
+threaded (within the four-CPU job allowance). Only a successful worker with the
+last nonempty line `BOOLE-M3/GATE/v1 ` followed by its strict typed JSON reply
+produces a result. Unknown exits, malformed replies, resource failures and
+unknown markers yield DEFER. ACCEPT requires a nonzero statement identity.
+Fuel is bounded by both the leaf cap and slot cap.
+
+The default envelope is 1,024 MiB, 30 seconds and 65,536 output bytes. Retries
+are local: A2 waits 60 seconds, A3 requires class disagreement or canary failure,
+and later attempts wait an hour and pass a canary first. Failed node canaries
+and D-node faults do not count submitted-job attempts. Retry state is scoped
+to the epoch as well as the cache tuple, allowing QUARANTINE to resume at its
+original queue index even when it retains the same gate digest.
+
+The descriptor commits, in order, `adapter`, `revision`, `fixed`, `generator`,
+`profiles`, `kernel_set_digest`, `binaries` and `implementation_sha256`. The
+identity is SHA-256 of `BOOLE-M3/GATE-DESCRIPTOR/v1` plus compact JSON in that
+order. Binary maps are sorted by profile. Each admitted profile has a nonzero
+SHA-256 executable pin. The worker checks its own binary pin and source release;
+retained past binaries can therefore replay their own descriptor. The source
+release is SHA-256 of `BOOLE-M3/ADAPTER-SOURCE/v1` and, for each source file in
+`lib.rs, stub.rs, process.rs, codec.rs, raw_frame.rs, rebuild.rs, supervisor.rs,
+cache.rs` order, `u16be(name_len) || name || u64be(source_len) || source_bytes`.
+Host paths and wall-clock evidence never enter these identities.
+
+Stub packages are `BOOLE-M3-STUB-PACKAGE/v1 || fuel_cap_u64be || target32`.
+Exports are `BOOLE-M3-STUB/v1 || tag_u8 || fuel_u64be || opaque_delta`.
+Tag 0 accepts; 1 rejects 0301; 2 rejects kernel-fault 0306; 3/4/5 void with
+0801/0803/0804; 6 defers in the original descriptor and accepts in `fixed`;
+7 accepts originally and rejects 0301 in `fixed`; 10 rejects 0306 originally
+and accepts in `fixed`. Tags 8 and 9 exercise unknown exit/marker DEFER.
+Unknown tags reject 0104. The pinned implementation defines cheap parsing,
+package validation, fuel exhaustion and lane-2 extension bytes. This is a
+protocol test language, not a proof verifier.
+
+The portable stub codec emits standard checksummed Zstandard raw frames and
+verifies raw/RLE frames itself. Compressed blocks require the existing pinned
+full decoder; an absent decoder is D-node. Its executable is authenticated,
+copied into private scratch and isolated before decoding. Invalid encoded data
+has a typed rejection path; generic execution failures never become REJECT.
+
+The result cache uses exactly `(gate_digest, queue_index, commit_hash, kind)`.
+Entries additionally bind epoch and the reconstructed semantic input digest and
+are authenticated by a private node key. Corrupt or mismatched entries miss;
+the node recomputes. The cache contains no raw B, parts or package bytes and
+cannot substitute peer results for local verification.
+
+## Driver operation and local profile installation
+
+`scripts/devnet/prepare_m3_devnet.py --gate-binary BIN --out NEW_DIRECTORY`
+prepares the explicit M3-enabled config, two pinned stub descriptors (original
+and fixed), genesis fork table and placeholder artifact preimages. It refuses
+an existing output directory. Its independent descriptor/source calculation is
+tested against the actual Rust S16 preflight:
+
+```text
+boole-gate-supervisor check-install CONFIG GATES FORKS CACHE ARTIFACTS
+boole-devnet-driver --m2-config CONFIG --m3-gates GATES --m3-forks FORKS
+  --gate-cache CACHE --gate-artifacts ARTIFACTS [ordinary driver arguments]
+```
+
+Verify is the default M3 mode. `--mode follow --follow-from H --follow-through J`
+explicitly trusts canonical records in that range and labels them
+`checkpoint-trusted`; it runs no gate. `--follow-canonical` loads canonical
+L1/transaction bundles. A follow node may need later canonical VERDICTs to learn
+fuel before the earliest possible due height. It waits at that height until
+those bytes are available, then reconstructs scheduling and applies each record
+only at its actual due height. It never silently supplies an empty verdict set.
+Outside the explicit range, S16 and local verification apply again.
+
+`VerdictPending {height, queue_index}` retains the parent and retries the same
+height. Link, input, root and evidence failures remain sticky. A peer system
+prefix differing from the local fold produces sticky `Verdict {height}` before
+Engine import. The prefix must be exactly L1-info, M2ROOT, all VERDICTs and all
+REWARDs, with no missing, extra or reordered system deposit. User forwarding
+retains its ordered-subsequence check. Restart replays every stored root and
+complete prefix with the bound cache or independently recomputed results.

@@ -22,6 +22,8 @@ pub enum StepOutcome {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StallKind {
     M2Root { height: u64 },
+    VerdictPending { height: u64, queue_index: u64 },
+    Verdict { height: u64 },
     Other,
 }
 #[derive(Debug, Clone)]
@@ -36,12 +38,64 @@ impl std::fmt::Display for Stall {
     }
 }
 impl std::error::Error for Stall {}
+#[derive(Debug)]
+struct VerdictMismatch {
+    height: u64,
+}
+impl std::fmt::Display for VerdictMismatch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "system verdict prefix mismatch at {}", self.height)
+    }
+}
+impl std::error::Error for VerdictMismatch {}
 fn failure_kind(error: &anyhow::Error) -> StallKind {
+    if let Some(v) = error.downcast_ref::<VerdictMismatch>() {
+        return StallKind::Verdict { height: v.height };
+    }
     match error.downcast_ref::<boole_derivation::InputError>() {
         Some(boole_derivation::InputError::M2Root { height }) => {
             StallKind::M2Root { height: *height }
         }
+        Some(boole_derivation::InputError::M2(boole_derivation::m2::FoldError::M3(
+            boole_derivation::m3::Error::Pending {
+                height,
+                queue_index,
+            },
+        ))) => StallKind::VerdictPending {
+            height: *height,
+            queue_index: *queue_index,
+        },
         _ => StallKind::Other,
+    }
+}
+struct AnchoredHistory<'a, L, E> {
+    l1: &'a mut L,
+    engine: &'a mut E,
+    maximum: u64,
+}
+impl<L: L1Source, E: Engine> boole_gate_supervisor::rebuild::History for AnchoredHistory<'_, L, E> {
+    fn origin(
+        &mut self,
+        height: u64,
+    ) -> Result<(boole_derivation::L1Block, Vec<boole_derivation::InboxLog>)> {
+        anyhow::ensure!(
+            height <= self.maximum,
+            "rebuild cannot read a future origin"
+        );
+        let header = self.engine.header(height)?;
+        if header.number != height {
+            return Err(boole_gate_supervisor::rebuild::Integrity("L2 origin height").into());
+        }
+        let hash = boole_derivation::system::l1_origin(
+            header.l1_info.as_deref().context("rebuild L1-info")?,
+            height,
+        )?;
+        let l1 = self.l1.block_by_hash(&hash)?;
+        if l1.number != height || !l1.hash.eq_ignore_ascii_case(&hash) {
+            return Err(boole_gate_supervisor::rebuild::Integrity("L1-info hash binding").into());
+        }
+        let logs = self.l1.inbox_logs(&hash)?;
+        Ok((l1, logs))
     }
 }
 
@@ -49,6 +103,8 @@ pub struct Driver<L, E> {
     pub l1: L,
     pub engine: E,
     stalled: Option<Stall>,
+    pub supervisor: Option<boole_gate_supervisor::supervisor::Supervisor>,
+    forks: Option<boole_derivation::m3::ForkTable>,
     evidence: Option<File>,
     config: Config,
     l2_gas_limit: u64,
@@ -57,6 +113,7 @@ pub struct Driver<L, E> {
     selected_head: Option<String>,
     journal: Option<PathBuf>,
     checkpoint: Option<Value>,
+    follow_records: std::collections::BTreeMap<u64, (boole_derivation::m3::IndexedVerdict, u64)>,
 }
 impl<L: L1Source, E: Engine> Driver<L, E> {
     pub fn new(l1: L, engine: E) -> Self {
@@ -76,6 +133,8 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
             l1,
             engine,
             stalled: None,
+            supervisor: None,
+            forks: None,
             evidence: None,
             config,
             l2_gas_limit,
@@ -84,7 +143,133 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
             selected_head: None,
             journal: None,
             checkpoint: None,
+            follow_records: std::collections::BTreeMap::new(),
         })
+    }
+    pub fn with_m3(
+        mut l1: L,
+        engine: E,
+        config: Config,
+        l2_gas_limit: u64,
+        supervisor: boole_gate_supervisor::supervisor::Supervisor,
+        forks: boole_derivation::m3::ForkTable,
+    ) -> Result<Self> {
+        l1.validate_m2_inbox()?;
+        anyhow::ensure!(config.m3.is_some(), "M3 profile required");
+        forks
+            .validate(&config)
+            .map_err(|s| anyhow::anyhow!("startup S{s}"))?;
+        let mut driver = Self::construct(l1, engine, config, l2_gas_limit)?;
+        driver.supervisor = Some(supervisor);
+        driver.forks = Some(forks);
+        Ok(driver)
+    }
+    fn follows(&self, h: u64) -> bool {
+        self.supervisor.as_ref().is_some_and(|s| s.mode.follows(h))
+    }
+    /// Explicitly trusted canonical records, including lookahead for fuel-delayed
+    /// jobs. Follow mode never fabricates a result to get past the fuel-clock wait.
+    pub fn provide_follow_block(
+        &mut self,
+        l1: &boole_derivation::L1Block,
+        txs: &[String],
+    ) -> Result<()> {
+        anyhow::ensure!(
+            self.follows(l1.number),
+            "canonical record outside explicit follow range"
+        );
+        anyhow::ensure!(
+            txs.first() == Some(&boole_derivation::system::l1_info(l1)?),
+            "follow L1-info mismatch"
+        );
+        let records = canonical_verdicts(&self.config, l1, txs)?;
+        for record in &records {
+            if let Some(previous) = self.follow_records.get(&record.queue_index) {
+                anyhow::ensure!(
+                    previous == &(record.clone(), l1.number),
+                    "changed canonical follow record"
+                );
+            }
+        }
+        for record in records {
+            self.follow_records
+                .insert(record.queue_index, (record, l1.number));
+        }
+        Ok(())
+    }
+    pub fn set_forks(&mut self, forks: boole_derivation::m3::ForkTable) -> Result<()> {
+        forks
+            .validate(&self.config)
+            .map_err(|s| anyhow::anyhow!("startup S{s}"))?;
+        forks.validate_history(&self.m2)?;
+        self.supervisor
+            .as_mut()
+            .context("M3 supervisor")?
+            .validate_startup(
+                &self.config,
+                &forks,
+                &boole_gate_supervisor::supervisor::Host::local()?,
+            )?;
+        self.forks = Some(forks);
+        Ok(())
+    }
+    fn fold(
+        &mut self,
+        state: &State,
+        l1: &boole_derivation::L1Block,
+        logs: &[boole_derivation::InboxLog],
+        parent: &ParentHeader,
+    ) -> Result<(Derived, State)> {
+        if self.config.m3.is_some() {
+            let forks = self.forks.as_ref().context("M3 runtime not configured")?;
+            let records = if self.follows(l1.number) {
+                let m = state.m3.as_ref().context("M3 state")?;
+                let queue =
+                    boole_gate_supervisor::supervisor::jobs_at_height(state, l1.number, forks)?;
+                let mut records = vec![];
+                for (job, _) in &queue[m.next_applied..] {
+                    let Some((record, source_height)) = self.follow_records.get(&job.queue_index)
+                    else {
+                        break;
+                    };
+                    let epoch = job.epoch_override.map(Ok).unwrap_or_else(|| {
+                        forks.job_epoch(job.avail, self.config.m3.as_ref().expect("profile").k)
+                    })?;
+                    if record.record.gate_epoch != epoch {
+                        if *source_height <= l1.number {
+                            return Err(VerdictMismatch { height: l1.number }.into());
+                        }
+                        break;
+                    }
+                    records.push(record.clone());
+                }
+                records
+            } else {
+                let mut history = AnchoredHistory {
+                    l1: &mut self.l1,
+                    engine: &mut self.engine,
+                    maximum: state.height(),
+                };
+                self.supervisor.as_mut().context("M3 supervisor")?.collect(
+                    state,
+                    &self.config,
+                    l1.number,
+                    forks,
+                    &mut history,
+                )?
+            };
+            Ok(boole_derivation::attributes::derive_with_m3(
+                state,
+                &self.config,
+                l1,
+                logs,
+                parent,
+                &records,
+                forks,
+            )?)
+        } else {
+            Ok(derive_with_m2(state, &self.config, l1, logs, parent)?)
+        }
     }
     pub fn m2_state(&self) -> &State {
         &self.m2
@@ -145,6 +330,20 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
             }
             return Ok(self.m2.clone());
         }
+        if self.config.m3.is_some() {
+            for h in 1..=parent.number {
+                if self.follows(h) {
+                    let header = self.engine.header(h)?;
+                    let origin = boole_derivation::system::l1_origin(
+                        header.l1_info.as_deref().context("follow origin")?,
+                        h,
+                    )?;
+                    let l1 = self.l1.block_by_hash(&origin)?;
+                    let txs = self.engine.transactions(h)?;
+                    self.provide_follow_block(&l1, &txs)?;
+                }
+            }
+        }
         let mut state = State::new(&self.config, self.l2_gas_limit)?;
         let mut previous = self.engine.header(0).context("L2 genesis for re-fold")?;
         for height in 1..=parent.number {
@@ -178,7 +377,8 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
                 .inbox_logs(&origin)
                 .context("anchored re-fold logs")?;
             self.check_m2_transport(&logs)?;
-            let (derived, next) = derive_with_m2(&state, &self.config, &l1, &logs, &previous)
+            let (derived, next) = self
+                .fold(&state, &l1, &logs, &previous)
                 .context("pure anchored re-fold")?;
             if derived.attributes.transactions.first().map(String::as_str) != Some(deposit) {
                 bail!("anchored L1-info bytes mismatch");
@@ -189,6 +389,11 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
                 &origin,
                 next.root,
             )?;
+            if self.config.m3.is_some() {
+                let txs = self.engine.transactions(height)?;
+                check_payload_transactions(&json!({"transactions":txs}), &derived)
+                    .map_err(|_| VerdictMismatch { height })?;
+            }
             if let Some(saved) = &self.checkpoint {
                 if saved["height"] == height
                     && (saved["m2_root"] != boole_derivation::attributes::hex_string(&next.root)
@@ -272,6 +477,15 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
         result: Result<StepOutcome>,
         canonical: impl FnOnce(&Derived) -> serde_json::Result<Vec<u8>>,
     ) -> std::result::Result<StepOutcome, Stall> {
+        record["verification"] = json!(if self.follows(height) {
+            "checkpoint-trusted"
+        } else {
+            "computed"
+        });
+        if let Some(supervisor) = &mut self.supervisor {
+            record["gate_events"] = json!(std::mem::take(&mut supervisor.evidence));
+            record["gate_alerts"] = json!(std::mem::take(&mut supervisor.alerts));
+        }
         let result = result.and_then(|outcome| {
             match &outcome {
                 StepOutcome::WaitingForFinality => {
@@ -302,7 +516,10 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
             }
             Ok(())
         })();
-        let result = result.and_then(|outcome| persisted.map(|_| outcome));
+        let result = match persisted {
+            Ok(()) => result,
+            Err(error) => Err(error.context("persist driver evidence")),
+        };
         let checkpoint_attempt = result.is_ok();
         let pending = self.pending.take();
         let result = result.and_then(|outcome| {
@@ -349,7 +566,9 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
                     kind: failure_kind(&error),
                     reason: format!("{error:#}"),
                 };
-                self.stalled = Some(stall.clone());
+                if !matches!(stall.kind, StallKind::VerdictPending { .. }) {
+                    self.stalled = Some(stall.clone());
+                }
                 Err(stall)
             }
         }
@@ -393,7 +612,15 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
         }
         self.check_m2_transport(&logs)?;
         let previous = self.state_for_parent(&parent)?;
-        let (derived, next) = derive_with_m2(&previous, &self.config, &l1, &logs, &parent)
+        if self.follows(height) {
+            if let Some(payload) = &supplied {
+                let txs: Vec<String> = serde_json::from_value(payload["transactions"].clone())?;
+                self.provide_follow_block(&l1, &txs)
+                    .map_err(|_| VerdictMismatch { height })?;
+            }
+        }
+        let (derived, next) = self
+            .fold(&previous, &l1, &logs, &parent)
             .context("pure derivation input")?;
         record["m2_root"] = json!(boole_derivation::attributes::hex_string(&next.root));
         record["l1"] = json!(l1);
@@ -418,6 +645,10 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
             envelope["executionPayload"].clone()
         };
         let payload = &payload;
+        if self.config.m3.is_some() {
+            check_payload_transactions(payload, &derived)
+                .map_err(|_| VerdictMismatch { height })?;
+        }
         boole_derivation::system::check_m2_root(
             payload["transactions"][1].as_str(),
             height,
@@ -462,10 +693,40 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
             &l1.hash,
             next.root,
         )?;
+        if self.config.m3.is_some() {
+            let txs = self.engine.transactions(height)?;
+            check_payload_transactions(&json!({"transactions":txs}), &derived)
+                .map_err(|_| VerdictMismatch { height })?;
+        }
         record["block_hash"] = json!(hash);
         self.pending = Some(next);
         Ok(StepOutcome::Derived(Box::new(derived)))
     }
+}
+
+fn canonical_verdicts(
+    c: &Config,
+    l1: &boole_derivation::L1Block,
+    txs: &[String],
+) -> Result<Vec<boole_derivation::m3::IndexedVerdict>> {
+    let sink = c.m3.as_ref().context("M3 profile")?.verdict_sink;
+    let mut deposits = vec![];
+    for tx in txs.iter().skip(2).take_while(|tx| tx.starts_with("0x7e")) {
+        let bytes = boole_derivation::attributes::hex_bytes(tx, "canonical deposit")?;
+        let fields = boole_derivation::rlp::decode(bytes.get(1..).context("deposit type")?)
+            .map_err(anyhow::Error::msg)?
+            .children
+            .context("deposit fields")?;
+        anyhow::ensure!(fields.len() == 8, "deposit fields");
+        if fields[2].bytes == sink || fields[7].bytes.starts_with(b"m3vd") {
+            deposits.push(tx.clone());
+        } else {
+            break;
+        }
+    }
+    Ok(boole_derivation::m3::decode_verdict_deposits(
+        c, l1, &deposits,
+    )?)
 }
 
 fn valid(status: &Value) -> Result<()> {
@@ -480,13 +741,17 @@ pub fn check_payload_transactions(payload: &Value, derived: &Derived) -> Result<
         .as_array()
         .context("payload transactions missing")?;
     let expected = &derived.attributes.transactions;
-    if txs.first().and_then(Value::as_str) != expected.first().map(String::as_str) {
-        bail!("payload L1-info deposit missing or changed");
-    }
-    if expected.get(1).is_some_and(|tx| tx.starts_with("0x7e"))
-        && txs.get(1).and_then(Value::as_str) != expected.get(1).map(String::as_str)
+    let system_count = expected
+        .iter()
+        .take_while(|tx| tx.starts_with("0x7e"))
+        .count();
+    if txs.len() < system_count
+        || txs[..system_count]
+            .iter()
+            .zip(&expected[..system_count])
+            .any(|(a, b)| a.as_str() != Some(b.as_str()))
     {
-        bail!("payload M2ROOT deposit missing, changed or reordered");
+        bail!("payload system prefix missing, changed or reordered");
     }
     let mut remaining = expected.iter();
     for tx in txs {
