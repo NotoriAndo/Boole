@@ -487,3 +487,17 @@ fn t60_quarantine_void_is_not_delayed_by_the_old_epochs_retry_clock() {
     assert_eq!(d.m2_state().candidates[&key].status(), Status::Void);
     assert_eq!(d.m2_state().m3.as_ref().unwrap().next_applied, 1);
 }
+
+#[test]
+fn s16_driver_revalidates_a_supervisor_against_its_actual_configuration() {
+    let root = Scratch::new(&std::env::temp_dir()).unwrap();
+    let (c, _, _, source) = fixture_with(config(), Some(0));
+    let forks = ForkTable::genesis(&c).unwrap();
+    let supervisor = supervisor(&c, &forks, &root.0);
+    let mut other = c;
+    other.chain_id = 720927;
+    assert!(
+        Driver::with_m3(source, Client::new(), other, 30_000_000, supervisor, forks).is_err(),
+        "devnet-validated stub entered a different chain through the driver constructor"
+    );
+}

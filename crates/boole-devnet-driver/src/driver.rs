@@ -151,7 +151,7 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
         engine: E,
         config: Config,
         l2_gas_limit: u64,
-        supervisor: boole_gate_supervisor::supervisor::Supervisor,
+        mut supervisor: boole_gate_supervisor::supervisor::Supervisor,
         forks: boole_derivation::m3::ForkTable,
     ) -> Result<Self> {
         l1.validate_m2_inbox()?;
@@ -159,6 +159,11 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
         forks
             .validate(&config)
             .map_err(|s| anyhow::anyhow!("startup S{s}"))?;
+        supervisor.validate_startup(
+            &config,
+            &forks,
+            &boole_gate_supervisor::supervisor::Host::local()?,
+        )?;
         let mut driver = Self::construct(l1, engine, config, l2_gas_limit)?;
         driver.supervisor = Some(supervisor);
         driver.forks = Some(forks);

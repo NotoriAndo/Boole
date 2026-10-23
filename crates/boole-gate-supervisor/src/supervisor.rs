@@ -91,7 +91,7 @@ pub struct Supervisor {
     pub evidence: Vec<serde_json::Value>,
     pub canary_ok: bool,
     pub class_disagreement: bool,
-    verified_table: Option<Vec<ForkRow>>,
+    verified_table: Option<(Hash, Vec<ForkRow>)>,
 }
 /// Preview R2 stage-0 job metadata without changing the consensus state.
 pub fn jobs_at_height(s: &State, h: u64, forks: &ForkTable) -> Result<Vec<(Job, bool)>> {
@@ -231,7 +231,7 @@ impl Supervisor {
             .as_ref()
             .context("S16: pinned codec missing")?
             .verify()?;
-        self.verified_table = Some(forks.rows.clone());
+        self.verified_table = Some((c.digest(), forks.rows.clone()));
         Ok(())
     }
     fn artifact(&self, id: Hash) -> Result<Vec<u8>> {
@@ -267,7 +267,11 @@ impl Supervisor {
             !self.mode.follows(h),
             "follow mode must use canonical records"
         );
-        if self.verified_table.as_ref() != Some(&forks.rows) {
+        if !self
+            .verified_table
+            .as_ref()
+            .is_some_and(|(config, rows)| *config == c.digest() && rows == &forks.rows)
+        {
             self.validate_verify_startup(c, forks, &Host::local()?)?;
         }
         let m = s.m3.as_ref().context("M3 state")?;
