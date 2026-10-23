@@ -487,3 +487,84 @@ fn t60_quarantine_void_is_not_delayed_by_the_old_epochs_retry_clock() {
     assert_eq!(d.m2_state().candidates[&key].status(), Status::Void);
     assert_eq!(d.m2_state().m3.as_ref().unwrap().next_applied, 1);
 }
+
+#[test]
+fn s16_driver_revalidates_a_supervisor_against_its_actual_configuration() {
+    let root = Scratch::new(&std::env::temp_dir()).unwrap();
+    let (c, _, _, source) = fixture_with(config(), Some(0));
+    let forks = ForkTable::genesis(&c).unwrap();
+    let supervisor = supervisor(&c, &forks, &root.0);
+    let mut other = c;
+    other.chain_id = 720927;
+    assert!(
+        Driver::with_m3(source, Client::new(), other, 30_000_000, supervisor, forks).is_err(),
+        "devnet-validated stub entered a different chain through the driver constructor"
+    );
+}
+
+#[test]
+fn g10_full_sized_rewards_persist_and_restart_without_narrowing_u128() {
+    let first = Scratch::new(&std::env::temp_dir()).unwrap();
+    let second = Scratch::new(&std::env::temp_dir()).unwrap();
+    let mut c = config();
+    c.m3.as_mut().unwrap().reward.fill(1000 * 10u128.pow(18));
+    let (c, _, _, source) = fixture_with(c, Some(0));
+    let forks = ForkTable::genesis(&c).unwrap();
+    let journal = first.0.join("checkpoint.json");
+    let mut d = Driver::with_m3(
+        source,
+        Client::new(),
+        c.clone(),
+        30_000_000,
+        supervisor(&c, &forks, &first.0),
+        forks.clone(),
+    )
+    .unwrap();
+    d.set_journal(&journal).unwrap();
+    d.step(1).unwrap();
+    let mut replay = Driver::with_m3(
+        d.l1.clone(),
+        d.engine.clone(),
+        c.clone(),
+        30_000_000,
+        supervisor(&c, &forks, &second.0),
+        forks,
+    )
+    .unwrap();
+    replay.set_journal(&journal).unwrap();
+    let expected = d.step(2).unwrap();
+    let actual = replay.step(2).unwrap();
+    let (StepOutcome::Derived(a), StepOutcome::Derived(b)) = (expected, actual) else {
+        panic!("missing block")
+    };
+    assert_eq!(a.canonical_bytes().unwrap(), b.canonical_bytes().unwrap());
+    assert_eq!(d.m2_state().root, replay.m2_state().root);
+}
+
+#[test]
+fn t42_missing_part_logs_wait_without_using_a_cached_verdict_as_authority() {
+    let root = Scratch::new(&std::env::temp_dir()).unwrap();
+    let mut d = driver(0, &root.0);
+    for h in 1..=18 {
+        d.step(h).unwrap();
+    }
+    let original = d.l1.rows[&17].clone();
+    d.l1.rows.get_mut(&17).unwrap().1.pop();
+    let before = d.m2_state().root;
+    let calls = d.engine.calls.len();
+    let error = d.step(19).unwrap_err();
+    assert!(matches!(
+        error.kind,
+        StallKind::VerdictPending {
+            height: 19,
+            queue_index: 0
+        }
+    ));
+    assert!(d.last_failure().is_none());
+    assert_eq!(d.engine.calls.len(), calls);
+    assert_eq!(d.m2_state().root, before);
+    assert!(d.supervisor.as_ref().unwrap().retries.is_empty());
+    d.l1.rows.insert(17, original);
+    d.step(19).unwrap();
+    assert_eq!(d.m2_state().m3.as_ref().unwrap().next_applied, 1);
+}

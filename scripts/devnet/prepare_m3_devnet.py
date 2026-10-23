@@ -8,6 +8,8 @@ import argparse
 import hashlib
 import json
 import platform
+import sys
+sys.dont_write_bytecode = True
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -47,6 +49,11 @@ def prepare(binary, output):
     output.mkdir(exist_ok=False)
     def write(name, value):
         (output/name).write_text(json.dumps(value, indent=2)+'\n')
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('m3_genesis', ROOT/'scripts/devnet/generate_m3_genesis.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    write('l2-genesis-v1.3.json', module.genesis())
     write('m3-config.json', config)
     write('gates.json', [dict(descriptor=d, binary=str(binary), binary_sha256=list(executable))
                          for d, _ in descriptors])

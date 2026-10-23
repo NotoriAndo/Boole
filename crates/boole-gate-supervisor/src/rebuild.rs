@@ -280,10 +280,10 @@ pub fn rebuild(
             contributions.push(contribution(h, &item.body, &origin.block)?);
         }
     }
-    ensure!(
-        parts.len() == usize::from(open.n) && last == Some(done),
-        "accepted parts missing or completion changed"
-    );
+    if parts.len() != usize::from(open.n) {
+        return Err(Availability.into());
+    }
+    ensure!(last == Some(done), "accepted completion changed");
     let transport = parts.into_values().flatten().collect::<Vec<_>>();
     ensure!(transport.len() == open.z_len as usize, "transport length");
     let raw = decode(&transport, open.raw_len, codec, scratch)?;
