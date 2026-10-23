@@ -540,3 +540,31 @@ fn g10_full_sized_rewards_persist_and_restart_without_narrowing_u128() {
     assert_eq!(a.canonical_bytes().unwrap(), b.canonical_bytes().unwrap());
     assert_eq!(d.m2_state().root, replay.m2_state().root);
 }
+
+#[test]
+fn t42_missing_part_logs_wait_without_using_a_cached_verdict_as_authority() {
+    let root = Scratch::new(&std::env::temp_dir()).unwrap();
+    let mut d = driver(0, &root.0);
+    for h in 1..=18 {
+        d.step(h).unwrap();
+    }
+    let original = d.l1.rows[&17].clone();
+    d.l1.rows.get_mut(&17).unwrap().1.pop();
+    let before = d.m2_state().root;
+    let calls = d.engine.calls.len();
+    let error = d.step(19).unwrap_err();
+    assert!(matches!(
+        error.kind,
+        StallKind::VerdictPending {
+            height: 19,
+            queue_index: 0
+        }
+    ));
+    assert!(d.last_failure().is_none());
+    assert_eq!(d.engine.calls.len(), calls);
+    assert_eq!(d.m2_state().root, before);
+    assert!(d.supervisor.as_ref().unwrap().retries.is_empty());
+    d.l1.rows.insert(17, original);
+    d.step(19).unwrap();
+    assert_eq!(d.m2_state().m3.as_ref().unwrap().next_applied, 1);
+}
