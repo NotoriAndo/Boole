@@ -378,7 +378,7 @@ fn persisted_candidates(
             .map(|h| serde_json::json!({"commit":{"head":h,"tx":null}}))
             .unwrap_or(serde_json::json!({}));
         let name = format!("submission-{}.json", hex_string(&prepared.commit));
-        store.write(&name,&serde_json::json!({"version":1,"config_digest":c.digest(),"prepared":prepared,"cancel_requested":cancel,"local_check":"not_run","sent":sent,"last_error":null})).unwrap();
+        store.write(&name,&serde_json::json!({"schema_version":2,"config_digest":c.digest(),"prepared":prepared,"cancel_requested":cancel,"local_check":"not_run","sent":sent,"last_error":null})).unwrap();
     }
     drop(store);
     source.finalized = 6;

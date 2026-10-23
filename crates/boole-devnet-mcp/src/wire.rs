@@ -27,7 +27,40 @@ pub struct Prepared {
     pub cancel_secret: Hash,
 }
 impl Prepared {
+    pub fn license_terms(c: &Config, id: u8) -> Result<Hash> {
+        let terms = c
+            .terms_table
+            .get(&id)
+            .ok_or_else(|| anyhow::anyhow!("license id is unavailable"))?;
+        ensure!(
+            c.m3.as_ref()
+                .map(|p| p.open_licenses.contains(&id))
+                .unwrap_or(id == 1),
+            "license is not open"
+        );
+        Ok(*terms)
+    }
+    pub fn license_id(&self) -> Result<u8> {
+        let k = *self
+            .body
+            .get(150)
+            .ok_or_else(|| anyhow::anyhow!("corrupt metadata"))? as usize;
+        self.body
+            .get(151 + 32 * k + 88)
+            .copied()
+            .ok_or_else(|| anyhow::anyhow!("corrupt license"))
+    }
+    pub fn payee(&self) -> Result<[u8; 20]> {
+        Ok(self
+            .body
+            .get(33..53)
+            .ok_or_else(|| anyhow::anyhow!("corrupt payee"))?
+            .try_into()?)
+    }
     pub fn new(c: &Config, m: Material) -> Result<Self> {
+        Self::new_with_license(c, m, 1)
+    }
+    pub fn new_with_license(c: &Config, m: Material, license_id: u8) -> Result<Self> {
         ensure!(m.raw_len > 0 && m.raw_len <= RAW_CAP, "raw export size cap");
         ensure!(
             !m.compressed.is_empty() && m.compressed.len() <= Z_CAP,
@@ -45,10 +78,7 @@ impl Prepared {
             m.packages.len() <= c.k_max && c.env_allowed.contains(&m.packages),
             "environment not allowed"
         );
-        ensure!(
-            c.terms_table.contains_key(&1),
-            "placeholder license unavailable"
-        );
+        Self::license_terms(c, license_id)?;
         let chunks: Vec<Vec<u8>> = m.compressed.chunks(PART_SIZE).map(|x| x.to_vec()).collect();
         let leaves: Vec<_> = chunks
             .iter()
@@ -74,7 +104,7 @@ impl Prepared {
         b.extend(merkle_root(&leaves));
         b.extend([0; 4]);
         b.extend(40u16.to_be_bytes());
-        b.extend([1, 0, 1, 0]);
+        b.extend([1, 0, license_id, 0]);
         b.extend([0; 36]);
         Ok(Self {
             problem: m.problem,
@@ -111,7 +141,7 @@ impl Prepared {
             packages,
             format: b[q + 1],
         };
-        let expected = Self::new(c, m)?;
+        let expected = Self::new_with_license(c, m, b[q + 88])?;
         ensure!(
             expected.problem == self.problem
                 && expected.commit == self.commit

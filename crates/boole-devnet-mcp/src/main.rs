@@ -32,11 +32,15 @@ struct Args {
     #[arg(long)]
     m2_config: Option<PathBuf>,
     #[arg(long)]
+    m3_forks: Option<PathBuf>,
+    #[arg(long)]
     zstd: Option<PathBuf>,
     #[arg(long, requires = "precheck_sha256")]
     precheck: Option<PathBuf>,
     #[arg(long, requires = "precheck")]
     precheck_sha256: Option<String>,
+    #[arg(long, requires = "precheck")]
+    precheck_gate_rule_digest: Option<String>,
 }
 fn main() -> Result<()> {
     let args = Args::parse();
@@ -55,6 +59,11 @@ fn main() -> Result<()> {
         .map(|executable| -> Result<_> {
             Ok(Precheck {
                 executable,
+                gate_rule_digest: args
+                    .precheck_gate_rule_digest
+                    .as_deref()
+                    .map(fixed)
+                    .transpose()?,
                 sha256: fixed(
                     args.precheck_sha256
                         .as_deref()
@@ -75,6 +84,10 @@ fn main() -> Result<()> {
             l2_gas_limit: l2_gas_limit(&args.node_rpc)?,
             codec,
             hook,
+            forks: args
+                .m3_forks
+                .map(|path| -> Result<_> { Ok(serde_json::from_slice(&std::fs::read(path)?)?) })
+                .transpose()?,
         },
     )?;
     let (sender, receiver) = mpsc::sync_channel(8);

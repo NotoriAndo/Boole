@@ -11,6 +11,8 @@ use std::{
 pub struct Precheck {
     pub executable: PathBuf,
     pub sha256: [u8; 32],
+    /// The adapter's declared protocol identity, alongside its executable pin.
+    pub gate_rule_digest: Option<[u8; 32]>,
     pub timeout: Duration,
 }
 impl Precheck {
