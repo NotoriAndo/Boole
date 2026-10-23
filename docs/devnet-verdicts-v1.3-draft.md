@@ -228,7 +228,11 @@ SHA256("BOOLE-M2/ROOT/v3" || previous_root || u64be(height) ||
 
 The independent stdlib [generator](../scripts/devnet/generate_m3_vectors.py)
 reproduces [wire/config/event goldens](../fixtures/devnet-m3/system-v1.3.json)
-with `--check`. Existing v1.2 recordings are not regenerated. Pure tests cover
+with `--check`. A separate [Registry generator](../scripts/devnet/generate_m3_service_vectors.py)
+reproduces the [VOID parity checkpoint](../fixtures/devnet-m3/service-void-v1.3.json)
+through the real commit/reveal/recheck/void APIs with injected verifier outcomes.
+It compares retained states without claiming fork activation coverage.
+Existing v1.2 recordings are not regenerated. Pure tests cover
 the queue, fuel, transitions, settlement, vesting, recheck fixtures, service
 parity and 51,000 decoder mutations. They do not qualify live fork activation,
 supervisor behavior, L2 balances or the inactive devnet profile.

@@ -1692,3 +1692,185 @@ fn t59_retroactive_fork_row_is_refused_but_future_rows_are_allowed() {
         .step_with_verdicts(&c, &block(h), &[], &[], &table)
         .is_ok());
 }
+
+#[test]
+fn t59_passed_candidate_waits_for_recheck_even_after_barrier_cancel() {
+    use boole_derivation::m3::*;
+    use scenario::*;
+    let c = m3_cfg();
+    let (mut s, p, a, b, ab) = checking_with_blocker(&c);
+    run(&mut s, &c, vec![]);
+    let forks = ForkTable::genesis(&c).unwrap();
+    s = s
+        .step_with_verdicts(
+            &c,
+            &block(19),
+            &[],
+            &[verdict(0, b, Outcome::Accept, 0, 0)],
+            &forks,
+        )
+        .unwrap()
+        .state;
+    let mut v = recheck_fixture(&mut s, (p, b), 0);
+    v.record.outcome = Outcome::Accept;
+    v.record.reason = 0;
+    s = s
+        .step_with_verdicts(
+            &c,
+            &block(20),
+            &[input(7, cancel(p, a, &ab, [8; 32]), 0)],
+            &[],
+            &forks,
+        )
+        .unwrap()
+        .state;
+    assert_eq!(s.candidates[&(p, b)].status() as u8, 6);
+    assert!(s.problems[&p].winner.is_none());
+    assert!(s.m3.as_ref().unwrap().rewards.is_empty());
+    assert!(s
+        .step_with_verdicts(&c, &block(21), &[], &[], &forks)
+        .is_err());
+    let out = s
+        .step_with_verdicts(&c, &block(21), &[], &[v], &forks)
+        .unwrap();
+    assert_eq!(out.state.problems[&p].winner, Some(b));
+    assert!(out.state.m3.as_ref().unwrap().pending_rechecks.is_empty());
+}
+
+#[test]
+fn t53_problem_void_keeps_queued_siblings_and_their_records_informational() {
+    use boole_derivation::{m2::cancel_hash, m3::*};
+    use scenario::*;
+    let c = m3_cfg();
+    let (mut s, p) = opened(&c);
+    let (a, ab, ap, _) = candidate(&c, &mut s, p, 7);
+    let (b, bb, bp, _) = candidate(&c, &mut s, p, 8);
+    until(&mut s, &c, 15);
+    run(
+        &mut s,
+        &c,
+        vec![
+            input(3, open(&ab, cancel_hash(&[8; 32])), 0),
+            input(3, open(&bb, cancel_hash(&[8; 32])), 1),
+        ],
+    );
+    run(
+        &mut s,
+        &c,
+        vec![
+            input(4, part(a, 0, &[], &ap[0]), 0),
+            input(4, part(b, 0, &[], &bp[0]), 1),
+        ],
+    );
+    run(&mut s, &c, vec![]);
+    let records = vec![
+        verdict(0, a, Outcome::Void, 0x0801, 0),
+        verdict(1, b, Outcome::Accept, 0, 0),
+    ];
+    let out = s
+        .step_with_verdicts(
+            &c,
+            &block(19),
+            &[],
+            &records,
+            &ForkTable::genesis(&c).unwrap(),
+        )
+        .unwrap();
+    assert!(out.state.problems[&p].voided);
+    assert_eq!(out.state.candidates[&(p, a)].status() as u8, 9);
+    assert_eq!(out.state.candidates[&(p, b)].status() as u8, 9);
+    let m = out.state.m3.as_ref().unwrap();
+    assert_eq!(m.queue.len(), 2);
+    assert_eq!(m.next_applied, 2);
+    assert!(m.rewards.is_empty());
+    assert_eq!(out.verdicts, records);
+}
+
+#[test]
+fn t55_real_service_void_checkpoint_releases_the_same_barrier() {
+    use boole_derivation::{
+        m2::{cancel_hash, Status},
+        m3::*,
+    };
+    use scenario::*;
+    let vector: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../fixtures/devnet-m3/service-void-v1.3.json"
+    ))
+    .unwrap();
+    assert_eq!(
+        vector["provenance"]["source_sha256"],
+        hex::encode(hash(include_bytes!(
+            "../../../scripts/zk_registry/service.py"
+        )))
+    );
+    assert_eq!(
+        vector["provenance"]["generator_sha256"],
+        hex::encode(hash(include_bytes!(
+            "../../../scripts/devnet/generate_m3_service_vectors.py"
+        )))
+    );
+    assert_eq!(
+        vector["provenance"]["policy_sha256"],
+        hex::encode(hash(include_bytes!(
+            "../../../scripts/zk_registry/data/error_policy_v1.json"
+        )))
+    );
+    let c = m3_cfg();
+    let (mut s, p, a, b, ab) = checking_with_blocker(&c);
+    let forks = ForkTable::genesis(&c).unwrap();
+    run(
+        &mut s,
+        &c,
+        vec![input(3, open(&ab, cancel_hash(&[8; 32])), 0)],
+    );
+    s = s
+        .step_with_verdicts(
+            &c,
+            &block(19),
+            &[input(4, part(a, 0, &[], &[42; 7]), 0)],
+            &[verdict(0, b, Outcome::Accept, 0, 0)],
+            &forks,
+        )
+        .unwrap()
+        .state;
+    assert_eq!(s.candidates[&(p, a)].status(), Status::Checking);
+    assert_eq!(s.candidates[&(p, b)].status(), Status::Passed);
+    assert_eq!(
+        vector["rows"][0]["statuses"],
+        serde_json::json!({"1":"CHECKING","2":"VALID-REVEAL"})
+    );
+    run(&mut s, &c, vec![]);
+    assert!(s
+        .step_with_verdicts(&c, &block(21), &[], &[], &forks)
+        .is_err());
+    assert_eq!(vector["rows"][2]["statuses"]["1"], "QUARANTINED");
+    // This tests the pure VOID checkpoint. It does not synthesize event08 or
+    // claim that an actual QUARANTINE activation can yet be encoded/replayed.
+    let out = s
+        .step_with_verdicts(
+            &c,
+            &block(21),
+            &[],
+            &[verdict(1, a, Outcome::Void, QUARANTINE_VOID, 0)],
+            &forks,
+        )
+        .unwrap();
+    let statuses = [(a, "1"), (b, "2")]
+        .into_iter()
+        .map(|(ch, id)| {
+            let name = match out.state.candidates[&(p, ch)].status() {
+                Status::Void => "VOID",
+                Status::Accepted => "ACCEPTED",
+                other => panic!("unexpected checkpoint {other:?}"),
+            };
+            (id.to_string(), name)
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
+    assert_eq!(
+        serde_json::to_value(statuses).unwrap(),
+        vector["rows"][3]["statuses"]
+    );
+    assert_eq!(out.state.problems[&p].winner, Some(b));
+    assert_eq!(vector["rows"][3]["winner"], 2);
+    assert!(!out.state.problems[&p].voided);
+}
