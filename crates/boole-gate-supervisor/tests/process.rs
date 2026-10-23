@@ -90,3 +90,21 @@ fn pinned_full_decoder_agrees_with_portable_frames_and_rejects_bad_checksums() {
         raw
     );
 }
+
+#[test]
+fn typed_package_and_fuel_faults_precede_the_unknown_exit_probe() {
+    let w = worker();
+    let mut i = input();
+    i.raw = export(8, 777);
+    i.package = b"bad package".to_vec();
+    assert_eq!(
+        w.run(&i, &Envelope::default(), &std::env::temp_dir()),
+        evaluate(&w.descriptor, &i)
+    );
+    let mut i = input();
+    i.raw = export(8, 10001);
+    assert_eq!(
+        w.run(&i, &Envelope::default(), &std::env::temp_dir()),
+        evaluate(&w.descriptor, &i)
+    );
+}

@@ -172,8 +172,9 @@ pub fn worker_main() -> Result<()> {
         packet.descriptor.implementation_sha256 == crate::implementation_digest(),
         "worker source release binding"
     );
+    let reply = crate::stub::evaluate(&packet.descriptor, &packet.input);
     let prefix = b"BOOLE-M3-STUB/v1";
-    if packet.input.early.is_none() && packet.input.raw.starts_with(prefix) {
+    if matches!(&reply, GateReply::Defer { class } if class == "untyped-exit") {
         match packet.input.raw.get(prefix.len()) {
             Some(8) => std::process::exit(17),
             Some(9) => {
@@ -183,9 +184,6 @@ pub fn worker_main() -> Result<()> {
             _ => {}
         }
     }
-    println!(
-        "{MARKER}{}",
-        serde_json::to_string(&crate::stub::evaluate(&packet.descriptor, &packet.input))?
-    );
+    println!("{MARKER}{}", serde_json::to_string(&reply)?);
     Ok(())
 }
