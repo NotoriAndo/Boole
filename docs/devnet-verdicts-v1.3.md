@@ -355,3 +355,11 @@ Engine import. The prefix must be exactly L1-info, M2ROOT, all VERDICTs and all
 REWARDs, with no missing, extra or reordered system deposit. User forwarding
 retains its ordered-subsequence check. Restart replays every stored root and
 complete prefix with the bound cache or independently recomputed results.
+
+
+Enabled-profile journals bind `SHA256("BOOLE-M3/DRIVER-CONFIG/v1" ||
+config_digest_v2 || u64be(L2_gas_limit))`. This uses the typed canonical Config
+serializer and preserves full u128 reward amounts. The legacy M3-off journal
+identity stays unchanged. Live recording envelopes carry the exact canonical
+Config JSON as `config_json` text, so a generic JSON value cannot narrow those
+integers before replay; installed config files remain ordinary Config JSON.

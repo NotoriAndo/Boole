@@ -501,3 +501,42 @@ fn s16_driver_revalidates_a_supervisor_against_its_actual_configuration() {
         "devnet-validated stub entered a different chain through the driver constructor"
     );
 }
+
+#[test]
+fn g10_full_sized_rewards_persist_and_restart_without_narrowing_u128() {
+    let first = Scratch::new(&std::env::temp_dir()).unwrap();
+    let second = Scratch::new(&std::env::temp_dir()).unwrap();
+    let mut c = config();
+    c.m3.as_mut().unwrap().reward.fill(1000 * 10u128.pow(18));
+    let (c, _, _, source) = fixture_with(c, Some(0));
+    let forks = ForkTable::genesis(&c).unwrap();
+    let journal = first.0.join("checkpoint.json");
+    let mut d = Driver::with_m3(
+        source,
+        Client::new(),
+        c.clone(),
+        30_000_000,
+        supervisor(&c, &forks, &first.0),
+        forks.clone(),
+    )
+    .unwrap();
+    d.set_journal(&journal).unwrap();
+    d.step(1).unwrap();
+    let mut replay = Driver::with_m3(
+        d.l1.clone(),
+        d.engine.clone(),
+        c.clone(),
+        30_000_000,
+        supervisor(&c, &forks, &second.0),
+        forks,
+    )
+    .unwrap();
+    replay.set_journal(&journal).unwrap();
+    let expected = d.step(2).unwrap();
+    let actual = replay.step(2).unwrap();
+    let (StepOutcome::Derived(a), StepOutcome::Derived(b)) = (expected, actual) else {
+        panic!("missing block")
+    };
+    assert_eq!(a.canonical_bytes().unwrap(), b.canonical_bytes().unwrap());
+    assert_eq!(d.m2_state().root, replay.m2_state().root);
+}

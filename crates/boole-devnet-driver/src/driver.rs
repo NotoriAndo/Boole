@@ -289,6 +289,15 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
         Ok(())
     }
     fn config_digest(&self) -> Result<String> {
+        if self.config.m3.is_some() {
+            // Config's canonical serializer preserves full u128 reward amounts.
+            // serde_json::Value would narrow them before hashing the checkpoint.
+            let mut hash = Sha256::new();
+            hash.update(b"BOOLE-M3/DRIVER-CONFIG/v1");
+            hash.update(self.config.digest());
+            hash.update(self.l2_gas_limit.to_be_bytes());
+            return Ok(boole_derivation::attributes::hex_string(&hash.finalize()));
+        }
         Ok(boole_derivation::attributes::hex_string(&Sha256::digest(
             serde_json::to_vec(&json!({"config":self.config,"l2_gas_limit":self.l2_gas_limit}))?,
         )))
