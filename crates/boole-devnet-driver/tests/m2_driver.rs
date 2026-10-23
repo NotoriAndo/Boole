@@ -676,3 +676,23 @@ fn m2root_divergent_local_fold_refuses_peer_payload_while_others_continue() {
         }
     }
 }
+
+#[test]
+fn t76_checkpoint_cannot_be_opened_as_evidence_or_repaired_as_a_torn_log() {
+    let dir = TestDir::new("m4-evidence-role");
+    let path = dir.0.join("checkpoint.json");
+    let mut d = Driver::new(Source::new(), Client::new());
+    d.set_journal(&path).unwrap();
+    d.step(1).unwrap();
+    let before = std::fs::read(&path).unwrap();
+    assert!(
+        d.set_evidence(&path).is_err(),
+        "checkpoint JSON is not an evidence record"
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    assert!(
+        d.set_evidence_repair(&path, true).is_err(),
+        "repair must not accept a complete row of the wrong schema"
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+}

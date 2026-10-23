@@ -77,10 +77,38 @@ impl BoundLog {
         })
     }
     fn record(records: &mut BTreeMap<u64, Value>, v: &Value) -> Result<()> {
+        let h = v["height"]
+            .as_u64()
+            .ok_or_else(|| integrity(0, "evidence", "missing height"))?;
+        ensure!(
+            matches!(
+                v["outcome"].as_str(),
+                Some("DERIVED" | "RECOVERED" | "STALL" | "WAITING_FOR_FINALITY")
+            ),
+            "complete row is not a driver evidence record"
+        );
         if matches!(v["outcome"].as_str(), Some("DERIVED" | "RECOVERED")) {
-            let h = v["height"]
-                .as_u64()
-                .ok_or_else(|| integrity(0, "evidence", "missing height"))?;
+            ensure!(
+                matches!(
+                    v["verification"].as_str(),
+                    Some("computed" | "checkpoint-trusted")
+                ),
+                "evidence verification label"
+            );
+            for value in [
+                &v["block_hash"],
+                &v["l1"]["hash"],
+                &v["m2_root"],
+                &v["attribute_digest"],
+            ] {
+                let raw = boole_derivation::attributes::hex_bytes(
+                    value
+                        .as_str()
+                        .ok_or_else(|| integrity(h, "evidence", "missing selected commitment"))?,
+                    "evidence commitment",
+                )?;
+                ensure!(raw.len() == 32, "evidence commitment width");
+            }
             let summary = serde_json::json!({"height":h,"block_hash":v["block_hash"],"l1_hash":v["l1"]["hash"],"m2_root":v["m2_root"],"attribute_digest":v["attribute_digest"]});
             if let Some(old) = records.get(&h) {
                 ensure!(old == &summary, "conflicting durable evidence at {h}");
