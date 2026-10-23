@@ -68,7 +68,7 @@ pub struct UserTxDecision {
     pub tx_hash: String,
 }
 
-/// `budget` starts at parent.gasLimit minus L1INFO_GAS. Only a candidate
+/// Current `budget` starts at parent.gasLimit minus L1INFO_GAS and M2ROOT_GAS. Only a candidate
 /// forwarded by F6 consumes its full gas limit, even if the client later skips it.
 pub fn filter_user(raw: &[u8], budget: &mut u64) -> UserTxDecision {
     let mut decision = UserTxDecision {

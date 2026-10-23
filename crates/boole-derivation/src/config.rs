@@ -6,6 +6,8 @@ pub const DEPOSITOR: &str = "0xdeaddeaddeaddeaddeaddeaddeaddeaddead0001";
 pub const L1_BLOCK: &str = "0x4200000000000000000000000000000000000015";
 pub const POST_SELECTOR: &str = "0xbaf9b369";
 pub const L1INFO_GAS: u64 = 1_000_000;
+pub const M2ROOT_GAS: u64 = 1_000_000;
+pub const M2_ROOT_SINK: &str = "0x42000000000000000000000000000000000000b2";
 
 pub fn posted_topic() -> String {
     format!(

@@ -32,8 +32,11 @@ pub fn config() -> Config {
     c.pool_key = address(&pool_key());
     c
 }
+pub fn current_genesis() -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/devnet-m2/l2-genesis-v1.2.json")
+}
 pub fn genesis() -> Result<Value> {
-    let mut g = super::fixture_json("l2-genesis.json")?;
+    let mut g: Value = serde_json::from_slice(&fs::read(current_genesis())?)?;
     g["alloc"][hex_string(&address(&user_key()))] = json!({"balance":"0x56bc75e2d63100000"});
     Ok(g)
 }
@@ -376,6 +379,7 @@ pub fn l1_genesis_value() -> Result<Value> {
 }
 /// Called by the tracked generators before writing accepted recordings.
 pub fn bind_provenance(data: &mut Value) -> Result<()> {
+    data["provenance"]["engine_profile"] = super::engine_profile();
     if let Some(config) = data.get("config") {
         let c: Config = serde_json::from_value(config.clone())?;
         data["provenance"]["config_digest"] = json!(hex_string(&c.digest()));
@@ -391,9 +395,8 @@ pub fn bind_provenance(data: &mut Value) -> Result<()> {
         "{:x}",
         Sha256::digest(fs::read(super::fixture("l1-genesis.json"))?)
     ));
-    data["provenance"]["source_genesis_sha256"] = json!(hex_string(&hash(&fs::read(
-        super::fixture("l2-genesis.json")
-    )?)));
+    data["provenance"]["source_genesis_sha256"] =
+        json!(hex_string(&hash(&fs::read(current_genesis())?)));
     data["provenance"]["inbox_change"]=json!("Keep size scratch at max(0x10000, MSIZE after calldata copy), outside emitted bytes; preserve small-call memory cost.");
     if let Some(a) = data["acceptance"].as_object_mut() {
         a.remove("comparison_output_sha256");

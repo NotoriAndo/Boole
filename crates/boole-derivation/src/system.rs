@@ -75,3 +75,65 @@ pub fn l1_origin(deposit: &str, number: u64) -> Result<String, InputError> {
     }
     Ok(hex_string(&data[100..132]))
 }
+
+/// M2-I7: current devnet commitment, immediately after L1-info.
+pub fn m2_root_deposit(l1: &L1Block, root: [u8; 32]) -> Result<String, InputError> {
+    encode_m2_root(&l1.hash, l1.number, root)
+}
+fn encode_m2_root(origin: &str, number: u64, root: [u8; 32]) -> Result<String, InputError> {
+    let origin = fixed_bytes(origin, 32, "M2ROOT origin")?;
+    let source = Sha256::digest([b"BOOLE-S1/M2ROOT".as_slice(), &origin, &[0; 32]].concat());
+    let data = [b"m2ro".as_slice(), &number.to_be_bytes(), &root].concat();
+    let fields = vec![
+        rlp::bytes(&source),
+        rlp::bytes(&fixed_bytes(config::DEPOSITOR, 20, "depositor")?),
+        rlp::bytes(&fixed_bytes(config::M2_ROOT_SINK, 20, "M2ROOT sink")?),
+        rlp::uint(0),
+        rlp::uint(0),
+        rlp::uint(config::M2ROOT_GAS),
+        rlp::uint(0),
+        rlp::bytes(&data),
+    ];
+    Ok(hex_string(&[vec![0x7e], rlp::list(&fields)].concat()))
+}
+/// Decode by exact re-encoding: fields, widths, RLP canonicality and source
+/// domain all bind the expected L1 origin and height, not just the root bytes.
+pub fn read_m2_root(deposit: &str, number: u64, origin: &str) -> Result<[u8; 32], InputError> {
+    let decode = || -> Option<[u8; 32]> {
+        let raw = hex_bytes(deposit, "M2ROOT").ok()?;
+        if raw.first() != Some(&0x7e) {
+            return None;
+        }
+        let f = rlp::decode(&raw[1..]).ok()?.children?;
+        if f.len() != 8 || f.iter().any(|x| x.children.is_some()) {
+            return None;
+        }
+        let data = f[7].bytes;
+        if data.len() != 44 || data[..4] != *b"m2ro" || data[4..12] != number.to_be_bytes() {
+            return None;
+        }
+        let root = data[12..].try_into().ok()?;
+        let expected = encode_m2_root(origin, number, root).ok()?;
+        if raw != hex_bytes(&expected, "M2ROOT").ok()? {
+            return None;
+        }
+        Some(root)
+    };
+    decode().ok_or(InputError::M2Root { height: number })
+}
+pub fn check_m2_root(
+    deposit: Option<&str>,
+    number: u64,
+    origin: &str,
+    expected: [u8; 32],
+) -> Result<(), InputError> {
+    let root = read_m2_root(
+        deposit.ok_or(InputError::M2Root { height: number })?,
+        number,
+        origin,
+    )?;
+    if root != expected {
+        return Err(InputError::M2Root { height: number });
+    }
+    Ok(())
+}

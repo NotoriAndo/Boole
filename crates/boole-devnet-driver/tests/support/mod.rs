@@ -68,6 +68,10 @@ pub fn pinned(variable: &str, pin: &str) -> Result<Option<PathBuf>> {
     Ok(Some(path))
 }
 
+pub fn engine_profile() -> Value {
+    json!({"persistence_threshold":0,"memory_block_buffer_target":0,"suppress_persistence_during_build":true})
+}
+
 pub fn disk_guard() -> Result<()> {
     let output = Command::new("df").args(["-k"]).arg(fixture(".")).output()?;
     if !output.status.success() {
@@ -271,6 +275,7 @@ impl Runtime {
             ),
             ("--log.file.filter", "info,payload_builder=trace".into()),
             ("--engine.persistence-threshold", "0".into()),
+            ("--engine.memory-block-buffer-target", "0".into()),
         ];
         let mut args = vec![
             "node".into(),
@@ -278,6 +283,9 @@ impl Runtime {
             "--ipcdisable".into(),
             "--disable-discovery".into(),
             "--disable-tx-gossip".into(),
+            // Serialize persistence with payload building; still flush every
+            // canonical block (threshold zero) and keep strict log checks.
+            "--engine.suppress-persistence-during-build".into(),
         ];
         for (key, value) in pairs {
             args.push(key.into());
@@ -399,7 +407,18 @@ pub fn observe(node: &Node, derived: &Derived) -> Result<Value> {
         .as_array()
         .context("block txs")?
         .iter()
-        .skip(1)
+        .skip(
+            if derived
+                .attributes
+                .transactions
+                .get(1)
+                .is_some_and(|tx| tx.starts_with("0x7e"))
+            {
+                2
+            } else {
+                1
+            },
+        )
         .map(|x| x.as_str().unwrap_or("").to_owned())
         .collect();
     let rpc = node.rpc()?;
@@ -432,9 +451,28 @@ pub fn observe(node: &Node, derived: &Derived) -> Result<Value> {
     if !remaining.is_empty() {
         bail!("unexpected user transactions in block");
     }
-    Ok(
-        json!({"blockHash":block["hash"],"stateRoot":block["stateRoot"],"receiptsRoot":block["receiptsRoot"],"receipts":receipts}),
-    )
+    let mut observed = json!({"blockHash":block["hash"],"stateRoot":block["stateRoot"],"receiptsRoot":block["receiptsRoot"],"receipts":receipts});
+    if let Some(expected) = derived
+        .attributes
+        .transactions
+        .get(1)
+        .filter(|tx| tx.starts_with("0x7e"))
+    {
+        let number = quantity(&block["number"])?;
+        let origin =
+            boole_derivation::system::l1_origin(&derived.attributes.transactions[0], number)?;
+        let tx = block["transactions"][1]
+            .as_str()
+            .context("block M2ROOT hash")?;
+        let raw = rpc.call("eth_getRawTransactionByHash", json!([tx]))?;
+        let raw = raw.as_str().context("block M2ROOT bytes")?;
+        let root = boole_derivation::system::read_m2_root(raw, number, &origin)?;
+        if raw != expected {
+            bail!("L2 M2ROOT differs from pure attributes at {number}");
+        }
+        observed["m2_root"] = json!(hex_string(&root));
+    }
+    Ok(observed)
 }
 
 #[cfg(test)]

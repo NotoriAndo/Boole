@@ -19,10 +19,16 @@ pub enum StepOutcome {
     WaitingForFinality,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StallKind {
+    M2Root { height: u64 },
+    Other,
+}
 #[derive(Debug, Clone)]
 pub struct Stall {
     pub height: u64,
     pub reason: String,
+    pub kind: StallKind,
 }
 impl std::fmt::Display for Stall {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -30,6 +36,14 @@ impl std::fmt::Display for Stall {
     }
 }
 impl std::error::Error for Stall {}
+fn failure_kind(error: &anyhow::Error) -> StallKind {
+    match error.downcast_ref::<boole_derivation::InputError>() {
+        Some(boole_derivation::InputError::M2Root { height }) => {
+            StallKind::M2Root { height: *height }
+        }
+        _ => StallKind::Other,
+    }
+}
 
 pub struct Driver<L, E> {
     pub l1: L,
@@ -117,6 +131,18 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
             {
                 bail!("cached L2 parent changed");
             }
+            if parent.number > 0 {
+                let origin = boole_derivation::system::l1_origin(
+                    parent.l1_info.as_deref().context("cached parent L1-info")?,
+                    parent.number,
+                )?;
+                boole_derivation::system::check_m2_root(
+                    parent.m2_root_deposit.as_deref(),
+                    parent.number,
+                    &origin,
+                    self.m2.root,
+                )?;
+            }
             return Ok(self.m2.clone());
         }
         let mut state = State::new(&self.config, self.l2_gas_limit)?;
@@ -157,6 +183,12 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
             if derived.attributes.transactions.first().map(String::as_str) != Some(deposit) {
                 bail!("anchored L1-info bytes mismatch");
             }
+            boole_derivation::system::check_m2_root(
+                header.m2_root_deposit.as_deref(),
+                height,
+                &origin,
+                next.root,
+            )?;
             if let Some(saved) = &self.checkpoint {
                 if saved["height"] == height
                     && (saved["m2_root"] != boole_derivation::attributes::hex_string(&next.root)
@@ -214,7 +246,22 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
             return Err(stall.clone());
         }
         let mut record = json!({"height":height,"engine_calls":[],"slot_table_digest":boole_derivation::attributes::hex_string(&self.config.slot_table_digest()),"m2_config_digest":boole_derivation::attributes::hex_string(&self.config.digest())});
-        let result = self.try_step(height, &mut record);
+        let result = self.try_step(height, &mut record, None);
+        self.complete_step(height, record, result, Derived::canonical_bytes)
+    }
+
+    /// Import an externally built execution payload only after the local fold
+    /// and its mandatory M2ROOT commitment agree, before Engine adoption.
+    pub fn import_payload(
+        &mut self,
+        height: u64,
+        payload: Value,
+    ) -> std::result::Result<StepOutcome, Stall> {
+        if let Some(stall) = &self.stalled {
+            return Err(stall.clone());
+        }
+        let mut record = json!({"height":height,"engine_calls":[],"import":true,"slot_table_digest":boole_derivation::attributes::hex_string(&self.config.slot_table_digest()),"m2_config_digest":boole_derivation::attributes::hex_string(&self.config.digest())});
+        let result = self.try_step(height, &mut record, Some(payload));
         self.complete_step(height, record, result, Derived::canonical_bytes)
     }
 
@@ -285,6 +332,7 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
                     if let Err(write_error) = appended {
                         let stall = Stall {
                             height,
+                            kind: failure_kind(error),
                             reason: format!("{error:#}; append STALL evidence: {write_error:#}"),
                         };
                         self.stalled = Some(stall.clone());
@@ -298,6 +346,7 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
             Err(error) => {
                 let stall = Stall {
                     height,
+                    kind: failure_kind(&error),
                     reason: format!("{error:#}"),
                 };
                 self.stalled = Some(stall.clone());
@@ -318,7 +367,12 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
         result.with_context(|| format!("Engine {method}"))
     }
 
-    fn try_step(&mut self, height: u64, record: &mut Value) -> Result<StepOutcome> {
+    fn try_step(
+        &mut self,
+        height: u64,
+        record: &mut Value,
+        supplied: Option<Value>,
+    ) -> Result<StepOutcome> {
         let finalized = self.l1.finalized().context("L1 finalized")?;
         record["finalized"] = json!(finalized);
         if height > finalized {
@@ -346,19 +400,30 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
         record["parent"] = json!(parent);
         record["attributes"] = json!(derived.attributes);
         record["decisions"] = json!(derived.decisions);
-        let state = json!({"headBlockHash":parent.hash,"safeBlockHash":parent.hash,"finalizedBlockHash":parent.hash});
-        let built = self.call(
-            record,
-            "engine_forkchoiceUpdatedV3",
-            json!([state, derived.attributes]),
+        let payload = if let Some(payload) = supplied {
+            payload
+        } else {
+            let state = json!({"headBlockHash":parent.hash,"safeBlockHash":parent.hash,"finalizedBlockHash":parent.hash});
+            let built = self.call(
+                record,
+                "engine_forkchoiceUpdatedV3",
+                json!([state, derived.attributes]),
+            )?;
+            valid(&built["payloadStatus"])?;
+            let payload_id = built["payloadId"]
+                .as_str()
+                .filter(|s| !s.is_empty())
+                .context("VALID build missing payloadId")?;
+            let envelope = self.call(record, "engine_getPayloadV5", json!([payload_id]))?;
+            envelope["executionPayload"].clone()
+        };
+        let payload = &payload;
+        boole_derivation::system::check_m2_root(
+            payload["transactions"][1].as_str(),
+            height,
+            &l1.hash,
+            next.root,
         )?;
-        valid(&built["payloadStatus"])?;
-        let payload_id = built["payloadId"]
-            .as_str()
-            .filter(|s| !s.is_empty())
-            .context("VALID build missing payloadId")?;
-        let envelope = self.call(record, "engine_getPayloadV5", json!([payload_id]))?;
-        let payload = &envelope["executionPayload"];
         check_payload_transactions(payload, &derived)?;
         if payload["blockNumber"] != format!("0x{height:x}")
             || payload["parentHash"] != parent.hash
@@ -391,6 +456,12 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
         if head.number != height || head.hash != hash {
             bail!("L2 head does not match selected payload");
         }
+        boole_derivation::system::check_m2_root(
+            head.m2_root_deposit.as_deref(),
+            height,
+            &l1.hash,
+            next.root,
+        )?;
         record["block_hash"] = json!(hash);
         self.pending = Some(next);
         Ok(StepOutcome::Derived(Box::new(derived)))
@@ -411,6 +482,11 @@ pub fn check_payload_transactions(payload: &Value, derived: &Derived) -> Result<
     let expected = &derived.attributes.transactions;
     if txs.first().and_then(Value::as_str) != expected.first().map(String::as_str) {
         bail!("payload L1-info deposit missing or changed");
+    }
+    if expected.get(1).is_some_and(|tx| tx.starts_with("0x7e"))
+        && txs.get(1).and_then(Value::as_str) != expected.get(1).map(String::as_str)
+    {
+        bail!("payload M2ROOT deposit missing, changed or reordered");
     }
     let mut remaining = expected.iter();
     for tx in txs {

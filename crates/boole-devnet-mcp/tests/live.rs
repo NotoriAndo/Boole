@@ -208,7 +208,13 @@ fn mine(
     let status = if let Some(server) = server {
         let status = server.tool("boole.devnet_status", json!({}))?;
         ensure!(
-            status["fold_height"] == f && status["m2_root"] == expected,
+            status["fold_height"] == f
+                && status["m2_root"] == expected
+                && if f == 0 {
+                    status["l2_m2_root_match"].is_null()
+                } else {
+                    status["l2_m2_root_match"] == true
+                },
             "MCP/driver root mismatch at latest {h}: {status}"
         );
         status
@@ -620,7 +626,7 @@ fn mcp_live_round_checking_cancel_offline_expiry_and_equal_roots() -> Result<()>
     );
     restarted.stop()?;
     expiry_restarted.stop()?;
-    let provenance = json!({"generator":"crates/boole-devnet-mcp/tests/live.rs","generator_sha256":hex_string(&hash(include_bytes!("live.rs"))),"client_binary_sha256":hex_string(&hash(&fs::read(env!("CARGO_BIN_EXE_boole-devnet-mcp"))?)),"client_pins":fixture_json("pins.json")?,"l1_genesis_sha256":hex_string(&hash(&fs::read(&l1_genesis)?)),"l2_genesis_sha256":hex_string(&hash(&fs::read(&l2_genesis)?)),"l1_genesis_hash":RpcL1::new_m2("http://127.0.0.1:28545")?.genesis_hash()?});
+    let provenance = json!({"generator":"crates/boole-devnet-mcp/tests/live.rs","generator_sha256":hex_string(&hash(include_bytes!("live.rs"))),"client_binary_sha256":hex_string(&hash(&fs::read(env!("CARGO_BIN_EXE_boole-devnet-mcp"))?)),"client_pins":fixture_json("pins.json")?,"engine_profile":engine_profile(),"l1_genesis_sha256":hex_string(&hash(&fs::read(&l1_genesis)?)),"l2_genesis_sha256":hex_string(&hash(&fs::read(&l2_genesis)?)),"l1_genesis_hash":RpcL1::new_m2("http://127.0.0.1:28545")?.genesis_hash()?});
     let result = json!({"schema":"boole-devnet-mcp-round-v0","config":c,"config_digest":hex_string(&c.digest()),"slot_table_digest":hex_string(&c.slot_table_digest()),"package_codec":1,"package_raw_len":1_048_576,"export_raw_len":raw.len(),"primary":primary_final,"cancel_status":"CANCELLED","expiry_status":"EXPIRED","restart_m2_root":after_prune["m2_root"],"pre_prune_restart_m2_root":status["m2_root"],"online_comparisons":comparisons,"restart_comparisons":4,"posted_items":posted_items.len(),"prune_height":prune_height,"l2_gas_limit":40_000_000,"required_packages":required,"export_format":1,"driver_m2_root":hex_string(&driver.m2_state().root),"rows":rows,"postings":posting,"l1_inputs":l1_inputs,"provenance":provenance,"strict_cleanup":"pending"});
     rt.finish(true)?;
     if let Some(path) = std::env::var_os("BOOLE_DEVNET_MCP_RECORDING") {

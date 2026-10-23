@@ -1,5 +1,8 @@
 # Devnet commit/reveal v1.1
 
+**Superseded for the current devnet by [v1.2](devnet-commit-reveal-v1.2.md).**
+The v1.1 recordings remain frozen historical evidence.
+
 This specification replaces v1 on a devnet recreated from genesis. There is no
 activation height or conversion of v1 state. [M1](devnet-derivation-v0.md) and the
 [v1 rules](devnet-commit-reveal-v1.md) remain the base except where replaced below.

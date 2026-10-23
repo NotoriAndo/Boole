@@ -1,6 +1,6 @@
 # Boole — current development status
 
-Updated: 2026-10-22. This is the tracked entrypoint for current progress and the
+Updated: 2026-10-23. This is the tracked entrypoint for current progress and the
 ordered development roadmap. Edit it in place; execution evidence stays in its
 own result record. Local Master/Execution documents link here instead of owning
 a second current cursor. Work methods follow the
@@ -17,6 +17,17 @@ started. Publication did not authorize public P2P or resume the completed
 twelve-hour delegation.
 
 ## Current boundary
+
+**Devnet M2 v1.2 (October 23, devnet reset).** The
+[M2ROOT system deposit](devnet-commit-reveal-v1.2.md) binds each post-fold root
+into every current L2 block after L1-info. The driver validates the commitment
+before importing local or peer payloads and during restart replay, returning a
+typed height on divergence. User gas and startup S4 reserve both deposits. The
+miner reports `l2_m2_root_match` and stops posting on a mismatch. The reset
+[recordings](../fixtures/devnet-m2/README.md) supersede v1.1 client evidence;
+the older files remain frozen. The service parity generator is now tracked
+under `scripts/devnet/`. This remains closed-local transport, without verdicts,
+proof certification, minting or public activation.
 
 **Devnet miner MCP-1 (October 22, devnet only).** The separate
 [`boole-devnet-mcp` client](devnet-miner-client-v0.md) folds finalized L1 with the

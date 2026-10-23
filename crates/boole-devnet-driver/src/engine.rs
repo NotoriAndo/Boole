@@ -152,33 +152,60 @@ impl RpcEngine {
         Ok(Self { node, auth })
     }
 }
-impl RpcEngine {
-    fn read_header(&self, tag: Value) -> Result<ParentHeader> {
-        let block = self
-            .node
-            .call("eth_getBlockByNumber", json!([tag, false]))?;
-        let mut parent: ParentHeader =
-            serde_json::from_value(block.clone()).context("decode L2 head")?;
-        if parent.number > 0 {
-            let tx = block["transactions"][0]
-                .as_str()
-                .ok_or_else(|| anyhow!("head missing L1-info transaction"))?;
-            let raw = self.node.call("eth_getRawTransactionByHash", json!([tx]))?;
-            parent.l1_info = Some(
-                raw.as_str()
-                    .ok_or_else(|| anyhow!("missing raw L1-info transaction"))?
-                    .to_owned(),
-            );
-        }
-        Ok(parent)
+/// Read both mandatory system deposits by their actual block transaction hashes.
+/// None means the L2 node has not reached the requested height yet.
+pub fn read_l2_header(node: &Rpc, tag: Value) -> Result<Option<ParentHeader>> {
+    let block = node.call("eth_getBlockByNumber", json!([tag, false]))?;
+    if block.is_null() {
+        return Ok(None);
     }
+    let mut parent: ParentHeader =
+        serde_json::from_value(block.clone()).context("decode L2 header")?;
+    // These are our derived header fields, never RPC extension metadata.
+    parent.l1_info = None;
+    parent.m2_root_deposit = None;
+    if parent.number > 0 {
+        for index in 0..2 {
+            let failure = || {
+                if index == 1 {
+                    boole_derivation::InputError::M2Root {
+                        height: parent.number,
+                    }
+                } else {
+                    boole_derivation::InputError::L1Link
+                }
+            };
+            let Some(tx) = block["transactions"][index].as_str() else {
+                return Err(failure().into());
+            };
+            let raw = node.call("eth_getRawTransactionByHash", json!([tx]))?;
+            let raw = raw.as_str().ok_or_else(failure)?;
+            let bytes = boole_derivation::attributes::hex_bytes(raw, "system transaction")
+                .map_err(|error| if index == 1 { failure() } else { error })?;
+            let hash = boole_derivation::attributes::hex_string(
+                &boole_derivation::user_tx::keccak(&bytes),
+            );
+            if !hash.eq_ignore_ascii_case(tx) {
+                return Err(boole_derivation::InputError::M2Root {
+                    height: parent.number,
+                }
+                .into());
+            }
+            if index == 0 {
+                parent.l1_info = Some(raw.into());
+            } else {
+                parent.m2_root_deposit = Some(raw.into());
+            }
+        }
+    }
+    Ok(Some(parent))
 }
 impl Engine for RpcEngine {
     fn head(&mut self) -> Result<ParentHeader> {
-        self.read_header(json!("latest"))
+        read_l2_header(&self.node, json!("latest"))?.context("L2 head missing")
     }
     fn header(&mut self, height: u64) -> Result<ParentHeader> {
-        self.read_header(json!(format!("0x{height:x}")))
+        read_l2_header(&self.node, json!(format!("0x{height:x}")))?.context("L2 history missing")
     }
     fn call(&mut self, method: &str, params: Value) -> Result<Value> {
         self.auth.call(method, params)

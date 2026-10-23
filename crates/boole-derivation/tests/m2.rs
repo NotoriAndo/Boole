@@ -781,7 +781,7 @@ fn t22_s1_s6_profiles_startup() {
 }
 
 #[test]
-fn t11_r13_m1_attributes_and_evidence_37_heights_unchanged() {
+fn t11_r13_m1_fields_with_m2root_and_current_budget_37_heights() {
     use boole_derivation::{derive, derive_with_m2, InboxLog, ParentHeader};
     let main: serde_json::Value = serde_json::from_str(include_str!(
         "../../../fixtures/devnet-m1/s1b-recorded-main-budget-v1.json"
@@ -840,11 +840,22 @@ fn t11_r13_m1_attributes_and_evidence_37_heights_unchanged() {
             }
             let (new, next) = derive_with_m2(&state, &c, &l1, &mixed, &parent).unwrap();
             state = next;
-            assert_eq!(
-                new.canonical_bytes().unwrap(),
-                old.canonical_bytes().unwrap()
-            );
-            assert_eq!(&new.decisions[..logs.len()], &old.decisions);
+            let mut budget_parent = parent.clone();
+            budget_parent.gas_limit -= boole_derivation::config::M2ROOT_GAS;
+            let mut expected =
+                boole_derivation::attributes::derive_m1(&l1, &logs, &budget_parent).unwrap();
+            expected.attributes.gas_limit = format!("0x{:x}", parent.gas_limit);
+            let mut actual = new.attributes.clone();
+            let commitment = actual.transactions.remove(1);
+            boole_derivation::system::check_m2_root(
+                Some(&commitment),
+                l1.number,
+                &l1.hash,
+                state.root,
+            )
+            .unwrap();
+            assert_eq!(actual, expected.attributes);
+            assert_eq!(&new.decisions[..logs.len()], &expected.decisions);
             for d in &new.decisions[logs.len()..] {
                 assert!(!d.forward);
                 assert!(d.m2.is_some());
@@ -1367,7 +1378,7 @@ fn review_every_startup_violation_cannot_construct_or_fold() {
 fn review_s4_uses_explicit_l2_gas_independently_of_l1_limit() {
     let mut c = cfg();
     c.l1_gas_limit = 60_000_000;
-    let needed = 1_000_000 + c.q_max * c.verdict_gas + 16_777_216;
+    let needed = 2_000_000 + c.q_max * c.verdict_gas + 16_777_216;
     assert_eq!(c.validate(needed), Ok(()));
     assert_eq!(c.validate(needed - 1), Err(4));
     c.l1_gas_limit = 1;

@@ -6,7 +6,7 @@ closed-local devnet. It is a separate crate and executable, so the existing
 The client uses the workspace derivation and RPC code and existing dependencies;
 it downloads no tools and adds no external package or version.
 
-The [M2 v1.1 rules](devnet-commit-reveal-v1.1.md) and
+The [M2 v1.2 rules](devnet-commit-reveal-v1.2.md) and
 [M1 derivation](devnet-derivation-v0.md) define the underlying protocol. This client
 uses unlocked anvil development accounts and disposable test ETH to self-post.
 Production posting through a batcher, custody, escrow and drand are later work.
@@ -34,7 +34,7 @@ their target bytes are checked. There is no PATH fallback or network fetch.
 
 | Tool | Arguments | Result |
 |---|---|---|
-| `boole.devnet_status` | none | Slot/lane, open problem, last commit height, pending commits, next draw execution height, fold height, config/slot digests, m2_root and any stall reason |
+| `boole.devnet_status` | none | Slot/lane, open problem, last commit height, pending commits, next draw execution height, fold height, config/slot digests, m2_root, l2_m2_root_match and any stall reason |
 | `boole.devnet_problem` | `slot` or `problem_id` | Problem id, decoded package as hex and UTF-8 when valid, and finalized-fold membership status |
 | `boole.devnet_commit` | `export_file`, `payee`, `problem_id` | Durable submission id and initial progress; automatic posting continues while the process runs |
 | `boole.devnet_submission` | `submission_id` | Finalized/retained status, observed state and prune height, part count, transaction hashes and failures, local-check status and posting error if any |
@@ -82,6 +82,12 @@ intended local node/config and preserve the private directory before restarting.
 from genesis; a cached root is never accepted as a substitute for that fold.
 The store is bound to the exact config digest, L1 genesis hash and observed L2
 gas limit.
+
+After folding, the client reads both system deposits from the L2 block at its
+fold height. `l2_m2_root_match` is true only when the strict M2ROOT and L1 origin
+match its own root. A mismatch is a hard error that stops posting. Null means
+L2 has not built that height yet (or genesis has no deposit); the worker waits
+for a match before posting. Status and private progress remain readable.
 
 The RPC endpoint supplies the finalized chain. This is independent M2 derivation,
 not an Ethereum consensus light-client proof or an RPC quorum. A server cannot

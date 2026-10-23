@@ -15,7 +15,7 @@ use std::{fs, path::Path};
 fn accepted_m2_recording_has_provenance_and_pure_replay() -> Result<()> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures");
     let value: Value =
-        serde_json::from_slice(&fs::read(root.join("devnet-m2/commit-reveal-v1.1.json"))?)?;
+        serde_json::from_slice(&fs::read(root.join("devnet-m2/commit-reveal-v1.2.json"))?)?;
     assert_eq!(value["acceptance"]["live_abc"], true);
     assert_eq!(value["acceptance"]["recorded_abc"], true);
     assert_eq!(value["acceptance"]["restart_height"], 17);
@@ -23,7 +23,7 @@ fn accepted_m2_recording_has_provenance_and_pure_replay() -> Result<()> {
     assert_eq!(
         value["provenance"]["source_genesis_sha256"],
         hex_string(&Sha256::digest(fs::read(
-            root.join("devnet-m1/l2-genesis.json")
+            root.join("devnet-m2/l2-genesis-v1.2.json")
         )?))
     );
     assert_eq!(
@@ -83,6 +83,10 @@ fn accepted_m2_recording_has_provenance_and_pure_replay() -> Result<()> {
             row["result"]["decisions"]
         );
         assert_eq!(hex_string(&next.root), row["result"]["m2_root"]);
+        assert_eq!(
+            row["result"]["observed"]["m2_root"],
+            row["result"]["m2_root"]
+        );
         assert!(d
             .decisions
             .iter()
@@ -121,7 +125,7 @@ fn accepted_m2_recording_has_provenance_and_pure_replay() -> Result<()> {
 
 #[test]
 fn review_i6_i7_recordings_replay_against_pure_model() -> Result<()> {
-    for name in ["adversarial-v1.1.json", "rounds-v1.1.json"] {
+    for name in ["adversarial-v1.2.json", "rounds-v1.2.json"] {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/devnet-m2");
         let value: Value = serde_json::from_slice(&fs::read(root.join(name))?)?;
         let mut generated = value.clone();
@@ -139,6 +143,10 @@ fn review_i6_i7_recordings_replay_against_pure_model() -> Result<()> {
             let parent: ParentHeader = serde_json::from_value(row["parent"].clone())?;
             let (d, next) = derive_with_m2(&state, &c, &l1, &logs, &parent)?;
             assert_eq!(hex_string(&next.root), row["result"]["m2_root"]);
+            assert_eq!(
+                row["result"]["observed"]["m2_root"],
+                row["result"]["m2_root"]
+            );
             assert_eq!(
                 serde_json::to_value(d.attributes)?,
                 row["result"]["attributes"]
@@ -181,7 +189,7 @@ fn review_i6_i7_recordings_replay_against_pure_model() -> Result<()> {
 #[test]
 fn review_tracked_generator_reproduces_provenance() -> Result<()> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/devnet-m2/commit-reveal-v1.1.json");
+        .join("../../fixtures/devnet-m2/commit-reveal-v1.2.json");
     let value: Value = serde_json::from_slice(&fs::read(path)?)?;
     let mut generated = value.clone();
     support::m2::bind_provenance(&mut generated)?;
@@ -196,5 +204,33 @@ fn review_tracked_generator_reproduces_provenance() -> Result<()> {
             "../../../fixtures/devnet-m2/zstd-pin-v1.json"
         ))?["sha256"]
     );
+    Ok(())
+}
+
+#[test]
+fn root_binding_recording_keeps_the_first_divergence_and_peer_roots() -> Result<()> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/devnet-m2");
+    let binding: Value = serde_json::from_slice(&fs::read(root.join("root-binding-v1.2.json"))?)?;
+    let round: Value = serde_json::from_slice(&fs::read(root.join("commit-reveal-v1.2.json"))?)?;
+    assert_eq!(binding["first_divergence"], 6);
+    assert_eq!(binding["mutant_adopted_height"], 5);
+    assert_eq!(binding["recovered_height"], 28);
+    assert_eq!(binding["strict_cleanup"], "PASS");
+    for (index, row) in binding["comparisons"]
+        .as_array()
+        .context("comparisons")?
+        .iter()
+        .enumerate()
+    {
+        assert_eq!(row["height"], index + 1);
+        assert_eq!(row["a_block_hash"], row["c_block_hash"]);
+        assert_eq!(row["block_root"], row["pure_root"]);
+        assert_eq!(
+            row["pure_root"],
+            round["heights"][index]["result"]["m2_root"]
+        );
+        assert_eq!(row["b_height"], (index + 1).min(5));
+    }
+    assert_eq!(binding["comparisons"].as_array().unwrap().len(), 28);
     Ok(())
 }
