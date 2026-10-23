@@ -829,6 +829,22 @@ fn t54_root_v3_commits_post_verdict_events_and_refolds_identically() {
         .unwrap();
     assert_eq!(first.events, again.events);
     assert_eq!(first.state.root, again.state.root);
+    let (mut replay, _, _, replay_b, _) = checking_with_blocker(&c);
+    run(&mut replay, &c, vec![]);
+    let rebuilt = replay
+        .step_with_verdicts(
+            &c,
+            &header,
+            &[],
+            &[verdict(0, replay_b, Outcome::Reject, 0x0306, 11)],
+            &ForkTable::genesis(&c).unwrap(),
+        )
+        .unwrap();
+    assert_eq!(rebuilt.events, first.events);
+    assert_eq!(
+        rebuilt.state.root, first.state.root,
+        "full replay from genesis must match the incremental root"
+    );
     let deposit = boole_derivation::system::m2_root_deposit(&header, first.state.root).unwrap();
     assert_eq!(
         boole_derivation::system::read_m2_root(&deposit, header.number, &header.hash).unwrap(),
@@ -962,7 +978,7 @@ fn t50_final_m3_statuses_cannot_be_reopened_completed_again_or_cancelled() {
 
 #[test]
 fn t57_stale_cancels_only_locked_retires_and_reposes_frozen_problem() {
-    use boole_derivation::m3::*;
+    use boole_derivation::{m2::cancel_hash, m3::*};
     use scenario::*;
     for after_vest in [false, true] {
         let c = m3_cfg();
@@ -975,6 +991,15 @@ fn t57_stale_cancels_only_locked_retires_and_reposes_frozen_problem() {
         let v = recheck_fixture(&mut s, (p, b), 0);
         let h = s.height() + 2;
         run(&mut s, &c, vec![]);
+        assert!(matches!(
+            s.step_with_verdicts(&c, &block(h), &[], &[], &ForkTable::genesis(&c).unwrap()),
+            Err(boole_derivation::m2::FoldError::M3(Error::Pending { .. }))
+        ));
+        assert_eq!(
+            s.candidates[&(p, b)].status() as u8,
+            7,
+            "DEFER never makes a recheck target STALE"
+        );
         let out = s
             .step_with_verdicts(&c, &block(h), &[], &[v], &ForkTable::genesis(&c).unwrap())
             .unwrap();
@@ -1005,7 +1030,33 @@ fn t57_stale_cancels_only_locked_retires_and_reposes_frozen_problem() {
             )
         );
         assert!(new.winner.is_none() && !new.voided && new.closed.is_none());
+        let new_id = new.id;
         assert_eq!(run(&mut s, &c, vec![input(2, commit(p, [9; 32]), 0)]), [5]);
+        let (ch, body, parts, _) = candidate(&c, &mut s, new_id, 9);
+        let hc = s.height();
+        until(&mut s, &c, hc + c.d - 1);
+        run(
+            &mut s,
+            &c,
+            vec![input(3, open(&body, cancel_hash(&[8; 32])), 0)],
+        );
+        run(&mut s, &c, vec![input(4, part(ch, 0, &[], &parts[0]), 0)]);
+        let index = s.m3.as_ref().unwrap().queue.last().unwrap().queue_index;
+        let due = s.height() + 2;
+        run(&mut s, &c, vec![]);
+        let next = s
+            .step_with_verdicts(
+                &c,
+                &block(due),
+                &[],
+                &[verdict(index, ch, Outcome::Accept, 0, 0)],
+                &ForkTable::genesis(&c).unwrap(),
+            )
+            .unwrap();
+        let admissions = &next.state.m3.as_ref().unwrap().admissions;
+        assert!(admissions[&1].retired);
+        assert_eq!(admissions[&2].key, (new_id, ch));
+        assert_eq!(next.state.problems[&new_id].winner, Some(ch));
     }
 }
 
