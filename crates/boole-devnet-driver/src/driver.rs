@@ -464,7 +464,7 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
                 }
             }
             if self.l1.input_journal().is_some() {
-                let record = json!({"height":height,"outcome":"RECOVERED","verification":"computed","block_hash":header.hash,"l1":{"hash":l1.hash},"m2_root":boole_derivation::attributes::hex_string(&next.root),"attribute_digest":boole_derivation::attributes::hex_string(&Sha256::digest(derived.canonical_bytes()?))});
+                let record = json!({"height":height,"outcome":"RECOVERED","verification":if self.follows(height){"checkpoint-trusted"}else{"computed"},"block_hash":header.hash,"l1":{"hash":l1.hash},"m2_root":boole_derivation::attributes::hex_string(&next.root),"attribute_digest":boole_derivation::attributes::hex_string(&Sha256::digest(derived.canonical_bytes()?))});
                 if let Some(evidence) = &self.evidence {
                     if let Some(saved) = evidence.record_at(height) {
                         anyhow::ensure!(

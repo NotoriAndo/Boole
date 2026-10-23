@@ -528,3 +528,104 @@ fn t84_mismatching_tail_is_refused_before_checkpoint_height_import() -> Result<(
     }
     Ok(())
 }
+
+#[test]
+fn t83_recovered_follow_evidence_never_claims_computed_verification() -> Result<()> {
+    use boole_gate_supervisor::{
+        codec::Codec,
+        process::{Envelope, Worker},
+        stub::Descriptor,
+        supervisor::{install_devnet_artifacts, Host, Mode, Supervisor},
+    };
+    use sha2::{Digest, Sha256};
+    let dir = PrivateTempDir::new("m4-follow-recovery")?;
+    let target = std::env::var_os("CARGO_TARGET_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target"));
+    let gate = target.join("debug/boole-gate-supervisor");
+    let pin: [u8; 32] = Sha256::digest(std::fs::read(&gate)?).into();
+    let descriptor = Descriptor::pinned(pin);
+    let mut config = boole_derivation::m2::Config::devnet();
+    config.m3 = Some(boole_derivation::m3::M3Config::devnet(
+        config.slot_table.len(),
+    ));
+    config.m3.as_mut().unwrap().genesis_gate_rule_digest = descriptor.digest();
+    let forks = boole_derivation::m3::ForkTable::genesis(&config)?;
+    let artifacts = dir.path().join("artifacts");
+    install_devnet_artifacts(&config, &artifacts)?;
+    let make_supervisor = |cache: &std::path::Path| -> Result<_> {
+        Supervisor::new(
+            &config,
+            &forks,
+            Mode::Follow {
+                from: 1,
+                through: 4,
+            },
+            vec![Worker {
+                descriptor: descriptor.clone(),
+                binary: gate.clone(),
+                binary_sha256: pin,
+            }],
+            Some(Codec::portable_stub()),
+            cache,
+            cache,
+            &artifacts,
+            Host::local()?,
+            Envelope::default(),
+        )
+    };
+    let root = dir.path().join("state");
+    let engine = MemoryEngine::new();
+    let identity =
+        NetworkIdentity::new(&config, Some(&forks), engine.head.hash.clone(), 30_000_000)?;
+    let mut raw = TipOnly::new();
+    let mut journal =
+        InputJournal::open(&root, identity.clone(), || Ok(raw.rows[0].clone()), false)?;
+    for h in 1..=3 {
+        journal.append(&raw.rows[h])?;
+    }
+    drop(journal);
+    raw.tip = 3;
+    raw.strict = true;
+    let source = JournalSource::open(raw.clone(), &root, identity.clone(), false)?;
+    let mut d = Driver::with_m3(
+        source,
+        engine,
+        config.clone(),
+        30_000_000,
+        make_supervisor(&dir.path().join("first-cache"))?,
+        forks.clone(),
+    )?;
+    let checkpoint = root.join("checkpoint.json");
+    let evidence = root.join("evidence.jsonl");
+    d.set_journal(&checkpoint)?;
+    d.set_evidence(&evidence)?;
+    d.step(1)?;
+    let saved_cp = std::fs::read(&checkpoint)?;
+    let saved_evidence = std::fs::read(&evidence)?;
+    d.step(2)?;
+    let engine = d.engine.clone();
+    drop(d);
+    // Exact B4 filesystem state: selected block2, only complete height1 evidence/checkpoint.
+    std::fs::write(&checkpoint, saved_cp)?;
+    std::fs::write(&evidence, saved_evidence)?;
+    let source = JournalSource::open(raw, &root, identity, false)?;
+    let supervisor = make_supervisor(&dir.path().join("second-cache"))?;
+    let mut d = Driver::with_m3(source, engine, config, 30_000_000, supervisor, forks)?;
+    d.set_journal(&checkpoint)?;
+    d.set_evidence(&evidence)?;
+    d.resume()?;
+    let rows: Vec<Value> = std::fs::read_to_string(&evidence)?
+        .lines()
+        .map(serde_json::from_str)
+        .collect::<std::result::Result<_, _>>()?;
+    let recovered = rows
+        .iter()
+        .find(|v| v["height"] == 2 && v["outcome"] == "RECOVERED")
+        .unwrap();
+    assert_eq!(
+        recovered["verification"], "checkpoint-trusted",
+        "a followed verdict was never computed locally"
+    );
+    Ok(())
+}
