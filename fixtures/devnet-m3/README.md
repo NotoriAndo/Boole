@@ -30,12 +30,64 @@ allocation or activation.
 
 Set distinct fresh candidate paths in `BOOLE_DEVNET_M3_MEASUREMENT`,
 `BOOLE_DEVNET_M3_ROUND`, `BOOLE_DEVNET_M3_KERNEL_FIX`,
-`BOOLE_DEVNET_M3_QUARANTINE_VOID` and `BOOLE_DEVNET_M3_QUARANTINE_RECHECK`.
+`BOOLE_DEVNET_M3_QUARANTINE_VOID`, `BOOLE_DEVNET_M3_QUARANTINE_RECHECK` and
+`BOOLE_DEVNET_M3_REORG`. Set `BOOLE_DEVNET_RUN_DIR` to a fresh scratch directory
+for raw node logs and process evidence.
 Run the measurement test first, then the I9–I12 tests. Outputs are written only
 after A/B/C comparisons and strict log/process cleanup pass. Existing candidate
 files are refused. The source, shared support, client and reset genesis hashes
 are generated in tracked code, with exact canonical config JSON text (preserving u128 reward integers), descriptors, L1 and L2
 genesis and per-height observations. No private metadata patching is required.
+
+## Accepted recordings
+
+All six recordings below were produced together from commit `28b98ecc` using
+the pinned clients, a release supervisor and independent A/B/C Engine processes.
+The four round tapes compare 100 heights each; the separate completion-reorg
+tape compares 30. Every accepted run has zero unexpected WARN/ERROR log entries
+and completes process cleanup before writing its candidate.
+
+| Recording | Compared heights | Qualification |
+|---|---:|---|
+| `measurement-final-v1.3.json` | 3 probe blocks | Full 256-record VERDICT, successful and reverted REWARD, mint/nonce and EIP-7623 |
+| `round-v1.3.json` | 100 | I9/I10/I11/T56: full round, same-block users, process restart, fresh late start, next draw and vest balance |
+| `kernel-fix-v1.3.json` | 100 | I12: accepted result becomes STALE after fixed-epoch recheck, reward cancellation and original-leaf repose |
+| `quarantine-void-v1.3.json` | 100 | I12: earlier quarantined entry releases the original barrier through VOID |
+| `quarantine-recheck-v1.3.json` | 100 | I12: RECHECK preserves the original queue index and earlier-candidate priority |
+| `reorg-v1.3.json` | 30 | I11: all three replicas observe the unfinalized completion reorg and wait before canonical completion |
+
+At the first affected verdict height, a mutated peer payload is refused before
+Engine import; an independently restarted driver then resumes. Recorded common
+observations include exact raw deposits, receipts, block/state/receipts hashes
+and fold roots. Each tape contains the precise config text, forks, descriptors,
+source/support hashes, client and gate binary identities, and full genesis.
+`measurement-v1.3.json` is an earlier accepted execution probe, superseded by
+`measurement-final-v1.3.json`; its bytes remain frozen.
+
+Build with `cargo build --release -p boole-gate-supervisor --locked`, pin
+`BOOLE_DEVNET_GATE` to that executable, then run each exact test below using
+`cargo test -p boole-devnet-driver --test TARGET --locked TEST -- --exact --nocapture`.
+Keep the absolute `CARGO_TARGET_DIR`, pinned client variables and distinct output
+paths set throughout. Run the measurement first; copy candidate bytes only after
+all strict comparisons and cleanup pass. Rebuilding the gate changes the active
+descriptor identity, so newly generated recordings must preserve that identity
+as produced rather than borrowing metadata from these files.
+
+| TARGET | TEST |
+|---|---|
+| `m3_devnet` | `m3_m3_full_256_verdict_gas_reward_mint_failure_and_nonce` |
+| `m3_devnet` | `i9_i10_i11_t56_live_round_restart_late_start_completion_reorg_and_vest` |
+| `m3_devnet` | `i12_live_kernel_fix_stale_recheck_and_repose` |
+| `m3_devnet` | `i12_live_quarantine_void_releases_original_barrier` |
+| `m3_devnet` | `i12_live_quarantine_recheck_preserves_original_queue_index` |
+| `m3_reorg` | `i11_all_three_wait_through_an_unfinalized_completion_reorg` |
+
+`cargo test -p boole-devnet-driver --test m3_recordings --locked` independently
+reconstructs byte inputs, recomputes stub verdicts and replays all 430 recorded
+heights, checking every root, attribute, decision and exact system prefix. It
+also checks that the tracked producers and shared support match provenance.
+This portable replay does not claim to qualify the recorded Darwin worker on a
+different host.
 
 The 256-record gas probe uses a 256-record batch capacity; the active devnet
 round config retains its ordinary 128-record capacity. Execution probes inject

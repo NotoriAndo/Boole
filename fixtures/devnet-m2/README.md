@@ -1,10 +1,13 @@
 # Commit/reveal devnet fixtures
 
-Current protocol: [v1.2](../../docs/devnet-commit-reveal-v1.2.md), reset from genesis.
-Every current block carries L1-info followed by the M2ROOT system deposit.
+Historical protocol: [v1.2](../../docs/devnet-commit-reveal-v1.2.md), reset from genesis.
+The [v1.3 reset and recordings](../devnet-m3/README.md) supersede these node
+recordings and the v4 M1 schedule. All older JSON bytes remain frozen; the M2
+config, event, codec and service vectors still test their unchanged rules.
+Every v1.2 block carries L1-info followed by the M2ROOT system deposit.
 The v1 JSON inputs remain archived byte-for-byte; they are not replayed as v1.1.
 
-## Active v1.2 recordings and shared vectors
+## Frozen v1.2 recordings and shared vectors
 
 - `l2-genesis-v1.2.json`: the previous L2 allocations plus the `0x00` STOP sink
   at `0x42000000000000000000000000000000000000b2`; the old genesis is frozen.
@@ -98,7 +101,7 @@ are frozen historical recordings; this command does not reproduce the historical
 generator constructs the full L1 genesis, source genesis hashes and inbox-change
 provenance before writing each file after successful comparisons and strict
 cleanup. No metadata injection or private comparison-log digest is required.
-For the current v4 M1 schedule use `m1_schedule` and
+For the historical v1.2 v4 M1 schedule use `m1_schedule` and
 `BOOLE_DEVNET_SCHEDULE_RECORDING`; the superseded v2/v3 schedules are also frozen.
 Accepted fixtures keep the compared attributes, decisions, roots and observations.
 

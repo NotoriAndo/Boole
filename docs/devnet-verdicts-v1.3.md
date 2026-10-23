@@ -367,7 +367,7 @@ integers before replay; installed config files remain ordinary Config JSON.
 
 ## Pinned OP execution measurements
 
-The [M3-M3 execution recording](../fixtures/devnet-m3/measurement-v1.3.json)
+The [M3-M3 execution recording](../fixtures/devnet-m3/measurement-final-v1.3.json)
 uses the pinned op-reth v2.6.0 on three independent replicas. These probes
 explicitly inject extra deposits outside the M3 consensus fold; they measure
 execution semantics rather than certify an admissible verdict queue.
@@ -380,9 +380,9 @@ execution semantics rather than certify an admissible verdict queue.
 
 The VERDICT intrinsic calldata charge is 311,276 gas and the EIP-7623 floor is
 746,690; the floor applies to this deposit on the pinned client. The probe uses
-a 256-record capacity; ordinary devnet round recordings retain capacity128.
+a 256-record capacity; ordinary devnet round recordings retain capacity 128.
 
-For a probe amount of10^18, successful payment increases the solver balance by
+For a probe amount of 10^18, successful payment increases the solver balance by
 that amount and leaves no extra balance at DEPOSITOR. A failed call retains the
 mint at DEPOSITOR and leaves the reverting payee unchanged. DEPOSITOR's nonce
 increases once per deposit (three per probe block including L1-info and M2ROOT);
