@@ -75,8 +75,13 @@ impl TipProxy {
                     }
                     Err(_) => break,
                 };
+                if s.load(Ordering::SeqCst) {
+                    break;
+                }
                 let mut current_method = "HTTP-header".to_owned();
                 let result = (|| -> Result<()> {
+                    // Darwin inherits O_NONBLOCK from the accepting listener.
+                    stream.set_nonblocking(false)?;
                     stream.set_read_timeout(Some(Duration::from_secs(10)))?;
                     stream.set_write_timeout(Some(Duration::from_secs(10)))?;
                     let mut bytes = vec![];
@@ -330,14 +335,21 @@ impl Process {
     }
     fn kill(&mut self) -> Result<()> {
         self.child.kill()?;
-        let _ = self.child.wait()?;
+        let status = self.child.wait()?;
+        use std::os::unix::process::ExitStatusExt;
+        ensure!(
+            status.signal() == Some(9),
+            "qualification child did not terminate from SIGKILL"
+        );
         owned(&self.root, self.child.id(), "stopped", &self.role)
     }
 }
 impl Drop for Process {
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        if matches!(self.child.try_wait(), Ok(None)) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
         let _ = owned(&self.root, self.child.id(), "stopped", &self.role);
     }
 }
@@ -910,5 +922,82 @@ fn i15_kill_boundary_full_round_abc_tip_only_and_miner_restart() -> Result<()> {
     );
     ensure!(!path.exists(), "fresh recording required");
     fs::write(path, serde_json::to_vec_pretty(&result)?)?;
+    Ok(())
+}
+
+#[test]
+fn tip_proxy_waits_for_delayed_headers_and_preserves_application_errors() -> Result<()> {
+    use std::io::{BufRead, BufReader};
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    listener.set_nonblocking(true)?;
+    let addr = listener.local_addr()?;
+    let worker = thread::spawn(move || -> Result<()> {
+        let end = Instant::now() + Duration::from_secs(4);
+        let mut count = 0;
+        while count < 2 && Instant::now() < end {
+            let (mut stream, _) = match listener.accept() {
+                Ok(v) => v,
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(2));
+                    continue;
+                }
+                Err(e) => return Err(e.into()),
+            };
+            stream.set_nonblocking(false)?;
+            stream.set_read_timeout(Some(Duration::from_secs(2)))?;
+            let mut reader = BufReader::new(&mut stream);
+            let mut length = 0;
+            loop {
+                let mut line = String::new();
+                ensure!(reader.read_line(&mut line)? > 0, "mock request EOF");
+                if line == "\r\n" {
+                    break;
+                }
+                if let Some(v) = line.to_lowercase().strip_prefix("content-length:") {
+                    length = v.trim().parse::<usize>()?;
+                }
+            }
+            let mut bytes = vec![0; length];
+            reader.read_exact(&mut bytes)?;
+            let request: Value = serde_json::from_slice(&bytes)?;
+            let response = if request["method"] == "eth_getBlockByNumber" {
+                json!({"jsonrpc":"2.0","id":1,"result":{"number":"0x0"}})
+            } else {
+                json!({"jsonrpc":"2.0","id":1,"error":{"code":-32001,"message":"synthetic application refusal"}})
+            };
+            let body = response.to_string();
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            )?;
+            count += 1;
+        }
+        Ok(())
+    });
+    let proxy = TipProxy::start(&format!("http://{addr}"))?;
+    let mut stream = TcpStream::connect(proxy.url.trim_start_matches("http://"))?;
+    stream.set_read_timeout(Some(Duration::from_secs(4)))?;
+    // Connect first, then send a delayed HTTP header as real clients may do.
+    thread::sleep(Duration::from_millis(75));
+    let body = json!({"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}).to_string();
+    let sent=write!(stream,"POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len());
+    let mut response = String::new();
+    let read = stream.read_to_string(&mut response);
+    worker.join().unwrap()?;
+    sent?;
+    read?;
+    let (_, raw) = response
+        .split_once("\r\n\r\n")
+        .context("proxy response header")?;
+    let v: Value = serde_json::from_str(raw)?;
+    ensure!(
+        v["error"]["code"] == -32001,
+        "RPC error changed into a transport error"
+    );
+    ensure!(
+        proxy.denied.lock().unwrap().is_empty(),
+        "proxy protocol error"
+    );
     Ok(())
 }
