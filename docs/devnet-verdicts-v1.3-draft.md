@@ -47,7 +47,7 @@ S1–S3 and S5–S8 remain. M3 replaces S4 and adds:
 | S11 | K, RATE or COST_FIXED is zero; missing/zero slot fuel; COST_FIXED + maximum slot fuel exceeds 2^63 |
 | S12 | MATURITY < 2*K or MATURITY < NOTICE+K |
 | S13 | REWARD has the wrong slot count, or a zero amount while minting is enabled |
-| S14 | Missing/config-inconsistent genesis row, nonconsecutive epoch, nonincreasing height, later GENESIS or empty QUARANTINE list |
+| S14 | Missing/config-inconsistent genesis row, nonconsecutive epoch, nonincreasing height, later GENESIS, nonempty non-QUARANTINE list, empty QUARANTINE list, duplicate/unsorted hash |
 | S15 | A TERMS_TABLE id lacks an entry in `open_licenses` |
 | S17 | Minting with a bridge while the native unit is not the reward unit |
 
