@@ -54,6 +54,7 @@ struct TipOnly {
     tip: u64,
     strict: bool,
     latest: Option<u64>,
+    offline: bool,
 }
 impl TipOnly {
     fn new() -> Self {
@@ -70,9 +71,11 @@ impl TipOnly {
             tip: 0,
             strict: false,
             latest: None,
+            offline: false,
         }
     }
     fn read(&self, h: u64) {
+        assert!(!self.offline, "Engine tail replay touched L1 transport");
         assert!(
             !self.strict || h >= self.tip,
             "TIP_ONLY transport read below tip: {h} < {}",
@@ -85,6 +88,7 @@ impl L1Source for TipOnly {
         Ok(self.latest.unwrap_or(self.tip))
     }
     fn finalized(&mut self) -> Result<u64> {
+        assert!(!self.offline, "Engine tail replay refreshed L1");
         Ok(self.tip)
     }
     fn block(&mut self, h: u64) -> Result<L1Block> {
@@ -258,13 +262,32 @@ fn t77_missing_expired_input_is_availability_without_partial_journal_publication
     Ok(())
 }
 #[test]
-fn t84_explicit_engine_tail_recovery_reaches_saved_checkpoint_without_moving_it_backwards(
+fn t84_automatic_engine_tail_recovery_is_tip_only_and_never_moves_checkpoint_backwards(
 ) -> Result<()> {
     let dir = PrivateTempDir::new("m4-engine-tail")?;
     let path = dir.path().join("checkpoint.json");
     let mut raw = TipOnly::new();
     raw.tip = 3;
-    let mut a = Driver::new(raw.clone(), MemoryEngine::new());
+    let engine = MemoryEngine::new();
+    let network = NetworkIdentity::new(
+        &boole_derivation::m2::Config::devnet(),
+        None,
+        engine.head.hash.clone(),
+        30_000_000,
+    )?;
+    let mut journal = InputJournal::open(
+        dir.path(),
+        network.clone(),
+        || Ok(raw.rows[0].clone()),
+        false,
+    )?;
+    for h in 1..=3 {
+        journal.append(&raw.rows[h])?;
+    }
+    drop(journal);
+    raw.strict = true;
+    let source = JournalSource::open(raw, dir.path(), network.clone(), false)?;
+    let mut a = Driver::new(source, engine);
     a.set_journal(&path)?;
     for h in 1..=3 {
         a.step(h)?;
@@ -272,21 +295,19 @@ fn t84_explicit_engine_tail_recovery_reaches_saved_checkpoint_without_moving_it_
     let saved = std::fs::read(&path)?;
     let expected = a.engine.head.clone();
     let mut truncated = a.engine.clone();
+    let mut raw = a.l1.inner.clone();
+    raw.offline = true;
     truncated.head = truncated.headers[&1].clone();
     truncated.headers.retain(|h, _| *h <= 1);
     truncated.txs.retain(|h, _| *h <= 1);
     drop(a);
-    let mut b = Driver::new(raw.clone(), truncated.clone());
+    let source = JournalSource::open(raw, dir.path(), network, false)?;
+    let mut b = Driver::new(source, truncated);
     b.set_journal(&path)?;
-    assert!(b.step(2).is_err());
+    b.step(2)?;
     assert_eq!(std::fs::read(&path)?, saved);
-    let mut c = Driver::new(raw, truncated);
-    c.set_journal(&path)?;
-    c.set_recover_engine_tail(true);
-    c.step(2)?;
-    assert_eq!(std::fs::read(&path)?, saved);
-    c.step(3)?;
-    assert_eq!(c.engine.head.hash, expected.hash);
+    b.resume()?;
+    assert_eq!(b.engine.head.hash, expected.hash);
     assert_eq!(std::fs::read(&path)?, saved);
     Ok(())
 }
@@ -494,37 +515,97 @@ fn t83_real_sigkill_at_journal_build_import_selection_evidence_and_checkpoint_bo
     Ok(())
 }
 
+fn store_files(root: &std::path::Path) -> Result<BTreeMap<std::path::PathBuf, Vec<u8>>> {
+    fn visit(
+        root: &std::path::Path,
+        dir: &std::path::Path,
+        files: &mut BTreeMap<std::path::PathBuf, Vec<u8>>,
+    ) -> Result<()> {
+        for entry in std::fs::read_dir(dir)? {
+            let p = entry?.path();
+            if p.is_dir() {
+                visit(root, &p, files)?;
+            } else {
+                files.insert(p.strip_prefix(root)?.to_owned(), std::fs::read(p)?);
+            }
+        }
+        Ok(())
+    }
+    let mut files = BTreeMap::new();
+    visit(root, root, &mut files)?;
+    Ok(files)
+}
+
 #[test]
-fn t84_mismatching_tail_is_refused_before_checkpoint_height_import() -> Result<()> {
+fn t84_mismatching_tail_is_sticky_and_preserves_every_store_file() -> Result<()> {
     for field in ["l2_hash", "m2_root"] {
         let dir = PrivateTempDir::new("m4-bad-tail")?;
         let path = dir.path().join("checkpoint.json");
+        let evidence = dir.path().join("evidence.jsonl");
         let mut raw = TipOnly::new();
         raw.tip = 3;
-        let mut a = Driver::new(raw.clone(), MemoryEngine::new());
+        let engine = MemoryEngine::new();
+        let network = NetworkIdentity::new(
+            &boole_derivation::m2::Config::devnet(),
+            None,
+            engine.head.hash.clone(),
+            30_000_000,
+        )?;
+        let mut journal = InputJournal::open(
+            dir.path(),
+            network.clone(),
+            || Ok(raw.rows[0].clone()),
+            false,
+        )?;
+        for h in 1..=3 {
+            journal.append(&raw.rows[h])?;
+        }
+        drop(journal);
+        raw.strict = true;
+        let source = JournalSource::open(raw, dir.path(), network.clone(), false)?;
+        let mut a = Driver::new(source, engine);
         a.set_journal(&path)?;
+        a.set_evidence(&evidence)?;
         for h in 1..=3 {
             a.step(h)?;
         }
         let mut engine = a.engine.clone();
         engine.head = engine.headers[&1].clone();
+        let raw = a.l1.inner.clone();
         drop(a);
         let mut saved: Value = serde_json::from_slice(&std::fs::read(&path)?)?;
         saved[field] = json!(format!("0x{}", "ff".repeat(32)));
         std::fs::write(&path, serde_json::to_vec(&saved)?)?;
-        let before = std::fs::read(&path)?;
-        let mut d = Driver::new(raw, engine);
+        let before = store_files(dir.path())?;
+        let source = JournalSource::open(raw, dir.path(), network, false)?;
+        let mut d = Driver::new(source, engine);
         d.set_journal(&path)?;
-        d.set_recover_engine_tail(true);
+        d.set_evidence(&evidence)?;
         d.step(2)?;
-        assert_eq!(std::fs::read(&path)?, before);
+        assert_eq!(
+            std::fs::read(&path)?,
+            before[&std::path::PathBuf::from("checkpoint.json")]
+        );
         let error = d.step(3).unwrap_err();
         assert!(matches!(
             error.kind,
             boole_devnet_driver::driver::StallKind::Integrity { height: 3 }
         ));
-        assert_eq!(d.engine.head.number, 2);
-        assert_eq!(std::fs::read(&path)?, before);
+        assert_eq!(
+            d.engine.head.number, 2,
+            "mismatching checkpoint payload was not imported"
+        );
+        assert!(
+            store_files(dir.path())? == before,
+            "mismatch changed a store file"
+        );
+        let again = d.step(3).unwrap_err();
+        assert_eq!(again.kind, error.kind);
+        assert_eq!(again.reason, error.reason);
+        assert!(
+            store_files(dir.path())? == before,
+            "sticky stop changed a store file"
+        );
     }
     Ok(())
 }
@@ -626,6 +707,110 @@ fn t83_recovered_follow_evidence_never_claims_computed_verification() -> Result<
     assert_eq!(
         recovered["verification"], "checkpoint-trusted",
         "a followed verdict was never computed locally"
+    );
+    Ok(())
+}
+
+#[test]
+fn t84_operator_checkpoint_move_refuses_immutable_evidence_without_changing_files() -> Result<()> {
+    let dir = PrivateTempDir::new("m4-operator-tail")?;
+    let path = dir.path().join("checkpoint.json");
+    let evidence = dir.path().join("evidence.jsonl");
+    let engine = MemoryEngine::new();
+    let mut raw = TipOnly::new();
+    raw.tip = 3;
+    let network = NetworkIdentity::new(
+        &boole_derivation::m2::Config::devnet(),
+        None,
+        engine.head.hash.clone(),
+        30_000_000,
+    )?;
+    let mut journal = InputJournal::open(
+        dir.path(),
+        network.clone(),
+        || Ok(raw.rows[0].clone()),
+        false,
+    )?;
+    for h in 1..=3 {
+        journal.append(&raw.rows[h])?;
+    }
+    drop(journal);
+    raw.strict = true;
+    let source = JournalSource::open(raw, dir.path(), network.clone(), false)?;
+    let mut a = Driver::new(source, engine);
+    a.set_journal(&path)?;
+    a.set_evidence(&evidence)?;
+    for h in 1..=3 {
+        a.step(h)?;
+    }
+    let mut engine = a.engine.clone();
+    engine.head = engine.headers[&1].clone();
+    let raw = a.l1.inner.clone();
+    drop(a);
+    let source = JournalSource::open(raw, dir.path(), network, false)?;
+    let mut d = Driver::new(source, engine);
+    d.set_journal(&path)?;
+    d.set_evidence(&evidence)?;
+    d.set_recover_engine_tail(true);
+    let before = store_files(dir.path())?;
+    let error = d.step(2).unwrap_err();
+    assert!(matches!(
+        error.kind,
+        boole_devnet_driver::driver::StallKind::Integrity { .. }
+    ));
+    assert!(error.reason.contains("operator-checkpoint-move"));
+    assert!(store_files(dir.path())? == before);
+    assert_eq!(d.engine.head.number, 1);
+    Ok(())
+}
+
+#[test]
+fn t84_missing_own_tail_pauses_without_rpc_or_checkpoint_movement() -> Result<()> {
+    let dir = PrivateTempDir::new("m4-missing-tail")?;
+    let path = dir.path().join("checkpoint.json");
+    let engine = MemoryEngine::new();
+    let mut raw = TipOnly::new();
+    raw.tip = 3;
+    let network = NetworkIdentity::new(
+        &boole_derivation::m2::Config::devnet(),
+        None,
+        engine.head.hash.clone(),
+        30_000_000,
+    )?;
+    let mut journal = InputJournal::open(
+        dir.path(),
+        network.clone(),
+        || Ok(raw.rows[0].clone()),
+        false,
+    )?;
+    for h in 1..=2 {
+        journal.append(&raw.rows[h])?;
+    }
+    drop(journal);
+    let mut a = Driver::new(raw.clone(), engine);
+    a.set_journal(&path)?;
+    for h in 1..=3 {
+        a.step(h)?;
+    }
+    let mut engine = a.engine.clone();
+    engine.head = engine.headers[&1].clone();
+    drop(a);
+    raw.offline = true;
+    let source = JournalSource::open(raw, dir.path(), network, false)?;
+    let mut d = Driver::new(source, engine);
+    d.set_journal(&path)?;
+    let before = store_files(dir.path())?;
+    let error = d.step(2).unwrap_err();
+    assert!(matches!(
+        error.kind,
+        boole_devnet_driver::driver::StallKind::Availability { height: 3 }
+    ));
+    assert!(error.reason.contains("own journal cannot cover"));
+    assert!(store_files(dir.path())? == before);
+    assert_eq!(d.engine.head.number, 1);
+    assert!(
+        d.last_failure().is_none(),
+        "journal availability must remain resumable"
     );
     Ok(())
 }

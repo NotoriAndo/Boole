@@ -37,11 +37,35 @@ An indeterminate write requires restart. No height is skipped.
 
 A selected Engine head ahead of evidence is fully re-folded and gets an
 explicit `RECOVERED` evidence row; lost Engine-call evidence is never invented.
-Existing durable evidence and checkpoint must match the replay. The driver
-refuses an Engine behind its checkpoint by default. Explicit
-`--recover-engine-tail` re-derives the missing tail from the journal, checks the
-saved L2 hash and root before adopting the checkpoint-height payload, and never
-moves the saved checkpoint backwards. A mismatch is a sticky integrity stop.
+Existing durable evidence and checkpoint must match the replay. If the Engine
+is behind its checkpoint, recovery is automatic with no flag. Startup re-derives
+from the Engine head to the saved height using only existing, re-verified own
+journal inputs, without historical L1 RPC or live acquisition during that replay.
+It adopts the checkpoint-height payload only when both its L2 hash and M2/M3 root
+exactly equal the saved commitments. Earlier replay steps never lower the saved
+checkpoint. Recovery evidence is held until the equality check succeeds; existing
+rows are checked and retained. A mismatch is a sticky typed integrity stop before
+the checkpoint-height payload is imported, preserving all node-local store files.
+The Engine may already have rebuilt the matching prefix below that height.
+
+`--recover-engine-tail` now means that the operator accepts moving the checkpoint,
+not permission for the automatic equal-tail recovery. This storage version refuses
+a checkpoint move with a typed `operator-checkpoint-move` integrity error,
+without changing files. Its append-only evidence binds one hash,
+root and attribute digest per height; it has no rollback epoch and refuses a
+conflicting selected row. Copying files alone would not make a rewritten live
+history safe to reopen. A future move must first preserve the old checkpoint and
+above-height evidence inside the store, fsync those copies and append a typed
+transition with both heights, hashes and roots under a versioned evidence format.
+Until that format exists, preserve the whole store and recover into a fresh one.
+No preserved folder or transition row is falsely claimed for a refused operation.
+A missing own-journal tail gives a typed availability stop without old-RPC fallback.
+
+T84 covers automatic equal replay with an offline transport, unchanged checkpoints
+at intermediate heights, sticky hash/root mismatches with every store file
+preserved, and the typed refusal of unsafe operator checkpoint movement. I15 B12
+kills the owned Engine, retains its old data directory, and rebuilds a fresh Engine
+with no recovery flag through the same complete round and vest on A/B/C.
 
 Torn input/evidence tails are refused without mutation by default.
 `--repair-journals` explicitly trims only an incomplete final row after every

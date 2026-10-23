@@ -540,7 +540,7 @@ fn review_restart_from_open_reveal_and_round_matches_full_state() {
     assert!(b.l1.number_reads.iter().all(|h| *h >= 18));
 }
 #[test]
-fn review_ahead_checkpoint_stalls_without_changing_it() {
+fn review_ahead_checkpoint_without_own_journal_pauses_without_changing_it() {
     let dir = TestDir::new("ahead");
     let path = dir.0.join("checkpoint.json");
     let mut a = Driver::new(Source::new(), Client::new());
@@ -549,7 +549,12 @@ fn review_ahead_checkpoint_stalls_without_changing_it() {
     let saved = std::fs::read(&path).unwrap();
     let mut b = Driver::new(Source::new(), Client::new());
     b.set_journal(&path).unwrap();
-    assert!(b.step(1).unwrap_err().reason.contains("height mismatch"));
+    let error = b.step(1).unwrap_err();
+    assert!(error.reason.contains("own input journal required"));
+    assert!(matches!(
+        error.kind,
+        boole_devnet_driver::driver::StallKind::Availability { .. }
+    ));
     assert_eq!(saved, std::fs::read(path).unwrap());
     assert!(b.engine.calls.is_empty());
 }

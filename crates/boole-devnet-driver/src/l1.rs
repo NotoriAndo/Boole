@@ -5,6 +5,8 @@ use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
 pub trait L1Source {
+    /// During verified Engine-tail replay, use only existing own journal rows.
+    fn set_journal_replay(&mut self, _enabled: bool) {}
     fn input_row(&mut self, _height: u64) -> Result<boole_devnet_archive::input::InputRow> {
         bail!("L1 source does not expose authenticated journal inputs")
     }
@@ -44,6 +46,7 @@ pub struct JournalSource<L> {
     remote_tip: Option<u64>,
     live_head: Option<(u64, String)>,
     acquisition: boole_devnet_archive::objects::Objects,
+    journal_replay: bool,
 }
 impl<L: L1Source> JournalSource<L> {
     pub fn open(
@@ -69,6 +72,7 @@ impl<L: L1Source> JournalSource<L> {
             remote_tip: None,
             live_head: None,
             acquisition,
+            journal_replay: false,
         })
     }
     fn cached(&self, hash: &str) -> Result<Option<boole_devnet_archive::input::InputRow>> {
@@ -204,6 +208,9 @@ impl<L> std::ops::DerefMut for JournalSource<L> {
     }
 }
 impl<L: L1Source> L1Source for JournalSource<L> {
+    fn set_journal_replay(&mut self, enabled: bool) {
+        self.journal_replay = enabled;
+    }
     fn genesis_hash(&mut self) -> Result<String> {
         Ok(self.journal.borrow().get(0)?.block.hash)
     }
@@ -211,12 +218,17 @@ impl<L: L1Source> L1Source for JournalSource<L> {
         self.inner.validate_m2_inbox()
     }
     fn finalized(&mut self) -> Result<u64> {
+        if self.journal_replay {
+            self.journal.borrow().check()?;
+            return Ok(self.journal.borrow().tip());
+        }
         self.refresh()
     }
     fn block(&mut self, n: u64) -> Result<L1Block> {
-        if self.remote_tip.is_none()
-            || self.remote_tip == Some(n)
-            || n > self.journal.borrow().tip()
+        if !self.journal_replay
+            && (self.remote_tip.is_none()
+                || self.remote_tip == Some(n)
+                || n > self.journal.borrow().tip())
         {
             self.refresh()?;
         }

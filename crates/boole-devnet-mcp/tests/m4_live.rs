@@ -845,22 +845,11 @@ fn i15_kill_boundary_full_round_abc_tip_only_and_miner_restart() -> Result<()> {
                         "driver-c-tail-default",
                         &log,
                     )?;
-                    ensure!(!default.wait()?.success(), "automatic engine-tail recovery");
+                    ensure!(default.wait()?.success(), "automatic no-flag tail recovery");
                     ensure!(
                         authority(&rt.path.join("c-state"))? == before,
-                        "default tail refusal changed authority files"
+                        "equal automatic recovery changed saved authority files"
                     );
-                    ensure!(
-                        fs::read_to_string(log)?.contains("engine-tail"),
-                        "typed tail refusal"
-                    );
-                    let mut recover = Process::start(
-                        c_command(&nodes[2], &rt, &proxy.url, finalized, false, true),
-                        &rt.path,
-                        "driver-c-tail-explicit",
-                        &rt.path.join("c-tail-explicit.log"),
-                    )?;
-                    ensure!(recover.wait()?.success(), "explicit tail recovery");
                     for row in &rows {
                         let h = row["height"].as_u64().unwrap();
                         let root =
@@ -870,7 +859,7 @@ fn i15_kill_boundary_full_round_abc_tip_only_and_miner_restart() -> Result<()> {
                             "rebuilt tail differs at {h}"
                         );
                     }
-                    events.push(json!({"point":"B12","height":finalized,"pid":pid,"signal":"SIGKILL","default_refused_preserving_all_authority":true,"explicit_rebuild_from_journal":true}));
+                    events.push(json!({"point":"B12","height":finalized,"pid":pid,"signal":"SIGKILL","automatic_rebuild_from_journal":true,"recover_engine_tail_flag":false,"authority_files_unchanged":true}));
                     killed = true;
                 }
             }

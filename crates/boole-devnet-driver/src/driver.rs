@@ -52,6 +52,9 @@ impl std::fmt::Display for VerdictMismatch {
 }
 impl std::error::Error for VerdictMismatch {}
 fn failure_kind(error: &anyhow::Error) -> StallKind {
+    if let Some(stall) = error.downcast_ref::<Stall>() {
+        return stall.kind.clone();
+    }
     if let Some(e) = error.downcast_ref::<boole_devnet_archive::error::Error>() {
         return match e {
             boole_devnet_archive::error::Error::Availability { height, .. } => {
@@ -125,6 +128,7 @@ pub struct Driver<L, E> {
     forks: Option<boole_derivation::m3::ForkTable>,
     evidence: Option<boole_devnet_archive::log::BoundLog>,
     recover_engine_tail: bool,
+    tail_replay: Option<Vec<Value>>,
     retry_selected: Option<(u64, Derived)>,
     config: Config,
     l2_gas_limit: u64,
@@ -158,6 +162,7 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
             forks: None,
             evidence: None,
             recover_engine_tail: false,
+            tail_replay: None,
             retry_selected: None,
             config,
             l2_gas_limit,
@@ -351,15 +356,41 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
         }
         Ok(())
     }
+    fn prepare_tail_replay(&mut self, parent: &ParentHeader) -> Result<()> {
+        if let Some(height) = self.checkpoint.as_ref().and_then(|v| v["height"].as_u64()) {
+            if height > parent.number {
+                self.tail_replay.get_or_insert_with(Vec::new);
+                if self.recover_engine_tail {
+                    return Err(boole_devnet_archive::error::integrity(parent.number, "operator-checkpoint-move", "checkpoint move refused: immutable per-height evidence has no rollback epoch; preserve the store and recover in a fresh directory"));
+                }
+                let journal = self.l1.input_journal().ok_or_else(|| {
+                    boole_devnet_archive::error::availability(height, "engine-tail", "own input journal required for automatic recovery; no historical RPC fallback")
+                })?;
+                journal.borrow().check()?;
+                if journal.borrow().tip() < height {
+                    return Err(boole_devnet_archive::error::availability(
+                        height,
+                        "engine-tail",
+                        "own journal cannot cover the checkpoint tail; checkpoint preserved",
+                    ));
+                }
+                self.l1.set_journal_replay(true);
+            }
+        }
+        Ok(())
+    }
     fn state_for_parent(&mut self, parent: &ParentHeader) -> Result<State> {
+        self.prepare_tail_replay(parent)?;
         if let Some(saved) = &self.checkpoint {
             if saved["version"] != 1
                 || saved["config_digest"] != self.config_digest()?
-                || saved["height"]
-                    .as_u64()
-                    .is_none_or(|h| h == 0 || (h > parent.number && !self.recover_engine_tail))
+                || saved["height"].as_u64().is_none_or(|h| h == 0)
             {
-                return Err(boole_devnet_archive::error::integrity(parent.number,"engine-tail","M2 checkpoint configuration or height mismatch; tail recovery requires an explicit flag"));
+                return Err(boole_devnet_archive::error::integrity(
+                    parent.number,
+                    "engine-tail",
+                    "M2 checkpoint configuration or height mismatch",
+                ));
             }
         }
         if self.m2.height() == parent.number {
@@ -484,11 +515,32 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
             previous = header;
         }
         // Publish recovery evidence only after the complete replay/checkpoint comparison.
-        for record in &recovered {
-            self.evidence
-                .as_mut()
-                .expect("recovery evidence")
-                .append(record)?;
+        if let Some(pending) = &mut self.tail_replay {
+            pending.extend(recovered);
+            if self
+                .checkpoint
+                .as_ref()
+                .is_some_and(|v| v["height"].as_u64().is_some_and(|h| h <= parent.number))
+            {
+                if let Some(file) = &mut self.evidence {
+                    for row in pending.iter() {
+                        if file
+                            .record_at(row["height"].as_u64().expect("replay height"))
+                            .is_none()
+                        {
+                            file.append(row)?;
+                        }
+                    }
+                }
+                pending.clear();
+            }
+        } else {
+            for record in &recovered {
+                self.evidence
+                    .as_mut()
+                    .expect("recovery evidence")
+                    .append(record)?;
+            }
         }
         if self.l1.input_journal().is_some() && parent.number > 0 {
             let origin = boole_derivation::system::l1_origin(
@@ -586,9 +638,43 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
     }
     /// Re-verify local inputs against the selected Engine chain before serving.
     pub fn resume(&mut self) -> Result<()> {
-        let parent = self.engine.head()?;
-        self.state_for_parent(&parent)?;
-        Ok(())
+        if let Some(stall) = &self.stalled {
+            return Err(stall.clone().into());
+        }
+        let mut height = 0;
+        let result = (|| -> Result<()> {
+            let parent = self.engine.head()?;
+            height = parent.number;
+            self.state_for_parent(&parent)?;
+            if let Some(target) = self.checkpoint.as_ref().and_then(|v| v["height"].as_u64()) {
+                for h in parent.number.saturating_add(1)..=target {
+                    if !matches!(self.step(h)?, StepOutcome::Derived(_)) {
+                        return Err(boole_devnet_archive::error::availability(
+                            h,
+                            "engine-tail",
+                            "own journal tail unavailable; checkpoint preserved",
+                        ));
+                    }
+                }
+            }
+            Ok(())
+        })();
+        if let Err(error) = &result {
+            let kind = failure_kind(error);
+            if self.stalled.is_none()
+                && !matches!(
+                    kind,
+                    StallKind::Availability { .. } | StallKind::VerdictPending { .. }
+                )
+            {
+                self.stalled = Some(Stall {
+                    height,
+                    kind,
+                    reason: format!("{error:#}"),
+                });
+            }
+        }
+        result
     }
     pub fn set_evidence(&mut self, path: &Path) -> Result<()> {
         self.set_evidence_repair(path, false)?;
@@ -662,12 +748,55 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
             }
             Ok(outcome)
         });
+        let replaying = self.tail_replay.is_some();
         if let Err(error) = &result {
             record["outcome"] = json!("STALL");
             record["error"] = json!(format!("{error:#}"));
             record["m2_root"] = json!(boole_derivation::attributes::hex_string(&self.m2.root));
         }
         let persisted = (|| -> Result<()> {
+            if let Some(pending) = &mut self.tail_replay {
+                if result.is_ok()
+                    && matches!(record["outcome"].as_str(), Some("DERIVED" | "RECOVERED"))
+                {
+                    if let Some(file) = &mut self.evidence {
+                        if let Some(saved) = file.record_at(height) {
+                            if saved["block_hash"] != record["block_hash"]
+                                || saved["l1_hash"] != record["l1"]["hash"]
+                                || saved["m2_root"] != record["m2_root"]
+                                || saved["attribute_digest"] != record["attribute_digest"]
+                            {
+                                return Err(boole_devnet_archive::error::integrity(
+                                    height,
+                                    "engine-tail",
+                                    "re-derived tail disagrees with durable evidence",
+                                ));
+                            }
+                        } else {
+                            record["outcome"] = json!("RECOVERED");
+                            pending.push(record.clone());
+                        }
+                    }
+                    if self
+                        .checkpoint
+                        .as_ref()
+                        .is_some_and(|v| v["height"] == height)
+                    {
+                        if let Some(file) = &mut self.evidence {
+                            for row in pending.iter() {
+                                if file
+                                    .record_at(row["height"].as_u64().expect("replay height"))
+                                    .is_none()
+                                {
+                                    file.append(row)?;
+                                }
+                            }
+                        }
+                        pending.clear();
+                    }
+                }
+                return Ok(());
+            }
             if let Some(file) = &mut self.evidence {
                 if record["outcome"] != "RECOVERED" || file.record_at(height).is_none() {
                     file.append(&record)?;
@@ -694,9 +823,19 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
                 self.selected_head = Some(hash);
                 self.m2 = state;
             }
+            if replaying
+                && self.m2.height() == height
+                && self
+                    .checkpoint
+                    .as_ref()
+                    .is_some_and(|v| v["height"] == height)
+            {
+                self.tail_replay = None;
+                self.l1.set_journal_replay(false);
+            }
             Ok(outcome)
         });
-        if checkpoint_attempt {
+        if checkpoint_attempt && !replaying {
             if let Err(error) = &result {
                 record["outcome"] = json!("STALL");
                 record["error"] = json!(format!("{error:#}"));
@@ -755,6 +894,8 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
         record: &mut Value,
         supplied: Option<Value>,
     ) -> Result<StepOutcome> {
+        let parent = self.engine.head().context("L2 parent")?;
+        self.prepare_tail_replay(&parent)?;
         if let Some(path) = &self.journal {
             if file_stamp(path)? != self.checkpoint_stamp {
                 return Err(boole_devnet_archive::error::integrity(
@@ -769,7 +910,6 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
         if height > finalized {
             return Ok(StepOutcome::WaitingForFinality);
         }
-        let parent = self.engine.head().context("L2 parent")?;
         if parent.number == height && self.l1.input_journal().is_some() {
             self.state_for_parent(&parent)?;
             if let Some((h, d)) = &self.retry_selected {

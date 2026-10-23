@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use boole_devnet_driver::{
     driver::{Driver, StallKind, StepOutcome},
     engine::{Engine, RpcEngine},
-    l1::{JournalSource, L1Source, RpcL1},
+    l1::{JournalSource, RpcL1},
 };
 use clap::Parser;
 use std::{path::PathBuf, time::Duration};
@@ -23,6 +23,7 @@ struct Args {
     #[arg(long)]
     state_dir: Option<PathBuf>,
     #[arg(long)]
+    /// Request an operator-approved checkpoint move (currently refuses immutable evidence).
     recover_engine_tail: bool,
     #[arg(long)]
     repair_journals: bool,
@@ -178,7 +179,6 @@ fn main() -> Result<()> {
     driver.set_journal(&checkpoint)?;
     driver.set_evidence_repair(&evidence, args.repair_journals)?;
     driver.set_recover_engine_tail(args.recover_engine_tail);
-    driver.l1.finalized()?;
     driver.resume()?;
     let mut h = driver
         .engine
