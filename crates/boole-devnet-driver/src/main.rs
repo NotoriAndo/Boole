@@ -53,6 +53,7 @@ struct Args {
     follow_canonical: Option<PathBuf>,
 }
 fn main() -> Result<()> {
+    boole_devnet_archive::fault::validate_environment()?;
     let args = Args::parse();
     let config: boole_derivation::m2::Config = match args.m2_config {
         Some(path) => serde_json::from_slice(&std::fs::read(path)?)?,

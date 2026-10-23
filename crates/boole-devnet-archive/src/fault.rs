@@ -1,6 +1,36 @@
-//! Explicit local qualification hooks. Disabled unless all three selectors match.
-use anyhow::{Context, Result};
-use std::{io::Write, path::Path};
+//! Fault dispatch exists only in explicit qualification-faults builds.
+//! Ordinary entrypoints refuse the selector environment before taking a lock.
+#[cfg(feature = "qualification-faults")]
+use anyhow::Context;
+use anyhow::Result;
+#[cfg(feature = "qualification-faults")]
+use std::io::Write;
+use std::path::Path;
+pub fn validate_environment() -> Result<()> {
+    if !cfg!(feature = "qualification-faults")
+        && std::env::vars_os().any(|(key, _)| key.to_string_lossy().starts_with("BOOLE_M4_KILL_"))
+    {
+        return Err(crate::error::integrity(0,"fault-hooks","BOOLE_M4_KILL_* requires an explicit qualification-faults build; ordinary binaries refuse these variables"));
+    }
+    Ok(())
+}
+#[cfg(not(feature = "qualification-faults"))]
+pub fn enabled(_point: &str, _height: u64, _role: &str) -> bool {
+    false
+}
+#[cfg(not(feature = "qualification-faults"))]
+pub fn hit(_point: &str, _height: u64, _role: &str) -> Result<()> {
+    validate_environment()
+}
+#[cfg(not(feature = "qualification-faults"))]
+pub(crate) fn partial_append(
+    _file: &mut std::fs::File,
+    _line: &str,
+    _path: Option<&Path>,
+) -> Result<()> {
+    Ok(())
+}
+#[cfg(feature = "qualification-faults")]
 pub fn enabled(point: &str, height: u64, role: &str) -> bool {
     std::env::var("BOOLE_M4_KILL_POINT").ok().as_deref() == Some(point)
         && std::env::var("BOOLE_M4_KILL_HEIGHT")
@@ -8,6 +38,7 @@ pub fn enabled(point: &str, height: u64, role: &str) -> bool {
             .is_some_and(|h| h == "*" || h.parse::<u64>().ok() == Some(height))
         && std::env::var("BOOLE_M4_KILL_ROLE").ok().as_deref() == Some(role)
 }
+#[cfg(feature = "qualification-faults")]
 #[allow(unsafe_code)] // SIGSTOP is restricted to explicitly selected local kill qualification.
 pub fn hit(point: &str, height: u64, role: &str) -> Result<()> {
     if !enabled(point, height, role) {
@@ -39,6 +70,7 @@ pub fn hit(point: &str, height: u64, role: &str) -> Result<()> {
     }
     anyhow::bail!("qualification process was unexpectedly resumed")
 }
+#[cfg(feature = "qualification-faults")]
 pub(crate) fn partial_append(
     file: &mut std::fs::File,
     line: &str,

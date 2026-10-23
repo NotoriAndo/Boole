@@ -54,6 +54,7 @@ struct Args {
     precheck_gate_rule_digest: Option<String>,
 }
 fn main() -> Result<()> {
+    boole_devnet_archive::fault::validate_environment()?;
     let args = Args::parse();
     ensure!(
         args.devnet,

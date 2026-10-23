@@ -45,6 +45,7 @@ struct TipProxy {
     stop: Arc<AtomicBool>,
     thread: Option<thread::JoinHandle<()>>,
     denied: Arc<Mutex<Vec<Value>>>,
+    posting_counts: Arc<Mutex<std::collections::BTreeMap<String, u64>>>,
 }
 impl TipProxy {
     fn start(upstream: &str) -> Result<Self> {
@@ -53,8 +54,10 @@ impl TipProxy {
         let addr = listener.local_addr()?;
         let stop = Arc::new(AtomicBool::new(false));
         let denied = Arc::new(Mutex::new(vec![]));
+        let posting_counts = Arc::new(Mutex::new(std::collections::BTreeMap::<String, u64>::new()));
         let s = stop.clone();
         let d = denied.clone();
+        let posts = posting_counts.clone();
         let upstream = upstream.to_owned();
         let handle = thread::spawn(move || {
             let rpc = Rpc::new(&upstream).unwrap();
@@ -111,12 +114,19 @@ impl TipProxy {
                         rpc.call("eth_getBlockByNumber", json!(["finalized", false]))?;
                     let tip = quantity(&finalized["number"])?;
                     let n = match method {
-                        "eth_getBlockByNumber" | "eth_getBlockReceipts" => params[0]
+                        "eth_getBlockByNumber" => params[0]
                             .as_str()
                             .filter(|v| v.starts_with("0x"))
                             .and_then(|v| u64::from_str_radix(&v[2..], 16).ok()),
-                        "eth_getBlockByHash" => {
-                            params[0].as_str().and_then(|h| blocks.get(h).copied())
+                        "eth_getBlockByHash" | "eth_getBlockReceipts" => {
+                            params[0].as_str().and_then(|h| {
+                                if h.len() == 66 {
+                                    blocks.get(h).copied()
+                                } else {
+                                    h.strip_prefix("0x")
+                                        .and_then(|n| u64::from_str_radix(n, 16).ok())
+                                }
+                            })
                         }
                         "eth_getRawTransactionByHash" | "eth_getTransactionReceipt" => params[0]
                             .as_str()
@@ -132,6 +142,36 @@ impl TipProxy {
                         let response: Value =
                             transport.post(&upstream).json(&request).send()?.json()?;
                         let value = &response["result"];
+                        if method == "eth_sendTransaction" && value.as_str().is_some() {
+                            let raw = boole_derivation::attributes::hex_bytes(
+                                params[0]["data"].as_str().context("posted calldata")?,
+                                "calldata",
+                            )?;
+                            ensure!(raw.len() >= 69, "posted calldata length");
+                            let stage = match raw[68] {
+                                2 => Some("commit".to_owned()),
+                                3 => Some("open".to_owned()),
+                                4 => {
+                                    ensure!(raw.len() >= 124, "PART calldata length");
+                                    Some(format!(
+                                        "part:{}",
+                                        u16::from_be_bytes([raw[122], raw[123]])
+                                    ))
+                                }
+                                7 => Some("cancel".to_owned()),
+                                _ => None,
+                            };
+                            if let Some(stage) = stage {
+                                let mut counts = posts.lock().unwrap();
+                                *counts.entry(stage).or_default() += 1;
+                                if let Some(root) = std::env::var_os("BOOLE_DEVNET_RUN_DIR") {
+                                    fs::write(
+                                        PathBuf::from(root).join("posting-counts.json"),
+                                        serde_json::to_vec(&*counts)?,
+                                    )?;
+                                }
+                            }
+                        }
                         if method == "eth_getBlockByNumber" || method == "eth_getBlockByHash" {
                             if let (Ok(n), Some(h)) =
                                 (quantity(&value["number"]), value["hash"].as_str())
@@ -174,6 +214,7 @@ impl TipProxy {
             stop,
             thread: Some(handle),
             denied,
+            posting_counts,
         })
     }
 }
@@ -452,6 +493,42 @@ fn c_run(
             p.kill()?;
             events.push(v);
             *killed = true;
+            if case == "B9" {
+                // Let the staged input expire below the finalized RPC tip while
+                // the writer is dead. Other nodes already captured this window.
+                let rpc = Rpc::new("http://127.0.0.1:28545")?;
+                let mut source = RpcL1::new_m2("http://127.0.0.1:28545")?;
+                let before = source.finalized()?;
+                let target = events.last().unwrap()["height"]
+                    .as_u64()
+                    .context("B9 height")?
+                    + 1;
+                rpc.call("evm_setIntervalMining", json!([1]))?;
+                let deadline = Instant::now() + Duration::from_secs(30);
+                let after = loop {
+                    let h = source.finalized()?;
+                    if h >= target {
+                        break h;
+                    }
+                    ensure!(
+                        Instant::now() < deadline,
+                        "B9 finality did not advance while writer was dead"
+                    );
+                    thread::sleep(Duration::from_millis(25));
+                };
+                rpc.call("evm_setIntervalMining", json!([0]))?;
+                ensure!(
+                    after == target && after > before,
+                    "B9 bounded downtime finality"
+                );
+                events.last_mut().unwrap()["finalized_before_downtime"] = json!(before);
+                events.last_mut().unwrap()["finalized_after_downtime"] = json!(after);
+                events.last_mut().unwrap()["interval_mining_during_downtime"] = json!(true);
+                fs::write(
+                    rt.path.join("b9-downtime.json"),
+                    serde_json::to_vec_pretty(events.last().unwrap())?,
+                )?;
+            }
             let saved = authority(&rt.path.join("c-state"))?;
             let mut restart = Process::start(
                 c_command(node, rt, proxy, until, false, false),
@@ -615,7 +692,7 @@ fn i15_kill_boundary_full_round_abc_tip_only_and_miner_restart() -> Result<()> {
             )?;
         }
         l1.call("evm_mine", json!([1800000000 + 12 * latest]))?;
-        let finalized = RpcL1::new_m2("http://127.0.0.1:28545")?.finalized()?;
+        let mut finalized = RpcL1::new_m2("http://127.0.0.1:28545")?.finalized()?;
         // All calls finish before the next mine. This gives TIP_ONLY an exact,
         // independently enforced current tip rather than a moving request race.
         for driver in &mut drivers {
@@ -642,6 +719,33 @@ fn i15_kill_boundary_full_round_abc_tip_only_and_miner_restart() -> Result<()> {
             &mut events,
             latest,
         )?;
+        let after_restart = RpcL1::new_m2("http://127.0.0.1:28545")?.finalized()?;
+        if after_restart > finalized {
+            finalized = after_restart;
+            for driver in &mut drivers {
+                ensure!(
+                    driver.l1.finalized()? == finalized,
+                    "downtime finalized source"
+                );
+            }
+            while drivers[0].m2_state().height() < finalized {
+                let h = drivers[0].m2_state().height() + 1;
+                let a = step(&mut drivers[0], &nodes[0], h)?;
+                let b = step(&mut drivers[1], &nodes[1], h)?;
+                ensure!(a == b, "downtime A/B mismatch at {h}");
+                batch.push((h, drivers[0].m2_state().root, a));
+            }
+            c_run(
+                &nodes[2],
+                &rt,
+                &proxy.url,
+                finalized,
+                &case,
+                &mut killed,
+                &mut events,
+                latest + 1000,
+            )?;
+        }
         for (h, root, a) in batch {
             let cc = observed(&nodes[2], h, root, None)?;
             ensure!(a == cc, "A/C mismatch at {h}");
@@ -651,6 +755,14 @@ fn i15_kill_boundary_full_round_abc_tip_only_and_miner_restart() -> Result<()> {
         client.as_mut().unwrap().sync()?;
         if finalized > 0 {
             client.as_mut().unwrap().tick()?;
+        }
+        for (stage, count) in proxy.posting_counts.lock().unwrap().iter() {
+            if stage == "open" || stage.starts_with("part:") {
+                ensure!(
+                    *count == 1,
+                    "included {stage} reposted {count} times across finality delay"
+                );
+            }
         }
         let status = client
             .as_mut()
@@ -894,7 +1006,7 @@ fn i15_kill_boundary_full_round_abc_tip_only_and_miner_restart() -> Result<()> {
         serde_json::from_slice(&fs::read(private.join(format!("submission-{id}.json")))?)?;
     let body: Vec<u8> = serde_json::from_value(prepared["prepared"]["body"].clone())?;
     let secret: Hash = serde_json::from_value(prepared["prepared"]["cancel_secret"].clone())?;
-    let mut result = json!({"schema":"boole-devnet-m4a-i15-v1.3","case":case,"config_json":serde_json::to_string(&c)?,"forks":table,"gate_descriptors":[descriptor],"events":events,"rows":rows,"locked":locked,"vested":vested,"final_submission":final_view,"acceptance":{"every_height_compared":comparisons,"actual_sigkill":true,"unauthenticated_engine_401_probes":unauthenticated_engine_401_probes,"full_round_through_vest":true,"miner_journal_restart":true,"tip_only_denied_requests":proxy.denied.lock().unwrap().clone(),"client_execution":"library; B11 uses the actual stdio client binary","no_terminal_reposting":true},"provenance":{"producer_commit":String::from_utf8(Command::new("git").args(["rev-parse","HEAD"]).output()?.stdout)?.trim(),"producer_sha256":hex_string(&hash(include_bytes!("m4_live.rs"))),"producer_binary_sha256":hex_string(&hash(&fs::read(std::env::current_exe()?)?)),"driver_binary_sha256":hex_string(&hash(&fs::read(driver_binary())?)),"client_binary_sha256":hex_string(&hash(&fs::read(client_binary())?)),"gate_binary_sha256":hex_string(&pin),"cargo_lock_sha256":hex_string(&hash(include_bytes!("../../../Cargo.lock"))),"support_sha256":hex_string(&hash(include_bytes!("../../boole-devnet-driver/tests/support/mod.rs"))),"wire_support_sha256":hex_string(&hash(include_bytes!("../../boole-devnet-driver/tests/support/m2.rs"))),"engine_profile":engine_profile(),"client_pins":fixture_json("pins.json")?,"l1_genesis_sha256":hex_string(&hash(&fs::read(l1p)?)),"l2_genesis_sha256":hex_string(&hash(&fs::read(gp)?)),"producer_profile":if cfg!(debug_assertions){"debug"}else{"release"}}});
+    let mut result = json!({"schema":"boole-devnet-m4a-i15-v1.3","case":case,"config_json":serde_json::to_string(&c)?,"forks":table,"gate_descriptors":[descriptor],"events":events,"rows":rows,"locked":locked,"vested":vested,"final_submission":final_view,"acceptance":{"every_height_compared":comparisons,"actual_sigkill":true,"unauthenticated_engine_401_probes":unauthenticated_engine_401_probes,"full_round_through_vest":true,"miner_journal_restart":true,"tip_only_denied_requests":proxy.denied.lock().unwrap().clone(),"client_execution":"library; B11 uses the actual stdio client binary","no_terminal_reposting":true,"posting_counts":proxy.posting_counts.lock().unwrap().clone()},"provenance":{"producer_commit":String::from_utf8(Command::new("git").args(["rev-parse","HEAD"]).output()?.stdout)?.trim(),"producer_sha256":hex_string(&hash(include_bytes!("m4_live.rs"))),"producer_binary_sha256":hex_string(&hash(&fs::read(std::env::current_exe()?)?)),"driver_binary_sha256":hex_string(&hash(&fs::read(driver_binary())?)),"client_binary_sha256":hex_string(&hash(&fs::read(client_binary())?)),"gate_binary_sha256":hex_string(&pin),"cargo_lock_sha256":hex_string(&hash(include_bytes!("../../../Cargo.lock"))),"support_sha256":hex_string(&hash(include_bytes!("../../boole-devnet-driver/tests/support/mod.rs"))),"wire_support_sha256":hex_string(&hash(include_bytes!("../../boole-devnet-driver/tests/support/m2.rs"))),"engine_profile":engine_profile(),"client_pins":fixture_json("pins.json")?,"l1_genesis_sha256":hex_string(&hash(&fs::read(l1p)?)),"l2_genesis_sha256":hex_string(&hash(&fs::read(gp)?)),"qualification_faults":cfg!(feature = "qualification-faults"),"producer_profile":if cfg!(debug_assertions){"debug"}else{"release"}}});
     ensure!(
         proxy.denied.lock().unwrap().is_empty(),
         "TIP_ONLY proxy saw historical reads or protocol failures"

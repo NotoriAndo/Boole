@@ -2,6 +2,113 @@
 use crate::state_dir::StateDirGuard;
 use anyhow::{ensure, Result};
 use std::path::Path;
+/// Complete only a published create-new hard link, before single-link readers run.
+pub fn cleanup_publications(root: &Path, guard: &StateDirGuard) -> Result<()> {
+    use std::io::Read;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+    let result = (|| -> Result<()> {
+        ensure!(
+            guard.is_current() && root.canonicalize()? == guard.dir().canonicalize()?,
+            "publication cleanup requires matching writer lock"
+        );
+        for entry in std::fs::read_dir(root)? {
+            let entry = entry?;
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let Some(nonce) = name.strip_prefix(".devnet-new-") else {
+                continue;
+            };
+            ensure!(
+                nonce.len() == 32 && nonce.bytes().all(|b| b.is_ascii_hexdigit()),
+                "unrecognized staging directory; preserved"
+            );
+            let path = entry.path();
+            let meta = std::fs::symlink_metadata(&path)?;
+            ensure!(
+                meta.is_dir()
+                    && !meta.file_type().is_symlink()
+                    && meta.uid() == effective_uid()
+                    && meta.permissions().mode() & 0o077 == 0,
+                "staging directory ownership/type; preserved"
+            );
+            let entries = std::fs::read_dir(&path)?.collect::<std::io::Result<Vec<_>>>()?;
+            ensure!(
+                entries.len() == 1 && entries[0].file_name() == "value",
+                "unrecognized staging contents; preserved"
+            );
+            let staged = path.join("value");
+            let open = |p: &Path| {
+                std::fs::OpenOptions::new()
+                    .read(true)
+                    .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+                    .open(p)
+            };
+            let file = open(&staged)?;
+            let before = file.metadata()?;
+            ensure!(
+                before.is_file()
+                    && before.uid() == effective_uid()
+                    && before.nlink() == 2
+                    && before.len() <= crate::input::ROW_MAX as u64,
+                "unpublished or ambiguous staging value; preserved"
+            );
+            let mut target = None;
+            for candidate in std::fs::read_dir(root)? {
+                let candidate = candidate?;
+                let m = std::fs::symlink_metadata(candidate.path())?;
+                if m.is_file()
+                    && !m.file_type().is_symlink()
+                    && m.dev() == before.dev()
+                    && m.ino() == before.ino()
+                {
+                    ensure!(target.is_none(), "ambiguous published target; preserved");
+                    target = Some(candidate.path());
+                }
+            }
+            let target = target
+                .ok_or_else(|| anyhow::anyhow!("published target absent; staging preserved"))?;
+            let target_file = open(&target)?;
+            let read = |file: &std::fs::File| -> Result<Vec<u8>> {
+                let mut bytes = vec![];
+                file.take(crate::input::ROW_MAX as u64 + 1)
+                    .read_to_end(&mut bytes)?;
+                ensure!(bytes.len() <= crate::input::ROW_MAX, "staging byte cap");
+                Ok(bytes)
+            };
+            let bytes = read(&file)?;
+            let published = read(&target_file)?;
+            let stable = |m: &std::fs::Metadata| {
+                m.is_file()
+                    && m.dev() == before.dev()
+                    && m.ino() == before.ino()
+                    && m.nlink() == 2
+                    && m.len() == before.len()
+                    && m.ctime() == before.ctime()
+                    && m.ctime_nsec() == before.ctime_nsec()
+            };
+            ensure!(
+                bytes == published
+                    && bytes.len() as u64 == before.len()
+                    && stable(&file.metadata()?)
+                    && stable(&target_file.metadata()?)
+                    && stable(&std::fs::symlink_metadata(&target)?)
+                    && stable(&std::fs::symlink_metadata(&staged)?)
+                    && guard.is_current(),
+                "published target changed; staging preserved"
+            );
+            std::fs::remove_file(&staged)?;
+            file.sync_all()?;
+            std::fs::File::open(&path)?.sync_all()?;
+            std::fs::remove_dir(&path)?;
+            crate::durability::fsync_parent_dir(&path)?;
+            ensure!(
+                crate::version::file_stamp(&target)?.is_some(),
+                "published target missing after alias cleanup"
+            );
+        }
+        Ok(())
+    })();
+    result.map_err(|e| crate::error::integrity(0, "publication-staging", format!("{e:#}")))
+}
 pub fn cleanup(
     root: &Path,
     guard: &StateDirGuard,
@@ -94,14 +201,16 @@ pub fn cleanup(
         for entry in std::fs::read_dir(&root)? {
             let entry = entry?;
             let name = entry.file_name().to_string_lossy().into_owned();
-            let Some(pid) = name
-                .strip_prefix(&prefix)
-                .and_then(|v| v.parse::<i32>().ok())
-                .filter(|p| *p > 1)
-            else {
+            let Some(suffix) = name.strip_prefix(&prefix) else {
                 continue;
             };
-            if process_exists(pid) {
+            let parts: Vec<_> = suffix.split('-').collect();
+            if !matches!(parts.len(), 1 | 3)
+                || !parts[0].parse::<u32>().is_ok_and(|pid| pid > 0)
+                || parts[1..]
+                    .iter()
+                    .any(|p| p.is_empty() || !p.bytes().all(|b| b.is_ascii_hexdigit()))
+            {
                 continue;
             }
             let Ok((raw, _)) = crate::journal::read_bound(&entry.path(), 65536) else {
@@ -184,11 +293,6 @@ fn process_group(pid: i32) -> i32 {
     unsafe { libc::getpgid(pid) }
 }
 #[allow(unsafe_code)]
-fn process_exists(pid: i32) -> bool {
-    (unsafe { libc::kill(pid, 0) == 0 })
-        || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
-}
-#[allow(unsafe_code)]
 fn kill_group(pid: i32) -> Result<()> {
     ensure!(
         pid > 1 && pid != unsafe { libc::getpgrp() },
@@ -240,6 +344,24 @@ mod tests {
             "B6 stale checkpoint temp must be cleaned after taking the lock"
         );
         assert_eq!(std::fs::read(p)?, b"{\"height\":1}");
+        Ok(())
+    }
+    #[test]
+    fn b6_current_pid_and_pid_one_temps_are_stale_under_the_writer_lock() -> Result<()> {
+        let d = crate::durability::PrivateTempDir::new("m4-pid-reuse")?;
+        let p = d.path().join("checkpoint.json");
+        let saved = b"{\"height\":1}";
+        std::fs::write(&p, saved)?;
+        let value = b"{\"version\":1,\"height\":2,\"m2_root\":\"0x00\",\"l2_hash\":\"0x00\",\"l1_hash\":\"0x00\",\"config_digest\":\"0x00\"}";
+        let own = p.with_extension(format!("tmp-{}", std::process::id()));
+        let init = p.with_extension("tmp-1");
+        std::fs::write(&own, value)?;
+        std::fs::write(&init, value)?;
+        let guard = crate::state_dir::acquire(d.path())?;
+        cleanup(d.path(), &guard, &[], Some(&p))?;
+        assert!(!own.exists(), "same-PID B6 temp blocked restart");
+        assert!(!init.exists(), "PID 1 B6 temp blocked container restart");
+        assert_eq!(std::fs::read(p)?, saved);
         Ok(())
     }
     #[test]

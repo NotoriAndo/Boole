@@ -369,3 +369,75 @@ fn closed_http_response_is_retryable_transport_availability() {
     worker.join().unwrap();
     assert_eq!(result.unwrap(), json!("0x2"));
 }
+
+#[test]
+fn live_receipts_are_advisory_and_unknown_old_hashes_never_trigger_receipt_rpc() {
+    use boole_derivation::attributes::hex_string;
+    use boole_devnet_archive::{
+        durability::PrivateTempDir,
+        input::InputRow,
+        journal::{InputJournal, NetworkIdentity, JOURNAL},
+    };
+    use std::{cell::RefCell, rc::Rc};
+    for success in [true, false] {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../fixtures/devnet-m4/input-auth-v0.json"
+        ))
+        .unwrap();
+        let rows: Vec<InputRow> = serde_json::from_value(fixture["rows"].clone()).unwrap();
+        let d = PrivateTempDir::new("m4-live-advisory").unwrap();
+        let identity = NetworkIdentity::new(
+            &boole_derivation::m2::Config::devnet(),
+            None,
+            hex_string(&[1; 32]),
+            30_000_000,
+        )
+        .unwrap();
+        let mut journal =
+            InputJournal::open(d.path(), identity, || Ok(rows[0].clone()), false).unwrap();
+        for row in rows.iter().skip(1) {
+            journal.append(row).unwrap();
+        }
+        let before = std::fs::read(d.path().join(JOURNAL)).unwrap();
+        let tx = hex_string(&[77; 32]);
+        let live_hash = hex_string(&[3; 32]);
+        let finalized = json!({"number":"0x2","hash":rows[2].block_hash,"transactions":[]});
+        let live = json!({"number":"0x3","hash":live_hash,"transactions":[tx]});
+        let (url, worker) = serve(vec![
+            ("eth_chainId", 200, json!("0x7a69")),
+            ("eth_accounts", 200, json!([hex_string(&[1; 20])])),
+            ("eth_getBlockByNumber", 200, finalized.clone()),
+            ("eth_getBlockByNumber", 200, live.clone()),
+            ("eth_getBlockByNumber", 200, live.clone()),
+            ("eth_getBlockByNumber", 200, finalized.clone()),
+            (
+                "eth_getTransactionReceipt",
+                200,
+                json!({"blockNumber":"0x3","blockHash":live_hash,"status":if success {"0x1"}else{"0x0"}}),
+            ),
+            ("eth_getBlockByNumber", 200, finalized),
+            ("eth_getBlockByNumber", 200, live),
+        ]);
+        let mut poster = RpcPoster::new(&url, [1; 20]).unwrap();
+        let journal = Rc::new(RefCell::new(journal));
+        poster.bind_journal(journal.clone());
+        let result = poster.included_for_posting(&tx);
+        if success {
+            assert_eq!(result.unwrap(), Some(3));
+        } else {
+            assert!(result.unwrap_err().is::<RevertedReceipt>());
+        }
+        assert_eq!(
+            poster.included_for_posting(&hex_string(&[88; 32])).unwrap(),
+            None
+        );
+        worker.join().unwrap();
+        assert_eq!(
+            poster.included(&tx).unwrap(),
+            None,
+            "advisory receipt became finalized authority"
+        );
+        assert_eq!(journal.borrow().tip(), 2);
+        assert_eq!(std::fs::read(d.path().join(JOURNAL)).unwrap(), before);
+    }
+}

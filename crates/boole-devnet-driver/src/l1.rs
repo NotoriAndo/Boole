@@ -3,6 +3,23 @@ use anyhow::{anyhow, bail, Context, Result};
 use boole_derivation::{InboxLog, L1Block};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
+fn capture_failure(height: u64, finalized: u64, error: anyhow::Error) -> anyhow::Error {
+    if height > finalized {
+        boole_devnet_archive::error::availability(
+            height,
+            "live-capture",
+            format!("unfinalized input changed or is unavailable: {error:#}"),
+        )
+    } else if crate::engine::rpc_unavailable(&error) {
+        error
+    } else {
+        boole_devnet_archive::error::integrity(
+            height,
+            "finalized-capture",
+            format!("finalized input verification failed: {error:#}"),
+        )
+    }
+}
 
 pub trait L1Source {
     /// During verified Engine-tail replay, use only existing own journal rows.
@@ -107,7 +124,8 @@ impl<L: L1Source> JournalSource<L> {
                 "finalized height moved backwards",
             ));
         }
-        let header = crate::engine::retry_rpc(|| self.inner.header_rlp(tip))?;
+        let header = crate::engine::retry_rpc(|| self.inner.header_rlp(tip))
+            .map_err(|e| capture_failure(tip, tip, e))?;
         let hash = hex_string(&keccak(&hex_bytes(&header, "finalized header")?));
         let latest = crate::engine::retry_rpc(|| self.inner.latest())?;
         if latest < tip || latest - tip > 1024 {
@@ -121,7 +139,8 @@ impl<L: L1Source> JournalSource<L> {
             hash.clone()
         } else {
             hex_string(&keccak(&hex_bytes(
-                &crate::engine::retry_rpc(|| self.inner.header_rlp(latest))?,
+                &crate::engine::retry_rpc(|| self.inner.header_rlp(latest))
+                    .map_err(|e| capture_failure(latest, tip, e))?,
                 "live header",
             )?))
         };
@@ -137,7 +156,8 @@ impl<L: L1Source> JournalSource<L> {
                     live_hash.clone()
                 } else {
                     hex_string(&keccak(&hex_bytes(
-                        &crate::engine::retry_rpc(|| self.inner.header_rlp(h))?,
+                        &crate::engine::retry_rpc(|| self.inner.header_rlp(h))
+                            .map_err(|e| capture_failure(h, tip, e))?,
                         "live header",
                     )?))
                 };
@@ -146,11 +166,16 @@ impl<L: L1Source> JournalSource<L> {
                 {
                     continue;
                 }
-                let row = crate::engine::retry_rpc(|| self.inner.input_row(h))?;
-                row.verify()?;
-                if row.block_hash != expected {
-                    return Err(availability(h, "rpc", "live input changed during capture"));
-                }
+                let row = (|| -> Result<_> {
+                    let row = crate::engine::retry_rpc(|| self.inner.input_row(h))?;
+                    row.verify()?;
+                    anyhow::ensure!(
+                        row.block_hash == expected,
+                        "live input changed during capture"
+                    );
+                    Ok(row)
+                })()
+                .map_err(|e| capture_failure(h, tip, e))?;
                 let bytes = serde_json::to_vec(&row)?;
                 self.acquisition.put(&expected, &bytes, |bytes| {
                     let row: boole_devnet_archive::input::InputRow = serde_json::from_slice(bytes)?;
@@ -377,7 +402,10 @@ impl L1Source for RpcL1 {
         let tag = format!("0x{height:x}");
         let header = self.rpc.call("eth_getBlockByNumber", json!([tag, false]))?;
         header_from_rpc(&header)?;
-        let receipts = match self.rpc.call("eth_getBlockReceipts", json!([tag])) {
+        let receipts = match self
+            .rpc
+            .call("eth_getBlockReceipts", json!([header["hash"]]))
+        {
             Ok(v) => v.as_array().context("block receipt list")?.clone(),
             Err(e) if e.to_string().contains("-32601") => {
                 let mut rows = vec![];

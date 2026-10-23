@@ -161,8 +161,10 @@ impl InputJournal {
         fresh: impl FnOnce() -> Result<InputRow>,
         repair: bool,
     ) -> Result<Self> {
+        crate::fault::validate_environment()?;
         let guard = state_dir::acquire(root).map_err(|e| startup(18, e.to_string()))?;
         let root = std::fs::canonicalize(root)?;
+        crate::boot::cleanup_publications(&root, &guard)?;
         let path = root.join(JOURNAL);
         let manifest_path = root.join(MANIFEST);
         let a = manifest_path.try_exists()?;
@@ -517,6 +519,37 @@ pub fn free_bytes(_path: &Path) -> Result<u64> {
 mod tests {
     use super::*;
     use crate::input::empty_fixture;
+    #[test]
+    fn b9_manifest_and_initial_evidence_aliases_are_recovered_before_single_link_reads(
+    ) -> Result<()> {
+        use std::os::unix::fs::MetadataExt;
+        let d = durability::PrivateTempDir::new("m4-init-aliases")?;
+        drop(open(d.path(), false));
+        drop(crate::log::BoundLog::open(
+            &d.path().join("evidence.jsonl"),
+            false,
+        )?);
+        let mut originals = vec![];
+        for name in [MANIFEST, "evidence.jsonl"] {
+            let target = d.path().join(name);
+            originals.push((target.clone(), std::fs::read(&target)?));
+            let stage = durability::PrivateTempDir::new_in(d.path(), ".devnet-new")?;
+            std::fs::hard_link(&target, stage.path().join("value"))?;
+            std::mem::forget(stage);
+            assert_eq!(std::fs::metadata(target)?.nlink(), 2);
+        }
+        let journal = InputJournal::open(d.path(), network(), || unreachable!(), false)?;
+        assert_eq!(journal.get(0)?.block.number, 0);
+        drop(crate::log::BoundLog::open(
+            &d.path().join("evidence.jsonl"),
+            false,
+        )?);
+        for (p, bytes) in originals {
+            assert_eq!(std::fs::read(&p)?, bytes);
+            assert_eq!(std::fs::metadata(p)?.nlink(), 1);
+        }
+        Ok(())
+    }
     #[test]
     fn s18_identity_rejects_an_empty_fork_table_without_panicking() {
         let config = boole_derivation::m2::Config::devnet();

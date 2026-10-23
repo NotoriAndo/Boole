@@ -12,7 +12,9 @@ use std::{
     fs::{File, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
 };
+static CHECKPOINT_NONCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug)]
 pub enum StepOutcome {
@@ -578,7 +580,12 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
             ));
         }
         let value = json!({"version":1,"height":state.height(),"m2_root":boole_derivation::attributes::hex_string(&state.root),"l2_hash":record["block_hash"],"l1_hash":record["l1"]["hash"],"config_digest":self.config_digest()?});
-        let temporary = path.with_extension(format!("tmp-{}", std::process::id()));
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_nanos();
+        let attempt = CHECKPOINT_NONCE.fetch_add(1, Ordering::Relaxed);
+        let temporary =
+            path.with_extension(format!("tmp-{}-{nonce:x}-{attempt:x}", std::process::id()));
         let mut created = false;
         let mut renamed = false;
         let mut observed = None;

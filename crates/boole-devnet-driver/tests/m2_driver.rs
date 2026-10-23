@@ -114,6 +114,7 @@ struct Client {
     calls: Vec<(String, Value)>,
     fail: bool,
     tamper_root: u8,
+    checkpoint_after_selection: Option<std::path::PathBuf>,
 }
 impl Client {
     fn new() -> Self {
@@ -129,6 +130,7 @@ impl Client {
             calls: vec![],
             fail: false,
             tamper_root: 0,
+            checkpoint_after_selection: None,
         }
     }
 }
@@ -147,6 +149,9 @@ impl Engine for Client {
         Ok(match m {
             "engine_forkchoiceUpdatedV3" => {
                 if p[1].is_null() {
+                    if let Some(path) = self.checkpoint_after_selection.take() {
+                        std::fs::write(path, b"preserved external checkpoint")?;
+                    }
                     self.head.parent_hash = Some(self.head.hash.clone());
                     self.head.number += 1;
                     self.head.hash = p[0]["headBlockHash"].as_str().unwrap().into();
@@ -321,7 +326,7 @@ fn t16_repeated_height_stalls_without_state_change() {
     assert_eq!(d.engine.calls.len(), 4);
 }
 #[test]
-fn t16_checkpoint_collision_preserves_existing_file_and_state() {
+fn t16_pid_temp_is_preserved_while_a_unique_checkpoint_attempt_succeeds() {
     let temporary = TestDir::new("collision");
     let dir = &temporary.0;
     let path = dir.join("checkpoint.json");
@@ -329,17 +334,13 @@ fn t16_checkpoint_collision_preserves_existing_file_and_state() {
     std::fs::write(&collision, b"preserve existing temporary file").unwrap();
     let mut d = Driver::new(Source::new(), Client::new());
     d.set_journal(&path).unwrap();
-    assert!(d
-        .step(1)
-        .unwrap_err()
-        .reason
-        .contains("persist M2 checkpoint"));
-    assert_eq!(d.m2_state().height(), 0);
+    d.step(1).unwrap();
+    assert_eq!(d.m2_state().height(), 1);
     assert_eq!(
         std::fs::read(&collision).unwrap(),
         b"preserve existing temporary file"
     );
-    assert!(!path.exists());
+    assert!(path.exists());
 }
 #[test]
 fn t16_changed_cached_parent_hash_stalls_before_engine() {
@@ -377,9 +378,9 @@ fn review_checkpoint_failure_appends_stall_with_previous_root() {
     let dir = TestDir::new("evidence-collision");
     let path = dir.0.join("checkpoint.json");
     let evidence = dir.0.join("evidence.jsonl");
-    let collision = path.with_extension(format!("tmp-{}", std::process::id()));
-    std::fs::write(&collision, b"owned elsewhere").unwrap();
-    let mut d = Driver::new(Source::new(), Client::new());
+    let mut engine = Client::new();
+    engine.checkpoint_after_selection = Some(path.clone());
+    let mut d = Driver::new(Source::new(), engine);
     let previous = d.m2_state().root;
     d.set_journal(&path).unwrap();
     d.set_evidence(&evidence).unwrap();

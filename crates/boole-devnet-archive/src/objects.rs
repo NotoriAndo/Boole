@@ -8,7 +8,9 @@ pub struct Objects {
 }
 impl Objects {
     pub fn open(root: &Path) -> Result<Self> {
+        crate::fault::validate_environment()?;
         let guard = state_dir::acquire(root)?;
+        crate::boot::cleanup_publications(root, &guard)?;
         Ok(Self {
             root: root.canonicalize()?,
             guard,
@@ -97,6 +99,63 @@ impl Objects {
 mod tests {
     use super::*;
     use sha2::{Digest, Sha256};
+    #[test]
+    fn b9_valid_object_alias_is_removed_before_quarantine_or_a_historical_refetch() -> Result<()> {
+        let d = crate::durability::PrivateTempDir::new("m4-object-alias")?;
+        let key = format!("0x{}", "ab".repeat(32));
+        let bytes = b"already authenticated acquisition input";
+        let objects = Objects::open(d.path())?;
+        objects.put(&key, bytes, |_| Ok(()))?;
+        let target = objects.path(&key)?;
+        drop(objects);
+        let stage = crate::durability::PrivateTempDir::new_in(d.path(), ".devnet-new")?;
+        std::fs::hard_link(&target, stage.path().join("value"))?;
+        std::mem::forget(stage);
+        let objects = Objects::open(d.path())?;
+        assert_eq!(
+            objects
+                .read(&key, |got| {
+                    ensure!(got == bytes, "changed object");
+                    Ok(())
+                })?
+                .unwrap(),
+            bytes
+        );
+        assert!(!d.path().join("corrupt").exists());
+        Ok(())
+    }
+    #[test]
+    fn b9_empty_staging_is_preserved_when_no_published_target_can_be_verified() -> Result<()> {
+        let d = crate::durability::PrivateTempDir::new("m4-empty-staging")?;
+        let stage = crate::durability::PrivateTempDir::new_in(d.path(), ".devnet-new")?;
+        let result = Objects::open(d.path());
+        assert!(
+            result.is_err(),
+            "ambiguous empty staging was silently removed"
+        );
+        assert!(stage.path().exists());
+        Ok(())
+    }
+    #[test]
+    fn b9_unpublished_staging_bytes_stop_typed_and_are_never_deleted() -> Result<()> {
+        let d = crate::durability::PrivateTempDir::new("m4-unpublished")?;
+        let stage = crate::durability::PrivateTempDir::new_in(d.path(), ".devnet-new")?;
+        std::fs::write(stage.path().join("value"), b"preserve unpublished bytes")?;
+        let result = Objects::open(d.path());
+        let error = match result {
+            Ok(_) => panic!("unpublished staging accepted"),
+            Err(e) => e,
+        };
+        assert!(matches!(
+            error.downcast_ref::<crate::error::Error>(),
+            Some(crate::error::Error::Integrity { .. })
+        ));
+        assert_eq!(
+            std::fs::read(stage.path().join("value"))?,
+            b"preserve unpublished bytes"
+        );
+        Ok(())
+    }
     #[test]
     fn t86_corrupt_objects_are_preserved_in_quarantine_before_refetch() -> Result<()> {
         let dir = crate::durability::PrivateTempDir::new("m4-object")?;

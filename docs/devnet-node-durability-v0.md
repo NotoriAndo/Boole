@@ -74,7 +74,9 @@ It does not repair a complete malformed row, checkpoint or root mismatch.
 Preserve the original store before operator recovery into another directory.
 
 At boot, after the matching writer lock, stale private `scratch-*` directories
-and recognized dead-owner checkpoint temps may be removed. Orphan worker groups
+and validated checkpoint temps may be removed. Checkpoint temps are stale under
+the writer lock even when their PID is live, reused or 1. New attempts use a
+PID plus nonce instead of a PID-only name. Orphan worker groups
 are killed only when the kernel executable path is inside that locked scratch
 tree, the executable matches a configured binary pin, the PID is its own group
 leader and its birth identity is unchanged. Their output is never read.
@@ -89,12 +91,44 @@ journal, including reverted receipts. Availability pauses posting and retries;
 hash, root, prefix and file-version failures remain sticky. Private submission
 bytes, salts and cancel secrets stay out of status and qualification output.
 
-The explicit local qualification environment `BOOLE_M4_KILL_POINT`,
-`BOOLE_M4_KILL_HEIGHT`, `BOOLE_M4_KILL_ROLE`, and `BOOLE_M4_KILL_MARKER` enables
-default-off boundary hooks. Matching hooks fsync a metadata-only marker and
-SIGSTOP their own process; the coordinator SIGKILLs that recorded child PID.
-Tests cover B1–B11 and Engine-tail loss B12, including read-only refusal and
-explicit repair. No hook runs with the selectors absent.
+Create-new publication staging is checked immediately after taking the store
+lock, before single-link manifest, evidence or object reads. A stale
+`.devnet-new-*` alias is removed only when its private owned staging value and
+one published target are the same inode with identical bounded, stable bytes.
+The alias removal and directories are synced. Empty staging containers cannot
+identify their published target and are preserved with a typed stop too.
+Missing, ambiguous or changed targets preserve their staging bytes
+and stop with typed integrity; valid cached inputs are not quarantined merely
+because B9 interrupted unlinking the publication alias. This also covers first
+manifest and evidence creation. Ordinary readers still require one hard link.
+
+Live capture asks for receipts by the captured header hash. Unfinalized input
+verification failures retry as availability; finalized proof failures remain
+sticky integrity errors. No inconsistent capture enters the input journal.
+
+Posting uses a separate advisory inclusion query. It checks only the current
+finalized-to-live header window, then requests a receipt only for a transaction
+found at or above that tip. Canonical hash and success/revert status are checked;
+a finality change pauses the lookup. Included OPEN and PART stages wait for the
+fold rather than being reposted during the finality delay. These live receipts
+never append journal inputs, change a fold root or become reward authority.
+
+Fault dispatch is compiled only with the explicit `qualification-faults` Cargo
+feature of the driver/miner. Ordinary builds refuse any `BOOLE_M4_KILL_*`
+environment variable before argument processing or a writer lock. CI checks the
+ordinary release executables and runs the pure crash matrix separately with
+that feature. Qualification builds use `BOOLE_M4_KILL_POINT`,
+`BOOLE_M4_KILL_HEIGHT`, `BOOLE_M4_KILL_ROLE` and `BOOLE_M4_KILL_MARKER`; matching
+hooks fsync a metadata-only marker and SIGSTOP their own process for the
+coordinator's SIGKILL. The wildcard height is confined to this explicit
+qualification profile. These binaries are not the ordinary release profile.
+Recordings state the feature and bind exact binaries and sources.
+
+Tests cover current-PID/PID-1 B6 leftovers, nonce attempts, first-publication
+aliases, B9 with mining and finality advancing while the writer is dead, exactly
+one post per stage across finality, a reorg between capture calls, strict
+finalized failures, production environment refusal, all crash boundaries and
+no-flag B12. Full v1.3 tapes and derivation bytes remain unchanged.
 
 Own snapshots, archive serving/import, retention and compaction are later M4
 work. Full v1.3 replay remains the default.
