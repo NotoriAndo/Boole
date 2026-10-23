@@ -170,14 +170,14 @@ impl InputJournal {
         if a != b {
             return Err(startup(19,"manifest/journal pair is incomplete; preserve it and recover into a fresh directory"));
         }
+        if free_bytes(&root)? < DISK_FLOOR {
+            return Err(startup(23, "below 15 GiB disk floor"));
+        }
         if !a {
             for name in ["checkpoint.json", "evidence.jsonl", "identity.json"] {
                 if root.join(name).try_exists()? {
                     return Err(startup(19,"existing state has no input journal; preserve it and use a fresh directory"));
                 }
-            }
-            if free_bytes(&root)? < DISK_FLOOR {
-                return Err(availability(0, "disk", "S23: below 15 GiB disk floor"));
             }
             let first = fresh()?;
             let block = first.verify()?.block;
@@ -331,6 +331,13 @@ impl InputJournal {
                 "journal ownership/version/durability changed",
             ));
         }
+        if free_bytes(&self.root)? < DISK_FLOOR {
+            return Err(availability(
+                self.tip(),
+                "disk",
+                "S23: below 15 GiB disk floor",
+            ));
+        }
         Ok(())
     }
     pub fn get(&self, h: u64) -> Result<VerifiedInput> {
@@ -482,9 +489,15 @@ impl InputJournal {
     }
 }
 
+#[cfg(test)]
+thread_local! { static TEST_FREE_BYTES:std::cell::Cell<Option<u64>>=const{std::cell::Cell::new(None)}; }
 #[cfg(unix)]
 #[allow(unsafe_code)]
 pub fn free_bytes(path: &Path) -> Result<u64> {
+    #[cfg(test)]
+    if let Some(value) = TEST_FREE_BYTES.with(std::cell::Cell::take) {
+        return Ok(value);
+    }
     use std::{ffi::CString, os::unix::ffi::OsStrExt};
     let path = CString::new(path.as_os_str().as_bytes())?;
     let mut value = std::mem::MaybeUninit::<libc::statvfs>::uninit();
@@ -618,5 +631,50 @@ mod tests {
             matches!(InputJournal::open(dir.path(),network(),||unreachable!(),false),Err(e) if e.to_string().contains("S19"))
         );
         assert_eq!(std::fs::read(dir.path().join(MANIFEST)).unwrap(), before);
+    }
+
+    #[test]
+    fn s23_existing_store_refuses_startup_below_the_fixed_disk_floor() -> Result<()> {
+        let dir = durability::PrivateTempDir::new("m4-existing-disk")?;
+        let journal = InputJournal::open(
+            dir.path(),
+            network(),
+            || Ok(empty_fixture(0, [0; 32])),
+            false,
+        )?;
+        drop(journal);
+        let before = std::fs::read(dir.path().join(JOURNAL))?;
+        TEST_FREE_BYTES.with(|v| v.set(Some(DISK_FLOOR - 1)));
+        let result = InputJournal::open(dir.path(), network(), || unreachable!(), false);
+        TEST_FREE_BYTES.with(|v| v.set(None));
+        assert!(
+            matches!(
+                result
+                    .as_ref()
+                    .err()
+                    .and_then(|e| e.downcast_ref::<crate::error::Error>()),
+                Some(crate::error::Error::Startup { number: 23, .. })
+            ),
+            "an existing store must enforce S23 before replay"
+        );
+        assert_eq!(std::fs::read(dir.path().join(JOURNAL))?, before);
+        let journal = InputJournal::open(dir.path(), network(), || unreachable!(), false)?;
+        TEST_FREE_BYTES.with(|v| v.set(Some(DISK_FLOOR - 1)));
+        let paused = match journal.get(0) {
+            Ok(_) => panic!("runtime floor must pause reads before derivation"),
+            Err(e) => e,
+        };
+        TEST_FREE_BYTES.with(|v| v.set(None));
+        assert!(matches!(
+            paused.downcast_ref::<crate::error::Error>(),
+            Some(crate::error::Error::Availability { class: "disk", .. })
+        ));
+        assert_eq!(
+            journal.get(0)?.block.number,
+            0,
+            "space restored: same height resumes"
+        );
+        assert_eq!(std::fs::read(dir.path().join(JOURNAL))?, before);
+        Ok(())
     }
 }
