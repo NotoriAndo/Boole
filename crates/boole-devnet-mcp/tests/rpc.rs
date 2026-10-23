@@ -42,6 +42,104 @@ fn serve(replies: Vec<(&'static str, u16, Value)>) -> (String, thread::JoinHandl
     });
     (url, worker)
 }
+
+#[test]
+fn t77_finalized_posting_receipts_need_no_historical_rpc() {
+    use boole_derivation::{attributes::hex_string, rlp, user_tx::keccak};
+    use boole_devnet_archive::{
+        durability::PrivateTempDir,
+        input::{receipts_root, InputRow},
+        journal::{InputJournal, NetworkIdentity},
+    };
+    let row = |h: u64, parent: &[u8], status: u64| {
+        let transactions = if h == 0 {
+            vec![]
+        } else {
+            vec![vec![0xc0, h as u8]]
+        };
+        let receipts = if h == 0 {
+            vec![]
+        } else {
+            vec![rlp::list(&[
+                rlp::uint(status),
+                rlp::uint(21000),
+                rlp::bytes(&[0; 256]),
+                rlp::list(&[]),
+            ])]
+        };
+        let fields = vec![
+            rlp::bytes(parent),
+            rlp::bytes(&[0; 32]),
+            rlp::bytes(&[0; 20]),
+            rlp::bytes(&[0; 32]),
+            rlp::bytes(&receipts_root(&transactions)),
+            rlp::bytes(&receipts_root(&receipts)),
+            rlp::bytes(&[0; 256]),
+            rlp::uint(0),
+            rlp::uint(h),
+            rlp::uint(60_000_000),
+            rlp::uint(if h == 0 { 0 } else { 21000 }),
+            rlp::uint(1_790_000_000 + 12 * h),
+            rlp::bytes(&[]),
+            rlp::bytes(&[1; 32]),
+            rlp::bytes(&[0; 8]),
+            rlp::uint(1),
+            rlp::bytes(&[0; 32]),
+            rlp::uint(0),
+            rlp::uint(0),
+            rlp::bytes(&[0; 32]),
+            rlp::bytes(&[0; 32]),
+        ];
+        let header = rlp::list(&fields);
+        InputRow {
+            schema_version: 1,
+            block_hash: hex_string(&keccak(&header)),
+            header_rlp: hex_string(&header),
+            receipts: Some(receipts.iter().map(|r| hex_string(r)).collect()),
+            transactions: Some(transactions.iter().map(|tx| hex_string(tx)).collect()),
+        }
+    };
+    let dir = PrivateTempDir::new("m4-poster-tip-only").unwrap();
+    let genesis = row(0, &[0; 32], 1);
+    let network = NetworkIdentity::new(
+        &boole_derivation::m2::Config::devnet(),
+        None,
+        hex_string(&[1; 32]),
+        30_000_000,
+    )
+    .unwrap();
+    let mut journal =
+        InputJournal::open(dir.path(), network, || Ok(genesis.clone()), false).unwrap();
+    let first = row(
+        1,
+        &boole_derivation::attributes::hex_bytes(&genesis.block_hash, "parent").unwrap(),
+        1,
+    );
+    journal.append(&first).unwrap();
+    let second = row(
+        2,
+        &boole_derivation::attributes::hex_bytes(&first.block_hash, "parent").unwrap(),
+        0,
+    );
+    journal.append(&second).unwrap();
+    let (url, worker) = serve(vec![
+        ("eth_chainId", 200, json!("0x7a69")),
+        ("eth_accounts", 200, json!([hex_string(&[1; 20])])),
+    ]);
+    let mut poster = RpcPoster::new(&url, [1; 20]).unwrap();
+    worker.join().unwrap();
+    // The endpoint is now gone: neither old block nor receipt reads can work.
+    poster.bind_journal(std::rc::Rc::new(std::cell::RefCell::new(journal)));
+    assert_eq!(
+        poster.included(&hex_string(&keccak(&[0xc0, 1]))).unwrap(),
+        Some(1)
+    );
+    assert!(poster
+        .included(&hex_string(&keccak(&[0xc0, 2])))
+        .unwrap_err()
+        .is::<RevertedReceipt>());
+    assert_eq!(poster.included(&hex_string(&[77; 32])).unwrap(), None);
+}
 #[test]
 fn actual_http_transients_retry_but_invalid_rpc_results_do_not() {
     let (url, worker) = serve(vec![

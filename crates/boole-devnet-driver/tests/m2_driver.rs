@@ -13,6 +13,26 @@ use boole_devnet_driver::{
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
+#[test]
+fn t76_checkpoint_changed_after_open_is_preserved_before_publication() {
+    let dir = TestDir::new("m4-version-fence");
+    let checkpoint = dir.0.join("checkpoint.json");
+    let mut driver = Driver::new(Source::new(), Client::new());
+    driver.set_journal(&checkpoint).unwrap();
+    let external = b"{\"external-owner\":true}\n";
+    std::fs::write(&checkpoint, external).unwrap();
+    assert!(
+        driver.step(1).is_err(),
+        "changed storage must stop before publication"
+    );
+    assert_eq!(std::fs::read(&checkpoint).unwrap(), external);
+    assert_eq!(driver.m2_state().height(), 0);
+    assert!(
+        driver.engine.calls.is_empty(),
+        "changed input must not reach Engine"
+    );
+}
+
 #[derive(Clone)]
 struct Source {
     rows: BTreeMap<u64, (L1Block, Vec<InboxLog>)>,
@@ -260,6 +280,8 @@ fn t16_checkpoint_roundtrip_and_tamper_stalls() {
     a.step(1).unwrap();
     let saved: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     assert_eq!(saved["height"], 1);
+    // Independent continuous and restarted writers must not share a checkpoint.
+    a.set_journal(&dir.join("continuous.json")).unwrap();
     let mut b = Driver::new(Source::new(), a.engine.clone());
     b.set_journal(&path).unwrap();
     b.step(2).unwrap();

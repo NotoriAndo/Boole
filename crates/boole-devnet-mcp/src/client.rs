@@ -60,6 +60,11 @@ impl std::fmt::Display for StaleGate {
 impl std::error::Error for StaleGate {}
 
 pub trait Poster {
+    fn bind_journal(
+        &mut self,
+        _journal: std::rc::Rc<std::cell::RefCell<boole_devnet_archive::journal::InputJournal>>,
+    ) {
+    }
     fn head(&mut self) -> Result<u64>;
     fn post(&mut self, kind: u8, body: &[u8]) -> Result<String>;
     /// Only a successful receipt in the current canonical L1 counts.
@@ -68,6 +73,7 @@ pub trait Poster {
 pub struct RpcPoster {
     rpc: Rpc,
     account: String,
+    journal: Option<std::rc::Rc<std::cell::RefCell<boole_devnet_archive::journal::InputJournal>>>,
 }
 impl RpcPoster {
     pub fn new(url: &str, account: [u8; 20]) -> Result<Self> {
@@ -85,7 +91,11 @@ impl RpcPoster {
                 .any(|x| x.as_str().is_some_and(|s| s.eq_ignore_ascii_case(&account)))),
             "account is not an unlocked devnet account"
         );
-        Ok(Self { rpc, account })
+        Ok(Self {
+            rpc,
+            account,
+            journal: None,
+        })
     }
 }
 fn quantity(value: &Value) -> Result<u64> {
@@ -98,6 +108,12 @@ fn quantity(value: &Value) -> Result<u64> {
     )?)
 }
 impl Poster for RpcPoster {
+    fn bind_journal(
+        &mut self,
+        journal: std::rc::Rc<std::cell::RefCell<boole_devnet_archive::journal::InputJournal>>,
+    ) {
+        self.journal = Some(journal);
+    }
     fn head(&mut self) -> Result<u64> {
         quantity(&self.rpc.call("eth_blockNumber", json!([]))?)
     }
@@ -108,6 +124,13 @@ impl Poster for RpcPoster {
         Ok(tx.into())
     }
     fn included(&mut self, tx: &str) -> Result<Option<u64>> {
+        if let Some(journal) = &self.journal {
+            return match journal.borrow().transaction_receipt(tx)? {
+                Some((height, true)) => Ok(Some(height)),
+                Some((_, false)) => Err(RevertedReceipt.into()),
+                None => Ok(None),
+            };
+        }
         let r = self.rpc.call("eth_getTransactionReceipt", json!([tx]))?;
         if r.is_null() {
             return Ok(None);
@@ -400,7 +423,7 @@ pub struct Client<L, P> {
 impl<L: L1Source, P: Poster> Client<L, P> {
     pub fn new(
         mut source: L,
-        poster: P,
+        mut poster: P,
         config: Config,
         account: [u8; 20],
         path: PathBuf,
@@ -428,6 +451,9 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             None
         };
         source.validate_m2_inbox()?;
+        if let Some(journal) = source.input_journal() {
+            poster.bind_journal(journal);
+        }
         let state = State::new(&config, options.l2_gas_limit)?;
         let anchor = Anchor {
             number: 0,

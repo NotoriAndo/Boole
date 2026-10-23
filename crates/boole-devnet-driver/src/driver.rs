@@ -5,6 +5,7 @@ use boole_derivation::{
     m2::{Config, State},
     Derived, ParentHeader,
 };
+use boole_devnet_archive::version::{file_stamp, stamp, FileStamp};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
@@ -113,6 +114,7 @@ pub struct Driver<L, E> {
     selected_head: Option<String>,
     journal: Option<PathBuf>,
     checkpoint: Option<Value>,
+    checkpoint_stamp: Option<FileStamp>,
     follow_records: std::collections::BTreeMap<u64, (boole_derivation::m3::IndexedVerdict, u64)>,
 }
 impl<L: L1Source, E: Engine> Driver<L, E> {
@@ -143,6 +145,7 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
             selected_head: None,
             journal: None,
             checkpoint: None,
+            checkpoint_stamp: None,
             follow_records: std::collections::BTreeMap::new(),
         })
     }
@@ -280,11 +283,17 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
         &self.m2
     }
     pub fn set_journal(&mut self, path: &Path) -> Result<()> {
+        let before = file_stamp(path)?;
         self.checkpoint = match std::fs::read(path) {
             Ok(bytes) => Some(serde_json::from_slice(&bytes).context("decode M2 checkpoint")?),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
             Err(e) => return Err(e).context("read M2 checkpoint"),
         };
+        anyhow::ensure!(
+            file_stamp(path)? == before,
+            "checkpoint changed while reading"
+        );
+        self.checkpoint_stamp = before;
         self.journal = Some(path.to_owned());
         Ok(())
     }
@@ -428,9 +437,14 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
         let Some(path) = &self.journal else {
             return Ok(());
         };
+        anyhow::ensure!(
+            file_stamp(path)? == self.checkpoint_stamp,
+            "M4 integrity: checkpoint changed before publication"
+        );
         let value = json!({"version":1,"height":state.height(),"m2_root":boole_derivation::attributes::hex_string(&state.root),"l2_hash":record["block_hash"],"l1_hash":record["l1"]["hash"],"config_digest":self.config_digest()?});
         let temporary = path.with_extension(format!("tmp-{}", std::process::id()));
         let mut created = false;
+        let mut observed = None;
         let result = (|| -> Result<()> {
             let mut file = OpenOptions::new()
                 .write(true)
@@ -444,6 +458,12 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
             if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
                 File::open(parent)?.sync_all()?;
             }
+            let actual = stamp(&file.metadata()?)?;
+            anyhow::ensure!(
+                file_stamp(path)?.as_ref() == Some(&actual),
+                "checkpoint changed during publication"
+            );
+            observed = Some(actual);
             Ok(())
         })();
         if result.is_err() && created {
@@ -451,6 +471,7 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
         }
         result.context("persist M2 checkpoint")?;
         self.checkpoint = Some(value);
+        self.checkpoint_stamp = observed;
         Ok(())
     }
     pub fn set_evidence(&mut self, path: &Path) -> Result<()> {
@@ -606,6 +627,12 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
         record: &mut Value,
         supplied: Option<Value>,
     ) -> Result<StepOutcome> {
+        if let Some(path) = &self.journal {
+            anyhow::ensure!(
+                file_stamp(path)? == self.checkpoint_stamp,
+                "M4 integrity: checkpoint changed before derivation"
+            );
+        }
         let finalized = self.l1.finalized().context("L1 finalized")?;
         record["finalized"] = json!(finalized);
         if height > finalized {

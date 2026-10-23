@@ -18,6 +18,7 @@ members = [
   "crates/boole-devnet-driver",
   "crates/boole-devnet-mcp",
   "crates/boole-gate-supervisor",
+  "crates/boole-devnet-archive",
 ]
 resolver = "2"
 

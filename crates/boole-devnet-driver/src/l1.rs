@@ -1,10 +1,21 @@
 use crate::engine::Rpc;
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use boole_derivation::{InboxLog, L1Block};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
 pub trait L1Source {
+    fn input_row(&mut self, _height: u64) -> Result<boole_devnet_archive::input::InputRow> {
+        bail!("L1 source does not expose authenticated journal inputs")
+    }
+    fn header_rlp(&mut self, height: u64) -> Result<String> {
+        Ok(self.input_row(height)?.header_rlp)
+    }
+    fn input_journal(
+        &self,
+    ) -> Option<std::rc::Rc<std::cell::RefCell<boole_devnet_archive::journal::InputJournal>>> {
+        None
+    }
     /// Genesis may predate header fields required by the derivation fold.
     fn genesis_hash(&mut self) -> Result<String> {
         Ok(self.block(0)?.hash)
@@ -19,6 +30,127 @@ pub trait L1Source {
     fn inbox_logs(&mut self, hash: &str) -> Result<Vec<InboxLog>>;
     fn block_by_hash(&mut self, _hash: &str) -> Result<L1Block> {
         bail!("L1 source does not support anchored restart")
+    }
+}
+
+/// The opt-in library source used by durable driver/client entrypoints.
+/// Legacy recording sources remain available for pure v1.3 replay.
+pub struct JournalSource<L> {
+    pub inner: L,
+    pub journal: std::rc::Rc<std::cell::RefCell<boole_devnet_archive::journal::InputJournal>>,
+    remote_tip: Option<u64>,
+}
+impl<L: L1Source> JournalSource<L> {
+    pub fn open(
+        mut inner: L,
+        root: &std::path::Path,
+        network: boole_devnet_archive::journal::NetworkIdentity,
+        repair: bool,
+    ) -> Result<Self> {
+        let journal = boole_devnet_archive::journal::InputJournal::open(
+            root,
+            network,
+            || {
+                anyhow::ensure!(inner.finalized()?==0,"fresh TIP_ONLY journal requires its genesis anchor; use verified journal recovery for an existing chain");
+                inner.input_row(0)
+            },
+            repair,
+        )?;
+        Ok(Self {
+            inner,
+            journal: std::rc::Rc::new(std::cell::RefCell::new(journal)),
+            remote_tip: None,
+        })
+    }
+    fn refresh(&mut self) -> Result<u64> {
+        use boole_devnet_archive::error::{availability, integrity};
+        self.journal.borrow().check()?;
+        let tip = crate::engine::retry_rpc(|| self.inner.finalized())?;
+        let saved = self.journal.borrow().tip();
+        if tip < saved || self.remote_tip.is_some_and(|old| tip < old) {
+            return Err(integrity(
+                tip,
+                "l1-anchor",
+                "finalized height moved backwards",
+            ));
+        }
+        if tip > saved.saturating_add(1) {
+            return Err(availability(saved+1,"journal","missing input before current tip; history must come from a verified journal/archive"));
+        }
+        let raw = crate::engine::retry_rpc(|| self.inner.header_rlp(tip))?;
+        let hash = boole_derivation::attributes::hex_string(&boole_derivation::user_tx::keccak(
+            &boole_derivation::attributes::hex_bytes(&raw, "tip header")?,
+        ));
+        if tip == saved {
+            if self.journal.borrow().hash(tip) != Some(hash.as_str()) {
+                return Err(integrity(tip, "l1-anchor", "finalized tip hash changed"));
+            }
+        } else {
+            let row = crate::engine::retry_rpc(|| self.inner.input_row(tip))?;
+            if row.block_hash != hash {
+                return Err(integrity(tip, "l1-anchor", "tip changed during capture"));
+            }
+            self.journal.borrow_mut().append(&row)?;
+        }
+        self.remote_tip = Some(tip);
+        Ok(tip)
+    }
+}
+impl<L> std::ops::Deref for JournalSource<L> {
+    type Target = L;
+    fn deref(&self) -> &L {
+        &self.inner
+    }
+}
+impl<L> std::ops::DerefMut for JournalSource<L> {
+    fn deref_mut(&mut self) -> &mut L {
+        &mut self.inner
+    }
+}
+impl<L: L1Source> L1Source for JournalSource<L> {
+    fn genesis_hash(&mut self) -> Result<String> {
+        Ok(self.journal.borrow().get(0)?.block.hash)
+    }
+    fn validate_m2_inbox(&mut self) -> Result<()> {
+        self.inner.validate_m2_inbox()
+    }
+    fn finalized(&mut self) -> Result<u64> {
+        self.refresh()
+    }
+    fn block(&mut self, n: u64) -> Result<L1Block> {
+        if self.remote_tip.is_none()
+            || self.remote_tip == Some(n)
+            || n > self.journal.borrow().tip()
+        {
+            self.refresh()?;
+        }
+        Ok(self.journal.borrow().get(n)?.block)
+    }
+    fn inbox_logs(&mut self, hash: &str) -> Result<Vec<InboxLog>> {
+        let h = self.journal.borrow().height_for_hash(hash).ok_or_else(|| {
+            boole_devnet_archive::error::availability(
+                0,
+                "journal",
+                "unknown origin hash; no historical RPC fallback",
+            )
+        })?;
+        self.block(h)?;
+        Ok(self.journal.borrow().get(h)?.logs)
+    }
+    fn block_by_hash(&mut self, hash: &str) -> Result<L1Block> {
+        let h = self.journal.borrow().height_for_hash(hash).ok_or_else(|| {
+            boole_devnet_archive::error::availability(
+                0,
+                "journal",
+                "unknown origin hash; no historical RPC fallback",
+            )
+        })?;
+        self.block(h)
+    }
+    fn input_journal(
+        &self,
+    ) -> Option<std::rc::Rc<std::cell::RefCell<boole_devnet_archive::journal::InputJournal>>> {
+        Some(self.journal.clone())
     }
 }
 
@@ -113,6 +245,58 @@ impl RpcL1 {
     }
 }
 impl L1Source for RpcL1 {
+    fn header_rlp(&mut self, height: u64) -> Result<String> {
+        let v = self.rpc.call(
+            "eth_getBlockByNumber",
+            json!([format!("0x{height:x}"), false]),
+        )?;
+        Ok(boole_derivation::attributes::hex_string(
+            &boole_devnet_archive::input::header_from_rpc(&v)?,
+        ))
+    }
+    fn input_row(&mut self, height: u64) -> Result<boole_devnet_archive::input::InputRow> {
+        use boole_devnet_archive::input::{header_from_rpc, InputRow};
+        let tag = format!("0x{height:x}");
+        let header = self.rpc.call("eth_getBlockByNumber", json!([tag, false]))?;
+        header_from_rpc(&header)?;
+        let receipts = match self.rpc.call("eth_getBlockReceipts", json!([tag])) {
+            Ok(v) => v.as_array().context("block receipt list")?.clone(),
+            Err(e) if e.to_string().contains("-32601") => {
+                let mut rows = vec![];
+                for tx in header["transactions"]
+                    .as_array()
+                    .context("L1 transaction hashes")?
+                {
+                    rows.push(self.rpc.call("eth_getTransactionReceipt", json!([tx]))?);
+                }
+                rows
+            }
+            Err(e) => return Err(e),
+        };
+        let mut transactions = vec![];
+        for hash in header["transactions"]
+            .as_array()
+            .context("L1 transaction hashes")?
+        {
+            let raw = self
+                .rpc
+                .call("eth_getRawTransactionByHash", json!([hash]))?;
+            let raw = raw.as_str().context("raw L1 transaction unavailable")?;
+            anyhow::ensure!(
+                boole_derivation::attributes::hex_string(&boole_derivation::user_tx::keccak(
+                    &boole_derivation::attributes::hex_bytes(raw, "L1 transaction")?
+                ))
+                .eq_ignore_ascii_case(hash.as_str().context("L1 transaction hash")?),
+                "raw L1 transaction hash mismatch"
+            );
+            transactions.push(raw.to_owned());
+        }
+        let mut row = InputRow::from_rpc(&header, Some(&receipts))?;
+        row.transactions = Some(transactions);
+        row.verify()?;
+        anyhow::ensure!(row.block()?.number == height, "captured L1 height mismatch");
+        Ok(row)
+    }
     fn genesis_hash(&mut self) -> Result<String> {
         let block = self
             .rpc
