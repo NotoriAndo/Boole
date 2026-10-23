@@ -557,6 +557,8 @@ fn i15_kill_boundary_full_round_abc_tip_only_and_miner_restart() -> Result<()> {
         rt.node(&op, &gp, "b", 1)?,
         rt.node(&op, &gp, "c", 2)?,
     ];
+    // Runtime::node returns only after its actual anonymous Engine request is 401.
+    let mut unauthenticated_engine_401_probes = nodes.len();
     let proxy = TipProxy::start("http://127.0.0.1:28545")?;
     let (a, ag) = driver(&nodes[0], &rt, &c, &table, &workers, &proxy.url)?;
     let (b, bg) = driver(&nodes[1], &rt, &c, &table, &workers, &proxy.url)?;
@@ -827,6 +829,7 @@ fn i15_kill_boundary_full_round_abc_tip_only_and_miner_restart() -> Result<()> {
                         thread::sleep(Duration::from_millis(20));
                     }
                     nodes[2] = rt.node(&op, &gp, "c-rebuilt", 2)?;
+                    unauthenticated_engine_401_probes += 1;
                     let log = rt.path.join("c-tail-default.log");
                     let mut default = Process::start(
                         c_command(&nodes[2], &rt, &proxy.url, finalized, false, false),
@@ -894,7 +897,7 @@ fn i15_kill_boundary_full_round_abc_tip_only_and_miner_restart() -> Result<()> {
         serde_json::from_slice(&fs::read(private.join(format!("submission-{id}.json")))?)?;
     let body: Vec<u8> = serde_json::from_value(prepared["prepared"]["body"].clone())?;
     let secret: Hash = serde_json::from_value(prepared["prepared"]["cancel_secret"].clone())?;
-    let mut result = json!({"schema":"boole-devnet-m4a-i15-v1.3","case":case,"config_json":serde_json::to_string(&c)?,"forks":table,"gate_descriptors":[descriptor],"events":events,"rows":rows,"locked":locked,"vested":vested,"final_submission":final_view,"acceptance":{"every_height_compared":comparisons,"actual_sigkill":true,"full_round_through_vest":true,"miner_journal_restart":true,"tip_only_denied_requests":proxy.denied.lock().unwrap().clone(),"client_execution":"library; B11 uses the actual stdio client binary","no_terminal_reposting":true},"provenance":{"producer_commit":String::from_utf8(Command::new("git").args(["rev-parse","HEAD"]).output()?.stdout)?.trim(),"producer_sha256":hex_string(&hash(include_bytes!("m4_live.rs"))),"producer_binary_sha256":hex_string(&hash(&fs::read(std::env::current_exe()?)?)),"driver_binary_sha256":hex_string(&hash(&fs::read(driver_binary())?)),"client_binary_sha256":hex_string(&hash(&fs::read(client_binary())?)),"gate_binary_sha256":hex_string(&pin),"cargo_lock_sha256":hex_string(&hash(include_bytes!("../../../Cargo.lock"))),"support_sha256":hex_string(&hash(include_bytes!("../../boole-devnet-driver/tests/support/mod.rs"))),"wire_support_sha256":hex_string(&hash(include_bytes!("../../boole-devnet-driver/tests/support/m2.rs"))),"engine_profile":engine_profile(),"client_pins":fixture_json("pins.json")?,"l1_genesis_sha256":hex_string(&hash(&fs::read(l1p)?)),"l2_genesis_sha256":hex_string(&hash(&fs::read(gp)?)),"producer_profile":if cfg!(debug_assertions){"debug"}else{"release"}}});
+    let mut result = json!({"schema":"boole-devnet-m4a-i15-v1.3","case":case,"config_json":serde_json::to_string(&c)?,"forks":table,"gate_descriptors":[descriptor],"events":events,"rows":rows,"locked":locked,"vested":vested,"final_submission":final_view,"acceptance":{"every_height_compared":comparisons,"actual_sigkill":true,"unauthenticated_engine_401_probes":unauthenticated_engine_401_probes,"full_round_through_vest":true,"miner_journal_restart":true,"tip_only_denied_requests":proxy.denied.lock().unwrap().clone(),"client_execution":"library; B11 uses the actual stdio client binary","no_terminal_reposting":true},"provenance":{"producer_commit":String::from_utf8(Command::new("git").args(["rev-parse","HEAD"]).output()?.stdout)?.trim(),"producer_sha256":hex_string(&hash(include_bytes!("m4_live.rs"))),"producer_binary_sha256":hex_string(&hash(&fs::read(std::env::current_exe()?)?)),"driver_binary_sha256":hex_string(&hash(&fs::read(driver_binary())?)),"client_binary_sha256":hex_string(&hash(&fs::read(client_binary())?)),"gate_binary_sha256":hex_string(&pin),"cargo_lock_sha256":hex_string(&hash(include_bytes!("../../../Cargo.lock"))),"support_sha256":hex_string(&hash(include_bytes!("../../boole-devnet-driver/tests/support/mod.rs"))),"wire_support_sha256":hex_string(&hash(include_bytes!("../../boole-devnet-driver/tests/support/m2.rs"))),"engine_profile":engine_profile(),"client_pins":fixture_json("pins.json")?,"l1_genesis_sha256":hex_string(&hash(&fs::read(l1p)?)),"l2_genesis_sha256":hex_string(&hash(&fs::read(gp)?)),"producer_profile":if cfg!(debug_assertions){"debug"}else{"release"}}});
     ensure!(
         proxy.denied.lock().unwrap().is_empty(),
         "TIP_ONLY proxy saw historical reads or protocol failures"
