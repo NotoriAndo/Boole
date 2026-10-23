@@ -142,11 +142,17 @@ pub fn publish_new_at(path: &Path, bytes: &[u8], point: Option<(u64, &str)>) -> 
     let mut file = options.open(&staged)?;
     file.write_all(bytes)?;
     file.sync_all()?;
+    if let Some((h, role)) = point {
+        crate::fault::hit("B9a", h, role)?;
+    }
     std::fs::hard_link(&staged, path)?;
     if let Some((h, role)) = point {
         crate::fault::hit("B9", h, role)?;
     }
     std::fs::remove_file(&staged)?;
+    if let Some((h, role)) = point {
+        crate::fault::hit("B9b", h, role)?;
+    }
     durability::fsync_parent_dir(path)?;
     ensure!(
         file_stamp(path)?.as_ref() == Some(&stamp(&file.metadata()?)?),
@@ -342,7 +348,7 @@ impl InputJournal {
         }
         Ok(())
     }
-    pub fn get(&self, h: u64) -> Result<VerifiedInput> {
+    fn read_row(&self, h: u64) -> Result<(InputRow, VerifiedInput)> {
         self.check()?;
         let pos = self.positions.get(&h).ok_or_else(|| {
             availability(h, "journal", "input row absent; no historical RPC fallback")
@@ -370,7 +376,13 @@ impl InputJournal {
             "journal position identity"
         );
         self.check()?;
-        Ok(verified)
+        Ok((row, verified))
+    }
+    pub fn get(&self, h: u64) -> Result<VerifiedInput> {
+        Ok(self.read_row(h)?.1)
+    }
+    pub fn row(&self, h: u64) -> Result<InputRow> {
+        Ok(self.read_row(h)?.0)
     }
     pub fn append(&mut self, row: &InputRow) -> Result<()> {
         self.check()?;

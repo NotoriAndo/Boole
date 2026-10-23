@@ -30,6 +30,9 @@ struct Args {
     node_rpc: String,
     #[arg(long)]
     account: String,
+    /// Pinned loopback sources for an independently verified fresh input journal.
+    #[arg(long)]
+    archive: Vec<String>,
     #[arg(long)]
     state_dir: PathBuf,
     #[arg(long)]
@@ -98,12 +101,22 @@ fn main() -> Result<()> {
         genesis["hash"].as_str().context("L2 genesis hash")?.into(),
         gas,
     )?;
-    let source = JournalSource::open(
-        RpcL1::new_m2(&args.l1_rpc)?,
-        &args.state_dir,
-        network,
-        args.repair_journals,
-    )?;
+    let source = if args.archive.is_empty() {
+        JournalSource::open(
+            RpcL1::new_m2(&args.l1_rpc)?,
+            &args.state_dir,
+            network.clone(),
+            args.repair_journals,
+        )?
+    } else {
+        JournalSource::open_archive(
+            RpcL1::new_m2(&args.l1_rpc)?,
+            &args.state_dir,
+            network,
+            args.repair_journals,
+            boole_devnet_archive::client::ArchiveClient::http(args.archive)?,
+        )?
+    };
     let own = if args.verify_own {
         let workers: Vec<boole_gate_supervisor::process::Worker> = serde_json::from_slice(
             &std::fs::read(args.m3_gates.context("--verify-own requires --m3-gates")?)?,

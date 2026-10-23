@@ -12,3 +12,9 @@ pub mod log;
 pub mod fault;
 
 pub mod boot;
+
+pub mod archive;
+pub mod client;
+pub mod derived;
+pub mod http;
+mod index;

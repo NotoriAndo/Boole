@@ -16,13 +16,23 @@ impl Objects {
             guard,
         })
     }
+    pub fn check(&self) -> Result<()> {
+        if !self.guard.is_current() {
+            return Err(crate::error::integrity(
+                0,
+                "object-lock",
+                "object store writer lock changed",
+            ));
+        }
+        Ok(())
+    }
     fn path(&self, key: &str) -> Result<PathBuf> {
         let hash = boole_derivation::attributes::hex_bytes(key, "object address")?;
         ensure!(hash.len() == 32, "object address width");
         Ok(self.root.join(hex::encode(hash)))
     }
     pub fn read(&self, key: &str, verify: impl Fn(&[u8]) -> Result<()>) -> Result<Option<Vec<u8>>> {
-        ensure!(self.guard.is_current(), "object store lock changed");
+        self.check()?;
         let path = self.path(key)?;
         if !path.try_exists()? {
             return Ok(None);
@@ -76,7 +86,7 @@ impl Objects {
         }
     }
     pub fn put(&self, key: &str, bytes: &[u8], verify: impl Fn(&[u8]) -> Result<()>) -> Result<()> {
-        ensure!(self.guard.is_current(), "object store lock changed");
+        self.check()?;
         if crate::journal::free_bytes(&self.root)? < crate::journal::DISK_FLOOR {
             return Err(crate::error::availability(
                 0,
@@ -125,22 +135,26 @@ mod tests {
         Ok(())
     }
     #[test]
-    fn b9_empty_staging_is_preserved_when_no_published_target_can_be_verified() -> Result<()> {
+    fn empty_private_staging_is_removed_under_the_writer_lock() -> Result<()> {
         let d = crate::durability::PrivateTempDir::new("m4-empty-staging")?;
         let stage = crate::durability::PrivateTempDir::new_in(d.path(), ".devnet-new")?;
-        let result = Objects::open(d.path());
-        assert!(
-            result.is_err(),
-            "ambiguous empty staging was silently removed"
-        );
-        assert!(stage.path().exists());
+        let objects = Objects::open(d.path())?;
+        assert!(!stage.path().exists());
+        drop(objects);
         Ok(())
     }
     #[test]
-    fn b9_unpublished_staging_bytes_stop_typed_and_are_never_deleted() -> Result<()> {
+    fn unpublished_value_with_foreign_mode_stops_typed_and_is_never_deleted() -> Result<()> {
         let d = crate::durability::PrivateTempDir::new("m4-unpublished")?;
         let stage = crate::durability::PrivateTempDir::new_in(d.path(), ".devnet-new")?;
         std::fs::write(stage.path().join("value"), b"preserve unpublished bytes")?;
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(
+                stage.path().join("value"),
+                std::fs::Permissions::from_mode(0o644),
+            )?;
+        }
         let result = Objects::open(d.path());
         let error = match result {
             Ok(_) => panic!("unpublished staging accepted"),

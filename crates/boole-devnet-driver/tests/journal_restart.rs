@@ -908,3 +908,128 @@ fn finalized_capture_verification_failure_remains_a_sticky_integrity_stop() -> R
     assert_eq!(driver.engine.head.number, 0);
     Ok(())
 }
+
+#[test]
+fn t78_fresh_driver_joins_verified_archive_when_own_l1_refuses_history() -> Result<()> {
+    use boole_devnet_archive::{
+        archive::{ArchiveIdentity, ArchiveProfile, ArchiveStore},
+        client::ArchiveClient,
+        http::ArchiveServer,
+    };
+    use std::sync::{Arc, Mutex};
+    let root = PrivateTempDir::new("m4-archive-join")?;
+    let config = boole_derivation::m2::Config::devnet();
+    let raw = TipOnly::new();
+    let rows = raw.rows.clone();
+    let engine = MemoryEngine::new();
+    let network = NetworkIdentity::new(&config, None, engine.head.hash.clone(), 30_000_000)?;
+    let profile = ArchiveProfile {
+        identity: ArchiveIdentity {
+            network: network.clone(),
+            l1_anchor_number: 0,
+            l1_anchor_hash: rows[0].block_hash.clone(),
+        },
+        bind: "127.0.0.1:0".parse()?,
+        prune_before: None,
+    };
+    let x = Arc::new(Mutex::new(ArchiveStore::open(
+        &root.path().join("x"),
+        profile,
+        false,
+    )?));
+    let source = JournalSource::open(raw, &root.path().join("a"), network.clone(), false)?;
+    let mut a = Driver::with_config(source, engine, config.clone(), 30_000_000)?;
+    a.resume()?;
+    let mut sink =
+        boole_devnet_driver::driver::archive::ArchiveSink::new(&mut a, Arc::clone(&x), None)?;
+    sink.synchronize(&mut a)?;
+    let mut expected = vec![];
+    for h in 1..=8 {
+        a.l1.inner.tip = h;
+        a.step(h)?;
+        let head = a.engine.head()?;
+        expected.push((
+            head.hash.clone(),
+            a.m2_state().root,
+            a.engine.transactions(h)?,
+        ));
+        sink.synchronize(&mut a)?;
+    }
+    // Reopening a sink replays only this driver's verified journal/Engine and
+    // safely fills any missing public index suffix, without re-applying a fold.
+    drop(sink);
+    let mut sink =
+        boole_devnet_driver::driver::archive::ArchiveSink::new(&mut a, Arc::clone(&x), None)?;
+    sink.synchronize(&mut a)?;
+    let server = ArchiveServer::start(x, "127.0.0.1:0".parse()?)?;
+    let mut own = TipOnly::new();
+    own.tip = 8;
+    own.strict = true;
+    let dir = root.path().join("c");
+    let source = JournalSource::open_archive(
+        own,
+        &dir,
+        network.clone(),
+        false,
+        ArchiveClient::http(vec![server.url()])?,
+    )?;
+    assert_eq!(source.inputs_label(1), "archive-verified");
+    let mut c = Driver::with_config(source, MemoryEngine::new(), config.clone(), 30_000_000)?;
+    c.set_journal(&dir.join("checkpoint.json"))?;
+    c.set_evidence(&dir.join("evidence.jsonl"))?;
+    c.resume()?;
+    for h in 1..=8 {
+        c.step(h)?;
+        let (hash, root, txs) = &expected[h as usize - 1];
+        assert_eq!(&c.engine.head()?.hash, hash);
+        assert_eq!(&c.m2_state().root, root);
+        assert_eq!(&c.engine.transactions(h)?, txs);
+    }
+    let engine = c.engine.clone();
+    drop(c);
+    let source = JournalSource::open_archive(
+        TipOnly {
+            offline: false,
+            tip: 8,
+            strict: true,
+            ..TipOnly::new()
+        },
+        &dir,
+        network,
+        false,
+        ArchiveClient::http(vec![server.url()])?,
+    )?;
+    let mut restarted = Driver::with_config(source, engine, config.clone(), 30_000_000)?;
+    restarted.set_journal(&dir.join("checkpoint.json"))?;
+    restarted.resume()?;
+    assert_eq!(restarted.m2_state().root, expected.last().unwrap().1);
+    assert_eq!(restarted.l1.inputs_label(1), "journal");
+    let prefix = root.path().join("prefix");
+    let mut journal = InputJournal::open(
+        &prefix,
+        NetworkIdentity::new(&config, None, MemoryEngine::new().head.hash, 30_000_000)?,
+        || Ok(rows[0].clone()),
+        false,
+    )?;
+    journal.append(&rows[1])?;
+    journal.append(&rows[2])?;
+    drop(journal);
+    let mut own = TipOnly::new();
+    own.tip = 8;
+    own.strict = true;
+    let mut source = JournalSource::open_archive(
+        own,
+        &prefix,
+        NetworkIdentity::new(&config, None, MemoryEngine::new().head.hash, 30_000_000)?,
+        false,
+        ArchiveClient::http(vec![server.url()])?,
+    )?;
+    assert_eq!(
+        source.finalized()?,
+        8,
+        "partial archive join did not resume"
+    );
+    assert_eq!(source.inputs_label(1), "journal");
+    assert_eq!(source.inputs_label(3), "archive-verified");
+    Ok(())
+}

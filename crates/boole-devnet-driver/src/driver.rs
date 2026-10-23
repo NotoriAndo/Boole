@@ -730,6 +730,24 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
         } else {
             "computed"
         });
+        record["inputs"] = json!(self.l1.inputs_label(height));
+        if matches!(&result, Ok(StepOutcome::Derived(_))) {
+            let alerts = self.l1.archive_tripwire(
+                height,
+                record["block_hash"].as_str().unwrap_or(""),
+                record["m2_root"].as_str().unwrap_or(""),
+            );
+            for alert in &alerts {
+                eprintln!("{alert}");
+            }
+            if !alerts.is_empty() {
+                record["archive_alerts"] = json!(alerts);
+            }
+            let stats = self.l1.archive_stats();
+            if !stats.is_null() {
+                record["archive_sources"] = stats;
+            }
+        }
         if let Some(supervisor) = &mut self.supervisor {
             record["gate_events"] = json!(std::mem::take(&mut supervisor.evidence));
             record["gate_alerts"] = json!(std::mem::take(&mut supervisor.alerts));
@@ -1168,3 +1186,5 @@ mod tests {
         assert_eq!(driver.step(1).unwrap_err().reason, error.reason);
     }
 }
+
+pub mod archive;
