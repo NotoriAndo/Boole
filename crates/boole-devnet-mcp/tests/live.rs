@@ -14,178 +14,12 @@ use boole_devnet_driver::{
     l1::{L1Source, RpcL1},
 };
 use serde_json::{json, Value};
-use std::{
-    fs::{self, File, OpenOptions},
-    io::{BufRead, BufReader, Write},
-    path::{Path, PathBuf},
-    process::{Child, ChildStdin, Command, Stdio},
-    sync::mpsc,
-    thread,
-    time::{Duration, Instant},
-};
+use std::fs;
+#[path = "support/mcp.rs"]
+mod mcp;
+use mcp::Server;
 use support::{m2::*, *};
 
-struct Server {
-    child: Child,
-    input: Option<ChildStdin>,
-    output: mpsc::Receiver<String>,
-    next: u64,
-    pids: PathBuf,
-}
-impl Server {
-    fn start(root: &Path, c: &Config, user: &str, state: &Path, extra: &[String]) -> Result<Self> {
-        fs::create_dir_all(root)?;
-        let config = root.join("config.json");
-        fs::write(&config, serde_json::to_vec(c)?)?;
-        let codec = zstd_binary()?;
-        let mut child = Command::new(env!("CARGO_BIN_EXE_boole-devnet-mcp"))
-            .args([
-                "--devnet",
-                "--l1-rpc",
-                "http://127.0.0.1:28545",
-                "--node-rpc",
-                "http://127.0.0.1:29545",
-                "--account",
-                user,
-                "--m2-config",
-            ])
-            .arg(config)
-            .arg("--state-dir")
-            .arg(state)
-            .arg("--zstd")
-            .arg(codec)
-            .args(extra)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(File::create(root.join("stderr.log"))?)
-            .spawn()?;
-        let pids = root.join("owned-pids.jsonl");
-        record_pid(&pids, child.id(), "started")?;
-        let input = child.stdin.take().context("MCP stdin")?;
-        let stdout = child.stdout.take().context("MCP stdout")?;
-        let (sender, output) = mpsc::channel();
-        let mut transcript = File::create(root.join("stdout.log"))?;
-        thread::spawn(move || {
-            for line in BufReader::new(stdout).lines() {
-                match line {
-                    Ok(s) => {
-                        if writeln!(transcript, "{s}").is_err() {
-                            break;
-                        }
-                        if sender.send(s).is_err() {
-                            break;
-                        }
-                    }
-                    Err(_) => break,
-                }
-            }
-        });
-        let mut s = Self {
-            child,
-            input: Some(input),
-            output,
-            next: 0,
-            pids,
-        };
-        let init=s.rpc("initialize",json!({"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"devnet-live-test","version":"1"}}))?;
-        ensure!(
-            init["result"]["serverInfo"]["name"] == "boole-devnet-mcp",
-            "MCP initialize"
-        );
-        let list = s.rpc("tools/list", json!({}))?;
-        ensure!(
-            list["result"]["tools"].as_array().context("tools")?.len() == 5,
-            "five tools"
-        );
-        Ok(s)
-    }
-    fn rpc(&mut self, method: &str, params: Value) -> Result<Value> {
-        self.next += 1;
-        let request = json!({"jsonrpc":"2.0","id":self.next,"method":method,"params":params});
-        writeln!(self.input.as_mut().context("MCP stopped")?, "{request}")?;
-        self.input.as_mut().context("MCP input")?.flush()?;
-        let response: Value = serde_json::from_str(
-            &self
-                .output
-                .recv_timeout(Duration::from_secs(15))
-                .context("MCP response timeout/exit")?,
-        )?;
-        ensure!(response["id"] == self.next, "MCP response id");
-        Ok(response)
-    }
-    fn tool(&mut self, name: &str, args: Value) -> Result<Value> {
-        let out = self.rpc("tools/call", json!({"name":name,"arguments":args}))?;
-        ensure!(
-            out["result"]["isError"] == false,
-            "MCP tool rejected: {out}"
-        );
-        Ok(serde_json::from_str(
-            out["result"]["content"][0]["text"]
-                .as_str()
-                .context("tool text")?,
-        )?)
-    }
-    fn submission(&mut self, id: &str) -> Result<Value> {
-        self.tool("boole.devnet_submission", json!({"submission_id":id}))
-    }
-    fn posted(&mut self, id: &str, stage: &str) -> Result<String> {
-        let start = Instant::now();
-        loop {
-            let view = self.submission(id)?;
-            if let Some(tx) = view["transactions"]
-                .as_array()
-                .context("transactions")?
-                .iter()
-                .find(|x| x["stage"] == stage)
-                .and_then(|x| x["transaction_hash"].as_str())
-            {
-                return Ok(tx.into());
-            }
-            ensure!(
-                start.elapsed() < Duration::from_secs(5),
-                "MCP did not post {stage}: {view}"
-            );
-            thread::sleep(Duration::from_millis(20));
-        }
-    }
-    fn stop(&mut self) -> Result<()> {
-        self.input.take();
-        let start = Instant::now();
-        loop {
-            if let Some(status) = self.child.try_wait()? {
-                record_pid(&self.pids, self.child.id(), "stopped")?;
-                ensure!(status.success(), "MCP exit {status}");
-                return Ok(());
-            }
-            ensure!(
-                start.elapsed() < Duration::from_secs(3),
-                "MCP EOF stop timeout"
-            );
-            thread::sleep(Duration::from_millis(10));
-        }
-    }
-}
-impl Drop for Server {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-        let _ = record_pid(&self.pids, self.child.id(), "stopped");
-    }
-}
-fn record_pid(path: &Path, pid: u32, state: &str) -> Result<()> {
-    let line = json!({"name":"mcp1-stdio","pid":pid,"state":state});
-    writeln!(
-        OpenOptions::new().create(true).append(true).open(path)?,
-        "{line}"
-    )?;
-    if let Some(p) = std::env::var_os("BOOLE_DEVNET_OWNED_PIDS") {
-        writeln!(
-            OpenOptions::new().create(true).append(true).open(p)?,
-            "{line}"
-        )?;
-    }
-    Ok(())
-}
 type LiveDriver = Driver<RpcL1, RpcEngine>;
 fn mine(
     l1: &Rpc,
@@ -626,7 +460,7 @@ fn mcp_live_round_checking_cancel_offline_expiry_and_equal_roots() -> Result<()>
     );
     restarted.stop()?;
     expiry_restarted.stop()?;
-    let provenance = json!({"generator":"crates/boole-devnet-mcp/tests/live.rs","generator_sha256":hex_string(&hash(include_bytes!("live.rs"))),"client_binary_sha256":hex_string(&hash(&fs::read(env!("CARGO_BIN_EXE_boole-devnet-mcp"))?)),"client_pins":fixture_json("pins.json")?,"engine_profile":engine_profile(),"l1_genesis_sha256":hex_string(&hash(&fs::read(&l1_genesis)?)),"l2_genesis_sha256":hex_string(&hash(&fs::read(&l2_genesis)?)),"l1_genesis_hash":RpcL1::new_m2("http://127.0.0.1:28545")?.genesis_hash()?});
+    let provenance = json!({"generator":"crates/boole-devnet-mcp/tests/live.rs","generator_sha256":hex_string(&hash(include_bytes!("live.rs"))),"mcp_support_sha256":hex_string(&hash(include_bytes!("support/mcp.rs"))),"client_binary_sha256":hex_string(&hash(&fs::read(env!("CARGO_BIN_EXE_boole-devnet-mcp"))?)),"client_pins":fixture_json("pins.json")?,"engine_profile":engine_profile(),"l1_genesis_sha256":hex_string(&hash(&fs::read(&l1_genesis)?)),"l2_genesis_sha256":hex_string(&hash(&fs::read(&l2_genesis)?)),"l1_genesis_hash":RpcL1::new_m2("http://127.0.0.1:28545")?.genesis_hash()?});
     let result = json!({"schema":"boole-devnet-mcp-round-v0","config":c,"config_digest":hex_string(&c.digest()),"slot_table_digest":hex_string(&c.slot_table_digest()),"package_codec":1,"package_raw_len":1_048_576,"export_raw_len":raw.len(),"primary":primary_final,"cancel_status":"CANCELLED","expiry_status":"EXPIRED","restart_m2_root":after_prune["m2_root"],"pre_prune_restart_m2_root":status["m2_root"],"online_comparisons":comparisons,"restart_comparisons":4,"posted_items":posted_items.len(),"prune_height":prune_height,"l2_gas_limit":40_000_000,"required_packages":required,"export_format":1,"driver_m2_root":hex_string(&driver.m2_state().root),"rows":rows,"postings":posting,"l1_inputs":l1_inputs,"provenance":provenance,"strict_cleanup":"pending"});
     rt.finish(true)?;
     if let Some(path) = std::env::var_os("BOOLE_DEVNET_MCP_RECORDING") {

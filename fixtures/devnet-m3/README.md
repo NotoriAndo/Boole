@@ -95,3 +95,12 @@ extra deposits outside the consensus fold and are explicitly labeled that way.
 Ordinary live rounds use independently computed verdicts and the actual fold.
 Frozen v1.2 and earlier recordings remain unchanged and are superseded for the
 v1.3 reset; their historical client revision remains required for replay.
+
+`miner-client-v1.3.json` is I13’s independent MCP stdio qualification, produced by
+`crates/boole-devnet-mcp/tests/m3_live.rs` and its tracked stdio/support modules.
+A release miner with pinned own verification matches all 98 A/B/C heights,
+restarts before vest and observes the exact reward balance increase at height 96.
+The recording contains public progress and raw L2 system deposits, excluding
+B, salt and cancellation secrets. Its provenance is emitted directly by the
+tracked producer; copy candidates exactly only after strict process/log cleanup.
+It is a live comparison recording, rather than another pure-fold input tape.

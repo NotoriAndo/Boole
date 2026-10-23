@@ -32,11 +32,21 @@ struct Args {
     #[arg(long)]
     m2_config: Option<PathBuf>,
     #[arg(long)]
+    m3_forks: Option<PathBuf>,
+    #[arg(long, requires_all=["m3_gates","gate_artifacts"])]
+    verify_own: bool,
+    #[arg(long, requires = "verify_own")]
+    m3_gates: Option<PathBuf>,
+    #[arg(long, requires = "verify_own")]
+    gate_artifacts: Option<PathBuf>,
+    #[arg(long)]
     zstd: Option<PathBuf>,
     #[arg(long, requires = "precheck_sha256")]
     precheck: Option<PathBuf>,
     #[arg(long, requires = "precheck")]
     precheck_sha256: Option<String>,
+    #[arg(long, requires = "precheck")]
+    precheck_gate_rule_digest: Option<String>,
 }
 fn main() -> Result<()> {
     let args = Args::parse();
@@ -55,6 +65,11 @@ fn main() -> Result<()> {
         .map(|executable| -> Result<_> {
             Ok(Precheck {
                 executable,
+                gate_rule_digest: args
+                    .precheck_gate_rule_digest
+                    .as_deref()
+                    .map(fixed)
+                    .transpose()?,
                 sha256: fixed(
                     args.precheck_sha256
                         .as_deref()
@@ -64,6 +79,27 @@ fn main() -> Result<()> {
             })
         })
         .transpose()?;
+    let own = if args.verify_own {
+        let workers: Vec<boole_gate_supervisor::process::Worker> = serde_json::from_slice(
+            &std::fs::read(args.m3_gates.context("--verify-own requires --m3-gates")?)?,
+        )?;
+        Some(boole_devnet_mcp::own::OwnVerification {
+            gates: workers
+                .into_iter()
+                .map(|worker| {
+                    Box::new(boole_devnet_mcp::own::PinnedOwnGate {
+                        worker,
+                        envelope: boole_gate_supervisor::process::Envelope::default(),
+                    }) as Box<dyn boole_devnet_mcp::own::OwnGate>
+                })
+                .collect(),
+            artifacts: args
+                .gate_artifacts
+                .context("--verify-own requires --gate-artifacts")?,
+        })
+    } else {
+        None
+    };
     let mut client = Client::new(
         RpcL1::new_m2(&args.l1_rpc)?,
         RpcPoster::new(&args.l1_rpc, account)?,
@@ -75,6 +111,11 @@ fn main() -> Result<()> {
             l2_gas_limit: l2_gas_limit(&args.node_rpc)?,
             codec,
             hook,
+            forks: args
+                .m3_forks
+                .map(|path| -> Result<_> { Ok(serde_json::from_slice(&std::fs::read(path)?)?) })
+                .transpose()?,
+            own,
         },
     )?;
     let (sender, receiver) = mpsc::sync_channel(8);

@@ -195,3 +195,60 @@ fn l2_root_rpc_reads_both_real_transactions_and_checks_their_hashes() {
     assert_eq!(RpcL2::new(&url).unwrap().root(7, &l1.hash).unwrap(), None);
     worker.join().unwrap();
 }
+
+#[test]
+fn l2_full_block_authenticates_every_transaction_including_verdicts() {
+    use boole_derivation::{
+        attributes::{hex_bytes, hex_string},
+        user_tx::keccak,
+    };
+    use boole_devnet_mcp::client::{L2Source, RpcL2};
+    let txs = ["0x7e01", "0x7e02", "0x7e03"];
+    let hashes: Vec<_> = txs
+        .iter()
+        .map(|s| hex_string(&keccak(&hex_bytes(s, "test").unwrap())))
+        .collect();
+    for corrupt in [false, true] {
+        let block = json!({"number":"0x7","hash":hex_string(&[1;32]),"parentHash":hex_string(&[2;32]),"transactions":[hashes[0],hashes[1],if corrupt{hex_string(&[255;32])}else{hashes[2].clone()}]});
+        let mut replies = vec![
+            ("eth_chainId", 200, json!("0xb001e")),
+            ("eth_getBlockByNumber", 200, block),
+        ];
+        replies.extend(
+            txs.iter()
+                .map(|raw| ("eth_getRawTransactionByHash", 200, json!(raw))),
+        );
+        let (url, worker) = serve(replies);
+        let result = RpcL2::new(&url).unwrap().block(7);
+        if corrupt {
+            assert!(result.is_err());
+        } else {
+            assert_eq!(result.unwrap().unwrap().transactions, txs);
+        }
+        worker.join().unwrap();
+    }
+}
+#[test]
+fn l2_balances_keep_all_256_bits_and_refuse_noncanonical_quantities() {
+    use boole_devnet_mcp::client::{L2Source, RpcL2};
+    for (text, valid) in [
+        ("0x0".into(), true),
+        (format!("0x{}", "f".repeat(64)), true),
+        ("0x00".into(), false),
+        (format!("0x{}", "1".repeat(65)), false),
+        ("0xz".into(), false),
+        ("0X1".into(), false),
+        ("0x".into(), false),
+    ] {
+        let (url, worker) = serve(vec![
+            ("eth_chainId", 200, json!("0xb001e")),
+            ("eth_getBalance", 200, json!(text)),
+        ]);
+        let result = RpcL2::new(&url).unwrap().balance([6; 20], 90);
+        assert_eq!(result.is_ok(), valid, "{text}");
+        if text.len() == 66 {
+            assert_eq!(result.unwrap(), [255; 32]);
+        }
+        worker.join().unwrap();
+    }
+}

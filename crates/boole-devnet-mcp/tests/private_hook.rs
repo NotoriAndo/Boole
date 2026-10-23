@@ -51,6 +51,7 @@ fn private_files_permissions_symlinks_and_pinned_hook_outcomes() {
         let hook = Precheck {
             executable: script.clone(),
             sha256: digest(&bytes),
+            gate_rule_digest: None,
             timeout: Duration::from_secs(2),
         };
         let result = hook.run(&path, b"export", b"problem", [1; 32], 2);
@@ -67,6 +68,7 @@ fn private_files_permissions_symlinks_and_pinned_hook_outcomes() {
             Precheck {
                 executable: alias,
                 sha256: digest(&bytes),
+                gate_rule_digest: None,
                 timeout: Duration::from_secs(2),
             }
             .run(&path, b"export", b"problem", [1; 32], 2)
@@ -75,6 +77,7 @@ fn private_files_permissions_symlinks_and_pinned_hook_outcomes() {
         let bad = Precheck {
             executable: script.clone(),
             sha256: [0; 32],
+            gate_rule_digest: None,
             timeout: Duration::from_secs(2),
         };
         assert!(bad
@@ -101,6 +104,7 @@ fn hook_timeout_kills_and_reaps_its_process() {
     let hook = Precheck {
         executable: script,
         sha256: digest(bytes),
+        gate_rule_digest: None,
         timeout: Duration::from_millis(30),
     };
     let start = Instant::now();

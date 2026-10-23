@@ -30,6 +30,35 @@ impl std::fmt::Display for RevertedReceipt {
 }
 impl std::error::Error for RevertedReceipt {}
 
+pub struct CommitOptions {
+    pub allow_stale_gate: bool,
+    pub license_id: u8,
+}
+impl Default for CommitOptions {
+    fn default() -> Self {
+        Self {
+            allow_stale_gate: false,
+            license_id: 1,
+        }
+    }
+}
+#[derive(Debug)]
+pub struct StaleGate {
+    pub declared: Option<Hash>,
+    pub expected: Hash,
+    pub estimated_earliest_due_height: u64,
+}
+impl std::fmt::Display for StaleGate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            json!({"local_check":"stale-gate","commit_refused":true,"adapter_gate_rule_digest":self.declared.map(|h|hex_string(&h)),"expected_gate_rule_digest":hex_string(&self.expected),"estimated_earliest_due_height":self.estimated_earliest_due_height})
+        )
+    }
+}
+impl std::error::Error for StaleGate {}
+
 pub trait Poster {
     fn head(&mut self) -> Result<u64>;
     fn post(&mut self, kind: u8, body: &[u8]) -> Result<String>;
@@ -198,7 +227,7 @@ struct Observation {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Submission {
-    version: u8,
+    schema_version: u8,
     config_digest: Hash,
     prepared: Prepared,
     cancel_requested: bool,
@@ -209,10 +238,31 @@ struct Submission {
     observed: Option<Observation>,
     #[serde(default)]
     prune_height: Option<u64>,
+    #[serde(default)]
+    precheck_gate: Option<Hash>,
+    #[serde(default)]
+    precheck_override: bool,
+}
+#[derive(Clone)]
+pub struct CanonicalBlock {
+    pub number: u64,
+    pub hash: Hash,
+    pub parent_hash: Hash,
+    pub transactions: Vec<String>,
 }
 pub trait L2Source {
     /// None means the node has not built this finalized L1 height yet.
     fn root(&mut self, height: u64, origin: &str) -> Result<Option<Hash>>;
+    /// Actual block transaction bytes, for M3's strict system-prefix fold.
+    fn block(&mut self, _height: u64) -> Result<Option<CanonicalBlock>> {
+        Ok(None)
+    }
+    fn code(&mut self, _payee: [u8; 20]) -> Result<Vec<u8>> {
+        bail!("L2 payee code probe unavailable")
+    }
+    fn balance(&mut self, _payee: [u8; 20], _height: u64) -> Result<Hash> {
+        bail!("L2 balance probe unavailable")
+    }
 }
 pub struct RpcL2 {
     rpc: Rpc,
@@ -229,6 +279,59 @@ impl RpcL2 {
     }
 }
 impl L2Source for RpcL2 {
+    fn balance(&mut self, payee: [u8; 20], height: u64) -> Result<Hash> {
+        let value = self.rpc.call(
+            "eth_getBalance",
+            json!([hex_string(&payee), format!("0x{height:x}")]),
+        )?;
+        crate::m3_status::quantity_word(value.as_str().context("L2 balance response")?)
+    }
+    fn code(&mut self, payee: [u8; 20]) -> Result<Vec<u8>> {
+        hex_bytes(
+            self.rpc
+                .call("eth_getCode", json!([hex_string(&payee), "latest"]))?
+                .as_str()
+                .context("L2 code response")?,
+            "L2 code",
+        )
+        .map_err(Into::into)
+    }
+    fn block(&mut self, height: u64) -> Result<Option<CanonicalBlock>> {
+        let value = self.rpc.call(
+            "eth_getBlockByNumber",
+            json!([format!("0x{height:x}"), false]),
+        )?;
+        if value.is_null() {
+            return Ok(None);
+        }
+        ensure!(
+            quantity(&value["number"])? == height,
+            "L2 block height mismatch"
+        );
+        let mut transactions = vec![];
+        for hash in value["transactions"]
+            .as_array()
+            .context("L2 transaction list")?
+        {
+            let hash = hash.as_str().context("L2 transaction hash")?;
+            let bytes = self
+                .rpc
+                .call("eth_getRawTransactionByHash", json!([hash]))?;
+            let raw = bytes.as_str().context("raw L2 transaction unavailable")?;
+            let bytes = hex_bytes(raw, "raw L2 transaction")?;
+            ensure!(
+                fixed::<32>(hash)? == boole_derivation::user_tx::keccak(&bytes),
+                "raw L2 transaction hash mismatch"
+            );
+            transactions.push(raw.into());
+        }
+        Ok(Some(CanonicalBlock {
+            number: height,
+            hash: fixed(value["hash"].as_str().context("L2 block hash")?)?,
+            parent_hash: fixed(value["parentHash"].as_str().context("L2 parent hash")?)?,
+            transactions,
+        }))
+    }
     fn root(&mut self, height: u64, origin: &str) -> Result<Option<Hash>> {
         let Some(header) =
             boole_devnet_driver::engine::read_l2_header(&self.rpc, json!(format!("0x{height:x}")))?
@@ -257,6 +360,8 @@ pub struct ClientOptions {
     pub l2_gas_limit: u64,
     pub codec: Option<Codec>,
     pub hook: Option<Precheck>,
+    pub forks: Option<boole_derivation::m3::ForkTable>,
+    pub own: Option<crate::own::OwnVerification>,
 }
 impl ClientOptions {
     pub fn new(l2_gas_limit: u64) -> Self {
@@ -265,6 +370,8 @@ impl ClientOptions {
             l2_gas_limit,
             codec: None,
             hook: None,
+            forks: None,
+            own: None,
         }
     }
 }
@@ -285,6 +392,10 @@ pub struct Client<L, P> {
     l2_m2_root_match: Option<bool>,
     budget_head: Option<u64>,
     posted: u64,
+    chain: Option<crate::chain::Chain>,
+    waiting_l2: bool,
+    vested_at: BTreeMap<u64, u64>,
+    own: Option<crate::own::Verifier>,
 }
 impl<L: L1Source, P: Poster> Client<L, P> {
     pub fn new(
@@ -299,6 +410,23 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             config.chain_id == boole_derivation::config::L2_CHAIN_ID,
             "client supports the devnet L2 only"
         );
+        ensure!(
+            config.m3.is_none() || options.l2.is_some(),
+            "M3 client requires a canonical L2 source"
+        );
+        ensure!(
+            config.m3.is_some() || options.own.is_none(),
+            "--verify-own requires M3"
+        );
+        ensure!(
+            config.m3.is_some() || options.forks.is_none(),
+            "fork table requires M3 profile"
+        );
+        let chain = if config.m3.is_some() {
+            Some(crate::chain::Chain::new(&config, options.forks)?)
+        } else {
+            None
+        };
         source.validate_m2_inbox()?;
         let state = State::new(&config, options.l2_gas_limit)?;
         let anchor = Anchor {
@@ -307,10 +435,15 @@ impl<L: L1Source, P: Poster> Client<L, P> {
         };
         let _: Hash = fixed(&anchor.hash)?;
         let store = Store::open(path)?;
-        let identity = json!({"config_digest":hex_string(&config.digest()),"l1_genesis_hash":anchor.hash,"l2_gas_limit":options.l2_gas_limit});
+        let identity = json!({"schema_version":2,"config_digest":hex_string(&config.digest()),"l1_genesis_hash":anchor.hash,"l2_gas_limit":options.l2_gas_limit});
         if store.path.join("identity.json").exists() {
+            let saved: Value = store.read("identity.json")?;
             ensure!(
-                store.read::<Value>("identity.json")? == identity,
+                saved.get("schema_version").and_then(Value::as_u64) == Some(2),
+                "v1 store refused: schema_version 2 requires a fresh private directory"
+            );
+            ensure!(
+                saved == identity,
                 "private store belongs to another genesis/config"
             );
         } else {
@@ -318,9 +451,14 @@ impl<L: L1Source, P: Poster> Client<L, P> {
         }
         let mut submissions = BTreeMap::new();
         for name in store.submissions()? {
-            let sub: Submission = store.read(&name)?;
+            let raw: Value = store.read(&name)?;
             ensure!(
-                sub.version == 1 && sub.config_digest == config.digest(),
+                raw.get("schema_version").and_then(Value::as_u64) == Some(2),
+                "v1 store submission refused: schema_version 2 requires a fresh private directory"
+            );
+            let sub: Submission = serde_json::from_value(raw)?;
+            ensure!(
+                sub.schema_version == 2 && sub.config_digest == config.digest(),
                 "submission config/version mismatch"
             );
             sub.prepared.validate(&config)?;
@@ -330,6 +468,17 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             );
             submissions.insert(sub.prepared.commit, sub);
         }
+        let own = if let Some(settings) = options.own {
+            Some(crate::own::Verifier::new(
+                &config,
+                &chain.as_ref().context("--verify-own requires M3")?.forks,
+                settings,
+                options.codec.clone(),
+                &store.path,
+            )?)
+        } else {
+            None
+        };
         Ok(Self {
             source,
             poster,
@@ -347,6 +496,10 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             l2_m2_root_match: None,
             budget_head: None,
             posted: 0,
+            chain,
+            waiting_l2: false,
+            vested_at: BTreeMap::new(),
+            own,
         })
     }
     pub fn m2_state(&self) -> &State {
@@ -357,6 +510,9 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             bail!("{reason}");
         }
         if let Err(e) = self.fold_finalized().and_then(|_| self.check_l2_root()) {
+            if self.config.m3.is_some() {
+                self.l2_m2_root_match = Some(false);
+            }
             self.stalled = Some(format!("finalized fold refused: {e}"));
             return Err(e.context(
                 self.stalled
@@ -371,6 +527,23 @@ impl<L: L1Source, P: Poster> Client<L, P> {
         if self.state.height() == 0 {
             return Ok(());
         }
+        if let Some(chain) = &self.chain {
+            if !self.waiting_l2 {
+                let block = &chain
+                    .blocks
+                    .get(&self.state.height())
+                    .context("verified L2 block")?
+                    .block;
+                let root = boole_derivation::system::read_m2_root(
+                    &block.transactions[1],
+                    self.state.height(),
+                    &self.anchor.hash,
+                )?;
+                self.l2_m2_root_match = Some(root == self.state.root);
+                ensure!(root == self.state.root, "M3 root mismatch");
+            }
+            return Ok(());
+        }
         let Some(node) = &mut self.l2 else {
             return Ok(());
         };
@@ -382,6 +555,30 @@ impl<L: L1Source, P: Poster> Client<L, P> {
                         height: self.state.height(),
                     }
                     .into());
+                }
+                if self.config.m3.is_none() {
+                    let checked = (|| -> Result<()> {
+                        if let Some(block) = retry_rpc(|| node.block(self.state.height()))? {
+                            ensure!(
+                                block.number == self.state.height(),
+                                "L2 prefix height mismatch"
+                            );
+                            let l1 = retry_rpc(|| self.source.block(self.state.height()))?;
+                            let expected = vec![
+                                boole_derivation::system::l1_info(&l1)?,
+                                boole_derivation::system::m2_root_deposit(&l1, self.state.root)?,
+                            ];
+                            boole_derivation::m3::check_system_prefix(
+                                &block.transactions,
+                                &expected,
+                            )?;
+                        }
+                        Ok(())
+                    })();
+                    if let Err(error) = checked {
+                        self.l2_m2_root_match = Some(false);
+                        return Err(error);
+                    }
                 }
             }
             Ok(None) => {}
@@ -411,6 +608,18 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             fixed::<32>(&cached)? == fixed::<32>(&self.anchor.hash)?,
             "finalized anchor changed"
         );
+        self.waiting_l2 = false;
+        if let Some(chain) = &mut self.chain {
+            if !chain.refresh(
+                &self.config,
+                &mut self.source,
+                self.l2.as_mut().context("M3 L2 source")?.as_mut(),
+                finalized,
+            )? {
+                self.waiting_l2 = true;
+                return Ok(());
+            }
+        }
         while self.state.height() < finalized {
             let h = self
                 .state
@@ -428,7 +637,32 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             boole_derivation::system::l1_info(&block)?;
             let logs = retry_rpc(|| self.source.inbox_logs(&block.hash))?;
             let inputs = validated_inputs(&block, logs)?;
-            let step = self.state.step(&self.config, &block, &inputs)?;
+            let step = if let Some(chain) = &self.chain {
+                if let Some(own) = &self.own {
+                    let records = chain.inputs(&self.state, &self.config, h)?;
+                    let owned = self.submissions.keys().copied().collect();
+                    let mut history = crate::own::AnchoredHistory {
+                        chain,
+                        l1: &mut self.source,
+                        maximum: self.state.height(),
+                    };
+                    own.verify(
+                        &self.state,
+                        &self.config,
+                        &chain.forks,
+                        &records,
+                        &owned,
+                        &mut history,
+                    )?;
+                }
+                let Some(step) = chain.step(&self.state, &self.config, &block, &inputs)? else {
+                    self.waiting_l2 = true;
+                    break;
+                };
+                step
+            } else {
+                self.state.step(&self.config, &block, &inputs)?
+            };
             let repeated = retry_rpc(|| self.source.block(h))?;
             ensure!(
                 fixed::<32>(&repeated.hash)? == fixed::<32>(&block.hash)?,
@@ -456,6 +690,20 @@ impl<L: L1Source, P: Poster> Client<L, P> {
                 }
             }
             self.packages.extend(additions);
+            if let Some(next) = &step.state.m3 {
+                for reward in next.rewards.values() {
+                    if reward.status == boole_derivation::m3::RewardStatus::Vested
+                        && self
+                            .state
+                            .m3
+                            .as_ref()
+                            .and_then(|m| m.rewards.get(&reward.id))
+                            .is_none_or(|r| r.status != boole_derivation::m3::RewardStatus::Vested)
+                    {
+                        self.vested_at.insert(reward.id, h);
+                    }
+                }
+            }
             self.state = step.state;
             self.anchor = Anchor {
                 number: block.number,
@@ -534,7 +782,7 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             let pending=p.map(|p|self.state.candidates.iter().filter(|((id,_),v)|*id==p.id && matches!(v.status(),Status::Committed|Status::Open)).count()).unwrap_or(0);
             json!({"slot":slot,"lane":self.config.slot_table[slot].lane,"problem_id":p.map(|p|hex_string(&p.id)),"last_commit_height":p.and_then(|p|p.h_v.checked_add(self.config.slot_table[slot].solve_deadline)),"pending_commits":pending,"next_draw_height":s.scheduled.and_then(|h|h.checked_add(1))})
         }).collect();
-        json!({"devnet_only":true,"fold_height":self.state.height(),"m2_root":hex_string(&self.state.root),"config_digest":hex_string(&self.config.digest()),"slot_table_digest":hex_string(&self.config.slot_table_digest()),"slots":slots,"stalled":self.stalled,"l2_m2_root_match":self.l2_m2_root_match})
+        json!({"devnet_only":true,"fold_height":self.state.height(),"m2_root":hex_string(&self.state.root),"config_digest":hex_string(&self.config.digest()),"slot_table_digest":hex_string(&self.config.slot_table_digest()),"slots":slots,"stalled":self.stalled,"l2_m2_root_match":self.l2_m2_root_match,"waiting_for_l2":self.waiting_l2,"m3":crate::m3_status::summary(&self.state),"verdict_trust":if self.own.is_some(){"l2-node-with-own-verification"}else if self.config.m3.is_some(){"l2-node"}else{"l1-only"}})
     }
     fn decoded_problem(&self, id: Hash) -> Result<Vec<u8>> {
         let p = self.state.problems.get(&id).context("problem not found")?;
@@ -562,7 +810,18 @@ impl<L: L1Source, P: Poster> Client<L, P> {
         )
     }
     pub fn commit(&mut self, path: &Path, payee: [u8; 20], id: Hash) -> Result<Value> {
+        self.commit_with_options(path, payee, id, CommitOptions::default())
+    }
+    pub fn commit_with_options(
+        &mut self,
+        path: &Path,
+        payee: [u8; 20],
+        id: Hash,
+        options: CommitOptions,
+    ) -> Result<Value> {
         self.sync()?;
+        Prepared::license_terms(&self.config, options.license_id)?;
+        self.check_payee(payee)?;
         let p = self
             .state
             .problems
@@ -591,6 +850,13 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             .context("required environment not allowed")?
             .clone();
         let format = self.config.slot_table[p.slot as usize].lane;
+        let compressed = self
+            .codec
+            .as_ref()
+            .context("pinned codec is not configured")?
+            .compress(&raw, &self.store.path)?;
+        let mut local_check = "not_run";
+        let mut precheck_gate = None;
         if let Some(hook) = &self.hook {
             hook.run(
                 &self.store.path,
@@ -599,12 +865,17 @@ impl<L: L1Source, P: Poster> Client<L, P> {
                 env_id(self.config.schema_id, self.config.base_root, &packages),
                 format,
             )?;
+            precheck_gate = hook.gate_rule_digest;
+            local_check = "local_accept";
+            if let Some(stale) =
+                self.stale_gate(precheck_gate, next, compressed.len().div_ceil(PART_SIZE))?
+            {
+                local_check = "stale-gate";
+                if !options.allow_stale_gate {
+                    return Err(stale.into());
+                }
+            }
         }
-        let compressed = self
-            .codec
-            .as_ref()
-            .context("pinned codec is not configured")?
-            .compress(&raw, &self.store.path)?;
         let mut salt = [0; 32];
         let mut cancel_secret = [0; 32];
         let rng = ring::rand::SystemRandom::new();
@@ -613,7 +884,7 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             .map_err(|_| anyhow::anyhow!("salt randomness"))?;
         rng.fill(&mut cancel_secret)
             .map_err(|_| anyhow::anyhow!("cancel randomness"))?;
-        let prepared = Prepared::new(
+        let prepared = Prepared::new_with_license(
             &self.config,
             Material {
                 problem: id,
@@ -626,23 +897,21 @@ impl<L: L1Source, P: Poster> Client<L, P> {
                 packages,
                 format,
             },
+            options.license_id,
         )?;
         let commit = prepared.commit;
         let sub = Submission {
-            version: 1,
+            schema_version: 2,
             config_digest: self.config.digest(),
             prepared,
             cancel_requested: false,
-            local_check: if self.hook.is_some() {
-                "local_accept"
-            } else {
-                "not_run"
-            }
-            .into(),
+            local_check: local_check.into(),
             sent: BTreeMap::new(),
             last_error: None,
             observed: None,
             prune_height: None,
+            precheck_gate,
+            precheck_override: options.allow_stale_gate,
         };
         self.save(&sub)?;
         self.submission(commit)
@@ -653,8 +922,46 @@ impl<L: L1Source, P: Poster> Client<L, P> {
         self.submissions.insert(sub.prepared.commit, sub.clone());
         Ok(())
     }
+    fn check_payee(&mut self, payee: [u8; 20]) -> Result<()> {
+        // Pure legacy M2 harnesses have no L2 endpoint. M3 always requires one.
+        if self.l2.is_none() && self.config.m3.is_none() {
+            return Ok(());
+        }
+        let node = self.l2.as_mut().context("L2 payee code probe required")?;
+        let code = retry_rpc(|| node.code(payee))
+            .map_err(|_| anyhow::anyhow!("L2 payee code probe unavailable; COMMIT refused"))?;
+        ensure!(code.is_empty(), "payee has L2 code; COMMIT refused");
+        Ok(())
+    }
+    fn stale_gate(
+        &self,
+        declared: Option<Hash>,
+        next_commit: u64,
+        parts: usize,
+    ) -> Result<Option<StaleGate>> {
+        let Some(profile) = &self.config.m3 else {
+            return Ok(None);
+        };
+        let avail = next_commit
+            .checked_add(self.config.d)
+            .and_then(|h| h.checked_add((parts as u64).div_ceil(self.config.p_blk)))
+            .context("estimated availability overflow")?;
+        let height = avail
+            .checked_add(profile.k)
+            .context("estimated due overflow")?;
+        let forks = &self.chain.as_ref().context("M3 chain")?.forks;
+        let epoch = forks.job_epoch(avail, profile.k)?;
+        let expected = forks.rows[epoch as usize].gate_rule_digest;
+        Ok((declared != Some(expected)).then_some(StaleGate {
+            declared,
+            expected,
+            estimated_earliest_due_height: height,
+        }))
+    }
     pub fn submission(&self, id: Hash) -> Result<Value> {
         let sub = self.submissions.get(&id).context("submission not found")?;
+        let license_id = sub.prepared.license_id()?;
+        let terms_digest = Prepared::license_terms(&self.config, license_id)?;
         let candidate = self.state.candidates.get(&(sub.prepared.problem, id));
         let status = candidate
             .map(|c| SubmissionState::from_candidate(c.status()))
@@ -666,8 +973,72 @@ impl<L: L1Source, P: Poster> Client<L, P> {
         let complete = open
             .map(|o| o.bitmap.iter().map(|b| b.count_ones()).sum::<u32>())
             .unwrap_or(0);
+        let mut view = json!({"schema_version":sub.schema_version,"submission_id":hex_string(&id),"problem_id":hex_string(&sub.prepared.problem),"status":status,"cancel_requested":sub.cancel_requested,"local_check":sub.local_check,"precheck_gate_rule_digest":sub.precheck_gate.map(|h|hex_string(&h)),"allow_stale_gate":sub.precheck_override,"license_id":license_id,"terms_digest":hex_string(&terms_digest),"finalized_parts":complete,"parts":sub.prepared.chunks.len(),"transactions":sub.sent.iter().map(|(stage,s)|json!({"stage":stage,"transaction_hash":s.tx,"failure":s.failure})).collect::<Vec<_>>(),"last_error":sub.last_error,"last_observed_state":sub.observed,"prune_height":sub.prune_height,"fold_height":self.state.height()});
+        view.as_object_mut()
+            .expect("submission view")
+            .extend(crate::m3_status::submission(
+                &self.state,
+                &self.config,
+                (sub.prepared.problem, id),
+            )?);
+        Ok(view)
+    }
+    pub fn rewards(&mut self, payee: [u8; 20]) -> Result<Value> {
+        let entries: Vec<_> = self
+            .state
+            .m3
+            .as_ref()
+            .map(|m| {
+                m.rewards
+                    .values()
+                    .filter(|r| r.solver == payee)
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut views = vec![];
+        let mut balances = BTreeMap::new();
+        for reward in entries {
+            let mut view = crate::m3_status::reward(&self.config, &reward);
+            let vested = self.vested_at.get(&reward.id).copied();
+            view["vested_at"] = json!(vested);
+            view["balance_before"] = Value::Null;
+            view["balance_after"] = Value::Null;
+            view["balance_change"] = Value::Null;
+            view["balance_change_scope"] = json!("payee-total-in-block");
+            if let Some(h) = vested {
+                if let std::collections::btree_map::Entry::Vacant(entry) = balances.entry(h) {
+                    let observation = (|| -> Result<(Hash, Hash)> {
+                        ensure!(
+                            self.stalled.is_none(),
+                            "stalled client cannot refresh balance observations"
+                        );
+                        let node = self.l2.as_mut().context("L2 balance source")?;
+                        let before = retry_rpc(|| {
+                            node.balance(payee, h.checked_sub(1).context("vest height")?)
+                        })?;
+                        let after = retry_rpc(|| node.balance(payee, h))?;
+                        Ok((before, after))
+                    })()
+                    .ok();
+                    entry.insert(observation);
+                }
+                if let Some((before, after)) = balances[&h] {
+                    view["balance_before"] = json!(crate::m3_status::word_hex(&before));
+                    view["balance_after"] = json!(crate::m3_status::word_hex(&after));
+                    view["balance_change"] =
+                        json!(crate::m3_status::balance_delta(&before, &after));
+                    view["balance_status"] = json!("observed");
+                } else {
+                    view["balance_status"] = json!("unavailable");
+                }
+            } else {
+                view["balance_status"] = json!("not-vested");
+            }
+            views.push(view);
+        }
         Ok(
-            json!({"submission_id":hex_string(&id),"problem_id":hex_string(&sub.prepared.problem),"status":status,"cancel_requested":sub.cancel_requested,"local_check":sub.local_check,"finalized_parts":complete,"parts":sub.prepared.chunks.len(),"transactions":sub.sent.iter().map(|(stage,s)|json!({"stage":stage,"transaction_hash":s.tx,"failure":s.failure})).collect::<Vec<_>>(),"last_error":sub.last_error,"last_observed_state":sub.observed,"prune_height":sub.prune_height,"fold_height":self.state.height()}),
+            json!({"payee":hex_string(&payee),"fold_height":self.state.height(),"rewards":views,"stalled":self.stalled,"l2_m2_root_match":self.l2_m2_root_match}),
         )
     }
     pub fn cancel(&mut self, id: Hash) -> Result<Value> {
@@ -679,7 +1050,10 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             .clone();
         if let Some(c) = self.state.candidates.get(&(sub.prepared.problem, id)) {
             ensure!(
-                !matches!(c.status(), Status::Checking | Status::Expired),
+                matches!(
+                    c.status(),
+                    Status::Committed | Status::Open | Status::Cancelled
+                ),
                 "candidate can no longer cancel"
             );
         }
@@ -735,15 +1109,39 @@ impl<L: L1Source, P: Poster> Client<L, P> {
                 .checked_add(self.config.slot_table[problem.slot as usize].solve_deadline)
                 .context("commit deadline overflow")?;
             if problem.closed.is_none() && head.checked_add(1).is_some_and(|n| n <= deadline) {
+                if self.check_payee(sub.prepared.payee()?).is_err() {
+                    sub.last_error = Some(
+                        "COMMIT refused: payee has L2 code or its code probe is unavailable".into(),
+                    );
+                    self.save(&sub)?;
+                    return Ok(());
+                }
+                if sub.local_check != "not_run" {
+                    if self
+                        .stale_gate(
+                            sub.precheck_gate,
+                            head.checked_add(1).context("COMMIT height overflow")?,
+                            sub.prepared.chunks.len(),
+                        )?
+                        .is_some()
+                    {
+                        sub.local_check = "stale-gate".into();
+                        if !sub.precheck_override {
+                            sub.last_error=Some("local_check: stale-gate; COMMIT refused at the current estimated epoch".into());
+                            self.save(&sub)?;
+                            return Ok(());
+                        }
+                    } else {
+                        sub.local_check = "local_accept".into();
+                    }
+                    self.save(&sub)?;
+                }
                 let body = sub.prepared.commit_body(self.account);
                 self.send(&mut sub, "commit", 2, body, head)?;
             }
             return Ok(());
         };
-        if matches!(
-            candidate.status(),
-            Status::Checking | Status::Expired | Status::Cancelled
-        ) {
+        if SubmissionState::from_candidate(candidate.status()).final_state() {
             return Ok(());
         }
         let live = candidate.live().context("live candidate missing")?;
@@ -877,7 +1275,7 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             return Ok(self.status());
         }
         // Durable progress remains inspectable when a bad finalized input stalls.
-        if name != "boole.devnet_submission" {
+        if !matches!(name, "boole.devnet_submission" | "boole.devnet_rewards") {
             self.sync()?;
         } else {
             let _ = self.sync();
@@ -903,13 +1301,30 @@ impl<L: L1Source, P: Poster> Client<L, P> {
                 };
                 self.problem(id)
             }
-            "boole.devnet_commit" => self.commit(
+            "boole.devnet_commit" => self.commit_with_options(
                 Path::new(text("export_file")?),
                 fixed(text("payee")?)?,
                 fixed(text("problem_id")?)?,
+                CommitOptions {
+                    allow_stale_gate: args
+                        .get("allow_stale_gate")
+                        .map(|v| v.as_bool().context("allow_stale_gate must be boolean"))
+                        .transpose()?
+                        .unwrap_or(false),
+                    license_id: args
+                        .get("license_id")
+                        .map(|v| {
+                            v.as_u64()
+                                .and_then(|n| u8::try_from(n).ok())
+                                .context("license_id must be a byte id")
+                        })
+                        .transpose()?
+                        .unwrap_or(1),
+                },
             ),
             "boole.devnet_submission" => self.submission(fixed(text("submission_id")?)?),
             "boole.devnet_cancel" => self.cancel(fixed(text("submission_id")?)?),
+            "boole.devnet_rewards" => self.rewards(fixed(text("payee")?)?),
             _ => bail!("unknown devnet tool"),
         }
     }
@@ -917,7 +1332,7 @@ impl<L: L1Source, P: Poster> Client<L, P> {
 fn submission_name(id: Hash) -> String {
     format!("submission-{}.json", hex_string(&id))
 }
-fn validated_inputs(block: &L1Block, mut logs: Vec<InboxLog>) -> Result<Vec<Input>> {
+pub(crate) fn validated_inputs(block: &L1Block, mut logs: Vec<InboxLog>) -> Result<Vec<Input>> {
     logs.sort_by_key(|l| (l.transaction_index, l.log_index));
     ensure!(
         !logs
