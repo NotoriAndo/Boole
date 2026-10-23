@@ -18,6 +18,29 @@ twelve-hour delegation.
 
 ## Current boundary
 
+**Node environment, testnet node and M3 direction (October 23 decisions).**
+- **Node environment.** Accepted proofs join the node environment under
+  per-receipt namespaces. Definitions are kept in full. Accepted theorems are kept
+  as axioms, and their full proofs stay in the archive. Every new submission is
+  still checked in full.
+- **Local measurements.**
+  - A from-genesis sync reproduced the planned state hash.
+  - Checking proofs in parallel accepted exactly the proofs that the sequential
+    sync accepted.
+  - Environment commitments must use a normalized hash, because raw export bytes
+    differ across construction paths.
+- **Testnet node.** The minimum node is 16 GB of RAM and 4 cores. Withdrawals,
+  after testnet, are optimistic by default: a ZK proof is required only when a
+  verdict claim is disputed.
+- **M3: verdicts, settlement and rewards.**
+  - The design is accepted. Implementation started on the devnet.
+  - Every verifying node runs the gate itself. Due heights follow measured fuel,
+    never proof size.
+  - Rewards stay locked for a maturity period before they are minted, so a kernel
+    fix can cancel only unvested rewards.
+  - The reward unit is the L2 native unit, never bridged ETH.
+  - Testnet minting stays off until the economic design is approved.
+
 **Devnet M2 v1.2 (October 23, devnet reset).** The
 [M2ROOT system deposit](devnet-commit-reveal-v1.2.md) binds each post-fold root
 into every current L2 block after L1-info. The driver validates the commitment
@@ -222,6 +245,25 @@ limited to a safe allowlist; commands that define elaboration code are rejected.
     candidate Challenges are excluded, so the identity step cannot turn
     submission content into an error. An opt-in kernel-checked non-vacuity measurement (G-NONVAC-K) changes
     no required stage and no frozen outcome.
+- **Gate determinism DET2 (October 22–23).** These changes kept the Linux pilot of
+  20 gate runs at exactly 11 PASS and 9 INVALID, with the same reasons.
+  - [#439](https://github.com/NotoriAndo/Boole/pull/439) bounds and hashes every
+    child-process stream. stderr never mixes into stdout. An output or export over
+    its cap stops the stage as `output-cap`. A versioned error policy classifies
+    every failure reason. Replay records are parsed strictly, and a consumer
+    accepts a verdict only when the report and the exit code agree.
+  - [#442](https://github.com/NotoriAndo/Boole/pull/442) ships checker release v2
+    with submission policy v5 and audit grammar v2. Committed proof budgets now
+    apply only inside verification, so trusted setup can no longer use them up and
+    return unavailable. Typed budget markers replace message matching. The frozen
+    v1 package and the existing network genesis pin are unchanged. CI now installs
+    the pinned Lean toolchain before the self-test, as `install.sh` does.
+  - [#443](https://github.com/NotoriAndo/Boole/pull/443) keeps an unresolved
+    reveal in its original position as CHECKING through quarantine. An operator
+    recheck uses the immutable submission bytes. An operator void can release a
+    quarantine that a fixed gate still cannot decide. Replay keeps nonterminal
+    observations and tells unavailable checks apart from disagreements. This adds
+    no reward effect.
 - **Resource verdicts and artifact pins.** Host resource failures, trusted export
   corruption and untyped legacy replay failures return ERROR. The judge binds
   Lean executable/runtime bytes and ordered module roots: `.olean`, `.olean.*`
