@@ -517,7 +517,19 @@ fn round(kind: &str) -> Result<()> {
             18 if quarantine => items.push((4, second.as_ref().unwrap().part(0))),
             18 if kind == "round" => items.push((4, first.as_ref().unwrap().part(0))),
             20 if quarantine => items.push((4, first.as_ref().unwrap().part(0))),
-            27 if kind == "round" => items.push((8, pool(&c, leaf, 1, 30, 2))),
+            27 if kind == "round" => {
+                // POOL refuses reusing a root, even after its leaves were drawn.
+                let next_leaf = boole_derivation::m2::pool_leaf(
+                    c.chain_id,
+                    2,
+                    &[],
+                    1,
+                    pkg.len() as u32,
+                    &carried,
+                    &[10; 32],
+                );
+                items.push((8, pool(&c, next_leaf, 1, 30, 2)));
+            }
             _ => {}
         }
         // A signed L2 user shares the verdict and maturity blocks in I9.
