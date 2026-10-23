@@ -1506,6 +1506,42 @@ struct SandboxedRunOutcome {
     capture_failed: bool,
 }
 
+/// Node-local byte adapters reuse the checker process harness without invoking Lean.
+/// The executable must be authenticated and copied into this private scratch by
+/// the caller. No checker acceptance semantics are exposed by this API.
+pub struct ByteAdapterOutput {
+    pub success: bool,
+    pub exit_code: i32,
+    pub stdout: String,
+    pub unavailable: bool,
+}
+pub fn run_byte_adapter(
+    command: Command,
+    input: std::fs::File,
+    scratch: &std::path::Path,
+    memory_mib: u64,
+    wall_ms: u64,
+    output_cap: usize,
+) -> Result<ByteAdapterOutput> {
+    let mut config = LeanRunnerConfig::new("node-local-byte-adapter")
+        .with_package_dir(scratch)
+        .with_memory_limit_mb(memory_mib)
+        .with_timeout_ms(wall_ms)
+        .with_output_limit_bytes(output_cap)
+        .with_isolation_mode(IsolationMode::Enforce);
+    config.deny_process_spawn = true;
+    let runner = LeanRunner {
+        config: config.clone(),
+    };
+    let output = runner.run_sandboxed_with_config_and_stdin(command, &config, Some(input))?;
+    Ok(ByteAdapterOutput {
+        success: output.success,
+        exit_code: output.exit_code,
+        stdout: output.stdout,
+        unavailable: output.timed_out || output.output_truncated || output.capture_failed,
+    })
+}
+
 /// Released v2 checker artifact identity (audit grammar v2).
 pub const CHECKER_RELEASE_HASH: &str =
     "8174cf67577e7ab2490b6d4c98f75bc131056462fa50d9909dd1eb47311b9ea6";

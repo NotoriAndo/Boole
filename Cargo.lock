@@ -377,6 +377,7 @@ dependencies = [
  "anyhow",
  "base64",
  "boole-derivation",
+ "boole-gate-supervisor",
  "clap",
  "k256",
  "reqwest",
@@ -392,6 +393,7 @@ dependencies = [
  "anyhow",
  "boole-derivation",
  "boole-devnet-driver",
+ "boole-gate-supervisor",
  "clap",
  "k256",
  "reqwest",
@@ -423,6 +425,22 @@ dependencies = [
  "sha2",
  "sp1-verifier",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "boole-gate-supervisor"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "boole-derivation",
+ "boole-devnet-driver",
+ "boole-lean-runner",
+ "hex",
+ "k256",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]

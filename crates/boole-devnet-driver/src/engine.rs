@@ -38,6 +38,10 @@ pub fn retry_rpc<T>(mut read: impl FnMut() -> Result<T>) -> Result<T> {
 }
 
 pub trait Engine {
+    fn transactions(&mut self, _height: u64) -> Result<Vec<String>> {
+        bail!("Engine source does not expose raw historical transactions")
+    }
+
     fn head(&mut self) -> Result<ParentHeader>;
     fn header(&mut self, _height: u64) -> Result<ParentHeader> {
         bail!("Engine node source does not support anchored restart")
@@ -201,6 +205,31 @@ pub fn read_l2_header(node: &Rpc, tag: Value) -> Result<Option<ParentHeader>> {
     Ok(Some(parent))
 }
 impl Engine for RpcEngine {
+    fn transactions(&mut self, height: u64) -> Result<Vec<String>> {
+        let block = self.node.call(
+            "eth_getBlockByNumber",
+            json!([format!("0x{height:x}"), false]),
+        )?;
+        let mut out = vec![];
+        for tx in block["transactions"]
+            .as_array()
+            .context("historical transaction list")?
+        {
+            let hash = tx.as_str().context("transaction hash")?;
+            let value = self
+                .node
+                .call("eth_getRawTransactionByHash", json!([hash]))?;
+            let raw = value.as_str().context("raw historical transaction")?;
+            let bytes = boole_derivation::attributes::hex_bytes(raw, "historical transaction")?;
+            if !boole_derivation::attributes::hex_string(&boole_derivation::user_tx::keccak(&bytes))
+                .eq_ignore_ascii_case(hash)
+            {
+                bail!("raw transaction hash mismatch");
+            }
+            out.push(raw.to_owned());
+        }
+        Ok(out)
+    }
     fn head(&mut self) -> Result<ParentHeader> {
         read_l2_header(&self.node, json!("latest"))?.context("L2 head missing")
     }
