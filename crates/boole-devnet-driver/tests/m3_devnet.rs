@@ -278,7 +278,7 @@ fn m3_m3_full_256_verdict_gas_reward_mint_failure_and_nonce() -> Result<()> {
     record(
         "BOOLE_DEVNET_M3_MEASUREMENT",
         &rt,
-        json!({"schema":"boole-devnet-m3-measurement-v1.3","scope":"execution probes; extra deposits intentionally injected outside the consensus fold","config":c,"l1_genesis":l1_genesis_value()?,"l2_genesis":genesis,"acceptance":{"abc":true,"full_records":256,"rw3_matches":true},"heights":rows}),
+        json!({"schema":"boole-devnet-m3-measurement-v1.3","scope":"execution probes; extra deposits intentionally injected outside the consensus fold","config_json":String::from_utf8(serde_json::to_vec(&c)?)?,"l1_genesis":l1_genesis_value()?,"l2_genesis":genesis,"acceptance":{"abc":true,"full_records":256,"rw3_matches":true},"heights":rows}),
     )?;
     Ok(())
 }
@@ -829,7 +829,7 @@ fn round(kind: &str) -> Result<()> {
     record(
         variable,
         &rt,
-        json!({"schema":"boole-devnet-m3-recording-v1.3","scenario":kind,"config":c,"forks":forks,"gate_descriptors":workers.iter().map(|w|&w.descriptor).collect::<Vec<_>>(),"l1_genesis":l1g,"l2_genesis":genesis,"acceptance":{"live_abc":true,"mid_queue_restart":18,"fresh_late_start":22,"mutated_verdict":mutant,"all_defer":pending},"unfinalized_completion_reorg":reorg,"final_state":final_state,"heights":rows.into_iter().take(100).collect::<Vec<_>>()}),
+        json!({"schema":"boole-devnet-m3-recording-v1.3","scenario":kind,"config_json":String::from_utf8(serde_json::to_vec(&c)?)?,"forks":forks,"gate_descriptors":workers.iter().map(|w|&w.descriptor).collect::<Vec<_>>(),"l1_genesis":l1g,"l2_genesis":genesis,"acceptance":{"live_abc":true,"mid_queue_restart":18,"fresh_late_start":22,"mutated_verdict":mutant,"all_defer":pending},"unfinalized_completion_reorg":reorg,"final_state":final_state,"heights":rows.into_iter().take(100).collect::<Vec<_>>()}),
     )?;
     Ok(())
 }

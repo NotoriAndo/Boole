@@ -34,7 +34,7 @@ Set distinct fresh candidate paths in `BOOLE_DEVNET_M3_MEASUREMENT`,
 Run the measurement test first, then the I9–I12 tests. Outputs are written only
 after A/B/C comparisons and strict log/process cleanup pass. Existing candidate
 files are refused. The source, shared support, client and reset genesis hashes
-are generated in tracked code, with the full config, descriptors, L1 and L2
+are generated in tracked code, with exact canonical config JSON text (preserving u128 reward integers), descriptors, L1 and L2
 genesis and per-height observations. No private metadata patching is required.
 
 The 256-record gas probe uses a 256-record batch capacity; the active devnet
