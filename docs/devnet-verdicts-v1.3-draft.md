@@ -7,13 +7,9 @@ The node supplies verdicts to a pure fold; the fold never reads files, clocks,
 RPC, peer results or host resources. M3b must supply and independently verify
 those results before enabling the profile.
 
-**Unresolved consensus encoding:** the design gives fork event `08` an epoch,
-gate digest, kind byte and list digest, but does not assign kind bytes or define
-the list digest preimage. This implementation refuses every non-genesis fork
-activation with `UnspecifiedForkEncoding`. It implements the logical recheck
-set, epoch selection, history guard and recheck result transitions separately.
-It does not choose substitute consensus bytes. Consequently fork activation,
-quarantine release and their complete replay qualification remain unfinished.
+Fork activation uses amendment R-4's canonical kind and disposition bytes,
+list digest and 69-byte body. Pure tests qualify activation, quarantine release
+and replay from genesis. The profile remains inactive on the devnet.
 
 ## Staging, configuration and startup
 
@@ -92,7 +88,7 @@ or a verdict. Any error leaves the caller's state unchanged.
 
 ## Height order and outcomes
 
-The order is fork activation (currently refused), ties for the previous height,
+The order is fork activation and recheck enqueueing, ties for the previous height,
 due verdicts, slot events, expiry, M2 pruning, inbox logs and new completions,
 settlement in ascending problem id, vesting, then root.
 
@@ -155,13 +151,38 @@ BOOLE-M3/MANIFEST/v1 || u32be(count) ||
 ```
 
 FORK_TABLE is an explicit input outside immutable Config. Genesis is epoch zero,
-height zero and the configured gate digest. A KERNEL-FIX logical recheck set
-contains older-epoch ACCEPTED, PASSED and REJECTED(kernel-fault) candidates, sorted
-by their original queue index. POLICY has no recheck set. QUARANTINE names
-CHECKING candidates whose original queue positions must be retained. Past table
-rows are pinned in state and cannot be inserted, removed or changed retroactively.
-The event08 encoding gap above prevents actual non-genesis activation here.
-No dependency taint or nonempty deps is enabled.
+height zero and the configured gate digest. Epochs are consecutive, activation
+heights strictly increase, and past rows are pinned in state: they cannot be
+inserted, removed or changed retroactively. A future row can be added.
+
+At a KERNEL-FIX activation H, older-epoch ACCEPTED, PASSED and
+REJECTED(kernel-fault) candidates enter kind-2 rechecks in original queue order.
+Each new job has avail=H and the activating epoch. PASSED candidates become
+pending immediately, before verdicts and same-height logs can release a barrier.
+POLICY only selects epochs for new jobs and never enqueues rechecks or makes
+candidates STALE.
+
+QUARANTINE names unapplied CHECKING first-verdict jobs. It changes their epoch
+without appending a job or changing their original queue index, avail or frozen
+positions. RECHECK supplies their first verdict under the fixed gate. VOID
+requires outcome VOID and reason 0802, including when a supplied future result
+moves the due height later. It releases only that candidate's barrier, leaves
+the problem open and grants it no reward. List order never reorders the queue.
+
+R-4 assigns kind bytes GENESIS=0, KERNEL-FIX=1, QUARANTINE=2, POLICY=3 and
+dispositions RECHECK=1, VOID=2. Only QUARANTINE carries entries, at least one;
+the other kinds require an empty list. Entries are in strictly increasing
+commit-hash byte order: duplicates and unsorted lists fail S14. The digest is:
+
+```text
+SHA256("BOOLE-M3/FORK-LIST/v1" || u32be(count) ||
+       (commit_hash32 || disposition_u8)*count)
+```
+
+The empty list uses the same domain and count zero. The activation body is
+`epoch_u32be || gate_rule_digest32 || kind_u8 || list_digest32`, exactly 69 bytes.
+E_h prefixes it with the record tag 08 (70 bytes including that tag). No dependency
+taint or nonempty deps is enabled.
 
 ## Deposits, events and root bytes
 
@@ -215,7 +236,7 @@ M2 event formats stay unchanged. Additions, including the leading type byte:
 | 03 | existing round record, with C5 settlement/C6 void/C7 stale |
 | 06 | reward_id u64be, problem32, commit32, solver20, amount u128be, vest_h u64be, event u8 |
 | 07 | admission k u64be, problem32, commit32, event u8 |
-| 08 | epoch u32be, gate_digest32, kind u8, list_digest32; encoding unresolved, refused |
+| 08 | epoch u32be, gate_digest32, kind u8, list_digest32 (69-byte body, 70 with tag) |
 
 Reward events are 1 LOCKED, 2 VESTED, 3 CANCELLED, 4 COMPENSATION-created.
 Admission events are 1 ADMITTED, 2 RETIRED. Events follow the height order above.
@@ -231,8 +252,13 @@ reproduces [wire/config/event goldens](../fixtures/devnet-m3/system-v1.3.json)
 with `--check`. A separate [Registry generator](../scripts/devnet/generate_m3_service_vectors.py)
 reproduces the [VOID parity checkpoint](../fixtures/devnet-m3/service-void-v1.3.json)
 through the real commit/reveal/recheck/void APIs with injected verifier outcomes.
-It compares retained states without claiming fork activation coverage.
+The pure fold applies an actual QUARANTINE activation for the VOID parity checkpoint.
 Existing v1.2 recordings are not regenerated. Pure tests cover
-the queue, fuel, transitions, settlement, vesting, recheck fixtures, service
-parity and 51,000 decoder mutations. They do not qualify live fork activation,
-supervisor behavior, L2 balances or the inactive devnet profile.
+the queue, fuel, transitions, settlement, vesting, activation-driven rechecks,
+service parity and 51,000 decoder mutations. Fork qualification compares every
+height's event bytes, root and VERDICT/REWARD attributes between independent
+folds from genesis, restarts at an activated checkpoint, refuses changed past
+rows and observes root divergence at a changed activation. The independent
+Python vectors cover all kind/list bytes and three-profile activation roots.
+These tests do not qualify supervisor behavior, L2 balances or live activation
+of the inactive devnet profile.

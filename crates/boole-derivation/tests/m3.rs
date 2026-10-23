@@ -1197,10 +1197,16 @@ fn t59_kernel_fix_plan_uses_original_queue_order_and_exact_recheck_set() {
     }
     table.rows[1].kind = ForkKind::Policy;
     assert!(table.recheck_set(&s, h).unwrap().is_empty());
-    assert!(
-        s.step_with_verdicts(&c, &block(h), &[], &[], &table)
-            .is_err(),
-        "activation cannot invent event08 encoding"
+    let out = s
+        .step_with_verdicts(&c, &block(h), &[], &[], &table)
+        .unwrap();
+    assert_eq!(
+        &out.events[1..70],
+        &table.rows[1].activation_record().unwrap()
+    );
+    assert_eq!(
+        out.state.m3.as_ref().unwrap().queue.len(),
+        s.m3.as_ref().unwrap().queue.len()
     );
 }
 
@@ -1711,9 +1717,17 @@ fn t59_passed_candidate_waits_for_recheck_even_after_barrier_cancel() {
         )
         .unwrap()
         .state;
-    let mut v = recheck_fixture(&mut s, (p, b), 0);
-    v.record.outcome = Outcome::Accept;
-    v.record.reason = 0;
+    let mut forks = forks;
+    forks.rows.push(ForkRow {
+        epoch: 1,
+        height: 20,
+        gate_rule_digest: hash(b"passed recheck gate"),
+        kind: ForkKind::KernelFix,
+        list: vec![],
+    });
+    let mut v = verdict(1, b, Outcome::Accept, 0, 0);
+    v.record.kind = RecordKind::Recheck;
+    v.record.gate_epoch = 1;
     s = s
         .step_with_verdicts(
             &c,
@@ -1727,11 +1741,15 @@ fn t59_passed_candidate_waits_for_recheck_even_after_barrier_cancel() {
     assert_eq!(s.candidates[&(p, b)].status() as u8, 6);
     assert!(s.problems[&p].winner.is_none());
     assert!(s.m3.as_ref().unwrap().rewards.is_empty());
-    assert!(s
+    s = s
         .step_with_verdicts(&c, &block(21), &[], &[], &forks)
+        .unwrap()
+        .state;
+    assert!(s
+        .step_with_verdicts(&c, &block(22), &[], &[], &forks)
         .is_err());
     let out = s
-        .step_with_verdicts(&c, &block(21), &[], &[v], &forks)
+        .step_with_verdicts(&c, &block(22), &[], &[v], &forks)
         .unwrap();
     assert_eq!(out.state.problems[&p].winner, Some(b));
     assert!(out.state.m3.as_ref().unwrap().pending_rechecks.is_empty());
@@ -1844,16 +1862,21 @@ fn t55_real_service_void_checkpoint_releases_the_same_barrier() {
         .step_with_verdicts(&c, &block(21), &[], &[], &forks)
         .is_err());
     assert_eq!(vector["rows"][2]["statuses"]["1"], "QUARANTINED");
-    // This tests the pure VOID checkpoint. It does not synthesize event08 or
-    // claim that an actual QUARANTINE activation can yet be encoded/replayed.
+    let mut forks = forks;
+    forks.rows.push(ForkRow {
+        epoch: 1,
+        height: 21,
+        gate_rule_digest: hash(b"Registry parity quarantine"),
+        kind: ForkKind::Quarantine,
+        list: vec![ForkItem {
+            commit_hash: a,
+            disposition: Disposition::Void,
+        }],
+    });
+    let mut release = verdict(1, a, Outcome::Void, QUARANTINE_VOID, 0);
+    release.record.gate_epoch = 1;
     let out = s
-        .step_with_verdicts(
-            &c,
-            &block(21),
-            &[],
-            &[verdict(1, a, Outcome::Void, QUARANTINE_VOID, 0)],
-            &forks,
-        )
+        .step_with_verdicts(&c, &block(21), &[], &[release], &forks)
         .unwrap();
     let statuses = [(a, "1"), (b, "2")]
         .into_iter()
@@ -1873,4 +1896,626 @@ fn t55_real_service_void_checkpoint_releases_the_same_barrier() {
     assert_eq!(out.state.problems[&p].winner, Some(b));
     assert_eq!(vector["rows"][3]["winner"], 2);
     assert!(!out.state.problems[&p].voided);
+}
+
+#[test]
+fn fork_r4_s14_requires_canonical_kind_lists() {
+    use boole_derivation::m3::*;
+    let c = scenario::m3_cfg();
+    let item = ForkItem {
+        commit_hash: [1; 32],
+        disposition: Disposition::Recheck,
+    };
+    for kind in [ForkKind::Genesis, ForkKind::KernelFix, ForkKind::Policy] {
+        let mut t = ForkTable::genesis(&c).unwrap();
+        if kind == ForkKind::Genesis {
+            t.rows[0].list.push(item.clone());
+        } else {
+            t.rows.push(ForkRow {
+                epoch: 1,
+                height: 20,
+                gate_rule_digest: [2; 32],
+                kind,
+                list: vec![item.clone()],
+            });
+        }
+        assert_eq!(t.validate(&c), Err(14), "{kind:?} must have an empty list");
+    }
+    for list in [
+        vec![],
+        vec![item.clone(), item.clone()],
+        vec![
+            ForkItem {
+                commit_hash: [2; 32],
+                disposition: Disposition::Void,
+            },
+            item.clone(),
+        ],
+    ] {
+        let mut t = ForkTable::genesis(&c).unwrap();
+        t.rows.push(ForkRow {
+            epoch: 1,
+            height: 20,
+            gate_rule_digest: [2; 32],
+            kind: ForkKind::Quarantine,
+            list,
+        });
+        assert_eq!(t.validate(&c), Err(14));
+    }
+}
+
+#[test]
+fn fork_kernel_fix_activation_enqueues_in_original_order() {
+    use boole_derivation::{m2::Status, m3::*};
+    use scenario::*;
+    let c = m3_cfg();
+    let (s, p, a, b) = kernel_fault_and_winner(&c);
+    let mut forks = ForkTable::genesis(&c).unwrap();
+    forks.rows.push(ForkRow {
+        epoch: 1,
+        height: 22,
+        gate_rule_digest: hash(b"fixed gate"),
+        kind: ForkKind::KernelFix,
+        list: vec![],
+    });
+    let out = s
+        .step_with_verdicts(&c, &block(22), &[], &[], &forks)
+        .unwrap();
+    assert_eq!(out.events[0], 8);
+    assert_eq!(&out.events[1..5], &1u32.to_be_bytes());
+    assert_eq!(&out.events[5..37], &hash(b"fixed gate"));
+    assert_eq!(out.events[37], 1);
+    let m = out.state.m3.as_ref().unwrap();
+    assert_eq!(m.queue.len(), 4);
+    assert_eq!(m.queue[2].key, (p, b));
+    assert_eq!(m.queue[3].key, (p, a));
+    for (i, j) in m.queue[2..].iter().enumerate() {
+        assert_eq!(
+            (j.queue_index, j.kind, j.avail, j.epoch_override),
+            (2 + i as u64, RecordKind::Recheck, 22, Some(1))
+        );
+    }
+    assert_eq!(m.pending_rechecks, [(p, a), (p, b)].into());
+    assert_eq!(m.fork_history, forks.rows);
+    let s = out
+        .state
+        .step_with_verdicts(&c, &block(23), &[], &[], &forks)
+        .unwrap()
+        .state;
+    assert!(s
+        .step_with_verdicts(&c, &block(24), &[], &[], &forks)
+        .is_err());
+    let mut records = vec![
+        verdict(2, b, Outcome::Reject, 0x0301, 0),
+        verdict(3, a, Outcome::Accept, 0, 0),
+    ];
+    for v in &mut records {
+        v.record.kind = RecordKind::Recheck;
+        v.record.gate_epoch = 1;
+    }
+    let out = s
+        .step_with_verdicts(&c, &block(24), &[], &records, &forks)
+        .unwrap();
+    assert_eq!(out.state.candidates[&(p, b)].status(), Status::Stale);
+    assert_eq!(out.state.candidates[&(p, a)].status(), Status::Accepted);
+    let m = out.state.m3.as_ref().unwrap();
+    assert!(m.pending_rechecks.is_empty());
+    assert!(m.admissions[&1].retired);
+    assert!(m.rewards[&1].compensation);
+}
+
+#[test]
+fn fork_quarantine_releases_at_original_index_and_binds_disposition() {
+    use boole_derivation::{
+        m2::{cancel_hash, Status},
+        m3::*,
+    };
+    use scenario::*;
+    let c = m3_cfg();
+    let (mut s, p, a, b, ab) = checking_with_blocker(&c);
+    run(
+        &mut s,
+        &c,
+        vec![input(3, open(&ab, cancel_hash(&[8; 32])), 0)],
+    );
+    let genesis = ForkTable::genesis(&c).unwrap();
+    s = s
+        .step_with_verdicts(
+            &c,
+            &block(19),
+            &[input(4, part(a, 0, &[], &[42; 7]), 0)],
+            &[verdict(0, b, Outcome::Accept, 0, 0)],
+            &genesis,
+        )
+        .unwrap()
+        .state;
+    run(&mut s, &c, vec![]);
+    assert!(s
+        .step_with_verdicts(&c, &block(21), &[], &[], &genesis)
+        .is_err());
+    for disposition in [Disposition::Recheck, Disposition::Void] {
+        let mut t = genesis.clone();
+        t.rows.push(ForkRow {
+            epoch: 1,
+            height: 21,
+            gate_rule_digest: hash(b"quarantine gate"),
+            kind: ForkKind::Quarantine,
+            list: vec![ForkItem {
+                commit_hash: a,
+                disposition,
+            }],
+        });
+        let mut v = verdict(1, a, Outcome::Accept, 0, 0);
+        if disposition == Disposition::Void {
+            v.record.outcome = Outcome::Void;
+            v.record.reason = QUARANTINE_VOID;
+        }
+        assert!(
+            s.step_with_verdicts(&c, &block(21), &[], &[v.clone()], &t)
+                .is_err(),
+            "old epoch refused"
+        );
+        v.record.gate_epoch = 1;
+        if disposition == Disposition::Void {
+            let mut bad = v.clone();
+            bad.record.outcome = Outcome::Accept;
+            bad.record.reason = 0;
+            assert!(s
+                .step_with_verdicts(&c, &block(21), &[], &[bad], &t)
+                .is_err());
+        }
+        let out = s
+            .step_with_verdicts(&c, &block(21), &[], &[v.clone()], &t)
+            .unwrap();
+        assert_eq!(out.events[0], 8);
+        assert_eq!(out.events[70], 5, "activation precedes verdict");
+        assert_eq!(out.verdicts, vec![v]);
+        let m = out.state.m3.as_ref().unwrap();
+        assert_eq!((m.queue.len(), m.next_applied), (2, 2));
+        assert_eq!(
+            (m.queue[1].queue_index, m.queue[1].avail, m.queue[1].kind),
+            (1, 19, RecordKind::Verdict)
+        );
+        assert_eq!(
+            out.state.problems[&p].winner,
+            Some(if disposition == Disposition::Void {
+                b
+            } else {
+                a
+            })
+        );
+        assert_eq!(
+            out.state.candidates[&(p, a)].status(),
+            if disposition == Disposition::Void {
+                Status::Void
+            } else {
+                Status::Accepted
+            }
+        );
+        assert!(!out.state.problems[&p].voided);
+        assert!(m
+            .rewards
+            .values()
+            .all(|r| r.key.1 != a || disposition == Disposition::Recheck));
+        for ch in [b, [0; 32]] {
+            let mut bad = t.clone();
+            bad.rows[1].list[0].commit_hash = ch;
+            assert!(s
+                .step_with_verdicts(&c, &block(21), &[], &[], &bad)
+                .is_err());
+        }
+    }
+    assert_eq!(s.height(), 20);
+    assert_eq!(s.candidates[&(p, a)].status(), Status::Checking);
+}
+
+#[test]
+fn fork_r4_bytes_and_three_profile_roots_match_independent_python() {
+    use boole_derivation::{
+        m2::{Config, State},
+        m3::*,
+    };
+    use scenario::*;
+    let v: serde_json::Value =
+        serde_json::from_str(include_str!("../../../fixtures/devnet-m3/system-v1.3.json")).unwrap();
+    for row in v["forks"].as_array().unwrap() {
+        let kind = match row["kind"].as_u64().unwrap() {
+            0 => ForkKind::Genesis,
+            1 => ForkKind::KernelFix,
+            2 => ForkKind::Quarantine,
+            _ => ForkKind::Policy,
+        };
+        let r = ForkRow {
+            epoch: row["epoch"].as_u64().unwrap() as u32,
+            height: 1,
+            gate_rule_digest: hex::decode(row["gate_rule_digest"].as_str().unwrap())
+                .unwrap()
+                .try_into()
+                .unwrap(),
+            kind,
+            list: row["entries"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|i| ForkItem {
+                    commit_hash: hex::decode(i["commit_hash"].as_str().unwrap())
+                        .unwrap()
+                        .try_into()
+                        .unwrap(),
+                    disposition: if i["disposition"] == 1 {
+                        Disposition::Recheck
+                    } else {
+                        Disposition::Void
+                    },
+                })
+                .collect(),
+        };
+        assert_eq!(
+            hex::encode(r.list_digest().unwrap()),
+            row["list_digest"].as_str().unwrap()
+        );
+        assert_eq!(
+            hex::encode(r.activation_record().unwrap()),
+            row["body"].as_str().unwrap()
+        );
+    }
+    for (i, mut c) in [
+        Config::devnet(),
+        Config::lean_testnet(720927),
+        Config::production(720928),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        c.m3 = Some(if i == 0 {
+            M3Config::devnet(c.slot_table.len())
+        } else {
+            M3Config::lean_testnet(c.slot_table.len())
+        });
+        let mut t = ForkTable::genesis(&c).unwrap();
+        t.rows.push(ForkRow {
+            epoch: 1,
+            height: 1,
+            gate_rule_digest: hash(b"policy gate"),
+            kind: ForkKind::Policy,
+            list: vec![],
+        });
+        let s = State::new(&c, if i == 0 { 30_000_000 } else { 60_000_000 }).unwrap();
+        let out = s.step_with_verdicts(&c, &block(1), &[], &[], &t).unwrap();
+        assert_eq!(out.events.len(), 70);
+        assert_eq!(
+            hex::encode(out.state.root),
+            v["profiles"][i]["policy_root_1"].as_str().unwrap()
+        );
+    }
+}
+
+#[test]
+fn fork_quarantine_epoch_override_preserves_a_fuel_delayed_queue() {
+    use boole_derivation::{
+        m2::{cancel_hash, Status},
+        m3::*,
+    };
+    use scenario::*;
+    let c = m3_cfg();
+    let (mut s, p) = opened(&c);
+    let (a, ab, ap, _) = candidate(&c, &mut s, p, 7);
+    let (b, bb, bp, _) = candidate(&c, &mut s, p, 8);
+    until(&mut s, &c, 15);
+    run(
+        &mut s,
+        &c,
+        vec![
+            input(3, open(&ab, cancel_hash(&[8; 32])), 0),
+            input(3, open(&bb, cancel_hash(&[8; 32])), 1),
+        ],
+    );
+    run(
+        &mut s,
+        &c,
+        vec![
+            input(4, part(b, 0, &[], &bp[0]), 0),
+            input(4, part(a, 0, &[], &ap[0]), 1),
+        ],
+    );
+    run(&mut s, &c, vec![]);
+    let genesis = ForkTable::genesis(&c).unwrap();
+    let heavy = verdict(0, b, Outcome::Accept, 0, 3000);
+    for h in 19..21 {
+        s = s
+            .step_with_verdicts(&c, &block(h), &[], std::slice::from_ref(&heavy), &genesis)
+            .unwrap()
+            .state;
+    }
+    assert!(s
+        .step_with_verdicts(&c, &block(21), &[], std::slice::from_ref(&heavy), &genesis)
+        .is_err());
+    let mut t = genesis;
+    t.rows.push(ForkRow {
+        epoch: 1,
+        height: 21,
+        gate_rule_digest: hash(b"delayed quarantine"),
+        kind: ForkKind::Quarantine,
+        list: vec![ForkItem {
+            commit_hash: a,
+            disposition: Disposition::Void,
+        }],
+    });
+    let mut release = verdict(1, a, Outcome::Void, QUARANTINE_VOID, 0);
+    release.record.gate_epoch = 1;
+    let out = s
+        .step_with_verdicts(&c, &block(21), &[], &[heavy, release], &t)
+        .unwrap();
+    assert_eq!(out.state.problems[&p].winner, Some(b));
+    assert_eq!(out.state.candidates[&(p, a)].status(), Status::Void);
+    let m = out.state.m3.as_ref().unwrap();
+    assert_eq!(m.queue[0].epoch_override, None);
+    assert_eq!(m.queue[1].epoch_override, Some(1));
+    assert_eq!(
+        m.queue
+            .iter()
+            .map(|j| (j.queue_index, j.avail))
+            .collect::<Vec<_>>(),
+        vec![(0, 17), (1, 17)]
+    );
+    assert_eq!(m.next_applied, 2);
+}
+
+#[test]
+fn fork_full_genesis_replay_restart_and_changed_history_qualification() {
+    use boole_derivation::{
+        m2::{cancel_hash, State, Status},
+        m3::*,
+    };
+    use scenario::*;
+    let c = m3_cfg();
+    let (mut preparation, p) = opened(&c);
+    let (a, ab, _, _) = candidate(&c, &mut preparation, p, 7);
+    let (b, bb, _, _) = candidate(&c, &mut preparation, p, 8);
+    for quarantine in [false, true] {
+        let mut forks = ForkTable::genesis(&c).unwrap();
+        if quarantine {
+            forks.rows.push(ForkRow {
+                epoch: 1,
+                height: 21,
+                gate_rule_digest: hash(b"release gate"),
+                kind: ForkKind::Quarantine,
+                list: vec![ForkItem {
+                    commit_hash: a,
+                    disposition: Disposition::Void,
+                }],
+            });
+        }
+        let fix_epoch = if quarantine { 2 } else { 1 };
+        forks.rows.push(ForkRow {
+            epoch: fix_epoch,
+            height: 22,
+            gate_rule_digest: hash(b"fixed gate"),
+            kind: ForkKind::KernelFix,
+            list: vec![],
+        });
+        forks.rows.push(ForkRow {
+            epoch: fix_epoch + 1,
+            height: 25,
+            gate_rule_digest: hash(b"policy gate"),
+            kind: ForkKind::Policy,
+            list: vec![],
+        });
+        let mut tape = Vec::new();
+        for h in 1..=30 {
+            let items = match h {
+                1 => vec![input(
+                    8,
+                    pool(
+                        &c,
+                        pool_leaf(c.chain_id, 2, &[], b"generator-v1", &[9; 32]),
+                        1,
+                        3,
+                        1,
+                    ),
+                    0,
+                )],
+                5 => vec![input(
+                    9,
+                    problem_body(0, 1, 0, &[], [9; 32], &[], b"generator-v1"),
+                    0,
+                )],
+                6 => vec![input(2, commit(p, a), 0)],
+                7 => vec![input(2, commit(p, b), 0)],
+                16 => vec![input(3, open(&bb, cancel_hash(&[8; 32])), 0)],
+                17 => vec![input(4, part(b, 0, &[], &[42; 8]), 0)],
+                18 => vec![input(3, open(&ab, cancel_hash(&[8; 32])), 0)],
+                19 => vec![input(4, part(a, 0, &[], &[42; 7]), 0)],
+                _ => vec![],
+            };
+            let mut records = match h {
+                19 => vec![verdict(0, b, Outcome::Accept, 0, 0)],
+                21 => vec![verdict(
+                    1,
+                    a,
+                    if quarantine {
+                        Outcome::Void
+                    } else {
+                        Outcome::Reject
+                    },
+                    if quarantine {
+                        QUARANTINE_VOID
+                    } else {
+                        KERNEL_FAULT
+                    },
+                    0,
+                )],
+                24 => {
+                    if quarantine {
+                        vec![verdict(2, b, Outcome::Accept, 0, 0)]
+                    } else {
+                        vec![
+                            verdict(2, b, Outcome::Reject, 0x0301, 0),
+                            verdict(3, a, Outcome::Accept, 0, 0),
+                        ]
+                    }
+                }
+                _ => vec![],
+            };
+            if h == 21 && quarantine {
+                records[0].record.gate_epoch = 1;
+            }
+            if h == 24 {
+                for r in &mut records {
+                    r.record.kind = RecordKind::Recheck;
+                    r.record.gate_epoch = fix_epoch;
+                }
+            }
+            tape.push((h, items, records));
+        }
+        let mut baseline = State::new(&c, 30_000_000).unwrap();
+        let mut replay = State::new(&c, 30_000_000).unwrap();
+        let mut restart = None;
+        for (h, items, records) in &tape {
+            let out = baseline
+                .step_with_verdicts(&c, &block(*h), items, records, &forks)
+                .unwrap();
+            let copy = replay
+                .step_with_verdicts(&c, &block(*h), items, records, &forks)
+                .unwrap();
+            assert_eq!(out.events, copy.events);
+            assert_eq!(out.state.root, copy.state.root);
+            assert_eq!(
+                verdict_deposits(&c, &block(*h), &out.verdicts).unwrap(),
+                verdict_deposits(&c, &block(*h), &copy.verdicts).unwrap()
+            );
+            assert_eq!(
+                out.payments
+                    .iter()
+                    .map(|p| reward_deposit(&c, &block(*h), p).unwrap())
+                    .collect::<Vec<_>>(),
+                copy.payments
+                    .iter()
+                    .map(|p| reward_deposit(&c, &block(*h), p).unwrap())
+                    .collect::<Vec<_>>()
+            );
+            if *h == 22 {
+                restart = Some(out.state.clone());
+            }
+            baseline = out.state;
+            replay = copy.state;
+        }
+        let mut restarted = restart.unwrap();
+        for (h, items, records) in &tape {
+            if *h > 22 {
+                restarted = restarted
+                    .step_with_verdicts(&c, &block(*h), items, records, &forks)
+                    .unwrap()
+                    .state;
+            }
+        }
+        assert_eq!(baseline.root, restarted.root);
+        assert_eq!(
+            baseline.candidates[&(p, b)].status(),
+            if quarantine {
+                Status::Accepted
+            } else {
+                Status::Stale
+            }
+        );
+        let m = baseline.m3.as_ref().unwrap();
+        assert_eq!(m.fork_history, forks.rows);
+        assert!(m.pending_rechecks.is_empty());
+        assert_eq!(m.next_applied, m.queue.len());
+        assert_eq!(m.rewards.len(), if quarantine { 1 } else { 2 });
+        let before = baseline.root;
+        let mut changed = forks.clone();
+        changed.rows[1].gate_rule_digest[0] ^= 1;
+        assert!(baseline
+            .step_with_verdicts(&c, &block(31), &[], &[], &changed)
+            .is_err());
+        let mut wrong = State::new(&c, 30_000_000).unwrap();
+        let mut diverged = false;
+        for (h, items, records) in &tape {
+            let out = wrong
+                .step_with_verdicts(&c, &block(*h), items, records, &changed)
+                .unwrap();
+            if *h == changed.rows[1].height {
+                let mut original = State::new(&c, 30_000_000).unwrap();
+                for (n, i, r) in &tape {
+                    if n > h {
+                        break;
+                    }
+                    original = original
+                        .step_with_verdicts(&c, &block(*n), i, r, &forks)
+                        .unwrap()
+                        .state;
+                }
+                assert_ne!(out.state.root, original.root);
+                diverged = true;
+                break;
+            }
+            wrong = out.state;
+        }
+        assert!(diverged);
+        assert_eq!(baseline.root, before);
+    }
+}
+
+#[test]
+fn fork_quarantine_void_remains_bound_until_a_future_result_applies() {
+    use boole_derivation::{
+        m2::{cancel_hash, Status},
+        m3::*,
+    };
+    use scenario::*;
+    let c = m3_cfg();
+    let (mut s, p, a, b, ab) = checking_with_blocker(&c);
+    run(
+        &mut s,
+        &c,
+        vec![input(3, open(&ab, cancel_hash(&[8; 32])), 0)],
+    );
+    let mut forks = ForkTable::genesis(&c).unwrap();
+    s = s
+        .step_with_verdicts(
+            &c,
+            &block(19),
+            &[input(4, part(a, 0, &[], &[42; 7]), 0)],
+            &[verdict(0, b, Outcome::Accept, 0, 0)],
+            &forks,
+        )
+        .unwrap()
+        .state;
+    run(&mut s, &c, vec![]);
+    forks.rows.push(ForkRow {
+        epoch: 1,
+        height: 21,
+        gate_rule_digest: hash(b"future VOID"),
+        kind: ForkKind::Quarantine,
+        list: vec![ForkItem {
+            commit_hash: a,
+            disposition: Disposition::Void,
+        }],
+    });
+    let mut v = verdict(1, a, Outcome::Void, QUARANTINE_VOID, 10000);
+    v.record.gate_epoch = 1;
+    for h in 21..30 {
+        let out = s
+            .step_with_verdicts(&c, &block(h), &[], std::slice::from_ref(&v), &forks)
+            .unwrap();
+        assert!(out.verdicts.is_empty());
+        assert_eq!(out.state.candidates[&(p, a)].status(), Status::Checking);
+        assert_eq!(out.state.m3.as_ref().unwrap().queue.len(), 2);
+        s = out.state;
+        if h == 21 {
+            let mut bad = v.clone();
+            bad.record.outcome = Outcome::Accept;
+            bad.record.reason = 0;
+            assert!(s
+                .step_with_verdicts(&c, &block(22), &[], &[bad], &forks)
+                .is_err());
+        }
+    }
+    let out = s
+        .step_with_verdicts(&c, &block(30), &[], &[v], &forks)
+        .unwrap();
+    assert_eq!(out.state.problems[&p].winner, Some(b));
+    assert_eq!(out.state.candidates[&(p, a)].status(), Status::Void);
+    assert!(out.state.m3.as_ref().unwrap().quarantine_voids.is_empty());
 }

@@ -15,6 +15,67 @@ pub(crate) fn status(s: &mut State, key: Key, value: Status, e: &mut Vec<u8>) ->
     }
     Ok(())
 }
+/// R2 stage 0. Called only on the tentative clone, before ties and verdicts.
+pub(crate) fn activate(
+    s: &mut State,
+    h: u64,
+    forks: &ForkTable,
+    e: &mut Vec<u8>,
+) -> Result<(), Error> {
+    let rechecks = forks.recheck_set(s, h)?;
+    let m = s.m3.as_mut().ok_or(Error::ProfileRequired)?;
+    if m.fork_history.is_empty() {
+        m.fork_history.push(forks.rows[0].clone());
+    }
+    let Some(row) = forks.rows.iter().skip(1).find(|row| row.height == h) else {
+        return Ok(());
+    };
+    e.push(8);
+    e.extend(row.activation_record()?);
+    match row.kind {
+        ForkKind::KernelFix => {
+            for key in rechecks {
+                let queue_index = u64::try_from(m.queue.len()).map_err(|_| Error::Overflow)?;
+                m.queue.push(Job {
+                    queue_index,
+                    key,
+                    kind: RecordKind::Recheck,
+                    avail: h,
+                    epoch_override: Some(row.epoch),
+                });
+                m.pending_rechecks.insert(key);
+            }
+        }
+        ForkKind::Quarantine => {
+            for item in &row.list {
+                let mut matches = m.queue[m.next_applied..].iter_mut().filter(|j| {
+                    j.kind == RecordKind::Verdict
+                        && j.key.1 == item.commit_hash
+                        && s.candidates
+                            .get(&j.key)
+                            .is_some_and(|c| c.status() == Status::Checking)
+                });
+                let job = matches
+                    .next()
+                    .ok_or(Error::Format("quarantine target is not queued CHECKING"))?;
+                job.epoch_override = Some(row.epoch);
+                if item.disposition == Disposition::Void {
+                    m.quarantine_voids.insert(job.key);
+                } else {
+                    m.quarantine_voids.remove(&job.key);
+                }
+                if matches.next().is_some() {
+                    return Err(Error::Format("ambiguous quarantine target"));
+                }
+            }
+        }
+        ForkKind::Policy => {}
+        ForkKind::Genesis => return Err(Error::Format("nonzero genesis activation")),
+    }
+    m.fork_history.push(row.clone());
+    Ok(())
+}
+
 pub(crate) fn apply_due(
     s: &mut State,
     c: &Config,
@@ -25,9 +86,6 @@ pub(crate) fn apply_due(
 ) -> Result<Vec<IndexedVerdict>, Error> {
     let p = c.m3.as_ref().ok_or(Error::ProfileRequired)?;
     let mut m = s.m3.take().ok_or(Error::ProfileRequired)?;
-    if m.fork_history.is_empty() {
-        m.fork_history.push(forks.rows[0].clone());
-    }
     let cap = c
         .q_max
         .checked_mul(c.v_per_deposit)
@@ -48,6 +106,11 @@ pub(crate) fn apply_due(
             return Err(Error::Format("verdict queue identity"));
         }
         v.record.encode()?;
+        if m.quarantine_voids.contains(&job.key)
+            && (v.record.outcome != Outcome::Void || v.record.reason != QUARANTINE_VOID)
+        {
+            return Err(Error::Format("quarantine requires VOID(0802)"));
+        }
         let epoch = job
             .epoch_override
             .map(Ok)
@@ -141,6 +204,7 @@ pub(crate) fn apply_due(
                 void_problem(s, c, job.key.0, h, e)?;
             }
             m.results.insert(job.key, v.record.clone());
+            m.quarantine_voids.remove(&job.key);
             if job.kind == RecordKind::Recheck {
                 m.pending_rechecks.remove(&job.key);
             }

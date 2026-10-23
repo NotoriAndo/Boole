@@ -340,8 +340,8 @@ pub fn user_logs(header: &L1Block, gas_limits: &[u64]) -> Vec<boole_derivation::
         })
         .collect()
 }
-/// A retained queue fixture isolates R3/RW/K transitions while event08's wire
-/// rule is awaiting a normative encoding. It does not claim fork activation.
+/// A retained queue fixture isolates the R3 transition matrix. Separate tests
+/// qualify real activation and full replay through the public fold.
 pub fn recheck_fixture(
     s: &mut State,
     key: Key,

@@ -39,6 +39,35 @@ def deposit(domain, origin, index, recipient, mint, value, gas, data):
     return (b'\x7e' + rlp(fields)).hex()
 
 
+def fork_list(kind, entries):
+    entries = sorted(entries)
+    assert (kind == 2) == bool(entries), 'only QUARANTINE has a nonempty list'
+    assert all(a[0] < b[0] for a, b in zip(entries, entries[1:])), 'duplicate commit hash'
+    assert all(len(ch) == 32 and disposition in (1, 2) for ch, disposition in entries)
+    return b'BOOLE-M3/FORK-LIST/v1'+uint(len(entries), 4)+b''.join(ch+bytes([d]) for ch, d in entries)
+
+
+fork_vectors = []
+for kind in range(4):
+    entries = [(sha(b'quarantine B'), 2), (sha(b'quarantine A'), 1)] if kind == 2 else []
+    preimage = fork_list(kind, entries)
+    epoch, gate = kind, sha(b'fork gate'+bytes([kind]))
+    body = uint(epoch, 4)+gate+bytes([kind])+sha(preimage)
+    assert len(body) == 69
+    fork_vectors.append(dict(epoch=epoch, kind=kind, gate_rule_digest=gate.hex(),
+        entries=[dict(commit_hash=ch.hex(), disposition=d) for ch,d in sorted(entries)],
+        list_preimage=preimage.hex(), list_digest=sha(preimage).hex(),
+        body=body.hex(), event=(b'\x08'+body).hex()))
+# The independent generator also refuses every forbidden kind/list combination.
+for kind, entries in [(0, [(bytes(32), 1)]), (1, [(bytes(32), 1)]), (3, [(bytes(32), 2)]),
+                      (2, []), (2, [(bytes(32), 1), (bytes(32), 2)])]:
+    try:
+        fork_list(kind, entries)
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError('invalid fork list accepted')
+
 origin, height, first = bytes([3])*32, 7, 41
 records = []
 for i in range(129):
@@ -91,7 +120,9 @@ for index, row in enumerate(legacy['profiles']):
     digest = sha(b'BOOLE-M2/CONFIG/v2'+canonical)
     empty_root = sha(b'BOOLE-M2/ROOT/v3'+digest+uint(1, 8)+sha(uint(1, 8))+sha(b''))
     profiles.append(dict(name=row['name'], canonical_json_hex=canonical.hex(),
-                         config_digest=digest.hex(), empty_root_1=empty_root.hex()))
+                         config_digest=digest.hex(), empty_root_1=empty_root.hex(),
+                         policy_root_1=sha(b'BOOLE-M2/ROOT/v3'+digest+uint(1, 8)+sha(uint(1, 8))+
+                             sha(b'\x08'+uint(1,4)+sha(b'policy gate')+b'\x03'+sha(fork_list(3,[])))).hex()))
 
 # Independent R2/R8 settlement event stream for the public-fold scenario:
 # pool at 1, draw at 4, reveal at 5, commits at 6/7, completion at 17,
@@ -121,7 +152,7 @@ vector = dict(schema='boole-devnet-m3a-system-v1.3-draft',
               provenance=dict(generator='scripts/devnet/generate_m3_vectors.py', generator_sha256=sha(Path(__file__).read_bytes()).hex()),
               origin=origin.hex(), height=height, first_index=first,
               records=[x.hex() for x in records], verdict_deposits=verdicts, reward=reward,
-              profiles=profiles, settlement=settlement, statements=statements, manifest=dict(declarations=[dict(name=n,kind=k,decl_hash=h.hex()) for n,k,h in declarations],
+              profiles=profiles, forks=fork_vectors, settlement=settlement, statements=statements, manifest=dict(declarations=[dict(name=n,kind=k,decl_hash=h.hex()) for n,k,h in declarations],
                                                  preimage=manifest.hex(), digest=sha(manifest).hex()))
 target = ROOT/'fixtures/devnet-m3/system-v1.3.json'
 encoded = json.dumps(vector, indent=2)+'\n'

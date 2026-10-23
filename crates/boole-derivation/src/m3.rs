@@ -7,10 +7,10 @@ pub use identities::*;
 mod forks;
 pub use forks::*;
 mod fold;
-pub(crate) use fold::apply_due;
 pub(crate) use fold::complete;
 pub(crate) use fold::settle;
 pub(crate) use fold::vest;
+pub(crate) use fold::{activate, apply_due};
 
 #[derive(Debug, Clone)]
 pub struct Job {
@@ -30,6 +30,7 @@ pub struct M3State {
     pub admissions: std::collections::BTreeMap<u64, Admission>,
     pub pending_rechecks: std::collections::BTreeSet<crate::m2::Key>,
     pub fork_history: Vec<ForkRow>,
+    pub quarantine_voids: std::collections::BTreeSet<crate::m2::Key>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,10 +109,6 @@ pub enum Error {
     Overflow,
     #[error("invalid M3 input: {0}")]
     Format(&'static str),
-    #[error(
-        "fork event08 kind bytes and list_digest preimage are unspecified in the supplied design"
-    )]
-    UnspecifiedForkEncoding,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

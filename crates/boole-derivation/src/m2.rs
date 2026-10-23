@@ -621,6 +621,9 @@ impl State {
         let mut s = self.clone();
         let h = l1.number;
         let mut events = Vec::new();
+        if let Some((_, forks)) = m3_input {
+            crate::m3::activate(&mut s, h, forks, &mut events)?;
+        }
         let mix = hex::decode(l1.mix_hash.strip_prefix("0x").unwrap_or(""))
             .ok()
             .and_then(|v| Hash::try_from(v).ok())
@@ -745,9 +748,6 @@ impl State {
         self.validate_next(c, l1)?;
         forks.validate(c).map_err(FoldError::Startup)?;
         forks.validate_history(self)?;
-        if forks.rows.iter().skip(1).any(|row| row.height == l1.number) {
-            return Err(crate::m3::Error::UnspecifiedForkEncoding.into());
-        }
         self.step_inner(c, l1, items, Some((verdicts, forks)))
     }
     pub(crate) fn round_event(

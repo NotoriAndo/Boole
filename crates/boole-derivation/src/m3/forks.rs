@@ -1,18 +1,20 @@
 use super::Error;
 use crate::m2::{Config, Hash};
 
-/// Logical kinds only. No unassigned event08 byte encoding is implied.
+/// R-4 consensus kind bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub enum ForkKind {
-    Genesis,
-    KernelFix,
-    Quarantine,
-    Policy,
+    Genesis = 0,
+    KernelFix = 1,
+    Quarantine = 2,
+    Policy = 3,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub enum Disposition {
-    Recheck,
-    Void,
+    Recheck = 1,
+    Void = 2,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ForkItem {
@@ -30,6 +32,38 @@ pub struct ForkRow {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ForkTable {
     pub rows: Vec<ForkRow>,
+}
+impl ForkRow {
+    /// Hash only the canonical, strictly increasing list allowed for this kind.
+    pub fn list_digest(&self) -> Result<Hash, Error> {
+        use sha2::{Digest, Sha256};
+        if (self.kind == ForkKind::Quarantine) == self.list.is_empty()
+            || self
+                .list
+                .windows(2)
+                .any(|w| w[0].commit_hash >= w[1].commit_hash)
+        {
+            return Err(Error::Format("noncanonical fork list"));
+        }
+        let count = u32::try_from(self.list.len()).map_err(|_| Error::Overflow)?;
+        let mut digest = Sha256::new();
+        digest.update(b"BOOLE-M3/FORK-LIST/v1");
+        digest.update(count.to_be_bytes());
+        for item in &self.list {
+            digest.update(item.commit_hash);
+            digest.update([item.disposition as u8]);
+        }
+        Ok(digest.finalize().into())
+    }
+    /// R-4's 69-byte body; E_h prefixes it with the 0x08 record tag.
+    pub fn activation_record(&self) -> Result<[u8; 69], Error> {
+        let mut record = [0; 69];
+        record[..4].copy_from_slice(&self.epoch.to_be_bytes());
+        record[4..36].copy_from_slice(&self.gate_rule_digest);
+        record[36] = self.kind as u8;
+        record[37..].copy_from_slice(&self.list_digest()?);
+        Ok(record)
+    }
 }
 impl ForkTable {
     pub fn genesis(c: &Config) -> Result<Self, Error> {
@@ -60,7 +94,7 @@ impl ForkTable {
             if u32::try_from(index).ok() != Some(row.epoch)
                 || index > 0
                     && (row.height <= self.rows[index - 1].height || row.kind == ForkKind::Genesis)
-                || row.kind == ForkKind::Quarantine && row.list.is_empty()
+                || row.list_digest().is_err()
             {
                 return Err(14);
             }
@@ -91,7 +125,7 @@ impl ForkTable {
         }
         Ok(())
     }
-    /// K2's logical set, independent of the unresolved activation record bytes.
+    /// K2's state-derived set in original first-verdict queue order.
     /// The fold validates the table separately before using an activation plan.
     pub fn recheck_set(
         &self,
