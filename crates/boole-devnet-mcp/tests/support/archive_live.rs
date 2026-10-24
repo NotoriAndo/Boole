@@ -541,28 +541,17 @@ fn i14_i18_full_round_archive_fresh_driver_and_miner_with_mutating_proxy() -> Re
     // Optional driver diagnostics may legitimately skip a probe under load.
     // Require an actual bounded HTTP index mutation witness independently of
     // that scheduling, before accepting this qualification recording.
-    let mut explicit_tripwire_alerts = vec![];
-    for _ in 0..20 {
-        let mut diagnostic = ArchiveClient::http(vec![bad.url.clone()])?;
-        explicit_tripwire_alerts = diagnostic.tripwire(
-            through,
-            &anchor,
-            rows.last().unwrap()["hash"]
-                .as_str()
-                .context("own L2 hash")?,
-            rows.last().unwrap()["m2_root"]
-                .as_str()
-                .context("own root")?,
-        );
-        if !explicit_tripwire_alerts.is_empty() {
-            break;
-        }
-        thread::sleep(Duration::from_millis(20));
-    }
-    ensure!(
-        explicit_tripwire_alerts.len() == 1,
-        "explicit index inconsistency diagnostic was not observed"
-    );
+    let explicit_tripwire_alerts = observe_index_conflict(
+        ArchiveClient::http(vec![bad.url.clone()])?,
+        through,
+        &anchor,
+        rows.last().unwrap()["hash"]
+            .as_str()
+            .context("own L2 hash")?,
+        rows.last().unwrap()["m2_root"]
+            .as_str()
+            .context("own root")?,
+    )?;
     let mut fetch = ArchiveClient::http(vec![bad.url.clone(), server.url()])?;
     let index_rows = archive.lock().unwrap().index(0, 1024)?;
     for row in index_rows {
@@ -1003,5 +992,74 @@ fn i14_i18_full_round_archive_fresh_driver_and_miner_with_mutating_proxy() -> Re
         PathBuf::from(std::env::var_os("BOOLE_DEVNET_M4_RECORDING").context("fresh recording")?);
     ensure!(!recording.exists(), "recording exists");
     fs::write(recording, serde_json::to_vec_pretty(&result)?)?;
+    Ok(())
+}
+
+fn observe_index_conflict(
+    mut diagnostic: ArchiveClient,
+    height: u64,
+    anchor: &str,
+    l2_hash: &str,
+    root: &str,
+) -> Result<Vec<String>> {
+    // Keep cached coverage between calls: info can spend this call's shared
+    // 50 ms budget, leaving the index for the next call. Permit one bounded
+    // 30-second source cooldown without enlarging any production I/O budget.
+    let deadline = Instant::now() + Duration::from_secs(35);
+    while Instant::now() < deadline {
+        let alerts = diagnostic.tripwire(height, anchor, l2_hash, root);
+        if alerts.len() == 1 {
+            return Ok(alerts);
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+    bail!("explicit index inconsistency diagnostic was not observed")
+}
+
+#[test]
+fn index_probe_keeps_coverage_when_info_uses_the_first_budget() -> Result<()> {
+    struct SplitBudget;
+    impl Fetch for SplitBudget {
+        fn get(&mut self, _: &str, _: &str, _: usize) -> Result<Vec<u8>> {
+            bail!("diagnostic used required fetch")
+        }
+        fn observe(
+            &mut self,
+            _: &str,
+            route: &str,
+            _: usize,
+            deadline: Instant,
+        ) -> Result<Vec<u8>> {
+            if route == "info" {
+                thread::sleep(Duration::from_millis(25));
+                return Ok(br#"{"covered_through":1}"#.to_vec());
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining < Duration::from_millis(40) {
+                thread::sleep(remaining);
+                bail!("index needs a fresh observation budget");
+            }
+            Ok(serde_json::to_vec(&json!([{
+                "l1_number":1,"l2_number":1,"l1_hash":hex_string(&[1;32]),
+                "parent_hash":hex_string(&[0;32]),"bloom_positive":false,"inbox_touching":false,
+                "blob_ids":[],"l2_hash":hex_string(&[2;32]),"root":hex_string(&[255;32]),
+                "inputs":"journal","verdicts":"computed","system_digest":hex_string(&[4;32])
+            }]))?)
+        }
+    }
+    let alerts = observe_index_conflict(
+        ArchiveClient::new(
+            vec!["http://127.0.0.1:1/boole/archive/v1/".into()],
+            Box::new(SplitBudget),
+        )?,
+        1,
+        &hex_string(&[1; 32]),
+        &hex_string(&[2; 32]),
+        &hex_string(&[3; 32]),
+    )?;
+    ensure!(
+        alerts.len() == 1 && alerts[0].contains("verified inconsistency; local fold wins"),
+        "missing conflict alert"
+    );
     Ok(())
 }
