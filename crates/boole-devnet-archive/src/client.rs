@@ -27,6 +27,15 @@ pub trait Fetch: Send {
         std::thread::sleep(Duration::from_millis(millis));
     }
 }
+/// An optional class is not served by this source. It proves no absence.
+#[derive(Debug)]
+pub struct NotServed;
+impl std::fmt::Display for NotServed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("optional archive class not served")
+    }
+}
+impl std::error::Error for NotServed {}
 pub struct HttpFetch;
 fn endpoint(source: &str) -> Result<(SocketAddr, String)> {
     let rest = source
@@ -84,10 +93,13 @@ impl HttpFetch {
             !text.replace("\r\n", "").contains(['\r', '\n']),
             "archive response framing"
         );
+        let status = text
+            .split("\r\n")
+            .next()
+            .and_then(|l| l.split(' ').nth(1))
+            .context("archive response status")?;
         ensure!(
-            text.split("\r\n")
-                .next()
-                .is_some_and(|l| l.split(' ').nth(1) == Some("200")),
+            matches!(status, "200" | "404"),
             "archive unavailable response"
         );
         let mut length = None;
@@ -108,6 +120,9 @@ impl HttpFetch {
             len > 0 && len <= limit,
             "archive response byte cap or empty object"
         );
+        if status == "404" {
+            return Err(NotServed.into());
+        }
         // Total time includes connect, headers and every body chunk. 8 MiB/s is the
         // minimum supported loopback throughput, with two seconds of fixed slack.
         let deadline = start + crate::http::transfer_budget(len);
@@ -139,6 +154,13 @@ impl Fetch for HttpFetch {
         Self::read(source, route, limit, Some(deadline))
     }
 }
+/// Optional posting-proof I/O per finality step (or 30-second retry turn).
+pub const POSTING_REQUESTS_MAX: usize = 32;
+struct ProofRetry {
+    attempts: u32,
+    finality: u64,
+    at: Instant,
+}
 pub struct ArchiveClient {
     pub sources: Vec<String>,
     fetch: Box<dyn Fetch>,
@@ -149,6 +171,14 @@ pub struct ArchiveClient {
     coverage_checked: Vec<Option<Instant>>,
     observation_retry_at: Vec<Option<Instant>>,
     next_observer: usize,
+    proof_finality: u64,
+    proof_sources: Vec<String>,
+    not_served_routes: std::collections::BTreeMap<(String, String), Instant>,
+    proof_retry: std::collections::BTreeMap<String, ProofRetry>,
+    proof_coverage_epoch: Vec<Option<u64>>,
+    proof_budget: usize,
+    proof_budget_at: Instant,
+    proof_cursor: u64,
 }
 impl ArchiveClient {
     pub fn http(sources: Vec<String>) -> Result<Self> {
@@ -173,6 +203,14 @@ impl ArchiveClient {
             coverage_checked: vec![None; sources.len()],
             observation_retry_at: vec![None; sources.len()],
             next_observer: 0,
+            proof_finality: 0,
+            proof_sources: sources.clone(),
+            not_served_routes: Default::default(),
+            proof_retry: Default::default(),
+            proof_coverage_epoch: vec![None; sources.len()],
+            proof_budget: POSTING_REQUESTS_MAX,
+            proof_budget_at: Instant::now(),
+            proof_cursor: 0,
             failures,
         })
     }
@@ -229,34 +267,7 @@ impl ArchiveClient {
 impl ArchiveClient {
     pub fn row(&mut self, key: &str, height: u64) -> Result<InputRow> {
         let raw = self.header(key, height)?;
-        if crate::input::header_needs_receipts(&raw)? {
-            self.fetch_verified(
-                &format!("l1/receipts/{}", &key[2..]),
-                OBJ_MAX,
-                height,
-                |b| {
-                    let row = InputRow {
-                        schema_version: 1,
-                        block_hash: key.into(),
-                        header_rlp: hex_string(&raw),
-                        receipts: Some(receipt_list(b)?),
-                        transactions: None,
-                    };
-                    row.verify()?;
-                    Ok(row)
-                },
-            )
-        } else {
-            let row = InputRow {
-                schema_version: 1,
-                block_hash: key.into(),
-                header_rlp: hex_string(&raw),
-                receipts: None,
-                transactions: None,
-            };
-            row.verify()?;
-            Ok(row)
-        }
+        self.row_from_header(key, height, &raw)
     }
 }
 
@@ -305,7 +316,7 @@ impl ArchiveClient {
             empty.verify()?;
             return Ok(empty);
         }
-        self.fetch_verified(
+        let row = self.fetch_verified(
             &format!("l1/receipts/{}", &key[2..]),
             OBJ_MAX,
             height,
@@ -315,7 +326,228 @@ impl ArchiveClient {
                 row.verify()?;
                 Ok(row)
             },
-        )
+        )?;
+        Ok(row)
+    }
+    /// Finality replenishes a fixed I/O budget, never a whole missing window.
+    /// Covered 404s survive finality steps; bounded timed retries and a new
+    /// source can still recover availability without restarting the fold.
+    pub fn posting_finality(&mut self, height: u64) {
+        let now = Instant::now();
+        self.not_served_routes.retain(|_, until| now < *until);
+        // Keep active exponential retry history through one maximum backoff
+        // after eligibility; inactive heights expire within 60 seconds.
+        self.proof_retry.retain(|_, retry| {
+            retry
+                .at
+                .checked_add(Duration::from_secs(30))
+                .is_some_and(|until| now < until)
+        });
+        let changed = self.sources != self.proof_sources;
+        if changed {
+            self.not_served_routes.clear();
+            self.proof_retry.clear();
+            self.proof_coverage_epoch = vec![None; self.sources.len()];
+            self.coverage = vec![None; self.sources.len()];
+            self.coverage_checked = vec![None; self.sources.len()];
+            self.observation_retry_at = vec![None; self.sources.len()];
+            self.attempts = vec![0; self.sources.len()];
+            self.failures = vec![0; self.sources.len()];
+            self.proof_cursor = 0;
+            self.proof_sources = self.sources.clone();
+        }
+        if changed
+            || height != self.proof_finality
+            || self.proof_budget_at.elapsed() >= Duration::from_secs(30)
+        {
+            self.proof_budget = POSTING_REQUESTS_MAX;
+            self.proof_budget_at = Instant::now();
+        }
+        self.proof_finality = height;
+    }
+    /// Metadata-only scheduling hint. Header/proof authentication is still
+    /// mandatory when a request is made; own journal integrity checks run
+    /// independently even when this turn cannot request anything.
+    pub fn posting_requestable(&self, hash: &str) -> bool {
+        self.proof_budget > 0
+            && !self.proof_retry.get(hash).is_some_and(|retry| {
+                self.proof_finality < retry.finality && Instant::now() < retry.at
+            })
+    }
+    pub fn posting_requests_remaining(&self) -> usize {
+        self.proof_budget
+    }
+    /// Rotate the caller's sorted own pause window after the last attempted
+    /// height, so an unavailable old prefix cannot starve a later own post.
+    pub fn posting_probe_order(&self, heights: &mut [u64]) {
+        let start = heights.partition_point(|h| *h <= self.proof_cursor);
+        heights.rotate_left(start);
+    }
+    fn posting_coverage(&mut self, source: usize, height: u64) -> Option<u64> {
+        if self.coverage[source].is_none_or(|through| through < height)
+            && self.proof_coverage_epoch[source] != Some(self.proof_finality)
+            && self.proof_budget > 0
+        {
+            self.proof_coverage_epoch[source] = Some(self.proof_finality);
+            self.proof_budget -= 1;
+            self.attempts[source] = self.attempts[source].saturating_add(1);
+            // Coverage is only an availability hint, never a trust anchor.
+            if let Ok(raw) = self.fetch.observe(
+                &self.sources[source],
+                "info",
+                REQ_MAX,
+                Instant::now() + Duration::from_millis(50),
+            ) {
+                if raw.len() <= REQ_MAX {
+                    if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&raw) {
+                        if let Some(through) = v["covered_through"].as_u64() {
+                            self.coverage[source] = Some(through);
+                        }
+                    }
+                }
+            }
+        }
+        self.coverage[source]
+    }
+    fn fetch_optional_verified<T>(
+        &mut self,
+        route: &str,
+        height: u64,
+        mut verify: impl FnMut(&[u8]) -> Result<T>,
+    ) -> Result<T> {
+        let mut absent: Vec<_> = self
+            .sources
+            .iter()
+            .map(|source| {
+                self.not_served_routes
+                    .get(&(source.clone(), route.to_owned()))
+                    .is_some_and(|until| Instant::now() < *until)
+            })
+            .collect();
+        for attempt in 0..3 {
+            if absent.iter().all(|v| *v) || self.proof_budget == 0 {
+                break;
+            }
+            if attempt > 0 {
+                self.fetch.backoff(if attempt == 1 { 100 } else { 300 });
+            }
+            for (i, missing) in absent.iter_mut().enumerate() {
+                if *missing || self.proof_budget == 0 {
+                    continue;
+                }
+                self.proof_budget -= 1;
+                self.proof_cursor = height;
+                self.attempts[i] = self.attempts[i].saturating_add(1);
+                let result = self
+                    .fetch
+                    .get(&self.sources[i], route, OBJ_MAX)
+                    .and_then(|bytes| {
+                        ensure!(
+                            !bytes.is_empty() && bytes.len() <= OBJ_MAX,
+                            "archive response cap"
+                        );
+                        verify(&bytes)
+                    });
+                match result {
+                    Ok(value) => return Ok(value),
+                    Err(e) if e.is::<NotServed>() => {
+                        *missing = true;
+                        if self
+                            .posting_coverage(i, height)
+                            .is_some_and(|through| height <= through)
+                        {
+                            self.not_served_routes.insert(
+                                (self.sources[i].clone(), route.to_owned()),
+                                Instant::now() + Duration::from_secs(30),
+                            );
+                        }
+                    }
+                    Err(_) => {
+                        self.discarded = self.discarded.saturating_add(1);
+                        self.failures[i] = self.failures[i].saturating_add(1);
+                    }
+                }
+            }
+        }
+        if absent.iter().all(|v| *v) {
+            return Err(NotServed.into());
+        }
+        Err(crate::error::availability(
+            height,
+            "archive-tx-proof",
+            "optional proof unavailable; retry after availability returns",
+        ))
+    }
+    pub fn transaction_row(&mut self, row: &InputRow) -> Result<InputRow> {
+        let header = boole_derivation::attributes::hex_bytes(&row.header_rlp, "header")?;
+        crate::archive::verify_header(&row.block_hash, &header)?;
+        let h = row.block()?.number;
+        self.posting_finality(self.proof_finality);
+        if !self.posting_requestable(&row.block_hash) {
+            return Err(crate::error::availability(
+                h,
+                "archive-tx-proof",
+                "posting proof retry budget/backoff",
+            ));
+        }
+        let budget_before = self.proof_budget;
+        let result = (|| -> Result<InputRow> {
+            let txs = self.fetch_optional_verified(
+                &format!("l1/txs/{}", &row.block_hash[2..]),
+                h,
+                |bytes| {
+                    let txs = string_list(bytes, 65536)?;
+                    crate::input::verify_transactions(&header, &txs)?;
+                    if row.receipts.is_some() {
+                        let mut proof = row.clone();
+                        proof.transactions = Some(txs.clone());
+                        proof.verify()?;
+                    }
+                    Ok(txs)
+                },
+            )?;
+            let mut proof = row.clone();
+            proof.transactions = Some(txs);
+            if proof.receipts.is_none() {
+                proof = self.fetch_optional_verified(
+                    &format!("l1/receipts/{}", &row.block_hash[2..]),
+                    h,
+                    |bytes| {
+                        let mut full = proof.clone();
+                        full.receipts = Some(receipt_list(bytes)?);
+                        full.verify()?;
+                        Ok(full)
+                    },
+                )?;
+            }
+            proof.verify()?;
+            Ok(proof)
+        })();
+        if result.is_ok() {
+            self.proof_retry.remove(&row.block_hash);
+        } else if self.proof_budget < budget_before {
+            let attempts = self
+                .proof_retry
+                .get(&row.block_hash)
+                .map_or(1, |old| old.attempts.saturating_add(1));
+            let steps = 1u64 << attempts.min(6);
+            self.proof_retry.insert(
+                row.block_hash.clone(),
+                ProofRetry {
+                    attempts,
+                    finality: self.proof_finality.saturating_add(steps),
+                    at: Instant::now() + Duration::from_secs((steps / 2).min(30)),
+                },
+            );
+        }
+        match result {
+            Err(e) if e.is::<NotServed>() => Err(crate::error::availability(
+                h,
+                "archive-tx-proof",
+                "optional proof not served; bounded reprobe pending",
+            )),
+            other => other,
+        }
     }
     pub fn prepare(
         &mut self,
@@ -596,6 +828,56 @@ impl ArchiveClient {
             },
         )
     }
+    /// Explicit follow input only. It authenticates framing/origin, not a verdict.
+    pub fn follow_system(
+        &mut self,
+        config: &boole_derivation::m2::Config,
+        l1: &boole_derivation::L1Block,
+    ) -> Result<Vec<String>> {
+        let limit = 2usize
+            .checked_add(usize::try_from(config.q_max)?)
+            .and_then(|n| n.checked_add(usize::try_from(config.m3.as_ref()?.q_reward).ok()?))
+            .context("follow prefix count")?;
+        self.fetch_verified(
+            &format!("l2/system/{}", l1.number),
+            REQ_MAX * limit,
+            l1.number,
+            |raw| {
+                let txs = string_list(raw, limit)?;
+                ensure!(
+                    txs.len() >= 2 && txs[0] == boole_derivation::system::l1_info(l1)?,
+                    "follow L1-info"
+                );
+                boole_derivation::system::read_m2_root(&txs[1], l1.number, &l1.hash)?;
+                let mut verdicts = vec![];
+                let mut rewards = false;
+                for tx in txs.iter().skip(2) {
+                    ensure!(
+                        tx.len() <= REQ_MAX && tx.starts_with("0x7e"),
+                        "follow system bounds/type"
+                    );
+                    let raw = boole_derivation::attributes::hex_bytes(tx, "follow deposit")?;
+                    let f = boole_derivation::rlp::decode(&raw[1..])
+                        .map_err(anyhow::Error::msg)?
+                        .children
+                        .context("follow deposit")?;
+                    ensure!(
+                        f.len() == 8 && f.iter().all(|f| f.children.is_none()),
+                        "follow deposit fields"
+                    );
+                    if f[7].bytes.starts_with(b"m3vd") {
+                        ensure!(!rewards, "VERDICT after REWARD");
+                        verdicts.push(tx.clone());
+                    } else {
+                        rewards = true;
+                        ensure!(f[7].bytes.is_empty(), "unknown follow system record");
+                    }
+                }
+                boole_derivation::m3::decode_verdict_deposits(config, l1, &verdicts)?;
+                Ok(txs)
+            },
+        )
+    }
     pub fn system(&mut self, height: u64, expected: &[String]) -> Result<Vec<String>> {
         self.fetch_verified(&format!("l2/system/{height}"), OBJ_MAX, height, |b| {
             let system: Vec<String> = serde_json::from_slice(b)?;
@@ -610,6 +892,10 @@ impl ArchiveClient {
 
 /// Decode the receipt list at the archive byte boundary.
 pub fn receipt_list(bytes: &[u8]) -> Result<Vec<String>> {
+    string_list(bytes, 65536)
+}
+/// Count-limited strings; refuse the next entry before decoding its value.
+pub fn string_list(bytes: &[u8], maximum: usize) -> Result<Vec<String>> {
     use serde::de::{DeserializeSeed, SeqAccess, Visitor};
     struct AtCap;
     impl<'de> DeserializeSeed<'de> for AtCap {
@@ -621,7 +907,7 @@ pub fn receipt_list(bytes: &[u8]) -> Result<Vec<String>> {
             Err(serde::de::Error::custom("receipt count cap"))
         }
     }
-    struct Bounded;
+    struct Bounded(usize);
     impl<'de> Visitor<'de> for Bounded {
         type Value = Vec<String>;
         fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -632,7 +918,7 @@ pub fn receipt_list(bytes: &[u8]) -> Result<Vec<String>> {
             mut seq: A,
         ) -> std::result::Result<Self::Value, A::Error> {
             let mut rows = Vec::new();
-            while rows.len() < 65536 {
+            while rows.len() < self.0 {
                 match seq.next_element::<String>()? {
                     Some(row) => rows.push(row),
                     None => return Ok(rows),
@@ -643,7 +929,53 @@ pub fn receipt_list(bytes: &[u8]) -> Result<Vec<String>> {
         }
     }
     let mut decoder = serde_json::Deserializer::from_slice(bytes);
-    let rows = serde::Deserializer::deserialize_seq(&mut decoder, Bounded)?;
+    let rows = serde::Deserializer::deserialize_seq(&mut decoder, Bounded(maximum))?;
     decoder.end()?;
     Ok(rows)
+}
+
+#[cfg(test)]
+mod retry_expiry_tests {
+    use super::*;
+    struct Missing;
+    impl Fetch for Missing {
+        fn get(&mut self, _: &str, _: &str, _: usize) -> Result<Vec<u8>> {
+            Err(NotServed.into())
+        }
+        fn observe(&mut self, _: &str, _: &str, _: usize, _: Instant) -> Result<Vec<u8>> {
+            Ok(br#"{"covered_through":100}"#.to_vec())
+        }
+        fn backoff(&mut self, _: u64) {}
+    }
+    #[test]
+    fn l1_finality_prunes_expired_routes_and_inactive_retry_history() -> Result<()> {
+        let mut client = ArchiveClient::new(vec!["http://127.0.0.1:1".into()], Box::new(Missing))?;
+        client.posting_finality(2);
+        let first = crate::input::empty_fixture(1, [0; 32]);
+        let second = crate::input::empty_fixture(2, [0; 32]);
+        assert!(client.transaction_row(&first).is_err());
+        assert!(client.transaction_row(&second).is_err());
+        assert_eq!(client.not_served_routes.len(), 2);
+        assert_eq!(client.proof_retry.len(), 2);
+        let expired = Instant::now() - Duration::from_secs(60);
+        for ((_, route), until) in &mut client.not_served_routes {
+            if route.ends_with(&first.block_hash[2..]) {
+                *until = expired;
+            }
+        }
+        client.proof_retry.get_mut(&first.block_hash).unwrap().at = expired;
+        client.posting_finality(3);
+        assert_eq!(
+            client.not_served_routes.len(),
+            1,
+            "expired route history grew forever"
+        );
+        assert_eq!(
+            client.proof_retry.len(),
+            1,
+            "inactive retry history grew forever"
+        );
+        assert!(client.proof_retry.contains_key(&second.block_hash));
+        Ok(())
+    }
 }

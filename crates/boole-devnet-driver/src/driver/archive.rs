@@ -28,6 +28,7 @@ pub struct ArchiveSink {
     last_hash: String,
     paths: Option<CapturePaths>,
     stopped: Option<boole_devnet_archive::error::Error>,
+    availability_retries: Option<(u64, u32)>,
 }
 impl ArchiveSink {
     pub fn new<L: L1Source, E: Engine>(
@@ -69,14 +70,19 @@ impl ArchiveSink {
             last_hash: genesis.hash,
             paths,
             stopped: None,
+            availability_retries: None,
         })
     }
     pub fn synchronize<L: L1Source, E: Engine>(&mut self, driver: &mut Driver<L, E>) -> Result<()> {
         if let Some(error) = &self.stopped {
             return Err(error.clone().into());
         }
-        let h = driver.m2.height();
         let result = self.synchronize_inner(driver);
+        let h = self
+            .state
+            .height()
+            .saturating_add(1)
+            .min(driver.m2.height());
         self.complete_sync(h, result)
     }
     fn complete_sync(&mut self, h: u64, result: Result<()>) -> Result<()> {
@@ -104,13 +110,36 @@ impl ArchiveSink {
                 )
             }
         });
+        let mut health = None;
+        let mut retries = 0;
         if let Err(e) = &result {
-            if let Some(typed @ boole_devnet_archive::error::Error::Integrity { .. }) =
-                e.downcast_ref()
-            {
-                self.stopped = Some(typed.clone())
+            match e.downcast_ref::<boole_devnet_archive::error::Error>() {
+                Some(typed @ boole_devnet_archive::error::Error::Integrity { .. }) => {
+                    self.stopped = Some(typed.clone());
+                    health = Some(typed.clone());
+                    self.availability_retries = None;
+                }
+                Some(typed @ boole_devnet_archive::error::Error::Availability { .. }) => {
+                    retries = self
+                        .availability_retries
+                        .filter(|(height, _)| *height == h)
+                        .map_or(1, |(_, n)| n.saturating_add(1));
+                    self.availability_retries = Some((h, retries));
+                    if retries >= 8 {
+                        health = Some(typed.clone());
+                    }
+                }
+                _ => {
+                    self.availability_retries = None;
+                }
             }
+        } else {
+            self.availability_retries = None;
         }
+        self.store
+            .lock()
+            .map_err(|_| integrity(h, "archive-store", "archive lock poisoned"))?
+            .set_ingest_health(health, retries);
         result
     }
 
@@ -519,6 +548,91 @@ mod fix2_tests {
         }
     }
     #[test]
+    fn r3_deterministic_origin_errors_are_integrity() -> Result<()> {
+        struct Broken(ParentHeader);
+        impl Engine for Broken {
+            fn head(&mut self) -> Result<ParentHeader> {
+                Ok(self.0.clone())
+            }
+            fn header(&mut self, _: u64) -> Result<ParentHeader> {
+                self.head()
+            }
+            fn call(&mut self, _: &str, _: serde_json::Value) -> Result<serde_json::Value> {
+                anyhow::bail!("unexpected call")
+            }
+        }
+        for mode in 0..3 {
+            let (_, _, _, history) =
+                capture_fixture::fixture_with(capture_fixture::scenario::m3_cfg(), Some(1));
+            let mut source = history.clone();
+            let mut origin = OriginEngine(history).header(17)?;
+            if mode == 1 {
+                origin.l1_info = None;
+            }
+            if mode == 2 {
+                origin.l1_info = Some("0x7e00".into());
+            }
+            let mut engine = Broken(origin);
+            let mut anchored = AnchoredHistory {
+                l1: &mut source,
+                engine: &mut engine,
+                maximum: if mode == 0 { 16 } else { 17 },
+            };
+            let e = boole_gate_supervisor::rebuild::History::origin(&mut anchored, 17).unwrap_err();
+            assert!(
+                e.is::<boole_gate_supervisor::rebuild::Integrity>(),
+                "deterministic origin mode{mode} was not Integrity: {e:#}"
+            );
+        }
+        Ok(())
+    }
+    #[test]
+    fn r3_repeated_availability_is_visible_and_resumable() -> Result<()> {
+        let dir = PrivateTempDir::new("sink-health")?;
+        let (c, s, _, _) =
+            capture_fixture::fixture_with(capture_fixture::scenario::m3_cfg(), Some(1));
+        let table = ForkTable::genesis(&c)?;
+        let store = Arc::new(Mutex::new(ArchiveStore::open(
+            dir.path(),
+            ArchiveProfile {
+                identity: ArchiveIdentity {
+                    network: NetworkIdentity::new(
+                        &c,
+                        Some(&table),
+                        hex_string(&[1; 32]),
+                        30_000_000,
+                    )?,
+                    l1_anchor_number: 0,
+                    l1_anchor_hash: hex_string(&[2; 32]),
+                },
+                bind: "127.0.0.1:0".parse()?,
+                prune_before: None,
+            },
+            false,
+        )?));
+        let mut sink = ArchiveSink {
+            store: store.clone(),
+            state: s,
+            last_hash: hex_string(&[1; 32]),
+            paths: None,
+            stopped: None,
+            availability_retries: None,
+        };
+        for _ in 0..8 {
+            assert!(sink
+                .complete_sync(17, Err(boole_gate_supervisor::rebuild::Availability.into()))
+                .is_err());
+        }
+        let info = store.lock().unwrap().info();
+        assert_eq!(info["ingest_health"]["kind"], "availability");
+        assert_eq!(info["ingest_health"]["height"], "17");
+        assert_eq!(info["ingest_health"]["class"], "archive-ingest");
+        assert!(sink.stopped.is_none(), "availability must keep retrying");
+        sink.complete_sync(17, Ok(()))?;
+        assert!(store.lock().unwrap().info()["ingest_health"].is_null());
+        Ok(())
+    }
+    #[test]
     fn m2_capture_availability_markers_never_latch_replay_integrity() -> Result<()> {
         for missing_codec in [true, false] {
             let dir = PrivateTempDir::new("sink-capture-availability")?;
@@ -559,6 +673,7 @@ mod fix2_tests {
                     scratch: dir.path().into(),
                 }),
                 stopped: None,
+                availability_retries: None,
             };
             for _ in 0..2 {
                 let result = sink.capture_candidates(&mut driver, &s, &[], 17);

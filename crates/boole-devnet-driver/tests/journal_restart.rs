@@ -1317,3 +1317,665 @@ fn fix2_m1_restart_sink_republishes_unseen_corruption_without_sticky_stop() -> R
     assert_eq!(store.lock().unwrap().index(0, 1024)?.len(), 2);
     Ok(())
 }
+
+fn follow_runtime(
+    root: &std::path::Path,
+    mode: boole_gate_supervisor::supervisor::Mode,
+) -> Result<(
+    boole_derivation::m2::Config,
+    boole_derivation::m3::ForkTable,
+    boole_gate_supervisor::supervisor::Supervisor,
+)> {
+    use boole_gate_supervisor::{
+        codec::{digest, Codec},
+        process::{Envelope, Worker},
+        stub::Descriptor,
+        supervisor::{install_devnet_artifacts, Host, Supervisor},
+    };
+    let target = std::env::var_os("CARGO_TARGET_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target"));
+    let gate = target.join("debug/boole-gate-supervisor");
+    let pin = digest(&std::fs::read(&gate)?);
+    let descriptor = Descriptor::pinned(pin);
+    let mut config = boole_derivation::m2::Config::devnet();
+    config.m3 = Some(boole_derivation::m3::M3Config::devnet(
+        config.slot_table.len(),
+    ));
+    config.m3.as_mut().unwrap().genesis_gate_rule_digest = descriptor.digest();
+    let forks = boole_derivation::m3::ForkTable::genesis(&config)?;
+    let artifacts = root.join("artifacts");
+    install_devnet_artifacts(&config, &artifacts)?;
+    let supervisor = Supervisor::new(
+        &config,
+        &forks,
+        mode,
+        vec![Worker {
+            descriptor,
+            binary: gate,
+            binary_sha256: pin,
+        }],
+        Some(Codec::portable_stub()),
+        &root.join("cache"),
+        root,
+        &artifacts,
+        Host::local()?,
+        Envelope::default(),
+    )?;
+    Ok((config, forks, supervisor))
+}
+#[test]
+fn t79_follow_root_mismatch_never_builds_or_claims_computed() -> Result<()> {
+    use boole_gate_supervisor::supervisor::Mode;
+    let root = PrivateTempDir::new("follow-root-check")?;
+    let (c, f, s) = follow_runtime(&root.path().join("a"), Mode::Verify)?;
+    let mut raw = TipOnly::new();
+    raw.tip = 8;
+    let mut a = Driver::with_m3(
+        raw.clone(),
+        MemoryEngine::new(),
+        c.clone(),
+        30_000_000,
+        s,
+        f.clone(),
+    )?;
+    a.step(1)?;
+    let (_, _, s) = follow_runtime(
+        &root.path().join("c"),
+        Mode::Follow {
+            from: 1,
+            through: 4,
+        },
+    )?;
+    let mut d = Driver::with_m3(raw, MemoryEngine::new(), c, 30_000_000, s, f)?;
+    let block = d.l1.block(1)?;
+    let mut txs = a.engine.transactions(1)?;
+    txs[1] = boole_derivation::system::m2_root_deposit(&block, [99; 32])?;
+    d.provide_follow_block(&block, &txs)?;
+    let outside = d.l1.block(5)?;
+    assert!(d.provide_follow_block(&outside, &txs).is_err());
+    assert!(
+        d.step(1).is_err(),
+        "follow root differed but local Engine adopted"
+    );
+    assert_eq!(d.engine.head.number, 0);
+    Ok(())
+}
+#[test]
+fn t79_three_axes_report_the_weakest_label_per_range() -> Result<()> {
+    use boole_gate_supervisor::supervisor::Mode;
+    let root = PrivateTempDir::new("follow-labels")?;
+    let (c, f, s) = follow_runtime(
+        root.path(),
+        Mode::Follow {
+            from: 2,
+            through: 4,
+        },
+    )?;
+    let mut raw = TipOnly::new();
+    raw.tip = 8;
+    let mut d = Driver::with_m3(raw, MemoryEngine::new(), c, 30_000_000, s, f)?;
+    for h in 1..=8 {
+        d.step(h)?;
+    }
+    assert_eq!(
+        d.trust_ranges(8),
+        json!([
+      {"from":1,"through":1,"inputs":"l1-rpc","verdicts":"computed","environment":"pending"},
+      {"from":2,"through":4,"inputs":"l1-rpc","verdicts":"checkpoint-trusted","environment":"pending"},
+      {"from":5,"through":8,"inputs":"l1-rpc","verdicts":"computed","environment":"pending"}])
+    );
+    Ok(())
+}
+#[test]
+fn t79_archive_follow_joins_from_own_verified_inputs_and_labels_the_range() -> Result<()> {
+    use boole_devnet_archive::{
+        archive::{ArchiveIdentity, ArchiveProfile, ArchiveStore, Selection},
+        client::ArchiveClient,
+        http::ArchiveServer,
+    };
+    use boole_gate_supervisor::supervisor::Mode;
+    use std::sync::{Arc, Mutex};
+    let root = PrivateTempDir::new("archive-follow-join")?;
+    let (c, f, s) = follow_runtime(&root.path().join("a-runtime"), Mode::Verify)?;
+    let mut raw = TipOnly::new();
+    raw.tip = 8;
+    let rows = raw.rows.clone();
+    let network = NetworkIdentity::new(&c, Some(&f), MemoryEngine::new().head.hash, 30_000_000)?;
+    let mut store = ArchiveStore::open(
+        &root.path().join("x"),
+        ArchiveProfile {
+            identity: ArchiveIdentity {
+                network: network.clone(),
+                l1_anchor_number: 0,
+                l1_anchor_hash: rows[0].block_hash.clone(),
+            },
+            bind: "127.0.0.1:0".parse()?,
+            prune_before: None,
+        },
+        false,
+    )?;
+    let mut a = Driver::with_m3(
+        raw,
+        MemoryEngine::new(),
+        c.clone(),
+        30_000_000,
+        s,
+        f.clone(),
+    )?;
+    store.ingest(
+        &rows[0],
+        8,
+        &Selection {
+            l2_number: 0,
+            l2_hash: a.engine.head.hash.clone(),
+            root: hex_string(&a.m2_state().root),
+            system: vec![],
+            inputs: "journal".into(),
+            verdicts: "computed".into(),
+        },
+    )?;
+    for h in 1..=8 {
+        a.step(h)?;
+        store.ingest(
+            &rows[h as usize],
+            8,
+            &Selection {
+                l2_number: h,
+                l2_hash: a.engine.head.hash.clone(),
+                root: hex_string(&a.m2_state().root),
+                system: a.engine.transactions(h)?,
+                inputs: "journal".into(),
+                verdicts: "computed".into(),
+            },
+        )?;
+    }
+    let server = ArchiveServer::start(Arc::new(Mutex::new(store)), "127.0.0.1:0".parse()?)?;
+    let mut own = TipOnly::new();
+    own.tip = 8;
+    own.strict = true;
+    let source = JournalSource::open_archive(
+        own,
+        &root.path().join("c"),
+        network,
+        false,
+        ArchiveClient::http(vec![server.url()])?,
+    )?;
+    let (_, _, s) = follow_runtime(
+        &root.path().join("c-runtime"),
+        Mode::Follow {
+            from: 2,
+            through: 4,
+        },
+    )?;
+    let mut d = Driver::with_m3(source, MemoryEngine::new(), c, 30_000_000, s, f)?;
+    d.follow_from_archive(&mut ArchiveClient::http(vec![server.url()])?)?;
+    for h in 1..=8 {
+        d.step(h)?;
+        assert_eq!(d.engine.transactions(h)?, a.engine.transactions(h)?);
+    }
+    assert_eq!(d.m2_state().root, a.m2_state().root);
+    let ranges = d.trust_ranges(8);
+    assert_eq!(ranges[1]["verdicts"], "checkpoint-trusted");
+    assert_eq!(ranges[1]["inputs"], "archive-verified");
+    assert_eq!(ranges[1]["environment"], "pending");
+    Ok(())
+}
+
+#[test]
+fn m4b2_old_journal_proof_pause_resumes_without_historical_l1_reads() -> Result<()> {
+    use boole_devnet_archive::{
+        archive::{ArchiveIdentity, ArchiveProfile, ArchiveStore, Selection},
+        client::ArchiveClient,
+        http::ArchiveServer,
+    };
+    use std::sync::{Arc, Mutex};
+    let root = PrivateTempDir::new("restore-archive-tx-proof")?;
+    let v: Value = serde_json::from_str(include_str!(
+        "../../../fixtures/devnet-m4/input-auth-v0.json"
+    ))?;
+    let rows: Vec<InputRow> = serde_json::from_value(v["rows"].clone())?;
+    let expected = rows[1].verify()?.canonical_receipts[2].clone();
+    assert!(
+        !expected.1,
+        "fixture must be the recorded reverted transaction"
+    );
+    let network = NetworkIdentity::new(
+        &boole_derivation::m2::Config::devnet(),
+        None,
+        MemoryEngine::new().head.hash,
+        30_000_000,
+    )?;
+    let mut journal = InputJournal::open(
+        &root.path().join("miner"),
+        network.clone(),
+        || {
+            let mut r = rows[0].clone();
+            r.transactions = None;
+            Ok(r)
+        },
+        false,
+    )?;
+    for row in &rows[1..] {
+        let mut r = row.clone();
+        r.transactions = None;
+        journal.append(&r)?;
+    }
+    assert!(journal.transaction_receipt_since(&expected.0, 0).is_err());
+    drop(journal);
+    let before = std::fs::read(root.path().join("miner/input.ndjson"))?;
+    let mut store = ArchiveStore::open(
+        &root.path().join("x"),
+        ArchiveProfile {
+            identity: ArchiveIdentity {
+                network: network.clone(),
+                l1_anchor_number: 0,
+                l1_anchor_hash: rows[0].block_hash.clone(),
+            },
+            bind: "127.0.0.1:0".parse()?,
+            prune_before: None,
+        },
+        false,
+    )?;
+    for (h, row) in rows.iter().enumerate() {
+        store.ingest(
+            row,
+            2,
+            &Selection {
+                l2_number: h as u64,
+                l2_hash: hex_string(&[3; 32]),
+                root: hex_string(&[4; 32]),
+                system: vec![],
+                inputs: "journal".into(),
+                verdicts: "computed".into(),
+            },
+        )?;
+    }
+    let server = ArchiveServer::start(Arc::new(Mutex::new(store)), "127.0.0.1:0".parse()?)?;
+    let url = server.url();
+    let mut own = TipOnly::new();
+    own.rows = rows.clone();
+    own.tip = 2;
+    own.strict = true;
+    let mut source = JournalSource::open_archive(
+        own.clone(),
+        &root.path().join("miner"),
+        network.clone(),
+        false,
+        ArchiveClient::http(vec![url.clone()])?,
+    )?;
+    source.restore_posting_proof(&expected.0, 0)?;
+    assert_eq!(
+        source
+            .journal
+            .borrow()
+            .transaction_receipt_since(&expected.0, 0)?,
+        Some((1, false))
+    );
+    assert!(
+        source
+            .journal
+            .borrow_mut()
+            .install_transaction_proof(2, &rows[1])
+            .is_err(),
+        "known hash claimed in another block"
+    );
+    drop(source);
+    drop(server);
+    let mut source = JournalSource::open_archive(
+        own,
+        &root.path().join("miner"),
+        network,
+        false,
+        ArchiveClient::http(vec![url])?,
+    )?;
+    source.restore_posting_proof(&expected.0, 0)?;
+    assert_eq!(
+        source
+            .journal
+            .borrow()
+            .transaction_receipt_since(&expected.0, 0)?,
+        Some((1, false)),
+        "restart lost authenticated own proof cache"
+    );
+    assert_eq!(
+        std::fs::read(root.path().join("miner/input.ndjson"))?,
+        before,
+        "proof restoration rewrote original input rows"
+    );
+    Ok(())
+}
+
+#[test]
+fn t79_trust_ranges_use_source_intervals_without_rescanning_every_height() -> Result<()> {
+    struct Labels(std::rc::Rc<std::cell::Cell<usize>>);
+    impl L1Source for Labels {
+        fn inputs_label(&self, _: u64) -> &'static str {
+            self.0.set(self.0.get() + 1);
+            "journal"
+        }
+        fn input_ranges(&self, through: u64) -> Value {
+            json!([{"from":1,"through":through,"inputs":"journal"}])
+        }
+        fn finalized(&mut self) -> Result<u64> {
+            bail!("diagnostics read finality")
+        }
+        fn block(&mut self, _: u64) -> Result<L1Block> {
+            bail!("diagnostics read L1")
+        }
+        fn inbox_logs(&mut self, _: &str) -> Result<Vec<InboxLog>> {
+            bail!("diagnostics read logs")
+        }
+    }
+    let calls = std::rc::Rc::new(std::cell::Cell::new(0));
+    let d = Driver::new(Labels(calls.clone()), MemoryEngine::new());
+    let ranges = d.trust_ranges(100_000);
+    assert_eq!(
+        ranges,
+        json!([{"from":1,"through":100_000,"inputs":"journal","verdicts":"computed","environment":"pending"}])
+    );
+    assert!(
+        calls.get() <= 3,
+        "J5 rescanned {} heights instead of source intervals",
+        calls.get()
+    );
+    Ok(())
+}
+
+#[test]
+fn m4b2_missing_remote_proof_never_hides_an_own_manifest_change() -> Result<()> {
+    use boole_devnet_archive::client::{ArchiveClient, Fetch};
+    struct ChangedManifest(std::path::PathBuf);
+    impl Fetch for ChangedManifest {
+        fn get(&mut self, _: &str, _: &str, _: usize) -> Result<Vec<u8>> {
+            use std::io::Write;
+            std::fs::OpenOptions::new()
+                .append(true)
+                .open(&self.0)?
+                .write_all(b" ")?;
+            anyhow::bail!("remote unavailable")
+        }
+        fn backoff(&mut self, _: u64) {}
+    }
+    let root = PrivateTempDir::new("posting-proof-source-change")?;
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../fixtures/devnet-m4/input-auth-v0.json"
+    ))?;
+    let rows: Vec<InputRow> = serde_json::from_value(fixture["rows"].clone())?;
+    let known = rows[1].verify()?.canonical_receipts[2].0.clone();
+    let network = NetworkIdentity::new(
+        &boole_derivation::m2::Config::devnet(),
+        None,
+        MemoryEngine::new().head.hash,
+        30_000_000,
+    )?;
+    let mut journal =
+        InputJournal::open(root.path(), network.clone(), || Ok(rows[0].clone()), false)?;
+    let mut row = rows[1].clone();
+    row.transactions = None;
+    journal.append(&row)?;
+    drop(journal);
+    let mut own = TipOnly::new();
+    own.rows = rows;
+    own.tip = 1;
+    own.strict = true;
+    let archives = ArchiveClient::new(
+        vec!["http://127.0.0.1:1".into()],
+        Box::new(ChangedManifest(root.path().join("input.manifest.json"))),
+    )?;
+    let mut source = JournalSource::open_archive(own, root.path(), network, false, archives)?;
+    let error = source
+        .restore_posting_proof(&known, 0)
+        .expect_err("changed own manifest adopted");
+    assert!(
+        !matches!(
+            error.downcast_ref::<boole_devnet_archive::error::Error>(),
+            Some(boole_devnet_archive::error::Error::Availability { .. })
+        ),
+        "own integrity was hidden as remote availability: {error}"
+    );
+    assert!(source.journal.borrow().check().is_err());
+    Ok(())
+}
+
+#[path = "../../boole-devnet-archive/tests/support/mod.rs"]
+mod archive_proof_fixture;
+#[test]
+fn m1_bloom_negative_reverted_inbox_post_reconciles_without_historical_l1_reads() -> Result<()> {
+    use boole_devnet_archive::{
+        archive::{ArchiveIdentity, ArchiveProfile, ArchiveStore, Selection},
+        client::ArchiveClient,
+        http::ArchiveServer,
+    };
+    use std::sync::{Arc, Mutex};
+    let root = PrivateTempDir::new("restore-archive-tx-proof")?;
+    let v: Value = serde_json::from_str(include_str!(
+        "../../../fixtures/devnet-m4/input-auth-v0.json"
+    ))?;
+    let mut rows: Vec<InputRow> = serde_json::from_value(v["rows"].clone())?;
+    rows[1] = archive_proof_fixture::reverted_inbox_row(rows[1].clone())?;
+    rows.truncate(2);
+    let expected = rows[1].verify()?.canonical_receipts[0].clone();
+    assert!(
+        !expected.1,
+        "fixture must be the recorded reverted transaction"
+    );
+    let network = NetworkIdentity::new(
+        &boole_derivation::m2::Config::devnet(),
+        None,
+        MemoryEngine::new().head.hash,
+        30_000_000,
+    )?;
+    let mut journal = InputJournal::open(
+        &root.path().join("miner"),
+        network.clone(),
+        || {
+            let mut r = rows[0].clone();
+            r.transactions = None;
+            Ok(r)
+        },
+        false,
+    )?;
+    for row in &rows[1..] {
+        let mut r = row.clone();
+        r.transactions = None;
+        journal.append(&r)?;
+    }
+    assert!(journal.transaction_receipt_since(&expected.0, 0).is_err());
+    drop(journal);
+    let before = std::fs::read(root.path().join("miner/input.ndjson"))?;
+    let mut store = ArchiveStore::open(
+        &root.path().join("x"),
+        ArchiveProfile {
+            identity: ArchiveIdentity {
+                network: network.clone(),
+                l1_anchor_number: 0,
+                l1_anchor_hash: rows[0].block_hash.clone(),
+            },
+            bind: "127.0.0.1:0".parse()?,
+            prune_before: None,
+        },
+        false,
+    )?;
+    for (h, row) in rows.iter().enumerate() {
+        store.ingest(
+            row,
+            2,
+            &Selection {
+                l2_number: h as u64,
+                l2_hash: hex_string(&[3; 32]),
+                root: hex_string(&[4; 32]),
+                system: vec![],
+                inputs: "journal".into(),
+                verdicts: "computed".into(),
+            },
+        )?;
+    }
+    let server = ArchiveServer::start(Arc::new(Mutex::new(store)), "127.0.0.1:0".parse()?)?;
+    let url = server.url();
+    let mut own = TipOnly::new();
+    own.rows = rows.clone();
+    own.tip = 1;
+    own.strict = true;
+    let mut source = JournalSource::open_archive(
+        own.clone(),
+        &root.path().join("miner"),
+        network.clone(),
+        false,
+        ArchiveClient::http(vec![url.clone()])?,
+    )?;
+    let dropped = hex_string(&[77; 32]);
+    let before_requests = source.archive_stats();
+    source.restore_posting_proof(&dropped, 1)?;
+    assert_eq!(
+        source.archive_stats(),
+        before_requests,
+        "read outside own posting pause window"
+    );
+    source.restore_posting_proof(&expected.0, 0)?;
+    assert_eq!(
+        source
+            .journal
+            .borrow()
+            .transaction_receipt_since(&expected.0, 0)?,
+        Some((1, false))
+    );
+    source.restore_posting_proof(&dropped, 0)?;
+    assert_eq!(
+        source
+            .journal
+            .borrow()
+            .transaction_receipt_since(&dropped, 0)?,
+        None,
+        "dropped post became REVERTED"
+    );
+    assert!(
+        source
+            .journal
+            .borrow_mut()
+            .install_transaction_proof(2, &rows[1])
+            .is_err(),
+        "known hash claimed in another block"
+    );
+    drop(source);
+    drop(server);
+    let mut source = JournalSource::open_archive(
+        own,
+        &root.path().join("miner"),
+        network,
+        false,
+        ArchiveClient::http(vec![url])?,
+    )?;
+    source.restore_posting_proof(&expected.0, 0)?;
+    assert_eq!(
+        source
+            .journal
+            .borrow()
+            .transaction_receipt_since(&expected.0, 0)?,
+        Some((1, false)),
+        "restart lost authenticated own proof cache"
+    );
+    assert_eq!(
+        std::fs::read(root.path().join("miner/input.ndjson"))?,
+        before,
+        "proof restoration rewrote original input rows"
+    );
+    Ok(())
+}
+
+#[test]
+fn l2_unrequestable_heights_skip_local_posting_cache_reads() -> Result<()> {
+    use boole_devnet_archive::client::{ArchiveClient, Fetch, NotServed};
+    struct Missing;
+    impl Fetch for Missing {
+        fn get(&mut self, _: &str, _: &str, _: usize) -> Result<Vec<u8>> {
+            Err(NotServed.into())
+        }
+        fn observe(
+            &mut self,
+            _: &str,
+            _: &str,
+            _: usize,
+            _: std::time::Instant,
+        ) -> Result<Vec<u8>> {
+            Ok(br#"{"covered_through":1000}"#.to_vec())
+        }
+        fn backoff(&mut self, _: u64) {}
+    }
+    for count in [1, 40] {
+        let root = PrivateTempDir::new("posting-skip-local")?;
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../fixtures/devnet-m4/input-auth-v0.json"
+        ))?;
+        let initial: Vec<InputRow> = serde_json::from_value(fixture["rows"].clone())?;
+        let template = archive_proof_fixture::reverted_inbox_row(initial[1].clone())?;
+        let mut rows = vec![initial[0].clone()];
+        for h in 1..=count {
+            let raw = hex_bytes(&template.header_rlp, "header")?;
+            let decoded = rlp::decode(&raw).map_err(anyhow::Error::msg)?;
+            let mut fields: Vec<_> = decoded
+                .children
+                .unwrap()
+                .iter()
+                .map(|f| raw[f.span.clone()].to_vec())
+                .collect();
+            fields[0] = rlp::bytes(&hex_bytes(&rows.last().unwrap().block_hash, "parent")?);
+            fields[8] = rlp::uint(h);
+            let raw = rlp::list(&fields);
+            rows.push(InputRow {
+                schema_version: 1,
+                block_hash: hex_string(&keccak(&raw)),
+                header_rlp: hex_string(&raw),
+                transactions: None,
+                receipts: None,
+            });
+        }
+        let network = NetworkIdentity::new(
+            &boole_derivation::m2::Config::devnet(),
+            None,
+            MemoryEngine::new().head.hash,
+            30_000_000,
+        )?;
+        let mut journal =
+            InputJournal::open(root.path(), network.clone(), || Ok(rows[0].clone()), false)?;
+        for row in &rows[1..] {
+            journal.append(row)?;
+        }
+        drop(journal);
+        let mut own = TipOnly::new();
+        own.rows = rows.clone();
+        own.tip = count;
+        own.strict = true;
+        let archives = ArchiveClient::new(vec!["http://127.0.0.1:1".into()], Box::new(Missing))?;
+        let mut source = JournalSource::open_archive(own, root.path(), network, false, archives)?;
+        let absent = hex_string(&[99; 32]);
+        assert!(source.restore_posting_proof(&absent, 0).is_err());
+        // First turn exhausts 32 network requests. The next turn rotates past
+        // those heights, then must skip both budget-zero and backoff heights.
+        let cache = root.path().join("transaction-proofs");
+        for row in &rows[1..] {
+            std::fs::write(cache.join(&row.block_hash[2..]), b"unread sentinel")?;
+        }
+        assert!(source.restore_posting_proof(&absent, 0).is_err());
+        for row in rows.iter().skip(1).take(count.min(32) as usize) {
+            assert_eq!(
+                std::fs::read(cache.join(&row.block_hash[2..]))?,
+                b"unread sentinel",
+                "unrequestable height cache was read/quarantined"
+            );
+        }
+        // Mandatory own manifest checks still run even with no request budget.
+        use std::io::Write;
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(root.path().join("input.manifest.json"))?
+            .write_all(b" ")?;
+        assert!(source.journal.borrow().check().is_err());
+        let e = source.restore_posting_proof(&absent, 0).unwrap_err();
+        assert!(!matches!(
+            e.downcast_ref::<boole_devnet_archive::error::Error>(),
+            Some(boole_devnet_archive::error::Error::Availability { .. })
+        ));
+    }
+    Ok(())
+}

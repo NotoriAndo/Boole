@@ -69,7 +69,7 @@ pub const SEGMENT: usize = 1024;
 pub const OBJ_MAX: usize = 135_266_304;
 pub const REQ_MAX: usize = 65_536;
 pub const CLASSES: &[&str] = &[
-    "header", "receipts", "exp", "tr", "pkg", "env", "gate", "vstmt", "system",
+    "header", "receipts", "txs", "exp", "tr", "pkg", "env", "gate", "vstmt", "system",
 ];
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -79,6 +79,8 @@ pub struct IndexRow {
     pub l1_hash: String,
     pub parent_hash: String,
     pub bloom_positive: bool,
+    #[serde(default)]
+    pub inbox_touching: Option<bool>,
     pub blob_ids: Vec<String>,
     pub l2_hash: String,
     pub root: String,
@@ -132,6 +134,8 @@ pub struct ArchiveStore {
     manifest_stamp: FileStamp,
     index: IndexLog,
     objects: BTreeMap<String, Objects>,
+    ingest_health: Option<crate::error::Error>,
+    ingest_retries: u32,
 }
 impl ArchiveStore {
     pub fn open(root: &Path, profile: ArchiveProfile, repair: bool) -> Result<Self> {
@@ -157,7 +161,10 @@ impl ArchiveStore {
         let index = IndexLog::open(&index_path, repair)?;
         let mut objects = BTreeMap::new();
         for class in CLASSES {
-            objects.insert((*class).to_owned(), Objects::open(&root.join(class))?);
+            objects.insert(
+                (*class).to_owned(),
+                Objects::open_class(&root.join(class), class)?,
+            );
         }
         let out = Self {
             profile,
@@ -166,6 +173,8 @@ impl ArchiveStore {
             manifest_stamp,
             index,
             objects,
+            ingest_health: None,
+            ingest_retries: 0,
         };
         out.check()?;
         if let Some(first) = out.index.rows.get(&0) {
@@ -208,8 +217,29 @@ impl ArchiveStore {
             .map(|(_, r)| r.clone())
             .collect())
     }
+    /// Resumable ingest health is diagnostic and never disables verified reads.
+    pub fn set_ingest_health(&mut self, error: Option<crate::error::Error>, retries: u32) {
+        self.ingest_health = error;
+        self.ingest_retries = retries;
+    }
     pub fn info(&self) -> serde_json::Value {
-        serde_json::json!({"schema":"boole.archive.v1","identity":self.profile.identity,"covered_from":self.index.rows.first_key_value().map(|(h,_)|h),"covered_through":self.index.rows.last_key_value().map(|(h,_)|h),"input_ranges":self.input_ranges(),"verdicts":"computed","segment":SEGMENT,"obj_max":OBJ_MAX,"pending":{"segment":"no locked zstd crate; bundle is not authority","l1/blob":"M4-L5 deferred","env_normalized":"no normalized producer in v1.3"}})
+        let quarantines: BTreeMap<_, _> = self
+            .objects
+            .iter()
+            .map(|(class, objects)| (class, objects.quarantines()))
+            .collect();
+        let ingest_health = self.ingest_health.as_ref().map(|e| match e {
+            crate::error::Error::Availability {height,class,..} => serde_json::json!({"kind":"availability","height":height.to_string(),"class":class,"consecutive_retries":self.ingest_retries}),
+            crate::error::Error::Integrity {height,class,..} => serde_json::json!({"kind":"integrity","height":height.to_string(),"class":class}),
+            crate::error::Error::Startup {number,..} => serde_json::json!({"kind":"startup","number":number}),
+        });
+        let input_ranges = self.input_ranges();
+        let mut trust_ranges = input_ranges.clone();
+        for range in &mut trust_ranges {
+            range["verdicts"] = serde_json::json!("computed");
+            range["environment"] = serde_json::json!("pending");
+        }
+        serde_json::json!({"schema":"boole.archive.v1","environment":"pending","trust_ranges":trust_ranges,"quarantines":quarantines,"ingest_health":ingest_health,"identity":self.profile.identity,"covered_from":self.index.rows.first_key_value().map(|(h,_)|h),"covered_through":self.index.rows.last_key_value().map(|(h,_)|h),"input_ranges":input_ranges,"verdicts":"computed","segment":SEGMENT,"obj_max":OBJ_MAX,"pending":{"segment":"no locked zstd crate; bundle is not authority","l1/blob":"M4-L5 deferred","env_normalized":"no normalized producer in v1.3"}})
     }
     pub fn input_ranges(&self) -> Vec<serde_json::Value> {
         let mut ranges: Vec<serde_json::Value> = vec![];
@@ -247,6 +277,11 @@ impl ArchiveStore {
         }
         let raw = hex_bytes(&row.header_rlp, "header")?;
         let positive = header_needs_receipts(&raw)?;
+        let touching = row
+            .transactions
+            .as_ref()
+            .map(|txs| crate::input::transactions_touch_inbox(&raw, txs))
+            .transpose()?;
         let system = serde_json::to_vec(&selection.system)?;
         let system_digest = sha(&system);
         let index = IndexRow {
@@ -255,6 +290,13 @@ impl ArchiveStore {
             l1_hash: row.block_hash.clone(),
             parent_hash: verified.block.parent_hash.clone(),
             bloom_positive: positive,
+            // Old diagnostic rows are immutable; backfill proof objects without
+            // turning a previously absent flag into an index conflict.
+            inbox_touching: self
+                .index
+                .rows
+                .get(&h)
+                .map_or(touching, |old| old.inbox_touching),
             blob_ids: vec![],
             l2_hash: selection.l2_hash.clone(),
             root: selection.root.clone(),
@@ -264,7 +306,7 @@ impl ArchiveStore {
         };
         index.validate()?;
         self.objects["header"].put(&row.block_hash, &raw, |b| verify_header(&row.block_hash, b))?;
-        if positive {
+        if positive || touching == Some(true) {
             let receipts = row
                 .receipts
                 .as_ref()
@@ -277,6 +319,18 @@ impl ArchiveStore {
                 r.verify()?;
                 Ok(())
             })?;
+        }
+        if positive || touching == Some(true) {
+            if let Some(transactions) = &row.transactions {
+                let bytes = serde_json::to_vec(transactions)?;
+                self.objects["txs"].put(&row.block_hash, &bytes, |b| {
+                    crate::input::verify_transactions(
+                        &raw,
+                        &crate::client::string_list(b, 65536)?,
+                    )?;
+                    Ok(())
+                })?;
+            }
         }
         self.objects["system"].put(&system_digest, &system, |b| {
             ensure!(sha(b) == system_digest, "system digest");
@@ -377,9 +431,6 @@ impl ArchiveStore {
         let Some(raw) = self.header(key)? else {
             return Ok(None);
         };
-        if !header_needs_receipts(&raw)? {
-            return Ok(None);
-        }
         self.objects["receipts"].read(key, |b| {
             let r = InputRow {
                 schema_version: 1,
@@ -389,6 +440,17 @@ impl ArchiveStore {
                 transactions: None,
             };
             r.verify()?;
+            Ok(())
+        })
+    }
+    pub fn transactions(&self, key: &str) -> Result<Option<Vec<u8>>> {
+        self.check()?;
+        hash(key)?;
+        let Some(header) = self.header(key)? else {
+            return Ok(None);
+        };
+        self.objects["txs"].read(key, |b| {
+            crate::input::verify_transactions(&header, &crate::client::string_list(b, 65536)?)?;
             Ok(())
         })
     }

@@ -89,6 +89,7 @@ struct Position {
     encoded_digest: [u8; 32],
     canonical_receipts: Vec<(String, bool)>,
     has_transaction_proof: bool,
+    supplemental_proof: Option<InputRow>,
 }
 pub struct InputJournal {
     root: PathBuf,
@@ -256,19 +257,24 @@ impl InputJournal {
                 .verify()
                 .map_err(|e| integrity(positions.len() as u64, "input", e.to_string()))?;
             let h = verified.block.number;
-            ensure!(h == positions.len() as u64, "noncontiguous journal height");
+            if h != positions.len() as u64 {
+                return Err(integrity(
+                    positions.len() as u64,
+                    "input",
+                    "noncontiguous journal height",
+                ));
+            }
             if h == 0 {
-                ensure!(
-                    verified.block.hash == manifest.l1_anchor_hash,
-                    "journal anchor mismatch"
-                );
+                if verified.block.hash != manifest.l1_anchor_hash {
+                    return Err(integrity(0, "input", "journal anchor mismatch"));
+                }
             } else {
-                ensure!(
-                    positions
-                        .get(&(h - 1))
-                        .is_some_and(|p: &Position| p.hash == verified.block.parent_hash),
-                    "journal parent link mismatch"
-                );
+                if positions
+                    .get(&(h - 1))
+                    .is_none_or(|p: &Position| p.hash != verified.block.parent_hash)
+                {
+                    return Err(integrity(h, "input", "journal parent link mismatch"));
+                }
             }
             positions.insert(
                 h,
@@ -278,8 +284,13 @@ impl InputJournal {
                     hash: verified.block.hash,
                     parent: verified.block.parent_hash,
                     encoded_digest: Sha256::digest(&raw).into(),
-                    has_transaction_proof: row.transactions.is_some(),
+                    has_transaction_proof: row.transactions.is_some()
+                        || crate::input::empty_transactions(&hex_bytes(
+                            &row.header_rlp,
+                            "header",
+                        )?)?,
                     canonical_receipts: verified.canonical_receipts,
+                    supplemental_proof: None,
                 },
             );
             offset += count as u64;
@@ -467,8 +478,10 @@ impl InputJournal {
                 hash: verified.block.hash,
                 parent: verified.block.parent_hash,
                 encoded_digest: Sha256::digest(&encoded).into(),
-                has_transaction_proof: row.transactions.is_some(),
+                has_transaction_proof: row.transactions.is_some()
+                    || crate::input::empty_transactions(&hex_bytes(&row.header_rlp, "header")?)?,
                 canonical_receipts: verified.canonical_receipts,
+                supplemental_proof: None,
             },
         );
         self.observed = observed;
@@ -485,6 +498,37 @@ impl InputJournal {
             "manifest changed during read-only inspection"
         );
         Ok(*positions.last_key_value().context("anchor")?.0)
+    }
+    pub fn missing_transaction_proofs_since(&self, floor: u64) -> Result<Vec<u64>> {
+        self.check()?;
+        Ok(self
+            .positions
+            .range(floor.saturating_add(1)..)
+            .filter(|(_, p)| !p.has_transaction_proof)
+            .map(|(h, _)| *h)
+            .collect())
+    }
+    /// Install only an authenticated cache result; immutable journal bytes stay intact.
+    /// Callers retain the verified proof in their new-file-only acquisition cache.
+    pub fn install_transaction_proof(&mut self, h: u64, proof: &InputRow) -> Result<()> {
+        let own = self.row(h)?;
+        ensure!(
+            proof.block_hash == own.block_hash
+                && proof.header_rlp == own.header_rlp
+                && proof.transactions.is_some()
+                && own
+                    .receipts
+                    .as_ref()
+                    .is_none_or(|r| Some(r) == proof.receipts.as_ref()),
+            "transaction proof journal binding"
+        );
+        let verified = proof.verify()?;
+        self.check()?;
+        let position = self.positions.get_mut(&h).context("proof height")?;
+        position.canonical_receipts = verified.canonical_receipts;
+        position.has_transaction_proof = true;
+        position.supplemental_proof = Some(proof.clone());
+        Ok(())
     }
     /// A missing transaction proof is not evidence that an own post was absent.
     pub fn transaction_receipt_since(
@@ -513,7 +557,17 @@ impl InputJournal {
                 .iter()
                 .any(|(hash, _)| hash.eq_ignore_ascii_case(tx))
             {
-                let verified = self.get(*h)?;
+                let (own, verified) = self.read_row(*h)?;
+                let verified = if let Some(proof) = &position.supplemental_proof {
+                    ensure!(
+                        proof.header_rlp == own.header_rlp && proof.block_hash == own.block_hash,
+                        "supplemental proof origin changed"
+                    );
+                    proof.verify()?
+                } else {
+                    verified
+                };
+                self.check()?;
                 return Ok(verified
                     .canonical_receipts
                     .iter()
@@ -547,6 +601,83 @@ pub fn free_bytes(path: &Path) -> Result<u64> {
 #[cfg(not(unix))]
 pub fn free_bytes(_path: &Path) -> Result<u64> {
     anyhow::bail!("S23 requires supported unix disk accounting")
+}
+
+/// A source-preserving view for an independent auditor. It never acquires a
+/// writer lock, creates files, cleans staging, applies a disk floor or repairs.
+pub struct ReadOnlyJournal {
+    root: PathBuf,
+    path: PathBuf,
+    manifest: Manifest,
+    manifest_stamp: FileStamp,
+    observed: FileStamp,
+    positions: BTreeMap<u64, Position>,
+}
+impl ReadOnlyJournal {
+    pub fn open(root: &Path, expected: &NetworkIdentity) -> Result<Self> {
+        let root = root.canonicalize()?;
+        let path = root.join(JOURNAL);
+        let (raw, manifest_stamp) = read_bound(&root.join(MANIFEST), 65536)?;
+        let manifest: Manifest = serde_json::from_slice(&raw)?;
+        ensure!(
+            manifest.schema_version == 1
+                && manifest.network == *expected
+                && manifest.l1_anchor_number == 0,
+            "S18: read-only journal identity"
+        );
+        let (positions, observed) = InputJournal::load(&path, &manifest, false)?;
+        let view = Self {
+            root,
+            path,
+            manifest,
+            manifest_stamp,
+            observed,
+            positions,
+        };
+        view.check()?;
+        Ok(view)
+    }
+    pub fn tip(&self) -> u64 {
+        *self.positions.last_key_value().expect("verified anchor").0
+    }
+    pub fn anchor_hash(&self) -> &str {
+        &self.manifest.l1_anchor_hash
+    }
+    pub fn check(&self) -> Result<()> {
+        ensure!(
+            file_stamp(&self.path)?.as_ref() == Some(&self.observed)
+                && file_stamp(&self.root.join(MANIFEST))?.as_ref() == Some(&self.manifest_stamp),
+            "read-only journal source version changed"
+        );
+        Ok(())
+    }
+    pub fn row(&self, h: u64) -> Result<InputRow> {
+        self.check()?;
+        let p = self
+            .positions
+            .get(&h)
+            .context("read-only input height absent")?;
+        let mut file = regular(&self.path, false)?;
+        ensure!(
+            stamp(&file.metadata()?)? == self.observed,
+            "read-only descriptor changed"
+        );
+        file.seek(SeekFrom::Start(p.offset))?;
+        let mut raw = vec![0; p.len];
+        file.read_exact(&mut raw)?;
+        ensure!(
+            <[u8; 32]>::from(Sha256::digest(&raw)) == p.encoded_digest,
+            "read-only input bytes changed"
+        );
+        let row: InputRow = serde_json::from_slice(&raw)?;
+        let block = row.verify()?.block;
+        ensure!(
+            block.number == h && block.hash == p.hash && block.parent_hash == p.parent,
+            "read-only input position changed"
+        );
+        self.check()?;
+        Ok(row)
+    }
 }
 
 #[cfg(test)]

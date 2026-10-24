@@ -112,13 +112,12 @@ impl StateManifest {
     }
 }
 
-/// RAII guard. Drop releases the `flock` (the kernel releases it on file
-/// close even without an explicit `LOCK_UN`, so simply dropping the
-/// `File` is enough). The guard also keeps the resolved directory path
-/// for error reporting.
+/// Lifetime writer ownership. Explicit unlock on drop also releases our open
+/// file description if a concurrent spawn temporarily inherited it. Closing
+/// only this descriptor would leave that inherited description holding flock.
 pub struct StateDirGuard {
     dir: PathBuf,
-    _lock: File,
+    _lock: WriterLock,
 }
 
 impl StateDirGuard {
@@ -129,7 +128,7 @@ impl StateDirGuard {
     /// A pathname may be unlinked and recreated while our old inode remains
     /// locked. Presence alone is not proof that this process owns the path.
     pub fn is_current(&self) -> bool {
-        locked_file_is_current(&self._lock, &self.dir.join(STATE_LOCK_FILE))
+        locked_file_is_current(&self._lock.0, &self.dir.join(STATE_LOCK_FILE))
     }
 }
 
@@ -157,7 +156,8 @@ pub fn acquire(dir: &Path) -> Result<StateDirGuard, StateDirError> {
             StateDirError::Io(lock_path.clone(), err)
         }
     })?;
-    if !locked_file_is_current(&file, &lock_path) {
+    let file = WriterLock(file);
+    if !locked_file_is_current(&file.0, &lock_path) {
         return Err(StateDirError::Io(
             lock_path,
             std::io::Error::other("state lock pathname changed during acquisition"),
@@ -169,12 +169,34 @@ pub fn acquire(dir: &Path) -> Result<StateDirGuard, StateDirError> {
     })
 }
 
+/// A successfully acquired open file description, including locks acquired
+/// before a multi-ledger acquisition fails. No acquisition retries are used.
+#[derive(Debug)]
+struct WriterLock(File);
+
+impl Drop for WriterLock {
+    #[allow(unsafe_code)]
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        {
+            use std::os::fd::AsRawFd;
+            loop {
+                if unsafe { libc::flock(self.0.as_raw_fd(), libc::LOCK_UN) } == 0
+                    || std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted
+                {
+                    break;
+                }
+            }
+        }
+    }
+}
+
 /// Lifetime single-writer ownership of ledger pathnames, independent of an
 /// optional state directory. The lock lives beside each ledger, not on the
 /// ledger inode: atomic reorg/recovery replacements must not release ownership.
 #[derive(Debug)]
 pub struct LedgerLockSet {
-    locks: Vec<(PathBuf, File)>,
+    locks: Vec<(PathBuf, WriterLock)>,
     paths: BTreeSet<PathBuf>,
 }
 
@@ -341,7 +363,8 @@ impl LedgerLockSet {
                     StateDirError::Io(lock_path.clone(), err)
                 }
             })?;
-            if !locked_file_is_current(&file, &lock_path) {
+            let file = WriterLock(file);
+            if !locked_file_is_current(&file.0, &lock_path) {
                 return Err(StateDirError::Io(
                     lock_path,
                     std::io::Error::other("ledger lock pathname changed during acquisition"),
@@ -394,7 +417,7 @@ impl LedgerLockSet {
     pub fn is_current(&self) -> bool {
         self.locks
             .iter()
-            .all(|(path, file)| locked_file_is_current(file, path))
+            .all(|(path, file)| locked_file_is_current(&file.0, path))
     }
 
     /// File-local append fencing is insufficient when stale data from one
@@ -697,6 +720,52 @@ pub fn flock_exclusive_nonblocking(_file: &File) -> std::io::Result<()> {
         std::io::ErrorKind::Unsupported,
         "state-dir advisory lock requires a unix host",
     ))
+}
+
+#[cfg(test)]
+mod inherited_description_tests {
+    use super::*;
+
+    #[test]
+    fn dropped_writer_releases_ownership_with_an_inherited_open_description() -> anyhow::Result<()>
+    {
+        let dir = crate::durability::PrivateTempDir::new("m4-lock-inherited")?;
+        let first = acquire(dir.path())?;
+        let inherited = first._lock.0.try_clone()?;
+        assert!(matches!(acquire(dir.path()), Err(StateDirError::Locked(_))));
+        drop(first);
+        let second = acquire(dir.path())?;
+        assert!(matches!(acquire(dir.path()), Err(StateDirError::Locked(_))));
+        drop(inherited);
+        assert!(matches!(acquire(dir.path()), Err(StateDirError::Locked(_))));
+        drop(second);
+        drop(acquire(dir.path())?);
+        Ok(())
+    }
+
+    #[test]
+    fn dropped_ledger_releases_ownership_with_an_inherited_open_description() -> anyhow::Result<()>
+    {
+        let dir = crate::durability::PrivateTempDir::new("m4-ledger-inherited")?;
+        let path = dir.path().join("ledger");
+        let first = LedgerLockSet::acquire([path.clone()])?;
+        let (_, held) = &first.locks[0];
+        let inherited = held.0.try_clone()?;
+        assert!(matches!(
+            LedgerLockSet::acquire([path.clone()]),
+            Err(StateDirError::LedgerLocked(_))
+        ));
+        drop(first);
+        let second = LedgerLockSet::acquire([path.clone()])?;
+        drop(inherited);
+        assert!(matches!(
+            LedgerLockSet::acquire([path.clone()]),
+            Err(StateDirError::LedgerLocked(_))
+        ));
+        drop(second);
+        drop(LedgerLockSet::acquire([path])?);
+        Ok(())
+    }
 }
 
 #[cfg(test)]

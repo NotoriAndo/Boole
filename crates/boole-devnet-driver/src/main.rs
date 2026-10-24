@@ -59,6 +59,9 @@ struct Args {
     follow_through: Option<u64>,
     #[arg(long)]
     follow_canonical: Option<PathBuf>,
+    /// Take strict system prefixes from pinned archives for the explicit range.
+    #[arg(long, conflicts_with = "follow_canonical", requires = "archive")]
+    follow_archive: bool,
 }
 fn main() -> Result<()> {
     boole_devnet_archive::fault::validate_environment()?;
@@ -78,9 +81,14 @@ fn main() -> Result<()> {
         boole_derivation::attributes::hex_string(&config.slot_table_digest())
     );
     anyhow::ensure!(
-        (args.archive.is_empty() && args.archive_dir.is_none()) || args.mode == "verify",
-        "M4b1 archive requires verify mode"
+        args.archive_dir.is_none() || args.mode == "verify",
+        "archive publication requires verify mode"
     );
+    anyhow::ensure!(
+        !args.follow_archive || args.mode == "follow",
+        "--follow-archive requires follow mode"
+    );
+    let follow_sources = args.archive.clone();
     let l1 = RpcL1::new_m2(&args.l1_rpc)?;
     let mut engine = RpcEngine::new(&args.engine_rpc, &args.node_rpc, &args.jwt_secret)?;
     let l2_gas_limit = engine.head()?.gas_limit;
@@ -210,6 +218,11 @@ fn main() -> Result<()> {
         l1.journal.borrow().cleanup(&[], Some(&checkpoint))?;
         Driver::with_config(l1, engine, config, l2_gas_limit)?
     };
+    if args.follow_archive {
+        driver.follow_from_archive(&mut boole_devnet_archive::client::ArchiveClient::http(
+            follow_sources,
+        )?)?;
+    }
     let _cache_guard = cache_guard;
     driver.set_journal(&checkpoint)?;
     driver.set_evidence_repair(&evidence, args.repair_journals)?;

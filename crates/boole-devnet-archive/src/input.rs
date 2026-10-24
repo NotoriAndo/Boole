@@ -224,7 +224,7 @@ pub fn header_needs_receipts(raw: &[u8]) -> Result<bool> {
         &hex_bytes(&boole_derivation::config::posted_topic(), "topic")?,
     ))
 }
-pub fn receipt_from_rpc(v: &Value) -> Result<Vec<u8>> {
+pub fn receipt_payload_from_rpc(v: &Value) -> Result<Vec<u8>> {
     let mut logs = vec![];
     for log in v["logs"].as_array().context("receipt logs")? {
         let topics = log["topics"]
@@ -240,12 +240,15 @@ pub fn receipt_from_rpc(v: &Value) -> Result<Vec<u8>> {
             rlp::bytes(&data(&log["data"], None)?),
         ]));
     }
-    let raw = rlp::list(&[
+    Ok(rlp::list(&[
         rlp::bytes(&quantity_bytes(&v["status"])?),
         rlp::bytes(&quantity_bytes(&v["cumulativeGasUsed"])?),
         rlp::bytes(&data(&v["logsBloom"], Some(256))?),
         rlp::list(&logs),
-    ]);
+    ]))
+}
+pub fn receipt_from_rpc(v: &Value) -> Result<Vec<u8>> {
+    let raw = receipt_payload_from_rpc(v)?;
     let kind = if v["type"].is_null() {
         0
     } else {
@@ -329,6 +332,68 @@ pub fn receipts_root(receipts: &[Vec<u8>]) -> [u8; 32] {
         })
         .collect();
     keccak(&trie(&rows, 0))
+}
+/// Diagnostic inbox-touching rule, derived only from an authenticated tx list.
+pub fn transactions_touch_inbox(header: &[u8], transactions: &[String]) -> Result<bool> {
+    verify_transactions(header, transactions)?;
+    let inbox = hex_bytes(boole_derivation::config::INBOX, "inbox")?;
+    for transaction in transactions {
+        let raw = hex_bytes(transaction, "transaction")?;
+        let (payload, index) = if raw.first().is_some_and(|b| *b < 0x80) {
+            let index = match raw[0] {
+                1 => 4,
+                2..=4 => 5,
+                // Unknown envelope layouts cannot prove a non-inbox recipient.
+                // Keep both authenticated lists instead of halting ingest.
+                _ => return Ok(true),
+            };
+            (&raw[1..], index)
+        } else {
+            (raw.as_slice(), 3)
+        };
+        let decoded = rlp::decode(payload).map_err(anyhow::Error::msg)?;
+        let fields = decoded.children.context("L1 transaction fields")?;
+        let to = fields.get(index).context("L1 transaction recipient")?;
+        ensure!(
+            to.children.is_none() && matches!(to.bytes.len(), 0 | 20),
+            "L1 transaction recipient width"
+        );
+        if to.bytes == inbox {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+/// Ordered transaction trie authentication, independent of archive metadata.
+pub fn verify_transactions(header: &[u8], transactions: &[String]) -> Result<Vec<String>> {
+    decode_header(header)?;
+    ensure!(transactions.len() <= 65536, "transaction count cap");
+    let txs: Vec<_> = transactions
+        .iter()
+        .map(|tx| hex_bytes(tx, "transaction proof").map_err(Into::into))
+        .collect::<Result<_>>()?;
+    ensure!(
+        txs.iter().all(|tx| !tx.is_empty())
+            && txs.iter().map(Vec::len).sum::<usize>() <= ROW_MAX / 2,
+        "transaction proof cap/shape"
+    );
+    let fields = rlp::decode(header)
+        .map_err(anyhow::Error::msg)?
+        .children
+        .context("header")?;
+    ensure!(
+        receipts_root(&txs).as_slice() == fields[4].bytes,
+        "transaction trie root mismatch"
+    );
+    Ok(txs.iter().map(|tx| hex_string(&keccak(tx))).collect())
+}
+pub fn empty_transactions(header: &[u8]) -> Result<bool> {
+    decode_header(header)?;
+    let fields = rlp::decode(header)
+        .map_err(anyhow::Error::msg)?
+        .children
+        .context("header")?;
+    Ok(fields[4].bytes == receipts_root(&[]))
 }
 impl InputRow {
     pub fn from_rpc(header: &Value, receipts: Option<&[Value]>) -> Result<Self> {
@@ -465,26 +530,9 @@ impl InputRow {
                 transactions.len() == receipts.len(),
                 "transaction/receipt count mismatch"
             );
-            let txs: Vec<_> = transactions
-                .iter()
-                .map(|tx| Ok(hex_bytes(tx, "journal transaction")?))
-                .collect::<Result<_>>()?;
-            ensure!(
-                txs.iter().all(|tx| !tx.is_empty())
-                    && txs.iter().map(Vec::len).sum::<usize>() <= ROW_MAX / 2,
-                "transaction proof cap/shape"
-            );
-            let fields = rlp::decode(&raw)
-                .map_err(anyhow::Error::msg)?
-                .children
-                .context("header")?;
-            ensure!(
-                receipts_root(&txs).as_slice() == fields[4].bytes,
-                "transaction trie root mismatch"
-            );
-            txs.iter()
+            verify_transactions(&raw, transactions)?
+                .into_iter()
                 .zip(statuses)
-                .map(|(tx, status)| (hex_string(&keccak(tx)), status))
                 .collect()
         } else {
             vec![]

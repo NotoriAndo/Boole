@@ -364,7 +364,10 @@ impl Process {
         })
     }
     fn wait(&mut self) -> Result<std::process::ExitStatus> {
-        let end = Instant::now() + Duration::from_secs(40);
+        self.wait_for(Duration::from_secs(40))
+    }
+    fn wait_for(&mut self, timeout: Duration) -> Result<std::process::ExitStatus> {
+        let end = Instant::now() + timeout;
         loop {
             if let Some(s) = self.child.try_wait()? {
                 owned(&self.root, self.child.id(), "stopped", &self.role)?;

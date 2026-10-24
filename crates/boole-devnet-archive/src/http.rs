@@ -136,11 +136,9 @@ impl ArchiveServer {
                     );
                     let cleanup = active.clone();
                     match spawn(Box::new(move || {
-                        let _ = handle(&mut stream, &store, &flag, &health, &logged);
-                        if let Ok(mut all) = active.lock() {
-                            all.remove(&id);
-                        }
-                        let _ = stream.shutdown(Shutdown::Both);
+                        connection(stream, id, active, |stream| {
+                            let _ = handle(stream, &store, &flag, &health, &logged);
+                        });
                     })) {
                         Ok(worker) => workers.push(worker),
                         Err(_) => {
@@ -213,6 +211,28 @@ impl Drop for ArchiveServer {
             let _ = t.join();
         }
     }
+}
+struct ConnectionGuard {
+    stream: TcpStream,
+    id: u64,
+    active: Arc<Mutex<BTreeMap<u64, TcpStream>>>,
+}
+impl Drop for ConnectionGuard {
+    fn drop(&mut self) {
+        if let Ok(mut all) = self.active.lock() {
+            all.remove(&self.id);
+        }
+        let _ = self.stream.shutdown(Shutdown::Both);
+    }
+}
+fn connection(
+    stream: TcpStream,
+    id: u64,
+    active: Arc<Mutex<BTreeMap<u64, TcpStream>>>,
+    work: impl FnOnce(&mut TcpStream),
+) {
+    let mut guard = ConnectionGuard { stream, id, active };
+    work(&mut guard.stream);
 }
 fn transient(e: &std::io::Error) -> bool {
     if matches!(
@@ -478,6 +498,11 @@ fn dispatch(
             return Response::error(400);
         }
         store.receipts(&format!("0x{k}"))
+    } else if let Some(k) = route.strip_prefix("l1/txs/") {
+        if !key(k) {
+            return Response::error(400);
+        }
+        store.transactions(&format!("0x{k}"))
     } else if let Some(obj) = route.strip_prefix("obj/") {
         let Some((class, k)) = obj.split_once('/') else {
             return Response::error(400);
@@ -789,22 +814,143 @@ mod fix2_tests {
         );
         Ok(())
     }
+    #[allow(unsafe_code)]
+    fn descriptors(port: u16) -> usize {
+        std::fs::read_dir(if cfg!(target_os = "linux") {
+            "/proc/self/fd"
+        } else {
+            "/dev/fd"
+        })
+        .unwrap()
+        .filter_map(|entry| {
+            entry
+                .ok()?
+                .file_name()
+                .to_str()?
+                .parse::<libc::c_int>()
+                .ok()
+        })
+        .filter(|fd| {
+            // Count this server's descriptors, not unrelated parallel tests.
+            let mut address: libc::sockaddr_storage = unsafe { std::mem::zeroed() };
+            let mut size = std::mem::size_of_val(&address) as libc::socklen_t;
+            if unsafe {
+                libc::getsockname(
+                    *fd,
+                    (&mut address as *mut libc::sockaddr_storage).cast(),
+                    &mut size,
+                )
+            } != 0
+            {
+                return false;
+            }
+            match i32::from(address.ss_family) {
+                libc::AF_INET => {
+                    u16::from_be(
+                        unsafe {
+                            *(&address as *const libc::sockaddr_storage).cast::<libc::sockaddr_in>()
+                        }
+                        .sin_port,
+                    ) == port
+                }
+                libc::AF_INET6 => {
+                    u16::from_be(
+                        unsafe {
+                            *(&address as *const libc::sockaddr_storage)
+                                .cast::<libc::sockaddr_in6>()
+                        }
+                        .sin6_port,
+                    ) == port
+                }
+                _ => false,
+            }
+        })
+        .count()
+    }
+    #[test]
+    fn r1_worker_unwind_releases_registered_socket() -> Result<()> {
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        let _client = TcpStream::connect(listener.local_addr()?)?;
+        let (stream, _) = listener.accept()?;
+        let active = Arc::new(Mutex::new(BTreeMap::from([(7, stream.try_clone()?)])));
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            connection(stream, 7, active.clone(), |_| {
+                panic!("worker fixture panic")
+            });
+        }));
+        assert!(result.is_err());
+        assert!(
+            active.lock().unwrap().is_empty(),
+            "worker panic leaked its registered descriptor"
+        );
+        Ok(())
+    }
+    #[test]
+    fn r2_descriptor_measurement_ignores_other_servers() -> Result<()> {
+        let target = TcpListener::bind("127.0.0.1:0")?;
+        let baseline = descriptors(target.local_addr()?.port());
+        let unrelated = TcpListener::bind("127.0.0.1:0")?;
+        let mut noise = vec![];
+        for _ in 0..8 {
+            let client = TcpStream::connect(unrelated.local_addr()?)?;
+            let (server, _) = unrelated.accept()?;
+            noise.push((client, server));
+        }
+        assert_eq!(
+            descriptors(target.local_addr()?.port()),
+            baseline,
+            "unrelated test sockets changed the H1 measurement"
+        );
+        Ok(())
+    }
+    fn drained_descriptor_count(
+        baseline: usize,
+        deadline: Instant,
+        mut count: impl FnMut() -> usize,
+    ) -> usize {
+        let mut observed = count();
+        while observed > baseline && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(5));
+            observed = count();
+        }
+        observed
+    }
+    #[test]
+    fn b1_descriptor_drain_waits_for_the_socket_after_registry_removal() -> Result<()> {
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        let port = listener.local_addr()?.port();
+        let baseline = descriptors(port);
+        let client = TcpStream::connect(listener.local_addr()?)?;
+        let (accepted, _) = listener.accept()?;
+        drop(client);
+        let (release, closed) = std::sync::mpsc::channel();
+        let worker = thread::spawn(move || {
+            closed.recv().unwrap();
+            drop(accepted);
+        });
+        let mut release = Some(release);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let count = drained_descriptor_count(baseline, deadline, || {
+            let observed = descriptors(port);
+            if let Some(release) = release.take() {
+                release.send(()).unwrap();
+            }
+            observed
+        });
+        worker.join().unwrap();
+        assert!(
+            count <= baseline,
+            "descriptor closed after the first measurement was not awaited"
+        );
+        Ok(())
+    }
     #[test]
     #[allow(unsafe_code)]
     fn h1_fin_and_rst_return_registry_and_process_descriptors() -> Result<()> {
         use std::os::fd::AsRawFd;
         let (_dir, store) = store()?;
         let server = ArchiveServer::start(store, "127.0.0.1:0".parse()?)?;
-        let descriptors = || {
-            std::fs::read_dir(if cfg!(target_os = "linux") {
-                "/proc/self/fd"
-            } else {
-                "/dev/fd"
-            })
-            .unwrap()
-            .count()
-        };
-        let baseline = descriptors();
+        let baseline = descriptors(server.addr().port());
         for reset in [false, true] {
             for _ in 0..64 {
                 let mut client = TcpStream::connect(server.addr())?;
@@ -845,7 +991,8 @@ mod fix2_tests {
                 "closed connections retained registry descriptors (RST={reset})"
             );
             assert!(
-                descriptors() <= baseline + 2,
+                drained_descriptor_count(baseline, deadline, || descriptors(server.addr().port()))
+                    <= baseline,
                 "process descriptor count grew after close"
             );
         }

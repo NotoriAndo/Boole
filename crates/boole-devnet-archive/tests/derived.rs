@@ -112,6 +112,7 @@ fn t89_fifty_thousand_mutated_objects_and_responses_never_adopt_or_reject() -> R
         l1_hash: row.block_hash.clone(),
         parent_hash: row.block()?.parent_hash,
         bloom_positive: true,
+        inbox_touching: Some(false),
         blob_ids: vec![],
         l2_hash: format!("0x{}", "03".repeat(32)),
         root: format!("0x{}", "04".repeat(32)),
@@ -120,10 +121,10 @@ fn t89_fifty_thousand_mutated_objects_and_responses_never_adopt_or_reject() -> R
         system_digest: sha(b"[]"),
     };
     index.validate()?;
-    let mut counts = [0u64; 8];
+    let mut counts = [0u64; 9];
     let mut discarded = 0;
     for i in 0u64..50_000 {
-        let class = (i % 8) as usize;
+        let class = (i % 9) as usize;
         counts[class] += 1;
         let body = match class {
             0 => {
@@ -154,6 +155,18 @@ fn t89_fifty_thousand_mutated_objects_and_responses_never_adopt_or_reject() -> R
                 let n = b.len();
                 b[n - 8..].copy_from_slice(&i.to_be_bytes());
                 b
+            }
+            7 => {
+                let mut ts = row.transactions.clone().unwrap();
+                let mut tx = boole_derivation::attributes::hex_bytes(&ts[0], "transaction")?;
+                let end = tx.len();
+                let old = tx.clone();
+                tx[end - 8..].copy_from_slice(&i.to_be_bytes());
+                if tx == old {
+                    tx[end - 8] ^= 128;
+                }
+                ts[0] = boole_derivation::attributes::hex_string(&tx);
+                serde_json::to_vec(&ts)?
             }
             _ => {
                 let mut bad = index.clone();
@@ -200,6 +213,11 @@ fn t89_fifty_thousand_mutated_objects_and_responses_never_adopt_or_reject() -> R
                         bytes,
                         pin,
                     ),
+                    7 => {
+                        let transactions: Vec<String> = serde_json::from_slice(bytes)?;
+                        boole_devnet_archive::input::verify_transactions(&header, &transactions)?;
+                        Ok(())
+                    }
                     _ => {
                         let candidate: boole_devnet_archive::archive::IndexRow =
                             serde_json::from_slice(bytes)?;
@@ -229,6 +247,7 @@ fn t89_fifty_thousand_mutated_objects_and_responses_never_adopt_or_reject() -> R
     }
     println!("T89 mutations=50000 classes={counts:?} discarded={discarded} panics=0 wrong_adoptions=0 reject_outcomes=0");
     // The corpus must admit real controls: rejecting every byte is not a pass.
+    boole_devnet_archive::input::verify_transactions(&header, row.transactions.as_ref().unwrap())?;
     verify_export(&s, k, &sha(b"one"), b"one")?;
     verify_transport(
         &s,

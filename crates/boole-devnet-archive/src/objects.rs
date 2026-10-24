@@ -1,20 +1,35 @@
 //! Locked, new-file-only acquisition cache; callers authenticate each object's class.
 use crate::{journal::read_bound, state_dir};
 use anyhow::{ensure, Result};
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::atomic::{AtomicBool, AtomicU64, Ordering},
+};
 pub struct Objects {
     root: PathBuf,
     guard: state_dir::StateDirGuard,
+    class: &'static str,
+    quarantines: AtomicU64,
+    quarantine_logged: AtomicBool,
 }
 impl Objects {
     pub fn open(root: &Path) -> Result<Self> {
+        Self::open_class(root, "object")
+    }
+    pub fn open_class(root: &Path, class: &'static str) -> Result<Self> {
         crate::fault::validate_environment()?;
         let guard = state_dir::acquire(root)?;
         crate::boot::cleanup_publications(root, &guard)?;
         Ok(Self {
             root: root.canonicalize()?,
             guard,
+            class,
+            quarantines: AtomicU64::new(0),
+            quarantine_logged: AtomicBool::new(false),
         })
+    }
+    pub fn quarantines(&self) -> u64 {
+        self.quarantines.load(Ordering::Relaxed)
     }
     pub fn check(&self) -> Result<()> {
         if !self.guard.is_current() {
@@ -88,6 +103,17 @@ impl Objects {
                 crate::durability::fsync_parent_dir(&path)?;
                 std::fs::File::open(&saved)?.sync_all()?;
                 std::fs::File::open(&corrupt)?.sync_all()?;
+                let _ = self
+                    .quarantines
+                    .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
+                        Some(n.saturating_add(1))
+                    });
+                if !self.quarantine_logged.swap(true, Ordering::Relaxed) {
+                    eprintln!(
+                        "archive integrity (object-quarantine): class={}; corrupt bytes preserved",
+                        self.class
+                    );
+                }
                 Err(crate::error::integrity(
                     0,
                     "object-quarantine",
