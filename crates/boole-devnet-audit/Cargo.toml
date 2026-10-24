@@ -14,13 +14,13 @@ boole-devnet-driver = { path = "../boole-devnet-driver" }
 boole-gate-supervisor = { path = "../boole-gate-supervisor" }
 clap.workspace = true
 ring.workspace = true
+reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 
 [dev-dependencies]
 k256.workspace = true
-reqwest.workspace = true
 
 [lints]
 workspace = true

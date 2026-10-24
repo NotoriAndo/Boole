@@ -18,3 +18,7 @@ two-block in-memory L2 view in `boole-devnet-audit/tests/audit.rs`. The independ
 head is the valid L1 ancestor at height 1; the receipt covers height 2. The test
 compares every field, including decimal strings and deferred K4/environment
 labels. It does not re-record or change any consensus golden or live tape.
+
+The M2 receipt marks verdict, admission and fork checks `not-applicable`. Its
+L2 view uses the derived timestamp and gas limit. These diagnostic checks do not
+change v1.3 fold bytes or recordings.

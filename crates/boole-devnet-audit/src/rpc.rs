@@ -1,14 +1,162 @@
-//! Read-only RPC access to the audited L2. There is no Engine/JWT write handle.
+//! Read-only, bounded RPC access to one authenticated L2 view per height.
 use crate::Node;
 use anyhow::{ensure, Context, Result};
 use boole_derivation::{
     attributes::{hex_bytes, hex_string},
     ParentHeader,
 };
-use boole_devnet_driver::engine::Rpc;
+use serde::{
+    de::{DeserializeSeed, MapAccess, SeqAccess, Visitor},
+    Deserializer,
+};
 use serde_json::{json, Value};
+use std::{fmt, io::Read, net::IpAddr, time::Duration};
+pub const RPC_RESPONSE_MAX: usize = 16 * 1024 * 1024;
+pub const RPC_ROWS_MAX: usize = 65536;
+#[derive(Clone, Copy)]
+struct BoundedValue {
+    depth: usize,
+    allowed: bool,
+}
+impl<'de> DeserializeSeed<'de> for BoundedValue {
+    type Value = Value;
+    fn deserialize<D: Deserializer<'de>>(self, d: D) -> std::result::Result<Value, D::Error> {
+        if !self.allowed {
+            return Err(serde::de::Error::custom("RPC response row cap"));
+        }
+        if self.depth >= 64 {
+            return Err(serde::de::Error::custom("RPC response depth cap"));
+        }
+        d.deserialize_any(self)
+    }
+}
+impl<'de> Visitor<'de> for BoundedValue {
+    type Value = Value;
+    fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("bounded JSON")
+    }
+    fn visit_unit<E: serde::de::Error>(self) -> std::result::Result<Value, E> {
+        Ok(Value::Null)
+    }
+    fn visit_bool<E: serde::de::Error>(self, v: bool) -> std::result::Result<Value, E> {
+        Ok(json!(v))
+    }
+    fn visit_i64<E: serde::de::Error>(self, v: i64) -> std::result::Result<Value, E> {
+        Ok(json!(v))
+    }
+    fn visit_u64<E: serde::de::Error>(self, v: u64) -> std::result::Result<Value, E> {
+        Ok(json!(v))
+    }
+    fn visit_f64<E: serde::de::Error>(self, v: f64) -> std::result::Result<Value, E> {
+        serde_json::Number::from_f64(v)
+            .map(Value::Number)
+            .ok_or_else(|| E::custom("RPC number"))
+    }
+    fn visit_str<E: serde::de::Error>(self, v: &str) -> std::result::Result<Value, E> {
+        Ok(Value::String(v.into()))
+    }
+    fn visit_string<E: serde::de::Error>(self, v: String) -> std::result::Result<Value, E> {
+        Ok(Value::String(v))
+    }
+    fn visit_seq<A: SeqAccess<'de>>(self, mut a: A) -> std::result::Result<Value, A::Error> {
+        let mut rows = vec![];
+        while let Some(value) = a.next_element_seed(Self {
+            depth: self.depth + 1,
+            allowed: rows.len() < RPC_ROWS_MAX,
+        })? {
+            rows.push(value);
+        }
+        Ok(Value::Array(rows))
+    }
+    fn visit_map<A: MapAccess<'de>>(self, mut a: A) -> std::result::Result<Value, A::Error> {
+        let mut map = serde_json::Map::new();
+        while let Some(key) = a.next_key::<String>()? {
+            if map.len() >= 256 {
+                return Err(serde::de::Error::custom("RPC response field cap"));
+            }
+            if map.contains_key(&key) {
+                return Err(serde::de::Error::custom("RPC duplicate field"));
+            }
+            let value = a.next_value_seed(Self {
+                depth: self.depth + 1,
+                allowed: true,
+            })?;
+            map.insert(key, value);
+        }
+        Ok(Value::Object(map))
+    }
+}
+struct Rpc {
+    url: reqwest::Url,
+    client: reqwest::blocking::Client,
+}
+impl Rpc {
+    fn new(url: &str) -> Result<Self> {
+        let url = reqwest::Url::parse(url)?;
+        let host = url.host_str().unwrap_or("").trim_matches(['[', ']']);
+        let ip: IpAddr = host.parse().context("audited RPC literal loopback host")?;
+        ensure!(
+            ip.is_loopback()
+                && ["http", "https"].contains(&url.scheme())
+                && url.username().is_empty()
+                && url.password().is_none()
+                && url.query().is_none()
+                && url.fragment().is_none(),
+            "audited RPC requires loopback without credentials/query/fragment"
+        );
+        let client = reqwest::blocking::Client::builder()
+            .no_proxy()
+            .redirect(reqwest::redirect::Policy::none())
+            .connect_timeout(Duration::from_secs(3))
+            .timeout(Duration::from_secs(15))
+            .build()?;
+        Ok(Self { url, client })
+    }
+    fn call(&self, method: &str, params: Value) -> Result<Value> {
+        let response = self
+            .client
+            .post(self.url.clone())
+            .json(&json!({"jsonrpc":"2.0","id":1,"method":method,"params":params}))
+            .send()?
+            .error_for_status()?;
+        ensure!(
+            response
+                .content_length()
+                .is_none_or(|n| n <= RPC_RESPONSE_MAX as u64),
+            "RPC response byte cap"
+        );
+        let mut bytes = vec![];
+        response
+            .take(RPC_RESPONSE_MAX as u64 + 1)
+            .read_to_end(&mut bytes)?;
+        ensure!(bytes.len() <= RPC_RESPONSE_MAX, "RPC response byte cap");
+        let mut decoder = serde_json::Deserializer::from_slice(&bytes);
+        let value = BoundedValue {
+            depth: 0,
+            allowed: true,
+        }
+        .deserialize(&mut decoder)?;
+        decoder.end()?;
+        ensure!(
+            value["jsonrpc"] == "2.0" && value["id"] == 1 && value.get("error").is_none(),
+            "audited RPC envelope"
+        );
+        value
+            .get("result")
+            .cloned()
+            .context("audited RPC missing result")
+    }
+}
+#[derive(Clone)]
+struct Observation {
+    height: u64,
+    block: Value,
+    header: Vec<u8>,
+    txs: Vec<String>,
+}
 pub struct RpcNode {
     rpc: Rpc,
+    observation: Option<Observation>,
 }
 impl RpcNode {
     pub fn new(url: &str) -> Result<Self> {
@@ -18,20 +166,34 @@ impl RpcNode {
                 == format!("0x{:x}", boole_derivation::config::L2_CHAIN_ID),
             "audited L2 chain id"
         );
-        Ok(Self { rpc })
+        Ok(Self {
+            rpc,
+            observation: None,
+        })
     }
-    fn block(&self, tag: Value) -> Result<(Value, Vec<u8>, Vec<String>)> {
+    fn block(&mut self, tag: Value) -> Result<(Value, Vec<u8>, Vec<String>)> {
+        if let Some(view) = &self.observation {
+            if tag == format!("0x{:x}", view.height) {
+                return Ok((view.block.clone(), view.header.clone(), view.txs.clone()));
+            }
+        }
         let block = self.rpc.call("eth_getBlockByNumber", json!([tag, false]))?;
         let header = boole_devnet_archive::input::header_from_rpc(&block)?;
-        let mut txs = vec![];
-        for hash in block["transactions"]
+        let hashes = block["transactions"]
             .as_array()
-            .context("L2 transaction hashes")?
-        {
-            let raw = self
+            .context("L2 transaction hashes")?;
+        ensure!(hashes.len() <= RPC_ROWS_MAX, "RPC response row cap");
+        let mut txs = vec![];
+        let mut bytes = 0usize;
+        for hash in hashes {
+            let value = self
                 .rpc
                 .call("eth_getRawTransactionByHash", json!([hash]))?;
-            let raw = raw.as_str().context("L2 transaction bytes")?;
+            let raw = value.as_str().context("L2 transaction bytes")?;
+            bytes = bytes
+                .checked_add(raw.len())
+                .context("RPC transaction byte cap")?;
+            ensure!(bytes <= RPC_RESPONSE_MAX, "RPC transaction byte cap");
             ensure!(
                 hex_string(&boole_derivation::user_tx::keccak(&hex_bytes(
                     raw,
@@ -42,6 +204,12 @@ impl RpcNode {
             txs.push(raw.to_owned());
         }
         boole_devnet_archive::input::verify_transactions(&header, &txs)?;
+        self.observation = Some(Observation {
+            height: quantity(&block["number"])?,
+            block: block.clone(),
+            header: header.clone(),
+            txs: txs.clone(),
+        });
         Ok((block, header, txs))
     }
     fn parent(block: Value, txs: &[String]) -> Result<ParentHeader> {

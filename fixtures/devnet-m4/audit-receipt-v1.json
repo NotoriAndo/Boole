@@ -10,14 +10,14 @@
   },
   "audited_through": "2",
   "checks": {
-    "admission": "ok",
+    "admission": "not-applicable",
     "execution": "not-run",
     "fold": "ok",
-    "forks": "ok",
+    "forks": "not-applicable",
     "input": "ok",
     "ledger": "ok",
     "prefix": "ok",
-    "verdict": "ok"
+    "verdict": "not-applicable"
   },
   "config_digest": "0xbc57654ec767f51b18517bf811f261595fa4b5295b6777355588d926613a20a7",
   "counts": {

@@ -157,13 +157,25 @@ conflicting L2 hash/root. Missing, malformed or unavailable data is not an
 inconsistency alert. The local L2 hash and root win; diagnostics cannot produce a
 verdict or redirect Engine selection.
 
-An M4b2 archive supplies the ordered transaction list at bloom-positive heights.
-The client verifies the complete list against the authenticated header before
-binding a known transaction hash to the receipt at the same index. This preserves
-the exact recorded success or REVERTED status. Missing or invalid lists remain
-resumable `archive-tx-proof` availability; no success, failure or repost is guessed.
-New archive-filled input rows carry available verified transaction proofs.
-For old rows, reconciliation restores them into the own `transaction-proofs/`
+An M4b2 archive supplies the ordered transaction and receipt lists at
+bloom-positive heights and at finalized **inbox-touching** heights: at least one
+transaction has `to == INBOX`, even when it reverted and emitted no log. The
+index's `inbox_touching` flag is a diagnostic tripwire, never proof. Other
+bloom-negative blocks may leave those optional classes unserved. Older index
+rows may omit the flag; replay preserves those diagnostic bytes while
+backfilling authenticated proof objects.
+
+Folding fetches only the receipts required by the bloom. Posting reconciliation
+lazily requests `l1/txs` and, when needed, `l1/receipts` within its own intent's
+finalized-height floor. Both complete lists must reproduce the own authenticated
+header's trie roots before binding a known hash to the receipt at the same
+index. Only that binding supplies exact success or REVERTED. A dropped hash is
+never assigned another transaction's failure. A 404 for an optional class has no
+source penalty or retry backoff; it is cached per block, class and source until a new source or
+finality step. It proves no absence. Withheld, missing or invalid proofs keep the
+resumable `archive-tx-proof` pause without guessing success, failure or a repost.
+
+For old rows, reconciliation restores proofs into the own `transaction-proofs/`
 cache with new-file-only publication and read-time re-verification. It does not
 rewrite the original input journal. Restart can use that cache without an archive
 or historical L1 RPC. An empty transaction trie proves absence without a list.
@@ -209,7 +221,8 @@ binds that exact audited L2 block.
 
 The default `--mode pure` recomputes every fold, gate verdict, root and system
 prefix, and compares the prefix byte for byte with the audited node. It verifies
-L2 header, transaction and OP receipt trie commitments, reward lock/terminal and
+L2 timestamp and gas limit against derivation, header, transaction and OP receipt
+trie commitments, reward lock/terminal and
 compensation rules, mint/depositor conservation, contiguous admission indices,
 retirement, FORK_TABLE activation records and kernel-fix recheck ordering.
 `--mode replay --op-reth PATH --l2-genesis FILE` additionally starts a pinned
@@ -233,7 +246,17 @@ mismatch and preserves sources. It never repairs an audited file.
 Current retained K4 records are rebuilt and checked against frozen digests, but
 coverage stays `pending` because durable retention pins belong to M4c. Environment
 hash and verification also stay pending until J4; a successful audit does not
-claim either deferred property.
+claim either deferred property. A K4 mismatch names the verdict record's height;
+its decoder scratch stays inside the auditor's private work directory.
+
+The audited-node RPC retains one authenticated view per height for its header,
+transactions and receipt statuses. Responses and the block's accumulated raw
+transaction hex are each bounded to 16 MiB. Arrays allow at most 65,536 rows;
+objects allow 256 fields and JSON nesting is limited to 64 levels. Under M2 the
+verdict, admission and fork checks are `not-applicable`. Replay setup and private
+Engine cleanup have separate `replay-setup` and `engine-cleanup` check classes;
+cleanup uses the last replayed height and preserves any earlier mismatch. Every
+failed check agrees with `first_mismatch`; private error details are omitted.
 
 The per-run disk floor is 15 GiB. Preserve the store and journal on a typed stop;
 restore availability or repair into a fresh directory rather than editing a

@@ -96,7 +96,8 @@ fn setup() -> Result<(Config, Source, View, ExpectedHeads)> {
         parent.parent_hash = Some(parent.hash.clone());
         parent.number = h;
         parent.hash = hex_string(&[h as u8; 32]);
-        parent.timestamp = row.block.timestamp;
+        parent.timestamp = u64::from_str_radix(&d.attributes.timestamp[2..], 16)?;
+        parent.gas_limit = u64::from_str_radix(&d.attributes.gas_limit[2..], 16)?;
         parent.l1_info = Some(system[0].clone());
         parent.m2_root_deposit = Some(system[1].clone());
         headers.insert(h, parent.clone());
@@ -304,6 +305,45 @@ fn t81_read_only_chain_errors_keep_the_first_bad_journal_height() -> Result<()> 
             "first bad journal height lost: {error}"
         );
         assert_eq!(std::fs::read(root.path().join("input.ndjson"))?, bytes);
+    }
+    Ok(())
+}
+
+fn wrong_attribute(field: &str) -> Result<()> {
+    let (c, mut source, mut node, expected) = setup()?;
+    assert!(audit(&mut source, &mut node, &c, None, None, &expected)["first_mismatch"].is_null());
+    let header = node.headers.get_mut(&1).unwrap();
+    if field == "timestamp" {
+        header.timestamp += 1;
+    } else {
+        header.gas_limit += 1;
+    }
+    let r = audit(&mut source, &mut node, &c, None, None, &expected);
+    assert_eq!(
+        r["first_mismatch"],
+        json!({"height":"1","class":"prefix"}),
+        "unchecked {field}"
+    );
+    Ok(())
+}
+#[test]
+fn l1_pure_audit_rejects_timestamp_disagreeing_with_derivation() -> Result<()> {
+    wrong_attribute("timestamp")
+}
+#[test]
+fn l1_pure_audit_rejects_gas_limit_disagreeing_with_derivation() -> Result<()> {
+    wrong_attribute("gasLimit")
+}
+#[test]
+fn l3_m2_receipt_never_claims_that_m3_only_checks_ran() -> Result<()> {
+    let (c, mut source, mut node, expected) = setup()?;
+    let r = audit(&mut source, &mut node, &c, None, None, &expected);
+    assert!(r["first_mismatch"].is_null(), "{r}");
+    for class in ["verdict", "admission", "forks"] {
+        assert_eq!(r["checks"][class], "not-applicable", "{class}");
+    }
+    for class in ["input", "fold", "prefix", "ledger"] {
+        assert_eq!(r["checks"][class], "ok", "{class}");
     }
     Ok(())
 }

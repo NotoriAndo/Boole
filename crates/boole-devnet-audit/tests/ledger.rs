@@ -116,21 +116,6 @@ fn attack(attack: u8) -> Result<()> {
             tested = true;
             break;
         }
-        if attack == 1 && reward.as_ref().is_some_and(|r| r[117] == 1) {
-            ledger.observe(
-                &before, &after, &c, &l1, &events, &payments, &txs, &statuses,
-            )?;
-            let mut cancel = reward.unwrap();
-            cancel[117] = 3;
-            assert!(
-                ledger
-                    .observe(&after, &after, &c, &l1, &cancel, &[], &[], &[])
-                    .is_err(),
-                "CANCELLED without STALE accepted"
-            );
-            tested = true;
-            break;
-        }
         if attack == 2 && !payments.is_empty() {
             let mut disabled = c.clone();
             disabled.m3.as_mut().unwrap().mint_enabled = false;
@@ -169,7 +154,50 @@ fn t82_duplicate_vest_refuses() -> Result<()> {
 }
 #[test]
 fn t82_cancel_without_stale_refuses() -> Result<()> {
-    attack(1)
+    let mut ledger = Ledger::default();
+    for (before, after, c, l1, events, payments, txs, statuses) in frames_from(include_str!(
+        "../../../fixtures/devnet-m3/kernel-fix-v1.3.json"
+    ))? {
+        let cancel = event_slices(&events)
+            .into_iter()
+            .find(|r| r[0] == 6 && r[117] == 3);
+        if let Some(cancel) = cancel {
+            let key = &cancel[9..73];
+            let attacked: Vec<u8> = event_slices(&events)
+                .into_iter()
+                .filter(|r| {
+                    !(r[0] == 2
+                        && &r[1..65] == key
+                        && r[65] == boole_derivation::m2::Status::Stale as u8)
+                })
+                .flatten()
+                .copied()
+                .collect();
+            assert_ne!(
+                attacked, events,
+                "fixture must include the matching STALE event"
+            );
+            let mut control = ledger.clone();
+            control.observe(
+                &before, &after, &c, &l1, &events, &payments, &txs, &statuses,
+            )?;
+            let error = ledger
+                .observe(
+                    &before, &after, &c, &l1, &attacked, &payments, &txs, &statuses,
+                )
+                .expect_err("CANCELLED without STALE accepted");
+            assert_eq!(
+                error.to_string(),
+                "CANCELLED without same-height STALE",
+                "test failed for an unrelated invariant"
+            );
+            return Ok(());
+        }
+        ledger.observe(
+            &before, &after, &c, &l1, &events, &payments, &txs, &statuses,
+        )?;
+    }
+    anyhow::bail!("fixture never cancelled a reward")
 }
 #[test]
 fn t82_disabled_mint_refuses() -> Result<()> {
@@ -227,5 +255,193 @@ fn fork_and_quarantine_recordings_recompute_the_independent_ledger() -> Result<(
             }
         }
     }
+    Ok(())
+}
+
+fn event_slices(mut bytes: &[u8]) -> Vec<&[u8]> {
+    let mut rows = vec![];
+    while !bytes.is_empty() {
+        let n = match bytes[0] {
+            1 => 19,
+            2 => 66,
+            3 => 47,
+            4 => 37,
+            5 => 89,
+            6 => 118,
+            7 => 74,
+            8 => 70,
+            _ => panic!("event"),
+        };
+        rows.push(&bytes[..n]);
+        bytes = &bytes[n..];
+    }
+    rows
+}
+#[test]
+fn l4_every_qualifying_recheck_requires_compensation_even_if_fold_and_events_omit_it() -> Result<()>
+{
+    use boole_derivation::{
+        m2::{Candidate, Status},
+        m3::{verdict_deposits, IndexedVerdict, Outcome, RecordKind, KERNEL_FAULT},
+    };
+    let mut ledger = Ledger::default();
+    for (mut before, after, c, l1, events, payments, txs, statuses) in frames()? {
+        let accepted = after
+            .m3
+            .as_ref()
+            .unwrap()
+            .results
+            .iter()
+            .find(|(k, r)| {
+                r.outcome == Outcome::Accept && !before.m3.as_ref().unwrap().results.contains_key(k)
+            })
+            .map(|(k, r)| (*k, r.clone()));
+        if let Some((key, mut record)) = accepted {
+            // Exercise the independently specified preconditions on the real
+            // recorded completed candidate and due job: a prior kernel-fault
+            // REJECT and a problem that already has a different winner.
+            let mut old = record.clone();
+            old.outcome = Outcome::Reject;
+            old.reason = KERNEL_FAULT;
+            if let Candidate::Live(candidate) = before.candidates.get_mut(&key).unwrap() {
+                candidate.status = Status::Rejected;
+            } else {
+                panic!("retained candidate");
+            }
+            let height = before.height();
+            let problem = before.problems.get_mut(&key.0).unwrap();
+            problem.winner = Some([222; 32]);
+            problem.closed = Some(height);
+            let m = before.m3.as_mut().unwrap();
+            m.results.insert(key, old);
+            m.pending_rechecks.insert(key);
+            let job = m.queue.iter_mut().find(|j| j.key == key).unwrap();
+            job.kind = RecordKind::Recheck;
+            let index = job.queue_index;
+            record.kind = RecordKind::Recheck;
+            let records = [IndexedVerdict {
+                queue_index: index,
+                record,
+            }];
+            let step =
+                before.step_with_verdicts(&c, &l1, &[], &records, &ForkTable::genesis(&c)?)?;
+            let compensation = event_slices(&step.events)
+                .into_iter()
+                .find(|r| r[0] == 6 && r[117] == 4)
+                .context("qualifying fold must compensate")?;
+            let mut prefix = txs[..2].to_vec();
+            prefix[1] = boole_derivation::system::m2_root_deposit(&l1, step.state.root)?;
+            prefix.extend(verdict_deposits(&c, &l1, &records)?);
+            let statuses = vec![true; prefix.len()];
+            let mut control = ledger.clone();
+            control.observe(
+                &before,
+                &step.state,
+                &c,
+                &l1,
+                &step.events,
+                &step.payments,
+                &prefix,
+                &statuses,
+            )?;
+            let id = u64::from_be_bytes(compensation[1..9].try_into()?);
+            let mut after = step.state;
+            assert!(after.m3.as_mut().unwrap().rewards.remove(&id).is_some());
+            let attacked: Vec<u8> = event_slices(&step.events)
+                .into_iter()
+                .filter(|r| *r != compensation)
+                .flatten()
+                .copied()
+                .collect();
+            let error = ledger
+                .observe(
+                    &before,
+                    &after,
+                    &c,
+                    &l1,
+                    &attacked,
+                    &step.payments,
+                    &prefix,
+                    &statuses,
+                )
+                .expect_err("omitted compensation escaped independent audit");
+            assert!(
+                error.to_string().contains("compensation coverage"),
+                "{error:#}"
+            );
+            return Ok(());
+        }
+        ledger.observe(
+            &before, &after, &c, &l1, &events, &payments, &txs, &statuses,
+        )?;
+    }
+    anyhow::bail!("fixture never accepted")
+}
+
+struct MissingK4 {
+    root: std::path::PathBuf,
+    private_scratch_seen: bool,
+}
+impl boole_gate_supervisor::rebuild::History for MissingK4 {
+    fn origin(&mut self, _: u64) -> Result<(L1Block, Vec<boole_derivation::InboxLog>)> {
+        self.private_scratch_seen = std::fs::read_dir(&self.root)?
+            .any(|e| e.unwrap().file_name().to_string_lossy().starts_with("k4-"));
+        anyhow::bail!("retained original unavailable")
+    }
+}
+fn k4_probe() -> Result<(boole_devnet_audit::k4::Failure, u64, bool)> {
+    let frames = frames()?;
+    let state = &frames.last().unwrap().1;
+    let key = *state
+        .m3
+        .as_ref()
+        .unwrap()
+        .results
+        .keys()
+        .next()
+        .context("record")?;
+    let record_height = frames
+        .iter()
+        .rfind(|(before, after, ..)| {
+            before.m3.as_ref().unwrap().results.get(&key)
+                != after.m3.as_ref().unwrap().results.get(&key)
+        })
+        .unwrap()
+        .3
+        .number;
+    assert!(record_height < state.height());
+    let root = boole_devnet_archive::durability::PrivateTempDir::new("audit-private-k4")?;
+    let mut history = MissingK4 {
+        root: root.path().to_owned(),
+        private_scratch_seen: false,
+    };
+    let failure = boole_devnet_audit::k4::check(
+        state,
+        &frames[0].2,
+        None,
+        &mut history,
+        Some(&boole_gate_supervisor::codec::Codec::portable_stub()),
+        &std::collections::BTreeMap::from([(key, record_height)]),
+        root.path(),
+    )
+    .expect_err("missing retained input accepted");
+    Ok((failure, record_height, history.private_scratch_seen))
+}
+#[test]
+fn l5_k4_mismatch_names_the_verdict_record_height() -> Result<()> {
+    let (failure, record_height, _) = k4_probe()?;
+    assert_eq!(
+        failure.height, record_height,
+        "K4 mismatch blamed the audit tip"
+    );
+    Ok(())
+}
+#[test]
+fn l5_k4_scratch_is_inside_private_audit_work() -> Result<()> {
+    let (_, _, private_scratch_seen) = k4_probe()?;
+    assert!(
+        private_scratch_seen,
+        "K4 used system temp instead of the private audit work"
+    );
     Ok(())
 }

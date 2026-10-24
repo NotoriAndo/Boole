@@ -18,6 +18,61 @@ use std::{
     process::{Child, Command, Stdio},
     time::{Duration, Instant},
 };
+#[derive(Debug)]
+pub struct Failure {
+    pub height: u64,
+    pub class: &'static str,
+}
+impl std::fmt::Display for Failure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "replay {} at {}", self.class, self.height)
+    }
+}
+impl std::error::Error for Failure {}
+fn at<T>(height: u64, class: &'static str, result: Result<T>) -> Result<T> {
+    result.map_err(|error| {
+        if error.is::<Failure>() {
+            return error;
+        }
+        let (height, class) = match error.downcast_ref::<boole_devnet_archive::error::Error>() {
+            Some(
+                boole_devnet_archive::error::Error::Availability { height, .. }
+                | boole_devnet_archive::error::Error::Integrity { height, .. },
+            ) => (*height, "input"),
+            _ => (height, class),
+        };
+        error.context(Failure { height, class })
+    })
+}
+pub fn report_failure(receipt: &mut Value, error: &anyhow::Error, status: &str) {
+    let (height, class) = if let Some(f) = error.downcast_ref::<Failure>() {
+        (f.height, f.class)
+    } else {
+        match error.downcast_ref::<boole_devnet_archive::error::Error>() {
+            Some(
+                boole_devnet_archive::error::Error::Availability { height, .. }
+                | boole_devnet_archive::error::Error::Integrity { height, .. },
+            ) => (*height, "input"),
+            _ => (completed(receipt), "replay-setup"),
+        }
+    };
+    crate::mark_mismatch(receipt, height, class);
+    receipt["checks"]["execution"] = json!(status);
+}
+fn completed(receipt: &Value) -> u64 {
+    receipt["replayed_blocks"]
+        .as_str()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0)
+}
+pub fn report_cleanup(receipt: &mut Value, stopped: bool, issues: usize) {
+    receipt["private_engine_cleanup"] = json!({"stopped":stopped,"log_issues":issues});
+    if !stopped || issues > 0 {
+        let height = completed(receipt);
+        crate::mark_mismatch(receipt, height, "engine-cleanup");
+        receipt["checks"]["execution"] = json!("mismatch");
+    }
+}
 pub struct PrivateEngine {
     child: Child,
     birth: String,
@@ -274,31 +329,46 @@ pub fn replay(
     private: &PrivateEngine,
     receipt: &mut Value,
 ) -> Result<()> {
-    let mut engine = private.engine()?;
-    let genesis = engine.header(0)?;
-    ensure!(
-        genesis.number == 0 && genesis.hash == audited.header(0)?.hash,
-        "private Engine must be fresh with the audited genesis"
-    );
+    receipt["replayed_blocks"] = json!("0");
+    let mut engine = at(0, "replay-setup", private.engine())?;
+    let genesis = at(0, "replay-setup", engine.header(0))?;
+    at(
+        0,
+        "replay-setup",
+        (|| -> Result<()> {
+            ensure!(
+                genesis.number == 0 && genesis.hash == audited.header(0)?.hash,
+                "private Engine must be fresh with the audited genesis"
+            );
+            Ok(())
+        })(),
+    )?;
     let tip = inputs.tip();
     let mut hashes = BTreeMap::new();
     for h in 0..=tip {
-        hashes.insert(inputs.row(h)?.verify()?.block.hash, h);
+        let row = at(h, "input", inputs.row(h))?;
+        hashes.insert(at(h, "input", row.verify())?.block.hash, h);
     }
     let source = Source { inputs, hashes };
     let gas = genesis.gas_limit;
-    let mut driver = if let Some(f) = forks {
-        Driver::with_m3(
-            source,
-            engine,
-            c,
-            gas,
-            supervisor.context("replay supervisor")?,
-            f,
-        )?
-    } else {
-        Driver::with_config(source, engine, c, gas)?
-    };
+    let mut driver = at(
+        0,
+        "replay-setup",
+        (|| -> Result<_> {
+            Ok(if let Some(f) = forks {
+                Driver::with_m3(
+                    source,
+                    engine,
+                    c,
+                    gas,
+                    supervisor.context("replay supervisor")?,
+                    f,
+                )?
+            } else {
+                Driver::with_config(source, engine, c, gas)?
+            })
+        })(),
+    )?;
     for h in 1..=tip {
         let mut phase = "fold";
         if let Err(error) = (|| -> Result<()> {
@@ -340,10 +410,11 @@ pub fn replay(
             } else {
                 phase
             };
-            receipt["first_mismatch"] = json!({"height":h.to_string(),"class":class});
+            crate::mark_mismatch(receipt, h, class);
             receipt["checks"]["execution"] = json!("mismatch");
             return Ok(());
         }
+        receipt["replayed_blocks"] = json!(h.to_string());
     }
     receipt["checks"]["execution"] = json!("ok");
     receipt["replayed_blocks"] = json!(tip.to_string());

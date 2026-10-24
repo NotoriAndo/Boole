@@ -146,8 +146,15 @@ fn counts(state: &boole_derivation::m2::State) -> Value {
 pub fn failed_receipt(c: &Config, forks: Option<&ForkTable>, height: u64, class: &str) -> Value {
     let mut value = empty_receipt(c, "pending");
     value["fork_table_digest"] = json!(fork_digest(forks).ok());
-    value["first_mismatch"] = json!({"height":height.to_string(),"class":class});
+    mark_mismatch(&mut value, height, class);
     value
+}
+/// Preserve the earliest mismatch while making every failed check explicit.
+pub fn mark_mismatch(receipt: &mut Value, height: u64, class: &str) {
+    if receipt["first_mismatch"].is_null() {
+        receipt["first_mismatch"] = json!({"height":height.to_string(),"class":class});
+    }
+    receipt["checks"][class] = json!("mismatch");
 }
 fn empty_receipt(c: &Config, label: &str) -> Value {
     json!({"schema":"boole.devnet.audit.v1","unsigned":true,"mode":"pure","config_digest":boole_derivation::attributes::hex_string(&c.digest()),"fork_table_digest":null,"anchor":null,"l1_head":null,"l2_head":null,"root":null,"audited_through":"0","observed_l2_head":null,"labels":{"inputs":label,"verdicts":"computed","environment":"pending","ranges":[]},"counts":{"status":{},"reason_ranges":{}},"rewards":ledger::Ledger::default().totals(),"admissions":{"total":"0","active":"0","retired":"0"},"environment_hash":null,"environment":{"status":"pending","reason":"J4 environment build and normalized identity deferred"},"k4":{"status":"pending","checked":"0","total":"0","pin_retention":"pending-M4c"},"checks":{"input":"pending","fold":"pending","prefix":"pending","verdict":"pending","ledger":"pending","admission":"pending","forks":"pending","execution":"not-run"},"first_mismatch":null})
@@ -159,13 +166,26 @@ pub fn audit(
     node: &mut dyn Node,
     c: &Config,
     forks: Option<&ForkTable>,
+    supervisor: Option<&mut Supervisor>,
+    expected: &ExpectedHeads,
+) -> Value {
+    match boole_devnet_archive::durability::PrivateTempDir::new("devnet-audit-pure") {
+        Ok(work) => audit_in(inputs, node, c, forks, supervisor, expected, work.path()),
+        Err(_) => failed_receipt(c, forks, 0, "work-dir"),
+    }
+}
+pub fn audit_in(
+    inputs: &mut dyn Inputs,
+    node: &mut dyn Node,
+    c: &Config,
+    forks: Option<&ForkTable>,
     mut supervisor: Option<&mut Supervisor>,
     expected: &ExpectedHeads,
+    work: &std::path::Path,
 ) -> Value {
     use boole_derivation::{
         attributes::{derive_with_m2, derive_with_m3, hex_string},
-        m2::{State, Status},
-        m3::KERNEL_FAULT,
+        m2::State,
     };
     let tip = inputs.tip();
     let mut receipt = empty_receipt(c, inputs.label());
@@ -210,6 +230,7 @@ pub fn audit(
         }
         receipt["fork_table_digest"] = json!(at(0, "fold", fork_digest(forks))?);
         let mut ledger = ledger::Ledger::default();
+        let mut record_heights = std::collections::BTreeMap::new();
         let mut last_l1 = anchor.block;
         for h in 1..=tip {
             at(h, "input", inputs.check())?;
@@ -260,6 +281,19 @@ pub fn audit(
                 )?;
                 (d, n, step.events, step.payments)
             };
+            require(
+                h,
+                "prefix",
+                format!("0x{:x}", block.timestamp) == derived.attributes.timestamp
+                    && format!("0x{:x}", block.gas_limit) == derived.attributes.gas_limit,
+            )?;
+            if let Some(after) = &next.m3 {
+                for (key, record) in &after.results {
+                    if state.m3.as_ref().and_then(|m| m.results.get(key)) != Some(record) {
+                        record_heights.insert(*key, h);
+                    }
+                }
+            }
             at(
                 h,
                 "prefix",
@@ -311,43 +345,26 @@ pub fn audit(
             state = next;
             previous = block;
         }
-        if let Some(m) = &state.m3 {
-            let retained: Vec<_> = state
-                .candidates
-                .iter()
-                .filter(|(key, candidate)| {
-                    matches!(candidate.status(), Status::Accepted | Status::Stale)
-                        || (candidate.status() == Status::Rejected
-                            && m.results.get(key).is_some_and(|r| r.reason == KERNEL_FAULT))
-                        || forks.is_some_and(|f| {
-                            f.rows
-                                .iter()
-                                .any(|r| r.list.iter().any(|i| i.commit_hash == key.1))
-                        })
-                })
-                .map(|(key, _)| *key)
-                .collect();
-            receipt["k4"]["total"] = json!(retained.len().to_string());
-            for (i, key) in retained.iter().enumerate() {
-                let runtime = supervisor.as_deref_mut().ok_or(Mismatch {
-                    height: tip,
+        match k4::check(
+            &state,
+            c,
+            forks,
+            inputs,
+            supervisor.as_deref().and_then(|s| s.codec.as_ref()),
+            &record_heights,
+            work,
+        ) {
+            Ok(coverage) => {
+                receipt["k4"]["total"] = json!(coverage.total.to_string());
+                receipt["k4"]["checked"] = json!(coverage.checked.to_string());
+            }
+            Err(failure) => {
+                receipt["k4"]["total"] = json!(failure.coverage.total.to_string());
+                receipt["k4"]["checked"] = json!(failure.coverage.checked.to_string());
+                return Err(Mismatch {
+                    height: failure.height,
                     class: "K4",
-                })?;
-                let scratch = std::env::temp_dir();
-                at(
-                    tip,
-                    "K4",
-                    boole_gate_supervisor::rebuild::rebuild(
-                        &state,
-                        c,
-                        *key,
-                        inputs,
-                        runtime.codec.as_ref(),
-                        &scratch,
-                    )
-                    .map(|_| ()),
-                )?;
-                receipt["k4"]["checked"] = json!((i + 1).to_string());
+                });
             }
         }
         if tip == 0 {
@@ -363,7 +380,13 @@ pub fn audit(
             "admission",
             "forks",
         ] {
-            receipt["checks"][class] = json!("ok");
+            receipt["checks"][class] = json!(if c.m3.is_none()
+                && matches!(class, "verdict" | "admission" | "forks")
+            {
+                "not-applicable"
+            } else {
+                "ok"
+            });
         }
         receipt["labels"]["ranges"] = if tip == 0 {
             json!([])
@@ -374,10 +397,7 @@ pub fn audit(
         Ok(())
     })();
     if let Err(m) = result {
-        receipt["first_mismatch"] = json!({"height":m.height.to_string(),"class":m.class});
-        if receipt["checks"].get(m.class).is_some() {
-            receipt["checks"][m.class] = json!("mismatch");
-        }
+        mark_mismatch(&mut receipt, m.height, m.class);
     }
     receipt
 }
@@ -461,3 +481,5 @@ mod tests {
         Ok(())
     }
 }
+
+pub mod k4;

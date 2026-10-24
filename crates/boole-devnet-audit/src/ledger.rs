@@ -65,6 +65,56 @@ fn sum(mut values: impl Iterator<Item = u128>) -> Result<u128> {
         a.checked_add(b).context("ledger total overflow")
     })
 }
+// V_h is independently computed and checked against this exact system prefix
+// by the caller. Decode it independently of the audited fold's rewards/events.
+fn expected_compensation(
+    before: &State,
+    c: &Config,
+    l1: &L1Block,
+    prefix: &[String],
+) -> Result<BTreeSet<Key>> {
+    let mut deposits = vec![];
+    for tx in prefix.iter().skip(2).take_while(|t| t.starts_with("0x7e")) {
+        let raw = hex_bytes(tx, "system")?;
+        let decoded = boole_derivation::rlp::decode(&raw[1..]).map_err(anyhow::Error::msg)?;
+        let fields = decoded.children.context("deposit")?;
+        ensure!(
+            fields.len() == 8 && fields.iter().all(|f| f.children.is_none()),
+            "deposit fields"
+        );
+        if fields[7].bytes.starts_with(b"m3vd") {
+            deposits.push(tx.clone());
+        }
+    }
+    let records = boole_derivation::m3::decode_verdict_deposits(c, l1, &deposits)?;
+    let old = before.m3.as_ref().context("old ledger")?;
+    let mut expected = BTreeSet::new();
+    for indexed in records {
+        let record = indexed.record;
+        if record.kind != RecordKind::Recheck || record.outcome != Outcome::Accept {
+            continue;
+        }
+        for (key, candidate) in &before.candidates {
+            if key.1 == record.commit_hash
+                && candidate.status() == Status::Rejected
+                && old
+                    .results
+                    .get(key)
+                    .is_some_and(|r| r.reason == KERNEL_FAULT)
+                && before
+                    .problems
+                    .get(&key.0)
+                    .is_some_and(|p| p.winner.is_some())
+            {
+                ensure!(
+                    expected.insert(*key),
+                    "duplicate qualifying compensation record"
+                );
+            }
+        }
+    }
+    Ok(expected)
+}
 impl Ledger {
     #[allow(clippy::too_many_arguments)]
     pub fn observe(
@@ -89,6 +139,8 @@ impl Ledger {
             .filter(|(tag, b)| *tag == 2 && b[64] == Status::Stale as u8)
             .map(|(_, b)| key(b, 0))
             .collect::<Result<_>>()?;
+        let expected_compensation = expected_compensation(before, c, l1, prefix)?;
+        let mut compensated = BTreeSet::new();
         let mut next = self.clone();
         let mut vested = vec![];
         for (tag, b) in records {
@@ -146,6 +198,7 @@ impl Ledger {
                                     !next.rewards.values().any(|r| r.key == k && r.compensation),
                                     "duplicate compensation"
                                 );
+                                ensure!(compensated.insert(k), "duplicate compensation");
                             }
                             next.rewards.insert(
                                 id,
@@ -211,6 +264,10 @@ impl Ledger {
                 _ => {}
             }
         }
+        ensure!(
+            compensated == expected_compensation,
+            "compensation coverage differs from qualifying accepted rechecks"
+        );
         ensure!(
             next.rewards.len() == m.rewards.len(),
             "reward event/state coverage"

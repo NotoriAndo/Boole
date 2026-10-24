@@ -177,30 +177,35 @@ fn run(args: Args) -> Result<Value> {
             return Ok(r);
         }
     };
-    let mut receipt = boole_devnet_audit::audit(
+    let mut receipt = boole_devnet_audit::audit_in(
         inputs.as_mut(),
         &mut node,
         &config,
         forks.as_ref(),
         gate.as_mut(),
         &expected,
+        pure_work.path(),
     );
     receipt["mode"] = json!(args.mode);
     if args.mode == "replay" && receipt["first_mismatch"].is_null() {
-        let replay_work = PrivateTempDir::new_in(work.path(), "replay")?;
-        let replay_gate = supervisor(&args, &config, forks.as_ref(), replay_work.path())?;
-        let started = boole_devnet_audit::replay::PrivateEngine::start(
-            args.op_reth
-                .as_deref()
-                .context("replay requires --op-reth")?,
-            args.l2_genesis
-                .as_deref()
-                .context("replay requires --l2-genesis")?,
-            replay_work.path(),
-        );
+        receipt["replayed_blocks"] = json!("0");
+        let started = (|| -> Result<_> {
+            let replay_work = PrivateTempDir::new_in(work.path(), "replay")?;
+            let replay_gate = supervisor(&args, &config, forks.as_ref(), replay_work.path())?;
+            let private = boole_devnet_audit::replay::PrivateEngine::start(
+                args.op_reth
+                    .as_deref()
+                    .context("replay requires --op-reth")?,
+                args.l2_genesis
+                    .as_deref()
+                    .context("replay requires --l2-genesis")?,
+                replay_work.path(),
+            )?;
+            Ok((private, replay_gate, replay_work))
+        })();
         match started {
-            Ok(mut private) => {
-                if boole_devnet_audit::replay::replay(
+            Ok((mut private, replay_gate, replay_work)) => {
+                if let Err(error) = boole_devnet_audit::replay::replay(
                     inputs.as_mut(),
                     &mut node,
                     config.clone(),
@@ -208,29 +213,22 @@ fn run(args: Args) -> Result<Value> {
                     replay_gate,
                     &private,
                     &mut receipt,
-                )
-                .is_err()
-                {
-                    receipt["first_mismatch"] = json!({"height":"0","class":"prefix"});
-                    receipt["checks"]["execution"] = json!("mismatch");
+                ) {
+                    boole_devnet_audit::replay::report_failure(&mut receipt, &error, "unavailable");
                 }
                 let stopped = private.stop().is_ok();
                 let issues = private.log_issues().unwrap_or(1);
-                receipt["private_engine_cleanup"] = json!({"stopped":stopped,"log_issues":issues});
-                if !stopped || issues > 0 {
-                    receipt["first_mismatch"] = json!({"height":"0","class":"fold"});
-                    receipt["checks"]["execution"] = json!("mismatch");
-                }
+                boole_devnet_audit::replay::report_cleanup(&mut receipt, stopped, issues);
+                drop(private);
+                drop(replay_work);
             }
-            Err(_) => {
-                receipt["first_mismatch"] = json!({"height":"0","class":"fold"});
-                receipt["checks"]["execution"] = json!("unavailable");
+            Err(error) => {
+                boole_devnet_audit::replay::report_failure(&mut receipt, &error, "unavailable")
             }
         }
     }
     if receipt["first_mismatch"].is_null() && inputs.check().is_err() {
-        receipt["first_mismatch"] = json!({"height":inputs.tip().to_string(),"class":"input"});
-        receipt["checks"]["input"] = json!("mismatch");
+        boole_devnet_audit::mark_mismatch(&mut receipt, inputs.tip(), "input");
     }
     Ok(receipt)
 }
