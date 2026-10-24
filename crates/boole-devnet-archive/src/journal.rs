@@ -88,6 +88,7 @@ struct Position {
     parent: String,
     encoded_digest: [u8; 32],
     canonical_receipts: Vec<(String, bool)>,
+    has_transaction_proof: bool,
 }
 pub struct InputJournal {
     root: PathBuf,
@@ -142,11 +143,17 @@ pub fn publish_new_at(path: &Path, bytes: &[u8], point: Option<(u64, &str)>) -> 
     let mut file = options.open(&staged)?;
     file.write_all(bytes)?;
     file.sync_all()?;
+    if let Some((h, role)) = point {
+        crate::fault::hit("B9a", h, role)?;
+    }
     std::fs::hard_link(&staged, path)?;
     if let Some((h, role)) = point {
         crate::fault::hit("B9", h, role)?;
     }
     std::fs::remove_file(&staged)?;
+    if let Some((h, role)) = point {
+        crate::fault::hit("B9b", h, role)?;
+    }
     durability::fsync_parent_dir(path)?;
     ensure!(
         file_stamp(path)?.as_ref() == Some(&stamp(&file.metadata()?)?),
@@ -271,6 +278,7 @@ impl InputJournal {
                     hash: verified.block.hash,
                     parent: verified.block.parent_hash,
                     encoded_digest: Sha256::digest(&raw).into(),
+                    has_transaction_proof: row.transactions.is_some(),
                     canonical_receipts: verified.canonical_receipts,
                 },
             );
@@ -342,7 +350,7 @@ impl InputJournal {
         }
         Ok(())
     }
-    pub fn get(&self, h: u64) -> Result<VerifiedInput> {
+    fn read_row(&self, h: u64) -> Result<(InputRow, VerifiedInput)> {
         self.check()?;
         let pos = self.positions.get(&h).ok_or_else(|| {
             availability(h, "journal", "input row absent; no historical RPC fallback")
@@ -370,7 +378,13 @@ impl InputJournal {
             "journal position identity"
         );
         self.check()?;
-        Ok(verified)
+        Ok((row, verified))
+    }
+    pub fn get(&self, h: u64) -> Result<VerifiedInput> {
+        Ok(self.read_row(h)?.1)
+    }
+    pub fn row(&self, h: u64) -> Result<InputRow> {
+        Ok(self.read_row(h)?.0)
     }
     pub fn append(&mut self, row: &InputRow) -> Result<()> {
         self.check()?;
@@ -453,6 +467,7 @@ impl InputJournal {
                 hash: verified.block.hash,
                 parent: verified.block.parent_hash,
                 encoded_digest: Sha256::digest(&encoded).into(),
+                has_transaction_proof: row.transactions.is_some(),
                 canonical_receipts: verified.canonical_receipts,
             },
         );
@@ -470,6 +485,25 @@ impl InputJournal {
             "manifest changed during read-only inspection"
         );
         Ok(*positions.last_key_value().context("anchor")?.0)
+    }
+    /// A missing transaction proof is not evidence that an own post was absent.
+    pub fn transaction_receipt_since(
+        &self,
+        tx: &str,
+        finalized_before: u64,
+    ) -> Result<Option<(u64, bool)>> {
+        self.check()?;
+        if let Some(found) = self.transaction_receipt(tx)? {
+            return Ok(Some(found));
+        }
+        let missing = self
+            .positions
+            .range(finalized_before.saturating_add(1)..)
+            .any(|(_, p)| !p.has_transaction_proof);
+        if missing {
+            return Err(availability(self.tip(),"archive-tx-proof","own post may be in an archive-filled finalized gap; preserve posting intent until authenticated transaction proofs are restored"));
+        }
+        Ok(None)
     }
     pub fn transaction_receipt(&self, tx: &str) -> Result<Option<(u64, bool)>> {
         self.check()?;

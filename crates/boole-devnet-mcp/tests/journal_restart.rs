@@ -91,3 +91,94 @@ fn t77_miner_restarts_from_own_journal_without_a_historical_rpc() -> Result<()> 
     assert_eq!(client.m2_state().root, root);
     Ok(())
 }
+
+#[test]
+fn t78_fresh_miner_fills_own_verified_journal_then_restarts_tip_only() -> Result<()> {
+    use boole_devnet_archive::{
+        archive::{ArchiveIdentity, ArchiveProfile, ArchiveStore, Selection},
+        client::ArchiveClient,
+        http::ArchiveServer,
+    };
+    use std::sync::{Arc, Mutex};
+    let value: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../fixtures/devnet-m4/input-auth-v0.json"
+    ))?;
+    let rows: Vec<InputRow> = serde_json::from_value(value["rows"].clone())?;
+    let d = PrivateTempDir::new("m4-miner-archive")?;
+    let c = boole_derivation::m2::Config::devnet();
+    let network = NetworkIdentity::new(
+        &c,
+        None,
+        boole_derivation::attributes::hex_string(&[1; 32]),
+        30_000_000,
+    )?;
+    let x = std::sync::Arc::new(Mutex::new(ArchiveStore::open(
+        &d.path().join("x"),
+        ArchiveProfile {
+            identity: ArchiveIdentity {
+                network: network.clone(),
+                l1_anchor_number: 0,
+                l1_anchor_hash: rows[0].block_hash.clone(),
+            },
+            bind: "127.0.0.1:0".parse()?,
+            prune_before: None,
+        },
+        false,
+    )?));
+    for (h, row) in rows.iter().enumerate() {
+        x.lock().unwrap().ingest(
+            row,
+            2,
+            &Selection {
+                l2_number: h as u64,
+                l2_hash: boole_derivation::attributes::hex_string(&[1; 32]),
+                root: boole_derivation::attributes::hex_string(&[2; 32]),
+                system: vec![],
+                inputs: "journal".into(),
+                verdicts: "computed".into(),
+            },
+        )?;
+    }
+    let server = ArchiveServer::start(Arc::clone(&x), "127.0.0.1:0".parse()?)?;
+    let path = d.path().join("miner");
+    let raw = Tip { rows };
+    let source = JournalSource::open_archive(
+        raw.clone(),
+        &path,
+        network.clone(),
+        false,
+        ArchiveClient::http(vec![server.url()])?,
+    )?;
+    let mut client = Client::new(
+        source,
+        NoPost,
+        c.clone(),
+        [7; 20],
+        path.clone(),
+        ClientOptions::new(30_000_000),
+    )?;
+    client.sync()?;
+    let root = client.m2_state().root;
+    assert_eq!(client.status()["inputs"], "archive-verified");
+    assert_eq!(client.status()["input_ranges"][0]["from"], 1);
+    drop(client);
+    let source = JournalSource::open_archive(
+        raw,
+        &path,
+        network,
+        false,
+        ArchiveClient::http(vec![server.url()])?,
+    )?;
+    let mut client = Client::new(
+        source,
+        NoPost,
+        c,
+        [7; 20],
+        path,
+        ClientOptions::new(30_000_000),
+    )?;
+    client.sync()?;
+    assert_eq!(client.status()["inputs"], "journal");
+    assert_eq!(client.m2_state().root, root);
+    Ok(())
+}

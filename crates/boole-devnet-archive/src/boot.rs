@@ -5,7 +5,7 @@ use std::path::Path;
 /// Complete only a published create-new hard link, before single-link readers run.
 pub fn cleanup_publications(root: &Path, guard: &StateDirGuard) -> Result<()> {
     use std::io::Read;
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
     let result = (|| -> Result<()> {
         ensure!(
             guard.is_current() && root.canonicalize()? == guard.dir().canonicalize()?,
@@ -27,10 +27,19 @@ pub fn cleanup_publications(root: &Path, guard: &StateDirGuard) -> Result<()> {
                 meta.is_dir()
                     && !meta.file_type().is_symlink()
                     && meta.uid() == effective_uid()
-                    && meta.permissions().mode() & 0o077 == 0,
+                    && meta.permissions().mode() & 0o777 == 0o700,
                 "staging directory ownership/type; preserved"
             );
             let entries = std::fs::read_dir(&path)?.collect::<std::io::Result<Vec<_>>>()?;
+            if entries.is_empty() {
+                ensure!(
+                    guard.is_current(),
+                    "writer lock changed before empty-stage cleanup"
+                );
+                std::fs::remove_dir(&path)?;
+                crate::durability::fsync_parent_dir(&path)?;
+                continue;
+            }
             ensure!(
                 entries.len() == 1 && entries[0].file_name() == "value",
                 "unrecognized staging contents; preserved"
@@ -47,7 +56,8 @@ pub fn cleanup_publications(root: &Path, guard: &StateDirGuard) -> Result<()> {
             ensure!(
                 before.is_file()
                     && before.uid() == effective_uid()
-                    && before.nlink() == 2
+                    && matches!(before.nlink(), 1 | 2)
+                    && before.permissions().mode() & 0o777 == 0o600
                     && before.len() <= crate::input::ROW_MAX as u64,
                 "unpublished or ambiguous staging value; preserved"
             );
@@ -64,6 +74,49 @@ pub fn cleanup_publications(root: &Path, guard: &StateDirGuard) -> Result<()> {
                     target = Some(candidate.path());
                 }
             }
+            if before.nlink() == 1 && target.is_none() {
+                // A private writer died before linking. Preserve even a partial
+                // value; it is never promoted to a content address.
+                let corrupt = root.join("corrupt");
+                if !corrupt.try_exists()? {
+                    std::fs::DirBuilder::new().mode(0o700).create(&corrupt)?;
+                }
+                let m = std::fs::symlink_metadata(&corrupt)?;
+                ensure!(
+                    m.is_dir()
+                        && !m.file_type().is_symlink()
+                        && m.uid() == effective_uid()
+                        && m.permissions().mode() & 0o777 == 0o700,
+                    "quarantine ownership/type; staging preserved"
+                );
+                let saved = corrupt.join(format!("publication-{nonce}"));
+                ensure!(
+                    !saved.try_exists()?,
+                    "quarantine nonce collision; staging preserved"
+                );
+                let unchanged = |m: &std::fs::Metadata| {
+                    m.is_file()
+                        && m.dev() == before.dev()
+                        && m.ino() == before.ino()
+                        && m.nlink() == 1
+                        && m.len() == before.len()
+                        && m.ctime() == before.ctime()
+                        && m.ctime_nsec() == before.ctime_nsec()
+                };
+                ensure!(
+                    unchanged(&file.metadata()?)
+                        && unchanged(&std::fs::symlink_metadata(&staged)?)
+                        && guard.is_current(),
+                    "unpublished value changed; preserved"
+                );
+                std::fs::rename(&path, &saved)?;
+                file.sync_all()?;
+                std::fs::File::open(&saved)?.sync_all()?;
+                std::fs::File::open(&corrupt)?.sync_all()?;
+                crate::durability::fsync_parent_dir(&path)?;
+                continue;
+            }
+            ensure!(before.nlink() == 2, "ambiguous staging links; preserved");
             let target = target
                 .ok_or_else(|| anyhow::anyhow!("published target absent; staging preserved"))?;
             let target_file = open(&target)?;

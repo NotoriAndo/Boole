@@ -132,3 +132,25 @@ no-flag B12. Full v1.3 tapes and derivation bytes remain unchanged.
 
 Own snapshots, archive serving/import, retention and compaction are later M4
 work. Full v1.3 replay remains the default.
+
+## M4b1 publication staging recovery
+
+Under the lifetime writer lock, restart now recognizes all three states made by
+our publication writer. An empty private `.devnet-new-<nonce>` directory is
+removed and its parent fsynced. A single owned mode-0600 `value` with one link
+and no published inode alias is moved, with its private directory, into
+`corrupt/publication-<nonce>/value`; even partial bytes are preserved and never
+promoted to authority. The source is fetched/rebuilt and published again.
+A proven, byte-identical two-link published alias retains the existing cleanup.
+Qualification-only B9a (before link) and B9b (after alias unlink) exercise the two
+additional crash windows with actual SIGKILL.
+
+A foreign owner, wrong mode, extra entry, nonce collision or ambiguous target
+still produces a typed `publication-staging` stop with files preserved. Stop the
+own writer, retain a complete copy of the directory and metadata, investigate
+ownership and aliases, and recover from the authenticated own journal or a
+verified archive into a fresh private directory. Do not chmod, unlink or promote
+an ambiguous `value` in place. Ordinary release binaries refuse fault selectors.
+
+[Archive operation and independent verification](devnet-archive-v0.md) describes
+M4b1's public store, loopback GET-only API and fresh verify-mode join.

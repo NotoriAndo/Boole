@@ -421,14 +421,16 @@ fn live_receipts_are_advisory_and_unknown_old_hashes_never_trigger_receipt_rpc()
         let mut poster = RpcPoster::new(&url, [1; 20]).unwrap();
         let journal = Rc::new(RefCell::new(journal));
         poster.bind_journal(journal.clone());
-        let result = poster.included_for_posting(&tx);
+        let result = poster.included_for_posting_since(&tx, 2);
         if success {
             assert_eq!(result.unwrap(), Some(3));
         } else {
             assert!(result.unwrap_err().is::<RevertedReceipt>());
         }
         assert_eq!(
-            poster.included_for_posting(&hex_string(&[88; 32])).unwrap(),
+            poster
+                .included_for_posting_since(&hex_string(&[88; 32]), 2)
+                .unwrap(),
             None
         );
         worker.join().unwrap();
@@ -440,4 +442,66 @@ fn live_receipts_are_advisory_and_unknown_old_hashes_never_trigger_receipt_rpc()
         assert_eq!(journal.borrow().tip(), 2);
         assert_eq!(std::fs::read(d.path().join(JOURNAL)).unwrap(), before);
     }
+}
+
+#[test]
+fn archive_gap_preserves_pending_post_without_old_rpc_or_false_revert() {
+    use boole_derivation::attributes::hex_string;
+    use boole_devnet_archive::{
+        durability::PrivateTempDir,
+        error::Error,
+        input::InputRow,
+        journal::{InputJournal, NetworkIdentity},
+    };
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../fixtures/devnet-m4/input-auth-v0.json"
+    ))
+    .unwrap();
+    let mut rows: Vec<InputRow> = serde_json::from_value(fixture["rows"].clone()).unwrap();
+    for row in &mut rows {
+        row.transactions = None;
+    }
+    let d = PrivateTempDir::new("m4-posting-archive-gap").unwrap();
+    let identity = NetworkIdentity::new(
+        &boole_derivation::m2::Config::devnet(),
+        None,
+        hex_string(&[1; 32]),
+        30_000_000,
+    )
+    .unwrap();
+    let mut journal =
+        InputJournal::open(d.path(), identity, || Ok(rows[0].clone()), false).unwrap();
+    journal.append(&rows[1]).unwrap();
+    let (url, worker) = serve(vec![
+        ("eth_chainId", 200, json!("0x7a69")),
+        ("eth_accounts", 200, json!([hex_string(&[1; 20])])),
+    ]);
+    let mut poster = RpcPoster::new(&url, [1; 20]).unwrap();
+    worker.join().unwrap();
+    poster.bind_journal(std::rc::Rc::new(std::cell::RefCell::new(journal)));
+    let error = poster
+        .included_for_posting_since(&hex_string(&[77; 32]), 0)
+        .unwrap_err();
+    assert!(!error.is::<RevertedReceipt>());
+    assert!(matches!(
+        error.downcast_ref::<Error>(),
+        Some(Error::Availability {
+            class: "archive-tx-proof",
+            ..
+        })
+    ));
+
+    let error = poster
+        .included_for_posting(&hex_string(&[77; 32]))
+        .unwrap_err();
+    assert!(
+        matches!(
+            error.downcast_ref::<Error>(),
+            Some(Error::Availability {
+                class: "archive-tx-proof",
+                ..
+            })
+        ),
+        "legacy intent did not hold conservatively"
+    );
 }

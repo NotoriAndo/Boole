@@ -73,6 +73,13 @@ pub trait Poster {
     fn included_for_posting(&mut self, tx: &str) -> Result<Option<u64>> {
         self.included(tx)
     }
+    fn included_for_posting_since(
+        &mut self,
+        tx: &str,
+        _finalized_before: u64,
+    ) -> Result<Option<u64>> {
+        self.included_for_posting(tx)
+    }
 }
 struct LiveReceiptWindow {
     floor: u64,
@@ -164,11 +171,26 @@ impl Poster for RpcPoster {
         Ok(Some(h))
     }
     fn included_for_posting(&mut self, tx: &str) -> Result<Option<u64>> {
+        self.included_for_posting_since(tx, 0)
+    }
+    fn included_for_posting_since(
+        &mut self,
+        tx: &str,
+        finalized_before: u64,
+    ) -> Result<Option<u64>> {
         if self.journal.is_none() {
             return self.included(tx);
         }
-        if let Some(height) = self.included(tx)? {
-            return Ok(Some(height));
+        let known = self
+            .journal
+            .as_ref()
+            .expect("bound journal")
+            .borrow()
+            .transaction_receipt_since(tx, finalized_before)?;
+        match known {
+            Some((h, true)) => return Ok(Some(h)),
+            Some((_, false)) => return Err(RevertedReceipt.into()),
+            None => {}
         }
         let journal = self.journal.as_ref().expect("bound journal");
         let floor = journal.borrow().tip();
@@ -324,6 +346,9 @@ struct Anchor {
 #[serde(deny_unknown_fields)]
 struct Sent {
     head: u64,
+    /// Own finalized floor before sending, never a remote latest-height claim.
+    #[serde(default)]
+    finalized_before_post: Option<u64>,
     tx: Option<String>,
     #[serde(default)]
     failure: Option<String>,
@@ -558,6 +583,7 @@ pub struct Client<L, P> {
     chain: Option<crate::chain::Chain>,
     waiting_l2: bool,
     vested_at: BTreeMap<u64, u64>,
+    archive_alerts: Vec<String>,
     own: Option<crate::own::Verifier>,
 }
 impl<L: L1Source, P: Poster> Client<L, P> {
@@ -665,6 +691,7 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             chain,
             waiting_l2: false,
             vested_at: BTreeMap::new(),
+            archive_alerts: Vec::new(),
             own,
         })
     }
@@ -879,6 +906,26 @@ impl<L: L1Source, P: Poster> Client<L, P> {
                     }
                 }
             }
+            if let Some(chain) = &self.chain {
+                let l2_hash = &chain
+                    .blocks
+                    .get(&h)
+                    .context("verified archive tripwire height")?
+                    .block
+                    .hash;
+                let alerts = self.source.archive_tripwire(
+                    h,
+                    &hex_string(l2_hash),
+                    &hex_string(&step.state.root),
+                );
+                for alert in alerts {
+                    eprintln!("{alert}");
+                    if self.archive_alerts.len() == 64 {
+                        self.archive_alerts.remove(0);
+                    }
+                    self.archive_alerts.push(alert);
+                }
+            }
             self.state = step.state;
             self.anchor = Anchor {
                 number: block.number,
@@ -957,7 +1004,7 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             let pending=p.map(|p|self.state.candidates.iter().filter(|((id,_),v)|*id==p.id && matches!(v.status(),Status::Committed|Status::Open)).count()).unwrap_or(0);
             json!({"slot":slot,"lane":self.config.slot_table[slot].lane,"problem_id":p.map(|p|hex_string(&p.id)),"last_commit_height":p.and_then(|p|p.h_v.checked_add(self.config.slot_table[slot].solve_deadline)),"pending_commits":pending,"next_draw_height":s.scheduled.and_then(|h|h.checked_add(1))})
         }).collect();
-        json!({"devnet_only":true,"fold_height":self.state.height(),"m2_root":hex_string(&self.state.root),"config_digest":hex_string(&self.config.digest()),"slot_table_digest":hex_string(&self.config.slot_table_digest()),"slots":slots,"stalled":self.stalled,"l2_m2_root_match":self.l2_m2_root_match,"waiting_for_l2":self.waiting_l2,"m3":crate::m3_status::summary(&self.state),"verdict_trust":if self.own.is_some(){"l2-node-with-own-verification"}else if self.config.m3.is_some(){"l2-node"}else{"l1-only"}})
+        json!({"devnet_only":true,"inputs":self.source.inputs_label(self.state.height()),"input_ranges":self.source.input_ranges(self.state.height()),"archive_sources":self.source.archive_stats(),"archive_alerts":self.archive_alerts,"fold_height":self.state.height(),"m2_root":hex_string(&self.state.root),"config_digest":hex_string(&self.config.digest()),"slot_table_digest":hex_string(&self.config.slot_table_digest()),"slots":slots,"stalled":self.stalled,"l2_m2_root_match":self.l2_m2_root_match,"waiting_for_l2":self.waiting_l2,"m3":crate::m3_status::summary(&self.state),"verdict_trust":if self.own.is_some(){"l2-node-with-own-verification"}else if self.config.m3.is_some(){"l2-node"}else{"l1-only"}})
     }
     fn decoded_problem(&self, id: Hash) -> Result<Vec<u8>> {
         let p = self.state.problems.get(&id).context("problem not found")?;
@@ -1259,9 +1306,16 @@ impl<L: L1Source, P: Poster> Client<L, P> {
         }
         let ids: Vec<_> = self.submissions.keys().copied().collect();
         for id in ids {
-            if self.advance(id, head).is_err() {
+            if let Err(error) = self.advance(id, head) {
                 let mut sub = self.submissions[&id].clone();
-                sub.last_error = Some("submission progress read failed; retry pending".into());
+                sub.last_error = Some(
+                    match error.downcast_ref::<boole_devnet_archive::error::Error>() {
+                        Some(boole_devnet_archive::error::Error::Availability {
+                            class, ..
+                        }) => format!("submission progress unavailable ({class}); retry pending"),
+                        _ => "submission progress read failed; retry pending".into(),
+                    },
+                );
                 self.save(&sub)?;
             }
         }
@@ -1397,6 +1451,7 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             stage.into(),
             Sent {
                 head,
+                finalized_before_post: Some(self.state.height()),
                 tx: None,
                 failure: None,
             },
@@ -1429,7 +1484,8 @@ impl<L: L1Source, P: Poster> Client<L, P> {
         let Some(tx) = sent.tx.as_deref() else {
             return Ok(None);
         };
-        match retry_rpc(|| self.poster.included_for_posting(tx)) {
+        let finalized_before = sent.finalized_before_post.unwrap_or(0);
+        match retry_rpc(|| self.poster.included_for_posting_since(tx, finalized_before)) {
             Err(e) if e.is::<RevertedReceipt>() => {
                 sub.sent
                     .get_mut(stage)

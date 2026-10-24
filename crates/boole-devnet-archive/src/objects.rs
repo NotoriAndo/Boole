@@ -16,13 +16,23 @@ impl Objects {
             guard,
         })
     }
+    pub fn check(&self) -> Result<()> {
+        if !self.guard.is_current() {
+            return Err(crate::error::integrity(
+                0,
+                "object-lock",
+                "object store writer lock changed",
+            ));
+        }
+        Ok(())
+    }
     fn path(&self, key: &str) -> Result<PathBuf> {
         let hash = boole_derivation::attributes::hex_bytes(key, "object address")?;
         ensure!(hash.len() == 32, "object address width");
         Ok(self.root.join(hex::encode(hash)))
     }
     pub fn read(&self, key: &str, verify: impl Fn(&[u8]) -> Result<()>) -> Result<Option<Vec<u8>>> {
-        ensure!(self.guard.is_current(), "object store lock changed");
+        self.check()?;
         let path = self.path(key)?;
         if !path.try_exists()? {
             return Ok(None);
@@ -35,6 +45,13 @@ impl Objects {
         match result {
             Ok(bytes) => Ok(Some(bytes)),
             Err(error) => {
+                if error.is::<std::io::Error>() {
+                    return Err(crate::error::availability(
+                        0,
+                        "object-io",
+                        format!("object read unavailable: {error:#}"),
+                    ));
+                }
                 ensure!(self.guard.is_current(), "object ownership changed");
                 let corrupt = self.root.join("corrupt");
                 let mut builder = std::fs::DirBuilder::new();
@@ -71,12 +88,35 @@ impl Objects {
                 crate::durability::fsync_parent_dir(&path)?;
                 std::fs::File::open(&saved)?.sync_all()?;
                 std::fs::File::open(&corrupt)?.sync_all()?;
-                Err(error.context("corrupt object preserved in quarantine"))
+                Err(crate::error::integrity(
+                    0,
+                    "object-quarantine",
+                    format!("corrupt object preserved in quarantine: {error:#}"),
+                ))
             }
         }
     }
+    /// Remove a disposable authenticated cache copy, never an authoritative row.
+    pub fn retire(&self, key: &str, verify: impl Fn(&[u8]) -> Result<()>) -> Result<()> {
+        self.check()?;
+        let path = self.path(key)?;
+        let before = crate::version::file_stamp(&path)?;
+        match self.read(key, verify) {
+            Ok(Some(_)) => {}
+            Ok(None) => return Ok(()),
+            Err(e) if quarantined(&e) => return Ok(()),
+            Err(e) => return Err(e),
+        }
+        ensure!(
+            before == crate::version::file_stamp(&path)?,
+            "object changed before cache retirement"
+        );
+        self.check()?;
+        std::fs::remove_file(&path)?;
+        crate::durability::fsync_parent_dir(&path)
+    }
     pub fn put(&self, key: &str, bytes: &[u8], verify: impl Fn(&[u8]) -> Result<()>) -> Result<()> {
-        ensure!(self.guard.is_current(), "object store lock changed");
+        self.check()?;
         if crate::journal::free_bytes(&self.root)? < crate::journal::DISK_FLOOR {
             return Err(crate::error::availability(
                 0,
@@ -85,8 +125,11 @@ impl Objects {
             ));
         }
         verify(bytes)?;
-        if self.read(key, &verify)?.is_some() {
-            return Ok(());
+        match self.read(key, &verify) {
+            Ok(Some(_)) => return Ok(()),
+            Ok(None) => {}
+            Err(e) if quarantined(&e) => {}
+            Err(e) => return Err(e),
         }
         let height = serde_json::from_slice::<crate::input::InputRow>(bytes)
             .ok()
@@ -94,6 +137,15 @@ impl Objects {
             .map(|b| b.number);
         crate::journal::publish_new_at(&self.path(key)?, bytes, height.map(|h| (h, "staged-input")))
     }
+}
+fn quarantined(error: &anyhow::Error) -> bool {
+    matches!(
+        error.downcast_ref::<crate::error::Error>(),
+        Some(crate::error::Error::Integrity {
+            class: "object-quarantine",
+            ..
+        })
+    )
 }
 #[cfg(test)]
 mod tests {
@@ -125,22 +177,26 @@ mod tests {
         Ok(())
     }
     #[test]
-    fn b9_empty_staging_is_preserved_when_no_published_target_can_be_verified() -> Result<()> {
+    fn empty_private_staging_is_removed_under_the_writer_lock() -> Result<()> {
         let d = crate::durability::PrivateTempDir::new("m4-empty-staging")?;
         let stage = crate::durability::PrivateTempDir::new_in(d.path(), ".devnet-new")?;
-        let result = Objects::open(d.path());
-        assert!(
-            result.is_err(),
-            "ambiguous empty staging was silently removed"
-        );
-        assert!(stage.path().exists());
+        let objects = Objects::open(d.path())?;
+        assert!(!stage.path().exists());
+        drop(objects);
         Ok(())
     }
     #[test]
-    fn b9_unpublished_staging_bytes_stop_typed_and_are_never_deleted() -> Result<()> {
+    fn unpublished_value_with_foreign_mode_stops_typed_and_is_never_deleted() -> Result<()> {
         let d = crate::durability::PrivateTempDir::new("m4-unpublished")?;
         let stage = crate::durability::PrivateTempDir::new_in(d.path(), ".devnet-new")?;
         std::fs::write(stage.path().join("value"), b"preserve unpublished bytes")?;
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(
+                stage.path().join("value"),
+                std::fs::Permissions::from_mode(0o644),
+            )?;
+        }
         let result = Objects::open(d.path());
         let error = match result {
             Ok(_) => panic!("unpublished staging accepted"),
@@ -186,6 +242,44 @@ mod tests {
         assert_eq!(std::fs::read(saved[0].path().join("object"))?, bad);
         objects.put(&key, good, verify)?;
         assert_eq!(objects.read(&key, verify)?.unwrap(), good);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod fix2_tests {
+    use super::*;
+    #[test]
+    fn m1_verified_republish_and_retirement_survive_quarantine() -> Result<()> {
+        use sha2::{Digest, Sha256};
+        let dir = crate::durability::PrivateTempDir::new("object-quarantine-retry")?;
+        let bytes = b"verified replacement";
+        let key = format!("0x{}", hex::encode(Sha256::digest(bytes)));
+        let verify = |b: &[u8]| {
+            ensure!(b == bytes, "changed public bytes");
+            Ok(())
+        };
+        let objects = Objects::open(dir.path())?;
+        objects.put(&key, bytes, verify)?;
+        std::fs::write(objects.path(&key)?, b"first corrupt copy")?;
+        objects.put(&key, bytes, verify)?;
+        assert_eq!(
+            objects.read(&key, verify)?.as_deref(),
+            Some(bytes.as_slice())
+        );
+        std::fs::write(objects.path(&key)?, b"corrupt disposable header")?;
+        objects.retire(&key, verify)?;
+        assert!(objects.read(&key, verify)?.is_none());
+        let mut saved = std::fs::read_dir(dir.path().join("corrupt"))?
+            .map(|e| std::fs::read(e.unwrap().path().join("object")))
+            .collect::<std::io::Result<Vec<_>>>()?;
+        saved.sort();
+        let mut expected = vec![
+            b"first corrupt copy".to_vec(),
+            b"corrupt disposable header".to_vec(),
+        ];
+        expected.sort();
+        assert_eq!(saved, expected);
         Ok(())
     }
 }

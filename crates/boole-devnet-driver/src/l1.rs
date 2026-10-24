@@ -22,6 +22,32 @@ fn capture_failure(height: u64, finalized: u64, error: anyhow::Error) -> anyhow:
 }
 
 pub trait L1Source {
+    fn inputs_label(&self, _height: u64) -> &'static str {
+        "l1-rpc"
+    }
+    fn input_ranges(&self, through: u64) -> Value {
+        let mut ranges: Vec<Value> = vec![];
+        for h in 1..=through {
+            let label = self.inputs_label(h);
+            if let Some(last) = ranges.last_mut().filter(|r| r["inputs"] == label) {
+                last["through"] = json!(h);
+            } else {
+                ranges.push(json!({"from":h,"through":h,"inputs":label}));
+            }
+        }
+        json!(ranges)
+    }
+    fn archive_stats(&self) -> Value {
+        Value::Null
+    }
+    fn archive_tripwire(&mut self, _height: u64, _l2_hash: &str, _root: &str) -> Vec<String> {
+        vec![]
+    }
+    fn finalized_anchor(&mut self) -> Result<(u64, String)> {
+        let h = self.finalized()?;
+        Ok((h, self.header_rlp(h)?))
+    }
+
     /// During verified Engine-tail replay, use only existing own journal rows.
     fn set_journal_replay(&mut self, _enabled: bool) {}
     fn input_row(&mut self, _height: u64) -> Result<boole_devnet_archive::input::InputRow> {
@@ -64,6 +90,10 @@ pub struct JournalSource<L> {
     live_head: Option<(u64, String)>,
     acquisition: boole_devnet_archive::objects::Objects,
     journal_replay: bool,
+    archives: Option<boole_devnet_archive::client::ArchiveClient>,
+    archive_heights: std::collections::BTreeSet<u64>,
+    initial_tip: u64,
+    network: boole_devnet_archive::journal::NetworkIdentity,
 }
 impl<L: L1Source> JournalSource<L> {
     pub fn open(
@@ -72,15 +102,98 @@ impl<L: L1Source> JournalSource<L> {
         network: boole_devnet_archive::journal::NetworkIdentity,
         repair: bool,
     ) -> Result<Self> {
+        let existed = root
+            .join(boole_devnet_archive::journal::MANIFEST)
+            .try_exists()?;
         let journal = boole_devnet_archive::journal::InputJournal::open(
             root,
-            network,
+            network.clone(),
             || {
                 anyhow::ensure!(inner.finalized()?==0,"fresh TIP_ONLY journal requires its genesis anchor; use verified journal recovery for an existing chain");
                 inner.input_row(0)
             },
             repair,
         )?;
+        let acquisition =
+            boole_devnet_archive::objects::Objects::open(&journal.root().join("input-cache"))?;
+        let initial_tip = if existed { journal.tip() } else { 0 };
+        Ok(Self {
+            inner,
+            journal: std::rc::Rc::new(std::cell::RefCell::new(journal)),
+            remote_tip: None,
+            live_head: None,
+            acquisition,
+            journal_replay: false,
+            archives: None,
+            archive_heights: Default::default(),
+            initial_tip,
+            network,
+        })
+    }
+    pub fn open_archive(
+        mut inner: L,
+        root: &std::path::Path,
+        network: boole_devnet_archive::journal::NetworkIdentity,
+        repair: bool,
+        mut archives: boole_devnet_archive::client::ArchiveClient,
+    ) -> Result<Self> {
+        if root
+            .join(boole_devnet_archive::journal::MANIFEST)
+            .try_exists()?
+        {
+            let mut source = Self::open(inner, root, network, repair)?;
+            prune_archive_download(&source.journal.borrow())?;
+            source.archives = Some(archives);
+            return Ok(source);
+        }
+        let mut prepared = None;
+        let mut journal = boole_devnet_archive::journal::InputJournal::open(
+            root,
+            network.clone(),
+            || {
+                let (tip, header) = crate::engine::retry_rpc(|| inner.finalized_anchor())?;
+                let raw = boole_derivation::attributes::hex_bytes(&header, "own finalized anchor")?;
+                let key = boole_derivation::attributes::hex_string(
+                    &boole_derivation::user_tx::keccak(&raw),
+                );
+                let block = boole_devnet_archive::input::InputRow {
+                    schema_version: 1,
+                    block_hash: key.clone(),
+                    header_rlp: header,
+                    receipts: None,
+                    transactions: None,
+                }
+                .block()?;
+                anyhow::ensure!(block.number == tip, "own L1 endpoint anchor height");
+                let download = archives.prepare(
+                    tip,
+                    &key,
+                    None,
+                    &root.join("archive-download"),
+                    Some(&raw),
+                )?;
+                archives.identity(
+                    &network,
+                    download
+                        .genesis_hash
+                        .as_deref()
+                        .context("verified genesis")?,
+                )?;
+                let first = download.row(&mut archives, 0)?;
+                prepared = Some(download);
+                Ok(first)
+            },
+            repair,
+        )?;
+        let download = prepared.context("archive bootstrap plan")?;
+        download.appended(0)?;
+        let mut archive_heights = std::collections::BTreeSet::new();
+        for h in 1..=download.tip {
+            journal.append(&download.row(&mut archives, h)?)?;
+            download.appended(h)?;
+            archive_heights.insert(h);
+        }
+        drop(download);
         let acquisition =
             boole_devnet_archive::objects::Objects::open(&journal.root().join("input-cache"))?;
         Ok(Self {
@@ -90,6 +203,10 @@ impl<L: L1Source> JournalSource<L> {
             live_head: None,
             acquisition,
             journal_replay: false,
+            archives: Some(archives),
+            archive_heights,
+            initial_tip: 0,
+            network,
         })
     }
     fn cached(&self, hash: &str) -> Result<Option<boole_devnet_archive::input::InputRow>> {
@@ -195,8 +312,38 @@ impl<L: L1Source> JournalSource<L> {
             // obtained finality hash before publishing even its first row.
             let mut rows = vec![];
             let mut cursor = hash;
+            let mut archive_plan = None;
             for h in (saved + 1..=tip).rev() {
-                let row=self.cached(&cursor)?.ok_or_else(||availability(h,"input-cache","missing authenticated input below current tip; verified archive/journal recovery required"))?;
+                let row = match self.cached(&cursor)? {
+                    Some(row) => row,
+                    None => {
+                        let Some(archives) = &mut self.archives else {
+                            return Err(availability(h,"input-cache","missing authenticated input below current tip; verified archive/journal recovery required"));
+                        };
+                        let anchor = self
+                            .journal
+                            .borrow()
+                            .hash(0)
+                            .context("journal genesis")?
+                            .to_owned();
+                        archives.identity(&self.network, &anchor)?;
+                        let floor = self
+                            .journal
+                            .borrow()
+                            .hash(saved)
+                            .context("journal prefix")?
+                            .to_owned();
+                        let root = self.journal.borrow().root().join("archive-download");
+                        archive_plan = Some(archives.prepare(
+                            h,
+                            &cursor,
+                            Some((saved, floor)),
+                            &root,
+                            None,
+                        )?);
+                        break;
+                    }
+                };
                 let block = row.block()?;
                 if block.number != h {
                     return Err(integrity(h, "input-cache", "cached header height mismatch"));
@@ -204,7 +351,16 @@ impl<L: L1Source> JournalSource<L> {
                 cursor = block.parent_hash;
                 rows.push(row);
             }
-            if self.journal.borrow().hash(saved) != Some(cursor.as_str()) {
+            if let Some(download) = archive_plan {
+                let archives = self.archives.as_mut().context("archive plan source")?;
+                for h in saved + 1..=download.tip {
+                    let row = download.row(archives, h)?;
+                    self.journal.borrow_mut().append(&row)?;
+                    download.appended(h)?;
+                    self.archive_heights.insert(h);
+                    boole_devnet_archive::fault::hit("B1", h, "driver")?;
+                }
+            } else if self.journal.borrow().hash(saved) != Some(cursor.as_str()) {
                 return Err(integrity(
                     saved,
                     "l1-anchor",
@@ -235,6 +391,31 @@ impl<L> std::ops::DerefMut for JournalSource<L> {
 impl<L: L1Source> L1Source for JournalSource<L> {
     fn set_journal_replay(&mut self, enabled: bool) {
         self.journal_replay = enabled;
+    }
+    fn input_row(&mut self, h: u64) -> Result<boole_devnet_archive::input::InputRow> {
+        self.journal.borrow().row(h)
+    }
+    fn inputs_label(&self, h: u64) -> &'static str {
+        if h <= self.initial_tip {
+            "journal"
+        } else if self.archive_heights.contains(&h) {
+            "archive-verified"
+        } else {
+            "l1-rpc"
+        }
+    }
+    fn archive_stats(&self) -> Value {
+        self.archives
+            .as_ref()
+            .map(|a| json!({"discarded":a.discarded,"attempts":a.attempts,"failures":a.failures}))
+            .unwrap_or(Value::Null)
+    }
+    fn archive_tripwire(&mut self, h: u64, l2_hash: &str, root: &str) -> Vec<String> {
+        let Some(archives) = &mut self.archives else {
+            return vec![];
+        };
+        let hash = self.journal.borrow().hash(h).unwrap_or("").to_owned();
+        archives.tripwire(h, &hash, l2_hash, root)
     }
     fn genesis_hash(&mut self) -> Result<String> {
         Ok(self.journal.borrow().get(0)?.block.hash)
@@ -378,6 +559,23 @@ impl RpcL1 {
     }
 }
 impl L1Source for RpcL1 {
+    fn finalized_anchor(&mut self) -> Result<(u64, String)> {
+        let v = self
+            .rpc
+            .call("eth_getBlockByNumber", json!(["finalized", false]))?;
+        let raw = boole_devnet_archive::input::header_from_rpc(&v)?;
+        let row = boole_devnet_archive::input::InputRow {
+            schema_version: 1,
+            block_hash: v["hash"].as_str().context("own finalized hash")?.into(),
+            header_rlp: boole_derivation::attributes::hex_string(&raw),
+            receipts: None,
+            transactions: None,
+        };
+        let block = row.block()?;
+        anyhow::ensure!(block.hash == row.block_hash, "own finalized header hash");
+        Ok((block.number, row.header_rlp))
+    }
+
     fn latest(&mut self) -> Result<u64> {
         let v = self.rpc.call("eth_blockNumber", json!([]))?;
         Ok(u64::from_str_radix(
@@ -499,4 +697,37 @@ impl L1Source for RpcL1 {
     fn inbox_logs(&mut self, hash: &str) -> Result<Vec<InboxLog>> {
         Ok(serde_json::from_value(self.rpc.call("eth_getLogs",json!([{"blockHash":hash,"address":boole_derivation::config::INBOX,"topics":[boole_derivation::config::posted_topic()]}]))?)?)
     }
+}
+
+/// A crash can leave cache copies whose authoritative rows are already durable.
+fn prune_archive_download(journal: &boole_devnet_archive::journal::InputJournal) -> Result<()> {
+    let root = journal.root().join("archive-download");
+    if !root.try_exists()? {
+        return Ok(());
+    }
+    let cache = boole_devnet_archive::objects::Objects::open(&root)?;
+    let hashes = (0..=journal.tip())
+        .filter_map(|h| journal.hash(h).map(|hash| (hash.to_owned(), h)))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    for entry in std::fs::read_dir(&root)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        if name.len() != 64
+            || !name
+                .bytes()
+                .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+        {
+            continue;
+        }
+        let key = format!("0x{name}");
+        // Only retire a copy matched to an authenticated journal row, under its writer lock.
+        if let Some(&h) = hashes.get(&key) {
+            journal.get(h)?;
+            cache.retire(&key, |b| {
+                boole_devnet_archive::archive::verify_header(&key, b)
+            })?;
+        }
+    }
+    Ok(())
 }

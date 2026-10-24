@@ -20,6 +20,14 @@ struct Args {
     jwt_secret: PathBuf,
     #[arg(long)]
     until: u64,
+    /// Pinned loopback archive sources, tried in order under FETCH.
+    #[arg(long)]
+    archive: Vec<String>,
+    /// Serve this verify node's public finalized archive (no pruning).
+    #[arg(long)]
+    archive_dir: Option<PathBuf>,
+    #[arg(long, requires = "archive_dir", default_value = "127.0.0.1:0")]
+    archive_bind: std::net::SocketAddr,
     #[arg(long)]
     state_dir: Option<PathBuf>,
     #[arg(long)]
@@ -55,6 +63,12 @@ struct Args {
 fn main() -> Result<()> {
     boole_devnet_archive::fault::validate_environment()?;
     let args = Args::parse();
+    if args.archive_dir.is_some() && !args.archive_bind.ip().is_loopback() {
+        return Err(boole_devnet_archive::error::startup(
+            21,
+            "archive bind must be loopback",
+        ));
+    }
     let config: boole_derivation::m2::Config = match args.m2_config {
         Some(path) => serde_json::from_slice(&std::fs::read(path)?)?,
         None => boole_derivation::m2::Config::devnet(),
@@ -62,6 +76,10 @@ fn main() -> Result<()> {
     eprintln!(
         "slot_table_digest={}",
         boole_derivation::attributes::hex_string(&config.slot_table_digest())
+    );
+    anyhow::ensure!(
+        (args.archive.is_empty() && args.archive_dir.is_none()) || args.mode == "verify",
+        "M4b1 archive requires verify mode"
     );
     let l1 = RpcL1::new_m2(&args.l1_rpc)?;
     let mut engine = RpcEngine::new(&args.engine_rpc, &args.node_rpc, &args.jwt_secret)?;
@@ -83,7 +101,17 @@ fn main() -> Result<()> {
         engine.header(0)?.hash,
         l2_gas_limit,
     )?;
-    let l1 = JournalSource::open(l1, &root, network, args.repair_journals)?;
+    let l1 = if args.archive.is_empty() {
+        JournalSource::open(l1, &root, network.clone(), args.repair_journals)?
+    } else {
+        JournalSource::open_archive(
+            l1,
+            &root,
+            network.clone(),
+            args.repair_journals,
+            boole_devnet_archive::client::ArchiveClient::http(args.archive)?,
+        )?
+    };
     let root = l1.journal.borrow().root().to_path_buf();
     let checkpoint = args
         .m2_journal
@@ -100,6 +128,7 @@ fn main() -> Result<()> {
         );
     }
     let mut cache_guard = None;
+    let mut capture_paths = None;
     let mut driver = if config.m3.is_some() {
         use boole_gate_supervisor::{
             codec::Codec,
@@ -140,6 +169,11 @@ fn main() -> Result<()> {
             Some(path) => Codec::new(path)?,
             None => Codec::portable_stub(),
         };
+        capture_paths = Some(boole_devnet_driver::driver::archive::CapturePaths {
+            cache: cache.clone(),
+            artifacts: artifacts.clone(),
+            scratch: cache.clone(),
+        });
         let supervisor = Supervisor::new(
             &config,
             &forks,
@@ -181,6 +215,39 @@ fn main() -> Result<()> {
     driver.set_evidence_repair(&evidence, args.repair_journals)?;
     driver.set_recover_engine_tail(args.recover_engine_tail);
     driver.resume()?;
+    let mut archive_sink = None;
+    let mut archive_server = None;
+    if let Some(path) = args.archive_dir {
+        use boole_devnet_archive::{
+            archive::{ArchiveIdentity, ArchiveProfile, ArchiveStore},
+            http::ArchiveServer,
+        };
+        use std::sync::{Arc, Mutex};
+        let anchor = driver.l1.journal.borrow().row(0)?.block_hash;
+        let store = Arc::new(Mutex::new(ArchiveStore::open(
+            &path,
+            ArchiveProfile {
+                identity: ArchiveIdentity {
+                    network,
+                    l1_anchor_number: 0,
+                    l1_anchor_hash: anchor,
+                },
+                bind: args.archive_bind,
+                prune_before: None,
+            },
+            args.repair_journals,
+        )?));
+        let server = ArchiveServer::start(Arc::clone(&store), args.archive_bind)?;
+        eprintln!("archive_url={}", server.url());
+        let mut sink = boole_devnet_driver::driver::archive::ArchiveSink::new(
+            &mut driver,
+            store,
+            capture_paths,
+        )?;
+        sync_archive(&mut sink, &mut driver, &server)?;
+        archive_sink = Some(sink);
+        archive_server = Some(server);
+    }
     let mut h = driver
         .engine
         .head()?
@@ -188,6 +255,9 @@ fn main() -> Result<()> {
         .checked_add(1)
         .context("head height overflow")?;
     while h <= args.until {
+        if let Some(server) = &archive_server {
+            server.health()?;
+        }
         let outcome = match driver.step(h) {
             Ok(outcome) => outcome,
             Err(stall)
@@ -208,10 +278,42 @@ fn main() -> Result<()> {
                 std::thread::sleep(Duration::from_millis(500));
             }
             StepOutcome::Derived(_) => {
+                if let (Some(sink), Some(server)) = (&mut archive_sink, &archive_server) {
+                    sync_archive(sink, &mut driver, server)?;
+                }
                 println!("derived height {h}");
                 h = h.checked_add(1).context("height overflow")?;
             }
         }
     }
+    // An archive node remains available after the requested finalized range.
+    if let Some(server) = &archive_server {
+        loop {
+            server.health()?;
+            std::thread::sleep(Duration::from_millis(500));
+        }
+    }
     Ok(())
+}
+fn sync_archive(
+    sink: &mut boole_devnet_driver::driver::archive::ArchiveSink,
+    driver: &mut Driver<JournalSource<RpcL1>, RpcEngine>,
+    server: &boole_devnet_archive::http::ArchiveServer,
+) -> Result<()> {
+    loop {
+        server.health()?;
+        match sink.synchronize(driver) {
+            Ok(()) => return Ok(()),
+            Err(error)
+                if matches!(
+                    error.downcast_ref::<boole_devnet_archive::error::Error>(),
+                    Some(boole_devnet_archive::error::Error::Availability { .. })
+                ) =>
+            {
+                eprintln!("{error}; retrying archive publication only");
+                std::thread::sleep(Duration::from_millis(500));
+            }
+            Err(error) => return Err(error),
+        }
+    }
 }

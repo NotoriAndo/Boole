@@ -1113,3 +1113,6 @@ fn tip_proxy_waits_for_delayed_headers_and_preserves_application_errors() -> Res
     );
     Ok(())
 }
+
+#[path = "support/archive_live.rs"]
+mod archive_live;

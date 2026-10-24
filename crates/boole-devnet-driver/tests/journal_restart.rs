@@ -908,3 +908,412 @@ fn finalized_capture_verification_failure_remains_a_sticky_integrity_stop() -> R
     assert_eq!(driver.engine.head.number, 0);
     Ok(())
 }
+
+#[test]
+fn t78_fresh_driver_joins_verified_archive_when_own_l1_refuses_history() -> Result<()> {
+    use boole_devnet_archive::{
+        archive::{ArchiveIdentity, ArchiveProfile, ArchiveStore},
+        client::ArchiveClient,
+        http::ArchiveServer,
+    };
+    use std::sync::{Arc, Mutex};
+    let root = PrivateTempDir::new("m4-archive-join")?;
+    let config = boole_derivation::m2::Config::devnet();
+    let raw = TipOnly::new();
+    let rows = raw.rows.clone();
+    let engine = MemoryEngine::new();
+    let network = NetworkIdentity::new(&config, None, engine.head.hash.clone(), 30_000_000)?;
+    let profile = ArchiveProfile {
+        identity: ArchiveIdentity {
+            network: network.clone(),
+            l1_anchor_number: 0,
+            l1_anchor_hash: rows[0].block_hash.clone(),
+        },
+        bind: "127.0.0.1:0".parse()?,
+        prune_before: None,
+    };
+    let x = Arc::new(Mutex::new(ArchiveStore::open(
+        &root.path().join("x"),
+        profile,
+        false,
+    )?));
+    let source = JournalSource::open(raw, &root.path().join("a"), network.clone(), false)?;
+    let mut a = Driver::with_config(source, engine, config.clone(), 30_000_000)?;
+    a.resume()?;
+    let mut sink =
+        boole_devnet_driver::driver::archive::ArchiveSink::new(&mut a, Arc::clone(&x), None)?;
+    sink.synchronize(&mut a)?;
+    let mut expected = vec![];
+    for h in 1..=8 {
+        a.l1.inner.tip = h;
+        a.step(h)?;
+        let head = a.engine.head()?;
+        expected.push((
+            head.hash.clone(),
+            a.m2_state().root,
+            a.engine.transactions(h)?,
+        ));
+        sink.synchronize(&mut a)?;
+    }
+    // Reopening a sink replays only this driver's verified journal/Engine and
+    // safely fills any missing public index suffix, without re-applying a fold.
+    drop(sink);
+    let mut sink =
+        boole_devnet_driver::driver::archive::ArchiveSink::new(&mut a, Arc::clone(&x), None)?;
+    sink.synchronize(&mut a)?;
+    let server = ArchiveServer::start(x, "127.0.0.1:0".parse()?)?;
+    let mut own = TipOnly::new();
+    own.tip = 8;
+    own.strict = true;
+    let dir = root.path().join("c");
+    let source = JournalSource::open_archive(
+        own,
+        &dir,
+        network.clone(),
+        false,
+        ArchiveClient::http(vec![server.url()])?,
+    )?;
+    assert_eq!(source.inputs_label(1), "archive-verified");
+    assert_eq!(
+        std::fs::read_dir(dir.join("archive-download"))?
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().len() == 64)
+            .count(),
+        0,
+        "appended header cache was retained"
+    );
+    let mut c = Driver::with_config(source, MemoryEngine::new(), config.clone(), 30_000_000)?;
+    c.set_journal(&dir.join("checkpoint.json"))?;
+    c.set_evidence(&dir.join("evidence.jsonl"))?;
+    c.resume()?;
+    for h in 1..=8 {
+        c.step(h)?;
+        let (hash, root, txs) = &expected[h as usize - 1];
+        assert_eq!(&c.engine.head()?.hash, hash);
+        assert_eq!(&c.m2_state().root, root);
+        assert_eq!(&c.engine.transactions(h)?, txs);
+    }
+    let engine = c.engine.clone();
+    drop(c);
+    // B1 crash: the journal append is durable, its disposable header copy remains.
+    let cache = boole_devnet_archive::objects::Objects::open(&dir.join("archive-download"))?;
+    let raw = boole_derivation::attributes::hex_bytes(&rows[3].header_rlp, "header")?;
+    cache.put(&rows[3].block_hash, &raw, |b| {
+        boole_devnet_archive::archive::verify_header(&rows[3].block_hash, b)
+    })?;
+    std::fs::write(
+        dir.join("archive-download").join(&rows[3].block_hash[2..]),
+        b"corrupt already-journaled cache copy",
+    )?;
+    drop(cache);
+    let source = JournalSource::open_archive(
+        TipOnly {
+            offline: false,
+            tip: 8,
+            strict: true,
+            ..TipOnly::new()
+        },
+        &dir,
+        network,
+        false,
+        ArchiveClient::http(vec![server.url()])?,
+    )?;
+    let mut restarted = Driver::with_config(source, engine, config.clone(), 30_000_000)?;
+    restarted.set_journal(&dir.join("checkpoint.json"))?;
+    restarted.resume()?;
+    assert_eq!(restarted.m2_state().root, expected.last().unwrap().1);
+    assert_eq!(restarted.l1.inputs_label(1), "journal");
+    // Export the public GET tree, then join from static files with no store
+    // or HTTP fallback behind this Fetch. Every hash/root/prefix must match.
+    let mirror = root.path().join("static-mirror");
+    let mut transport = boole_devnet_archive::client::HttpFetch;
+    use boole_devnet_archive::client::Fetch;
+    for route in std::iter::once("info".to_owned())
+        .chain(rows.iter().flat_map(|row| {
+            let mut routes = vec![format!("l1/header/{}", &row.block_hash[2..])];
+            if boole_devnet_archive::input::header_needs_receipts(
+                &boole_derivation::attributes::hex_bytes(&row.header_rlp, "mirror").unwrap(),
+            )
+            .unwrap()
+            {
+                routes.push(format!("l1/receipts/{}", &row.block_hash[2..]));
+            }
+            routes
+        }))
+        .chain((0..=8).map(|h| format!("index/{h}?limit=1")))
+    {
+        let bytes = transport.get(
+            &server.url(),
+            &route,
+            boole_devnet_archive::archive::OBJ_MAX,
+        )?;
+        let dest = mirror.join(route.split('?').next().unwrap());
+        std::fs::create_dir_all(dest.parent().unwrap())?;
+        std::fs::write(dest, bytes)?;
+    }
+    let mut own = TipOnly::new();
+    own.tip = 8;
+    own.strict = true;
+    let source = JournalSource::open_archive(
+        own,
+        &root.path().join("static-c"),
+        NetworkIdentity::new(&config, None, MemoryEngine::new().head.hash, 30_000_000)?,
+        false,
+        ArchiveClient::new(
+            vec!["http://127.0.0.1:1".into()],
+            Box::new(StaticMirror(mirror)),
+        )?,
+    )?;
+    let mut mirrored =
+        Driver::with_config(source, MemoryEngine::new(), config.clone(), 30_000_000)?;
+    for h in 1..=8 {
+        mirrored.step(h)?;
+        let (hash, root, txs) = &expected[h as usize - 1];
+        assert_eq!(&mirrored.engine.head()?.hash, hash);
+        assert_eq!(&mirrored.m2_state().root, root);
+        assert_eq!(&mirrored.engine.transactions(h)?, txs);
+    }
+    let prefix = root.path().join("prefix");
+    let mut journal = InputJournal::open(
+        &prefix,
+        NetworkIdentity::new(&config, None, MemoryEngine::new().head.hash, 30_000_000)?,
+        || Ok(rows[0].clone()),
+        false,
+    )?;
+    journal.append(&rows[1])?;
+    journal.append(&rows[2])?;
+    drop(journal);
+    let mut own = TipOnly::new();
+    own.tip = 8;
+    own.strict = true;
+    let mut source = JournalSource::open_archive(
+        own,
+        &prefix,
+        NetworkIdentity::new(&config, None, MemoryEngine::new().head.hash, 30_000_000)?,
+        false,
+        ArchiveClient::http(vec![server.url()])?,
+    )?;
+    assert_eq!(
+        source.finalized()?,
+        8,
+        "partial archive join did not resume"
+    );
+    assert_eq!(
+        std::fs::read_dir(dir.join("archive-download"))?
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().len() == 64)
+            .count(),
+        0,
+        "restart retained a durable row cache copy"
+    );
+    assert_eq!(source.inputs_label(1), "journal");
+    assert_eq!(source.inputs_label(3), "archive-verified");
+    Ok(())
+}
+
+struct StaticMirror(std::path::PathBuf);
+impl boole_devnet_archive::client::Fetch for StaticMirror {
+    fn get(&mut self, _: &str, route: &str, _: usize) -> Result<Vec<u8>> {
+        Ok(std::fs::read(
+            self.0.join(route.split('?').next().unwrap()),
+        )?)
+    }
+}
+
+#[test]
+fn t78_recovered_selected_blocks_keep_own_journal_input_provenance() -> Result<()> {
+    let dir = PrivateTempDir::new("m4-recovered-inputs")?;
+    let engine = MemoryEngine::new();
+    let network = NetworkIdentity::new(
+        &boole_derivation::m2::Config::devnet(),
+        None,
+        engine.head.hash.clone(),
+        30_000_000,
+    )?;
+    let source = JournalSource::open(TipOnly::new(), dir.path(), network.clone(), false)?;
+    let mut a = Driver::new(source, engine);
+    for h in 1..=2 {
+        a.l1.inner.tip = h;
+        a.step(h)?;
+    }
+    let root = a.m2_state().root;
+    let engine = a.engine.clone();
+    drop(a);
+    let mut raw = TipOnly::new();
+    raw.tip = 2;
+    raw.strict = true;
+    let source = JournalSource::open(raw, dir.path(), network, false)?;
+    assert_eq!(source.inputs_label(1), "journal");
+    let mut recovered = Driver::new(source, engine);
+    let evidence = dir.path().join("evidence.jsonl");
+    recovered.set_evidence(&evidence)?;
+    recovered.resume()?;
+    assert_eq!(recovered.m2_state().root, root);
+    let rows: Vec<Value> = std::fs::read_to_string(evidence)?
+        .lines()
+        .map(serde_json::from_str)
+        .collect::<std::result::Result<_, _>>()?;
+    assert_eq!(rows.len(), 2);
+    for row in rows {
+        assert_eq!(row["outcome"], "RECOVERED");
+        assert_eq!(row["verification"], "computed");
+        assert_eq!(
+            row["inputs"], "journal",
+            "recovered evidence omitted input provenance"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn fix_c2_stalling_archive_cannot_hold_a_derived_step() -> Result<()> {
+    use boole_devnet_archive::client::{ArchiveClient, Fetch};
+    struct Stalled;
+    impl Fetch for Stalled {
+        fn get(&mut self, _: &str, _: &str, _: usize) -> Result<Vec<u8>> {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            anyhow::bail!("unresponsive archive")
+        }
+    }
+    let dir = PrivateTempDir::new("m4-tripwire-budget")?;
+    let engine = MemoryEngine::new();
+    let network = NetworkIdentity::new(
+        &boole_derivation::m2::Config::devnet(),
+        None,
+        engine.head.hash.clone(),
+        30_000_000,
+    )?;
+    drop(JournalSource::open(
+        TipOnly::new(),
+        dir.path(),
+        network.clone(),
+        false,
+    )?);
+    let mut source = JournalSource::open_archive(
+        TipOnly::new(),
+        dir.path(),
+        network,
+        false,
+        ArchiveClient::new(vec!["http://127.0.0.1:1".into()], Box::new(Stalled))?,
+    )?;
+    source.inner.tip = 1;
+    let mut d = Driver::new(source, engine);
+    let start = std::time::Instant::now();
+    d.step(1)?;
+    let elapsed = start.elapsed();
+    assert_eq!(d.m2_state().height(), 1);
+    assert!(
+        elapsed < std::time::Duration::from_millis(150),
+        "archive held derivation for {elapsed:?}"
+    );
+    Ok(())
+}
+#[test]
+fn fix_c5_deterministic_sink_mismatch_is_sticky_integrity() -> Result<()> {
+    use boole_devnet_archive::archive::{ArchiveIdentity, ArchiveProfile, ArchiveStore};
+    use boole_devnet_driver::driver::archive::ArchiveSink;
+    use std::sync::{Arc, Mutex};
+    let dir = PrivateTempDir::new("m4-sink-integrity")?;
+    let engine = MemoryEngine::new();
+    let raw = TipOnly::new();
+    let network = NetworkIdentity::new(
+        &boole_derivation::m2::Config::devnet(),
+        None,
+        engine.head.hash.clone(),
+        30_000_000,
+    )?;
+    let store = Arc::new(Mutex::new(ArchiveStore::open(
+        &dir.path().join("archive"),
+        ArchiveProfile {
+            identity: ArchiveIdentity {
+                network: network.clone(),
+                l1_anchor_number: 0,
+                l1_anchor_hash: raw.rows[0].block_hash.clone(),
+            },
+            bind: "127.0.0.1:0".parse()?,
+            prune_before: None,
+        },
+        false,
+    )?));
+    let source = JournalSource::open(raw, &dir.path().join("node"), network, false)?;
+    let mut d = Driver::new(source, engine);
+    d.resume()?;
+    let mut sink = ArchiveSink::new(&mut d, store, None)?;
+    sink.synchronize(&mut d)?;
+    d.l1.inner.tip = 1;
+    d.step(1)?;
+    let parent = d.engine.headers[&1].parent_hash.clone();
+    d.engine.headers.get_mut(&1).unwrap().parent_hash = Some(hex_string(&[255; 32]));
+    let err = sink.synchronize(&mut d).unwrap_err();
+    assert!(
+        matches!(
+            err.downcast_ref::<boole_devnet_archive::error::Error>(),
+            Some(boole_devnet_archive::error::Error::Integrity {
+                class: "archive-replay",
+                ..
+            })
+        ),
+        "deterministic mismatch treated as {err:#}"
+    );
+    d.engine.headers.get_mut(&1).unwrap().parent_hash = parent;
+    assert!(
+        sink.synchronize(&mut d).is_err(),
+        "integrity stop resumed without restart"
+    );
+    Ok(())
+}
+
+#[test]
+fn fix2_m1_restart_sink_republishes_unseen_corruption_without_sticky_stop() -> Result<()> {
+    use boole_devnet_archive::archive::{ArchiveIdentity, ArchiveProfile, ArchiveStore};
+    use boole_devnet_driver::driver::archive::ArchiveSink;
+    use std::sync::{Arc, Mutex};
+    let dir = PrivateTempDir::new("archive-restart-quarantine")?;
+    let raw = TipOnly::new();
+    let genesis = raw.rows[0].clone();
+    let engine = MemoryEngine::new();
+    let config = boole_derivation::m2::Config::devnet();
+    let network = NetworkIdentity::new(&config, None, engine.head.hash.clone(), 30_000_000)?;
+    let public = dir.path().join("public");
+    let store = Arc::new(Mutex::new(ArchiveStore::open(
+        &public,
+        ArchiveProfile {
+            identity: ArchiveIdentity {
+                network: network.clone(),
+                l1_anchor_number: 0,
+                l1_anchor_hash: genesis.block_hash.clone(),
+            },
+            bind: "127.0.0.1:0".parse()?,
+            prune_before: None,
+        },
+        false,
+    )?));
+    let source = JournalSource::open(raw, &dir.path().join("node"), network, false)?;
+    let mut driver = Driver::new(source, engine);
+    driver.resume()?;
+    let mut sink = ArchiveSink::new(&mut driver, store.clone(), None)?;
+    sink.synchronize(&mut driver)?;
+    drop(sink);
+    std::fs::write(
+        public.join("header").join(&genesis.block_hash[2..]),
+        b"unseen corrupt header",
+    )?;
+    let mut sink = ArchiveSink::new(&mut driver, store.clone(), None)?;
+    sink.synchronize(&mut driver)?;
+    assert_eq!(
+        store.lock().unwrap().header(&genesis.block_hash)?.unwrap(),
+        hex_bytes(&genesis.header_rlp, "header")?
+    );
+    let saved =
+        std::fs::read_dir(public.join("header/corrupt"))?.collect::<std::io::Result<Vec<_>>>()?;
+    assert_eq!(saved.len(), 1);
+    assert_eq!(
+        std::fs::read(saved[0].path().join("object"))?,
+        b"unseen corrupt header"
+    );
+    driver.l1.inner.tip = 1;
+    driver.step(1)?;
+    sink.synchronize(&mut driver)?;
+    assert_eq!(store.lock().unwrap().index(0, 1024)?.len(), 2);
+    Ok(())
+}
