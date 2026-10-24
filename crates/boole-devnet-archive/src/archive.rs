@@ -132,6 +132,8 @@ pub struct ArchiveStore {
     manifest_stamp: FileStamp,
     index: IndexLog,
     objects: BTreeMap<String, Objects>,
+    ingest_health: Option<crate::error::Error>,
+    ingest_retries: u32,
 }
 impl ArchiveStore {
     pub fn open(root: &Path, profile: ArchiveProfile, repair: bool) -> Result<Self> {
@@ -157,7 +159,10 @@ impl ArchiveStore {
         let index = IndexLog::open(&index_path, repair)?;
         let mut objects = BTreeMap::new();
         for class in CLASSES {
-            objects.insert((*class).to_owned(), Objects::open(&root.join(class))?);
+            objects.insert(
+                (*class).to_owned(),
+                Objects::open_class(&root.join(class), class)?,
+            );
         }
         let out = Self {
             profile,
@@ -166,6 +171,8 @@ impl ArchiveStore {
             manifest_stamp,
             index,
             objects,
+            ingest_health: None,
+            ingest_retries: 0,
         };
         out.check()?;
         if let Some(first) = out.index.rows.get(&0) {
@@ -208,8 +215,23 @@ impl ArchiveStore {
             .map(|(_, r)| r.clone())
             .collect())
     }
+    /// Resumable ingest health is diagnostic and never disables verified reads.
+    pub fn set_ingest_health(&mut self, error: Option<crate::error::Error>, retries: u32) {
+        self.ingest_health = error;
+        self.ingest_retries = retries;
+    }
     pub fn info(&self) -> serde_json::Value {
-        serde_json::json!({"schema":"boole.archive.v1","identity":self.profile.identity,"covered_from":self.index.rows.first_key_value().map(|(h,_)|h),"covered_through":self.index.rows.last_key_value().map(|(h,_)|h),"input_ranges":self.input_ranges(),"verdicts":"computed","segment":SEGMENT,"obj_max":OBJ_MAX,"pending":{"segment":"no locked zstd crate; bundle is not authority","l1/blob":"M4-L5 deferred","env_normalized":"no normalized producer in v1.3"}})
+        let quarantines: BTreeMap<_, _> = self
+            .objects
+            .iter()
+            .map(|(class, objects)| (class, objects.quarantines()))
+            .collect();
+        let ingest_health = self.ingest_health.as_ref().map(|e| match e {
+            crate::error::Error::Availability {height,class,..} => serde_json::json!({"kind":"availability","height":height.to_string(),"class":class,"consecutive_retries":self.ingest_retries}),
+            crate::error::Error::Integrity {height,class,..} => serde_json::json!({"kind":"integrity","height":height.to_string(),"class":class}),
+            crate::error::Error::Startup {number,..} => serde_json::json!({"kind":"startup","number":number}),
+        });
+        serde_json::json!({"schema":"boole.archive.v1","quarantines":quarantines,"ingest_health":ingest_health,"identity":self.profile.identity,"covered_from":self.index.rows.first_key_value().map(|(h,_)|h),"covered_through":self.index.rows.last_key_value().map(|(h,_)|h),"input_ranges":self.input_ranges(),"verdicts":"computed","segment":SEGMENT,"obj_max":OBJ_MAX,"pending":{"segment":"no locked zstd crate; bundle is not authority","l1/blob":"M4-L5 deferred","env_normalized":"no normalized producer in v1.3"}})
     }
     pub fn input_ranges(&self) -> Vec<serde_json::Value> {
         let mut ranges: Vec<serde_json::Value> = vec![];

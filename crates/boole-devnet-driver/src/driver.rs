@@ -101,18 +101,23 @@ impl<L: L1Source, E: Engine> boole_gate_supervisor::rebuild::History for Anchore
         &mut self,
         height: u64,
     ) -> Result<(boole_derivation::L1Block, Vec<boole_derivation::InboxLog>)> {
-        anyhow::ensure!(
-            height <= self.maximum,
-            "rebuild cannot read a future origin"
-        );
+        if height > self.maximum {
+            return Err(boole_gate_supervisor::rebuild::Integrity("future L2 origin").into());
+        }
         let header = self.engine.header(height)?;
         if header.number != height {
             return Err(boole_gate_supervisor::rebuild::Integrity("L2 origin height").into());
         }
         let hash = boole_derivation::system::l1_origin(
-            header.l1_info.as_deref().context("rebuild L1-info")?,
+            header
+                .l1_info
+                .as_deref()
+                .ok_or(boole_gate_supervisor::rebuild::Integrity(
+                    "missing L2 L1-info",
+                ))?,
             height,
-        )?;
+        )
+        .map_err(|_| boole_gate_supervisor::rebuild::Integrity("corrupt L2 L1-info"))?;
         let l1 = self.l1.block_by_hash(&hash)?;
         if l1.number != height || !l1.hash.eq_ignore_ascii_case(&hash) {
             return Err(boole_gate_supervisor::rebuild::Integrity("L1-info hash binding").into());

@@ -390,3 +390,27 @@ fn c6_archive_gap_cannot_prove_own_transaction_absent() -> Result<()> {
     ));
     Ok(())
 }
+
+#[test]
+fn r4_verified_republication_counts_and_logs_quarantine_by_class() -> Result<()> {
+    let dir = boole_devnet_archive::durability::PrivateTempDir::new("archive-quarantine-count")?;
+    let row = &rows()[0];
+    let mut p = profile();
+    p.identity.l1_anchor_hash = row.block_hash.clone();
+    let mut store = boole_devnet_archive::archive::ArchiveStore::open(dir.path(), p, false)?;
+    let selection = selected(0);
+    store.ingest(row, 0, &selection)?;
+    for expected in 1..=2 {
+        std::fs::write(
+            dir.path().join("header").join(&row.block_hash[2..]),
+            b"corrupt public header",
+        )?;
+        store.ingest(row, 0, &selection)?;
+        assert_eq!(store.info()["quarantines"]["header"], expected);
+    }
+    assert_eq!(
+        std::fs::read_dir(dir.path().join("header/corrupt"))?.count(),
+        2
+    );
+    Ok(())
+}
