@@ -146,7 +146,9 @@ a cache MAC, private key, client store, cancellation secret or unrevealed materi
 The index is checked only **after** the local fold, under one shared 50 ms budget
 per step across all sources, with one attempt and no inline backoff. The starting source rotates, and failed
 observations put that source on a 30-second cooldown. Info probes also count in
-source statistics. This cooldown never delays required-data FETCH. Sources' untrusted
+source statistics. A later probe whose window was shortened by earlier work is
+retried on its next rotated turn rather than blamed for exhausting the shared
+budget. This cooldown never delays required-data FETCH. Sources' untrusted
 `covered_through` hints skip heights not yet indexed (refreshed at most once per
 second while behind). A transport without a bounded observation implementation
 skips diagnostics rather than invoking its blocking required-data path. An alert

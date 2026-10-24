@@ -415,6 +415,23 @@ impl ArchiveClient {
         self.failures[index] = self.failures[index].saturating_add(1);
         self.observation_retry_at[index] = Some(Instant::now() + Duration::from_secs(30));
     }
+    /// A later probe can expire because earlier work spent the shared budget.
+    /// Give it a full rotated turn before attributing that timeout to the source.
+    fn observation_io_failed(
+        &mut self,
+        index: usize,
+        offered: Duration,
+        deadline: Instant,
+    ) -> bool {
+        // Reserve 5 ms for local probe setup inside the 50 ms observation window.
+        if offered < Duration::from_millis(45) && Instant::now() >= deadline {
+            self.discarded = self.discarded.saturating_add(1);
+            true
+        } else {
+            self.observation_failed(index);
+            false
+        }
+    }
     pub fn tripwire(
         &mut self,
         height: u64,
@@ -439,6 +456,7 @@ impl ArchiveClient {
             {
                 self.coverage_checked[i] = Some(Instant::now());
                 self.attempts[i] = self.attempts[i].saturating_add(1);
+                let offered = deadline.saturating_duration_since(Instant::now());
                 match self
                     .fetch
                     .observe(&self.sources[i], "info", REQ_MAX, deadline)
@@ -451,7 +469,9 @@ impl ArchiveClient {
                         }
                     },
                     Err(_) => {
-                        self.observation_failed(i);
+                        if self.observation_io_failed(i, offered, deadline) {
+                            self.coverage_checked[i] = None;
+                        }
                         continue;
                     }
                 }
@@ -461,26 +481,31 @@ impl ArchiveClient {
                 continue;
             }
             self.attempts[i] = self.attempts[i].saturating_add(1);
+            let offered = deadline.saturating_duration_since(Instant::now());
             let result = self.fetch.observe(
                 &self.sources[i],
                 &format!("index/{height}?limit=1"),
                 1_048_576,
                 deadline,
             );
-            if let Ok(raw) = result {
-                if raw.len() <= 1_048_576 {
-                    if let Ok(rows) = serde_json::from_slice::<Vec<crate::archive::IndexRow>>(&raw)
+            let raw = match result {
+                Ok(raw) => raw,
+                Err(_) => {
+                    self.observation_io_failed(i, offered, deadline);
+                    continue;
+                }
+            };
+            if raw.len() <= 1_048_576 {
+                if let Ok(rows) = serde_json::from_slice::<Vec<crate::archive::IndexRow>>(&raw) {
+                    if rows.len() == 1
+                        && rows[0].validate().is_ok()
+                        && rows[0].l1_number == height
+                        && rows[0].l1_hash == l1_hash
                     {
-                        if rows.len() == 1
-                            && rows[0].validate().is_ok()
-                            && rows[0].l1_number == height
-                            && rows[0].l1_hash == l1_hash
-                        {
-                            if rows[0].l2_hash != l2_hash || rows[0].root != root {
-                                alerts.push(format!("archive index alert at height {height}: verified inconsistency; local fold wins"));
-                            }
-                            continue;
+                        if rows[0].l2_hash != l2_hash || rows[0].root != root {
+                            alerts.push(format!("archive index alert at height {height}: verified inconsistency; local fold wins"));
                         }
+                        continue;
                     }
                 }
             }

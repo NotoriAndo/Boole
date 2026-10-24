@@ -613,3 +613,98 @@ fn m4_diagnostic_first_source_rotates_even_when_sources_are_responsive() -> Resu
     );
     Ok(())
 }
+struct PartialBudget {
+    deferred: Arc<std::sync::atomic::AtomicUsize>,
+    metadata: bool,
+}
+impl Fetch for PartialBudget {
+    fn get(&mut self, _: &str, _: &str, _: usize) -> Result<Vec<u8>> {
+        panic!("diagnostic used FETCH")
+    }
+    fn observe(
+        &mut self,
+        source: &str,
+        route: &str,
+        _: usize,
+        deadline: Instant,
+    ) -> Result<Vec<u8>> {
+        if source.ends_with(":2")
+            && (route == "info") == self.metadata
+            && deadline.saturating_duration_since(Instant::now()) < Duration::from_millis(45)
+        {
+            self.deferred
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            while Instant::now() < deadline {
+                std::hint::spin_loop();
+            }
+            return Err(std::io::Error::from(std::io::ErrorKind::TimedOut).into());
+        }
+        if route == "info" {
+            return Ok(br#"{"covered_through":1000}"#.to_vec());
+        }
+        if source.ends_with(":1") {
+            let until = Instant::now() + Duration::from_millis(10);
+            while Instant::now() < until {
+                std::hint::spin_loop();
+            }
+        }
+
+        let h = route
+            .strip_prefix("index/")
+            .unwrap()
+            .split('?')
+            .next()
+            .unwrap()
+            .parse::<u64>()?;
+        let row = boole_devnet_archive::archive::IndexRow {
+            l1_number: h,
+            l2_number: h,
+            l1_hash: sha(b"l1"),
+            parent_hash: sha(b"parent"),
+            bloom_positive: false,
+            blob_ids: vec![],
+            l2_hash: sha(b"l2"),
+            root: if source.ends_with(":1") {
+                sha(b"root")
+            } else {
+                sha(b"other")
+            },
+            inputs: "journal".into(),
+            verdicts: "computed".into(),
+            system_digest: sha(b"system"),
+        };
+        Ok(serde_json::to_vec(&vec![row])?)
+    }
+}
+#[test]
+fn m4_shared_budget_expiry_does_not_cool_down_a_responsive_later_source() -> Result<()> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    for metadata in [false, true] {
+        let deferred = Arc::new(AtomicUsize::new(0));
+        let mut c = ArchiveClient::new(
+            vec!["http://127.0.0.1:1".into(), "http://127.0.0.1:2".into()],
+            Box::new(PartialBudget {
+                deferred: deferred.clone(),
+                metadata,
+            }),
+        )?;
+        assert!(c
+            .tripwire(1, &sha(b"l1"), &sha(b"l2"), &sha(b"root"))
+            .is_empty());
+        assert_eq!(
+            deferred.load(Ordering::SeqCst),
+            1,
+            "fixture did not exercise a partial-window timeout"
+        );
+        assert_eq!(
+            c.tripwire(2, &sha(b"l1"), &sha(b"l2"), &sha(b"root")).len(),
+            1,
+            "later responsive source was excluded by an unfair cooldown"
+        );
+        assert_eq!(
+            c.failures[1], 0,
+            "shared budget exhaustion was blamed on the source"
+        );
+    }
+    Ok(())
+}
