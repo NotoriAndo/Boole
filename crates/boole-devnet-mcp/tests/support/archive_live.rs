@@ -684,8 +684,12 @@ fn i14_i18_full_round_archive_fresh_driver_and_miner_with_mutating_proxy() -> Re
         proof_failures.push(json!({"mode":mode,"availability":true}));
     }
     *bad.mode.lock().unwrap() = "clean".into();
-    legacy_source.restore_posting_proof(&reverted_post, 0)?;
-    legacy_source.restore_posting_proof(&known_tx, 0)?;
+    let reverted_retry = wait_posting_restore(Duration::from_secs(90), || {
+        legacy_source.restore_posting_proof(&reverted_post, 0)
+    })?;
+    let known_retry = wait_posting_restore(Duration::from_secs(90), || {
+        legacy_source.restore_posting_proof(&known_tx, 0)
+    })?;
     let mut poster = RpcPoster::new(&proxy.url, user)?;
     poster.bind_journal(legacy_source.journal.clone());
     ensure!(
@@ -700,7 +704,9 @@ fn i14_i18_full_round_archive_fresh_driver_and_miner_with_mutating_proxy() -> Re
         "wrong reverted posting class"
     );
     let dropped = hex_string(&[77; 32]);
-    legacy_source.restore_posting_proof(&dropped, 0)?;
+    let dropped_retry = wait_posting_restore(Duration::from_secs(90), || {
+        legacy_source.restore_posting_proof(&dropped, 0)
+    })?;
     ensure!(
         poster.included_for_posting_since(&dropped, 0)?.is_none(),
         "dropped post became REVERTED or success"
@@ -739,7 +745,7 @@ fn i14_i18_full_round_archive_fresh_driver_and_miner_with_mutating_proxy() -> Re
         "restart lost negative-inbox proof cache"
     );
     let reverted_post_reconciliation = json!({"transaction_hash":reverted_post,"height":reverted_recorded.0,"block_hash":reverted_input.block_hash,"header_rlp":reverted_input.header_rlp,"canonical_receipt_status":false,"bloom_positive":false,"inbox_touching":true,"initial_pause":true,"status":"REVERTED","dropped_not_reverted":true,"restart_cache":true,"original_journal_unchanged":fs::read(legacy.join("input.ndjson"))?==legacy_bytes});
-    let tx_reconciliation = json!({"known_hash":known_tx,"height":recorded.0,"receipt_status":recorded.1,"poster_included":recorded.0,"bad_only":proof_failures,"restart_cache":true,"original_journal_unchanged":true});
+    let tx_reconciliation = json!({"known_hash":known_tx,"height":recorded.0,"receipt_status":recorded.1,"poster_included":recorded.0,"bad_only":proof_failures,"retry_turns":[reverted_retry,known_retry,dropped_retry],"restart_cache":true,"original_journal_unchanged":true});
     *bad.mode.lock().unwrap() = "mutate".into();
 
     let node_c = rt.node(&op, &gp, "c", 3)?;
@@ -1061,5 +1067,64 @@ fn index_probe_keeps_coverage_when_info_uses_the_first_budget() -> Result<()> {
         alerts.len() == 1 && alerts[0].contains("verified inconsistency; local fold wins"),
         "missing conflict alert"
     );
+    Ok(())
+}
+
+fn wait_posting_restore(
+    timeout: Duration,
+    mut restore: impl FnMut() -> Result<()>,
+) -> Result<Value> {
+    let start = Instant::now();
+    let mut polls = 0u64;
+    loop {
+        polls += 1;
+        match restore() {
+            Ok(()) => return Ok(json!({"polls":polls,"elapsed_ms":start.elapsed().as_millis()})),
+            Err(error)
+                if start.elapsed() < timeout
+                    && matches!(
+                        error.downcast_ref::<boole_devnet_archive::error::Error>(),
+                        Some(boole_devnet_archive::error::Error::Availability {
+                            class: "archive-tx-proof",
+                            ..
+                        })
+                    ) =>
+            {
+                thread::sleep(Duration::from_millis(100))
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+#[test]
+fn posting_restore_waits_for_resumable_retry_turn_but_preserves_integrity_stops() -> Result<()> {
+    let mut attempts = 0;
+    let result = wait_posting_restore(Duration::from_secs(5), || {
+        attempts += 1;
+        if attempts < 3 {
+            return Err(boole_devnet_archive::error::availability(
+                99,
+                "archive-tx-proof",
+                "bounded retry turn pending",
+            ));
+        }
+        Ok(())
+    })?;
+    assert_eq!(result["polls"], 3);
+    assert_eq!(attempts, 3);
+    let mut failures = 0;
+    let error = wait_posting_restore(Duration::from_secs(5), || {
+        failures += 1;
+        Err(boole_devnet_archive::error::integrity(
+            99, "manifest", "changed",
+        ))
+    })
+    .unwrap_err();
+    assert_eq!(failures, 1);
+    assert!(matches!(
+        error.downcast_ref::<boole_devnet_archive::error::Error>(),
+        Some(boole_devnet_archive::error::Error::Integrity { .. })
+    ));
     Ok(())
 }
