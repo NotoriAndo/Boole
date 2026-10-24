@@ -221,7 +221,11 @@ Output is unsigned local JSON with schema `boole.devnet.audit.v1`: config and
 fork-table digests, anchor and heads, last verified root, three trust axes, counts
 by status and reason range, reward totals, admissions, environment hash, K4
 coverage, and `first_mismatch` (decimal height and class) or null. Amounts, counts
-and heights use decimal strings. Pure mode reports execution as `not-run`; replay
+and heights use decimal strings. The unsigned audit FORK_TABLE digest is SHA-256
+of `BOOLE-M4/AUDIT-FORKS/v1`, a u32 big-endian row count, then each row’s
+u64 big-endian activation height and 69-byte R-4 activation body in table order.
+It binds the schedule as well as each record body; it is not a new consensus byte.
+Pure mode reports execution as `not-run`; replay
 reports its reproduced block count and private Engine cleanup. The audit exits
 nonzero at its first input/fold/prefix/verdict/ledger/admission/K4/environment
 mismatch and preserves sources. It never repairs an audited file.

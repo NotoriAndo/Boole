@@ -61,6 +61,7 @@ fn fork_digest(forks: Option<&ForkTable>) -> Result<String> {
     let rows = forks.map(|f| f.rows.as_slice()).unwrap_or(&[]);
     digest.update(u32::try_from(rows.len())?.to_be_bytes());
     for row in rows {
+        digest.update(row.height.to_be_bytes());
         digest.update(row.activation_record()?);
     }
     Ok(boole_derivation::attributes::hex_string(&digest.finalize()))
@@ -433,3 +434,30 @@ impl History for ArchiveInputs {
     }
 }
 pub mod replay;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn fork_table_digest_binds_activation_heights_not_only_record_bodies() -> Result<()> {
+        let tape: Value = serde_json::from_str(include_str!(
+            "../../../fixtures/devnet-m3/kernel-fix-v1.3.json"
+        ))?;
+        let config: Config = serde_json::from_str(tape["config_json"].as_str().unwrap())?;
+        let table: ForkTable = serde_json::from_value(tape["forks"].clone())?;
+        table.validate(&config).unwrap();
+        let mut moved = table.clone();
+        moved.rows[1].height += 1;
+        moved.validate(&config).unwrap();
+        assert_eq!(
+            table.rows[1].activation_record()?,
+            moved.rows[1].activation_record()?
+        );
+        assert_ne!(
+            fork_digest(Some(&table))?,
+            fork_digest(Some(&moved))?,
+            "different activation schedules shared the audit FORK_TABLE digest"
+        );
+        Ok(())
+    }
+}
