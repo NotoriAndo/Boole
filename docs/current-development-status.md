@@ -1,6 +1,6 @@
 # Boole — current development status
 
-Updated: 2026-10-23. This is the tracked entrypoint for current progress and the
+Updated: 2026-10-24. This is the tracked entrypoint for current progress and the
 ordered development roadmap. Edit it in place; execution evidence stays in its
 own result record. Local Master/Execution documents link here instead of owning
 a second current cursor. Work methods follow the
@@ -18,6 +18,40 @@ twelve-hour delegation.
 
 ## Current boundary
 
+**Devnet M3 v1.3 and M4a (October 23–24, devnet only).**
+- [#446](https://github.com/NotoriAndo/Boole/pull/446) adds the pure verdict,
+  settlement and reward fold behind an optional M3 profile. One global queue
+  orders checks, and due heights follow a checked fuel clock, never bytes.
+  Rewards are LOCKED, then VESTED after maturity. A failed kernel-fix recheck
+  cancels only an unvested reward. v1.2 bytes and recordings are unchanged.
+- [#447](https://github.com/NotoriAndo/Boole/pull/447) adds the node-local gate
+  supervisor. It rebuilds each job's inputs from L1 by digest, runs it in an
+  isolated worker with typed outcomes, and keeps a result cache that is never
+  authority. A pinned devnet stub gate drives every verdict path until the real
+  gate is connected after DET3. The driver refuses any payload whose system deposits
+  differ from the exact expected prefix.
+- [#448](https://github.com/NotoriAndo/Boole/pull/448) resets the devnet to
+  [v1.3](devnet-verdicts-v1.3.md). Live recordings on replicas A, B and C cover a
+  full round from COMMIT to reward vest. They include restarts, a reorg,
+  kernel-fix and quarantine forks, and a refused mutated peer verdict. A full 256-record VERDICT deposit
+  measured 746,690 gas, within its 1,000,000 budget.
+- [#449](https://github.com/NotoriAndo/Boole/pull/449) lets the
+  [miner client](devnet-miner-client-v0.md) follow verdicts, settlement and
+  rewards. Verdicts are trusted from the L2 node by default; an optional
+  `--verify-own` recomputes the miner's own candidates.
+- [#450](https://github.com/NotoriAndo/Boole/pull/450) (M4a) gives the driver and
+  the miner a durable, re-verified journal of their own L1 inputs. A restart
+  replays from it and reads only the L1 tip, never old L1 history. Crash windows
+  around checkpoints and publication either recover by proven rules or stop
+  typed, and crash-test hooks exist only in a qualification build. See
+  [node durability](devnet-node-durability-v0.md). A fresh node still
+  bootstraps from finalized genesis; archive-assisted join is the next M4 step.
+- [#451](https://github.com/NotoriAndo/Boole/pull/451) updates tokio to 1.53.3
+  for RUSTSEC-2026-0386. No workspace crate uses the affected `AsyncFd` API.
+
+This is still closed-local devnet work. The stub gate is not a proof verifier,
+testnet minting stays off, and there is no public activation.
+
 **Node environment, testnet node and M3 direction (October 23 decisions).**
 - **Node environment.** Accepted proofs join the node environment under
   per-receipt namespaces. Definitions are kept in full. Accepted theorems are kept
@@ -29,11 +63,12 @@ twelve-hour delegation.
     sync accepted.
   - Environment commitments must use a normalized hash, because raw export bytes
     differ across construction paths.
-- **Testnet node.** The minimum node is 16 GB of RAM and 4 cores. Withdrawals,
+- **Testnet node.** The minimum node is 16 GB of RAM and 4 cores; 32 GB is
+  recommended. Withdrawals,
   after testnet, are optimistic by default: a ZK proof is required only when a
   verdict claim is disputed.
 - **M3: verdicts, settlement and rewards.**
-  - The design is accepted. Implementation started on the devnet.
+  - The design is accepted and implemented on the devnet (M3a–M3c, below).
   - Every verifying node runs the gate itself. Due heights follow measured fuel,
     never proof size.
   - Rewards stay locked for a maturity period before they are minted, so a kernel
