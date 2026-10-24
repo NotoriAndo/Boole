@@ -142,6 +142,7 @@ impl<L: L1Source> JournalSource<L> {
             .try_exists()?
         {
             let mut source = Self::open(inner, root, network, repair)?;
+            prune_archive_download(&source.journal.borrow())?;
             source.archives = Some(archives);
             return Ok(source);
         }
@@ -185,9 +186,11 @@ impl<L: L1Source> JournalSource<L> {
             repair,
         )?;
         let download = prepared.context("archive bootstrap plan")?;
+        download.appended(0)?;
         let mut archive_heights = std::collections::BTreeSet::new();
         for h in 1..=download.tip {
             journal.append(&download.row(&mut archives, h)?)?;
+            download.appended(h)?;
             archive_heights.insert(h);
         }
         drop(download);
@@ -353,6 +356,7 @@ impl<L: L1Source> JournalSource<L> {
                 for h in saved + 1..=download.tip {
                     let row = download.row(archives, h)?;
                     self.journal.borrow_mut().append(&row)?;
+                    download.appended(h)?;
                     self.archive_heights.insert(h);
                     boole_devnet_archive::fault::hit("B1", h, "driver")?;
                 }
@@ -693,4 +697,40 @@ impl L1Source for RpcL1 {
     fn inbox_logs(&mut self, hash: &str) -> Result<Vec<InboxLog>> {
         Ok(serde_json::from_value(self.rpc.call("eth_getLogs",json!([{"blockHash":hash,"address":boole_derivation::config::INBOX,"topics":[boole_derivation::config::posted_topic()]}]))?)?)
     }
+}
+
+/// A crash can leave cache copies whose authoritative rows are already durable.
+fn prune_archive_download(journal: &boole_devnet_archive::journal::InputJournal) -> Result<()> {
+    let root = journal.root().join("archive-download");
+    if !root.try_exists()? {
+        return Ok(());
+    }
+    let cache = boole_devnet_archive::objects::Objects::open(&root)?;
+    let hashes = (0..=journal.tip())
+        .filter_map(|h| journal.hash(h).map(str::to_owned))
+        .collect::<std::collections::BTreeSet<_>>();
+    for entry in std::fs::read_dir(&root)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        if name.len() != 64
+            || !name
+                .bytes()
+                .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+        {
+            continue;
+        }
+        let key = format!("0x{name}");
+        // Only retire a copy matched to an authenticated journal row, under its writer lock.
+        if hashes.contains(&key) {
+            let h = journal
+                .height_for_hash(&key)
+                .context("journal cache match")?;
+            journal.get(h)?;
+            cache.retire(&key, |b| {
+                boole_devnet_archive::archive::verify_header(&key, b)
+            })?;
+        }
+    }
+    Ok(())
 }

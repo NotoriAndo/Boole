@@ -324,8 +324,110 @@ fn t73_store_reverifies_transport_commit_preimage_and_variable_metadata() -> Res
         assert!(x.object(class, &sha(b"one"))?.is_none());
         assert!(x.put_content(class, export_pin, b"one").is_err());
     }
-    assert!(x
-        .put_content("vstmt", [1; 32], &vec![0; 1_048_577])
-        .is_err());
+    let oversized = vec![0; 1_048_577];
+    let matching_pin = boole_derivation::attributes::hex_bytes(&sha(&oversized), "pin")?
+        .try_into()
+        .unwrap();
+    assert!(x.put_content("vstmt", matching_pin, &oversized).is_err());
+    let file = d.path().join("tr").join(&hex_string(&key.1)[2..]);
+    std::fs::write(&file, b"corrupt transport envelope")?;
+    let server = boole_devnet_archive::http::ArchiveServer::start(
+        std::sync::Arc::new(std::sync::Mutex::new(x)),
+        "127.0.0.1:0".parse()?,
+    )?;
+    use std::io::{Read, Write};
+    let mut stream = std::net::TcpStream::connect(server.addr())?;
+    write!(
+        stream,
+        "GET /boole/archive/v1/obj/tr/{} HTTP/1.1\r\n\r\n",
+        &hex_string(&key.1)[2..]
+    )?;
+    let mut response = vec![];
+    stream.read_to_end(&mut response)?;
+    assert!(response.starts_with(b"HTTP/1.1 500"));
+    assert!(String::from_utf8_lossy(&response).contains("object-quarantine"));
+    assert!(!file.exists());
+    assert_eq!(std::fs::read_dir(d.path().join("tr/corrupt"))?.count(), 1);
+    Ok(())
+}
+
+#[test]
+fn pkg_hash_alone_cannot_authorize_an_archive_package() -> Result<()> {
+    let pin = boole_derivation::attributes::hex_bytes(&sha(b"package"), "pin")?
+        .try_into()
+        .unwrap();
+    let mut client = boole_devnet_archive::client::ArchiveClient::new(
+        vec!["http://127.0.0.1:1".into()],
+        Box::new(MutatedResponse(b"package".to_vec())),
+    )?;
+    assert!(
+        client.content("pkg", pin, 0).is_err(),
+        "hash-only package accepted without frozen POOL leaf/path"
+    );
+    Ok(())
+}
+#[test]
+fn pkg_helper_binds_exact_leaf_index_path_and_frozen_pool() -> Result<()> {
+    use boole_devnet_archive::derived::{verify_package, PackageProof};
+    let c = Config::devnet();
+    let mut state = State::new(&c, 30_000_000)?;
+    let bytes = b"package";
+    let pin = boole_derivation::attributes::hex_bytes(&sha(bytes), "pin")?
+        .try_into()
+        .unwrap();
+    let id = [22; 32];
+    let sibling = [23; 32];
+    let proof = PackageProof {
+        kind: 2,
+        codec: 0,
+        raw_len: bytes.len() as u32,
+        salt: [9; 32],
+        path: vec![sibling],
+    };
+    let leaf = pool_leaf(c.chain_id, 2, &[], 0, proof.raw_len, bytes, &proof.salt);
+    state.pools.insert(
+        1,
+        Pool {
+            slot: 0,
+            root: merkle_root(&[sibling, leaf]),
+            start: 1,
+            count: 2,
+            unused: Default::default(),
+        },
+    );
+    state.problems.insert(
+        id,
+        Problem {
+            reveal_pos: (1, 0, 0),
+            winner: None,
+            voided: false,
+            slot: 0,
+            id,
+            required_pkgs: vec![],
+            h_v: 1,
+            closed: None,
+            pool_seq: 1,
+            leaf_index: 1,
+            instance_seed: [0; 32],
+            epoch: 0,
+        },
+    );
+    verify_package(&state, &c, id, pin, &proof, bytes)?;
+    let mut client = boole_devnet_archive::client::ArchiveClient::new(
+        vec!["http://127.0.0.1:1".into()],
+        Box::new(MutatedResponse(bytes.to_vec())),
+    )?;
+    assert_eq!(client.package(&state, &c, id, pin, &proof)?, bytes);
+    let mut bad = proof.clone();
+    bad.path.clear();
+    assert!(verify_package(&state, &c, id, pin, &bad, bytes).is_err());
+    let mut bad = proof.clone();
+    bad.salt = [8; 32];
+    assert!(verify_package(&state, &c, id, pin, &bad, bytes).is_err());
+    state.problems.get_mut(&id).unwrap().leaf_index = 0;
+    assert!(verify_package(&state, &c, id, pin, &proof, bytes).is_err());
+    state.problems.get_mut(&id).unwrap().leaf_index = 1;
+    state.pools.get_mut(&1).unwrap().root = [7; 32];
+    assert!(verify_package(&state, &c, id, pin, &proof, bytes).is_err());
     Ok(())
 }

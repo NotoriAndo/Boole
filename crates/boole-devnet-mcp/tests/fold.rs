@@ -302,8 +302,19 @@ struct Capture {
     receipts: BTreeMap<String, u64>,
     fail_once: bool,
     reverted: Option<String>,
+    missing_proofs: bool,
 }
 impl Poster for Capture {
+    fn included_for_posting_since(&mut self, tx: &str, _floor: u64) -> Result<Option<u64>> {
+        if self.missing_proofs {
+            return Err(boole_devnet_archive::error::availability(
+                7,
+                "archive-tx-proof",
+                "authenticated transaction proofs unavailable",
+            ));
+        }
+        self.included(tx)
+    }
     fn head(&mut self) -> Result<u64> {
         Ok(self.head)
     }
@@ -976,4 +987,63 @@ fn m2root_client_reports_match_and_hard_stalls_on_mismatch() {
             assert!(!view["stalled"].is_null());
         }
     }
+}
+
+#[test]
+fn pending_open_with_archive_proof_gap_does_not_repost_or_invent_reverted() {
+    let dir = Dir::new();
+    let (source, c) = persisted_candidates(&dir, 1, false, None);
+    let mut client = Client::new(
+        source,
+        Capture {
+            head: 14,
+            ..Capture::default()
+        },
+        c.clone(),
+        [1; 20],
+        dir.0.clone(),
+        ClientOptions::new(30_000_000),
+    )
+    .unwrap();
+    client.tick().unwrap();
+    assert_eq!(client.poster.posts, [3]);
+    client.poster.head = 17;
+    client.poster.missing_proofs = true;
+    client.tick().unwrap();
+    assert_eq!(
+        client.poster.posts,
+        [3],
+        "unknown archive receipt triggered OPEN repost"
+    );
+    let source = client.source.clone();
+    drop(client);
+    let store = boole_devnet_mcp::store::Store::open(dir.0.clone()).unwrap();
+    let rows: Vec<Value> = store
+        .submissions()
+        .unwrap()
+        .iter()
+        .map(|name| store.read(name).unwrap())
+        .collect();
+    assert_eq!(rows[0]["sent"]["open"]["finalized_before_post"], 6);
+    assert!(rows[0]["sent"]["open"]["failure"].is_null());
+    assert!(!rows[0].to_string().contains("REVERTED"));
+    drop(store);
+    let mut client = Client::new(
+        source,
+        Capture {
+            head: 18,
+            missing_proofs: true,
+            ..Capture::default()
+        },
+        c,
+        [1; 20],
+        dir.0.clone(),
+        ClientOptions::new(30_000_000),
+    )
+    .unwrap();
+    client.tick().unwrap();
+    assert!(
+        client.poster.posts.is_empty(),
+        "restart discarded uncertain posting intent"
+    );
 }

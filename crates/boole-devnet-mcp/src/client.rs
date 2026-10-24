@@ -73,6 +73,13 @@ pub trait Poster {
     fn included_for_posting(&mut self, tx: &str) -> Result<Option<u64>> {
         self.included(tx)
     }
+    fn included_for_posting_since(
+        &mut self,
+        tx: &str,
+        _finalized_before: u64,
+    ) -> Result<Option<u64>> {
+        self.included_for_posting(tx)
+    }
 }
 struct LiveReceiptWindow {
     floor: u64,
@@ -164,11 +171,26 @@ impl Poster for RpcPoster {
         Ok(Some(h))
     }
     fn included_for_posting(&mut self, tx: &str) -> Result<Option<u64>> {
+        self.included_for_posting_since(tx, 0)
+    }
+    fn included_for_posting_since(
+        &mut self,
+        tx: &str,
+        finalized_before: u64,
+    ) -> Result<Option<u64>> {
         if self.journal.is_none() {
             return self.included(tx);
         }
-        if let Some(height) = self.included(tx)? {
-            return Ok(Some(height));
+        let known = self
+            .journal
+            .as_ref()
+            .expect("bound journal")
+            .borrow()
+            .transaction_receipt_since(tx, finalized_before)?;
+        match known {
+            Some((h, true)) => return Ok(Some(h)),
+            Some((_, false)) => return Err(RevertedReceipt.into()),
+            None => {}
         }
         let journal = self.journal.as_ref().expect("bound journal");
         let floor = journal.borrow().tip();
@@ -324,6 +346,9 @@ struct Anchor {
 #[serde(deny_unknown_fields)]
 struct Sent {
     head: u64,
+    /// Own finalized floor before sending, never a remote latest-height claim.
+    #[serde(default)]
+    finalized_before_post: Option<u64>,
     tx: Option<String>,
     #[serde(default)]
     failure: Option<String>,
@@ -1419,6 +1444,7 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             stage.into(),
             Sent {
                 head,
+                finalized_before_post: Some(self.state.height()),
                 tx: None,
                 failure: None,
             },
@@ -1451,7 +1477,8 @@ impl<L: L1Source, P: Poster> Client<L, P> {
         let Some(tx) = sent.tx.as_deref() else {
             return Ok(None);
         };
-        match retry_rpc(|| self.poster.included_for_posting(tx)) {
+        let finalized_before = sent.finalized_before_post.unwrap_or(0);
+        match retry_rpc(|| self.poster.included_for_posting_since(tx, finalized_before)) {
             Err(e) if e.is::<RevertedReceipt>() => {
                 sub.sent
                     .get_mut(stage)

@@ -244,7 +244,7 @@ fn main() -> Result<()> {
             store,
             capture_paths,
         )?;
-        sync_archive(&mut sink, &mut driver)?;
+        sync_archive(&mut sink, &mut driver, &server)?;
         archive_sink = Some(sink);
         archive_server = Some(server);
     }
@@ -255,6 +255,9 @@ fn main() -> Result<()> {
         .checked_add(1)
         .context("head height overflow")?;
     while h <= args.until {
+        if let Some(server) = &archive_server {
+            server.health()?;
+        }
         let outcome = match driver.step(h) {
             Ok(outcome) => outcome,
             Err(stall)
@@ -275,8 +278,8 @@ fn main() -> Result<()> {
                 std::thread::sleep(Duration::from_millis(500));
             }
             StepOutcome::Derived(_) => {
-                if let Some(sink) = &mut archive_sink {
-                    sync_archive(sink, &mut driver)?;
+                if let (Some(sink), Some(server)) = (&mut archive_sink, &archive_server) {
+                    sync_archive(sink, &mut driver, server)?;
                 }
                 println!("derived height {h}");
                 h = h.checked_add(1).context("height overflow")?;
@@ -284,8 +287,9 @@ fn main() -> Result<()> {
         }
     }
     // An archive node remains available after the requested finalized range.
-    if archive_server.is_some() {
+    if let Some(server) = &archive_server {
         loop {
+            server.health()?;
             std::thread::sleep(Duration::from_millis(500));
         }
     }
@@ -294,8 +298,10 @@ fn main() -> Result<()> {
 fn sync_archive(
     sink: &mut boole_devnet_driver::driver::archive::ArchiveSink,
     driver: &mut Driver<JournalSource<RpcL1>, RpcEngine>,
+    server: &boole_devnet_archive::http::ArchiveServer,
 ) -> Result<()> {
     loop {
+        server.health()?;
         match sink.synchronize(driver) {
             Ok(()) => return Ok(()),
             Err(error)

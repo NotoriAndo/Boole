@@ -177,3 +177,76 @@ pub fn read_transport_envelope(address: &str, encoded: &[u8]) -> Result<Vec<u8>>
     )?;
     Ok(raw)
 }
+
+/// Original reveal metadata, checked against the caller's independently folded POOL.
+#[derive(Clone)]
+pub struct PackageProof {
+    pub kind: u8,
+    pub codec: u8,
+    pub raw_len: u32,
+    pub salt: Hash,
+    pub path: Vec<Hash>,
+}
+pub fn verify_package(
+    state: &State,
+    config: &boole_derivation::m2::Config,
+    problem: Hash,
+    pin: Hash,
+    proof: &PackageProof,
+    bytes: &[u8],
+) -> Result<()> {
+    use sha2::{Digest, Sha256};
+    verify_content("pkg", &hex_string(&pin), bytes, pin)?;
+    let p = state
+        .problems
+        .get(&problem)
+        .context("frozen package problem")?;
+    let pool = state
+        .pools
+        .get(&p.pool_seq)
+        .context("frozen package POOL")?;
+    ensure!(
+        pool.count > 0 && p.leaf_index < pool.count && pool.slot == p.slot,
+        "frozen package leaf index/slot"
+    );
+    let depth = (u32::BITS - (pool.count - 1).leading_zeros()) as usize;
+    ensure!(
+        proof.path.len() == depth
+            && bytes.len() <= config.statement_max
+            && [1, 2].contains(&proof.kind)
+            && [0, 1].contains(&proof.codec),
+        "package reveal bounds/path depth"
+    );
+    ensure!(
+        (proof.codec == 0 && proof.raw_len as usize == bytes.len())
+            || (proof.codec == 1
+                && proof.raw_len > 0
+                && proof.raw_len as usize <= config.statement_raw_max),
+        "package codec length"
+    );
+    let mut hash = boole_derivation::m2::pool_leaf(
+        config.chain_id,
+        proof.kind,
+        &p.required_pkgs,
+        proof.codec,
+        proof.raw_len,
+        bytes,
+        &proof.salt,
+    );
+    let mut index = p.leaf_index;
+    for sibling in &proof.path {
+        let mut h = Sha256::new();
+        h.update([1]);
+        if index & 1 == 0 {
+            h.update(hash);
+            h.update(sibling);
+        } else {
+            h.update(sibling);
+            h.update(hash);
+        }
+        hash = h.finalize().into();
+        index >>= 1;
+    }
+    ensure!(hash == pool.root, "package differs from frozen POOL root");
+    Ok(())
+}

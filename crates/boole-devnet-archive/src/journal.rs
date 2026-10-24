@@ -88,6 +88,7 @@ struct Position {
     parent: String,
     encoded_digest: [u8; 32],
     canonical_receipts: Vec<(String, bool)>,
+    has_transaction_proof: bool,
 }
 pub struct InputJournal {
     root: PathBuf,
@@ -277,6 +278,7 @@ impl InputJournal {
                     hash: verified.block.hash,
                     parent: verified.block.parent_hash,
                     encoded_digest: Sha256::digest(&raw).into(),
+                    has_transaction_proof: row.transactions.is_some(),
                     canonical_receipts: verified.canonical_receipts,
                 },
             );
@@ -465,6 +467,7 @@ impl InputJournal {
                 hash: verified.block.hash,
                 parent: verified.block.parent_hash,
                 encoded_digest: Sha256::digest(&encoded).into(),
+                has_transaction_proof: row.transactions.is_some(),
                 canonical_receipts: verified.canonical_receipts,
             },
         );
@@ -482,6 +485,25 @@ impl InputJournal {
             "manifest changed during read-only inspection"
         );
         Ok(*positions.last_key_value().context("anchor")?.0)
+    }
+    /// A missing transaction proof is not evidence that an own post was absent.
+    pub fn transaction_receipt_since(
+        &self,
+        tx: &str,
+        finalized_before: u64,
+    ) -> Result<Option<(u64, bool)>> {
+        self.check()?;
+        if let Some(found) = self.transaction_receipt(tx)? {
+            return Ok(Some(found));
+        }
+        let missing = self
+            .positions
+            .range(finalized_before.saturating_add(1)..)
+            .any(|(_, p)| !p.has_transaction_proof);
+        if missing {
+            return Err(availability(self.tip(),"archive-tx-proof","own post may be in an archive-filled finalized gap; preserve posting intent until authenticated transaction proofs are restored"));
+        }
+        Ok(None)
     }
     pub fn transaction_receipt(&self, tx: &str) -> Result<Option<(u64, bool)>> {
         self.check()?;

@@ -33,8 +33,12 @@ request old L1 heights. An interrupted join can resume its verified prefix. Bad
 archive replies are discarded, with per-source failure counters. FETCH makes
 three rounds over the pinned sources, waiting 100 ms and 300 ms between rounds.
 Exhaustion is typed, resumable availability, never a REJECT. After availability
-returns, retry with the same state directory. Integrity stops in the **own**
-journal still require preservation and investigation as in the durability guide.
+returns, retry with the same state directory. An archive header chain that does not link the own L1 finalized anchor to the
+own journal floor is integrity `l1-anchor`, just as on the non-archive path.
+Integrity stops in the **own** journal still require preservation and investigation
+as in the durability guide. Disposable `archive-download` headers are retired only
+after their authenticated rows are fsynced into the own journal. Restart also
+retires copies left after a crash between those two operations.
 
 Evidence labels the fresh archive range `archive-verified`, and new live input
 `l1-rpc`. On restart, existing inputs are `journal`. Verdicts remain `computed`
@@ -65,11 +69,31 @@ The HTTP/1.1 API accepts GET requests only below `/boole/archive/v1/`:
 Addresses are lowercase hex. Missing objects return 404 with a nonempty error
 body. Requests are limited to 65,536 bytes; request bodies and transfer encodings
 are refused. Replies have bounded Content-Length: at most 135,266,304 bytes and
-the tighter class cap. HTTP parsing has read/write timeouts and a header deadline.
+the tighter class cap. Heights and limits use canonical decimal (no leading zero
+or plus); hash keys have exactly 64 lowercase hex digits. Request lines and headers
+use strict CRLF; whitespace before the header colon is refused. There are at most
+eight concurrent connections; saturation attempts a fast 503 and closes (a peer
+with unread request bytes can observe a connection reset). Each connection has
+a two-second request deadline and a three-second total request/response deadline,
+including chunked writes. Shutdown closes active sockets before joining workers.
+Transient accept failures are logged once and retried with bounded backoff; a
+fatal accept failure sets typed `archive-server` health, observed by the driver.
+Malformed requests receive 400, unsupported methods 405, and incomplete requests
+408. Store integrity failures receive typed 500, availability/stopped serving 503;
+these errors are logged once per class. A response over OBJ_MAX is internal failure,
+never a malformed-request 400. Replaced store identity/lock/index stops serving.
+Client body reads use chunks under a total deadline of two seconds plus length
+at 8 MiB/s minimum throughput, including connect/headers, then discard and fail
+over. Receipt JSON decoding refuses entry 65,537 before decoding or allocating
+its value.
 There is no write route, directory listing or private client/cache route.
 
 The client library's export and transport helpers require the caller's frozen
-state and commit. Pinned-content helpers require a pin obtained from the verified
+state and commit. The package helper requires the frozen problem, configuration
+and original reveal metadata (kind, codec, raw length, salt, Merkle path). It checks
+the exact leaf index and path to that problem's POOL root, along with the carried
+bytes' SHA-256. The generic pinned-content helper refuses `pkg`; a hash alone is
+insufficient. Pinned-content helpers require a pin obtained from the verified
 fold/reveal/descriptor, not a hash advertised by an archive. The system helper
 compares with a locally derived prefix. Convenience object responses do not
 replace the authenticated original L1 receipts used by the gate rebuild.
@@ -86,13 +110,17 @@ The archive sink runs **after** the ordinary driver has computed, selected and
 verified a block. It independently checks the own journal, L2 parent link,
 transactions and embedded root before publishing. It only ingests finalized
 heights. A publication retry retries the sink cursor, never reapplies the driver
-fold. Restart replays the already verified own chain to fill a missing archive
+fold. Deterministic replay mismatches are sticky typed `archive-replay` integrity
+stops; I/O/RPC availability can retry without moving the cursor. The finality guard
+uses the own input journal tip, independently of the derived height. Restart replays the already verified own chain to fill a missing archive
 index suffix. Existing historical source labels are retained.
 
 Every object is written new-file-only with file fsync, hard-link publication and
 directory fsync, using the existing R1 durability implementation by copy. Every
 read re-verifies the object. Corrupt bytes are preserved under `corrupt/`; a
-subsequent request/publication can fetch or rebuild a replacement. The index uses
+subsequent archive GET returns 404 for that address until restart. Restart sink
+replay reconstructs the public object from the own journal/Engine (and public
+artifacts), preserving the quarantined bytes. There is no online repair on GET. The index uses
 version-bound append, confirmed-prefix checks, explicit torn-tail repair and
 indeterminate-write fencing. A replaced writer lock, manifest or index stops the
 store. The serving API does not turn such failures into valid object bytes.
@@ -105,9 +133,29 @@ the pinned gate to reconstruct the preimage. It publishes only when the typed
 result and statement digest equal the already applied verdict. It never copies
 a cache MAC, private key, client store, cancellation secret or unrevealed material.
 
-The index is checked only **after** the local fold. An inconsistent or unavailable
-index is alerted and counted; the local L2 hash and root win. It cannot produce a
+The index is checked only **after** the local fold, under one shared 50 ms budget
+per step across all sources, with one attempt and no backoff. Sources' untrusted
+`covered_through` hints skip heights not yet indexed (refreshed at most once per
+second while behind). A transport without a bounded observation implementation
+skips diagnostics rather than invoking its blocking required-data path. An alert
+requires a well-formed index row claiming the same own L1 height/hash but a
+conflicting L2 hash/root. Missing, malformed or unavailable data is not an
+inconsistency alert. The local L2 hash and root win; diagnostics cannot produce a
 verdict or redirect Engine selection.
+
+Archive input rows omit transaction proofs. Folded COMMIT/OPEN/part/terminal
+state still prevents reposting successful items. A failed own transaction in an
+archive-filled finalized gap cannot be identified or classified REVERTED from
+those rows. Each new posting intent therefore persists the own finalized height
+before sending. If a pending transaction is absent from authenticated receipts
+and any subsequent finalized row lacks transaction proofs, posting reconciliation
+returns resumable `archive-tx-proof` availability and preserves the intent;
+it neither reposts nor guesses success/REVERTED. Legacy intents without that
+height conservatively use zero. Old gaps at or below a new post's saved floor do
+not delay that post. Exact receipt status in such a pending gap requires restoring
+a journal with authenticated full transaction/receipt proofs; fetching those
+proofs through an archive is carried to M4b2. This does not add historical L1 RPC
+reads or promote archive data into receipt authority.
 
 The per-run disk floor is 15 GiB. Preserve the store and journal on a typed stop;
 restore availability or repair into a fresh directory rather than editing a

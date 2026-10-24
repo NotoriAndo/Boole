@@ -27,6 +27,7 @@ pub struct ArchiveSink {
     state: State,
     last_hash: String,
     paths: Option<CapturePaths>,
+    stopped: Option<boole_devnet_archive::error::Error>,
 }
 impl ArchiveSink {
     pub fn new<L: L1Source, E: Engine>(
@@ -67,28 +68,56 @@ impl ArchiveSink {
             state,
             last_hash: genesis.hash,
             paths,
+            stopped: None,
         })
     }
     pub fn synchronize<L: L1Source, E: Engine>(&mut self, driver: &mut Driver<L, E>) -> Result<()> {
+        if let Some(error) = &self.stopped {
+            return Err(error.clone().into());
+        }
         let h = driver.m2.height();
-        let result = self.synchronize_inner(driver);
-        result.map_err(|e| {
+        let result = self.synchronize_inner(driver).map_err(|e| {
             if e.is::<boole_devnet_archive::error::Error>() {
                 e
-            } else {
+            } else if e.is::<std::io::Error>() || crate::engine::rpc_unavailable(&e) {
                 availability(
                     h,
                     "archive-ingest",
                     format!("public archive sink paused: {e:#}"),
                 )
+            } else {
+                integrity(
+                    h,
+                    "archive-replay",
+                    format!("deterministic archive replay mismatch: {e:#}"),
+                )
             }
-        })
+        });
+        if let Err(e) = &result {
+            if let Some(typed @ boole_devnet_archive::error::Error::Integrity { .. }) =
+                e.downcast_ref()
+            {
+                self.stopped = Some(typed.clone())
+            }
+        }
+        result
     }
+
     fn synchronize_inner<L: L1Source, E: Engine>(
         &mut self,
         driver: &mut Driver<L, E>,
     ) -> Result<()> {
         let through = driver.m2.height();
+        let finalized = driver
+            .l1
+            .input_journal()
+            .context("archive own journal")?
+            .borrow()
+            .tip();
+        ensure!(
+            through <= finalized,
+            "archive derived height exceeds finalized own journal"
+        );
         let head = driver.engine.head()?;
         ensure!(
             head.number == through
@@ -106,7 +135,7 @@ impl ArchiveSink {
                 .map_err(|_| anyhow::anyhow!("archive lock poisoned"))?
                 .ingest(
                     &row0,
-                    through,
+                    finalized,
                     &Selection {
                         l2_number: 0,
                         l2_hash: self.last_hash.clone(),
@@ -176,7 +205,7 @@ impl ArchiveSink {
                 .map_err(|_| anyhow::anyhow!("archive lock poisoned"))?
                 .ingest(
                     &row,
-                    through,
+                    finalized,
                     &Selection {
                         l2_number: height,
                         l2_hash: header.hash.clone(),

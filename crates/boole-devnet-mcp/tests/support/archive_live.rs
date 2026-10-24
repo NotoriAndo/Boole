@@ -343,7 +343,19 @@ fn i14_i18_full_round_archive_fresh_driver_and_miner_with_mutating_proxy() -> Re
                 checked_objects.push("exp");
                 fetch.transport(state, key)?;
                 checked_objects.push("tr");
-                fetch.content("pkg", hash(&pkg), finalized)?;
+                fetch.package(
+                    state,
+                    &c,
+                    key.0,
+                    hash(&pkg),
+                    &boole_devnet_archive::derived::PackageProof {
+                        kind: 2,
+                        codec: 0,
+                        raw_len: pkg.len() as u32,
+                        salt: [9; 32],
+                        path: vec![],
+                    },
+                )?;
                 checked_objects.push("pkg");
                 fetch.content("env", c.base_root, finalized)?;
                 checked_objects.push("env");

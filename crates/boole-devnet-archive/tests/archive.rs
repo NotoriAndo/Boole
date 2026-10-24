@@ -52,10 +52,12 @@ fn t75_ingest_refuses_an_unfinalized_height() -> Result<()> {
     let mut p = profile();
     p.identity.l1_anchor_hash = r[0].block_hash.clone();
     let mut x = boole_devnet_archive::archive::ArchiveStore::open(d.path(), p, false)?;
-    assert!(
-        x.ingest(&r[1], 0, &selected(1)).is_err(),
-        "unfinalized input was ingested"
-    );
+    x.ingest(&r[0], 0, &selected(0))?;
+    assert!(x
+        .ingest(&r[1], 0, &selected(1))
+        .unwrap_err()
+        .to_string()
+        .contains("unfinalized"));
     Ok(())
 }
 #[test]
@@ -113,11 +115,11 @@ fn t74_api_refuses_write_methods_and_oversized_ranges() -> Result<()> {
     };
     assert!(request("GET", "info")?.starts_with(b"HTTP/1.1 200"));
     assert!(
-        !request("POST", "info")?.starts_with(b"HTTP/1.1 200"),
+        request("POST", "info")?.starts_with(b"HTTP/1.1 405"),
         "API accepted a write method"
     );
     assert!(
-        !request("GET", "index/0?limit=1025")?.starts_with(b"HTTP/1.1 200"),
+        request("GET", "index/0?limit=1025")?.starts_with(b"HTTP/1.1 400"),
         "range exceeded SEGMENT"
     );
     let missing = request("GET", &format!("l1/header/{}", "00".repeat(32)))?;
@@ -351,7 +353,40 @@ fn t71_wrong_field_set_height_and_a_chain_not_linked_to_own_anchor_are_unavailab
         .unwrap();
     assert!(matches!(
         error.downcast_ref::<boole_devnet_archive::error::Error>(),
-        Some(boole_devnet_archive::error::Error::Availability { .. })
+        Some(boole_devnet_archive::error::Error::Integrity {
+            class: "l1-anchor",
+            ..
+        })
+    ));
+    Ok(())
+}
+#[path = "support/http_fixes.rs"]
+mod fixes;
+
+#[test]
+fn c6_archive_gap_cannot_prove_own_transaction_absent() -> Result<()> {
+    use boole_devnet_archive::{durability::PrivateTempDir, error::Error, journal::InputJournal};
+    let d = PrivateTempDir::new("archive-post-proof")?;
+    let mut r = rows();
+    for row in &mut r {
+        row.transactions = None;
+    }
+    let mut j = InputJournal::open(
+        d.path(),
+        profile().identity.network,
+        || Ok(r[0].clone()),
+        false,
+    )?;
+    j.append(&r[1])?;
+    let e = j
+        .transaction_receipt_since(&format!("0x{}", "77".repeat(32)), 0)
+        .expect_err("archive gap was interpreted as absence and permits repost");
+    assert!(matches!(
+        e.downcast_ref::<Error>(),
+        Some(Error::Availability {
+            class: "archive-tx-proof",
+            ..
+        })
     ));
     Ok(())
 }

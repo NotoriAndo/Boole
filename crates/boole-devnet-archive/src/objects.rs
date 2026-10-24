@@ -45,6 +45,13 @@ impl Objects {
         match result {
             Ok(bytes) => Ok(Some(bytes)),
             Err(error) => {
+                if error.is::<std::io::Error>() {
+                    return Err(crate::error::availability(
+                        0,
+                        "object-io",
+                        format!("object read unavailable: {error:#}"),
+                    ));
+                }
                 ensure!(self.guard.is_current(), "object ownership changed");
                 let corrupt = self.root.join("corrupt");
                 let mut builder = std::fs::DirBuilder::new();
@@ -81,9 +88,29 @@ impl Objects {
                 crate::durability::fsync_parent_dir(&path)?;
                 std::fs::File::open(&saved)?.sync_all()?;
                 std::fs::File::open(&corrupt)?.sync_all()?;
-                Err(error.context("corrupt object preserved in quarantine"))
+                Err(crate::error::integrity(
+                    0,
+                    "object-quarantine",
+                    format!("corrupt object preserved in quarantine: {error:#}"),
+                ))
             }
         }
+    }
+    /// Remove a disposable authenticated cache copy, never an authoritative row.
+    pub fn retire(&self, key: &str, verify: impl Fn(&[u8]) -> Result<()>) -> Result<()> {
+        self.check()?;
+        let path = self.path(key)?;
+        let before = crate::version::file_stamp(&path)?;
+        if self.read(key, verify)?.is_none() {
+            return Ok(());
+        }
+        ensure!(
+            before == crate::version::file_stamp(&path)?,
+            "object changed before cache retirement"
+        );
+        self.check()?;
+        std::fs::remove_file(&path)?;
+        crate::durability::fsync_parent_dir(&path)
     }
     pub fn put(&self, key: &str, bytes: &[u8], verify: impl Fn(&[u8]) -> Result<()>) -> Result<()> {
         self.check()?;
