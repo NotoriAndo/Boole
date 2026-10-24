@@ -257,19 +257,24 @@ impl InputJournal {
                 .verify()
                 .map_err(|e| integrity(positions.len() as u64, "input", e.to_string()))?;
             let h = verified.block.number;
-            ensure!(h == positions.len() as u64, "noncontiguous journal height");
+            if h != positions.len() as u64 {
+                return Err(integrity(
+                    positions.len() as u64,
+                    "input",
+                    "noncontiguous journal height",
+                ));
+            }
             if h == 0 {
-                ensure!(
-                    verified.block.hash == manifest.l1_anchor_hash,
-                    "journal anchor mismatch"
-                );
+                if verified.block.hash != manifest.l1_anchor_hash {
+                    return Err(integrity(0, "input", "journal anchor mismatch"));
+                }
             } else {
-                ensure!(
-                    positions
-                        .get(&(h - 1))
-                        .is_some_and(|p: &Position| p.hash == verified.block.parent_hash),
-                    "journal parent link mismatch"
-                );
+                if positions
+                    .get(&(h - 1))
+                    .is_none_or(|p: &Position| p.hash != verified.block.parent_hash)
+                {
+                    return Err(integrity(h, "input", "journal parent link mismatch"));
+                }
             }
             positions.insert(
                 h,

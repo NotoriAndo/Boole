@@ -117,12 +117,14 @@ class PreflightOrchestrationTests(unittest.TestCase):
         # joined as the verified product-release downloader. DEVNET-M1 —
         # boole-devnet-driver joined as the loopback L1/Engine RPC client.
         # MCP-1 — boole-devnet-mcp joined as the devnet miner's L1 RPC client.
+        # M4b2 — the independent auditor reuses the locked loopback transport.
         # All must continue to take reqwest via the workspace declaration,
         # never re-declare it.
         self.assertEqual(
             reqwest_lines,
             [
                 ("crates/boole-cli/Cargo.toml", "reqwest.workspace = true"),
+                ("crates/boole-devnet-audit/Cargo.toml", "reqwest.workspace = true"),
                 ("crates/boole-devnet-driver/Cargo.toml", "reqwest.workspace = true"),
                 ("crates/boole-devnet-mcp/Cargo.toml", "reqwest.workspace = true"),
                 ("crates/boole-mcp/Cargo.toml", "reqwest.workspace = true"),

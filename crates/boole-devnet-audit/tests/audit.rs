@@ -250,3 +250,60 @@ fn t81_real_read_only_journal_never_repairs_or_writes_sources() -> Result<()> {
     );
     Ok(())
 }
+
+#[test]
+fn t81_read_only_chain_errors_keep_the_first_bad_journal_height() -> Result<()> {
+    use boole_devnet_archive::{
+        durability::PrivateTempDir,
+        error::Error,
+        journal::{InputJournal, NetworkIdentity, ReadOnlyJournal},
+    };
+    let (c, source, node, _) = setup()?;
+    let root = PrivateTempDir::new("audit-chain-height")?;
+    let network = NetworkIdentity::new(&c, None, node.headers[&0].hash.clone(), 30_000_000)?;
+    let journal = InputJournal::open(
+        root.path(),
+        network.clone(),
+        || Ok(source.rows[0].clone()),
+        false,
+    )?;
+    drop(journal);
+    let mut wrong_parent = source.rows[1].clone();
+    let raw = boole_derivation::attributes::hex_bytes(&wrong_parent.header_rlp, "header")?;
+    let fields = boole_derivation::rlp::decode(&raw)
+        .map_err(anyhow::Error::msg)?
+        .children
+        .unwrap();
+    let mut encoded: Vec<Vec<u8>> = fields
+        .iter()
+        .map(|f| raw[f.span.clone()].to_vec())
+        .collect();
+    encoded[0] = boole_derivation::rlp::bytes(&[99; 32]);
+    let raw = boole_derivation::rlp::list(&encoded);
+    wrong_parent.header_rlp = hex_string(&raw);
+    wrong_parent.block_hash = hex_string(&boole_derivation::user_tx::keccak(&raw));
+    wrong_parent.verify()?;
+    for bad in [source.rows[2].clone(), wrong_parent] {
+        let mut bytes = serde_json::to_vec(&source.rows[0])?;
+        bytes.push(b'\n');
+        bytes.extend(serde_json::to_vec(&bad)?);
+        bytes.push(b'\n');
+        std::fs::write(root.path().join("input.ndjson"), &bytes)?;
+        let error = ReadOnlyJournal::open(root.path(), &network)
+            .err()
+            .expect("invalid chain accepted");
+        assert!(
+            matches!(
+                error.downcast_ref::<Error>(),
+                Some(Error::Integrity {
+                    height: 1,
+                    class: "input",
+                    ..
+                })
+            ),
+            "first bad journal height lost: {error}"
+        );
+        assert_eq!(std::fs::read(root.path().join("input.ndjson"))?, bytes);
+    }
+    Ok(())
+}
