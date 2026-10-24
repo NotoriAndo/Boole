@@ -538,6 +538,31 @@ fn i14_i18_full_round_archive_fresh_driver_and_miner_with_mutating_proxy() -> Re
     );
     let through = drivers[0].m2_state().height();
     let anchor = drivers[0].l1.input_row(through)?.block_hash;
+    // Optional driver diagnostics may legitimately skip a probe under load.
+    // Require an actual bounded HTTP index mutation witness independently of
+    // that scheduling, before accepting this qualification recording.
+    let mut explicit_tripwire_alerts = vec![];
+    for _ in 0..20 {
+        let mut diagnostic = ArchiveClient::http(vec![bad.url.clone()])?;
+        explicit_tripwire_alerts = diagnostic.tripwire(
+            through,
+            &anchor,
+            rows.last().unwrap()["hash"]
+                .as_str()
+                .context("own L2 hash")?,
+            rows.last().unwrap()["m2_root"]
+                .as_str()
+                .context("own root")?,
+        );
+        if !explicit_tripwire_alerts.is_empty() {
+            break;
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+    ensure!(
+        explicit_tripwire_alerts.len() == 1,
+        "explicit index inconsistency diagnostic was not observed"
+    );
     let mut fetch = ArchiveClient::http(vec![bad.url.clone(), server.url()])?;
     let index_rows = archive.lock().unwrap().index(0, 1024)?;
     for row in index_rows {
@@ -971,7 +996,7 @@ fn i14_i18_full_round_archive_fresh_driver_and_miner_with_mutating_proxy() -> Re
             .all(|v| v.get("proxy_error").is_none()),
         "mutation proxy fault"
     );
-    let mut result = json!({"schema":"boole-devnet-m4b2-i14-i17-i18-v1.3","audits":audits,"tx_reconciliation":tx_reconciliation,"reverted_post_reconciliation":reverted_post_reconciliation,"rows":rows,"anchor":{"height":through,"hash":anchor,"source":"own-l1-endpoint"},"locked":locked,"vested":vested,"checked_objects":checked_objects,"fresh_miner_status":fresh_status,"bad_only_resumable":failures,"mutation_responses":bad.seen.lock().unwrap().clone(),"acceptance":{"every_height_compared":through,"seven_header_fields_equal":true,"receipt_logs_equal_rpc":true,"driver_execution":"actual CLI binary","fresh_miner_execution":"production client library","fresh_miner_restart":true,"driver_restart":true,"full_round_through_vest":true,"inputs":"archive-verified","restart_inputs":"journal","verdicts":"computed","tip_only_denied_requests":proxy.denied.lock().unwrap().clone(),"unauthenticated_engine_401_probes":4},"provenance":{"producer_commit":String::from_utf8(Command::new("git").args(["rev-parse","HEAD"]).output()?.stdout)?.trim(),"producer_sha256":hex_string(&hash(include_bytes!("archive_live.rs"))),"support_sha256":hex_string(&hash(include_bytes!("../m4_live.rs"))),"producer_binary_sha256":hex_string(&hash(&fs::read(std::env::current_exe()?)?)),"driver_binary_sha256":hex_string(&hash(&fs::read(driver_binary())?)),"client_binary_sha256":hex_string(&hash(&fs::read(client_binary())?)),"gate_binary_sha256":hex_string(&pin),"audit_binary_sha256":hex_string(&hash(&fs::read(auditor_binary()?)?)),"cargo_lock_sha256":hex_string(&hash(include_bytes!("../../../../Cargo.lock"))),"engine_profile":engine_profile(),"l1_genesis_sha256":hex_string(&hash(&fs::read(l1p)?)),"l2_genesis_sha256":hex_string(&hash(&fs::read(gp)?))}});
+    let mut result = json!({"schema":"boole-devnet-m4b2-i14-i17-i18-v1.3","audits":audits,"explicit_tripwire_alerts":explicit_tripwire_alerts,"tx_reconciliation":tx_reconciliation,"reverted_post_reconciliation":reverted_post_reconciliation,"rows":rows,"anchor":{"height":through,"hash":anchor,"source":"own-l1-endpoint"},"locked":locked,"vested":vested,"checked_objects":checked_objects,"fresh_miner_status":fresh_status,"bad_only_resumable":failures,"mutation_responses":bad.seen.lock().unwrap().clone(),"acceptance":{"every_height_compared":through,"seven_header_fields_equal":true,"receipt_logs_equal_rpc":true,"driver_execution":"actual CLI binary","fresh_miner_execution":"production client library","fresh_miner_restart":true,"driver_restart":true,"full_round_through_vest":true,"inputs":"archive-verified","restart_inputs":"journal","verdicts":"computed","tip_only_denied_requests":proxy.denied.lock().unwrap().clone(),"unauthenticated_engine_401_probes":4},"provenance":{"producer_commit":String::from_utf8(Command::new("git").args(["rev-parse","HEAD"]).output()?.stdout)?.trim(),"producer_sha256":hex_string(&hash(include_bytes!("archive_live.rs"))),"support_sha256":hex_string(&hash(include_bytes!("../m4_live.rs"))),"producer_binary_sha256":hex_string(&hash(&fs::read(std::env::current_exe()?)?)),"driver_binary_sha256":hex_string(&hash(&fs::read(driver_binary())?)),"client_binary_sha256":hex_string(&hash(&fs::read(client_binary())?)),"gate_binary_sha256":hex_string(&pin),"audit_binary_sha256":hex_string(&hash(&fs::read(auditor_binary()?)?)),"cargo_lock_sha256":hex_string(&hash(include_bytes!("../../../../Cargo.lock"))),"engine_profile":engine_profile(),"l1_genesis_sha256":hex_string(&hash(&fs::read(l1p)?)),"l2_genesis_sha256":hex_string(&hash(&fs::read(gp)?))}});
     rt.finish(true)?;
     result["cleanup"] = serde_json::from_slice(&fs::read(rt.path.join("cleanup.json"))?)?;
     let recording =
