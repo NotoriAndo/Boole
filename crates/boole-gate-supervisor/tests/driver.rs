@@ -532,6 +532,8 @@ fn g10_full_sized_rewards_persist_and_restart_without_narrowing_u128() {
     )
     .unwrap();
     replay.set_journal(&journal).unwrap();
+    // Independent writers retain distinct checkpoint files under M4 version binding.
+    d.set_journal(&first.0.join("continuous.json")).unwrap();
     let expected = d.step(2).unwrap();
     let actual = replay.step(2).unwrap();
     let (StepOutcome::Derived(a), StepOutcome::Derived(b)) = (expected, actual) else {

@@ -60,14 +60,31 @@ impl std::fmt::Display for StaleGate {
 impl std::error::Error for StaleGate {}
 
 pub trait Poster {
+    fn bind_journal(
+        &mut self,
+        _journal: std::rc::Rc<std::cell::RefCell<boole_devnet_archive::journal::InputJournal>>,
+    ) {
+    }
     fn head(&mut self) -> Result<u64>;
     fn post(&mut self, kind: u8, body: &[u8]) -> Result<String>;
     /// Only a successful receipt in the current canonical L1 counts.
     fn included(&mut self, tx: &str) -> Result<Option<u64>>;
+    /// Advisory inclusion for send/wait decisions only; never fold authority.
+    fn included_for_posting(&mut self, tx: &str) -> Result<Option<u64>> {
+        self.included(tx)
+    }
+}
+struct LiveReceiptWindow {
+    floor: u64,
+    head: u64,
+    hash: String,
+    transactions: BTreeMap<String, (u64, String)>,
 }
 pub struct RpcPoster {
     rpc: Rpc,
     account: String,
+    journal: Option<std::rc::Rc<std::cell::RefCell<boole_devnet_archive::journal::InputJournal>>>,
+    live_window: Option<LiveReceiptWindow>,
 }
 impl RpcPoster {
     pub fn new(url: &str, account: [u8; 20]) -> Result<Self> {
@@ -85,7 +102,12 @@ impl RpcPoster {
                 .any(|x| x.as_str().is_some_and(|s| s.eq_ignore_ascii_case(&account)))),
             "account is not an unlocked devnet account"
         );
-        Ok(Self { rpc, account })
+        Ok(Self {
+            rpc,
+            account,
+            journal: None,
+            live_window: None,
+        })
     }
 }
 fn quantity(value: &Value) -> Result<u64> {
@@ -98,6 +120,13 @@ fn quantity(value: &Value) -> Result<u64> {
     )?)
 }
 impl Poster for RpcPoster {
+    fn bind_journal(
+        &mut self,
+        journal: std::rc::Rc<std::cell::RefCell<boole_devnet_archive::journal::InputJournal>>,
+    ) {
+        self.journal = Some(journal);
+        self.live_window = None;
+    }
     fn head(&mut self) -> Result<u64> {
         quantity(&self.rpc.call("eth_blockNumber", json!([]))?)
     }
@@ -108,6 +137,13 @@ impl Poster for RpcPoster {
         Ok(tx.into())
     }
     fn included(&mut self, tx: &str) -> Result<Option<u64>> {
+        if let Some(journal) = &self.journal {
+            return match journal.borrow().transaction_receipt(tx)? {
+                Some((height, true)) => Ok(Some(height)),
+                Some((_, false)) => Err(RevertedReceipt.into()),
+                None => Ok(None),
+            };
+        }
         let r = self.rpc.call("eth_getTransactionReceipt", json!([tx]))?;
         if r.is_null() {
             return Ok(None);
@@ -126,6 +162,133 @@ impl Poster for RpcPoster {
         }
         ensure!(r["status"] == "0x1", "invalid receipt status");
         Ok(Some(h))
+    }
+    fn included_for_posting(&mut self, tx: &str) -> Result<Option<u64>> {
+        if self.journal.is_none() {
+            return self.included(tx);
+        }
+        if let Some(height) = self.included(tx)? {
+            return Ok(Some(height));
+        }
+        let journal = self.journal.as_ref().expect("bound journal");
+        let floor = journal.borrow().tip();
+        let finalized = self
+            .rpc
+            .call("eth_getBlockByNumber", json!(["finalized", false]))?;
+        let tip = quantity(&finalized["number"])?;
+        if tip != floor {
+            return Err(boole_devnet_archive::error::availability(
+                tip,
+                "posting-receipt",
+                "finality changed; fold before checking advisory receipts",
+            ));
+        }
+        ensure!(
+            fixed::<32>(finalized["hash"].as_str().context("finalized hash")?)?
+                == fixed::<32>(journal.borrow().hash(floor).context("journal tip hash")?)?,
+            "posting endpoint disagrees with the journal tip"
+        );
+        let latest = self
+            .rpc
+            .call("eth_getBlockByNumber", json!(["latest", false]))?;
+        let head = quantity(&latest["number"])?;
+        let hash = latest["hash"]
+            .as_str()
+            .context("live head hash")?
+            .to_owned();
+        let _: Hash = fixed(&hash)?;
+        ensure!(
+            head >= tip && head - tip <= 1024,
+            "bounded live receipt window unavailable"
+        );
+        if self
+            .live_window
+            .as_ref()
+            .is_none_or(|w| w.floor != tip || w.head != head || w.hash != hash)
+        {
+            let mut transactions = BTreeMap::new();
+            for h in tip..=head {
+                let block = if h == head {
+                    latest.clone()
+                } else if h == tip {
+                    finalized.clone()
+                } else {
+                    self.rpc
+                        .call("eth_getBlockByNumber", json!([format!("0x{h:x}"), false]))?
+                };
+                ensure!(quantity(&block["number"])? == h, "advisory block height");
+                let bh = block["hash"]
+                    .as_str()
+                    .context("advisory block hash")?
+                    .to_owned();
+                let _: Hash = fixed(&bh)?;
+                for tx in block["transactions"]
+                    .as_array()
+                    .context("advisory block transactions")?
+                {
+                    let tx = tx
+                        .as_str()
+                        .or_else(|| tx["hash"].as_str())
+                        .context("advisory transaction hash")?;
+                    let _: Hash = fixed(tx)?;
+                    transactions.insert(tx.to_ascii_lowercase(), (h, bh.clone()));
+                }
+            }
+            let current = self
+                .rpc
+                .call("eth_getBlockByNumber", json!(["latest", false]))?;
+            if current["hash"] != hash {
+                return Err(boole_devnet_archive::error::availability(
+                    head,
+                    "posting-receipt",
+                    "live chain changed while collecting advisory headers",
+                ));
+            }
+            self.live_window = Some(LiveReceiptWindow {
+                floor: tip,
+                head,
+                hash,
+                transactions,
+            });
+        }
+        let Some((height, block_hash)) = self
+            .live_window
+            .as_ref()
+            .expect("live window")
+            .transactions
+            .get(&tx.to_ascii_lowercase())
+            .cloned()
+        else {
+            return Ok(None);
+        };
+        // Discover by live headers before asking for a receipt. An unknown old
+        // transaction must never trigger a below-tip receipt RPC.
+        let current = self
+            .rpc
+            .call("eth_getBlockByNumber", json!(["finalized", false]))?;
+        if quantity(&current["number"])? != tip {
+            return Err(boole_devnet_archive::error::availability(
+                height,
+                "posting-receipt",
+                "finality moved during advisory receipt lookup",
+            ));
+        }
+        let receipt = self.rpc.call("eth_getTransactionReceipt", json!([tx]))?;
+        if receipt.is_null()
+            || quantity(&receipt["blockNumber"])? != height
+            || fixed::<32>(
+                receipt["blockHash"]
+                    .as_str()
+                    .context("live receipt block hash")?,
+            )? != fixed::<32>(&block_hash)?
+        {
+            return Ok(None);
+        }
+        if receipt["status"] == "0x0" {
+            return Err(RevertedReceipt.into());
+        }
+        ensure!(receipt["status"] == "0x1", "invalid live receipt status");
+        Ok(Some(height))
     }
 }
 /// Read the same L2 head gasLimit that the driver supplies to State::new.
@@ -400,7 +563,7 @@ pub struct Client<L, P> {
 impl<L: L1Source, P: Poster> Client<L, P> {
     pub fn new(
         mut source: L,
-        poster: P,
+        mut poster: P,
         config: Config,
         account: [u8; 20],
         path: PathBuf,
@@ -428,6 +591,9 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             None
         };
         source.validate_m2_inbox()?;
+        if let Some(journal) = source.input_journal() {
+            poster.bind_journal(journal);
+        }
         let state = State::new(&config, options.l2_gas_limit)?;
         let anchor = Anchor {
             number: 0,
@@ -510,6 +676,15 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             bail!("{reason}");
         }
         if let Err(e) = self.fold_finalized().and_then(|_| self.check_l2_root()) {
+            let available = matches!(
+                e.downcast_ref::<boole_devnet_archive::error::Error>(),
+                Some(boole_devnet_archive::error::Error::Availability { .. })
+            ) || boole_devnet_driver::engine::rpc_unavailable(&e);
+            if available {
+                self.l2_m2_root_match = None;
+                self.waiting_l2 = true;
+                return Err(e.context("availability paused; retry the same finalized height"));
+            }
             if self.config.m3.is_some() {
                 self.l2_m2_root_match = Some(false);
             }
@@ -1254,7 +1429,7 @@ impl<L: L1Source, P: Poster> Client<L, P> {
         let Some(tx) = sent.tx.as_deref() else {
             return Ok(None);
         };
-        match retry_rpc(|| self.poster.included(tx)) {
+        match retry_rpc(|| self.poster.included_for_posting(tx)) {
             Err(e) if e.is::<RevertedReceipt>() => {
                 sub.sent
                     .get_mut(stage)

@@ -589,6 +589,13 @@ jobs:
         timeout-minutes: 60
         run: ./scripts/self-test.sh
 
+      - name: Check devnet durability build profiles
+        if: needs.change-scope.outputs.process_only != 'true'
+        timeout-minutes: 10
+        run: |
+          cargo test --release --locked -p boole-devnet-driver -p boole-devnet-mcp --test fault_hooks
+          cargo test --locked -p boole-devnet-driver --features qualification-faults --test journal_restart
+
       # P0.7 (audit) — the self-test gate only builds the dev profile, so the
       # release profile (panic = "abort", opt-level, overflow checks elided)
       # ships entirely unexercised. Build the shipped binaries in release here

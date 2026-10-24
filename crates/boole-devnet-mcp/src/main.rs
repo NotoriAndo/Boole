@@ -1,6 +1,9 @@
 use anyhow::{ensure, Context, Result};
 use boole_derivation::m2::Config;
-use boole_devnet_driver::l1::RpcL1;
+use boole_devnet_driver::{
+    engine::Rpc,
+    l1::{JournalSource, RpcL1},
+};
 use boole_devnet_mcp::{
     client::{fixed, l2_gas_limit, Client, ClientOptions, RpcL2, RpcPoster},
     codec::Codec,
@@ -30,6 +33,8 @@ struct Args {
     #[arg(long)]
     state_dir: PathBuf,
     #[arg(long)]
+    repair_journals: bool,
+    #[arg(long)]
     m2_config: Option<PathBuf>,
     #[arg(long)]
     m3_forks: Option<PathBuf>,
@@ -49,6 +54,7 @@ struct Args {
     precheck_gate_rule_digest: Option<String>,
 }
 fn main() -> Result<()> {
+    boole_devnet_archive::fault::validate_environment()?;
     let args = Args::parse();
     ensure!(
         args.devnet,
@@ -79,10 +85,31 @@ fn main() -> Result<()> {
             })
         })
         .transpose()?;
+    let forks: Option<boole_derivation::m3::ForkTable> = args
+        .m3_forks
+        .map(|p| -> Result<_> { Ok(serde_json::from_slice(&std::fs::read(p)?)?) })
+        .transpose()?;
+    let gas = l2_gas_limit(&args.node_rpc)?;
+    let genesis = Rpc::new(&args.node_rpc)?
+        .call("eth_getBlockByNumber", serde_json::json!(["0x0", false]))?;
+    let network = boole_devnet_archive::journal::NetworkIdentity::new(
+        &c,
+        forks.as_ref(),
+        genesis["hash"].as_str().context("L2 genesis hash")?.into(),
+        gas,
+    )?;
+    let source = JournalSource::open(
+        RpcL1::new_m2(&args.l1_rpc)?,
+        &args.state_dir,
+        network,
+        args.repair_journals,
+    )?;
     let own = if args.verify_own {
         let workers: Vec<boole_gate_supervisor::process::Worker> = serde_json::from_slice(
             &std::fs::read(args.m3_gates.context("--verify-own requires --m3-gates")?)?,
         )?;
+        let pins: Vec<_> = workers.iter().map(|w| w.binary_sha256).collect();
+        source.journal.borrow().cleanup(&pins, None)?;
         Some(boole_devnet_mcp::own::OwnVerification {
             gates: workers
                 .into_iter()
@@ -98,23 +125,21 @@ fn main() -> Result<()> {
                 .context("--verify-own requires --gate-artifacts")?,
         })
     } else {
+        source.journal.borrow().cleanup(&[], None)?;
         None
     };
     let mut client = Client::new(
-        RpcL1::new_m2(&args.l1_rpc)?,
+        source,
         RpcPoster::new(&args.l1_rpc, account)?,
         c,
         account,
         args.state_dir,
         ClientOptions {
             l2: Some(Box::new(RpcL2::new(&args.node_rpc)?)),
-            l2_gas_limit: l2_gas_limit(&args.node_rpc)?,
+            l2_gas_limit: gas,
             codec,
             hook,
-            forks: args
-                .m3_forks
-                .map(|path| -> Result<_> { Ok(serde_json::from_slice(&std::fs::read(path)?)?) })
-                .transpose()?,
+            forks,
             own,
         },
     )?;

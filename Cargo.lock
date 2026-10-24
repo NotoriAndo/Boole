@@ -371,12 +371,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "boole-devnet-archive"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "boole-derivation",
+ "boole-testkit",
+ "hex",
+ "libc",
+ "rand_core 0.6.4",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "boole-devnet-driver"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
  "boole-derivation",
+ "boole-devnet-archive",
  "boole-gate-supervisor",
  "clap",
  "k256",
@@ -392,6 +409,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "boole-derivation",
+ "boole-devnet-archive",
  "boole-devnet-driver",
  "boole-gate-supervisor",
  "clap",

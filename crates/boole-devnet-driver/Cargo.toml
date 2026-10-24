@@ -6,7 +6,11 @@ license.workspace = true
 rust-version.workspace = true
 publish = false
 
+[features]
+qualification-faults = ["boole-devnet-archive/qualification-faults"]
+
 [dependencies]
+boole-devnet-archive = { path = "../boole-devnet-archive" }
 boole-gate-supervisor = { path = "../boole-gate-supervisor" }
 boole-derivation = { path = "../boole-derivation" }
 anyhow.workspace = true

@@ -13,6 +13,26 @@ use boole_devnet_driver::{
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
+#[test]
+fn t76_checkpoint_changed_after_open_is_preserved_before_publication() {
+    let dir = TestDir::new("m4-version-fence");
+    let checkpoint = dir.0.join("checkpoint.json");
+    let mut driver = Driver::new(Source::new(), Client::new());
+    driver.set_journal(&checkpoint).unwrap();
+    let external = b"{\"external-owner\":true}\n";
+    std::fs::write(&checkpoint, external).unwrap();
+    assert!(
+        driver.step(1).is_err(),
+        "changed storage must stop before publication"
+    );
+    assert_eq!(std::fs::read(&checkpoint).unwrap(), external);
+    assert_eq!(driver.m2_state().height(), 0);
+    assert!(
+        driver.engine.calls.is_empty(),
+        "changed input must not reach Engine"
+    );
+}
+
 #[derive(Clone)]
 struct Source {
     rows: BTreeMap<u64, (L1Block, Vec<InboxLog>)>,
@@ -94,6 +114,7 @@ struct Client {
     calls: Vec<(String, Value)>,
     fail: bool,
     tamper_root: u8,
+    checkpoint_after_selection: Option<std::path::PathBuf>,
 }
 impl Client {
     fn new() -> Self {
@@ -109,6 +130,7 @@ impl Client {
             calls: vec![],
             fail: false,
             tamper_root: 0,
+            checkpoint_after_selection: None,
         }
     }
 }
@@ -127,6 +149,9 @@ impl Engine for Client {
         Ok(match m {
             "engine_forkchoiceUpdatedV3" => {
                 if p[1].is_null() {
+                    if let Some(path) = self.checkpoint_after_selection.take() {
+                        std::fs::write(path, b"preserved external checkpoint")?;
+                    }
                     self.head.parent_hash = Some(self.head.hash.clone());
                     self.head.number += 1;
                     self.head.hash = p[0]["headBlockHash"].as_str().unwrap().into();
@@ -260,6 +285,8 @@ fn t16_checkpoint_roundtrip_and_tamper_stalls() {
     a.step(1).unwrap();
     let saved: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     assert_eq!(saved["height"], 1);
+    // Independent continuous and restarted writers must not share a checkpoint.
+    a.set_journal(&dir.join("continuous.json")).unwrap();
     let mut b = Driver::new(Source::new(), a.engine.clone());
     b.set_journal(&path).unwrap();
     b.step(2).unwrap();
@@ -299,7 +326,7 @@ fn t16_repeated_height_stalls_without_state_change() {
     assert_eq!(d.engine.calls.len(), 4);
 }
 #[test]
-fn t16_checkpoint_collision_preserves_existing_file_and_state() {
+fn t16_pid_temp_is_preserved_while_a_unique_checkpoint_attempt_succeeds() {
     let temporary = TestDir::new("collision");
     let dir = &temporary.0;
     let path = dir.join("checkpoint.json");
@@ -307,17 +334,13 @@ fn t16_checkpoint_collision_preserves_existing_file_and_state() {
     std::fs::write(&collision, b"preserve existing temporary file").unwrap();
     let mut d = Driver::new(Source::new(), Client::new());
     d.set_journal(&path).unwrap();
-    assert!(d
-        .step(1)
-        .unwrap_err()
-        .reason
-        .contains("persist M2 checkpoint"));
-    assert_eq!(d.m2_state().height(), 0);
+    d.step(1).unwrap();
+    assert_eq!(d.m2_state().height(), 1);
     assert_eq!(
         std::fs::read(&collision).unwrap(),
         b"preserve existing temporary file"
     );
-    assert!(!path.exists());
+    assert!(path.exists());
 }
 #[test]
 fn t16_changed_cached_parent_hash_stalls_before_engine() {
@@ -355,9 +378,9 @@ fn review_checkpoint_failure_appends_stall_with_previous_root() {
     let dir = TestDir::new("evidence-collision");
     let path = dir.0.join("checkpoint.json");
     let evidence = dir.0.join("evidence.jsonl");
-    let collision = path.with_extension(format!("tmp-{}", std::process::id()));
-    std::fs::write(&collision, b"owned elsewhere").unwrap();
-    let mut d = Driver::new(Source::new(), Client::new());
+    let mut engine = Client::new();
+    engine.checkpoint_after_selection = Some(path.clone());
+    let mut d = Driver::new(Source::new(), engine);
     let previous = d.m2_state().root;
     d.set_journal(&path).unwrap();
     d.set_evidence(&evidence).unwrap();
@@ -518,7 +541,7 @@ fn review_restart_from_open_reveal_and_round_matches_full_state() {
     assert!(b.l1.number_reads.iter().all(|h| *h >= 18));
 }
 #[test]
-fn review_ahead_checkpoint_stalls_without_changing_it() {
+fn review_ahead_checkpoint_without_own_journal_pauses_without_changing_it() {
     let dir = TestDir::new("ahead");
     let path = dir.0.join("checkpoint.json");
     let mut a = Driver::new(Source::new(), Client::new());
@@ -527,7 +550,12 @@ fn review_ahead_checkpoint_stalls_without_changing_it() {
     let saved = std::fs::read(&path).unwrap();
     let mut b = Driver::new(Source::new(), Client::new());
     b.set_journal(&path).unwrap();
-    assert!(b.step(1).unwrap_err().reason.contains("height mismatch"));
+    let error = b.step(1).unwrap_err();
+    assert!(error.reason.contains("own input journal required"));
+    assert!(matches!(
+        error.kind,
+        boole_devnet_driver::driver::StallKind::Availability { .. }
+    ));
     assert_eq!(saved, std::fs::read(path).unwrap());
     assert!(b.engine.calls.is_empty());
 }
@@ -653,4 +681,24 @@ fn m2root_divergent_local_fold_refuses_peer_payload_while_others_continue() {
             );
         }
     }
+}
+
+#[test]
+fn t76_checkpoint_cannot_be_opened_as_evidence_or_repaired_as_a_torn_log() {
+    let dir = TestDir::new("m4-evidence-role");
+    let path = dir.0.join("checkpoint.json");
+    let mut d = Driver::new(Source::new(), Client::new());
+    d.set_journal(&path).unwrap();
+    d.step(1).unwrap();
+    let before = std::fs::read(&path).unwrap();
+    assert!(
+        d.set_evidence(&path).is_err(),
+        "checkpoint JSON is not an evidence record"
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    assert!(
+        d.set_evidence_repair(&path, true).is_err(),
+        "repair must not accept a complete row of the wrong schema"
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), before);
 }

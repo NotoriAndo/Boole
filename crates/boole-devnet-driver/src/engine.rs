@@ -21,6 +21,12 @@ impl std::error::Error for TransientRpcError {}
 
 /// Bounded retries apply only to transport/body failures and HTTP 429/5xx.
 /// Format, consensus and application errors retain their original fail-closed path.
+pub fn rpc_unavailable(error: &anyhow::Error) -> bool {
+    error.is::<TransientRpcError>()
+        || error
+            .downcast_ref::<reqwest::Error>()
+            .is_some_and(|e| e.is_connect() || e.is_timeout() || e.is_body())
+}
 pub fn retry_rpc<T>(mut read: impl FnMut() -> Result<T>) -> Result<T> {
     for delay in [100, 300] {
         match read() {
@@ -114,6 +120,7 @@ impl Rpc {
         }
         let response = request
             .send()
+            .map_err(|_| TransientRpcError)
             .with_context(|| format!("{method} transport"))?;
         let status = response.status();
         if status.is_server_error() || status == reqwest::StatusCode::TOO_MANY_REQUESTS {

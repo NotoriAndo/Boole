@@ -32,6 +32,9 @@ fn serve(replies: Vec<(&'static str, u16, Value)>) -> (String, thread::JoinHandl
             reader.read_exact(&mut bytes).unwrap();
             let request: Value = serde_json::from_slice(&bytes).unwrap();
             assert_eq!(request["method"], method);
+            if status == 0 {
+                continue;
+            }
             let body = if status == 200 {
                 json!({"jsonrpc":"2.0","id":1,"result":result}).to_string()
             } else {
@@ -41,6 +44,104 @@ fn serve(replies: Vec<(&'static str, u16, Value)>) -> (String, thread::JoinHandl
         }
     });
     (url, worker)
+}
+
+#[test]
+fn t77_finalized_posting_receipts_need_no_historical_rpc() {
+    use boole_derivation::{attributes::hex_string, rlp, user_tx::keccak};
+    use boole_devnet_archive::{
+        durability::PrivateTempDir,
+        input::{receipts_root, InputRow},
+        journal::{InputJournal, NetworkIdentity},
+    };
+    let row = |h: u64, parent: &[u8], status: u64| {
+        let transactions = if h == 0 {
+            vec![]
+        } else {
+            vec![vec![0xc0, h as u8]]
+        };
+        let receipts = if h == 0 {
+            vec![]
+        } else {
+            vec![rlp::list(&[
+                rlp::uint(status),
+                rlp::uint(21000),
+                rlp::bytes(&[0; 256]),
+                rlp::list(&[]),
+            ])]
+        };
+        let fields = vec![
+            rlp::bytes(parent),
+            rlp::bytes(&[0; 32]),
+            rlp::bytes(&[0; 20]),
+            rlp::bytes(&[0; 32]),
+            rlp::bytes(&receipts_root(&transactions)),
+            rlp::bytes(&receipts_root(&receipts)),
+            rlp::bytes(&[0; 256]),
+            rlp::uint(0),
+            rlp::uint(h),
+            rlp::uint(60_000_000),
+            rlp::uint(if h == 0 { 0 } else { 21000 }),
+            rlp::uint(1_790_000_000 + 12 * h),
+            rlp::bytes(&[]),
+            rlp::bytes(&[1; 32]),
+            rlp::bytes(&[0; 8]),
+            rlp::uint(1),
+            rlp::bytes(&[0; 32]),
+            rlp::uint(0),
+            rlp::uint(0),
+            rlp::bytes(&[0; 32]),
+            rlp::bytes(&[0; 32]),
+        ];
+        let header = rlp::list(&fields);
+        InputRow {
+            schema_version: 1,
+            block_hash: hex_string(&keccak(&header)),
+            header_rlp: hex_string(&header),
+            receipts: Some(receipts.iter().map(|r| hex_string(r)).collect()),
+            transactions: Some(transactions.iter().map(|tx| hex_string(tx)).collect()),
+        }
+    };
+    let dir = PrivateTempDir::new("m4-poster-tip-only").unwrap();
+    let genesis = row(0, &[0; 32], 1);
+    let network = NetworkIdentity::new(
+        &boole_derivation::m2::Config::devnet(),
+        None,
+        hex_string(&[1; 32]),
+        30_000_000,
+    )
+    .unwrap();
+    let mut journal =
+        InputJournal::open(dir.path(), network, || Ok(genesis.clone()), false).unwrap();
+    let first = row(
+        1,
+        &boole_derivation::attributes::hex_bytes(&genesis.block_hash, "parent").unwrap(),
+        1,
+    );
+    journal.append(&first).unwrap();
+    let second = row(
+        2,
+        &boole_derivation::attributes::hex_bytes(&first.block_hash, "parent").unwrap(),
+        0,
+    );
+    journal.append(&second).unwrap();
+    let (url, worker) = serve(vec![
+        ("eth_chainId", 200, json!("0x7a69")),
+        ("eth_accounts", 200, json!([hex_string(&[1; 20])])),
+    ]);
+    let mut poster = RpcPoster::new(&url, [1; 20]).unwrap();
+    worker.join().unwrap();
+    // The endpoint is now gone: neither old block nor receipt reads can work.
+    poster.bind_journal(std::rc::Rc::new(std::cell::RefCell::new(journal)));
+    assert_eq!(
+        poster.included(&hex_string(&keccak(&[0xc0, 1]))).unwrap(),
+        Some(1)
+    );
+    assert!(poster
+        .included(&hex_string(&keccak(&[0xc0, 2])))
+        .unwrap_err()
+        .is::<RevertedReceipt>());
+    assert_eq!(poster.included(&hex_string(&[77; 32])).unwrap(), None);
 }
 #[test]
 fn actual_http_transients_retry_but_invalid_rpc_results_do_not() {
@@ -250,5 +351,93 @@ fn l2_balances_keep_all_256_bits_and_refuse_noncanonical_quantities() {
             assert_eq!(result.unwrap(), [255; 32]);
         }
         worker.join().unwrap();
+    }
+}
+
+#[test]
+fn closed_http_response_is_retryable_transport_availability() {
+    let (url, worker) = serve(vec![
+        ("eth_blockNumber", 0, Value::Null),
+        ("eth_blockNumber", 200, json!("0x2")),
+    ]);
+    let rpc = Rpc::new(&url).unwrap();
+    let result = retry_rpc(|| rpc.call("eth_blockNumber", json!([])));
+    // Drop the listener safely even if the legacy classifier fails after read 1.
+    if result.is_err() {
+        let _ = rpc.call("eth_blockNumber", json!([]));
+    }
+    worker.join().unwrap();
+    assert_eq!(result.unwrap(), json!("0x2"));
+}
+
+#[test]
+fn live_receipts_are_advisory_and_unknown_old_hashes_never_trigger_receipt_rpc() {
+    use boole_derivation::attributes::hex_string;
+    use boole_devnet_archive::{
+        durability::PrivateTempDir,
+        input::InputRow,
+        journal::{InputJournal, NetworkIdentity, JOURNAL},
+    };
+    use std::{cell::RefCell, rc::Rc};
+    for success in [true, false] {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../fixtures/devnet-m4/input-auth-v0.json"
+        ))
+        .unwrap();
+        let rows: Vec<InputRow> = serde_json::from_value(fixture["rows"].clone()).unwrap();
+        let d = PrivateTempDir::new("m4-live-advisory").unwrap();
+        let identity = NetworkIdentity::new(
+            &boole_derivation::m2::Config::devnet(),
+            None,
+            hex_string(&[1; 32]),
+            30_000_000,
+        )
+        .unwrap();
+        let mut journal =
+            InputJournal::open(d.path(), identity, || Ok(rows[0].clone()), false).unwrap();
+        for row in rows.iter().skip(1) {
+            journal.append(row).unwrap();
+        }
+        let before = std::fs::read(d.path().join(JOURNAL)).unwrap();
+        let tx = hex_string(&[77; 32]);
+        let live_hash = hex_string(&[3; 32]);
+        let finalized = json!({"number":"0x2","hash":rows[2].block_hash,"transactions":[]});
+        let live = json!({"number":"0x3","hash":live_hash,"transactions":[tx]});
+        let (url, worker) = serve(vec![
+            ("eth_chainId", 200, json!("0x7a69")),
+            ("eth_accounts", 200, json!([hex_string(&[1; 20])])),
+            ("eth_getBlockByNumber", 200, finalized.clone()),
+            ("eth_getBlockByNumber", 200, live.clone()),
+            ("eth_getBlockByNumber", 200, live.clone()),
+            ("eth_getBlockByNumber", 200, finalized.clone()),
+            (
+                "eth_getTransactionReceipt",
+                200,
+                json!({"blockNumber":"0x3","blockHash":live_hash,"status":if success {"0x1"}else{"0x0"}}),
+            ),
+            ("eth_getBlockByNumber", 200, finalized),
+            ("eth_getBlockByNumber", 200, live),
+        ]);
+        let mut poster = RpcPoster::new(&url, [1; 20]).unwrap();
+        let journal = Rc::new(RefCell::new(journal));
+        poster.bind_journal(journal.clone());
+        let result = poster.included_for_posting(&tx);
+        if success {
+            assert_eq!(result.unwrap(), Some(3));
+        } else {
+            assert!(result.unwrap_err().is::<RevertedReceipt>());
+        }
+        assert_eq!(
+            poster.included_for_posting(&hex_string(&[88; 32])).unwrap(),
+            None
+        );
+        worker.join().unwrap();
+        assert_eq!(
+            poster.included(&tx).unwrap(),
+            None,
+            "advisory receipt became finalized authority"
+        );
+        assert_eq!(journal.borrow().tip(), 2);
+        assert_eq!(std::fs::read(d.path().join(JOURNAL)).unwrap(), before);
     }
 }

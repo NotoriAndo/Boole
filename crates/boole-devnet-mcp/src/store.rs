@@ -66,6 +66,9 @@ impl Store {
         let tmp = scratch.0.join("next");
         private_file(&tmp, &serde_json::to_vec(value)?)?;
         fs::rename(tmp, target)?;
+        if name.starts_with("submission-") {
+            boole_devnet_archive::fault::hit("B11", 0, "client")?;
+        }
         File::open(&self.path)?.sync_all()?;
         Ok(())
     }
