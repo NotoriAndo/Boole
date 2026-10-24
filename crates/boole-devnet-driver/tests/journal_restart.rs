@@ -1004,6 +1004,56 @@ fn t78_fresh_driver_joins_verified_archive_when_own_l1_refuses_history() -> Resu
     restarted.resume()?;
     assert_eq!(restarted.m2_state().root, expected.last().unwrap().1);
     assert_eq!(restarted.l1.inputs_label(1), "journal");
+    // Export the public GET tree, then join from static files with no store
+    // or HTTP fallback behind this Fetch. Every hash/root/prefix must match.
+    let mirror = root.path().join("static-mirror");
+    let mut transport = boole_devnet_archive::client::HttpFetch;
+    use boole_devnet_archive::client::Fetch;
+    for route in std::iter::once("info".to_owned())
+        .chain(rows.iter().flat_map(|row| {
+            let mut routes = vec![format!("l1/header/{}", &row.block_hash[2..])];
+            if boole_devnet_archive::input::header_needs_receipts(
+                &boole_derivation::attributes::hex_bytes(&row.header_rlp, "mirror").unwrap(),
+            )
+            .unwrap()
+            {
+                routes.push(format!("l1/receipts/{}", &row.block_hash[2..]));
+            }
+            routes
+        }))
+        .chain((0..=8).map(|h| format!("index/{h}?limit=1")))
+    {
+        let bytes = transport.get(
+            &server.url(),
+            &route,
+            boole_devnet_archive::archive::OBJ_MAX,
+        )?;
+        let dest = mirror.join(route.split('?').next().unwrap());
+        std::fs::create_dir_all(dest.parent().unwrap())?;
+        std::fs::write(dest, bytes)?;
+    }
+    let mut own = TipOnly::new();
+    own.tip = 8;
+    own.strict = true;
+    let source = JournalSource::open_archive(
+        own,
+        &root.path().join("static-c"),
+        NetworkIdentity::new(&config, None, MemoryEngine::new().head.hash, 30_000_000)?,
+        false,
+        ArchiveClient::new(
+            vec!["http://127.0.0.1:1".into()],
+            Box::new(StaticMirror(mirror)),
+        )?,
+    )?;
+    let mut mirrored =
+        Driver::with_config(source, MemoryEngine::new(), config.clone(), 30_000_000)?;
+    for h in 1..=8 {
+        mirrored.step(h)?;
+        let (hash, root, txs) = &expected[h as usize - 1];
+        assert_eq!(&mirrored.engine.head()?.hash, hash);
+        assert_eq!(&mirrored.m2_state().root, root);
+        assert_eq!(&mirrored.engine.transactions(h)?, txs);
+    }
     let prefix = root.path().join("prefix");
     let mut journal = InputJournal::open(
         &prefix,
@@ -1032,4 +1082,13 @@ fn t78_fresh_driver_joins_verified_archive_when_own_l1_refuses_history() -> Resu
     assert_eq!(source.inputs_label(1), "journal");
     assert_eq!(source.inputs_label(3), "archive-verified");
     Ok(())
+}
+
+struct StaticMirror(std::path::PathBuf);
+impl boole_devnet_archive::client::Fetch for StaticMirror {
+    fn get(&mut self, _: &str, route: &str, _: usize) -> Result<Vec<u8>> {
+        Ok(std::fs::read(
+            self.0.join(route.split('?').next().unwrap()),
+        )?)
+    }
 }

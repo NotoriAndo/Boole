@@ -305,3 +305,53 @@ fn t72_bloom_negative_header_needs_no_receipt_request() -> Result<()> {
     assert_eq!(client.discarded, 0);
     Ok(())
 }
+
+#[test]
+fn t71_wrong_field_set_height_and_a_chain_not_linked_to_own_anchor_are_unavailable() -> Result<()> {
+    use boole_derivation::{attributes::hex_string, user_tx::keccak};
+    use boole_devnet_archive::{client::ArchiveClient, durability::PrivateTempDir};
+    let raw = vec![0xc0];
+    let key = hex_string(&keccak(&raw));
+    let mut client =
+        ArchiveClient::new(vec!["http://127.0.0.1:1".into()], Box::new(BytesFetch(raw)))?;
+    assert!(matches!(
+        client
+            .header(&key, 0)
+            .unwrap_err()
+            .downcast_ref::<boole_devnet_archive::error::Error>(),
+        Some(boole_devnet_archive::error::Error::Availability { .. })
+    ));
+    let row = rows().pop().unwrap();
+    let raw = boole_derivation::attributes::hex_bytes(&row.header_rlp, "fixture")?;
+    let mut client = ArchiveClient::new(
+        vec!["http://127.0.0.1:1".into()],
+        Box::new(BytesFetch(raw.clone())),
+    )?;
+    assert!(matches!(
+        client
+            .header(&row.block_hash, row.block()?.number + 1)
+            .unwrap_err()
+            .downcast_ref::<boole_devnet_archive::error::Error>(),
+        Some(boole_devnet_archive::error::Error::Availability { .. })
+    ));
+    let d = PrivateTempDir::new("m4-wrong-parent")?;
+    let mut client = ArchiveClient::new(
+        vec!["http://127.0.0.1:1".into()],
+        Box::new(BytesFetch(raw.clone())),
+    )?;
+    let error = client
+        .prepare(
+            row.block()?.number,
+            &row.block_hash,
+            Some((row.block()?.number - 1, hex_string(&[255; 32]))),
+            d.path(),
+            Some(&raw),
+        )
+        .err()
+        .unwrap();
+    assert!(matches!(
+        error.downcast_ref::<boole_devnet_archive::error::Error>(),
+        Some(boole_devnet_archive::error::Error::Availability { .. })
+    ));
+    Ok(())
+}
