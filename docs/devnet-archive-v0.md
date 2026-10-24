@@ -305,6 +305,10 @@ An already typed private RPC resource/time stop keeps its kind and numerical
 limit and gains the same private side label. INVALID payload verdicts, hash
 and ledger differences remain mismatches; audited-node transport failures keep
 their existing phase classification. Successful receipt bytes are unchanged.
+Two private-side paths still report a mismatch and are left to M4c: a private
+Engine outage inside an M3 verdict rebuild, which the supervisor records as no
+verdict yet (`verdict`), and a private Engine that exits or times out during
+startup (`replay-setup`).
 Owned inputs are rechecked before classifying a per-block failure and again
 before emitting the final receipt, even after a resource stop. Verified source
 change outranks that stop: it becomes an input mismatch with exit 1, and the
