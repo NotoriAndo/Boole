@@ -903,6 +903,47 @@ mod fix2_tests {
         );
         Ok(())
     }
+    fn drained_descriptor_count(
+        baseline: usize,
+        deadline: Instant,
+        mut count: impl FnMut() -> usize,
+    ) -> usize {
+        let mut observed = count();
+        while observed > baseline && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(5));
+            observed = count();
+        }
+        observed
+    }
+    #[test]
+    fn b1_descriptor_drain_waits_for_the_socket_after_registry_removal() -> Result<()> {
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        let port = listener.local_addr()?.port();
+        let baseline = descriptors(port);
+        let client = TcpStream::connect(listener.local_addr()?)?;
+        let (accepted, _) = listener.accept()?;
+        drop(client);
+        let (release, closed) = std::sync::mpsc::channel();
+        let worker = thread::spawn(move || {
+            closed.recv().unwrap();
+            drop(accepted);
+        });
+        let mut release = Some(release);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let count = drained_descriptor_count(baseline, deadline, || {
+            let observed = descriptors(port);
+            if let Some(release) = release.take() {
+                release.send(()).unwrap();
+            }
+            observed
+        });
+        worker.join().unwrap();
+        assert!(
+            count <= baseline,
+            "descriptor closed after the first measurement was not awaited"
+        );
+        Ok(())
+    }
     #[test]
     #[allow(unsafe_code)]
     fn h1_fin_and_rst_return_registry_and_process_descriptors() -> Result<()> {
@@ -950,7 +991,8 @@ mod fix2_tests {
                 "closed connections retained registry descriptors (RST={reset})"
             );
             assert!(
-                descriptors(server.addr().port()) <= baseline,
+                drained_descriptor_count(baseline, deadline, || descriptors(server.addr().port()))
+                    <= baseline,
                 "process descriptor count grew after close"
             );
         }

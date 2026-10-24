@@ -49,3 +49,20 @@ fn l6_replay_errors_keep_the_typed_height_and_update_the_named_check() {
     assert_eq!(r["first_mismatch"], json!({"height":"5","class":"prefix"}));
     assert_eq!(r["checks"]["prefix"], "mismatch");
 }
+
+#[test]
+fn b2_replay_resource_stop_keeps_its_height_without_first_mismatch() {
+    let mut receipt = receipt();
+    let error = anyhow::Error::new(boole_devnet_audit::resource::ResourceStop {
+        resource: "rpc-bytes",
+        limit: 16 * 1024 * 1024,
+    })
+    .context(boole_devnet_audit::replay::Failure {
+        height: 12,
+        class: "execution",
+    });
+    boole_devnet_audit::replay::report_failure(&mut receipt, &error, "unavailable");
+    assert!(receipt["first_mismatch"].is_null());
+    assert_eq!(receipt["resource_stop"]["height"], "12");
+    assert_eq!(receipt["checks"]["execution"], "resource-stop");
+}

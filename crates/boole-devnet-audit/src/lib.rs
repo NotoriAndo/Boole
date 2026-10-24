@@ -23,18 +23,35 @@ pub struct ExpectedHeads {
     pub l2: Option<(u64, String)>,
 }
 #[derive(Debug)]
-struct Mismatch {
+struct AuditFailure {
     height: u64,
     class: &'static str,
+    resource: Option<resource::ResourceStop>,
 }
-fn at<T>(height: u64, class: &'static str, result: Result<T>) -> std::result::Result<T, Mismatch> {
-    result.map_err(|_| Mismatch { height, class })
+fn at<T>(
+    height: u64,
+    class: &'static str,
+    result: Result<T>,
+) -> std::result::Result<T, AuditFailure> {
+    result.map_err(|error| AuditFailure {
+        height,
+        class,
+        resource: error.downcast_ref::<resource::ResourceStop>().copied(),
+    })
 }
-fn require(height: u64, class: &'static str, condition: bool) -> std::result::Result<(), Mismatch> {
+fn require(
+    height: u64,
+    class: &'static str,
+    condition: bool,
+) -> std::result::Result<(), AuditFailure> {
     if condition {
         Ok(())
     } else {
-        Err(Mismatch { height, class })
+        Err(AuditFailure {
+            height,
+            class,
+            resource: None,
+        })
     }
 }
 fn input_items(logs: &[boole_derivation::InboxLog]) -> Result<Vec<boole_derivation::m2::Input>> {
@@ -170,6 +187,30 @@ pub fn mark_mismatch(receipt: &mut Value, height: u64, class: &str) {
     }
     receipt["checks"][class] = json!("mismatch");
 }
+pub fn mark_resource_stop(
+    receipt: &mut Value,
+    height: u64,
+    class: &str,
+    stop: resource::ResourceStop,
+) {
+    receipt["resource_stop"] = json!({"height":height.to_string(),"check":class,"resource":stop.resource,"limit":stop.limit.to_string()});
+    receipt["checks"][class] = json!("resource-stop");
+}
+pub fn resource_receipt(
+    c: &Config,
+    forks: Option<&ForkTable>,
+    height: u64,
+    class: &str,
+    stop: resource::ResourceStop,
+) -> Value {
+    let mut receipt = empty_receipt(c, "pending");
+    receipt["fork_table_digest"] = json!(fork_digest(forks).ok());
+    mark_resource_stop(&mut receipt, height, class, stop);
+    receipt
+}
+pub fn succeeded(receipt: &Value) -> bool {
+    receipt["first_mismatch"].is_null() && receipt["resource_stop"].is_null()
+}
 fn empty_receipt(c: &Config, label: &str) -> Value {
     json!({"schema":"boole.devnet.audit.v1","unsigned":true,"mode":"pure","config_digest":boole_derivation::attributes::hex_string(&c.digest()),"fork_table_digest":null,"anchor":null,"l1_head":null,"l2_head":null,"root":null,"audited_through":"0","observed_l2_head":null,"labels":{"inputs":label,"verdicts":"computed","environment":"pending","ranges":[]},"counts":{"status":{},"reason_ranges":{}},"rewards":ledger::Ledger::default().totals(),"admissions":{"total":"0","active":"0","retired":"0"},"environment_hash":null,"environment":{"status":"pending","reason":"J4 environment build and normalized identity deferred"},"k4":{"status":"pending","checked":"0","total":"0","pin_retention":"pending-M4c"},"checks":{"input":"pending","fold":"pending","prefix":"pending","verdict":"pending","ledger":"pending","admission":"pending","forks":"pending","execution":"not-run"},"first_mismatch":null})
 }
@@ -203,7 +244,7 @@ pub fn audit_in(
     };
     let tip = inputs.tip();
     let mut receipt = empty_receipt(c, inputs.label());
-    let result = (|| -> std::result::Result<(), Mismatch> {
+    let result = (|| -> std::result::Result<(), AuditFailure> {
         at(0, "input", inputs.check())?;
         let genesis = at(0, "input", inputs.row(0))?;
         let anchor = at(0, "input", genesis.verify())?;
@@ -262,13 +303,15 @@ pub fn audit_in(
             at(h, "input", inputs.check())?;
             let items = at(h, "fold", input_items(&verified.logs))?;
             let (derived, next, events, payments) = if c.m3.is_some() {
-                let f = forks.ok_or(Mismatch {
+                let f = forks.ok_or(AuditFailure {
                     height: h,
                     class: "fold",
+                    resource: None,
                 })?;
-                let runtime = supervisor.as_deref_mut().ok_or(Mismatch {
+                let runtime = supervisor.as_deref_mut().ok_or(AuditFailure {
                     height: h,
                     class: "verdict",
+                    resource: None,
                 })?;
                 let records = at(h, "verdict", runtime.collect(&state, c, h, f, inputs))?;
                 let step = at(
@@ -369,9 +412,10 @@ pub fn audit_in(
             Err(failure) => {
                 receipt["k4"]["total"] = json!(failure.coverage.total.to_string());
                 receipt["k4"]["checked"] = json!(failure.coverage.checked.to_string());
-                return Err(Mismatch {
+                return Err(AuditFailure {
                     height: failure.height,
                     class: "K4",
+                    resource: None,
                 });
             }
         }
@@ -405,7 +449,11 @@ pub fn audit_in(
         Ok(())
     })();
     if let Err(m) = result {
-        mark_mismatch(&mut receipt, m.height, m.class);
+        if let Some(stop) = m.resource {
+            mark_resource_stop(&mut receipt, m.height, m.class, stop);
+        } else {
+            mark_mismatch(&mut receipt, m.height, m.class);
+        }
     }
     receipt
 }
@@ -546,3 +594,5 @@ mod tests {
 }
 
 pub mod k4;
+
+pub mod resource;

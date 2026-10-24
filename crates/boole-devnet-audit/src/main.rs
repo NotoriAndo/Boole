@@ -151,10 +151,33 @@ fn run(args: Args) -> Result<Value> {
         );
     }
     let work = PrivateTempDir::new("devnet-audit")?;
-    let mut node = RpcNode::new(&args.node_rpc)?;
+    let mut node = match RpcNode::new(&args.node_rpc) {
+        Ok(node) => node,
+        Err(error) => {
+            if let Some(stop) = error.downcast_ref::<boole_devnet_audit::resource::ResourceStop>() {
+                let mut receipt =
+                    boole_devnet_audit::resource_receipt(&config, forks.as_ref(), 0, "node", *stop);
+                receipt["mode"] = json!(args.mode);
+                return Ok(receipt);
+            } else {
+                return Err(error);
+            }
+        }
+    };
     let mut inputs = match prepare(&args, &config, forks.as_ref(), &mut node, work.path()) {
         Ok(input) => input,
         Err(error) => {
+            if let Some(stop) = error.downcast_ref::<boole_devnet_audit::resource::ResourceStop>() {
+                let mut receipt = boole_devnet_audit::resource_receipt(
+                    &config,
+                    forks.as_ref(),
+                    0,
+                    "input",
+                    *stop,
+                );
+                receipt["mode"] = json!(args.mode);
+                return Ok(receipt);
+            }
             let height = match error.downcast_ref::<boole_devnet_archive::error::Error>() {
                 Some(
                     boole_devnet_archive::error::Error::Availability { height, .. }
@@ -187,7 +210,7 @@ fn run(args: Args) -> Result<Value> {
         pure_work.path(),
     );
     receipt["mode"] = json!(args.mode);
-    if args.mode == "replay" && receipt["first_mismatch"].is_null() {
+    if args.mode == "replay" && boole_devnet_audit::succeeded(&receipt) {
         receipt["replayed_blocks"] = json!("0");
         let started = (|| -> Result<_> {
             let replay_work = PrivateTempDir::new_in(work.path(), "replay")?;
@@ -227,7 +250,7 @@ fn run(args: Args) -> Result<Value> {
             }
         }
     }
-    if receipt["first_mismatch"].is_null() && inputs.check().is_err() {
+    if boole_devnet_audit::succeeded(&receipt) && inputs.check().is_err() {
         boole_devnet_audit::mark_mismatch(&mut receipt, inputs.tip(), "input");
     }
     Ok(receipt)
@@ -235,10 +258,11 @@ fn run(args: Args) -> Result<Value> {
 fn main() {
     match run(Args::parse()) {
         Ok(receipt) => {
-            let failed = !receipt["first_mismatch"].is_null();
+            let resource = !receipt["resource_stop"].is_null();
+            let failed = !boole_devnet_audit::succeeded(&receipt);
             println!("{}", receipt);
             if failed {
-                std::process::exit(1)
+                std::process::exit(if resource { 2 } else { 1 })
             }
         }
         Err(_) => {

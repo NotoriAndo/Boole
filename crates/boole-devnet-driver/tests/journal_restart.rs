@@ -1882,3 +1882,100 @@ fn m1_bloom_negative_reverted_inbox_post_reconciles_without_historical_l1_reads(
     );
     Ok(())
 }
+
+#[test]
+fn l2_unrequestable_heights_skip_local_posting_cache_reads() -> Result<()> {
+    use boole_devnet_archive::client::{ArchiveClient, Fetch, NotServed};
+    struct Missing;
+    impl Fetch for Missing {
+        fn get(&mut self, _: &str, _: &str, _: usize) -> Result<Vec<u8>> {
+            Err(NotServed.into())
+        }
+        fn observe(
+            &mut self,
+            _: &str,
+            _: &str,
+            _: usize,
+            _: std::time::Instant,
+        ) -> Result<Vec<u8>> {
+            Ok(br#"{"covered_through":1000}"#.to_vec())
+        }
+        fn backoff(&mut self, _: u64) {}
+    }
+    for count in [1, 40] {
+        let root = PrivateTempDir::new("posting-skip-local")?;
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../fixtures/devnet-m4/input-auth-v0.json"
+        ))?;
+        let initial: Vec<InputRow> = serde_json::from_value(fixture["rows"].clone())?;
+        let template = archive_proof_fixture::reverted_inbox_row(initial[1].clone())?;
+        let mut rows = vec![initial[0].clone()];
+        for h in 1..=count {
+            let raw = hex_bytes(&template.header_rlp, "header")?;
+            let decoded = rlp::decode(&raw).map_err(anyhow::Error::msg)?;
+            let mut fields: Vec<_> = decoded
+                .children
+                .unwrap()
+                .iter()
+                .map(|f| raw[f.span.clone()].to_vec())
+                .collect();
+            fields[0] = rlp::bytes(&hex_bytes(&rows.last().unwrap().block_hash, "parent")?);
+            fields[8] = rlp::uint(h);
+            let raw = rlp::list(&fields);
+            rows.push(InputRow {
+                schema_version: 1,
+                block_hash: hex_string(&keccak(&raw)),
+                header_rlp: hex_string(&raw),
+                transactions: None,
+                receipts: None,
+            });
+        }
+        let network = NetworkIdentity::new(
+            &boole_derivation::m2::Config::devnet(),
+            None,
+            MemoryEngine::new().head.hash,
+            30_000_000,
+        )?;
+        let mut journal =
+            InputJournal::open(root.path(), network.clone(), || Ok(rows[0].clone()), false)?;
+        for row in &rows[1..] {
+            journal.append(row)?;
+        }
+        drop(journal);
+        let mut own = TipOnly::new();
+        own.rows = rows.clone();
+        own.tip = count;
+        own.strict = true;
+        let archives = ArchiveClient::new(vec!["http://127.0.0.1:1".into()], Box::new(Missing))?;
+        let mut source = JournalSource::open_archive(own, root.path(), network, false, archives)?;
+        let absent = hex_string(&[99; 32]);
+        assert!(source.restore_posting_proof(&absent, 0).is_err());
+        // First turn exhausts 32 network requests. The next turn rotates past
+        // those heights, then must skip both budget-zero and backoff heights.
+        let cache = root.path().join("transaction-proofs");
+        for row in &rows[1..] {
+            std::fs::write(cache.join(&row.block_hash[2..]), b"unread sentinel")?;
+        }
+        assert!(source.restore_posting_proof(&absent, 0).is_err());
+        for row in rows.iter().skip(1).take(count.min(32) as usize) {
+            assert_eq!(
+                std::fs::read(cache.join(&row.block_hash[2..]))?,
+                b"unread sentinel",
+                "unrequestable height cache was read/quarantined"
+            );
+        }
+        // Mandatory own manifest checks still run even with no request budget.
+        use std::io::Write;
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(root.path().join("input.manifest.json"))?
+            .write_all(b" ")?;
+        assert!(source.journal.borrow().check().is_err());
+        let e = source.restore_posting_proof(&absent, 0).unwrap_err();
+        assert!(!matches!(
+            e.downcast_ref::<boole_devnet_archive::error::Error>(),
+            Some(boole_devnet_archive::error::Error::Availability { .. })
+        ));
+    }
+    Ok(())
+}

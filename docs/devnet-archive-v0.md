@@ -271,15 +271,28 @@ its decoder scratch stays inside the auditor's private work directory.
 The audited-node RPC retains one authenticated view per height for its header,
 transactions and receipt statuses. Responses and the block's accumulated raw
 transaction hex are each bounded to 16 MiB. One shared budget allows at most
-65,536 JSON values (including containers) across the entire response; nested
-arrays cannot multiply that budget. Objects allow 256 fields and JSON nesting
-is limited to 64 levels. The RPC result is moved out of its envelope, not cloned.
+65,536 JSON values (including containers) for ordinary methods. For
+`eth_getBlockReceipts`, the value cap is 8,388,609 (16 MiB / 2 + 1), enough
+for any JSON value count within the wire cap. Nested arrays share the budget.
+Objects allow 256 fields and nesting is limited to 64 levels. Conservative
+allocation credits bound the receipt DOM to 512 MiB (128 MiB for ordinary
+methods), charging container roots, map entries, strings and vector growth.
+The wire reader can transiently allocate up to 32 MiB; authenticated raw
+transaction hex retains its separate 16 MiB bound, while receipt encoding is
+bounded by the authenticated fields in that capped response.
+These are buffer/DOM bounds, not a process RSS promise. The RPC result is moved
+out of its envelope, and OP receipt encoding avoids cloning the receipt DOM.
+A local byte, node, depth, field, row or allocation limit returns a typed
+`resource_stop` with decimal height/limit and a `resource-stop` check, leaves
+`first_mismatch` null, and exits 2. It does not claim a chain mismatch; genuine
+input mismatches still exit 1. Successful receipt bytes are unchanged.
 The depositor balance uses the already authenticated block hash with EIP-1898
 `requireCanonical: true`, alongside the cached header/transaction/receipt view. Under M2 the
 verdict, admission and fork checks are `not-applicable`. Replay setup and private
 Engine cleanup have separate `replay-setup` and `engine-cleanup` check classes;
 cleanup uses the last replayed height and preserves any earlier mismatch. Every
-failed check agrees with `first_mismatch`; private error details are omitted.
+input mismatch agrees with `first_mismatch`; resource stops are separate and
+private error details are omitted.
 
 The per-run disk floor is 15 GiB. Preserve the store and journal on a typed stop;
 restore availability or repair into a fresh directory rather than editing a

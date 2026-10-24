@@ -455,3 +455,108 @@ fn f6_balance_is_bound_to_the_authenticated_block_hash() -> Result<()> {
     );
     Ok(())
 }
+
+#[test]
+fn b2_busy_receipt_with_twenty_thousand_logs_below_byte_cap_authenticates() -> Result<()> {
+    use boole_devnet_archive::input::receipts_root;
+    let input = rows()?.remove(1);
+    let tx = input.transactions.as_ref().unwrap()[0].clone();
+    let tx_hash = hex_string(&keccak(&hex_bytes(&tx, "tx")?));
+    let address = [7u8; 20];
+    let mut bloom = [0u8; 256];
+    let digest = keccak(&address);
+    for i in [0, 2, 4] {
+        let bit = ((usize::from(digest[i]) << 8) | usize::from(digest[i + 1])) & 2047;
+        bloom[255 - bit / 8] |= 1 << (bit % 8);
+    }
+    let logs:Vec<_>=(0..20000).map(|i|json!({"address":hex_string(&address),"topics":[],"data":"0x","logIndex":format!("0x{i:x}"),"transactionIndex":"0x0","transactionHash":tx_hash,"blockNumber":"0x1","blockHash":hex_string(&[9;32]),"removed":false})).collect();
+    let mut receipt = json!({"type":"0x2","status":"0x1","cumulativeGasUsed":"0x989680","logsBloom":hex_string(&bloom),"logs":logs,"transactionIndex":"0x0","transactionHash":tx_hash});
+    let raw_receipt = boole_devnet_audit::rpc::receipt_bytes(&receipt)?;
+    let raw = hex_bytes(&input.header_rlp, "header")?;
+    let decoded = rlp::decode(&raw).map_err(anyhow::Error::msg)?;
+    let mut fields: Vec<_> = decoded
+        .children
+        .unwrap()
+        .iter()
+        .map(|f| raw[f.span.clone()].to_vec())
+        .collect();
+    fields[4] = rlp::bytes(&receipts_root(&[hex_bytes(&tx, "tx")?]));
+    fields[5] = rlp::bytes(&receipts_root(&[raw_receipt]));
+    fields[6] = rlp::bytes(&bloom);
+    fields[10] = rlp::uint(10_000_000);
+    let raw = rlp::list(&fields);
+    let row = InputRow {
+        schema_version: 1,
+        block_hash: hex_string(&keccak(&raw)),
+        header_rlp: hex_string(&raw),
+        receipts: None,
+        transactions: Some(vec![tx.clone()]),
+    };
+    let block = rpc_block(&row, 1)?;
+    receipt["blockHash"] = block["hash"].clone();
+    for log in receipt["logs"].as_array_mut().unwrap() {
+        log["blockHash"] = block["hash"].clone();
+    }
+    let response = reply(json!([receipt]));
+    assert!(serde_json::to_vec(&response)?.len() < boole_devnet_audit::rpc::RPC_RESPONSE_MAX);
+    let server = Server::start(move |q| match q["method"].as_str().unwrap() {
+        "eth_chainId" => reply(chain()),
+        "eth_getBlockByNumber" => reply(block.clone()),
+        "eth_getRawTransactionByHash" => reply(json!(tx)),
+        "eth_getBlockReceipts" => response.clone(),
+        m => panic!("unexpected {m}"),
+    })?;
+    assert_eq!(RpcNode::new(&server.url)?.receipt_statuses(1)?, vec![true]);
+    Ok(())
+}
+#[test]
+fn b2_rpc_limit_is_a_typed_resource_stop() -> Result<()> {
+    use boole_devnet_audit::resource::ResourceStop;
+    let server = Server::start(|_| {
+        let mut v = reply(chain());
+        v["padding"] = json!("x".repeat(boole_devnet_audit::rpc::RPC_RESPONSE_MAX));
+        v
+    })?;
+    let error = RpcNode::new(&server.url)
+        .err()
+        .context("oversized response accepted")?;
+    assert!(
+        error.is::<ResourceStop>(),
+        "resource bound lost its type: {error:#}"
+    );
+    Ok(())
+}
+
+#[test]
+fn b2_cli_resource_stop_is_json_exit_two_without_mismatch() -> Result<()> {
+    let root = boole_devnet_archive::durability::PrivateTempDir::new("audit-resource-cli")?;
+    let journal = root.path().join("journal");
+    std::fs::create_dir(&journal)?;
+    let config = root.path().join("config.json");
+    std::fs::write(
+        &config,
+        serde_json::to_vec(&boole_derivation::m2::Config::devnet())?,
+    )?;
+    let server =
+        Server::start(|_| reply(json!("x".repeat(boole_devnet_audit::rpc::RPC_RESPONSE_MAX))))?;
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_boole-devnet-audit"))
+        .arg("--journal")
+        .arg(&journal)
+        .arg("--node-rpc")
+        .arg(&server.url)
+        .arg("--m2-config")
+        .arg(&config)
+        .args([
+            "--expected-l1-number",
+            "1",
+            "--expected-l1-hash",
+            &hex_string(&[0; 32]),
+        ])
+        .output()?;
+    assert_eq!(output.status.code(), Some(2));
+    let receipt: Value = serde_json::from_slice(&output.stdout)?;
+    assert!(receipt["first_mismatch"].is_null());
+    assert_eq!(receipt["resource_stop"]["resource"], "rpc-bytes");
+    assert_eq!(receipt["checks"]["node"], "resource-stop");
+    Ok(())
+}

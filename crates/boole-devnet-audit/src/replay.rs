@@ -56,8 +56,13 @@ pub fn report_failure(receipt: &mut Value, error: &anyhow::Error, status: &str) 
             _ => (completed(receipt), "replay-setup"),
         }
     };
-    crate::mark_mismatch(receipt, height, class);
-    receipt["checks"]["execution"] = json!(status);
+    if let Some(stop) = error.downcast_ref::<crate::resource::ResourceStop>() {
+        crate::mark_resource_stop(receipt, height, class, *stop);
+        receipt["checks"]["execution"] = json!("resource-stop");
+    } else {
+        crate::mark_mismatch(receipt, height, class);
+        receipt["checks"]["execution"] = json!(status);
+    }
 }
 fn completed(receipt: &Value) -> u64 {
     receipt["replayed_blocks"]

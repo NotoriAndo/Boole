@@ -333,6 +333,16 @@ impl ArchiveClient {
     /// Covered 404s survive finality steps; bounded timed retries and a new
     /// source can still recover availability without restarting the fold.
     pub fn posting_finality(&mut self, height: u64) {
+        let now = Instant::now();
+        self.not_served_routes.retain(|_, until| now < *until);
+        // Keep active exponential retry history through one maximum backoff
+        // after eligibility; inactive heights expire within 60 seconds.
+        self.proof_retry.retain(|_, retry| {
+            retry
+                .at
+                .checked_add(Duration::from_secs(30))
+                .is_some_and(|until| now < until)
+        });
         let changed = self.sources != self.proof_sources;
         if changed {
             self.not_served_routes.clear();
@@ -354,6 +364,18 @@ impl ArchiveClient {
             self.proof_budget_at = Instant::now();
         }
         self.proof_finality = height;
+    }
+    /// Metadata-only scheduling hint. Header/proof authentication is still
+    /// mandatory when a request is made; own journal integrity checks run
+    /// independently even when this turn cannot request anything.
+    pub fn posting_requestable(&self, hash: &str) -> bool {
+        self.proof_budget > 0
+            && !self.proof_retry.get(hash).is_some_and(|retry| {
+                self.proof_finality < retry.finality && Instant::now() < retry.at
+            })
+    }
+    pub fn posting_requests_remaining(&self) -> usize {
+        self.proof_budget
     }
     /// Rotate the caller's sorted own pause window after the last attempted
     /// height, so an unavailable old prefix cannot starve a later own post.
@@ -461,11 +483,7 @@ impl ArchiveClient {
         crate::archive::verify_header(&row.block_hash, &header)?;
         let h = row.block()?.number;
         self.posting_finality(self.proof_finality);
-        if self.proof_budget == 0
-            || self.proof_retry.get(&row.block_hash).is_some_and(|retry| {
-                self.proof_finality < retry.finality && Instant::now() < retry.at
-            })
-        {
+        if !self.posting_requestable(&row.block_hash) {
             return Err(crate::error::availability(
                 h,
                 "archive-tx-proof",
@@ -914,4 +932,50 @@ pub fn string_list(bytes: &[u8], maximum: usize) -> Result<Vec<String>> {
     let rows = serde::Deserializer::deserialize_seq(&mut decoder, Bounded(maximum))?;
     decoder.end()?;
     Ok(rows)
+}
+
+#[cfg(test)]
+mod retry_expiry_tests {
+    use super::*;
+    struct Missing;
+    impl Fetch for Missing {
+        fn get(&mut self, _: &str, _: &str, _: usize) -> Result<Vec<u8>> {
+            Err(NotServed.into())
+        }
+        fn observe(&mut self, _: &str, _: &str, _: usize, _: Instant) -> Result<Vec<u8>> {
+            Ok(br#"{"covered_through":100}"#.to_vec())
+        }
+        fn backoff(&mut self, _: u64) {}
+    }
+    #[test]
+    fn l1_finality_prunes_expired_routes_and_inactive_retry_history() -> Result<()> {
+        let mut client = ArchiveClient::new(vec!["http://127.0.0.1:1".into()], Box::new(Missing))?;
+        client.posting_finality(2);
+        let first = crate::input::empty_fixture(1, [0; 32]);
+        let second = crate::input::empty_fixture(2, [0; 32]);
+        assert!(client.transaction_row(&first).is_err());
+        assert!(client.transaction_row(&second).is_err());
+        assert_eq!(client.not_served_routes.len(), 2);
+        assert_eq!(client.proof_retry.len(), 2);
+        let expired = Instant::now() - Duration::from_secs(60);
+        for ((_, route), until) in &mut client.not_served_routes {
+            if route.ends_with(&first.block_hash[2..]) {
+                *until = expired;
+            }
+        }
+        client.proof_retry.get_mut(&first.block_hash).unwrap().at = expired;
+        client.posting_finality(3);
+        assert_eq!(
+            client.not_served_routes.len(),
+            1,
+            "expired route history grew forever"
+        );
+        assert_eq!(
+            client.proof_retry.len(),
+            1,
+            "inactive retry history grew forever"
+        );
+        assert!(client.proof_retry.contains_key(&second.block_hash));
+        Ok(())
+    }
 }

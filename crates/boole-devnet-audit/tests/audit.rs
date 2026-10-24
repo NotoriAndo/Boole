@@ -347,3 +347,40 @@ fn l3_m2_receipt_never_claims_that_m3_only_checks_ran() -> Result<()> {
     }
     Ok(())
 }
+
+#[test]
+fn b2_local_resource_stop_is_not_an_audit_mismatch() -> Result<()> {
+    struct Limited(View);
+    impl Node for Limited {
+        fn head(&mut self) -> Result<ParentHeader> {
+            self.0.head()
+        }
+        fn header(&mut self, h: u64) -> Result<ParentHeader> {
+            self.0.header(h)
+        }
+        fn transactions(&mut self, h: u64) -> Result<Vec<String>> {
+            self.0.transactions(h)
+        }
+        fn receipt_statuses(&mut self, _: u64) -> Result<Vec<bool>> {
+            Err(boole_devnet_audit::resource::ResourceStop {
+                resource: "rpc-bytes",
+                limit: 16 * 1024 * 1024,
+            }
+            .into())
+        }
+        fn depositor_balance(&mut self, h: u64) -> Result<u128> {
+            self.0.depositor_balance(h)
+        }
+    }
+    let (c, mut s, n, e) = setup()?;
+    let mut n = Limited(n);
+    let receipt = audit(&mut s, &mut n, &c, None, None, &e);
+    assert!(
+        receipt["first_mismatch"].is_null(),
+        "local bound accused the chain: {receipt}"
+    );
+    assert_eq!(receipt["resource_stop"]["height"], "1");
+    assert_eq!(receipt["resource_stop"]["resource"], "rpc-bytes");
+    assert_eq!(receipt["checks"]["ledger"], "resource-stop");
+    Ok(())
+}

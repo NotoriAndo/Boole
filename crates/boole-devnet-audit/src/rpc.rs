@@ -1,5 +1,5 @@
 //! Read-only, bounded RPC access to one authenticated L2 view per height.
-use crate::Node;
+use crate::{resource::ResourceStop, Node};
 use anyhow::{ensure, Context, Result};
 use boole_derivation::{
     attributes::{hex_bytes, hex_string},
@@ -14,22 +14,59 @@ use std::{cell::Cell, fmt, io::Read, net::IpAddr, time::Duration};
 pub const RPC_RESPONSE_MAX: usize = 16 * 1024 * 1024;
 pub const RPC_ROWS_MAX: usize = 65536;
 pub const RPC_NODES_MAX: usize = 65536;
+pub const RPC_RECEIPT_NODES_MAX: usize = RPC_RESPONSE_MAX / 2 + 1;
+pub const RPC_RECEIPT_MEMORY_MAX: usize = RPC_RESPONSE_MAX * 32;
+pub const RPC_MEMORY_MAX: usize = RPC_RESPONSE_MAX * 8;
+struct ValueBudget {
+    nodes: Cell<usize>,
+    memory: Cell<usize>,
+    node_limit: usize,
+    memory_limit: usize,
+    stop: Cell<Option<ResourceStop>>,
+}
+impl ValueBudget {
+    fn charge<E: serde::de::Error>(&self, bytes: usize) -> std::result::Result<(), E> {
+        match self.memory.get().checked_sub(bytes) {
+            Some(left) => {
+                self.memory.set(left);
+                Ok(())
+            }
+            None => {
+                let stop = ResourceStop {
+                    resource: "rpc-memory",
+                    limit: self.memory_limit,
+                };
+                self.stop.set(Some(stop));
+                Err(E::custom(stop))
+            }
+        }
+    }
+    fn exhausted<E: serde::de::Error>(&self, resource: &'static str, limit: usize) -> E {
+        let stop = ResourceStop { resource, limit };
+        self.stop.set(Some(stop));
+        E::custom(stop)
+    }
+}
 #[derive(Clone, Copy)]
 struct BoundedValue<'a> {
     depth: usize,
-    remaining: &'a Cell<usize>,
+    budget: &'a ValueBudget,
 }
 impl<'de> DeserializeSeed<'de> for BoundedValue<'_> {
     type Value = Value;
     fn deserialize<D: Deserializer<'de>>(self, d: D) -> std::result::Result<Value, D::Error> {
         let remaining = self
-            .remaining
+            .budget
+            .nodes
             .get()
             .checked_sub(1)
-            .ok_or_else(|| serde::de::Error::custom("RPC response node cap"))?;
-        self.remaining.set(remaining);
+            .ok_or_else(|| self.budget.exhausted("rpc-nodes", self.budget.node_limit))?;
+        self.budget.nodes.set(remaining);
+        // Three Value slots cover vector growth's old and new allocations.
+        self.budget
+            .charge::<D::Error>(3 * std::mem::size_of::<Value>())?;
         if self.depth >= 64 {
-            return Err(serde::de::Error::custom("RPC response depth cap"));
+            return Err(self.budget.exhausted("rpc-depth", 64));
         }
         d.deserialize_any(self)
     }
@@ -57,33 +94,40 @@ impl<'de> Visitor<'de> for BoundedValue<'_> {
             .ok_or_else(|| E::custom("RPC number"))
     }
     fn visit_str<E: serde::de::Error>(self, v: &str) -> std::result::Result<Value, E> {
+        self.budget.charge::<E>(v.len().saturating_add(32))?;
         Ok(Value::String(v.into()))
     }
     fn visit_string<E: serde::de::Error>(self, v: String) -> std::result::Result<Value, E> {
+        self.budget.charge::<E>(v.len().saturating_add(32))?;
         Ok(Value::String(v))
     }
     fn visit_seq<A: SeqAccess<'de>>(self, mut a: A) -> std::result::Result<Value, A::Error> {
+        self.budget.charge::<A::Error>(128)?;
         let mut rows = vec![];
         while let Some(value) = a.next_element_seed(Self {
             depth: self.depth + 1,
-            remaining: self.remaining,
+            budget: self.budget,
         })? {
             rows.push(value);
         }
         Ok(Value::Array(rows))
     }
     fn visit_map<A: MapAccess<'de>>(self, mut a: A) -> std::result::Result<Value, A::Error> {
+        // Conservatively cover a sparse BTree root and splits/keys per entry.
+        self.budget.charge::<A::Error>(1024)?;
         let mut map = serde_json::Map::new();
         while let Some(key) = a.next_key::<String>()? {
             if map.len() >= 256 {
-                return Err(serde::de::Error::custom("RPC response field cap"));
+                return Err(self.budget.exhausted("rpc-fields", 256));
             }
             if map.contains_key(&key) {
                 return Err(serde::de::Error::custom("RPC duplicate field"));
             }
+            self.budget
+                .charge::<A::Error>(key.len().saturating_add(288))?;
             let value = a.next_value_seed(Self {
                 depth: self.depth + 1,
-                remaining: self.remaining,
+                budget: self.budget,
             })?;
             map.insert(key, value);
         }
@@ -123,24 +167,49 @@ impl Rpc {
             .json(&json!({"jsonrpc":"2.0","id":1,"method":method,"params":params}))
             .send()?
             .error_for_status()?;
-        ensure!(
-            response
-                .content_length()
-                .is_none_or(|n| n <= RPC_RESPONSE_MAX as u64),
-            "RPC response byte cap"
-        );
+        if response
+            .content_length()
+            .is_some_and(|n| n > RPC_RESPONSE_MAX as u64)
+        {
+            return Err(ResourceStop {
+                resource: "rpc-bytes",
+                limit: RPC_RESPONSE_MAX,
+            }
+            .into());
+        }
         let mut bytes = vec![];
         response
             .take(RPC_RESPONSE_MAX as u64 + 1)
             .read_to_end(&mut bytes)?;
-        ensure!(bytes.len() <= RPC_RESPONSE_MAX, "RPC response byte cap");
+        if bytes.len() > RPC_RESPONSE_MAX {
+            return Err(ResourceStop {
+                resource: "rpc-bytes",
+                limit: RPC_RESPONSE_MAX,
+            }
+            .into());
+        }
         let mut decoder = serde_json::Deserializer::from_slice(&bytes);
-        let remaining = Cell::new(RPC_NODES_MAX);
+        let (node_limit, memory_limit) = if method == "eth_getBlockReceipts" {
+            (RPC_RECEIPT_NODES_MAX, RPC_RECEIPT_MEMORY_MAX)
+        } else {
+            (RPC_NODES_MAX, RPC_MEMORY_MAX)
+        };
+        let budget = ValueBudget {
+            nodes: Cell::new(node_limit),
+            memory: Cell::new(memory_limit),
+            node_limit,
+            memory_limit,
+            stop: Cell::new(None),
+        };
         let mut value = BoundedValue {
             depth: 0,
-            remaining: &remaining,
+            budget: &budget,
         }
-        .deserialize(&mut decoder)?;
+        .deserialize(&mut decoder)
+        .map_err(|error| match budget.stop.get() {
+            Some(stop) => anyhow::Error::new(stop),
+            None => error.into(),
+        })?;
         decoder.end()?;
         ensure!(
             value["jsonrpc"] == "2.0" && value["id"] == 1 && value.get("error").is_none(),
@@ -187,7 +256,13 @@ impl RpcNode {
         let hashes = block["transactions"]
             .as_array()
             .context("L2 transaction hashes")?;
-        ensure!(hashes.len() <= RPC_ROWS_MAX, "RPC response row cap");
+        if hashes.len() > RPC_ROWS_MAX {
+            return Err(ResourceStop {
+                resource: "rpc-rows",
+                limit: RPC_ROWS_MAX,
+            }
+            .into());
+        }
         let mut txs = vec![];
         let mut bytes = 0usize;
         for hash in hashes {
@@ -197,8 +272,11 @@ impl RpcNode {
             let raw = value.as_str().context("L2 transaction bytes")?;
             bytes = bytes
                 .checked_add(raw.len())
-                .context("RPC transaction byte cap")?;
-            ensure!(bytes <= RPC_RESPONSE_MAX, "RPC transaction byte cap");
+                .filter(|n| *n <= RPC_RESPONSE_MAX)
+                .ok_or(ResourceStop {
+                    resource: "rpc-transaction-bytes",
+                    limit: RPC_RESPONSE_MAX,
+                })?;
             ensure!(
                 hex_string(&boole_derivation::user_tx::keccak(&hex_bytes(
                     raw,
@@ -228,9 +306,7 @@ pub fn receipt_bytes(value: &Value) -> Result<Vec<u8>> {
     if value["type"].is_null() || quantity(&value["type"])? != 0x7e {
         return boole_devnet_archive::input::receipt_from_rpc(value);
     }
-    let mut base = value.clone();
-    base["type"] = json!("0x0");
-    let raw = boole_devnet_archive::input::receipt_from_rpc(&base)?;
+    let raw = boole_devnet_archive::input::receipt_payload_from_rpc(value)?;
     let children = boole_derivation::rlp::decode(&raw)
         .map_err(anyhow::Error::msg)?
         .children

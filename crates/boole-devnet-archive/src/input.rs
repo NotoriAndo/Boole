@@ -224,7 +224,7 @@ pub fn header_needs_receipts(raw: &[u8]) -> Result<bool> {
         &hex_bytes(&boole_derivation::config::posted_topic(), "topic")?,
     ))
 }
-pub fn receipt_from_rpc(v: &Value) -> Result<Vec<u8>> {
+pub fn receipt_payload_from_rpc(v: &Value) -> Result<Vec<u8>> {
     let mut logs = vec![];
     for log in v["logs"].as_array().context("receipt logs")? {
         let topics = log["topics"]
@@ -240,12 +240,15 @@ pub fn receipt_from_rpc(v: &Value) -> Result<Vec<u8>> {
             rlp::bytes(&data(&log["data"], None)?),
         ]));
     }
-    let raw = rlp::list(&[
+    Ok(rlp::list(&[
         rlp::bytes(&quantity_bytes(&v["status"])?),
         rlp::bytes(&quantity_bytes(&v["cumulativeGasUsed"])?),
         rlp::bytes(&data(&v["logsBloom"], Some(256))?),
         rlp::list(&logs),
-    ]);
+    ]))
+}
+pub fn receipt_from_rpc(v: &Value) -> Result<Vec<u8>> {
+    let raw = receipt_payload_from_rpc(v)?;
     let kind = if v["type"].is_null() {
         0
     } else {

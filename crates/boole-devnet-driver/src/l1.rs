@@ -453,6 +453,19 @@ impl<L: L1Source> L1Source for JournalSource<L> {
             archives.posting_probe_order(&mut heights);
         }
         for h in heights {
+            if let Some(archives) = &self.archives {
+                if archives.posting_requests_remaining() == 0 {
+                    break;
+                }
+                if !self
+                    .journal
+                    .borrow()
+                    .hash(h)
+                    .is_some_and(|hash| archives.posting_requestable(hash))
+                {
+                    continue;
+                }
+            }
             let row = self.journal.borrow().row(h)?;
             let verify = |bytes: &[u8]| -> Result<()> {
                 let proof: InputRow = serde_json::from_slice(bytes)?;
