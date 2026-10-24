@@ -564,8 +564,7 @@ mod fix2_tests {
                 let result = sink.capture_candidates(&mut driver, &s, &[], 17);
                 let error = result
                     .as_ref()
-                    .err()
-                    .expect("capture fixture must be unavailable");
+                    .expect_err("capture fixture must be unavailable");
                 assert!(
                     if missing_codec {
                         error.is::<boole_gate_supervisor::rebuild::NodeUnavailable>()
