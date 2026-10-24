@@ -232,7 +232,11 @@ fn parse(raw: &[u8]) -> Result<(&str, &str)> {
     ensure!(
         fields.len() == 3
             && !fields[0].is_empty()
+            && fields[0]
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
             && !fields[1].is_empty()
+            && fields[1].bytes().all(|b| b.is_ascii_graphic())
             && fields[2] == "HTTP/1.1",
         "request line"
     );

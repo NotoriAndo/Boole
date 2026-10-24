@@ -707,8 +707,8 @@ fn prune_archive_download(journal: &boole_devnet_archive::journal::InputJournal)
     }
     let cache = boole_devnet_archive::objects::Objects::open(&root)?;
     let hashes = (0..=journal.tip())
-        .filter_map(|h| journal.hash(h).map(str::to_owned))
-        .collect::<std::collections::BTreeSet<_>>();
+        .filter_map(|h| journal.hash(h).map(|hash| (hash.to_owned(), h)))
+        .collect::<std::collections::BTreeMap<_, _>>();
     for entry in std::fs::read_dir(&root)? {
         let entry = entry?;
         let name = entry.file_name();
@@ -722,10 +722,7 @@ fn prune_archive_download(journal: &boole_devnet_archive::journal::InputJournal)
         }
         let key = format!("0x{name}");
         // Only retire a copy matched to an authenticated journal row, under its writer lock.
-        if hashes.contains(&key) {
-            let h = journal
-                .height_for_hash(&key)
-                .context("journal cache match")?;
+        if let Some(&h) = hashes.get(&key) {
             journal.get(h)?;
             cache.retire(&key, |b| {
                 boole_devnet_archive::archive::verify_header(&key, b)
