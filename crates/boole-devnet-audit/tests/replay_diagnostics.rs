@@ -66,3 +66,77 @@ fn b2_replay_resource_stop_keeps_its_height_without_first_mismatch() {
     assert_eq!(receipt["resource_stop"]["height"], "12");
     assert_eq!(receipt["checks"]["execution"], "resource-stop");
 }
+
+#[test]
+fn fix4_resource_stop_wins_over_later_cleanup_failure() {
+    let mut r = receipt();
+    boole_devnet_audit::mark_resource_stop(
+        &mut r,
+        5,
+        "ledger",
+        boole_devnet_audit::resource::ResourceStop {
+            resource: "rpc-bytes",
+            limit: 16,
+        },
+    );
+    r["checks"]["execution"] = json!("resource-stop");
+    let original = r["resource_stop"].clone();
+    report_cleanup(&mut r, false, 1);
+    assert!(r["first_mismatch"].is_null());
+    assert_eq!(r["resource_stop"], original);
+    assert_eq!(r["checks"]["execution"], "resource-stop");
+    assert_eq!(r["checks"]["engine-cleanup"], "failed");
+    assert_eq!(
+        r["private_engine_cleanup"],
+        json!({"stopped":false,"log_issues":1})
+    );
+}
+
+#[test]
+fn fix4_first_stop_survives_later_reporting_paths() {
+    use boole_devnet_audit::{mark_resource_stop, resource::ResourceStop};
+    let mut r = receipt();
+    mark_resource_stop(
+        &mut r,
+        3,
+        "ledger",
+        ResourceStop {
+            resource: "rpc-bytes",
+            limit: 16,
+        },
+    );
+    r["checks"]["execution"] = json!("resource-stop");
+    let first = r["resource_stop"].clone();
+    mark_resource_stop(
+        &mut r,
+        4,
+        "prefix",
+        ResourceStop {
+            resource: "rpc-time",
+            limit: 15000,
+        },
+    );
+    let error = anyhow::Error::new(Failure {
+        height: 5,
+        class: "prefix",
+    });
+    report_failure(&mut r, &error, "mismatch");
+    mark_mismatch(&mut r, 5, "prefix");
+    assert!(r["first_mismatch"].is_null());
+    assert_eq!(r["resource_stop"], first);
+    assert_eq!(r["checks"]["execution"], "resource-stop");
+    let mut mismatch = receipt();
+    mark_mismatch(&mut mismatch, 2, "prefix");
+    let first = mismatch["first_mismatch"].clone();
+    mark_resource_stop(
+        &mut mismatch,
+        3,
+        "ledger",
+        ResourceStop {
+            resource: "rpc-time",
+            limit: 15000,
+        },
+    );
+    assert_eq!(mismatch["first_mismatch"], first);
+    assert!(mismatch["resource_stop"].is_null());
+}

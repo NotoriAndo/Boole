@@ -182,6 +182,22 @@ pub fn failed_receipt(c: &Config, forks: Option<&ForkTable>, height: u64, class:
 }
 /// Preserve the earliest mismatch while making every failed check explicit.
 pub fn mark_mismatch(receipt: &mut Value, height: u64, class: &str) {
+    if !receipt["resource_stop"].is_null() {
+        if class != "input" {
+            receipt["checks"][class] = json!("failed");
+            return;
+        }
+        // Source tampering is evidence and outranks an earlier local bound.
+        let stop = receipt
+            .as_object_mut()
+            .unwrap()
+            .remove("resource_stop")
+            .unwrap();
+        receipt["superseded_resource_stop"] = stop;
+        if receipt["checks"]["execution"] == "resource-stop" {
+            receipt["checks"]["execution"] = json!("mismatch");
+        }
+    }
     if receipt["first_mismatch"].is_null() {
         receipt["first_mismatch"] = json!({"height":height.to_string(),"class":class});
     }
@@ -193,6 +209,9 @@ pub fn mark_resource_stop(
     class: &str,
     stop: resource::ResourceStop,
 ) {
+    if !succeeded(receipt) {
+        return;
+    }
     receipt["resource_stop"] = json!({"height":height.to_string(),"check":class,"resource":stop.resource,"limit":stop.limit.to_string()});
     receipt["checks"][class] = json!("resource-stop");
 }
@@ -415,7 +434,7 @@ pub fn audit_in(
                 return Err(AuditFailure {
                     height: failure.height,
                     class: "K4",
-                    resource: None,
+                    resource: failure.resource,
                 });
             }
         }
@@ -596,3 +615,30 @@ mod tests {
 pub mod k4;
 
 pub mod resource;
+
+/// Shared CLI output path, including the process exit status.
+pub fn emit_receipt(receipt: &Value) {
+    let resource = !receipt["resource_stop"].is_null();
+    let failed = !succeeded(receipt);
+    println!("{}", receipt);
+    if failed {
+        std::process::exit(if resource { 2 } else { 1 });
+    }
+}
+/// Re-check the source immediately before returning an audit result.
+pub fn recheck_inputs(receipt: &mut Value, inputs: &dyn Inputs) {
+    if let Err(error) = inputs.check() {
+        if let Some(stop) = error.downcast_ref::<resource::ResourceStop>() {
+            mark_resource_stop(receipt, inputs.tip(), "input", *stop);
+        } else {
+            let height = match error.downcast_ref::<boole_devnet_archive::error::Error>() {
+                Some(
+                    boole_devnet_archive::error::Error::Integrity { height, .. }
+                    | boole_devnet_archive::error::Error::Availability { height, .. },
+                ) => *height,
+                _ => inputs.tip(),
+            };
+            mark_mismatch(receipt, height, "input");
+        }
+    }
+}

@@ -56,6 +56,12 @@ pub fn report_failure(receipt: &mut Value, error: &anyhow::Error, status: &str) 
             _ => (completed(receipt), "replay-setup"),
         }
     };
+    let input_overrides_resource = class == "input"
+        && !receipt["resource_stop"].is_null()
+        && !error.is::<crate::resource::ResourceStop>();
+    if !crate::succeeded(receipt) && !input_overrides_resource {
+        return;
+    }
     if let Some(stop) = error.downcast_ref::<crate::resource::ResourceStop>() {
         crate::mark_resource_stop(receipt, height, class, *stop);
         receipt["checks"]["execution"] = json!("resource-stop");
@@ -73,6 +79,14 @@ fn completed(receipt: &Value) -> u64 {
 pub fn report_cleanup(receipt: &mut Value, stopped: bool, issues: usize) {
     receipt["private_engine_cleanup"] = json!({"stopped":stopped,"log_issues":issues});
     if !stopped || issues > 0 {
+        if !crate::succeeded(receipt) {
+            receipt["checks"]["engine-cleanup"] = json!(if receipt["resource_stop"].is_null() {
+                "mismatch"
+            } else {
+                "failed"
+            });
+            return;
+        }
         let height = completed(receipt);
         crate::mark_mismatch(receipt, height, "engine-cleanup");
         receipt["checks"]["execution"] = json!("mismatch");
@@ -335,7 +349,29 @@ pub fn replay(
     receipt: &mut Value,
 ) -> Result<()> {
     receipt["replayed_blocks"] = json!("0");
-    let mut engine = at(0, "replay-setup", private.engine())?;
+    replay_engine(
+        inputs,
+        audited,
+        c,
+        forks,
+        supervisor,
+        at(0, "replay-setup", private.engine())?,
+        &private.http,
+        receipt,
+    )
+}
+#[allow(clippy::too_many_arguments)]
+fn replay_engine<E: Engine>(
+    inputs: &mut dyn Inputs,
+    audited: &mut dyn Node,
+    c: Config,
+    forks: Option<ForkTable>,
+    supervisor: Option<Supervisor>,
+    mut engine: E,
+    private_http: &str,
+    receipt: &mut Value,
+) -> Result<()> {
+    receipt["replayed_blocks"] = json!("0");
     let genesis = at(0, "replay-setup", engine.header(0))?;
     at(
         0,
@@ -389,7 +425,7 @@ pub fn replay(
                 "private replay L2 hash"
             );
             phase = "ledger";
-            let mut private_node = RpcNode::new(&private.http)?;
+            let mut private_node = RpcNode::new(private_http)?;
             ensure!(
                 private_node.receipt_statuses(h)? == audited.receipt_statuses(h)?
                     && private_node.depositor_balance(h)? == audited.depositor_balance(h)?,
@@ -399,9 +435,19 @@ pub fn replay(
             driver.l1.inputs.check()?;
             Ok(())
         })() {
-            let class = if driver.l1.inputs.check().is_err() {
-                "input"
-            } else if error
+            // Reverify owned inputs before classifying an operational stop.
+            // A local bound from the recheck is not evidence of tampering.
+            if driver
+                .l1
+                .inputs
+                .check()
+                .is_err_and(|e| !e.is::<crate::resource::ResourceStop>())
+            {
+                crate::mark_mismatch(receipt, h, "input");
+                receipt["checks"]["execution"] = json!("mismatch");
+                return Ok(());
+            }
+            let class = if error
                 .downcast_ref::<boole_devnet_driver::driver::Stall>()
                 .is_some_and(|s| {
                     matches!(
@@ -409,14 +455,16 @@ pub fn replay(
                         boole_devnet_driver::driver::StallKind::VerdictPending { .. }
                             | boole_devnet_driver::driver::StallKind::Verdict { .. }
                     )
-                })
-            {
+                }) {
                 "verdict"
             } else {
                 phase
             };
-            crate::mark_mismatch(receipt, h, class);
-            receipt["checks"]["execution"] = json!("mismatch");
+            report_failure(
+                receipt,
+                &error.context(Failure { height: h, class }),
+                "mismatch",
+            );
             return Ok(());
         }
         receipt["replayed_blocks"] = json!(h.to_string());
@@ -425,3 +473,7 @@ pub fn replay(
     receipt["replayed_blocks"] = json!(tip.to_string());
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "replay_loop_tests.rs"]
+mod loop_tests;

@@ -612,3 +612,45 @@ fn f5_two_same_block_accept_rechecks_compensate_once_in_fold_order() -> Result<(
 fn f5_same_block_accept_then_reject_keeps_compensation_and_cancellation_order() -> Result<()> {
     duplicate_rechecks(true)
 }
+
+#[test]
+fn fix4_k4_rebuild_keeps_a_typed_history_resource_stop() -> Result<()> {
+    struct Limited;
+    impl boole_gate_supervisor::rebuild::History for Limited {
+        fn origin(&mut self, _: u64) -> Result<(L1Block, Vec<boole_derivation::InboxLog>)> {
+            Err(boole_devnet_audit::resource::ResourceStop {
+                resource: "rpc-time",
+                limit: 15000,
+            }
+            .into())
+        }
+    }
+    let frames = frames()?;
+    let state = &frames.last().unwrap().1;
+    let key = *state
+        .m3
+        .as_ref()
+        .unwrap()
+        .results
+        .keys()
+        .next()
+        .context("record")?;
+    let work = boole_devnet_archive::durability::PrivateTempDir::new("audit-k4-resource")?;
+    let f = boole_devnet_audit::k4::check(
+        state,
+        &frames[0].2,
+        None,
+        &mut Limited,
+        Some(&boole_gate_supervisor::codec::Codec::portable_stub()),
+        &std::collections::BTreeMap::from([(key, 26)]),
+        work.path(),
+    )
+    .unwrap_err();
+    assert_eq!(
+        f.resource.expect("K4 erased a typed history stop").resource,
+        "rpc-time"
+    );
+    assert_eq!(f.height, 26);
+    assert_eq!(f.coverage.checked, 0);
+    Ok(())
+}

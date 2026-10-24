@@ -286,6 +286,22 @@ A local byte, node, depth, field, row or allocation limit returns a typed
 `resource_stop` with decimal height/limit and a `resource-stop` check, leaves
 `first_mismatch` null, and exits 2. It does not claim a chain mismatch; genuine
 input mismatches still exit 1. Successful receipt bytes are unchanged.
+The 15 s whole-response deadline, covering both response headers and body reads,
+is also a typed `rpc-time` stop; its `limit` is milliseconds (15,000, or 3,000
+for the existing connection deadline). Refused/reset connections and malformed
+HTTP remain transport failures, not resource bounds.
+
+Replay preserves resource types and the current phase at the actual block height,
+including private RPC initialization, headers, receipts and depositor balance.
+Owned inputs are rechecked before classifying a per-block failure and again
+before emitting the final receipt, even after a resource stop. Verified source
+change outranks that stop: it becomes an input mismatch with exit 1, and the
+prior local bound is retained as `superseded_resource_stop`.
+Otherwise the first stop wins. A later Engine cleanup failure is still recorded
+in `private_engine_cleanup` and its `engine-cleanup` check, but keeps the earlier
+resource stop, null `first_mismatch`, original execution check and exit 2.
+A cleanup failure with no earlier stop remains its own mismatch. K4 retained
+record rebuilds also preserve typed resource stops from their input history.
 The depositor balance uses the already authenticated block hash with EIP-1898
 `requireCanonical: true`, alongside the cached header/transaction/receipt view. Under M2 the
 verdict, admission and fork checks are `not-applicable`. Replay setup and private

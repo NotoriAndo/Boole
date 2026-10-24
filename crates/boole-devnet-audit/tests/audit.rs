@@ -384,3 +384,29 @@ fn b2_local_resource_stop_is_not_an_audit_mismatch() -> Result<()> {
     assert_eq!(receipt["checks"]["ledger"], "resource-stop");
     Ok(())
 }
+
+#[test]
+fn fix4_final_input_recheck_runs_after_a_resource_stop_and_input_wins() -> Result<()> {
+    let (c, source, _, _) = setup()?;
+    let mut r = boole_devnet_audit::resource_receipt(
+        &c,
+        None,
+        1,
+        "ledger",
+        boole_devnet_audit::resource::ResourceStop {
+            resource: "rpc-bytes",
+            limit: 16,
+        },
+    );
+    source
+        .changed
+        .store(true, std::sync::atomic::Ordering::Release);
+    boole_devnet_audit::recheck_inputs(&mut r, &source);
+    assert_eq!(
+        r["first_mismatch"],
+        json!({"height":source.tip().to_string(),"class":"input"})
+    );
+    assert!(r["resource_stop"].is_null());
+    assert_eq!(r["superseded_resource_stop"]["resource"], "rpc-bytes");
+    Ok(())
+}

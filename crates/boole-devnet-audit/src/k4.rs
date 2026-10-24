@@ -16,6 +16,7 @@ pub struct Coverage {
 pub struct Failure {
     pub height: u64,
     pub coverage: Coverage,
+    pub resource: Option<crate::resource::ResourceStop>,
 }
 pub fn check(
     state: &State,
@@ -64,9 +65,19 @@ pub fn check(
             })
             .unwrap_or(0);
         let scratch = boole_devnet_archive::durability::PrivateTempDir::new_in(work, "k4")
-            .map_err(|_| Failure { height, coverage })?;
-        if rebuild::rebuild(state, c, key, history, codec, scratch.path()).is_err() {
-            return Err(Failure { height, coverage });
+            .map_err(|_| Failure {
+                height,
+                coverage,
+                resource: None,
+            })?;
+        if let Err(error) = rebuild::rebuild(state, c, key, history, codec, scratch.path()) {
+            return Err(Failure {
+                height,
+                coverage,
+                resource: error
+                    .downcast_ref::<crate::resource::ResourceStop>()
+                    .copied(),
+            });
         }
         coverage.checked += 1;
     }

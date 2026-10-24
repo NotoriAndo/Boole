@@ -250,20 +250,13 @@ fn run(args: Args) -> Result<Value> {
             }
         }
     }
-    if boole_devnet_audit::succeeded(&receipt) && inputs.check().is_err() {
-        boole_devnet_audit::mark_mismatch(&mut receipt, inputs.tip(), "input");
-    }
+    boole_devnet_audit::recheck_inputs(&mut receipt, inputs.as_ref());
     Ok(receipt)
 }
 fn main() {
     match run(Args::parse()) {
         Ok(receipt) => {
-            let resource = !receipt["resource_stop"].is_null();
-            let failed = !boole_devnet_audit::succeeded(&receipt);
-            println!("{}", receipt);
-            if failed {
-                std::process::exit(if resource { 2 } else { 1 })
-            }
+            boole_devnet_audit::emit_receipt(&receipt);
         }
         Err(_) => {
             eprintln!("audit setup unavailable; sources preserved");

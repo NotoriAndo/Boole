@@ -134,6 +134,39 @@ impl<'de> Visitor<'de> for BoundedValue<'_> {
         Ok(Value::Object(map))
     }
 }
+/// Preserve non-timeout transport errors; only an elapsed local deadline is
+/// a resource stop. reqwest's body timeout is wrapped in an io::Error.
+fn timeout_limit(error: &(dyn std::error::Error + 'static)) -> Option<usize> {
+    if let Some(e) = error.downcast_ref::<reqwest::Error>() {
+        if e.is_timeout() {
+            return Some(if e.is_connect() { 3000 } else { 15000 });
+        }
+    }
+    if let Some(e) = error.downcast_ref::<std::io::Error>() {
+        if e.kind() == std::io::ErrorKind::TimedOut {
+            return Some(15000);
+        }
+        if let Some(inner) = e.get_ref() {
+            if let Some(limit) = timeout_limit(inner) {
+                return Some(limit);
+            }
+        }
+    }
+    error.source().and_then(timeout_limit)
+}
+fn rpc_transport(error: impl Into<anyhow::Error>) -> anyhow::Error {
+    let error = error.into();
+    if let Some(limit) = timeout_limit(error.as_ref()) {
+        ResourceStop {
+            resource: "rpc-time",
+            limit,
+        }
+        .into()
+    } else {
+        error
+    }
+}
+
 struct Rpc {
     url: reqwest::Url,
     client: reqwest::blocking::Client,
@@ -165,7 +198,8 @@ impl Rpc {
             .client
             .post(self.url.clone())
             .json(&json!({"jsonrpc":"2.0","id":1,"method":method,"params":params}))
-            .send()?
+            .send()
+            .map_err(rpc_transport)?
             .error_for_status()?;
         if response
             .content_length()
@@ -180,7 +214,8 @@ impl Rpc {
         let mut bytes = vec![];
         response
             .take(RPC_RESPONSE_MAX as u64 + 1)
-            .read_to_end(&mut bytes)?;
+            .read_to_end(&mut bytes)
+            .map_err(rpc_transport)?;
         if bytes.len() > RPC_RESPONSE_MAX {
             return Err(ResourceStop {
                 resource: "rpc-bytes",
@@ -389,5 +424,110 @@ impl Node for RpcNode {
         let bytes = boole_devnet_archive::input::quantity_bytes(&v)?;
         ensure!(bytes.len() <= 16, "depositor balance width");
         Ok(bytes.iter().fold(0, |n, b| (n << 8) | u128::from(*b)))
+    }
+}
+
+#[cfg(test)]
+mod timeout_tests {
+    use super::*;
+    use std::{io::Write, net::TcpListener, thread};
+    fn delayed(body: bool) -> Result<anyhow::Error> {
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        let url = format!("http://{}", listener.local_addr()?);
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            let mut header = vec![];
+            let mut byte = [0];
+            while !header.ends_with(b"\r\n\r\n") {
+                socket.read_exact(&mut byte).unwrap();
+                header.push(byte[0]);
+            }
+            let text = String::from_utf8(header).unwrap();
+            let len: usize = text
+                .lines()
+                .find_map(|l| {
+                    l.to_lowercase()
+                        .strip_prefix("content-length:")
+                        .map(|v| v.trim().parse().unwrap())
+                })
+                .unwrap();
+            let mut bytes = vec![0; len];
+            socket.read_exact(&mut bytes).unwrap();
+            if body {
+                write!(
+                    socket,
+                    "HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\n{{"
+                )
+                .unwrap();
+                socket.flush().unwrap();
+            }
+            thread::sleep(Duration::from_secs(16));
+        });
+        let error = Rpc::new(&url)?
+            .call("eth_chainId", json!([]))
+            .expect_err("delayed response accepted");
+        server.join().unwrap();
+        Ok(error)
+    }
+    #[test]
+    fn fix4_whole_response_header_timeout_is_typed() -> Result<()> {
+        let e = delayed(false)?;
+        assert!(
+            e.is::<ResourceStop>(),
+            "timeout became generic error: {e:#}"
+        );
+        assert_eq!(
+            e.downcast_ref::<ResourceStop>().unwrap().resource,
+            "rpc-time"
+        );
+        Ok(())
+    }
+    #[test]
+    fn fix4_whole_response_body_timeout_is_typed() -> Result<()> {
+        let e = delayed(true)?;
+        assert!(
+            e.is::<ResourceStop>(),
+            "body timeout became generic error: {e:#}"
+        );
+        assert_eq!(
+            e.downcast_ref::<ResourceStop>().unwrap().resource,
+            "rpc-time"
+        );
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod transport_controls {
+    use super::*;
+    use std::{io::Write, net::TcpListener, thread};
+    #[test]
+    fn fix4_refused_connection_is_not_a_resource_bound() -> Result<()> {
+        let l = TcpListener::bind("127.0.0.1:0")?;
+        let url = format!("http://{}", l.local_addr()?);
+        drop(l);
+        let e = Rpc::new(&url)?.call("eth_chainId", json!([])).unwrap_err();
+        assert!(!e.is::<ResourceStop>());
+        Ok(())
+    }
+    #[test]
+    fn fix4_disconnect_and_malformed_http_keep_their_transport_class() -> Result<()> {
+        for malformed in [false, true] {
+            let l = TcpListener::bind("127.0.0.1:0")?;
+            let url = format!("http://{}", l.local_addr()?);
+            let server = thread::spawn(move || {
+                let (mut s, _) = l.accept().unwrap();
+                if malformed {
+                    s.write_all(b"not HTTP\r\n\r\n").unwrap();
+                }
+            });
+            let e = Rpc::new(&url)?.call("eth_chainId", json!([])).unwrap_err();
+            server.join().unwrap();
+            assert!(!e.is::<ResourceStop>(), "transport misclassified {e:#}");
+        }
+        Ok(())
     }
 }
