@@ -229,34 +229,7 @@ impl ArchiveClient {
 impl ArchiveClient {
     pub fn row(&mut self, key: &str, height: u64) -> Result<InputRow> {
         let raw = self.header(key, height)?;
-        if crate::input::header_needs_receipts(&raw)? {
-            self.fetch_verified(
-                &format!("l1/receipts/{}", &key[2..]),
-                OBJ_MAX,
-                height,
-                |b| {
-                    let row = InputRow {
-                        schema_version: 1,
-                        block_hash: key.into(),
-                        header_rlp: hex_string(&raw),
-                        receipts: Some(receipt_list(b)?),
-                        transactions: None,
-                    };
-                    row.verify()?;
-                    Ok(row)
-                },
-            )
-        } else {
-            let row = InputRow {
-                schema_version: 1,
-                block_hash: key.into(),
-                header_rlp: hex_string(&raw),
-                receipts: None,
-                transactions: None,
-            };
-            row.verify()?;
-            Ok(row)
-        }
+        self.row_from_header(key, height, &raw)
     }
 }
 
@@ -305,7 +278,7 @@ impl ArchiveClient {
             empty.verify()?;
             return Ok(empty);
         }
-        self.fetch_verified(
+        let mut row = self.fetch_verified(
             &format!("l1/receipts/{}", &key[2..]),
             OBJ_MAX,
             height,
@@ -314,6 +287,44 @@ impl ArchiveClient {
                 row.receipts = Some(receipt_list(b)?);
                 row.verify()?;
                 Ok(row)
+            },
+        )?;
+        // Transaction proofs are optional for folding. Their absence preserves
+        // the miner's typed availability pause instead of inventing a receipt.
+        if let Ok(proof) = self.transaction_row(&row) {
+            row = proof;
+        }
+        Ok(row)
+    }
+    pub fn transaction_row(&mut self, row: &InputRow) -> Result<InputRow> {
+        let header = boole_derivation::attributes::hex_bytes(&row.header_rlp, "header")?;
+        crate::archive::verify_header(&row.block_hash, &header)?;
+        let h = row.block()?.number;
+        let receipts = if let Some(receipts) = &row.receipts {
+            receipts.clone()
+        } else {
+            self.fetch_verified(
+                &format!("l1/receipts/{}", &row.block_hash[2..]),
+                OBJ_MAX,
+                h,
+                |b| {
+                    let mut proof = row.clone();
+                    proof.receipts = Some(receipt_list(b)?);
+                    proof.verify()?;
+                    Ok(proof.receipts.unwrap())
+                },
+            )?
+        };
+        self.fetch_verified(
+            &format!("l1/txs/{}", &row.block_hash[2..]),
+            OBJ_MAX,
+            h,
+            |b| {
+                let mut proof = row.clone();
+                proof.receipts = Some(receipts.clone());
+                proof.transactions = Some(string_list(b, 65536)?);
+                proof.verify()?;
+                Ok(proof)
             },
         )
     }
@@ -596,6 +607,56 @@ impl ArchiveClient {
             },
         )
     }
+    /// Explicit follow input only. It authenticates framing/origin, not a verdict.
+    pub fn follow_system(
+        &mut self,
+        config: &boole_derivation::m2::Config,
+        l1: &boole_derivation::L1Block,
+    ) -> Result<Vec<String>> {
+        let limit = 2usize
+            .checked_add(usize::try_from(config.q_max)?)
+            .and_then(|n| n.checked_add(usize::try_from(config.m3.as_ref()?.q_reward).ok()?))
+            .context("follow prefix count")?;
+        self.fetch_verified(
+            &format!("l2/system/{}", l1.number),
+            REQ_MAX * limit,
+            l1.number,
+            |raw| {
+                let txs = string_list(raw, limit)?;
+                ensure!(
+                    txs.len() >= 2 && txs[0] == boole_derivation::system::l1_info(l1)?,
+                    "follow L1-info"
+                );
+                boole_derivation::system::read_m2_root(&txs[1], l1.number, &l1.hash)?;
+                let mut verdicts = vec![];
+                let mut rewards = false;
+                for tx in txs.iter().skip(2) {
+                    ensure!(
+                        tx.len() <= REQ_MAX && tx.starts_with("0x7e"),
+                        "follow system bounds/type"
+                    );
+                    let raw = boole_derivation::attributes::hex_bytes(tx, "follow deposit")?;
+                    let f = boole_derivation::rlp::decode(&raw[1..])
+                        .map_err(anyhow::Error::msg)?
+                        .children
+                        .context("follow deposit")?;
+                    ensure!(
+                        f.len() == 8 && f.iter().all(|f| f.children.is_none()),
+                        "follow deposit fields"
+                    );
+                    if f[7].bytes.starts_with(b"m3vd") {
+                        ensure!(!rewards, "VERDICT after REWARD");
+                        verdicts.push(tx.clone());
+                    } else {
+                        rewards = true;
+                        ensure!(f[7].bytes.is_empty(), "unknown follow system record");
+                    }
+                }
+                boole_derivation::m3::decode_verdict_deposits(config, l1, &verdicts)?;
+                Ok(txs)
+            },
+        )
+    }
     pub fn system(&mut self, height: u64, expected: &[String]) -> Result<Vec<String>> {
         self.fetch_verified(&format!("l2/system/{height}"), OBJ_MAX, height, |b| {
             let system: Vec<String> = serde_json::from_slice(b)?;
@@ -610,6 +671,10 @@ impl ArchiveClient {
 
 /// Decode the receipt list at the archive byte boundary.
 pub fn receipt_list(bytes: &[u8]) -> Result<Vec<String>> {
+    string_list(bytes, 65536)
+}
+/// Count-limited strings; refuse the next entry before decoding its value.
+pub fn string_list(bytes: &[u8], maximum: usize) -> Result<Vec<String>> {
     use serde::de::{DeserializeSeed, SeqAccess, Visitor};
     struct AtCap;
     impl<'de> DeserializeSeed<'de> for AtCap {
@@ -621,7 +686,7 @@ pub fn receipt_list(bytes: &[u8]) -> Result<Vec<String>> {
             Err(serde::de::Error::custom("receipt count cap"))
         }
     }
-    struct Bounded;
+    struct Bounded(usize);
     impl<'de> Visitor<'de> for Bounded {
         type Value = Vec<String>;
         fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -632,7 +697,7 @@ pub fn receipt_list(bytes: &[u8]) -> Result<Vec<String>> {
             mut seq: A,
         ) -> std::result::Result<Self::Value, A::Error> {
             let mut rows = Vec::new();
-            while rows.len() < 65536 {
+            while rows.len() < self.0 {
                 match seq.next_element::<String>()? {
                     Some(row) => rows.push(row),
                     None => return Ok(rows),
@@ -643,7 +708,7 @@ pub fn receipt_list(bytes: &[u8]) -> Result<Vec<String>> {
         }
     }
     let mut decoder = serde_json::Deserializer::from_slice(bytes);
-    let rows = serde::Deserializer::deserialize_seq(&mut decoder, Bounded)?;
+    let rows = serde::Deserializer::deserialize_seq(&mut decoder, Bounded(maximum))?;
     decoder.end()?;
     Ok(rows)
 }

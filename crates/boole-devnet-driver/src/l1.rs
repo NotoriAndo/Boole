@@ -22,6 +22,11 @@ fn capture_failure(height: u64, finalized: u64, error: anyhow::Error) -> anyhow:
 }
 
 pub trait L1Source {
+    /// Restore authenticated evidence for an own known posting hash, if needed.
+    fn restore_posting_proof(&mut self, _tx: &str, _finalized_before: u64) -> Result<()> {
+        Ok(())
+    }
+
     fn inputs_label(&self, _height: u64) -> &'static str {
         "l1-rpc"
     }
@@ -89,9 +94,11 @@ pub struct JournalSource<L> {
     remote_tip: Option<u64>,
     live_head: Option<(u64, String)>,
     acquisition: boole_devnet_archive::objects::Objects,
+    posting_proofs: Option<boole_devnet_archive::objects::Objects>,
     journal_replay: bool,
     archives: Option<boole_devnet_archive::client::ArchiveClient>,
     archive_heights: std::collections::BTreeSet<u64>,
+    archive_ranges: Vec<(u64, u64)>,
     initial_tip: u64,
     network: boole_devnet_archive::journal::NetworkIdentity,
 }
@@ -123,9 +130,18 @@ impl<L: L1Source> JournalSource<L> {
             remote_tip: None,
             live_head: None,
             acquisition,
+            posting_proofs: if root.join("transaction-proofs").exists() {
+                Some(boole_devnet_archive::objects::Objects::open_class(
+                    &root.join("transaction-proofs"),
+                    "transaction-proofs",
+                )?)
+            } else {
+                None
+            },
             journal_replay: false,
             archives: None,
             archive_heights: Default::default(),
+            archive_ranges: vec![],
             initial_tip,
             network,
         })
@@ -144,6 +160,12 @@ impl<L: L1Source> JournalSource<L> {
             let mut source = Self::open(inner, root, network, repair)?;
             prune_archive_download(&source.journal.borrow())?;
             source.archives = Some(archives);
+            if source.posting_proofs.is_none() {
+                source.posting_proofs = Some(boole_devnet_archive::objects::Objects::open_class(
+                    &root.join("transaction-proofs"),
+                    "transaction-proofs",
+                )?);
+            }
             return Ok(source);
         }
         let mut prepared = None;
@@ -194,6 +216,11 @@ impl<L: L1Source> JournalSource<L> {
             archive_heights.insert(h);
         }
         drop(download);
+        let archive_ranges = if journal.tip() > 0 {
+            vec![(1, journal.tip())]
+        } else {
+            vec![]
+        };
         let acquisition =
             boole_devnet_archive::objects::Objects::open(&journal.root().join("input-cache"))?;
         Ok(Self {
@@ -202,9 +229,14 @@ impl<L: L1Source> JournalSource<L> {
             remote_tip: None,
             live_head: None,
             acquisition,
+            posting_proofs: Some(boole_devnet_archive::objects::Objects::open_class(
+                &root.join("transaction-proofs"),
+                "transaction-proofs",
+            )?),
             journal_replay: false,
             archives: Some(archives),
             archive_heights,
+            archive_ranges,
             initial_tip: 0,
             network,
         })
@@ -358,6 +390,15 @@ impl<L: L1Source> JournalSource<L> {
                     self.journal.borrow_mut().append(&row)?;
                     download.appended(h)?;
                     self.archive_heights.insert(h);
+                    if let Some(last) = self
+                        .archive_ranges
+                        .last_mut()
+                        .filter(|r| r.1.checked_add(1) == Some(h))
+                    {
+                        last.1 = h;
+                    } else {
+                        self.archive_ranges.push((h, h));
+                    }
                     boole_devnet_archive::fault::hit("B1", h, "driver")?;
                 }
             } else if self.journal.borrow().hash(saved) != Some(cursor.as_str()) {
@@ -389,6 +430,89 @@ impl<L> std::ops::DerefMut for JournalSource<L> {
     }
 }
 impl<L: L1Source> L1Source for JournalSource<L> {
+    fn restore_posting_proof(&mut self, tx: &str, floor: u64) -> Result<()> {
+        use boole_devnet_archive::{error::Error, input::InputRow};
+        match self.journal.borrow().transaction_receipt_since(tx, floor) {
+            Ok(_) => return Ok(()),
+            Err(e)
+                if matches!(
+                    e.downcast_ref::<Error>(),
+                    Some(Error::Availability {
+                        class: "archive-tx-proof",
+                        ..
+                    })
+                ) => {}
+            Err(e) => return Err(e),
+        }
+        let heights = self
+            .journal
+            .borrow()
+            .missing_transaction_proofs_since(floor)?;
+        for h in heights {
+            let row = self.journal.borrow().row(h)?;
+            let verify = |bytes: &[u8]| -> Result<()> {
+                let proof: InputRow = serde_json::from_slice(bytes)?;
+                anyhow::ensure!(
+                    proof.block_hash == row.block_hash
+                        && proof.header_rlp == row.header_rlp
+                        && proof.transactions.is_some()
+                        && row
+                            .receipts
+                            .as_ref()
+                            .is_none_or(|r| Some(r) == proof.receipts.as_ref()),
+                    "posting proof origin binding"
+                );
+                proof.verify()?;
+                Ok(())
+            };
+            let cached = if let Some(cache) = &self.posting_proofs {
+                match cache.read(&row.block_hash, verify) {
+                    Ok(bytes) => bytes,
+                    Err(e)
+                        if matches!(
+                            e.downcast_ref::<Error>(),
+                            Some(Error::Integrity {
+                                class: "object-quarantine",
+                                ..
+                            })
+                        ) =>
+                    {
+                        None
+                    }
+                    Err(e) => return Err(e),
+                }
+            } else {
+                None
+            };
+            let proof = if let Some(bytes) = cached {
+                serde_json::from_slice(&bytes)?
+            } else {
+                let Some(archives) = &mut self.archives else {
+                    continue;
+                };
+                let Ok(proof) = archives.transaction_row(&row) else {
+                    continue;
+                };
+                let bytes = serde_json::to_vec(&proof)?;
+                self.posting_proofs
+                    .as_ref()
+                    .context("posting proof cache")?
+                    .put(&row.block_hash, &bytes, verify)?;
+                proof
+            };
+            self.journal
+                .borrow_mut()
+                .install_transaction_proof(h, &proof)?;
+            if self.journal.borrow().transaction_receipt(tx)?.is_some() {
+                return Ok(());
+            }
+        }
+        self.journal
+            .borrow()
+            .transaction_receipt_since(tx, floor)
+            .map(|_| ())
+    }
+
     fn set_journal_replay(&mut self, enabled: bool) {
         self.journal_replay = enabled;
     }
@@ -403,6 +527,35 @@ impl<L: L1Source> L1Source for JournalSource<L> {
         } else {
             "l1-rpc"
         }
+    }
+    fn input_ranges(&self, through: u64) -> Value {
+        if through == 0 {
+            return json!([]);
+        }
+        let mut starts = std::collections::BTreeSet::from([1u64]);
+        if let Some(h) = self.initial_tip.checked_add(1).filter(|h| *h <= through) {
+            starts.insert(h);
+        }
+        for (from, end) in &self.archive_ranges {
+            if *from <= through {
+                starts.insert((*from).max(1));
+            }
+            if let Some(after) = end.checked_add(1).filter(|h| *h <= through) {
+                starts.insert(after);
+            }
+        }
+        let starts: Vec<_> = starts.into_iter().collect();
+        let mut ranges: Vec<Value> = vec![];
+        for (i, from) in starts.iter().copied().enumerate() {
+            let end = starts.get(i + 1).map_or(through, |h| h - 1);
+            let label = self.inputs_label(from);
+            if let Some(last) = ranges.last_mut().filter(|r| r["inputs"] == label) {
+                last["through"] = json!(end);
+            } else {
+                ranges.push(json!({"from":from,"through":end,"inputs":label}));
+            }
+        }
+        json!(ranges)
     }
     fn archive_stats(&self) -> Value {
         self.archives

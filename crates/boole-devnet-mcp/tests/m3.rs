@@ -1102,3 +1102,21 @@ fn c2_verify_own_checks_fuel_even_when_the_verdict_statement_is_unchanged() -> R
 fn c2_verify_own_checks_the_verdict_statement_digest() -> Result<()> {
     verify_own_record_mutation(2)
 }
+
+#[test]
+fn t79_miner_reports_consistency_trust_and_pending_environment_per_range() -> Result<()> {
+    let (c, source) = round_tape()?;
+    let node = TapeNode {
+        rows: source.rows.clone(),
+    };
+    let root = Scratch::new(&std::env::temp_dir())?;
+    let mut options = ClientOptions::new(30_000_000);
+    options.l2 = Some(Box::new(node));
+    let mut client = Client::new(source, NoPosts, c, [2; 20], root.0.join("client"), options)?;
+    client.sync()?;
+    assert_eq!(
+        client.status()["trust_ranges"],
+        json!([{"from":1,"through":1,"inputs":"l1-rpc","verdicts":"checkpoint-trusted","environment":"pending"}])
+    );
+    Ok(())
+}

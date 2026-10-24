@@ -330,6 +330,37 @@ pub fn receipts_root(receipts: &[Vec<u8>]) -> [u8; 32] {
         .collect();
     keccak(&trie(&rows, 0))
 }
+/// Ordered transaction trie authentication, independent of archive metadata.
+pub fn verify_transactions(header: &[u8], transactions: &[String]) -> Result<Vec<String>> {
+    decode_header(header)?;
+    ensure!(transactions.len() <= 65536, "transaction count cap");
+    let txs: Vec<_> = transactions
+        .iter()
+        .map(|tx| hex_bytes(tx, "transaction proof").map_err(Into::into))
+        .collect::<Result<_>>()?;
+    ensure!(
+        txs.iter().all(|tx| !tx.is_empty())
+            && txs.iter().map(Vec::len).sum::<usize>() <= ROW_MAX / 2,
+        "transaction proof cap/shape"
+    );
+    let fields = rlp::decode(header)
+        .map_err(anyhow::Error::msg)?
+        .children
+        .context("header")?;
+    ensure!(
+        receipts_root(&txs).as_slice() == fields[4].bytes,
+        "transaction trie root mismatch"
+    );
+    Ok(txs.iter().map(|tx| hex_string(&keccak(tx))).collect())
+}
+pub fn empty_transactions(header: &[u8]) -> Result<bool> {
+    decode_header(header)?;
+    let fields = rlp::decode(header)
+        .map_err(anyhow::Error::msg)?
+        .children
+        .context("header")?;
+    Ok(fields[4].bytes == receipts_root(&[]))
+}
 impl InputRow {
     pub fn from_rpc(header: &Value, receipts: Option<&[Value]>) -> Result<Self> {
         let raw = header_from_rpc(header)?;
@@ -465,26 +496,9 @@ impl InputRow {
                 transactions.len() == receipts.len(),
                 "transaction/receipt count mismatch"
             );
-            let txs: Vec<_> = transactions
-                .iter()
-                .map(|tx| Ok(hex_bytes(tx, "journal transaction")?))
-                .collect::<Result<_>>()?;
-            ensure!(
-                txs.iter().all(|tx| !tx.is_empty())
-                    && txs.iter().map(Vec::len).sum::<usize>() <= ROW_MAX / 2,
-                "transaction proof cap/shape"
-            );
-            let fields = rlp::decode(&raw)
-                .map_err(anyhow::Error::msg)?
-                .children
-                .context("header")?;
-            ensure!(
-                receipts_root(&txs).as_slice() == fields[4].bytes,
-                "transaction trie root mismatch"
-            );
-            txs.iter()
+            verify_transactions(&raw, transactions)?
+                .into_iter()
                 .zip(statuses)
-                .map(|(tx, status)| (hex_string(&keccak(tx)), status))
                 .collect()
         } else {
             vec![]

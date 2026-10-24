@@ -145,6 +145,7 @@ pub struct Driver<L, E> {
     journal: Option<PathBuf>,
     checkpoint: Option<Value>,
     checkpoint_stamp: Option<FileStamp>,
+    follow_prefixes: std::collections::BTreeMap<u64, Vec<String>>,
     follow_records: std::collections::BTreeMap<u64, (boole_derivation::m3::IndexedVerdict, u64)>,
 }
 impl<L: L1Source, E: Engine> Driver<L, E> {
@@ -180,6 +181,7 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
             checkpoint: None,
             checkpoint_stamp: None,
             follow_records: std::collections::BTreeMap::new(),
+            follow_prefixes: Default::default(),
         })
     }
     pub fn with_m3(
@@ -223,6 +225,19 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
             txs.first() == Some(&boole_derivation::system::l1_info(l1)?),
             "follow L1-info mismatch"
         );
+        boole_derivation::system::read_m2_root(
+            txs.get(1).context("follow M2ROOT missing")?,
+            l1.number,
+            &l1.hash,
+        )?;
+        let prefix: Vec<String> = txs
+            .iter()
+            .take_while(|t| t.starts_with("0x7e"))
+            .cloned()
+            .collect();
+        if let Some(previous) = self.follow_prefixes.get(&l1.number) {
+            anyhow::ensure!(previous == &prefix, "changed canonical follow prefix");
+        }
         let records = canonical_verdicts(&self.config, l1, txs)?;
         for record in &records {
             if let Some(previous) = self.follow_records.get(&record.queue_index) {
@@ -232,11 +247,106 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
                 );
             }
         }
+        self.follow_prefixes.insert(l1.number, prefix);
         for record in records {
             self.follow_records
                 .insert(record.queue_index, (record, l1.number));
         }
         Ok(())
+    }
+    /// Preload the explicit finalized follow range, including fuel lookahead.
+    /// The archive never supplies an L1 tip; every origin comes from this source.
+    pub fn follow_from_archive(
+        &mut self,
+        archive: &mut boole_devnet_archive::client::ArchiveClient,
+    ) -> Result<()> {
+        let (from, through) = match self.supervisor.as_ref().map(|s| &s.mode) {
+            Some(boole_gate_supervisor::supervisor::Mode::Follow { from, through }) => {
+                (*from, *through)
+            }
+            _ => bail!("archive follow requires explicit follow mode"),
+        };
+        anyhow::ensure!(from > 0 && from <= through, "explicit follow range");
+        let tip = self.l1.finalized()?;
+        if through > tip {
+            return Err(boole_devnet_archive::error::availability(
+                through,
+                "archive-follow",
+                "follow range not yet finalized",
+            ));
+        }
+        let head = self.engine.head()?.number;
+        if let Some(journal) = self.l1.input_journal() {
+            let journal = journal.borrow();
+            let network = boole_devnet_archive::journal::NetworkIdentity::new(
+                &self.config,
+                self.forks.as_ref(),
+                self.engine.header(0)?.hash,
+                self.l2_gas_limit,
+            )?;
+            archive.identity(&network, &journal.row(0)?.block_hash)?;
+        }
+        for h in from..=through {
+            let l1 = self.l1.block(h)?;
+            let txs = if h <= head {
+                self.engine.transactions(h)?
+            } else {
+                archive.follow_system(&self.config, &l1)?
+            };
+            self.provide_follow_block(&l1, &txs)?;
+        }
+        Ok(())
+    }
+    pub fn trust_ranges(&self, through: u64) -> Value {
+        let input_ranges = self.l1.input_ranges(through);
+        let mut ranges: Vec<Value> = vec![];
+        for input in input_ranges.as_array().into_iter().flatten() {
+            let (Some(from), Some(end), Some(label)) = (
+                input["from"].as_u64(),
+                input["through"].as_u64(),
+                input["inputs"].as_str(),
+            ) else {
+                continue;
+            };
+            let from = from.max(1);
+            let end = end.min(through);
+            if from > end {
+                continue;
+            }
+            let mut starts = vec![from];
+            if let Some(boole_gate_supervisor::supervisor::Mode::Follow {
+                from: a,
+                through: b,
+            }) = self.supervisor.as_ref().map(|s| &s.mode)
+            {
+                if *a > from && *a <= end {
+                    starts.push(*a)
+                }
+                if let Some(after) = b.checked_add(1).filter(|h| *h > from && *h <= end) {
+                    starts.push(after)
+                }
+            }
+            starts.sort_unstable();
+            starts.dedup();
+            for (i, start) in starts.iter().copied().enumerate() {
+                let finish = starts.get(i + 1).map_or(end, |h| h - 1);
+                let verdicts = if self.follows(start) {
+                    "checkpoint-trusted"
+                } else {
+                    "computed"
+                };
+                if let Some(last) = ranges.last_mut().filter(|r| {
+                    r["inputs"] == label
+                        && r["verdicts"] == verdicts
+                        && r["through"].as_u64().and_then(|h| h.checked_add(1)) == Some(start)
+                }) {
+                    last["through"] = json!(finish);
+                } else {
+                    ranges.push(json!({"from":start,"through":finish,"inputs":label,"verdicts":verdicts,"environment":"pending"}));
+                }
+            }
+        }
+        json!(ranges)
     }
     pub fn set_forks(&mut self, forks: boole_derivation::m3::ForkTable) -> Result<()> {
         forks
@@ -299,7 +409,7 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
                     &mut history,
                 )?
             };
-            Ok(boole_derivation::attributes::derive_with_m3(
+            let (derived, next) = boole_derivation::attributes::derive_with_m3(
                 state,
                 &self.config,
                 l1,
@@ -307,7 +417,21 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
                 parent,
                 &records,
                 forks,
-            )?)
+            )?;
+            if let Some(prefix) = self.follow_prefixes.get(&l1.number) {
+                let expected: Vec<_> = derived
+                    .attributes
+                    .transactions
+                    .iter()
+                    .take_while(|t| t.starts_with("0x7e"))
+                    .collect();
+                if expected.len() != prefix.len()
+                    || expected.iter().zip(prefix).any(|(a, b)| *a != b)
+                {
+                    return Err(VerdictMismatch { height: l1.number }.into());
+                }
+            }
+            Ok((derived, next))
         } else {
             Ok(derive_with_m2(state, &self.config, l1, logs, parent)?)
         }
@@ -502,7 +626,7 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
                 }
             }
             if self.l1.input_journal().is_some() {
-                let record = json!({"height":height,"outcome":"RECOVERED","inputs":self.l1.inputs_label(height),"verification":if self.follows(height){"checkpoint-trusted"}else{"computed"},"block_hash":header.hash,"l1":{"hash":l1.hash},"m2_root":boole_derivation::attributes::hex_string(&next.root),"attribute_digest":boole_derivation::attributes::hex_string(&Sha256::digest(derived.canonical_bytes()?))});
+                let record = json!({"height":height,"outcome":"RECOVERED","inputs":self.l1.inputs_label(height),"verdicts":if self.follows(height){"checkpoint-trusted"}else{"computed"},"environment":"pending","trust_ranges":self.trust_ranges(height),"verification":if self.follows(height){"checkpoint-trusted"}else{"computed"},"block_hash":header.hash,"l1":{"hash":l1.hash},"m2_root":boole_derivation::attributes::hex_string(&next.root),"attribute_digest":boole_derivation::attributes::hex_string(&Sha256::digest(derived.canonical_bytes()?))});
                 if let Some(evidence) = &self.evidence {
                     if let Some(saved) = evidence.record_at(height) {
                         anyhow::ensure!(
@@ -736,6 +860,9 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
             "computed"
         });
         record["inputs"] = json!(self.l1.inputs_label(height));
+        record["verdicts"] = record["verification"].clone();
+        record["environment"] = json!("pending");
+        record["trust_ranges"] = self.trust_ranges(height);
         if matches!(&result, Ok(StepOutcome::Derived(_))) {
             let alerts = self.l1.archive_tripwire(
                 height,

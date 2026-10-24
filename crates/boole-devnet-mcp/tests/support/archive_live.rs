@@ -6,6 +6,7 @@ use boole_devnet_archive::{
     http::ArchiveServer,
 };
 use boole_devnet_driver::driver::archive::{ArchiveSink, CapturePaths};
+use boole_devnet_mcp::client::Poster;
 struct MutationProxy {
     url: String,
     mode: Arc<Mutex<String>>,
@@ -54,7 +55,15 @@ impl MutationProxy {
                         .context("prefix")?;
                     let mut body = HttpFetch.get(&upstream, route, 135_266_304)?;
                     let mode = m.lock().unwrap().clone();
-                    let mutation = if mode == "clean" {
+                    let mutation = if let Some(target) = mode.strip_prefix("audit:") {
+                        if route == target {
+                            let n = body.len();
+                            body[n - 1] ^= 1;
+                            "audit-input-byte"
+                        } else {
+                            "none"
+                        }
+                    } else if mode == "clean" {
                         "none"
                     } else if mode == "oversize" {
                         "content-length-over-cap"
@@ -157,6 +166,72 @@ fn fresh_miner(
         },
     )
 }
+fn auditor_binary() -> Result<PathBuf> {
+    std::env::var_os("BOOLE_DEVNET_AUDIT_BINARY")
+        .map(PathBuf::from)
+        .context("M4b2 live requires the normal CI auditor binary")
+}
+#[allow(clippy::too_many_arguments)]
+fn audit_process(
+    rt: &Runtime,
+    node: &Node,
+    own_l1: &str,
+    source: Option<&str>,
+    expected: (u64, &str),
+    mode: &str,
+    case: &str,
+    op: &Path,
+    genesis: &Path,
+) -> Result<Value> {
+    let mut command = Command::new(auditor_binary()?);
+    command
+        .arg("--node-rpc")
+        .arg(&node.http)
+        .arg("--m2-config")
+        .arg(rt.path.join("config.json"))
+        .arg("--m3-forks")
+        .arg(rt.path.join("forks.json"))
+        .arg("--m3-gates")
+        .arg(rt.path.join("gates.json"))
+        .arg("--gate-artifacts")
+        .arg(rt.path.join("artifacts"))
+        .arg("--zstd")
+        .arg(zstd_binary()?)
+        .arg("--expected-l1-number")
+        .arg(expected.0.to_string())
+        .arg("--expected-l1-hash")
+        .arg(expected.1)
+        .arg("--mode")
+        .arg(mode)
+        .arg("--op-reth")
+        .arg(op)
+        .arg("--l2-genesis")
+        .arg(genesis)
+        .env(
+            "BOOLE_DEVNET_AUDIT_LOG_DIR",
+            rt.path.join("audit-engine-logs"),
+        );
+    if let Some(archive) = source {
+        command
+            .arg("--archive")
+            .arg(archive)
+            .arg("--l1-rpc")
+            .arg(own_l1);
+    } else {
+        command.arg("--journal").arg(rt.path.join("a-state"));
+    }
+    let path = rt.path.join(format!("audit-{case}.json"));
+    let mut process = Process::start(command, &rt.path, &format!("audit-{case}"), &path)?;
+    let status = process.wait_for(Duration::from_secs(180))?;
+    let receipt: Value = serde_json::from_slice(&fs::read(&path)?)?;
+    ensure!(
+        receipt["schema"] == "boole.devnet.audit.v1"
+            && receipt["unsigned"] == true
+            && receipt["mode"] == mode,
+        "auditor process schema/mode"
+    );
+    Ok(json!({"case":case,"exit_code":status.code(),"receipt":receipt}))
+}
 #[test]
 fn i14_i18_full_round_archive_fresh_driver_and_miner_with_mutating_proxy() -> Result<()> {
     let Some(op) = pinned("BOOLE_DEVNET_OP_RETH", "op_reth")? else {
@@ -177,7 +252,7 @@ fn i14_i18_full_round_archive_fresh_driver_and_miner_with_mutating_proxy() -> Re
     c.m3 = Some(M3Config::devnet(c.slot_table.len()));
     c.m3.as_mut().unwrap().genesis_gate_rule_digest = descriptor.digest();
     let table = ForkTable::genesis(&c)?;
-    let mut rt = Runtime::new("m4b1-i14-i18")?;
+    let mut rt = Runtime::new("m4b2-i14-i17-i18")?;
     let artifacts = rt.path.join("artifacts");
     install_devnet_artifacts(&c, &artifacts)?;
     fs::write(rt.path.join("config.json"), serde_json::to_vec(&c)?)?;
@@ -441,6 +516,118 @@ fn i14_i18_full_round_archive_fresh_driver_and_miner_with_mutating_proxy() -> Re
         .context("applied verdict")?;
     fetch.content("vstmt", verdict.vstmt_digest, through)?;
     checked_objects.push("vstmt");
+    let submission = client.call(
+        "boole.devnet_submission",
+        &json!({"submission_id":id.as_ref().context("submission")?}),
+    )?;
+    let known_tx = submission["transactions"]
+        .as_array()
+        .context("posting transactions")?
+        .iter()
+        .find(|r| r["stage"] == "commit")
+        .context("recorded COMMIT")?["transaction_hash"]
+        .as_str()
+        .context("known post hash")?
+        .to_owned();
+    let recorded = drivers[0]
+        .l1
+        .journal
+        .borrow()
+        .transaction_receipt(&known_tx)?
+        .context("own recorded receipt")?;
+    ensure!(recorded.1, "live COMMIT should have succeeded");
+    let mut original = drivers[0].l1.input_row(recorded.0)?;
+    let expected_receipts = original.verify()?.canonical_receipts;
+    original.transactions = None;
+    let proof = fetch.transaction_row(&original)?;
+    ensure!(
+        proof.verify()?.canonical_receipts == expected_receipts,
+        "l1/txs canonical statuses"
+    );
+    checked_objects.push("l1/txs");
+    let legacy = rt.path.join("legacy-proof-miner");
+    let mut journal = boole_devnet_archive::journal::InputJournal::open(
+        &legacy,
+        network.clone(),
+        || {
+            let mut r = drivers[0].l1.input_row(0)?;
+            r.transactions = None;
+            Ok(r)
+        },
+        false,
+    )?;
+    for h in 1..=through {
+        let mut r = drivers[0].l1.input_row(h)?;
+        r.transactions = None;
+        journal.append(&r)?;
+    }
+    ensure!(
+        journal.transaction_receipt_since(&known_tx, 0).is_err(),
+        "legacy proof fixture did not pause"
+    );
+    drop(journal);
+    let legacy_bytes = fs::read(legacy.join("input.ndjson"))?;
+    let mut legacy_source = JournalSource::open_archive(
+        RpcL1::new_m2(&proxy.url)?,
+        &legacy,
+        network.clone(),
+        false,
+        ArchiveClient::http(vec![bad.url.clone()])?,
+    )?;
+    let mut proof_failures = vec![];
+    for mode in ["mutate", "oversize", "short"] {
+        *bad.mode.lock().unwrap() = mode.into();
+        let error = legacy_source
+            .restore_posting_proof(&known_tx, 0)
+            .expect_err("bad transaction proof adopted");
+        ensure!(
+            matches!(
+                error.downcast_ref::<boole_devnet_archive::error::Error>(),
+                Some(boole_devnet_archive::error::Error::Availability {
+                    class: "archive-tx-proof",
+                    ..
+                })
+            ),
+            "bad proof lost resumable class"
+        );
+        proof_failures.push(json!({"mode":mode,"availability":true}));
+    }
+    *bad.mode.lock().unwrap() = "clean".into();
+    legacy_source.restore_posting_proof(&known_tx, 0)?;
+    let mut poster = RpcPoster::new(&proxy.url, user)?;
+    poster.bind_journal(legacy_source.journal.clone());
+    ensure!(
+        poster.included_for_posting_since(&known_tx, 0)? == Some(recorded.0),
+        "miner did not reconcile the exact archived receipt"
+    );
+    drop(poster);
+    drop(legacy_source);
+    *bad.mode.lock().unwrap() = "short".into();
+    let requests_before = bad.seen.lock().unwrap().len();
+    let mut legacy_source = JournalSource::open_archive(
+        RpcL1::new_m2(&proxy.url)?,
+        &legacy,
+        network.clone(),
+        false,
+        ArchiveClient::http(vec![bad.url.clone()])?,
+    )?;
+    legacy_source.restore_posting_proof(&known_tx, 0)?;
+    ensure!(
+        legacy_source
+            .journal
+            .borrow()
+            .transaction_receipt_since(&known_tx, 0)?
+            == Some(recorded),
+        "own transaction cache restart"
+    );
+    ensure!(
+        bad.seen.lock().unwrap().len() == requests_before
+            && fs::read(legacy.join("input.ndjson"))? == legacy_bytes,
+        "proof cache restart fetched history or rewrote original journal"
+    );
+    let tx_reconciliation = json!({"known_hash":known_tx,"height":recorded.0,"receipt_status":recorded.1,"poster_included":recorded.0,"bad_only":proof_failures,"restart_cache":true,"original_journal_unchanged":true});
+    *bad.mode.lock().unwrap() = "mutate".into();
+
     let node_c = rt.node(&op, &gp, "c", 3)?;
     let mut cmd = c_command(&node_c, &rt, &proxy.url, through, false, false);
     cmd.arg("--archive")
@@ -566,6 +753,112 @@ fn i14_i18_full_round_archive_fresh_driver_and_miner_with_mutating_proxy() -> Re
         source.journal.borrow().tip() == through,
         "bad-only join not resumable"
     );
+    let source_before = authority(&rt.path.join("a-state"))?;
+    let mut audits = vec![];
+    let through_decimal = through.to_string();
+    for mode in ["pure", "replay"] {
+        for (name, source) in [("journal", None), ("archive", Some(server.url()))] {
+            let result = audit_process(
+                &rt,
+                &nodes[0],
+                &proxy.url,
+                source.as_deref(),
+                (through, &anchor),
+                mode,
+                &format!("{name}-{mode}"),
+                &op,
+                &gp,
+            )?;
+            let receipt = &result["receipt"];
+            ensure!(
+                result["exit_code"] == 0 && receipt["first_mismatch"].is_null(),
+                "I17 {name}/{mode}: {receipt}"
+            );
+            ensure!(
+                receipt["l1_head"]["number"].as_str() == Some(through_decimal.as_str())
+                    && receipt["l1_head"]["hash"] == anchor
+                    && receipt["l2_head"]["hash"] == rows.last().unwrap()["hash"]
+                    && receipt["root"] == rows.last().unwrap()["m2_root"],
+                "I17 independent heads/root"
+            );
+            ensure!(
+                receipt["rewards"]["minted"] == vested["rewards"][0]["amount"]
+                    && receipt["admissions"]["active"] == "1"
+                    && receipt["labels"]["verdicts"] == "computed"
+                    && receipt["labels"]["environment"] == "pending"
+                    && receipt["k4"]["checked"] == "1"
+                    && receipt["k4"]["status"] == "pending",
+                "I17 ledger/admission/K4 labels"
+            );
+            if mode == "replay" {
+                ensure!(
+                    receipt["checks"]["execution"] == "ok"
+                        && receipt["replayed_blocks"].as_str() == Some(through_decimal.as_str())
+                        && receipt["private_engine_cleanup"]["stopped"] == true
+                        && receipt["private_engine_cleanup"]["log_issues"] == 0,
+                    "I17 private replay cleanup"
+                );
+            }
+            audits.push(result);
+        }
+    }
+    let changed_hash = drivers[0].l1.input_row(1)?.block_hash;
+    *bad.mode.lock().unwrap() = format!("audit:l1/header/{}", &changed_hash[2..]);
+    for mode in ["pure", "replay"] {
+        let result = audit_process(
+            &rt,
+            &nodes[0],
+            &proxy.url,
+            Some(&bad.url),
+            (through, &anchor),
+            mode,
+            &format!("mutated-{mode}"),
+            &op,
+            &gp,
+        )?;
+        ensure!(
+            result["exit_code"] != 0
+                && result["receipt"]["first_mismatch"] == json!({"height":"1","class":"input"}),
+            "I17 mutation: {result}"
+        );
+        audits.push(result);
+    }
+    *bad.mode.lock().unwrap() = "clean".into();
+    let mut newer = through;
+    for _ in 0..12 {
+        let latest = quantity(&l1.call("eth_blockNumber", json!([]))?)?;
+        l1.call("evm_mine", json!([1_800_000_000 + 12 * (latest + 1)]))?;
+        newer = RpcL1::new_m2("http://127.0.0.1:28545")?.finalized()?;
+        if newer > through {
+            break;
+        }
+    }
+    ensure!(newer > through, "stale audit head fixture");
+    let newer_hash = RpcL1::new_m2("http://127.0.0.1:28545")?.block(newer)?.hash;
+    for mode in ["pure", "replay"] {
+        let result = audit_process(
+            &rt,
+            &nodes[0],
+            &proxy.url,
+            None,
+            (newer, &newer_hash),
+            mode,
+            &format!("stale-{mode}"),
+            &op,
+            &gp,
+        )?;
+        ensure!(
+            result["exit_code"] != 0
+                && result["receipt"]["first_mismatch"]
+                    == json!({"height":newer.to_string(),"class":"input"}),
+            "I17 stale prefix: {result}"
+        );
+        audits.push(result);
+    }
+    ensure!(
+        authority(&rt.path.join("a-state"))? == source_before,
+        "auditor wrote an audited source"
+    );
     ensure!(
         proxy.denied.lock().unwrap().is_empty(),
         "historical own endpoint reads/proxy failure"
@@ -578,7 +871,7 @@ fn i14_i18_full_round_archive_fresh_driver_and_miner_with_mutating_proxy() -> Re
             .all(|v| v.get("proxy_error").is_none()),
         "mutation proxy fault"
     );
-    let mut result = json!({"schema":"boole-devnet-m4b1-i14-i18-v1.3","rows":rows,"anchor":{"height":through,"hash":anchor,"source":"own-l1-endpoint"},"locked":locked,"vested":vested,"checked_objects":checked_objects,"fresh_miner_status":fresh_status,"bad_only_resumable":failures,"mutation_responses":bad.seen.lock().unwrap().clone(),"acceptance":{"every_height_compared":through,"seven_header_fields_equal":true,"receipt_logs_equal_rpc":true,"driver_execution":"actual CLI binary","fresh_miner_execution":"production client library","fresh_miner_restart":true,"driver_restart":true,"full_round_through_vest":true,"inputs":"archive-verified","restart_inputs":"journal","verdicts":"computed","tip_only_denied_requests":proxy.denied.lock().unwrap().clone(),"unauthenticated_engine_401_probes":4},"provenance":{"producer_commit":String::from_utf8(Command::new("git").args(["rev-parse","HEAD"]).output()?.stdout)?.trim(),"producer_sha256":hex_string(&hash(include_bytes!("archive_live.rs"))),"support_sha256":hex_string(&hash(include_bytes!("../m4_live.rs"))),"producer_binary_sha256":hex_string(&hash(&fs::read(std::env::current_exe()?)?)),"driver_binary_sha256":hex_string(&hash(&fs::read(driver_binary())?)),"client_binary_sha256":hex_string(&hash(&fs::read(client_binary())?)),"gate_binary_sha256":hex_string(&pin),"cargo_lock_sha256":hex_string(&hash(include_bytes!("../../../../Cargo.lock"))),"engine_profile":engine_profile(),"l1_genesis_sha256":hex_string(&hash(&fs::read(l1p)?)),"l2_genesis_sha256":hex_string(&hash(&fs::read(gp)?))}});
+    let mut result = json!({"schema":"boole-devnet-m4b2-i14-i17-i18-v1.3","audits":audits,"tx_reconciliation":tx_reconciliation,"rows":rows,"anchor":{"height":through,"hash":anchor,"source":"own-l1-endpoint"},"locked":locked,"vested":vested,"checked_objects":checked_objects,"fresh_miner_status":fresh_status,"bad_only_resumable":failures,"mutation_responses":bad.seen.lock().unwrap().clone(),"acceptance":{"every_height_compared":through,"seven_header_fields_equal":true,"receipt_logs_equal_rpc":true,"driver_execution":"actual CLI binary","fresh_miner_execution":"production client library","fresh_miner_restart":true,"driver_restart":true,"full_round_through_vest":true,"inputs":"archive-verified","restart_inputs":"journal","verdicts":"computed","tip_only_denied_requests":proxy.denied.lock().unwrap().clone(),"unauthenticated_engine_401_probes":4},"provenance":{"producer_commit":String::from_utf8(Command::new("git").args(["rev-parse","HEAD"]).output()?.stdout)?.trim(),"producer_sha256":hex_string(&hash(include_bytes!("archive_live.rs"))),"support_sha256":hex_string(&hash(include_bytes!("../m4_live.rs"))),"producer_binary_sha256":hex_string(&hash(&fs::read(std::env::current_exe()?)?)),"driver_binary_sha256":hex_string(&hash(&fs::read(driver_binary())?)),"client_binary_sha256":hex_string(&hash(&fs::read(client_binary())?)),"gate_binary_sha256":hex_string(&pin),"audit_binary_sha256":hex_string(&hash(&fs::read(auditor_binary()?)?)),"cargo_lock_sha256":hex_string(&hash(include_bytes!("../../../../Cargo.lock"))),"engine_profile":engine_profile(),"l1_genesis_sha256":hex_string(&hash(&fs::read(l1p)?)),"l2_genesis_sha256":hex_string(&hash(&fs::read(gp)?))}});
     rt.finish(true)?;
     result["cleanup"] = serde_json::from_slice(&fs::read(rt.path.join("cleanup.json"))?)?;
     let recording =

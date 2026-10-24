@@ -1,0 +1,80 @@
+{
+  "admissions": {
+    "active": "0",
+    "retired": "0",
+    "total": "0"
+  },
+  "anchor": {
+    "hash": "0xd0fd7ce54b791e587184d3fa983132d88ec669fb6c3946d3b06a69e0877ebed3",
+    "number": "0"
+  },
+  "audited_through": "2",
+  "checks": {
+    "admission": "ok",
+    "execution": "not-run",
+    "fold": "ok",
+    "forks": "ok",
+    "input": "ok",
+    "ledger": "ok",
+    "prefix": "ok",
+    "verdict": "ok"
+  },
+  "config_digest": "0xbc57654ec767f51b18517bf811f261595fa4b5295b6777355588d926613a20a7",
+  "counts": {
+    "reason_ranges": {},
+    "status": {}
+  },
+  "environment": {
+    "reason": "J4 environment build and normalized identity deferred",
+    "status": "pending"
+  },
+  "environment_hash": null,
+  "first_mismatch": null,
+  "fork_table_digest": "0x9ac00ae9e34f86963b15e3f42634f2a4cd111d429fb84babbb25d11def17f45b",
+  "k4": {
+    "checked": "0",
+    "pin_retention": "pending-M4c",
+    "status": "pending",
+    "total": "0"
+  },
+  "l1_head": {
+    "hash": "0xc1931e844768d958da9205e0e8f335214c9c3894e55fae285a684239e48c355a",
+    "number": "2"
+  },
+  "l2_head": {
+    "hash": "0x0202020202020202020202020202020202020202020202020202020202020202",
+    "number": "2"
+  },
+  "labels": {
+    "environment": "pending",
+    "inputs": "journal",
+    "ranges": [
+      {
+        "environment": "pending",
+        "from": "1",
+        "inputs": "journal",
+        "through": "2",
+        "verdicts": "computed"
+      }
+    ],
+    "verdicts": "computed"
+  },
+  "mode": "pure",
+  "observed_l2_head": {
+    "hash": "0x0202020202020202020202020202020202020202020202020202020202020202",
+    "number": "2"
+  },
+  "rewards": {
+    "cancelled": "0",
+    "compensation": "0",
+    "depositor_balance": "0",
+    "failed_calls": "0",
+    "locked": "0",
+    "minted": "0",
+    "vested": "0",
+    "would_be": "0"
+  },
+  "root": "0xd3e8e6a8bd54c8058cf9d498b8c41e724d55b3787fb53cbbb2543ff071e0dd60",
+  "schema": "boole.devnet.audit.v1",
+  "unsigned": true
+}

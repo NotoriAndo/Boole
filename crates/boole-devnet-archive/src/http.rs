@@ -498,6 +498,11 @@ fn dispatch(
             return Response::error(400);
         }
         store.receipts(&format!("0x{k}"))
+    } else if let Some(k) = route.strip_prefix("l1/txs/") {
+        if !key(k) {
+            return Response::error(400);
+        }
+        store.transactions(&format!("0x{k}"))
     } else if let Some(obj) = route.strip_prefix("obj/") {
         let Some((class, k)) = obj.split_once('/') else {
             return Response::error(400);

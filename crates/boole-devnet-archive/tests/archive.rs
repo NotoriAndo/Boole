@@ -164,6 +164,13 @@ impl boole_devnet_archive::client::Fetch for RowFetch {
                 "fixture",
             )?);
         }
+        if route.starts_with("l1/txs/") {
+            return Ok(serde_json::to_vec(self.row.transactions.as_ref().unwrap())?);
+        }
+        anyhow::ensure!(
+            route.starts_with("l1/receipts/"),
+            "unexpected fixture route"
+        );
         let mut receipts = self.row.receipts.clone().unwrap();
         if source.ends_with(":1") {
             receipts.remove(0);
@@ -411,6 +418,121 @@ fn r4_verified_republication_counts_and_logs_quarantine_by_class() -> Result<()>
     assert_eq!(
         std::fs::read_dir(dir.path().join("header/corrupt"))?.count(),
         2
+    );
+    Ok(())
+}
+
+#[test]
+fn m4b2_transaction_class_serves_header_authenticated_ordered_bytes() -> Result<()> {
+    use boole_devnet_archive::{archive::ArchiveStore, http::ArchiveServer};
+    use std::{
+        io::{Read, Write},
+        net::TcpStream,
+        sync::{Arc, Mutex},
+    };
+    let dir = boole_devnet_archive::durability::PrivateTempDir::new("archive-transactions")?;
+    let rows = rows();
+    let mut p = profile();
+    p.identity.l1_anchor_hash = rows[0].block_hash.clone();
+    rows[1].verify()?;
+    let mut store = ArchiveStore::open(dir.path(), p, false)?;
+    store.ingest(&rows[0], 1, &selected(0))?;
+    store.ingest(&rows[1], 1, &selected(1))?;
+    let server = ArchiveServer::start(Arc::new(Mutex::new(store)), "127.0.0.1:0".parse()?)?;
+    let mut stream = TcpStream::connect(server.addr())?;
+    write!(
+        stream,
+        "GET /boole/archive/v1/l1/txs/{} HTTP/1.1\r\n\r\n",
+        &rows[1].block_hash[2..]
+    )?;
+    let mut response = vec![];
+    stream.read_to_end(&mut response)?;
+    assert!(
+        response.starts_with(b"HTTP/1.1 200"),
+        "transaction class unavailable: {}",
+        String::from_utf8_lossy(&response)
+    );
+    let at = response.windows(4).position(|b| b == b"\r\n\r\n").unwrap() + 4;
+    let actual: Vec<String> = serde_json::from_slice(&response[at..])?;
+    assert_eq!(Some(actual), rows[1].transactions);
+    Ok(())
+}
+
+struct TransactionFetch {
+    row: boole_devnet_archive::input::InputRow,
+    mode: u8,
+}
+impl boole_devnet_archive::client::Fetch for TransactionFetch {
+    fn get(&mut self, _: &str, route: &str, _: usize) -> Result<Vec<u8>> {
+        if route.starts_with("l1/receipts/") {
+            return Ok(serde_json::to_vec(self.row.receipts.as_ref().unwrap())?);
+        }
+        assert!(route.starts_with("l1/txs/"));
+        let mut txs = self.row.transactions.clone().unwrap();
+        match self.mode {
+            1 => txs[0].replace_range(8..10, "ff"),
+            2 => txs.swap(0, 1),
+            3 => {
+                txs.pop();
+            }
+            _ => {}
+        }
+        Ok(serde_json::to_vec(&txs)?)
+    }
+    fn backoff(&mut self, _: u64) {}
+}
+#[test]
+fn m4b2_transaction_class_reconciles_exact_recorded_status_and_discards_mutants() -> Result<()> {
+    use boole_derivation::attributes::hex_bytes;
+    use boole_devnet_archive::client::ArchiveClient;
+    let row = rows().remove(1);
+    let expected = row.verify()?.canonical_receipts;
+    assert!(!expected.is_empty());
+    for mode in 0..=3 {
+        let mut client = ArchiveClient::new(
+            vec!["http://127.0.0.1:1".into()],
+            Box::new(TransactionFetch {
+                row: row.clone(),
+                mode,
+            }),
+        )?;
+        let result =
+            client.row_from_header(&row.block_hash, 1, &hex_bytes(&row.header_rlp, "header")?)?;
+        if mode == 0 {
+            assert_eq!(
+                result.verify()?.canonical_receipts,
+                expected,
+                "verified transaction proof was dropped"
+            );
+        } else {
+            assert!(
+                result.transactions.is_none(),
+                "mutated/reordered/truncated proof adopted"
+            );
+            assert!(client.discarded > 0);
+        }
+    }
+    let mut other = rows().remove(2);
+    other.transactions = row.transactions.clone();
+    assert!(
+        other.verify().is_err(),
+        "known transaction claimed in another block"
+    );
+    Ok(())
+}
+
+#[test]
+fn t79_archive_info_exposes_pending_environment_in_each_range() -> Result<()> {
+    use boole_devnet_archive::{archive::ArchiveStore, durability::PrivateTempDir};
+    let root = PrivateTempDir::new("archive-trust-axes")?;
+    let rows = rows();
+    let mut p = profile();
+    p.identity.l1_anchor_hash = rows[0].block_hash.clone();
+    let mut store = ArchiveStore::open(root.path(), p, false)?;
+    store.ingest(&rows[0], 0, &selected(0))?;
+    assert_eq!(
+        store.info()["trust_ranges"],
+        serde_json::json!([{"from":0,"through":0,"inputs":"journal","verdicts":"computed","environment":"pending"}])
     );
     Ok(())
 }

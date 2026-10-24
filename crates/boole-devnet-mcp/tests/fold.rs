@@ -41,8 +41,16 @@ struct Source {
     bad_prefix: u8,
     transient_reads: u8,
     finality_calls: u8,
+    proof_ready: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 impl L1Source for Source {
+    fn restore_posting_proof(&mut self, _: &str, _: u64) -> Result<()> {
+        if let Some(flag) = &self.proof_ready {
+            flag.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        Ok(())
+    }
+
     fn validate_m2_inbox(&mut self) -> Result<()> {
         if self.refuse_runtime {
             bail!("old inbox runtime");
@@ -132,6 +140,7 @@ fn fixture() -> (Source, Config, Vec<Value>) {
             bad_prefix: 0,
             transient_reads: 0,
             finality_calls: 0,
+            proof_ready: None,
         },
         serde_json::from_value(fixture["config"].clone()).unwrap(),
         rows,
@@ -303,10 +312,16 @@ struct Capture {
     fail_once: bool,
     reverted: Option<String>,
     missing_proofs: bool,
+    proof_ready: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 impl Poster for Capture {
     fn included_for_posting_since(&mut self, tx: &str, _floor: u64) -> Result<Option<u64>> {
-        if self.missing_proofs {
+        if self.missing_proofs
+            && !self
+                .proof_ready
+                .as_ref()
+                .is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Relaxed))
+        {
             return Err(boole_devnet_archive::error::availability(
                 7,
                 "archive-tx-proof",
@@ -1062,4 +1077,40 @@ fn pending_open_with_archive_proof_gap_does_not_repost_or_invent_reverted() {
             .contains("private-posting-reconciliation-canary"),
         "status exposed raw error detail"
     );
+}
+
+#[test]
+fn archive_posting_progress_restores_proof_before_reconciling_a_reverted_receipt() {
+    let dir = Dir::new();
+    let (source, c) = persisted_candidates(&dir, 1, false, None);
+    let mut client = Client::new(
+        source,
+        Capture {
+            head: 14,
+            ..Capture::default()
+        },
+        c,
+        [1; 20],
+        dir.0.clone(),
+        ClientOptions::new(30_000_000),
+    )
+    .unwrap();
+    client.tick().unwrap();
+    assert_eq!(client.poster.posts, [3]);
+    let ready = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    client.source.proof_ready = Some(ready.clone());
+    client.poster.proof_ready = Some(ready.clone());
+    client.poster.missing_proofs = true;
+    client.poster.reverted = Some(hex_string(&[1; 32]));
+    client.poster.head = 15;
+    client.tick().unwrap();
+    assert!(
+        ready.load(std::sync::atomic::Ordering::Relaxed),
+        "posting path never requested archive proof restoration"
+    );
+    assert_eq!(client.poster.posts, [3]);
+    drop(client);
+    let store = boole_devnet_mcp::store::Store::open(dir.0.clone()).unwrap();
+    let record: Value = store.read(&store.submissions().unwrap()[0]).unwrap();
+    assert_eq!(record["sent"]["open"]["failure"], "REVERTED");
 }

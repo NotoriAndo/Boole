@@ -387,6 +387,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "boole-devnet-audit"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "boole-derivation",
+ "boole-devnet-archive",
+ "boole-devnet-driver",
+ "boole-gate-supervisor",
+ "clap",
+ "k256",
+ "reqwest",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "boole-devnet-driver"
 version = "0.1.0"
 dependencies = [

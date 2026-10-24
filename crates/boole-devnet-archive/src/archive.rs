@@ -69,7 +69,7 @@ pub const SEGMENT: usize = 1024;
 pub const OBJ_MAX: usize = 135_266_304;
 pub const REQ_MAX: usize = 65_536;
 pub const CLASSES: &[&str] = &[
-    "header", "receipts", "exp", "tr", "pkg", "env", "gate", "vstmt", "system",
+    "header", "receipts", "txs", "exp", "tr", "pkg", "env", "gate", "vstmt", "system",
 ];
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -231,7 +231,13 @@ impl ArchiveStore {
             crate::error::Error::Integrity {height,class,..} => serde_json::json!({"kind":"integrity","height":height.to_string(),"class":class}),
             crate::error::Error::Startup {number,..} => serde_json::json!({"kind":"startup","number":number}),
         });
-        serde_json::json!({"schema":"boole.archive.v1","quarantines":quarantines,"ingest_health":ingest_health,"identity":self.profile.identity,"covered_from":self.index.rows.first_key_value().map(|(h,_)|h),"covered_through":self.index.rows.last_key_value().map(|(h,_)|h),"input_ranges":self.input_ranges(),"verdicts":"computed","segment":SEGMENT,"obj_max":OBJ_MAX,"pending":{"segment":"no locked zstd crate; bundle is not authority","l1/blob":"M4-L5 deferred","env_normalized":"no normalized producer in v1.3"}})
+        let input_ranges = self.input_ranges();
+        let mut trust_ranges = input_ranges.clone();
+        for range in &mut trust_ranges {
+            range["verdicts"] = serde_json::json!("computed");
+            range["environment"] = serde_json::json!("pending");
+        }
+        serde_json::json!({"schema":"boole.archive.v1","environment":"pending","trust_ranges":trust_ranges,"quarantines":quarantines,"ingest_health":ingest_health,"identity":self.profile.identity,"covered_from":self.index.rows.first_key_value().map(|(h,_)|h),"covered_through":self.index.rows.last_key_value().map(|(h,_)|h),"input_ranges":input_ranges,"verdicts":"computed","segment":SEGMENT,"obj_max":OBJ_MAX,"pending":{"segment":"no locked zstd crate; bundle is not authority","l1/blob":"M4-L5 deferred","env_normalized":"no normalized producer in v1.3"}})
     }
     pub fn input_ranges(&self) -> Vec<serde_json::Value> {
         let mut ranges: Vec<serde_json::Value> = vec![];
@@ -299,6 +305,18 @@ impl ArchiveStore {
                 r.verify()?;
                 Ok(())
             })?;
+        }
+        if positive {
+            if let Some(transactions) = &row.transactions {
+                let bytes = serde_json::to_vec(transactions)?;
+                self.objects["txs"].put(&row.block_hash, &bytes, |b| {
+                    crate::input::verify_transactions(
+                        &raw,
+                        &crate::client::string_list(b, 65536)?,
+                    )?;
+                    Ok(())
+                })?;
+            }
         }
         self.objects["system"].put(&system_digest, &system, |b| {
             ensure!(sha(b) == system_digest, "system digest");
@@ -411,6 +429,20 @@ impl ArchiveStore {
                 transactions: None,
             };
             r.verify()?;
+            Ok(())
+        })
+    }
+    pub fn transactions(&self, key: &str) -> Result<Option<Vec<u8>>> {
+        self.check()?;
+        hash(key)?;
+        let Some(header) = self.header(key)? else {
+            return Ok(None);
+        };
+        if !header_needs_receipts(&header)? {
+            return Ok(None);
+        }
+        self.objects["txs"].read(key, |b| {
+            crate::input::verify_transactions(&header, &crate::client::string_list(b, 65536)?)?;
             Ok(())
         })
     }

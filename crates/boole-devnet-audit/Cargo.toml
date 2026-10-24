@@ -1,0 +1,26 @@
+[package]
+name = "boole-devnet-audit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+boole-derivation = { path = "../boole-derivation" }
+boole-devnet-archive = { path = "../boole-devnet-archive" }
+boole-devnet-driver = { path = "../boole-devnet-driver" }
+boole-gate-supervisor = { path = "../boole-gate-supervisor" }
+clap.workspace = true
+ring.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+k256.workspace = true
+reqwest.workspace = true
+
+[lints]
+workspace = true

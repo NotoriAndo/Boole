@@ -11,3 +11,10 @@ This is an encoding probe, with an explicit synthetic genesis and public devnet
 accounts. It is not an L2 round, an archive authority, or a light-client proof.
 The portable archive test re-verifies every row without a node. Existing v1.3
 consensus goldens and recordings remain unchanged.
+
+M4b2 `audit-receipt-v1.json` is the complete unsigned T81 pure-audit receipt
+for `input-auth-v0.json`, the devnet M2 configuration, and the deterministic
+two-block in-memory L2 view in `boole-devnet-audit/tests/audit.rs`. The independent
+head is the valid L1 ancestor at height 1; the receipt covers height 2. The test
+compares every field, including decimal strings and deferred K4/environment
+labels. It does not re-record or change any consensus golden or live tape.

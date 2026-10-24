@@ -1004,7 +1004,20 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             let pending=p.map(|p|self.state.candidates.iter().filter(|((id,_),v)|*id==p.id && matches!(v.status(),Status::Committed|Status::Open)).count()).unwrap_or(0);
             json!({"slot":slot,"lane":self.config.slot_table[slot].lane,"problem_id":p.map(|p|hex_string(&p.id)),"last_commit_height":p.and_then(|p|p.h_v.checked_add(self.config.slot_table[slot].solve_deadline)),"pending_commits":pending,"next_draw_height":s.scheduled.and_then(|h|h.checked_add(1))})
         }).collect();
-        json!({"devnet_only":true,"inputs":self.source.inputs_label(self.state.height()),"input_ranges":self.source.input_ranges(self.state.height()),"archive_sources":self.source.archive_stats(),"archive_alerts":self.archive_alerts,"fold_height":self.state.height(),"m2_root":hex_string(&self.state.root),"config_digest":hex_string(&self.config.digest()),"slot_table_digest":hex_string(&self.config.slot_table_digest()),"slots":slots,"stalled":self.stalled,"l2_m2_root_match":self.l2_m2_root_match,"waiting_for_l2":self.waiting_l2,"m3":crate::m3_status::summary(&self.state),"verdict_trust":if self.own.is_some(){"l2-node-with-own-verification"}else if self.config.m3.is_some(){"l2-node"}else{"l1-only"}})
+        let verdicts = if self.config.m3.is_some() && self.own.is_none() {
+            "checkpoint-trusted"
+        } else {
+            "computed"
+        };
+        let input_ranges = self.source.input_ranges(self.state.height());
+        let mut trust_ranges = input_ranges.clone();
+        if let Some(ranges) = trust_ranges.as_array_mut() {
+            for range in ranges {
+                range["verdicts"] = json!(verdicts);
+                range["environment"] = json!("pending");
+            }
+        }
+        json!({"devnet_only":true,"verdicts":verdicts,"environment":"pending","trust_ranges":trust_ranges,"inputs":self.source.inputs_label(self.state.height()),"input_ranges":input_ranges,"archive_sources":self.source.archive_stats(),"archive_alerts":self.archive_alerts,"fold_height":self.state.height(),"m2_root":hex_string(&self.state.root),"config_digest":hex_string(&self.config.digest()),"slot_table_digest":hex_string(&self.config.slot_table_digest()),"slots":slots,"stalled":self.stalled,"l2_m2_root_match":self.l2_m2_root_match,"waiting_for_l2":self.waiting_l2,"m3":crate::m3_status::summary(&self.state),"verdict_trust":if self.own.is_some(){"l2-node-with-own-verification"}else if self.config.m3.is_some(){"l2-node"}else{"l1-only"}})
     }
     fn decoded_problem(&self, id: Hash) -> Result<Vec<u8>> {
         let p = self.state.problems.get(&id).context("problem not found")?;
@@ -1485,7 +1498,10 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             return Ok(None);
         };
         let finalized_before = sent.finalized_before_post.unwrap_or(0);
-        match retry_rpc(|| self.poster.included_for_posting_since(tx, finalized_before)) {
+        match retry_rpc(|| {
+            self.source.restore_posting_proof(tx, finalized_before)?;
+            self.poster.included_for_posting_since(tx, finalized_before)
+        }) {
             Err(e) if e.is::<RevertedReceipt>() => {
                 sub.sent
                     .get_mut(stage)

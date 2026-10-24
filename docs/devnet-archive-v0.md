@@ -57,6 +57,7 @@ The HTTP/1.1 API accepts GET requests only below `/boole/archive/v1/`:
 | `info` | Identity, covered finalized range, historical input labels, pending classes |
 | `l1/header/<block hash without 0x>` | Full RLP header; keccak and pinned schema |
 | `l1/receipts/<block hash without 0x>` | JSON array of raw typed receipt hex; ordered trie against that header |
+| `l1/txs/<block hash without 0x>` (M4b2) | Ordered raw transaction hex array for bloom-positive heights; ordered trie against that header’s `transactionsRoot` |
 | `obj/exp/<export digest>` | Raw export; frozen OPEN length and digest |
 | `obj/tr/<commit hash>` | Compressed transport; frozen OPEN length and keyed part Merkle root |
 | `obj/pkg/<package digest>` | Original carried package bytes; original reveal's leaf/path binds them to POOL |
@@ -79,7 +80,7 @@ receive a fresh total deadline of two seconds plus body length at 8 MiB/s, with
 all bounded chunks sharing that deadline. Local lock/disk verification does not
 consume the body transfer allowance. Shutdown closes active sockets before joining workers.
 Connections have monotonic IDs; registry entries are removed before shutdown,
-including after FIN/RST. Worker creation uses fallible thread builders: failure
+including after FIN/RST or worker unwind. Worker creation uses fallible thread builders: failure
 releases its descriptor and returns 503 while the accept loop continues. Transient
 accept failures (descriptor/memory exhaustion and pending network errors) are
 logged once and retried with bounded backoff; a fatal accept failure sets typed
@@ -91,8 +92,8 @@ these errors are logged once per class. A response over OBJ_MAX is internal fail
 never a malformed-request 400. Replaced store identity/lock/index stops serving.
 Client body reads use chunks under a total deadline of two seconds plus length
 at 8 MiB/s minimum throughput, including connect/headers, then discard and fail
-over. Receipt JSON decoding refuses entry 65,537 before decoding or allocating
-its value.
+over. Receipt and transaction JSON decoding refuse entry 65,537 before decoding or
+allocating its value.
 There is no write route, directory listing or private client/cache route.
 
 The client library's export and transport helpers require the caller's frozen
@@ -108,8 +109,7 @@ replace the authenticated original L1 receipts used by the gate rebuild.
 `segment/` is pending: no zstd crate is locked, and a bundle would never be
 authority. `l1/blob` waits for M4-L5. No normalized environment producer exists in
 v1.3, so normalized environment validation is pending; existing artifacts retain
-their SHA-256 pins. Follow joins, environment building and the audit tool belong
-to later work.
+their SHA-256 pins. Environment building remains deferred to J4.
 
 ## Publication, recovery and privacy
 
@@ -157,20 +157,79 @@ conflicting L2 hash/root. Missing, malformed or unavailable data is not an
 inconsistency alert. The local L2 hash and root win; diagnostics cannot produce a
 verdict or redirect Engine selection.
 
-Archive input rows omit transaction proofs. Folded COMMIT/OPEN/part/terminal
-state still prevents reposting successful items. A failed own transaction in an
-archive-filled finalized gap cannot be identified or classified REVERTED from
-those rows. Each new posting intent therefore persists the own finalized height
-before sending. If a pending transaction is absent from authenticated receipts
-and any subsequent finalized row lacks transaction proofs, posting reconciliation
-returns resumable `archive-tx-proof` availability and preserves the intent;
-it neither reposts nor guesses success/REVERTED. Status preserves the typed
-`archive-tx-proof` class without copying raw error detail. Legacy intents without that
-height conservatively use zero. Old gaps at or below a new post's saved floor do
-not delay that post. Exact receipt status in such a pending gap requires restoring
-a journal with authenticated full transaction/receipt proofs; fetching those
-proofs through an archive is carried to M4b2. This does not add historical L1 RPC
-reads or promote archive data into receipt authority.
+An M4b2 archive supplies the ordered transaction list at bloom-positive heights.
+The client verifies the complete list against the authenticated header before
+binding a known transaction hash to the receipt at the same index. This preserves
+the exact recorded success or REVERTED status. Missing or invalid lists remain
+resumable `archive-tx-proof` availability; no success, failure or repost is guessed.
+New archive-filled input rows carry available verified transaction proofs.
+For old rows, reconciliation restores them into the own `transaction-proofs/`
+cache with new-file-only publication and read-time re-verification. It does not
+rewrite the original input journal. Restart can use that cache without an archive
+or historical L1 RPC. An empty transaction trie proves absence without a list.
+Each posting intent retains its finalized-height floor; legacy intents use zero.
+A missing proof at or below a new intent's floor does not delay that intent.
+
+## Archive follow ranges and trust labels (M4b2)
+
+The driver accepts `--mode follow --follow-from FROM --follow-through TO --follow-archive` with
+one or more `--archive` sources. It is mutually exclusive with
+`--follow-canonical`. Input headers and receipts still use the own finalized L1
+endpoint as their anchor. In the explicit range the driver takes `l2/system/<h>`
+from the archive, strictly decodes L1-info, M2ROOT and V6 records, and checks the
+entire system prefix against the local fold before building a block. A decoded
+M2ROOT that differs from the local root stops; matching roots establish consistency.
+Outside the range verdicts are computed by the own supervisor.
+
+Driver evidence, archive info and miner status expose `trust_ranges`: decimal
+`from`/`through` heights with independent `inputs`, `verdicts` and `environment`
+axes. Inputs distinguish `l1-rpc`, `archive-verified` and reread `journal` rows.
+Follow verdicts are `checkpoint-trusted`; own verification is `computed`. A miner
+without `--verify-own` also labels M3 verdicts `checkpoint-trusted`. The environment
+axis is `pending` throughout: neither Pass A nor Pass B is implemented here.
+Range labels retain the weakest applicable trust and split at source/follow
+boundaries. Existing evidence bytes retain their original labels.
+
+## Independent read-only audit (M4b2)
+
+`boole-devnet-audit` reads `--journal DIR`, or repeated `--archive URL` with
+`--l1-rpc URL` for its own finalized anchor. It also takes `--node-rpc URL`,
+`--m2-config FILE`, and for M3 `--m3-forks FILE --m3-gates FILE
+--gate-artifacts DIR` (and `--zstd PATH` when required). Journal sources open
+without a writer lock, tail repair or cleanup. File versions are bound and
+checked throughout the audit. Archive downloads, gate scratch and caches live in
+a fresh private directory outside the source; the audited node only receives
+read RPC calls.
+
+Supply `--expected-l1-number N --expected-l1-hash HASH` from an independent
+finalized observation. That exact pair must occur on the authenticated input
+chain, as an ancestor or its tip. A stale valid prefix cannot cover a newer
+independent head. Optional `--expected-l2-number N --expected-l2-hash HASH`
+binds that exact audited L2 block.
+
+The default `--mode pure` recomputes every fold, gate verdict, root and system
+prefix, and compares the prefix byte for byte with the audited node. It verifies
+L2 header, transaction and OP receipt trie commitments, reward lock/terminal and
+compensation rules, mint/depositor conservation, contiguous admission indices,
+retirement, FORK_TABLE activation records and kernel-fix recheck ordering.
+`--mode replay --op-reth PATH --l2-genesis FILE` additionally starts a pinned
+op-reth in a new private datadir, using loopback endpoints and no peers, and
+reproduces every L2 block hash and execution receipt. The auditor owns and stops
+that Engine; it never accepts an external Engine write endpoint.
+
+Output is unsigned local JSON with schema `boole.devnet.audit.v1`: config and
+fork-table digests, anchor and heads, last verified root, three trust axes, counts
+by status and reason range, reward totals, admissions, environment hash, K4
+coverage, and `first_mismatch` (decimal height and class) or null. Amounts, counts
+and heights use decimal strings. Pure mode reports execution as `not-run`; replay
+reports its reproduced block count and private Engine cleanup. The audit exits
+nonzero at its first input/fold/prefix/verdict/ledger/admission/K4/environment
+mismatch and preserves sources. It never repairs an audited file.
+
+Current retained K4 records are rebuilt and checked against frozen digests, but
+coverage stays `pending` because durable retention pins belong to M4c. Environment
+hash and verification also stay pending until J4; a successful audit does not
+claim either deferred property.
 
 The per-run disk floor is 15 GiB. Preserve the store and journal on a typed stop;
 restore availability or repair into a fresh directory rather than editing a
