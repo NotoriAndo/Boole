@@ -532,7 +532,7 @@ fn i14_i18_full_round_archive_fresh_driver_and_miner_with_mutating_proxy() -> Re
     let reverted_index = archive.lock().unwrap().index(reverted_recorded.0, 1)?;
     ensure!(
         reverted_index[0].l1_number == reverted_recorded.0
-            && reverted_index[0].inbox_touching
+            && reverted_index[0].inbox_touching == Some(true)
             && !reverted_index[0].bloom_positive,
         "negative inbox block not indexed as touching"
     );
