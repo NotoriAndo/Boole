@@ -498,26 +498,18 @@ fn m4b2_transaction_class_reconciles_exact_recorded_status_and_discards_mutants(
         )?;
         let result =
             client.row_from_header(&row.block_hash, 1, &hex_bytes(&row.header_rlp, "header")?)?;
+        let result = client.transaction_row(&result);
         if mode == 0 {
             assert_eq!(
-                result.verify()?.canonical_receipts,
+                result?.verify()?.canonical_receipts,
                 expected,
                 "verified transaction proof was dropped"
             );
         } else {
-            assert!(
-                result.transactions.is_none(),
-                "mutated/reordered/truncated proof adopted"
-            );
+            assert!(result.is_err(), "mutated/reordered/truncated proof adopted");
             assert!(client.discarded > 0);
         }
     }
-    let mut other = rows().remove(2);
-    other.transactions = row.transactions.clone();
-    assert!(
-        other.verify().is_err(),
-        "known transaction claimed in another block"
-    );
     Ok(())
 }
 
@@ -533,6 +525,321 @@ fn t79_archive_info_exposes_pending_environment_in_each_range() -> Result<()> {
     assert_eq!(
         store.info()["trust_ranges"],
         serde_json::json!([{"from":0,"through":0,"inputs":"journal","verdicts":"computed","environment":"pending"}])
+    );
+    Ok(())
+}
+
+#[test]
+fn m2_optional_transaction_class_is_never_fetched_by_input_fold() -> Result<()> {
+    use boole_devnet_archive::client::{ArchiveClient, Fetch};
+    use std::sync::{Arc, Mutex};
+    struct ReceiptOnly {
+        row: boole_devnet_archive::input::InputRow,
+        routes: Arc<Mutex<Vec<String>>>,
+    }
+    impl Fetch for ReceiptOnly {
+        fn get(&mut self, _: &str, route: &str, _: usize) -> Result<Vec<u8>> {
+            self.routes.lock().unwrap().push(route.into());
+            if route.starts_with("l1/receipts/") {
+                return Ok(serde_json::to_vec(self.row.receipts.as_ref().unwrap())?);
+            }
+            anyhow::bail!("optional class absent")
+        }
+        fn backoff(&mut self, _: u64) {}
+    }
+    let row = rows().remove(1);
+    let routes = Arc::new(Mutex::new(vec![]));
+    let mut client = ArchiveClient::new(
+        vec!["http://127.0.0.1:1".into()],
+        Box::new(ReceiptOnly {
+            row: row.clone(),
+            routes: routes.clone(),
+        }),
+    )?;
+    let folded = client.row_from_header(
+        &row.block_hash,
+        1,
+        &boole_derivation::attributes::hex_bytes(&row.header_rlp, "header")?,
+    )?;
+    assert_eq!(folded.verify()?.logs.len(), row.verify()?.logs.len());
+    assert_eq!(
+        routes.lock().unwrap().len(),
+        1,
+        "fold fetched an optional transaction proof"
+    );
+    assert_eq!(client.failures, vec![0]);
+    assert_eq!(client.discarded, 0);
+    Ok(())
+}
+
+mod support;
+fn reverted_inbox_row() -> Result<boole_devnet_archive::input::InputRow> {
+    support::reverted_inbox_row(rows().remove(1))
+}
+#[test]
+fn m1_bloom_negative_inbox_block_serves_both_authenticated_proof_lists() -> Result<()> {
+    use boole_devnet_archive::{
+        archive::ArchiveStore, client::ArchiveClient, durability::PrivateTempDir,
+        http::ArchiveServer,
+    };
+    use std::sync::{Arc, Mutex};
+    let root = PrivateTempDir::new("negative-inbox")?;
+    let genesis = rows().remove(0);
+    let row = reverted_inbox_row()?;
+    let mut p = profile();
+    p.identity.l1_anchor_hash = genesis.block_hash.clone();
+    let mut x = ArchiveStore::open(root.path(), p, false)?;
+    x.ingest(&genesis, 1, &selected(0))?;
+    x.ingest(&row, 1, &selected(1))?;
+    assert!(
+        x.transactions(&row.block_hash)?.is_some(),
+        "reverted inbox transaction not served"
+    );
+    assert!(
+        x.receipts(&row.block_hash)?.is_some(),
+        "reverted inbox receipt not served"
+    );
+    let index = serde_json::to_value(&x.index(1, 1)?[0])?;
+    assert_eq!(index["inbox_touching"], true);
+    assert_eq!(index["bloom_positive"], false);
+    let server = ArchiveServer::start(Arc::new(Mutex::new(x)), "127.0.0.1:0".parse()?)?;
+    let mut client = ArchiveClient::http(vec![server.url()])?;
+    let folded = client.row(&row.block_hash, 1)?;
+    assert!(folded.transactions.is_none());
+    assert!(folded.receipts.is_none());
+    let proof = client.transaction_row(&folded)?;
+    assert_eq!(
+        proof.verify()?.canonical_receipts,
+        row.verify()?.canonical_receipts
+    );
+    Ok(())
+}
+
+#[test]
+fn m1_not_served_optional_proof_keeps_availability_without_source_penalty_or_storm() -> Result<()> {
+    use boole_devnet_archive::{
+        archive::ArchiveStore,
+        client::{ArchiveClient, Fetch, HttpFetch},
+        durability::PrivateTempDir,
+        error::Error,
+        http::ArchiveServer,
+    };
+    use std::sync::{Arc, Mutex};
+    struct Count(Arc<Mutex<Vec<String>>>);
+    impl Fetch for Count {
+        fn get(&mut self, source: &str, route: &str, limit: usize) -> Result<Vec<u8>> {
+            self.0.lock().unwrap().push(route.into());
+            HttpFetch.get(source, route, limit)
+        }
+        fn backoff(&mut self, millis: u64) {
+            self.0.lock().unwrap().push(format!("BACKOFF/{millis}"));
+        }
+    }
+    let root = PrivateTempDir::new("optional-not-served")?;
+    let mut p = profile();
+    p.identity.l1_anchor_hash = rows()[0].block_hash.clone();
+    let store = ArchiveStore::open(root.path(), p, false)?;
+    let server = ArchiveServer::start(Arc::new(Mutex::new(store)), "127.0.0.1:0".parse()?)?;
+    let calls = Arc::new(Mutex::new(vec![]));
+    let mut client = ArchiveClient::new(vec![server.url()], Box::new(Count(calls.clone())))?;
+    let mut row = reverted_inbox_row()?;
+    row.transactions = None;
+    row.receipts = None;
+    for _ in 0..5 {
+        let e = client
+            .transaction_row(&row)
+            .expect_err("withholding fabricated a posting receipt");
+        assert!(
+            matches!(
+                e.downcast_ref::<Error>(),
+                Some(Error::Availability { height: 1, .. })
+            ),
+            "{e}"
+        );
+    }
+    assert_eq!(
+        calls.lock().unwrap().len(),
+        1,
+        "not-served height refetched each tick"
+    );
+    client.posting_finality(1);
+    assert!(client.transaction_row(&row).is_err());
+    assert_eq!(calls.lock().unwrap().len(), 2, "new finality did not retry");
+    let other = PrivateTempDir::new("optional-new-source")?;
+    let other = ArchiveStore::open(other.path(), profile(), false)?;
+    let other = ArchiveServer::start(Arc::new(Mutex::new(other)), "127.0.0.1:0".parse()?)?;
+    client.sources = vec![other.url()];
+    assert!(client.transaction_row(&row).is_err());
+    assert_eq!(calls.lock().unwrap().len(), 3, "new source did not retry");
+    assert_eq!(client.failures, vec![0]);
+    assert_eq!(client.discarded, 0);
+    Ok(())
+}
+
+#[test]
+fn l7_other_block_transaction_claim_is_rejected_by_trie_binding_with_equal_counts() -> Result<()> {
+    use boole_derivation::{
+        attributes::{hex_bytes, hex_string},
+        rlp,
+        user_tx::keccak,
+    };
+    let row = rows().remove(1);
+    let mut other = row.clone();
+    let raw = hex_bytes(&row.header_rlp, "header")?;
+    let decoded = rlp::decode(&raw).map_err(anyhow::Error::msg)?;
+    let mut fields: Vec<_> = decoded
+        .children
+        .unwrap()
+        .iter()
+        .map(|f| raw[f.span.clone()].to_vec())
+        .collect();
+    // A different, same-height fork can contain the same signed transactions.
+    // Keep the authenticated receipt list and counts intact; vary only metadata
+    // and the deliberately wrong transaction commitment.
+    fields[11] = rlp::uint(row.block()?.timestamp + 1);
+    fields[12] = rlp::bytes(b"alternate fork");
+    let actual_root = fields[4].clone();
+    fields[4] = rlp::bytes(&boole_devnet_archive::input::receipts_root(&[]));
+    let raw = rlp::list(&fields);
+    other.header_rlp = hex_string(&raw);
+    other.block_hash = hex_string(&keccak(&raw));
+    assert_eq!(
+        other.receipts.as_ref().unwrap().len(),
+        other.transactions.as_ref().unwrap().len()
+    );
+    let error = other
+        .verify()
+        .expect_err("another block claimed a transaction outside its trie");
+    assert_eq!(
+        error.to_string(),
+        "transaction trie root mismatch",
+        "test failed for another rule"
+    );
+    fields[4] = actual_root;
+    let raw = rlp::list(&fields);
+    other.header_rlp = hex_string(&raw);
+    other.block_hash = hex_string(&keccak(&raw));
+    assert_ne!(other.block_hash, row.block_hash);
+    assert_eq!(
+        other.verify()?.canonical_receipts,
+        row.verify()?.canonical_receipts
+    );
+    Ok(())
+}
+
+#[test]
+fn m1_forged_bloom_negative_inbox_list_cannot_supply_a_receipt() -> Result<()> {
+    use boole_devnet_archive::client::ArchiveClient;
+    let row = reverted_inbox_row()?;
+    let expected = row.verify()?.canonical_receipts;
+    let mut folded = row.clone();
+    folded.transactions = None;
+    folded.receipts = None;
+    for mode in [0, 1] {
+        let mut client = ArchiveClient::new(
+            vec!["http://127.0.0.1:1".into()],
+            Box::new(TransactionFetch {
+                row: row.clone(),
+                mode,
+            }),
+        )?;
+        let result = client.transaction_row(&folded);
+        if mode == 0 {
+            assert_eq!(result?.verify()?.canonical_receipts, expected);
+        } else {
+            assert!(result.is_err());
+            assert_eq!(client.failures, vec![3]);
+            assert_eq!(client.discarded, 3);
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn m1_legacy_index_flag_never_blocks_authenticated_proof_backfill() -> Result<()> {
+    use boole_devnet_archive::{archive::ArchiveStore, durability::PrivateTempDir};
+    let root = PrivateTempDir::new("legacy-touching-flag")?;
+    let genesis = rows().remove(0);
+    let row = reverted_inbox_row()?;
+    let mut p = profile();
+    p.identity.l1_anchor_hash = genesis.block_hash.clone();
+    let mut store = ArchiveStore::open(root.path(), p.clone(), false)?;
+    store.ingest(&genesis, 1, &selected(0))?;
+    store.ingest(&row, 1, &selected(1))?;
+    drop(store);
+    let path = root.path().join("index.ndjson");
+    let mut legacy = String::new();
+    for line in std::fs::read_to_string(&path)?.lines() {
+        let mut value: serde_json::Value = serde_json::from_str(line)?;
+        value.as_object_mut().unwrap().remove("inbox_touching");
+        legacy += &serde_json::to_string(&value)?;
+        legacy.push('\n');
+    }
+    std::fs::write(&path, &legacy)?;
+    for class in ["receipts", "txs"] {
+        std::fs::remove_file(root.path().join(class).join(&row.block_hash[2..]))?;
+    }
+    let mut store = ArchiveStore::open(root.path(), p, false)?;
+    store.ingest(&row, 1, &selected(1))?;
+    assert_eq!(
+        std::fs::read_to_string(path)?,
+        legacy,
+        "diagnostic index was rewritten"
+    );
+    assert!(!store.index(1, 1)?[0].inbox_touching);
+    assert!(store.transactions(&row.block_hash)?.is_some());
+    assert!(store.receipts(&row.block_hash)?.is_some());
+    Ok(())
+}
+
+#[test]
+fn m1_not_served_source_is_cached_even_while_another_source_returns_bad_data() -> Result<()> {
+    use boole_devnet_archive::client::{ArchiveClient, Fetch, NotServed};
+    use std::sync::{Arc, Mutex};
+    struct Mixed(Arc<Mutex<Vec<String>>>);
+    impl Fetch for Mixed {
+        fn get(&mut self, source: &str, _: &str, _: usize) -> Result<Vec<u8>> {
+            self.0.lock().unwrap().push(source.into());
+            if source.ends_with(":1") {
+                Err(NotServed.into())
+            } else {
+                Ok(b"invalid proof list".to_vec())
+            }
+        }
+        fn backoff(&mut self, _: u64) {}
+    }
+    let calls = Arc::new(Mutex::new(vec![]));
+    let mut client = ArchiveClient::new(
+        vec!["http://127.0.0.1:1".into(), "http://127.0.0.1:2".into()],
+        Box::new(Mixed(calls.clone())),
+    )?;
+    let mut row = reverted_inbox_row()?;
+    row.transactions = None;
+    row.receipts = None;
+    for _ in 0..3 {
+        assert!(client.transaction_row(&row).is_err());
+    }
+    assert_eq!(
+        calls
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|s| s.ends_with(":1"))
+            .count(),
+        1,
+        "404 source was refetched on each tick"
+    );
+    assert_eq!(client.failures, vec![0, 9]);
+    client.posting_finality(1);
+    assert!(client.transaction_row(&row).is_err());
+    assert_eq!(
+        calls
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|s| s.ends_with(":1"))
+            .count(),
+        2
     );
     Ok(())
 }

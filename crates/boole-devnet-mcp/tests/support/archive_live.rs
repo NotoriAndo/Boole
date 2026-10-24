@@ -53,7 +53,17 @@ impl MutationProxy {
                         .context("path")?
                         .strip_prefix("/boole/archive/v1/")
                         .context("prefix")?;
-                    let mut body = HttpFetch.get(&upstream, route, 135_266_304)?;
+                    let mut body = match HttpFetch.get(&upstream, route, 135_266_304) {
+                        Ok(bytes) => bytes,
+                        Err(e) if e.is::<boole_devnet_archive::client::NotServed>() => {
+                            s.lock()
+                                .unwrap()
+                                .push(json!({"route":route,"mutation":"not-served"}));
+                            write!(stream,"HTTP/1.1 404 Not Found\r\nContent-Length: 10\r\nConnection: close\r\n\r\nnot-served")?;
+                            return Ok(());
+                        }
+                        Err(e) => return Err(e),
+                    };
                     let mode = m.lock().unwrap().clone();
                     let mutation = if let Some(target) = mode.strip_prefix("audit:") {
                         if route == target {
@@ -329,6 +339,8 @@ fn i14_i18_full_round_archive_fresh_driver_and_miner_with_mutating_proxy() -> Re
     let mut vested = Value::Null;
     let mut checked_objects = vec![];
     let mut l1_fields = vec![];
+    let mut reverted_post = None::<String>;
+    let mut reverted_receipt = Value::Null;
     for latest in 1..=220u64 {
         if latest == 5 {
             post(
@@ -338,7 +350,22 @@ fn i14_i18_full_round_archive_fresh_driver_and_miner_with_mutating_proxy() -> Re
                 false,
             )?;
         }
+        if latest == 7 {
+            let tx=l1.call("eth_sendTransaction",json!([{"from":account,"to":boole_derivation::config::INBOX,"data":"0xdeadbeef","gas":"0xf4240"}]))?;
+            reverted_post = Some(tx.as_str().context("reverted post hash")?.to_owned());
+        }
         l1.call("evm_mine", json!([1800000000 + 12 * latest]))?;
+        if latest == 7 {
+            reverted_receipt = l1.call(
+                "eth_getTransactionReceipt",
+                json!([reverted_post.as_ref().context("reverted post")?]),
+            )?;
+            ensure!(
+                reverted_receipt["blockNumber"] == "0x7" && reverted_receipt["status"] == "0x0",
+                "actual freshly mined reverted post"
+            );
+        }
+
         let finalized = RpcL1::new_m2("http://127.0.0.1:28545")?.finalized()?;
         for d in &mut drivers {
             ensure!(
@@ -477,6 +504,38 @@ fn i14_i18_full_round_archive_fresh_driver_and_miner_with_mutating_proxy() -> Re
         !locked.is_null() && !vested.is_null() && rows.len() >= 64 && checked_objects.len() == 5,
         "full round/archive classes incomplete"
     );
+    let reverted_post = reverted_post.context("actual reverted inbox post")?;
+    ensure!(
+        reverted_receipt["status"] == "0x0"
+            && reverted_receipt["logs"]
+                .as_array()
+                .is_some_and(Vec::is_empty),
+        "reverted post emitted a log or succeeded"
+    );
+    let reverted_recorded = drivers[0]
+        .l1
+        .journal
+        .borrow()
+        .transaction_receipt(&reverted_post)?
+        .context("own reverted receipt")?;
+    ensure!(
+        reverted_recorded == (7, false),
+        "reverted post was not alone at height7"
+    );
+    let reverted_input = drivers[0].l1.input_row(reverted_recorded.0)?;
+    let reverted_header =
+        boole_derivation::attributes::hex_bytes(&reverted_input.header_rlp, "reverted header")?;
+    ensure!(
+        !boole_devnet_archive::input::header_needs_receipts(&reverted_header)?,
+        "reverted post must be bloom-negative"
+    );
+    let reverted_index = archive.lock().unwrap().index(reverted_recorded.0, 1)?;
+    ensure!(
+        reverted_index[0].l1_number == reverted_recorded.0
+            && reverted_index[0].inbox_touching
+            && !reverted_index[0].bloom_positive,
+        "negative inbox block not indexed as touching"
+    );
     let through = drivers[0].m2_state().height();
     let anchor = drivers[0].l1.input_row(through)?.block_hash;
     let mut fetch = ArchiveClient::http(vec![bad.url.clone(), server.url()])?;
@@ -559,6 +618,11 @@ fn i14_i18_full_round_archive_fresh_driver_and_miner_with_mutating_proxy() -> Re
     for h in 1..=through {
         let mut r = drivers[0].l1.input_row(h)?;
         r.transactions = None;
+        if !boole_devnet_archive::input::header_needs_receipts(
+            &boole_derivation::attributes::hex_bytes(&r.header_rlp, "legacy header")?,
+        )? {
+            r.receipts = None;
+        }
         journal.append(&r)?;
     }
     ensure!(
@@ -574,6 +638,19 @@ fn i14_i18_full_round_archive_fresh_driver_and_miner_with_mutating_proxy() -> Re
         false,
         ArchiveClient::http(vec![bad.url.clone()])?,
     )?;
+    let reverted_pause = legacy_source
+        .restore_posting_proof(&reverted_post, 0)
+        .expect_err("mutated proof did not pause reverted-post reconciliation");
+    ensure!(
+        matches!(
+            reverted_pause.downcast_ref::<boole_devnet_archive::error::Error>(),
+            Some(boole_devnet_archive::error::Error::Availability {
+                class: "archive-tx-proof",
+                ..
+            })
+        ),
+        "reverted proof pause lost availability class"
+    );
     let mut proof_failures = vec![];
     for mode in ["mutate", "oversize", "short"] {
         *bad.mode.lock().unwrap() = mode.into();
@@ -593,12 +670,26 @@ fn i14_i18_full_round_archive_fresh_driver_and_miner_with_mutating_proxy() -> Re
         proof_failures.push(json!({"mode":mode,"availability":true}));
     }
     *bad.mode.lock().unwrap() = "clean".into();
+    legacy_source.restore_posting_proof(&reverted_post, 0)?;
     legacy_source.restore_posting_proof(&known_tx, 0)?;
     let mut poster = RpcPoster::new(&proxy.url, user)?;
     poster.bind_journal(legacy_source.journal.clone());
     ensure!(
         poster.included_for_posting_since(&known_tx, 0)? == Some(recorded.0),
         "miner did not reconcile the exact archived receipt"
+    );
+    let reverted = poster
+        .included_for_posting_since(&reverted_post, 0)
+        .expect_err("archived status0 did not produce exact REVERTED");
+    ensure!(
+        reverted.is::<boole_devnet_mcp::client::RevertedReceipt>(),
+        "wrong reverted posting class"
+    );
+    let dropped = hex_string(&[77; 32]);
+    legacy_source.restore_posting_proof(&dropped, 0)?;
+    ensure!(
+        poster.included_for_posting_since(&dropped, 0)?.is_none(),
+        "dropped post became REVERTED or success"
     );
     drop(poster);
     drop(legacy_source);
@@ -625,6 +716,15 @@ fn i14_i18_full_round_archive_fresh_driver_and_miner_with_mutating_proxy() -> Re
             && fs::read(legacy.join("input.ndjson"))? == legacy_bytes,
         "proof cache restart fetched history or rewrote original journal"
     );
+    ensure!(
+        legacy_source
+            .journal
+            .borrow()
+            .transaction_receipt_since(&reverted_post, 0)?
+            == Some(reverted_recorded),
+        "restart lost negative-inbox proof cache"
+    );
+    let reverted_post_reconciliation = json!({"transaction_hash":reverted_post,"height":reverted_recorded.0,"block_hash":reverted_input.block_hash,"header_rlp":reverted_input.header_rlp,"canonical_receipt_status":false,"bloom_positive":false,"inbox_touching":true,"initial_pause":true,"status":"REVERTED","dropped_not_reverted":true,"restart_cache":true,"original_journal_unchanged":fs::read(legacy.join("input.ndjson"))?==legacy_bytes});
     let tx_reconciliation = json!({"known_hash":known_tx,"height":recorded.0,"receipt_status":recorded.1,"poster_included":recorded.0,"bad_only":proof_failures,"restart_cache":true,"original_journal_unchanged":true});
     *bad.mode.lock().unwrap() = "mutate".into();
 
@@ -871,7 +971,7 @@ fn i14_i18_full_round_archive_fresh_driver_and_miner_with_mutating_proxy() -> Re
             .all(|v| v.get("proxy_error").is_none()),
         "mutation proxy fault"
     );
-    let mut result = json!({"schema":"boole-devnet-m4b2-i14-i17-i18-v1.3","audits":audits,"tx_reconciliation":tx_reconciliation,"rows":rows,"anchor":{"height":through,"hash":anchor,"source":"own-l1-endpoint"},"locked":locked,"vested":vested,"checked_objects":checked_objects,"fresh_miner_status":fresh_status,"bad_only_resumable":failures,"mutation_responses":bad.seen.lock().unwrap().clone(),"acceptance":{"every_height_compared":through,"seven_header_fields_equal":true,"receipt_logs_equal_rpc":true,"driver_execution":"actual CLI binary","fresh_miner_execution":"production client library","fresh_miner_restart":true,"driver_restart":true,"full_round_through_vest":true,"inputs":"archive-verified","restart_inputs":"journal","verdicts":"computed","tip_only_denied_requests":proxy.denied.lock().unwrap().clone(),"unauthenticated_engine_401_probes":4},"provenance":{"producer_commit":String::from_utf8(Command::new("git").args(["rev-parse","HEAD"]).output()?.stdout)?.trim(),"producer_sha256":hex_string(&hash(include_bytes!("archive_live.rs"))),"support_sha256":hex_string(&hash(include_bytes!("../m4_live.rs"))),"producer_binary_sha256":hex_string(&hash(&fs::read(std::env::current_exe()?)?)),"driver_binary_sha256":hex_string(&hash(&fs::read(driver_binary())?)),"client_binary_sha256":hex_string(&hash(&fs::read(client_binary())?)),"gate_binary_sha256":hex_string(&pin),"audit_binary_sha256":hex_string(&hash(&fs::read(auditor_binary()?)?)),"cargo_lock_sha256":hex_string(&hash(include_bytes!("../../../../Cargo.lock"))),"engine_profile":engine_profile(),"l1_genesis_sha256":hex_string(&hash(&fs::read(l1p)?)),"l2_genesis_sha256":hex_string(&hash(&fs::read(gp)?))}});
+    let mut result = json!({"schema":"boole-devnet-m4b2-i14-i17-i18-v1.3","audits":audits,"tx_reconciliation":tx_reconciliation,"reverted_post_reconciliation":reverted_post_reconciliation,"rows":rows,"anchor":{"height":through,"hash":anchor,"source":"own-l1-endpoint"},"locked":locked,"vested":vested,"checked_objects":checked_objects,"fresh_miner_status":fresh_status,"bad_only_resumable":failures,"mutation_responses":bad.seen.lock().unwrap().clone(),"acceptance":{"every_height_compared":through,"seven_header_fields_equal":true,"receipt_logs_equal_rpc":true,"driver_execution":"actual CLI binary","fresh_miner_execution":"production client library","fresh_miner_restart":true,"driver_restart":true,"full_round_through_vest":true,"inputs":"archive-verified","restart_inputs":"journal","verdicts":"computed","tip_only_denied_requests":proxy.denied.lock().unwrap().clone(),"unauthenticated_engine_401_probes":4},"provenance":{"producer_commit":String::from_utf8(Command::new("git").args(["rev-parse","HEAD"]).output()?.stdout)?.trim(),"producer_sha256":hex_string(&hash(include_bytes!("archive_live.rs"))),"support_sha256":hex_string(&hash(include_bytes!("../m4_live.rs"))),"producer_binary_sha256":hex_string(&hash(&fs::read(std::env::current_exe()?)?)),"driver_binary_sha256":hex_string(&hash(&fs::read(driver_binary())?)),"client_binary_sha256":hex_string(&hash(&fs::read(client_binary())?)),"gate_binary_sha256":hex_string(&pin),"audit_binary_sha256":hex_string(&hash(&fs::read(auditor_binary()?)?)),"cargo_lock_sha256":hex_string(&hash(include_bytes!("../../../../Cargo.lock"))),"engine_profile":engine_profile(),"l1_genesis_sha256":hex_string(&hash(&fs::read(l1p)?)),"l2_genesis_sha256":hex_string(&hash(&fs::read(gp)?))}});
     rt.finish(true)?;
     result["cleanup"] = serde_json::from_slice(&fs::read(rt.path.join("cleanup.json"))?)?;
     let recording =

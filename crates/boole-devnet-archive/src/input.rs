@@ -330,6 +330,35 @@ pub fn receipts_root(receipts: &[Vec<u8>]) -> [u8; 32] {
         .collect();
     keccak(&trie(&rows, 0))
 }
+/// Diagnostic inbox-touching rule, derived only from an authenticated tx list.
+pub fn transactions_touch_inbox(header: &[u8], transactions: &[String]) -> Result<bool> {
+    verify_transactions(header, transactions)?;
+    let inbox = hex_bytes(boole_derivation::config::INBOX, "inbox")?;
+    for transaction in transactions {
+        let raw = hex_bytes(transaction, "transaction")?;
+        let (payload, index) = if raw.first().is_some_and(|b| *b < 0x80) {
+            let index = match raw[0] {
+                1 => 4,
+                2..=4 => 5,
+                _ => anyhow::bail!("unsupported L1 transaction type"),
+            };
+            (&raw[1..], index)
+        } else {
+            (raw.as_slice(), 3)
+        };
+        let decoded = rlp::decode(payload).map_err(anyhow::Error::msg)?;
+        let fields = decoded.children.context("L1 transaction fields")?;
+        let to = fields.get(index).context("L1 transaction recipient")?;
+        ensure!(
+            to.children.is_none() && matches!(to.bytes.len(), 0 | 20),
+            "L1 transaction recipient width"
+        );
+        if to.bytes == inbox {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
 /// Ordered transaction trie authentication, independent of archive metadata.
 pub fn verify_transactions(header: &[u8], transactions: &[String]) -> Result<Vec<String>> {
     decode_header(header)?;

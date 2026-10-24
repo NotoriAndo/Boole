@@ -1737,3 +1737,148 @@ fn m4b2_missing_remote_proof_never_hides_an_own_manifest_change() -> Result<()> 
     assert!(source.journal.borrow().check().is_err());
     Ok(())
 }
+
+#[path = "../../boole-devnet-archive/tests/support/mod.rs"]
+mod archive_proof_fixture;
+#[test]
+fn m1_bloom_negative_reverted_inbox_post_reconciles_without_historical_l1_reads() -> Result<()> {
+    use boole_devnet_archive::{
+        archive::{ArchiveIdentity, ArchiveProfile, ArchiveStore, Selection},
+        client::ArchiveClient,
+        http::ArchiveServer,
+    };
+    use std::sync::{Arc, Mutex};
+    let root = PrivateTempDir::new("restore-archive-tx-proof")?;
+    let v: Value = serde_json::from_str(include_str!(
+        "../../../fixtures/devnet-m4/input-auth-v0.json"
+    ))?;
+    let mut rows: Vec<InputRow> = serde_json::from_value(v["rows"].clone())?;
+    rows[1] = archive_proof_fixture::reverted_inbox_row(rows[1].clone())?;
+    rows.truncate(2);
+    let expected = rows[1].verify()?.canonical_receipts[0].clone();
+    assert!(
+        !expected.1,
+        "fixture must be the recorded reverted transaction"
+    );
+    let network = NetworkIdentity::new(
+        &boole_derivation::m2::Config::devnet(),
+        None,
+        MemoryEngine::new().head.hash,
+        30_000_000,
+    )?;
+    let mut journal = InputJournal::open(
+        &root.path().join("miner"),
+        network.clone(),
+        || {
+            let mut r = rows[0].clone();
+            r.transactions = None;
+            Ok(r)
+        },
+        false,
+    )?;
+    for row in &rows[1..] {
+        let mut r = row.clone();
+        r.transactions = None;
+        journal.append(&r)?;
+    }
+    assert!(journal.transaction_receipt_since(&expected.0, 0).is_err());
+    drop(journal);
+    let before = std::fs::read(root.path().join("miner/input.ndjson"))?;
+    let mut store = ArchiveStore::open(
+        &root.path().join("x"),
+        ArchiveProfile {
+            identity: ArchiveIdentity {
+                network: network.clone(),
+                l1_anchor_number: 0,
+                l1_anchor_hash: rows[0].block_hash.clone(),
+            },
+            bind: "127.0.0.1:0".parse()?,
+            prune_before: None,
+        },
+        false,
+    )?;
+    for (h, row) in rows.iter().enumerate() {
+        store.ingest(
+            row,
+            2,
+            &Selection {
+                l2_number: h as u64,
+                l2_hash: hex_string(&[3; 32]),
+                root: hex_string(&[4; 32]),
+                system: vec![],
+                inputs: "journal".into(),
+                verdicts: "computed".into(),
+            },
+        )?;
+    }
+    let server = ArchiveServer::start(Arc::new(Mutex::new(store)), "127.0.0.1:0".parse()?)?;
+    let url = server.url();
+    let mut own = TipOnly::new();
+    own.rows = rows.clone();
+    own.tip = 1;
+    own.strict = true;
+    let mut source = JournalSource::open_archive(
+        own.clone(),
+        &root.path().join("miner"),
+        network.clone(),
+        false,
+        ArchiveClient::http(vec![url.clone()])?,
+    )?;
+    let dropped = hex_string(&[77; 32]);
+    let before_requests = source.archive_stats();
+    source.restore_posting_proof(&dropped, 1)?;
+    assert_eq!(
+        source.archive_stats(),
+        before_requests,
+        "read outside own posting pause window"
+    );
+    source.restore_posting_proof(&expected.0, 0)?;
+    assert_eq!(
+        source
+            .journal
+            .borrow()
+            .transaction_receipt_since(&expected.0, 0)?,
+        Some((1, false))
+    );
+    source.restore_posting_proof(&dropped, 0)?;
+    assert_eq!(
+        source
+            .journal
+            .borrow()
+            .transaction_receipt_since(&dropped, 0)?,
+        None,
+        "dropped post became REVERTED"
+    );
+    assert!(
+        source
+            .journal
+            .borrow_mut()
+            .install_transaction_proof(2, &rows[1])
+            .is_err(),
+        "known hash claimed in another block"
+    );
+    drop(source);
+    drop(server);
+    let mut source = JournalSource::open_archive(
+        own,
+        &root.path().join("miner"),
+        network,
+        false,
+        ArchiveClient::http(vec![url])?,
+    )?;
+    source.restore_posting_proof(&expected.0, 0)?;
+    assert_eq!(
+        source
+            .journal
+            .borrow()
+            .transaction_receipt_since(&expected.0, 0)?,
+        Some((1, false)),
+        "restart lost authenticated own proof cache"
+    );
+    assert_eq!(
+        std::fs::read(root.path().join("miner/input.ndjson"))?,
+        before,
+        "proof restoration rewrote original input rows"
+    );
+    Ok(())
+}

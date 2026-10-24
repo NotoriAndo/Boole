@@ -27,6 +27,15 @@ pub trait Fetch: Send {
         std::thread::sleep(Duration::from_millis(millis));
     }
 }
+/// An optional class is not served by this source. It proves no absence.
+#[derive(Debug)]
+pub struct NotServed;
+impl std::fmt::Display for NotServed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("optional archive class not served")
+    }
+}
+impl std::error::Error for NotServed {}
 pub struct HttpFetch;
 fn endpoint(source: &str) -> Result<(SocketAddr, String)> {
     let rest = source
@@ -84,10 +93,13 @@ impl HttpFetch {
             !text.replace("\r\n", "").contains(['\r', '\n']),
             "archive response framing"
         );
+        let status = text
+            .split("\r\n")
+            .next()
+            .and_then(|l| l.split(' ').nth(1))
+            .context("archive response status")?;
         ensure!(
-            text.split("\r\n")
-                .next()
-                .is_some_and(|l| l.split(' ').nth(1) == Some("200")),
+            matches!(status, "200" | "404"),
             "archive unavailable response"
         );
         let mut length = None;
@@ -108,6 +120,9 @@ impl HttpFetch {
             len > 0 && len <= limit,
             "archive response byte cap or empty object"
         );
+        if status == "404" {
+            return Err(NotServed.into());
+        }
         // Total time includes connect, headers and every body chunk. 8 MiB/s is the
         // minimum supported loopback throughput, with two seconds of fixed slack.
         let deadline = start + crate::http::transfer_budget(len);
@@ -149,6 +164,10 @@ pub struct ArchiveClient {
     coverage_checked: Vec<Option<Instant>>,
     observation_retry_at: Vec<Option<Instant>>,
     next_observer: usize,
+    proof_finality: u64,
+    proof_sources: Vec<String>,
+    not_served: std::collections::BTreeSet<String>,
+    not_served_routes: std::collections::BTreeSet<(String, String)>,
 }
 impl ArchiveClient {
     pub fn http(sources: Vec<String>) -> Result<Self> {
@@ -173,6 +192,10 @@ impl ArchiveClient {
             coverage_checked: vec![None; sources.len()],
             observation_retry_at: vec![None; sources.len()],
             next_observer: 0,
+            proof_finality: 0,
+            proof_sources: sources.clone(),
+            not_served: Default::default(),
+            not_served_routes: Default::default(),
             failures,
         })
     }
@@ -278,7 +301,7 @@ impl ArchiveClient {
             empty.verify()?;
             return Ok(empty);
         }
-        let mut row = self.fetch_verified(
+        let row = self.fetch_verified(
             &format!("l1/receipts/{}", &key[2..]),
             OBJ_MAX,
             height,
@@ -289,44 +312,131 @@ impl ArchiveClient {
                 Ok(row)
             },
         )?;
-        // Transaction proofs are optional for folding. Their absence preserves
-        // the miner's typed availability pause instead of inventing a receipt.
-        if let Ok(proof) = self.transaction_row(&row) {
-            row = proof;
-        }
         Ok(row)
+    }
+    /// A cached 404 is availability only, retried on a new finality step or source.
+    pub fn posting_finality(&mut self, height: u64) {
+        if height != self.proof_finality || self.sources != self.proof_sources {
+            self.not_served.clear();
+            self.not_served_routes.clear();
+            self.proof_finality = height;
+            self.proof_sources = self.sources.clone();
+        }
+    }
+    fn fetch_optional_verified<T>(
+        &mut self,
+        route: &str,
+        height: u64,
+        mut verify: impl FnMut(&[u8]) -> Result<T>,
+    ) -> Result<T> {
+        let mut absent: Vec<_> = self
+            .sources
+            .iter()
+            .map(|source| {
+                self.not_served_routes
+                    .contains(&(source.clone(), route.to_owned()))
+            })
+            .collect();
+        for attempt in 0..3 {
+            if absent.iter().all(|v| *v) {
+                break;
+            }
+            if attempt > 0 {
+                self.fetch.backoff(if attempt == 1 { 100 } else { 300 });
+            }
+            for (i, missing) in absent.iter_mut().enumerate() {
+                if *missing {
+                    continue;
+                }
+                self.attempts[i] = self.attempts[i].saturating_add(1);
+                let result = self
+                    .fetch
+                    .get(&self.sources[i], route, OBJ_MAX)
+                    .and_then(|bytes| {
+                        ensure!(
+                            !bytes.is_empty() && bytes.len() <= OBJ_MAX,
+                            "archive response cap"
+                        );
+                        verify(&bytes)
+                    });
+                match result {
+                    Ok(value) => return Ok(value),
+                    Err(e) if e.is::<NotServed>() => {
+                        *missing = true;
+                        self.not_served_routes
+                            .insert((self.sources[i].clone(), route.to_owned()));
+                    }
+                    Err(_) => {
+                        self.discarded = self.discarded.saturating_add(1);
+                        self.failures[i] = self.failures[i].saturating_add(1);
+                    }
+                }
+            }
+        }
+        if absent.iter().all(|v| *v) {
+            return Err(NotServed.into());
+        }
+        Err(crate::error::availability(
+            height,
+            "archive-tx-proof",
+            "optional proof unavailable; retry after availability returns",
+        ))
     }
     pub fn transaction_row(&mut self, row: &InputRow) -> Result<InputRow> {
         let header = boole_derivation::attributes::hex_bytes(&row.header_rlp, "header")?;
         crate::archive::verify_header(&row.block_hash, &header)?;
         let h = row.block()?.number;
-        let receipts = if let Some(receipts) = &row.receipts {
-            receipts.clone()
-        } else {
-            self.fetch_verified(
-                &format!("l1/receipts/{}", &row.block_hash[2..]),
-                OBJ_MAX,
+        self.posting_finality(self.proof_finality);
+        if self.not_served.contains(&row.block_hash) {
+            return Err(crate::error::availability(
                 h,
-                |b| {
-                    let mut proof = row.clone();
-                    proof.receipts = Some(receipt_list(b)?);
-                    proof.verify()?;
-                    Ok(proof.receipts.unwrap())
+                "archive-tx-proof",
+                "optional proof not served at this finality step",
+            ));
+        }
+        let result = (|| -> Result<InputRow> {
+            let txs = self.fetch_optional_verified(
+                &format!("l1/txs/{}", &row.block_hash[2..]),
+                h,
+                |bytes| {
+                    let txs = string_list(bytes, 65536)?;
+                    crate::input::verify_transactions(&header, &txs)?;
+                    if row.receipts.is_some() {
+                        let mut proof = row.clone();
+                        proof.transactions = Some(txs.clone());
+                        proof.verify()?;
+                    }
+                    Ok(txs)
                 },
-            )?
-        };
-        self.fetch_verified(
-            &format!("l1/txs/{}", &row.block_hash[2..]),
-            OBJ_MAX,
-            h,
-            |b| {
-                let mut proof = row.clone();
-                proof.receipts = Some(receipts.clone());
-                proof.transactions = Some(string_list(b, 65536)?);
-                proof.verify()?;
-                Ok(proof)
-            },
-        )
+            )?;
+            let mut proof = row.clone();
+            proof.transactions = Some(txs);
+            if proof.receipts.is_none() {
+                proof = self.fetch_optional_verified(
+                    &format!("l1/receipts/{}", &row.block_hash[2..]),
+                    h,
+                    |bytes| {
+                        let mut full = proof.clone();
+                        full.receipts = Some(receipt_list(bytes)?);
+                        full.verify()?;
+                        Ok(full)
+                    },
+                )?;
+            }
+            proof.verify()?;
+            Ok(proof)
+        })();
+        match result {
+            Err(e) if e.is::<NotServed>() => {
+                self.not_served.insert(row.block_hash.clone());
+                Err(crate::error::availability(
+                    h,
+                    "archive-tx-proof",
+                    "optional proof not served at this finality step",
+                ))
+            }
+            other => other,
+        }
     }
     pub fn prepare(
         &mut self,

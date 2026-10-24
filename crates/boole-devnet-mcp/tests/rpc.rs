@@ -505,3 +505,73 @@ fn archive_gap_preserves_pending_post_without_old_rpc_or_false_revert() {
         "legacy intent did not hold conservatively"
     );
 }
+
+#[path = "../../boole-devnet-archive/tests/support/mod.rs"]
+mod archive_proof_fixture;
+#[test]
+fn m1_negative_inbox_proof_resolves_exact_reverted_and_never_assigns_it_to_a_dropped_hash() {
+    use boole_derivation::attributes::hex_string;
+    use boole_devnet_archive::{
+        durability::PrivateTempDir,
+        input::InputRow,
+        journal::{InputJournal, NetworkIdentity},
+    };
+    use std::{cell::RefCell, rc::Rc};
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../fixtures/devnet-m4/input-auth-v0.json"
+    ))
+    .unwrap();
+    let rows: Vec<InputRow> = serde_json::from_value(fixture["rows"].clone()).unwrap();
+    let full = archive_proof_fixture::reverted_inbox_row(rows[1].clone()).unwrap();
+    let hash = full.verify().unwrap().canonical_receipts[0].0.clone();
+    let dropped = hex_string(&[77; 32]);
+    let root = PrivateTempDir::new("miner-negative-inbox").unwrap();
+    let network = NetworkIdentity::new(
+        &boole_derivation::m2::Config::devnet(),
+        None,
+        hex_string(&[1; 32]),
+        30_000_000,
+    )
+    .unwrap();
+    let mut journal =
+        InputJournal::open(root.path(), network, || Ok(rows[0].clone()), false).unwrap();
+    let mut legacy = full.clone();
+    legacy.transactions = None;
+    legacy.receipts = None;
+    journal.append(&legacy).unwrap();
+    let current = json!({"number":"0x1","hash":full.block_hash,"transactions":[hash]});
+    let (url, worker) = serve(vec![
+        ("eth_chainId", 200, json!("0x7a69")),
+        ("eth_accounts", 200, json!([hex_string(&[1; 20])])),
+        ("eth_getBlockByNumber", 200, current.clone()),
+        ("eth_getBlockByNumber", 200, current.clone()),
+        ("eth_getBlockByNumber", 200, current),
+    ]);
+    let mut poster = RpcPoster::new(&url, [1; 20]).unwrap();
+    let journal = Rc::new(RefCell::new(journal));
+    poster.bind_journal(journal.clone());
+    for tx in [&hash, &dropped] {
+        let error = poster.included_for_posting_since(tx, 0).unwrap_err();
+        assert!(!error.is::<RevertedReceipt>());
+        assert!(matches!(
+            error.downcast_ref::<boole_devnet_archive::error::Error>(),
+            Some(boole_devnet_archive::error::Error::Availability {
+                class: "archive-tx-proof",
+                ..
+            })
+        ));
+    }
+    journal
+        .borrow_mut()
+        .install_transaction_proof(1, &full)
+        .unwrap();
+    assert!(poster
+        .included_for_posting_since(&hash, 0)
+        .unwrap_err()
+        .is::<RevertedReceipt>());
+    assert_eq!(
+        poster.included_for_posting_since(&dropped, 0).unwrap(),
+        None
+    );
+    worker.join().unwrap();
+}

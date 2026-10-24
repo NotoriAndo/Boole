@@ -79,6 +79,8 @@ pub struct IndexRow {
     pub l1_hash: String,
     pub parent_hash: String,
     pub bloom_positive: bool,
+    #[serde(default)]
+    pub inbox_touching: bool,
     pub blob_ids: Vec<String>,
     pub l2_hash: String,
     pub root: String,
@@ -275,6 +277,12 @@ impl ArchiveStore {
         }
         let raw = hex_bytes(&row.header_rlp, "header")?;
         let positive = header_needs_receipts(&raw)?;
+        let touching = row
+            .transactions
+            .as_ref()
+            .map(|txs| crate::input::transactions_touch_inbox(&raw, txs))
+            .transpose()?
+            .unwrap_or(false);
         let system = serde_json::to_vec(&selection.system)?;
         let system_digest = sha(&system);
         let index = IndexRow {
@@ -283,6 +291,13 @@ impl ArchiveStore {
             l1_hash: row.block_hash.clone(),
             parent_hash: verified.block.parent_hash.clone(),
             bloom_positive: positive,
+            // Old diagnostic rows are immutable; backfill proof objects without
+            // turning a previously absent flag into an index conflict.
+            inbox_touching: self
+                .index
+                .rows
+                .get(&h)
+                .map_or(touching, |old| old.inbox_touching),
             blob_ids: vec![],
             l2_hash: selection.l2_hash.clone(),
             root: selection.root.clone(),
@@ -292,7 +307,7 @@ impl ArchiveStore {
         };
         index.validate()?;
         self.objects["header"].put(&row.block_hash, &raw, |b| verify_header(&row.block_hash, b))?;
-        if positive {
+        if positive || touching {
             let receipts = row
                 .receipts
                 .as_ref()
@@ -306,7 +321,7 @@ impl ArchiveStore {
                 Ok(())
             })?;
         }
-        if positive {
+        if positive || touching {
             if let Some(transactions) = &row.transactions {
                 let bytes = serde_json::to_vec(transactions)?;
                 self.objects["txs"].put(&row.block_hash, &bytes, |b| {
@@ -417,9 +432,6 @@ impl ArchiveStore {
         let Some(raw) = self.header(key)? else {
             return Ok(None);
         };
-        if !header_needs_receipts(&raw)? {
-            return Ok(None);
-        }
         self.objects["receipts"].read(key, |b| {
             let r = InputRow {
                 schema_version: 1,
@@ -438,9 +450,6 @@ impl ArchiveStore {
         let Some(header) = self.header(key)? else {
             return Ok(None);
         };
-        if !header_needs_receipts(&header)? {
-            return Ok(None);
-        }
         self.objects["txs"].read(key, |b| {
             crate::input::verify_transactions(&header, &crate::client::string_list(b, 65536)?)?;
             Ok(())

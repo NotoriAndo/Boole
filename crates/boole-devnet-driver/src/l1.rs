@@ -448,6 +448,9 @@ impl<L: L1Source> L1Source for JournalSource<L> {
             .journal
             .borrow()
             .missing_transaction_proofs_since(floor)?;
+        if let Some(archives) = &mut self.archives {
+            archives.posting_finality(self.journal.borrow().tip());
+        }
         for h in heights {
             let row = self.journal.borrow().row(h)?;
             let verify = |bytes: &[u8]| -> Result<()> {

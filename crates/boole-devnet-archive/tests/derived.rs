@@ -112,6 +112,7 @@ fn t89_fifty_thousand_mutated_objects_and_responses_never_adopt_or_reject() -> R
         l1_hash: row.block_hash.clone(),
         parent_hash: row.block()?.parent_hash,
         bloom_positive: true,
+        inbox_touching: false,
         blob_ids: vec![],
         l2_hash: format!("0x{}", "03".repeat(32)),
         root: format!("0x{}", "04".repeat(32)),
