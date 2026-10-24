@@ -471,3 +471,145 @@ fn s3_manifest_replacement_sets_health_and_stops_serving() -> Result<()> {
     assert!(request(server.addr(), req)?.starts_with(b"HTTP/1.1 503"));
     Ok(())
 }
+
+struct HangingCovered {
+    stalls: Arc<std::sync::atomic::AtomicUsize>,
+    healthy: Arc<std::sync::atomic::AtomicUsize>,
+}
+impl Fetch for HangingCovered {
+    fn get(&mut self, _: &str, _: &str, _: usize) -> Result<Vec<u8>> {
+        Ok(b"required bytes".to_vec())
+    }
+    fn observe(
+        &mut self,
+        source: &str,
+        route: &str,
+        _: usize,
+        deadline: Instant,
+    ) -> Result<Vec<u8>> {
+        use std::sync::atomic::Ordering;
+        if route == "info" {
+            return Ok(br#"{"covered_through":1000000}"#.to_vec());
+        }
+        if source.ends_with(":1") {
+            self.stalls.fetch_add(1, Ordering::SeqCst);
+            if let Some(left) = deadline.checked_duration_since(Instant::now()) {
+                thread::sleep(left)
+            }
+            anyhow::bail!("archive response deadline")
+        }
+        self.healthy.fetch_add(1, Ordering::SeqCst);
+        let h = route
+            .strip_prefix("index/")
+            .unwrap()
+            .split('?')
+            .next()
+            .unwrap()
+            .parse::<u64>()?;
+        let row = boole_devnet_archive::archive::IndexRow {
+            l1_number: h,
+            l2_number: h,
+            l1_hash: sha(b"l1"),
+            parent_hash: sha(b"parent"),
+            bloom_positive: false,
+            blob_ids: vec![],
+            l2_hash: sha(b"l2"),
+            root: sha(b"root"),
+            inputs: "journal".into(),
+            verdicts: "computed".into(),
+            system_digest: sha(b"system"),
+        };
+        Ok(serde_json::to_vec(&vec![row])?)
+    }
+}
+#[test]
+fn m4_hanging_covered_source_has_bounded_total_cost_during_catchup() -> Result<()> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let stalls = Arc::new(AtomicUsize::new(0));
+    let healthy = Arc::new(AtomicUsize::new(0));
+    let mut c = ArchiveClient::new(
+        vec!["http://127.0.0.1:1".into(), "http://127.0.0.1:2".into()],
+        Box::new(HangingCovered {
+            stalls: stalls.clone(),
+            healthy: healthy.clone(),
+        }),
+    )?;
+    let at = Instant::now();
+    for h in 1..=1000 {
+        assert!(c
+            .tripwire(h, &sha(b"l1"), &sha(b"l2"), &sha(b"root"))
+            .is_empty());
+        assert!(
+            at.elapsed() < Duration::from_millis(500),
+            "hanging source charged every height: h={h} elapsed={:?}",
+            at.elapsed()
+        );
+    }
+    assert_eq!(stalls.load(Ordering::SeqCst), 1);
+    assert!(healthy.load(Ordering::SeqCst) >= 999);
+    assert_eq!(c.failures[0], 1);
+    assert!(c.attempts[0] >= 1);
+    assert_eq!(
+        c.fetch_verified("obj/env/pinned", 64, 1000, |b| Ok(b.to_vec()))?,
+        b"required bytes",
+        "diagnostic cooldown blocked required-data FETCH"
+    );
+    println!(
+        "catchup_heights=1000 stalled_attempts={} healthy_observations={} seconds={:.4}",
+        stalls.load(Ordering::SeqCst),
+        healthy.load(Ordering::SeqCst),
+        at.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+struct ResponsiveOrder(Arc<Mutex<Vec<String>>>);
+impl Fetch for ResponsiveOrder {
+    fn get(&mut self, _: &str, _: &str, _: usize) -> Result<Vec<u8>> {
+        panic!("tripwire used required FETCH")
+    }
+    fn observe(&mut self, source: &str, route: &str, _: usize, _: Instant) -> Result<Vec<u8>> {
+        if route == "info" {
+            return Ok(br#"{"covered_through":1}"#.to_vec());
+        }
+        self.0.lock().unwrap().push(source.into());
+        let row = boole_devnet_archive::archive::IndexRow {
+            l1_number: 1,
+            l2_number: 1,
+            l1_hash: sha(b"l1"),
+            parent_hash: sha(b"parent"),
+            bloom_positive: false,
+            blob_ids: vec![],
+            l2_hash: sha(b"l2"),
+            root: sha(b"root"),
+            inputs: "journal".into(),
+            verdicts: "computed".into(),
+            system_digest: sha(b"system"),
+        };
+        Ok(serde_json::to_vec(&vec![row])?)
+    }
+}
+#[test]
+fn m4_diagnostic_first_source_rotates_even_when_sources_are_responsive() -> Result<()> {
+    let calls = Arc::new(Mutex::new(vec![]));
+    let sources = vec![
+        "http://127.0.0.1:1".to_owned(),
+        "http://127.0.0.1:2".to_owned(),
+    ];
+    let mut client = ArchiveClient::new(sources.clone(), Box::new(ResponsiveOrder(calls.clone())))?;
+    for _ in 0..2 {
+        assert!(client
+            .tripwire(1, &sha(b"l1"), &sha(b"l2"), &sha(b"root"))
+            .is_empty());
+    }
+    assert_eq!(
+        *calls.lock().unwrap(),
+        vec![
+            sources[0].clone(),
+            sources[1].clone(),
+            sources[1].clone(),
+            sources[0].clone()
+        ],
+        "fixed source order can starve later diagnostics"
+    );
+    Ok(())
+}

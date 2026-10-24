@@ -396,6 +396,7 @@ dependencies = [
  "boole-devnet-archive",
  "boole-gate-supervisor",
  "clap",
+ "hex",
  "k256",
  "reqwest",
  "ring",

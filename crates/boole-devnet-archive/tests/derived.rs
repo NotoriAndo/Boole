@@ -328,7 +328,14 @@ fn t73_store_reverifies_transport_commit_preimage_and_variable_metadata() -> Res
     let matching_pin = boole_derivation::attributes::hex_bytes(&sha(&oversized), "pin")?
         .try_into()
         .unwrap();
-    assert!(x.put_content("vstmt", matching_pin, &oversized).is_err());
+    let cap_error = x
+        .put_content("vstmt", matching_pin, &oversized)
+        .unwrap_err();
+    assert_eq!(
+        cap_error.to_string(),
+        "object class cap",
+        "vstmt cap failed for a different reason: {cap_error:#}"
+    );
     let file = d.path().join("tr").join(&hex_string(&key.1)[2..]);
     std::fs::write(&file, b"corrupt transport envelope")?;
     let server = boole_devnet_archive::http::ArchiveServer::start(

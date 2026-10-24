@@ -310,7 +310,7 @@ impl Poster for Capture {
             return Err(boole_devnet_archive::error::availability(
                 7,
                 "archive-tx-proof",
-                "authenticated transaction proofs unavailable",
+                "private-posting-reconciliation-canary",
             ));
         }
         self.included(tx)
@@ -1027,6 +1027,7 @@ fn pending_open_with_archive_proof_gap_does_not_repost_or_invent_reverted() {
     assert_eq!(rows[0]["sent"]["open"]["finalized_before_post"], 6);
     assert!(rows[0]["sent"]["open"]["failure"].is_null());
     assert!(!rows[0].to_string().contains("REVERTED"));
+    let id: Hash = serde_json::from_value(rows[0]["prepared"]["commit"].clone()).unwrap();
     drop(store);
     let mut client = Client::new(
         source,
@@ -1045,5 +1046,20 @@ fn pending_open_with_archive_proof_gap_does_not_repost_or_invent_reverted() {
     assert!(
         client.poster.posts.is_empty(),
         "restart discarded uncertain posting intent"
+    );
+    let view = client.submission(id).unwrap();
+    assert!(
+        view["last_error"]
+            .as_str()
+            .unwrap()
+            .contains("archive-tx-proof"),
+        "public status lost typed proof-gap class: {}",
+        view["last_error"]
+    );
+    assert!(
+        !view
+            .to_string()
+            .contains("private-posting-reconciliation-canary"),
+        "status exposed raw error detail"
     );
 }

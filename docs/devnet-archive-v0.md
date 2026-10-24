@@ -74,10 +74,17 @@ or plus); hash keys have exactly 64 lowercase hex digits. Request lines and head
 use strict CRLF; whitespace before the header colon is refused. There are at most
 eight concurrent connections; saturation attempts a fast 503 and closes (a peer
 with unread request bytes can observe a connection reset). Each connection has
-a two-second request deadline and a three-second total request/response deadline,
-including chunked writes. Shutdown closes active sockets before joining workers.
-Transient accept failures are logged once and retried with bounded backoff; a
-fatal accept failure sets typed `archive-server` health, observed by the driver.
+a two-second request deadline. After dispatch and object re-verification, writes
+receive a fresh total deadline of two seconds plus body length at 8 MiB/s, with
+all bounded chunks sharing that deadline. Local lock/disk verification does not
+consume the body transfer allowance. Shutdown closes active sockets before joining workers.
+Connections have monotonic IDs; registry entries are removed before shutdown,
+including after FIN/RST. Worker creation uses fallible thread builders: failure
+releases its descriptor and returns 503 while the accept loop continues. Transient
+accept failures (descriptor/memory exhaustion and pending network errors) are
+logged once and retried with bounded backoff; a fatal accept failure sets typed
+`archive-server` health, observed by the driver. A poisoned store also sets typed
+health, so serving cannot remain silently unhealthy.
 Malformed requests receive 400, unsupported methods 405, and incomplete requests
 408. Store integrity failures receive typed 500, availability/stopped serving 503;
 these errors are logged once per class. A response over OBJ_MAX is internal failure,
@@ -111,7 +118,7 @@ verified a block. It independently checks the own journal, L2 parent link,
 transactions and embedded root before publishing. It only ingests finalized
 heights. A publication retry retries the sink cursor, never reapplies the driver
 fold. Deterministic replay mismatches are sticky typed `archive-replay` integrity
-stops; I/O/RPC availability can retry without moving the cursor. The finality guard
+stops; I/O/RPC and typed rebuild/decoder availability can retry without moving the cursor. The finality guard
 uses the own input journal tip, independently of the derived height. Restart replays the already verified own chain to fill a missing archive
 index suffix. Existing historical source labels are retained.
 
@@ -120,7 +127,10 @@ directory fsync, using the existing R1 durability implementation by copy. Every
 read re-verifies the object. Corrupt bytes are preserved under `corrupt/`; a
 subsequent archive GET returns 404 for that address until restart. Restart sink
 replay reconstructs the public object from the own journal/Engine (and public
-artifacts), preserving the quarantined bytes. There is no online repair on GET. The index uses
+artifacts), preserving the quarantined bytes. There is no online repair on GET. Verified publication treats a newly quarantined
+existing copy as absent and re-publishes it in the same call. Retirement likewise
+treats a quarantined disposable cache copy as gone; every quarantined byte remains
+preserved. Other integrity errors still stop typed. The index uses
 version-bound append, confirmed-prefix checks, explicit torn-tail repair and
 indeterminate-write fencing. A replaced writer lock, manifest or index stops the
 store. The serving API does not turn such failures into valid object bytes.
@@ -134,7 +144,9 @@ result and statement digest equal the already applied verdict. It never copies
 a cache MAC, private key, client store, cancellation secret or unrevealed material.
 
 The index is checked only **after** the local fold, under one shared 50 ms budget
-per step across all sources, with one attempt and no backoff. Sources' untrusted
+per step across all sources, with one attempt and no inline backoff. The starting source rotates, and failed
+observations put that source on a 30-second cooldown. Info probes also count in
+source statistics. This cooldown never delays required-data FETCH. Sources' untrusted
 `covered_through` hints skip heights not yet indexed (refreshed at most once per
 second while behind). A transport without a bounded observation implementation
 skips diagnostics rather than invoking its blocking required-data path. An alert
@@ -150,7 +162,8 @@ those rows. Each new posting intent therefore persists the own finalized height
 before sending. If a pending transaction is absent from authenticated receipts
 and any subsequent finalized row lacks transaction proofs, posting reconciliation
 returns resumable `archive-tx-proof` availability and preserves the intent;
-it neither reposts nor guesses success/REVERTED. Legacy intents without that
+it neither reposts nor guesses success/REVERTED. Status preserves the typed
+`archive-tx-proof` class without copying raw error detail. Legacy intents without that
 height conservatively use zero. Old gaps at or below a new post's saved floor do
 not delay that post. Exact receipt status in such a pending gap requires restoring
 a journal with authenticated full transaction/receipt proofs; fetching those

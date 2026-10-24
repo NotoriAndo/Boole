@@ -5,7 +5,7 @@ use crate::{
 };
 use anyhow::{ensure, Result};
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     io::{Read, Write},
     net::{Shutdown, SocketAddr, TcpListener, TcpStream},
     sync::{
@@ -18,8 +18,13 @@ use std::{
 pub const PREFIX: &str = "/boole/archive/v1/";
 const CONNECTIONS: usize = 8;
 const REQUEST_TIME: Duration = Duration::from_secs(2);
-const TOTAL_TIME: Duration = Duration::from_secs(3);
+/// Shared fixed slack and minimum loopback throughput for bounded body I/O.
+pub(crate) fn transfer_budget(length: usize) -> Duration {
+    Duration::from_secs(2) + Duration::from_secs_f64(length as f64 / (8.0 * 1024.0 * 1024.0))
+}
 type Health = Arc<Mutex<Option<Error>>>;
+type Work = Box<dyn FnOnce() + Send>;
+type SpawnWorker = Arc<dyn Fn(Work) -> std::io::Result<JoinHandle<()>> + Send + Sync>;
 pub struct Response {
     pub status: u16,
     pub body: Vec<u8>,
@@ -42,11 +47,26 @@ pub struct ArchiveServer {
     addr: SocketAddr,
     stop: Arc<AtomicBool>,
     health: Health,
-    sockets: Arc<Mutex<Vec<TcpStream>>>,
+    sockets: Arc<Mutex<BTreeMap<u64, TcpStream>>>,
     thread: Option<JoinHandle<()>>,
 }
 impl ArchiveServer {
     pub fn start(store: Arc<Mutex<ArchiveStore>>, bind: SocketAddr) -> Result<Self> {
+        Self::start_with_spawner(
+            store,
+            bind,
+            Arc::new(|work| {
+                thread::Builder::new()
+                    .name("archive-http".into())
+                    .spawn(work)
+            }),
+        )
+    }
+    fn start_with_spawner(
+        store: Arc<Mutex<ArchiveStore>>,
+        bind: SocketAddr,
+        spawn: SpawnWorker,
+    ) -> Result<Self> {
         ensure!(
             bind.ip().is_loopback(),
             "S21: archive bind must be loopback"
@@ -58,10 +78,12 @@ impl ArchiveServer {
         let flag = stop.clone();
         let health: Health = Default::default();
         let serving = health.clone();
-        let sockets: Arc<Mutex<Vec<TcpStream>>> = Default::default();
+        let sockets: Arc<Mutex<BTreeMap<u64, TcpStream>>> = Default::default();
         let active = sockets.clone();
-        let thread = thread::spawn(move || {
+        let serving_loop = move || {
             let mut workers: Vec<JoinHandle<()>> = vec![];
+            let mut next_id = 0u64;
+            let mut spawn_logged = false;
             let logged = Arc::new(Mutex::new(BTreeSet::new()));
             accept_loop(
                 &flag,
@@ -85,10 +107,22 @@ impl ArchiveServer {
                         return;
                     }
                     // Retain only live workers' sockets; shutdown clones are used only by Drop.
-                    let id = stream.peer_addr().ok();
+                    let id = next_id;
+                    let Some(next) = next_id.checked_add(1) else {
+                        if let Ok(mut h) = serving.lock() {
+                            *h = Some(Error::Integrity {
+                                height: 0,
+                                class: "archive-server",
+                                detail: "connection id exhausted".into(),
+                            });
+                        }
+                        flag.store(true, Ordering::Release);
+                        return;
+                    };
+                    next_id = next;
                     if let Ok(clone) = stream.try_clone() {
                         if let Ok(mut all) = active.lock() {
-                            all.push(clone)
+                            all.insert(id, clone);
                         }
                     } else {
                         return;
@@ -100,24 +134,45 @@ impl ArchiveServer {
                         active.clone(),
                         logged.clone(),
                     );
-                    workers.push(thread::spawn(move || {
+                    let cleanup = active.clone();
+                    match spawn(Box::new(move || {
                         let _ = handle(&mut stream, &store, &flag, &health, &logged);
-                        let _ = stream.shutdown(Shutdown::Both);
                         if let Ok(mut all) = active.lock() {
-                            all.retain(|s| s.peer_addr().ok() != id)
+                            all.remove(&id);
                         }
-                    }));
+                        let _ = stream.shutdown(Shutdown::Both);
+                    })) {
+                        Ok(worker) => workers.push(worker),
+                        Err(_) => {
+                            let rejected = cleanup.lock().ok().and_then(|mut all| all.remove(&id));
+                            if let Some(mut rejected) = rejected {
+                                let _ = write_response(
+                                    &mut rejected,
+                                    Response::error(503),
+                                    Instant::now() + Duration::from_millis(20),
+                                );
+                                let _ = rejected.shutdown(Shutdown::Both);
+                            }
+                            if !spawn_logged {
+                                eprintln!("archive availability (archive-worker): cannot start bounded connection worker");
+                                spawn_logged = true;
+                            }
+                        }
+                    }
                 },
             );
             if let Ok(all) = active.lock() {
-                for s in all.iter() {
+                for s in all.values() {
                     let _ = s.shutdown(Shutdown::Both);
                 }
             }
             for worker in workers {
                 let _ = worker.join();
             }
-        });
+        };
+        let thread = thread::Builder::new()
+            .name("archive-accept".into())
+            .spawn(serving_loop)?;
         Ok(Self {
             addr,
             stop,
@@ -150,7 +205,7 @@ impl Drop for ArchiveServer {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Release);
         if let Ok(all) = self.sockets.lock() {
-            for s in all.iter() {
+            for s in all.values() {
                 let _ = s.shutdown(Shutdown::Both);
             }
         }
@@ -160,11 +215,41 @@ impl Drop for ArchiveServer {
     }
 }
 fn transient(e: &std::io::Error) -> bool {
-    matches!(
+    if matches!(
         e.kind(),
-        std::io::ErrorKind::Interrupted | std::io::ErrorKind::ConnectionAborted
-    ) || matches!(e.raw_os_error(), Some(libc::EMFILE) | Some(libc::ENFILE))
+        std::io::ErrorKind::Interrupted
+            | std::io::ErrorKind::ConnectionAborted
+            | std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::TimedOut
+    ) {
+        return true;
+    }
+    if e.raw_os_error().is_some_and(|code| {
+        [
+            libc::EMFILE,
+            libc::ENFILE,
+            libc::ENOBUFS,
+            libc::ENOMEM,
+            libc::EPROTO,
+            libc::ENETDOWN,
+            libc::ENOPROTOOPT,
+            libc::EHOSTDOWN,
+            libc::EHOSTUNREACH,
+            libc::EOPNOTSUPP,
+            libc::ENETUNREACH,
+            libc::ENETRESET,
+        ]
+        .contains(&code)
+    }) {
+        return true;
+    }
+    #[cfg(target_os = "linux")]
+    if e.raw_os_error() == Some(libc::ENONET) {
+        return true;
+    }
+    false
 }
+
 fn accept_loop(
     flag: &AtomicBool,
     health: &Health,
@@ -274,7 +359,6 @@ fn handle(
     stream.set_nonblocking(false)?;
     let start = Instant::now();
     let request_deadline = start + REQUEST_TIME;
-    let total = start + TOTAL_TIME;
     let mut raw = vec![];
     let mut part = [0; 4096];
     let response = loop {
@@ -315,7 +399,25 @@ fn handle(
             let locked = loop {
                 match store.try_lock() {
                     Ok(s) => break Some(s),
-                    Err(std::sync::TryLockError::Poisoned(_)) => break None,
+                    Err(std::sync::TryLockError::Poisoned(_)) => {
+                        if let Ok(mut h) = health.lock() {
+                            if h.is_none() {
+                                *h = Some(Error::Integrity {
+                                    height: 0,
+                                    class: "archive-store",
+                                    detail: "store mutex poisoned".into(),
+                                });
+                            }
+                        }
+                        if let Ok(mut seen) = logged.lock() {
+                            if seen.insert("archive-store".into()) {
+                                eprintln!(
+                                    "archive integrity (archive-store): store mutex poisoned"
+                                );
+                            }
+                        }
+                        break None;
+                    }
                     Err(_) => {
                         if stop.load(Ordering::Acquire) || Instant::now() >= request_deadline {
                             break None;
@@ -330,7 +432,8 @@ fn handle(
             };
         }
     };
-    write_response(stream, response, total)
+    let deadline = Instant::now() + transfer_budget(response.body.len());
+    write_response(stream, response, deadline)
 }
 fn number(s: &str) -> Option<u64> {
     if s == "0" || (!s.starts_with('0') && !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())) {
@@ -485,5 +588,267 @@ mod tests {
                 ..
             })
         ));
+    }
+}
+
+#[cfg(test)]
+mod fix2_tests {
+    use super::*;
+    fn store() -> Result<(crate::durability::PrivateTempDir, Arc<Mutex<ArchiveStore>>)> {
+        use crate::{
+            archive::{ArchiveIdentity, ArchiveProfile},
+            journal::NetworkIdentity,
+        };
+        use boole_derivation::{attributes::hex_string, m2::Config};
+        let dir = crate::durability::PrivateTempDir::new("http-fix2")?;
+        let profile = ArchiveProfile {
+            identity: ArchiveIdentity {
+                network: NetworkIdentity::new(
+                    &Config::devnet(),
+                    None,
+                    hex_string(&[1; 32]),
+                    30_000_000,
+                )?,
+                l1_anchor_number: 0,
+                l1_anchor_hash: hex_string(&[2; 32]),
+            },
+            bind: "127.0.0.1:0".parse()?,
+            prune_before: None,
+        };
+        let store = Arc::new(Mutex::new(ArchiveStore::open(dir.path(), profile, false)?));
+        Ok((dir, store))
+    }
+    #[test]
+    fn l3_poisoned_store_sets_typed_server_health() -> Result<()> {
+        let (_dir, store) = store()?;
+        let poisoned = store.clone();
+        assert!(thread::spawn(move || {
+            let _held = poisoned.lock().unwrap();
+            panic!("deliberate own store poison");
+        })
+        .join()
+        .is_err());
+        let server = ArchiveServer::start(store, "127.0.0.1:0".parse()?)?;
+        let mut client = TcpStream::connect(server.addr())?;
+        client.set_read_timeout(Some(Duration::from_secs(3)))?;
+        client.write_all(b"GET /boole/archive/v1/info HTTP/1.1\r\n\r\n")?;
+        let mut response = vec![];
+        client.read_to_end(&mut response)?;
+        assert!(response.starts_with(b"HTTP/1.1 503"));
+        let error = server
+            .health()
+            .expect_err("poisoned store leaves keepalive serving forever");
+        assert!(matches!(
+            error.downcast_ref::<Error>(),
+            Some(Error::Integrity {
+                class: "archive-store",
+                ..
+            })
+        ));
+        Ok(())
+    }
+    #[test]
+    fn l2_pending_network_and_memory_accept_errors_retry() -> Result<()> {
+        let codes = [
+            libc::ENOBUFS,
+            libc::ENOMEM,
+            libc::EPROTO,
+            libc::ENETDOWN,
+            libc::ENOPROTOOPT,
+            libc::EHOSTDOWN,
+            libc::EHOSTUNREACH,
+            libc::EOPNOTSUPP,
+            libc::ENETUNREACH,
+            libc::ENETRESET,
+            libc::ECONNRESET,
+            libc::ETIMEDOUT,
+        ]
+        .into_iter();
+        #[cfg(target_os = "linux")]
+        let codes = codes.chain([libc::ENONET]);
+        for code in codes {
+            let flag = AtomicBool::new(false);
+            let health = Health::default();
+            let mut attempts = 0;
+            accept_loop(
+                &flag,
+                &health,
+                || {
+                    attempts += 1;
+                    if attempts == 1 {
+                        Err(std::io::Error::from_raw_os_error(code))
+                    } else {
+                        flag.store(true, Ordering::Release);
+                        Err(std::io::ErrorKind::WouldBlock.into())
+                    }
+                },
+                |_| {},
+            );
+            assert_eq!(
+                attempts, 2,
+                "pending accept error {code} stopped the listener"
+            );
+            assert!(health.lock().unwrap().is_none());
+        }
+        Ok(())
+    }
+    #[test]
+    fn l1_worker_spawn_failure_refuses_then_recovers_without_descriptor_leak() -> Result<()> {
+        use std::sync::atomic::AtomicUsize;
+        let (_dir, store) = store()?;
+        let calls = Arc::new(AtomicUsize::new(0));
+        let count = calls.clone();
+        let spawn: SpawnWorker = Arc::new(move |work| {
+            if count.fetch_add(1, Ordering::SeqCst) == 0 {
+                Err(std::io::Error::from_raw_os_error(libc::EAGAIN))
+            } else {
+                Ok(thread::spawn(work))
+            }
+        });
+        let server = ArchiveServer::start_with_spawner(store, "127.0.0.1:0".parse()?, spawn)?;
+        let request = || -> Result<Vec<u8>> {
+            let mut client = TcpStream::connect(server.addr())?;
+            client.set_read_timeout(Some(Duration::from_millis(300)))?;
+            client.write_all(b"GET /boole/archive/v1/info HTTP/1.1\r\n\r\n")?;
+            let mut bytes = vec![];
+            let _ = client.read_to_end(&mut bytes);
+            Ok(bytes)
+        };
+        assert!(
+            request()?.starts_with(b"HTTP/1.1 503"),
+            "worker spawn failure silently killed serving"
+        );
+        assert!(
+            request()?.starts_with(b"HTTP/1.1 200"),
+            "accept thread did not recover"
+        );
+        server.health()?;
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while !server.sockets.lock().unwrap().is_empty() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(server.sockets.lock().unwrap().is_empty());
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        Ok(())
+    }
+    #[test]
+    fn m3_large_verified_body_gets_its_full_transfer_budget_after_dispatch() -> Result<()> {
+        let (_dir, store) = store()?;
+        let bytes = vec![7; 32 * 1024 * 1024];
+        let address = crate::archive::sha(&bytes);
+        let pin = boole_derivation::attributes::hex_bytes(&address, "pin")?
+            .try_into()
+            .unwrap();
+        store.lock().unwrap().put_content("env", pin, &bytes)?;
+        let server = ArchiveServer::start(store.clone(), "127.0.0.1:0".parse()?)?;
+        let (ready, wait) = std::sync::mpsc::channel();
+        let held = store.clone();
+        let lock = thread::spawn(move || {
+            let _guard = held.lock().unwrap();
+            ready.send(()).unwrap();
+            thread::sleep(Duration::from_millis(1300));
+        });
+        wait.recv()?;
+        let mut client = TcpStream::connect(server.addr())?;
+        client.set_read_timeout(Some(Duration::from_secs(3)))?;
+        write!(
+            client,
+            "GET /boole/archive/v1/obj/env/{} HTTP/1.1\r\n\r\n",
+            &address[2..]
+        )?;
+        let mut header = vec![];
+        let mut byte = [0; 1];
+        while !header.ends_with(b"\r\n\r\n") {
+            client.read_exact(&mut byte)?;
+            header.push(byte[0]);
+        }
+        assert!(header.starts_with(b"HTTP/1.1 200"));
+        let mut chunk = vec![0; 4 * 1024 * 1024];
+        let mut received = 0;
+        let body_started = Instant::now();
+        while received < bytes.len() {
+            let n = chunk.len().min(bytes.len() - received);
+            client.read_exact(&mut chunk[..n]).map_err(|e| {
+                anyhow::anyhow!(
+                    "body stopped after {received}/{} bytes at {:?}: {e}",
+                    bytes.len(),
+                    body_started.elapsed()
+                )
+            })?;
+            assert!(chunk[..n].iter().all(|b| *b == 7));
+            received += n;
+            if received < bytes.len() {
+                thread::sleep(Duration::from_millis(450));
+            }
+        }
+        lock.join().unwrap();
+        assert_eq!(received, bytes.len());
+        println!(
+            "body_bytes={received} body_seconds={:.3}",
+            body_started.elapsed().as_secs_f64()
+        );
+        Ok(())
+    }
+    #[test]
+    #[allow(unsafe_code)]
+    fn h1_fin_and_rst_return_registry_and_process_descriptors() -> Result<()> {
+        use std::os::fd::AsRawFd;
+        let (_dir, store) = store()?;
+        let server = ArchiveServer::start(store, "127.0.0.1:0".parse()?)?;
+        let descriptors = || {
+            std::fs::read_dir(if cfg!(target_os = "linux") {
+                "/proc/self/fd"
+            } else {
+                "/dev/fd"
+            })
+            .unwrap()
+            .count()
+        };
+        let baseline = descriptors();
+        for reset in [false, true] {
+            for _ in 0..64 {
+                let mut client = TcpStream::connect(server.addr())?;
+                client.set_read_timeout(Some(Duration::from_secs(4)))?;
+                client.write_all(b"GET /boole/archive/v1/info HTTP/1.1\r\n\r\n")?;
+                if reset {
+                    let linger = libc::linger {
+                        l_onoff: 1,
+                        l_linger: 0,
+                    };
+                    assert_eq!(
+                        unsafe {
+                            libc::setsockopt(
+                                client.as_raw_fd(),
+                                libc::SOL_SOCKET,
+                                libc::SO_LINGER,
+                                (&linger as *const libc::linger).cast(),
+                                std::mem::size_of_val(&linger) as _,
+                            )
+                        },
+                        0
+                    );
+                } else {
+                    let mut bytes = vec![];
+                    client.read_to_end(&mut bytes)?;
+                    assert!(bytes.starts_with(b"HTTP/1.1 200"));
+                }
+                drop(client);
+                // Ensure this request's worker cleanup, not just its response, completed.
+                thread::sleep(Duration::from_millis(5));
+            }
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while !server.sockets.lock().unwrap().is_empty() && Instant::now() < deadline {
+                thread::sleep(Duration::from_millis(5));
+            }
+            assert!(
+                server.sockets.lock().unwrap().is_empty(),
+                "closed connections retained registry descriptors (RST={reset})"
+            );
+            assert!(
+                descriptors() <= baseline + 2,
+                "process descriptor count grew after close"
+            );
+        }
+        Ok(())
     }
 }

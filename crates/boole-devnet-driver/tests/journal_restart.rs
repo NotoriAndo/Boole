@@ -1001,6 +1001,10 @@ fn t78_fresh_driver_joins_verified_archive_when_own_l1_refuses_history() -> Resu
     cache.put(&rows[3].block_hash, &raw, |b| {
         boole_devnet_archive::archive::verify_header(&rows[3].block_hash, b)
     })?;
+    std::fs::write(
+        dir.join("archive-download").join(&rows[3].block_hash[2..]),
+        b"corrupt already-journaled cache copy",
+    )?;
     drop(cache);
     let source = JournalSource::open_archive(
         TipOnly {
@@ -1256,5 +1260,60 @@ fn fix_c5_deterministic_sink_mismatch_is_sticky_integrity() -> Result<()> {
         sink.synchronize(&mut d).is_err(),
         "integrity stop resumed without restart"
     );
+    Ok(())
+}
+
+#[test]
+fn fix2_m1_restart_sink_republishes_unseen_corruption_without_sticky_stop() -> Result<()> {
+    use boole_devnet_archive::archive::{ArchiveIdentity, ArchiveProfile, ArchiveStore};
+    use boole_devnet_driver::driver::archive::ArchiveSink;
+    use std::sync::{Arc, Mutex};
+    let dir = PrivateTempDir::new("archive-restart-quarantine")?;
+    let raw = TipOnly::new();
+    let genesis = raw.rows[0].clone();
+    let engine = MemoryEngine::new();
+    let config = boole_derivation::m2::Config::devnet();
+    let network = NetworkIdentity::new(&config, None, engine.head.hash.clone(), 30_000_000)?;
+    let public = dir.path().join("public");
+    let store = Arc::new(Mutex::new(ArchiveStore::open(
+        &public,
+        ArchiveProfile {
+            identity: ArchiveIdentity {
+                network: network.clone(),
+                l1_anchor_number: 0,
+                l1_anchor_hash: genesis.block_hash.clone(),
+            },
+            bind: "127.0.0.1:0".parse()?,
+            prune_before: None,
+        },
+        false,
+    )?));
+    let source = JournalSource::open(raw, &dir.path().join("node"), network, false)?;
+    let mut driver = Driver::new(source, engine);
+    driver.resume()?;
+    let mut sink = ArchiveSink::new(&mut driver, store.clone(), None)?;
+    sink.synchronize(&mut driver)?;
+    drop(sink);
+    std::fs::write(
+        public.join("header").join(&genesis.block_hash[2..]),
+        b"unseen corrupt header",
+    )?;
+    let mut sink = ArchiveSink::new(&mut driver, store.clone(), None)?;
+    sink.synchronize(&mut driver)?;
+    assert_eq!(
+        store.lock().unwrap().header(&genesis.block_hash)?.unwrap(),
+        hex_bytes(&genesis.header_rlp, "header")?
+    );
+    let saved =
+        std::fs::read_dir(public.join("header/corrupt"))?.collect::<std::io::Result<Vec<_>>>()?;
+    assert_eq!(saved.len(), 1);
+    assert_eq!(
+        std::fs::read(saved[0].path().join("object"))?,
+        b"unseen corrupt header"
+    );
+    driver.l1.inner.tip = 1;
+    driver.step(1)?;
+    sink.synchronize(&mut driver)?;
+    assert_eq!(store.lock().unwrap().index(0, 1024)?.len(), 2);
     Ok(())
 }

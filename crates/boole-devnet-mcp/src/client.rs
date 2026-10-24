@@ -1306,9 +1306,16 @@ impl<L: L1Source, P: Poster> Client<L, P> {
         }
         let ids: Vec<_> = self.submissions.keys().copied().collect();
         for id in ids {
-            if self.advance(id, head).is_err() {
+            if let Err(error) = self.advance(id, head) {
                 let mut sub = self.submissions[&id].clone();
-                sub.last_error = Some("submission progress read failed; retry pending".into());
+                sub.last_error = Some(
+                    match error.downcast_ref::<boole_devnet_archive::error::Error>() {
+                        Some(boole_devnet_archive::error::Error::Availability {
+                            class, ..
+                        }) => format!("submission progress unavailable ({class}); retry pending"),
+                        _ => "submission progress read failed; retry pending".into(),
+                    },
+                );
                 self.save(&sub)?;
             }
         }

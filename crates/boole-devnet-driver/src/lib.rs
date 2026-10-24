@@ -2,3 +2,6 @@
 pub mod driver;
 pub mod engine;
 pub mod l1;
+
+#[cfg(test)]
+extern crate self as boole_devnet_driver;

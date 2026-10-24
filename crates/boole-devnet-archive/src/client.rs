@@ -110,9 +110,7 @@ impl HttpFetch {
         );
         // Total time includes connect, headers and every body chunk. 8 MiB/s is the
         // minimum supported loopback throughput, with two seconds of fixed slack.
-        let deadline = start
-            + Duration::from_secs(2)
-            + Duration::from_secs_f64(len as f64 / (8.0 * 1024.0 * 1024.0));
+        let deadline = start + crate::http::transfer_budget(len);
         let deadline = budget.map_or(deadline, |b| b.min(deadline));
         let mut bytes = vec![0; len];
         let mut at = 0;
@@ -149,6 +147,8 @@ pub struct ArchiveClient {
     pub failures: Vec<u64>,
     coverage: Vec<Option<u64>>,
     coverage_checked: Vec<Option<Instant>>,
+    observation_retry_at: Vec<Option<Instant>>,
+    next_observer: usize,
 }
 impl ArchiveClient {
     pub fn http(sources: Vec<String>) -> Result<Self> {
@@ -171,6 +171,8 @@ impl ArchiveClient {
             attempts,
             coverage: vec![None; sources.len()],
             coverage_checked: vec![None; sources.len()],
+            observation_retry_at: vec![None; sources.len()],
+            next_observer: 0,
             failures,
         })
     }
@@ -408,6 +410,11 @@ impl ArchiveClient {
             Ok(())
         })
     }
+    fn observation_failed(&mut self, index: usize) {
+        self.discarded = self.discarded.saturating_add(1);
+        self.failures[index] = self.failures[index].saturating_add(1);
+        self.observation_retry_at[index] = Some(Instant::now() + Duration::from_secs(30));
+    }
     pub fn tripwire(
         &mut self,
         height: u64,
@@ -417,20 +424,35 @@ impl ArchiveClient {
     ) -> Vec<String> {
         let deadline = Instant::now() + Duration::from_millis(50);
         let mut alerts = vec![];
-        for i in 0..self.sources.len() {
+        let start = self.next_observer;
+        self.next_observer = (start + 1) % self.sources.len();
+        for offset in 0..self.sources.len() {
+            let i = (start + offset) % self.sources.len();
             if Instant::now() >= deadline {
                 break;
+            }
+            if self.observation_retry_at[i].is_some_and(|at| Instant::now() < at) {
+                continue;
             }
             if self.coverage[i].is_none_or(|through| through < height)
                 && self.coverage_checked[i].is_none_or(|at| at.elapsed() >= Duration::from_secs(1))
             {
                 self.coverage_checked[i] = Some(Instant::now());
-                if let Ok(raw) = self
+                self.attempts[i] = self.attempts[i].saturating_add(1);
+                match self
                     .fetch
                     .observe(&self.sources[i], "info", REQ_MAX, deadline)
                 {
-                    if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&raw) {
-                        self.coverage[i] = v["covered_through"].as_u64();
+                    Ok(raw) => match serde_json::from_slice::<serde_json::Value>(&raw) {
+                        Ok(v) => self.coverage[i] = v["covered_through"].as_u64(),
+                        Err(_) => {
+                            self.observation_failed(i);
+                            continue;
+                        }
+                    },
+                    Err(_) => {
+                        self.observation_failed(i);
+                        continue;
                     }
                 }
             }
@@ -463,8 +485,7 @@ impl ArchiveClient {
                 }
             }
             // Absent/unavailable/unparseable data is not evidence of a conflicting index.
-            self.discarded = self.discarded.saturating_add(1);
-            self.failures[i] = self.failures[i].saturating_add(1);
+            self.observation_failed(i);
         }
         alerts
     }

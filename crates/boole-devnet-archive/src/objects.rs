@@ -101,8 +101,11 @@ impl Objects {
         self.check()?;
         let path = self.path(key)?;
         let before = crate::version::file_stamp(&path)?;
-        if self.read(key, verify)?.is_none() {
-            return Ok(());
+        match self.read(key, verify) {
+            Ok(Some(_)) => {}
+            Ok(None) => return Ok(()),
+            Err(e) if quarantined(&e) => return Ok(()),
+            Err(e) => return Err(e),
         }
         ensure!(
             before == crate::version::file_stamp(&path)?,
@@ -122,8 +125,11 @@ impl Objects {
             ));
         }
         verify(bytes)?;
-        if self.read(key, &verify)?.is_some() {
-            return Ok(());
+        match self.read(key, &verify) {
+            Ok(Some(_)) => return Ok(()),
+            Ok(None) => {}
+            Err(e) if quarantined(&e) => {}
+            Err(e) => return Err(e),
         }
         let height = serde_json::from_slice::<crate::input::InputRow>(bytes)
             .ok()
@@ -131,6 +137,15 @@ impl Objects {
             .map(|b| b.number);
         crate::journal::publish_new_at(&self.path(key)?, bytes, height.map(|h| (h, "staged-input")))
     }
+}
+fn quarantined(error: &anyhow::Error) -> bool {
+    matches!(
+        error.downcast_ref::<crate::error::Error>(),
+        Some(crate::error::Error::Integrity {
+            class: "object-quarantine",
+            ..
+        })
+    )
 }
 #[cfg(test)]
 mod tests {
@@ -227,6 +242,44 @@ mod tests {
         assert_eq!(std::fs::read(saved[0].path().join("object"))?, bad);
         objects.put(&key, good, verify)?;
         assert_eq!(objects.read(&key, verify)?.unwrap(), good);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod fix2_tests {
+    use super::*;
+    #[test]
+    fn m1_verified_republish_and_retirement_survive_quarantine() -> Result<()> {
+        use sha2::{Digest, Sha256};
+        let dir = crate::durability::PrivateTempDir::new("object-quarantine-retry")?;
+        let bytes = b"verified replacement";
+        let key = format!("0x{}", hex::encode(Sha256::digest(bytes)));
+        let verify = |b: &[u8]| {
+            ensure!(b == bytes, "changed public bytes");
+            Ok(())
+        };
+        let objects = Objects::open(dir.path())?;
+        objects.put(&key, bytes, verify)?;
+        std::fs::write(objects.path(&key)?, b"first corrupt copy")?;
+        objects.put(&key, bytes, verify)?;
+        assert_eq!(
+            objects.read(&key, verify)?.as_deref(),
+            Some(bytes.as_slice())
+        );
+        std::fs::write(objects.path(&key)?, b"corrupt disposable header")?;
+        objects.retire(&key, verify)?;
+        assert!(objects.read(&key, verify)?.is_none());
+        let mut saved = std::fs::read_dir(dir.path().join("corrupt"))?
+            .map(|e| std::fs::read(e.unwrap().path().join("object")))
+            .collect::<std::io::Result<Vec<_>>>()?;
+        saved.sort();
+        let mut expected = vec![
+            b"first corrupt copy".to_vec(),
+            b"corrupt disposable header".to_vec(),
+        ];
+        expected.sort();
+        assert_eq!(saved, expected);
         Ok(())
     }
 }

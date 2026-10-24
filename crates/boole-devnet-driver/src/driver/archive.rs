@@ -76,10 +76,21 @@ impl ArchiveSink {
             return Err(error.clone().into());
         }
         let h = driver.m2.height();
-        let result = self.synchronize_inner(driver).map_err(|e| {
+        let result = self.synchronize_inner(driver);
+        self.complete_sync(h, result)
+    }
+    fn complete_sync(&mut self, h: u64, result: Result<()>) -> Result<()> {
+        if let Some(error) = &self.stopped {
+            return Err(error.clone().into());
+        }
+        let result = result.map_err(|e| {
             if e.is::<boole_devnet_archive::error::Error>() {
                 e
-            } else if e.is::<std::io::Error>() || crate::engine::rpc_unavailable(&e) {
+            } else if e.is::<std::io::Error>()
+                || crate::engine::rpc_unavailable(&e)
+                || e.is::<boole_gate_supervisor::rebuild::Availability>()
+                || e.is::<boole_gate_supervisor::rebuild::NodeUnavailable>()
+            {
                 availability(
                     h,
                     "archive-ingest",
@@ -475,4 +486,105 @@ fn public_cancel_hash(
         .get(21..53)
         .context("public cancellation hash")?
         .try_into()?)
+}
+
+#[cfg(test)]
+#[path = "../../../boole-gate-supervisor/tests/support/mod.rs"]
+mod capture_fixture;
+#[cfg(test)]
+mod fix2_tests {
+    use super::*;
+    use boole_derivation::ParentHeader;
+    use boole_devnet_archive::{
+        archive::{ArchiveIdentity, ArchiveProfile},
+        durability::PrivateTempDir,
+        journal::NetworkIdentity,
+    };
+    struct OriginEngine(capture_fixture::Archive);
+    impl Engine for OriginEngine {
+        fn head(&mut self) -> Result<ParentHeader> {
+            self.header(17)
+        }
+        fn header(&mut self, h: u64) -> Result<ParentHeader> {
+            let rows: serde_json::Value = serde_json::from_str(include_str!(
+                "../../../../fixtures/devnet-m1/s1b-recorded-main.json"
+            ))?;
+            let mut p: ParentHeader = serde_json::from_value(rows[0]["parent"].clone())?;
+            p.number = h;
+            p.l1_info = Some(boole_derivation::system::l1_info(&self.0.rows[&h].0)?);
+            Ok(p)
+        }
+        fn call(&mut self, _: &str, _: serde_json::Value) -> Result<serde_json::Value> {
+            anyhow::bail!("capture must not write Engine")
+        }
+    }
+    #[test]
+    fn m2_capture_availability_markers_never_latch_replay_integrity() -> Result<()> {
+        for missing_codec in [true, false] {
+            let dir = PrivateTempDir::new("sink-capture-availability")?;
+            let (c, s, _key, history) =
+                capture_fixture::fixture_with(capture_fixture::scenario::m3_cfg(), Some(1));
+            let mut source = history.clone();
+            if !missing_codec {
+                source.rows.get_mut(&16).unwrap().1.clear();
+            }
+            let mut driver =
+                Driver::with_config(source, OriginEngine(history), c.clone(), 30_000_000)?;
+            let table = ForkTable::genesis(&c)?;
+            let store = Arc::new(Mutex::new(ArchiveStore::open(
+                &dir.path().join("public"),
+                ArchiveProfile {
+                    identity: ArchiveIdentity {
+                        network: NetworkIdentity::new(
+                            &c,
+                            Some(&table),
+                            hex_string(&[1; 32]),
+                            30_000_000,
+                        )?,
+                        l1_anchor_number: 0,
+                        l1_anchor_hash: hex_string(&[2; 32]),
+                    },
+                    bind: "127.0.0.1:0".parse()?,
+                    prune_before: None,
+                },
+                false,
+            )?));
+            let mut sink = ArchiveSink {
+                store,
+                state: s.clone(),
+                last_hash: hex_string(&[1; 32]),
+                paths: Some(CapturePaths {
+                    cache: dir.path().into(),
+                    artifacts: dir.path().into(),
+                    scratch: dir.path().into(),
+                }),
+                stopped: None,
+            };
+            for _ in 0..2 {
+                let result = sink.capture_candidates(&mut driver, &s, &[], 17);
+                let error = result
+                    .as_ref()
+                    .err()
+                    .expect("capture fixture must be unavailable");
+                assert!(
+                    if missing_codec {
+                        error.is::<boole_gate_supervisor::rebuild::NodeUnavailable>()
+                    } else {
+                        error.is::<boole_gate_supervisor::rebuild::Availability>()
+                    },
+                    "wrong capture failure: {error:#}"
+                );
+                let error = sink.complete_sync(17, result).unwrap_err();
+                assert!(
+                    matches!(
+                        error.downcast_ref::<boole_devnet_archive::error::Error>(),
+                        Some(boole_devnet_archive::error::Error::Availability { .. })
+                    ),
+                    "capture availability became sticky: {error:#}"
+                );
+                assert!(sink.stopped.is_none());
+            }
+        }
+        Ok(())
+    }
 }
