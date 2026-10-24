@@ -444,12 +444,13 @@ impl<L: L1Source> L1Source for JournalSource<L> {
                 ) => {}
             Err(e) => return Err(e),
         }
-        let heights = self
+        let mut heights = self
             .journal
             .borrow()
             .missing_transaction_proofs_since(floor)?;
         if let Some(archives) = &mut self.archives {
             archives.posting_finality(self.journal.borrow().tip());
+            archives.posting_probe_order(&mut heights);
         }
         for h in heights {
             let row = self.journal.borrow().row(h)?;

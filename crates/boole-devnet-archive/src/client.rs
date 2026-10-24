@@ -154,6 +154,13 @@ impl Fetch for HttpFetch {
         Self::read(source, route, limit, Some(deadline))
     }
 }
+/// Optional posting-proof I/O per finality step (or 30-second retry turn).
+pub const POSTING_REQUESTS_MAX: usize = 32;
+struct ProofRetry {
+    attempts: u32,
+    finality: u64,
+    at: Instant,
+}
 pub struct ArchiveClient {
     pub sources: Vec<String>,
     fetch: Box<dyn Fetch>,
@@ -166,8 +173,12 @@ pub struct ArchiveClient {
     next_observer: usize,
     proof_finality: u64,
     proof_sources: Vec<String>,
-    not_served: std::collections::BTreeSet<String>,
-    not_served_routes: std::collections::BTreeSet<(String, String)>,
+    not_served_routes: std::collections::BTreeMap<(String, String), Instant>,
+    proof_retry: std::collections::BTreeMap<String, ProofRetry>,
+    proof_coverage_epoch: Vec<Option<u64>>,
+    proof_budget: usize,
+    proof_budget_at: Instant,
+    proof_cursor: u64,
 }
 impl ArchiveClient {
     pub fn http(sources: Vec<String>) -> Result<Self> {
@@ -194,8 +205,12 @@ impl ArchiveClient {
             next_observer: 0,
             proof_finality: 0,
             proof_sources: sources.clone(),
-            not_served: Default::default(),
             not_served_routes: Default::default(),
+            proof_retry: Default::default(),
+            proof_coverage_epoch: vec![None; sources.len()],
+            proof_budget: POSTING_REQUESTS_MAX,
+            proof_budget_at: Instant::now(),
+            proof_cursor: 0,
             failures,
         })
     }
@@ -314,14 +329,63 @@ impl ArchiveClient {
         )?;
         Ok(row)
     }
-    /// A cached 404 is availability only, retried on a new finality step or source.
+    /// Finality replenishes a fixed I/O budget, never a whole missing window.
+    /// Covered 404s survive finality steps; bounded timed retries and a new
+    /// source can still recover availability without restarting the fold.
     pub fn posting_finality(&mut self, height: u64) {
-        if height != self.proof_finality || self.sources != self.proof_sources {
-            self.not_served.clear();
+        let changed = self.sources != self.proof_sources;
+        if changed {
             self.not_served_routes.clear();
-            self.proof_finality = height;
+            self.proof_retry.clear();
+            self.proof_coverage_epoch = vec![None; self.sources.len()];
+            self.coverage = vec![None; self.sources.len()];
+            self.coverage_checked = vec![None; self.sources.len()];
+            self.observation_retry_at = vec![None; self.sources.len()];
+            self.attempts = vec![0; self.sources.len()];
+            self.failures = vec![0; self.sources.len()];
+            self.proof_cursor = 0;
             self.proof_sources = self.sources.clone();
         }
+        if changed
+            || height != self.proof_finality
+            || self.proof_budget_at.elapsed() >= Duration::from_secs(30)
+        {
+            self.proof_budget = POSTING_REQUESTS_MAX;
+            self.proof_budget_at = Instant::now();
+        }
+        self.proof_finality = height;
+    }
+    /// Rotate the caller's sorted own pause window after the last attempted
+    /// height, so an unavailable old prefix cannot starve a later own post.
+    pub fn posting_probe_order(&self, heights: &mut [u64]) {
+        let start = heights.partition_point(|h| *h <= self.proof_cursor);
+        heights.rotate_left(start);
+    }
+    fn posting_coverage(&mut self, source: usize, height: u64) -> Option<u64> {
+        if self.coverage[source].is_none_or(|through| through < height)
+            && self.proof_coverage_epoch[source] != Some(self.proof_finality)
+            && self.proof_budget > 0
+        {
+            self.proof_coverage_epoch[source] = Some(self.proof_finality);
+            self.proof_budget -= 1;
+            self.attempts[source] = self.attempts[source].saturating_add(1);
+            // Coverage is only an availability hint, never a trust anchor.
+            if let Ok(raw) = self.fetch.observe(
+                &self.sources[source],
+                "info",
+                REQ_MAX,
+                Instant::now() + Duration::from_millis(50),
+            ) {
+                if raw.len() <= REQ_MAX {
+                    if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&raw) {
+                        if let Some(through) = v["covered_through"].as_u64() {
+                            self.coverage[source] = Some(through);
+                        }
+                    }
+                }
+            }
+        }
+        self.coverage[source]
     }
     fn fetch_optional_verified<T>(
         &mut self,
@@ -334,20 +398,23 @@ impl ArchiveClient {
             .iter()
             .map(|source| {
                 self.not_served_routes
-                    .contains(&(source.clone(), route.to_owned()))
+                    .get(&(source.clone(), route.to_owned()))
+                    .is_some_and(|until| Instant::now() < *until)
             })
             .collect();
         for attempt in 0..3 {
-            if absent.iter().all(|v| *v) {
+            if absent.iter().all(|v| *v) || self.proof_budget == 0 {
                 break;
             }
             if attempt > 0 {
                 self.fetch.backoff(if attempt == 1 { 100 } else { 300 });
             }
             for (i, missing) in absent.iter_mut().enumerate() {
-                if *missing {
+                if *missing || self.proof_budget == 0 {
                     continue;
                 }
+                self.proof_budget -= 1;
+                self.proof_cursor = height;
                 self.attempts[i] = self.attempts[i].saturating_add(1);
                 let result = self
                     .fetch
@@ -363,8 +430,15 @@ impl ArchiveClient {
                     Ok(value) => return Ok(value),
                     Err(e) if e.is::<NotServed>() => {
                         *missing = true;
-                        self.not_served_routes
-                            .insert((self.sources[i].clone(), route.to_owned()));
+                        if self
+                            .posting_coverage(i, height)
+                            .is_some_and(|through| height <= through)
+                        {
+                            self.not_served_routes.insert(
+                                (self.sources[i].clone(), route.to_owned()),
+                                Instant::now() + Duration::from_secs(30),
+                            );
+                        }
                     }
                     Err(_) => {
                         self.discarded = self.discarded.saturating_add(1);
@@ -387,13 +461,18 @@ impl ArchiveClient {
         crate::archive::verify_header(&row.block_hash, &header)?;
         let h = row.block()?.number;
         self.posting_finality(self.proof_finality);
-        if self.not_served.contains(&row.block_hash) {
+        if self.proof_budget == 0
+            || self.proof_retry.get(&row.block_hash).is_some_and(|retry| {
+                self.proof_finality < retry.finality && Instant::now() < retry.at
+            })
+        {
             return Err(crate::error::availability(
                 h,
                 "archive-tx-proof",
-                "optional proof not served at this finality step",
+                "posting proof retry budget/backoff",
             ));
         }
+        let budget_before = self.proof_budget;
         let result = (|| -> Result<InputRow> {
             let txs = self.fetch_optional_verified(
                 &format!("l1/txs/{}", &row.block_hash[2..]),
@@ -426,15 +505,29 @@ impl ArchiveClient {
             proof.verify()?;
             Ok(proof)
         })();
+        if result.is_ok() {
+            self.proof_retry.remove(&row.block_hash);
+        } else if self.proof_budget < budget_before {
+            let attempts = self
+                .proof_retry
+                .get(&row.block_hash)
+                .map_or(1, |old| old.attempts.saturating_add(1));
+            let steps = 1u64 << attempts.min(6);
+            self.proof_retry.insert(
+                row.block_hash.clone(),
+                ProofRetry {
+                    attempts,
+                    finality: self.proof_finality.saturating_add(steps),
+                    at: Instant::now() + Duration::from_secs((steps / 2).min(30)),
+                },
+            );
+        }
         match result {
-            Err(e) if e.is::<NotServed>() => {
-                self.not_served.insert(row.block_hash.clone());
-                Err(crate::error::availability(
-                    h,
-                    "archive-tx-proof",
-                    "optional proof not served at this finality step",
-                ))
-            }
+            Err(e) if e.is::<NotServed>() => Err(crate::error::availability(
+                h,
+                "archive-tx-proof",
+                "optional proof not served; bounded reprobe pending",
+            )),
             other => other,
         }
     }

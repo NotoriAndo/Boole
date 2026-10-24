@@ -465,7 +465,29 @@ struct TransactionFetch {
 impl boole_devnet_archive::client::Fetch for TransactionFetch {
     fn get(&mut self, _: &str, route: &str, _: usize) -> Result<Vec<u8>> {
         if route.starts_with("l1/receipts/") {
-            return Ok(serde_json::to_vec(self.row.receipts.as_ref().unwrap())?);
+            let mut receipts = self.row.receipts.clone().unwrap();
+            if self.mode == 4 {
+                use boole_derivation::{
+                    attributes::{hex_bytes, hex_string},
+                    rlp,
+                };
+                let raw = hex_bytes(&receipts[0], "receipt")?;
+                let skip = usize::from(raw[0] < 0x80);
+                let payload = &raw[skip..];
+                let fields = rlp::decode(payload)
+                    .map_err(anyhow::Error::msg)?
+                    .children
+                    .unwrap();
+                let mut fields: Vec<_> = fields
+                    .iter()
+                    .map(|f| payload[f.span.clone()].to_vec())
+                    .collect();
+                fields[0] = rlp::uint(1);
+                let mut forged = raw[..skip].to_vec();
+                forged.extend(rlp::list(&fields));
+                receipts[0] = hex_string(&forged);
+            }
+            return Ok(serde_json::to_vec(&receipts)?);
         }
         assert!(route.starts_with("l1/txs/"));
         let mut txs = self.row.transactions.clone().unwrap();
@@ -662,9 +684,13 @@ fn m1_not_served_optional_proof_keeps_availability_without_source_penalty_or_sto
         1,
         "not-served height refetched each tick"
     );
-    client.posting_finality(1);
+    client.posting_finality(2);
     assert!(client.transaction_row(&row).is_err());
-    assert_eq!(calls.lock().unwrap().len(), 2, "new finality did not retry");
+    assert_eq!(
+        calls.lock().unwrap().len(),
+        2,
+        "bounded finality retry did not run"
+    );
     let other = PrivateTempDir::new("optional-new-source")?;
     let other = ArchiveStore::open(other.path(), profile(), false)?;
     let other = ArchiveServer::start(Arc::new(Mutex::new(other)), "127.0.0.1:0".parse()?)?;
@@ -786,7 +812,7 @@ fn m1_legacy_index_flag_never_blocks_authenticated_proof_backfill() -> Result<()
         legacy,
         "diagnostic index was rewritten"
     );
-    assert!(!store.index(1, 1)?[0].inbox_touching);
+    assert!(store.index(1, 1)?[0].inbox_touching.is_none());
     assert!(store.transactions(&row.block_hash)?.is_some());
     assert!(store.receipts(&row.block_hash)?.is_some());
     Ok(())
@@ -829,8 +855,8 @@ fn m1_not_served_source_is_cached_even_while_another_source_returns_bad_data() -
         1,
         "404 source was refetched on each tick"
     );
-    assert_eq!(client.failures, vec![0, 9]);
-    client.posting_finality(1);
+    assert_eq!(client.failures, vec![0, 3]);
+    client.posting_finality(2);
     assert!(client.transaction_row(&row).is_err());
     assert_eq!(
         calls
@@ -841,5 +867,255 @@ fn m1_not_served_source_is_cached_even_while_another_source_returns_bad_data() -
             .count(),
         2
     );
+    Ok(())
+}
+
+#[test]
+fn f2_unknown_authenticated_l1_type_is_conservatively_stored_not_sticky() -> Result<()> {
+    use boole_derivation::{
+        attributes::{hex_bytes, hex_string},
+        rlp,
+        user_tx::keccak,
+    };
+    use boole_devnet_archive::{
+        archive::ArchiveStore, durability::PrivateTempDir, input::receipts_root,
+    };
+    let mut row = reverted_inbox_row()?;
+    let tx = vec![5, 0xc0]; // Future envelope: its opaque bytes are trie authenticated.
+    let raw = hex_bytes(&row.header_rlp, "header")?;
+    let d = rlp::decode(&raw).map_err(anyhow::Error::msg)?;
+    let mut fields: Vec<_> = d
+        .children
+        .unwrap()
+        .iter()
+        .map(|f| raw[f.span.clone()].to_vec())
+        .collect();
+    fields[4] = rlp::bytes(&receipts_root(std::slice::from_ref(&tx)));
+    let raw = rlp::list(&fields);
+    row.header_rlp = hex_string(&raw);
+    row.block_hash = hex_string(&keccak(&raw));
+    row.transactions = Some(vec![hex_string(&tx)]);
+    row.verify()?;
+    let root = PrivateTempDir::new("unknown-inbox-type")?;
+    let genesis = rows().remove(0);
+    let mut p = profile();
+    p.identity.l1_anchor_hash = genesis.block_hash.clone();
+    let mut store = ArchiveStore::open(root.path(), p, false)?;
+    store.ingest(&genesis, 1, &selected(0))?;
+    store.ingest(&row, 1, &selected(1))?;
+    assert!(store.transactions(&row.block_hash)?.is_some());
+    assert!(store.receipts(&row.block_hash)?.is_some());
+    assert_eq!(
+        serde_json::to_value(&store.index(1, 1)?[0])?["inbox_touching"],
+        true
+    );
+    assert!(store.info()["ingest_health"].is_null());
+    Ok(())
+}
+
+struct Proof404 {
+    calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    coverage: Option<u64>,
+}
+impl boole_devnet_archive::client::Fetch for Proof404 {
+    fn get(&mut self, _: &str, _: &str, _: usize) -> Result<Vec<u8>> {
+        self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Err(boole_devnet_archive::client::NotServed.into())
+    }
+    fn observe(&mut self, _: &str, _: &str, _: usize, _: std::time::Instant) -> Result<Vec<u8>> {
+        Ok(serde_json::to_vec(
+            &serde_json::json!({"covered_through":self.coverage}),
+        )?)
+    }
+    fn backoff(&mut self, _: u64) {
+        panic!("404 must not incur immediate retry backoff");
+    }
+}
+fn missing_proof_row(height: u64) -> Result<boole_devnet_archive::input::InputRow> {
+    use boole_derivation::{
+        attributes::{hex_bytes, hex_string},
+        rlp,
+        user_tx::keccak,
+    };
+    let mut row = reverted_inbox_row()?;
+    let raw = hex_bytes(&row.header_rlp, "header")?;
+    let d = rlp::decode(&raw).map_err(anyhow::Error::msg)?;
+    let mut fields: Vec<_> = d
+        .children
+        .unwrap()
+        .iter()
+        .map(|f| raw[f.span.clone()].to_vec())
+        .collect();
+    fields[8] = rlp::uint(height);
+    let raw = rlp::list(&fields);
+    row.header_rlp = hex_string(&raw);
+    row.block_hash = hex_string(&keccak(&raw));
+    row.receipts = None;
+    row.transactions = None;
+    row.verify()?;
+    Ok(row)
+}
+#[test]
+fn f4_covered_404_survives_finality_and_new_sources_can_retry() -> Result<()> {
+    use boole_devnet_archive::client::ArchiveClient;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut client = ArchiveClient::new(
+        vec!["http://127.0.0.1:1".into()],
+        Box::new(Proof404 {
+            calls: calls.clone(),
+            coverage: Some(1000),
+        }),
+    )?;
+    let row = missing_proof_row(1)?;
+    for finality in 1000..1020 {
+        client.posting_finality(finality);
+        assert!(client.transaction_row(&row).is_err());
+    }
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "covered 404 was reprobed at every finality"
+    );
+    assert_eq!(client.failures, vec![0]);
+    client.sources[0] = "http://127.0.0.1:2".into();
+    client.posting_finality(1020);
+    assert!(client.transaction_row(&row).is_err());
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    Ok(())
+}
+#[test]
+fn f4_legacy_window_has_a_constant_per_finality_request_budget() -> Result<()> {
+    use boole_devnet_archive::client::ArchiveClient;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut client = ArchiveClient::new(
+        vec!["http://127.0.0.1:1".into()],
+        Box::new(Proof404 {
+            calls: calls.clone(),
+            coverage: Some(1000),
+        }),
+    )?;
+    let rows = (1..=200)
+        .map(missing_proof_row)
+        .collect::<Result<Vec<_>>>()?;
+    for finality in 1000..1008 {
+        client.posting_finality(finality);
+        let before = calls.load(Ordering::SeqCst);
+        let mut heights: Vec<_> = (1..=200).collect();
+        client.posting_probe_order(&mut heights);
+        for height in heights {
+            assert!(client.transaction_row(&rows[height as usize - 1]).is_err());
+        }
+        assert!(
+            calls.load(Ordering::SeqCst) - before <= 32,
+            "requests grew with legacy window"
+        );
+    }
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        200,
+        "budget starved unprobed heights"
+    );
+    Ok(())
+}
+#[test]
+fn f4_uncovered_404_uses_per_height_bounded_exponential_backoff() -> Result<()> {
+    use boole_devnet_archive::client::ArchiveClient;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut client = ArchiveClient::new(
+        vec!["http://127.0.0.1:1".into()],
+        Box::new(Proof404 {
+            calls: calls.clone(),
+            coverage: None,
+        }),
+    )?;
+    let row = missing_proof_row(1)?;
+    for finality in 1000..1006 {
+        client.posting_finality(finality);
+        assert!(client.transaction_row(&row).is_err());
+    }
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        2,
+        "uncovered proof was retried on every step"
+    );
+    client.posting_finality(1006);
+    assert!(client.transaction_row(&row).is_err());
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
+    Ok(())
+}
+
+#[test]
+fn f6_archive_filled_negative_row_has_unknown_touching_and_no_proof() -> Result<()> {
+    use boole_devnet_archive::{archive::ArchiveStore, durability::PrivateTempDir};
+    let root = PrivateTempDir::new("archive-unknown-touching")?;
+    let genesis = rows().remove(0);
+    let mut row = reverted_inbox_row()?;
+    row.receipts = None;
+    row.transactions = None;
+    row.verify()?;
+    let mut p = profile();
+    p.identity.l1_anchor_hash = genesis.block_hash.clone();
+    let mut store = ArchiveStore::open(root.path(), p, false)?;
+    store.ingest(&genesis, 1, &selected(0))?;
+    store.ingest(&row, 1, &selected(1))?;
+    assert!(
+        serde_json::to_value(&store.index(1, 1)?[0])?["inbox_touching"].is_null(),
+        "unknown touching was reported false"
+    );
+    assert!(store.transactions(&row.block_hash)?.is_none());
+    assert!(store.receipts(&row.block_hash)?.is_none());
+    Ok(())
+}
+
+#[test]
+fn f6_bloom_negative_receipt_status_flip_cannot_replace_reverted() -> Result<()> {
+    use boole_devnet_archive::client::{ArchiveClient, Fetch};
+    let row = reverted_inbox_row()?;
+    assert!(!row.verify()?.canonical_receipts[0].1);
+    let mut transport = TransactionFetch {
+        row: row.clone(),
+        mode: 4,
+    };
+    let bytes = transport.get("http://127.0.0.1:1", "l1/receipts/forged", 10000)?;
+    let mut forged = row.clone();
+    forged.receipts = Some(serde_json::from_slice(&bytes)?);
+    assert_eq!(
+        forged.verify().unwrap_err().to_string(),
+        "receipt trie root mismatch"
+    );
+    let mut folded = row.clone();
+    folded.receipts = None;
+    folded.transactions = None;
+    for mode in [0, 4] {
+        let mut client = ArchiveClient::new(
+            vec!["http://127.0.0.1:1".into()],
+            Box::new(TransactionFetch {
+                row: row.clone(),
+                mode,
+            }),
+        )?;
+        let result = client.transaction_row(&folded);
+        if mode == 0 {
+            assert_eq!(
+                result?.verify()?.canonical_receipts,
+                row.verify()?.canonical_receipts
+            );
+        } else {
+            assert!(result.is_err());
+            assert_eq!(client.failures, vec![3]);
+        }
+    }
     Ok(())
 }

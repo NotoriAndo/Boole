@@ -340,7 +340,9 @@ pub fn transactions_touch_inbox(header: &[u8], transactions: &[String]) -> Resul
             let index = match raw[0] {
                 1 => 4,
                 2..=4 => 5,
-                _ => anyhow::bail!("unsupported L1 transaction type"),
+                // Unknown envelope layouts cannot prove a non-inbox recipient.
+                // Keep both authenticated lists instead of halting ingest.
+                _ => return Ok(true),
             };
             (&raw[1..], index)
         } else {

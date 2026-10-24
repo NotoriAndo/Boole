@@ -80,7 +80,7 @@ pub struct IndexRow {
     pub parent_hash: String,
     pub bloom_positive: bool,
     #[serde(default)]
-    pub inbox_touching: bool,
+    pub inbox_touching: Option<bool>,
     pub blob_ids: Vec<String>,
     pub l2_hash: String,
     pub root: String,
@@ -281,8 +281,7 @@ impl ArchiveStore {
             .transactions
             .as_ref()
             .map(|txs| crate::input::transactions_touch_inbox(&raw, txs))
-            .transpose()?
-            .unwrap_or(false);
+            .transpose()?;
         let system = serde_json::to_vec(&selection.system)?;
         let system_digest = sha(&system);
         let index = IndexRow {
@@ -307,7 +306,7 @@ impl ArchiveStore {
         };
         index.validate()?;
         self.objects["header"].put(&row.block_hash, &raw, |b| verify_header(&row.block_hash, b))?;
-        if positive || touching {
+        if positive || touching == Some(true) {
             let receipts = row
                 .receipts
                 .as_ref()
@@ -321,7 +320,7 @@ impl ArchiveStore {
                 Ok(())
             })?;
         }
-        if positive || touching {
+        if positive || touching == Some(true) {
             if let Some(transactions) = &row.transactions {
                 let bytes = serde_json::to_vec(transactions)?;
                 self.objects["txs"].put(&row.block_hash, &bytes, |b| {
