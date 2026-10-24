@@ -25,7 +25,8 @@ yanked = "deny"
 # `unmaintained` as an error, so they are ignored HERE, narrowly by ID. No safe
 # upgrade exists while sp1-verifier pins these transitively.
 # Reviewed 2026-08-05 — RE-REVIEW BY 2026-11-05 (drop if a maintained release lands
-# or the sp1-verifier tree stops pulling them).
+# or the sp1-verifier tree stops pulling them). The third entry, RUSTSEC-2026-0387,
+# is a vulnerability advisory with its own review note below.
 ignore = [
   # ansi_term 0.12.1 — RUSTSEC-2021-0139 (unmaintained; upstream "no safe upgrade").
   # Path: boole-evm-adapter -> sp1-verifier -> sp1-recursion-machine ->
@@ -37,6 +38,14 @@ ignore = [
   # Path: boole-evm-adapter -> sp1-verifier -> sp1-recursion-machine ->
   #       sp1-hypercube -> sp1-primitives -> bincode.
   "RUSTSEC-2025-0141",
+  # crypto-bigint 0.5.5 — RUSTSEC-2026-0387 (timing variability in operations meant to
+  # be constant-time; patched only in >= 0.7.6, which needs k256 0.14).
+  # Path: boole-derivation -> k256 0.13.4 -> ecdsa -> elliptic-curve -> crypto-bigint.
+  # Outside tests, k256 only recovers public keys from public transaction and record
+  # signatures (`VerifyingKey::recover_from_prehash` in user_tx.rs and m2.rs); no
+  # secret scalar enters crypto-bigint. Signing appears only in tests with fixed keys.
+  # Reviewed 2026-10-24 — RE-REVIEW BY 2026-11-24; drop with the k256 0.14 upgrade.
+  "RUSTSEC-2026-0387",
 ]
 
 [licenses]
