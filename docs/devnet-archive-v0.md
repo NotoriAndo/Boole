@@ -160,8 +160,13 @@ verdict or redirect Engine selection.
 An M4b2 archive supplies the ordered transaction and receipt lists at
 bloom-positive heights and at finalized **inbox-touching** heights: at least one
 transaction has `to == INBOX`, even when it reverted and emitted no log. The
-index's `inbox_touching` flag is a diagnostic tripwire, never proof. Other
-bloom-negative blocks may leave those optional classes unserved. Older index
+index's `inbox_touching` flag is a diagnostic tripwire, never proof. An
+unknown authenticated transaction envelope is conservatively inbox-touching;
+its recipient layout cannot prove the absence of an inbox call. If an archive
+joins from another archive without transaction lists, the flag is `null`
+(unknown), and it serves no `l1/txs` before its own join height unless it later
+obtains complete authenticated proofs. Other bloom-negative blocks may leave
+those optional classes unserved. Older index
 rows may omit the flag; replay preserves those diagnostic bytes while
 backfilling authenticated proof objects.
 
@@ -171,9 +176,23 @@ finalized-height floor. Both complete lists must reproduce the own authenticated
 header's trie roots before binding a known hash to the receipt at the same
 index. Only that binding supplies exact success or REVERTED. A dropped hash is
 never assigned another transaction's failure. A 404 for an optional class has no
-source penalty or retry backoff; it is cached per block, class and source until a new source or
-finality step. It proves no absence. Withheld, missing or invalid proofs keep the
-resumable `archive-tx-proof` pause without guessing success, failure or a repost.
+source penalty. A 404 at or below the source's coverage when observed is cached
+per block, class and source for 30 seconds across finality steps. Uncovered or
+unavailable heights use exponential retry spacing (2–64 finality steps or
+1–30 seconds). New source configuration clears these availability hints.
+Optional proof I/O, including coverage probes, is limited to 32 requests per
+new finality step or 30-second retry turn when finality is unchanged. The own
+pause window rotates after the last attempted height, preventing an old missing
+prefix from starving a later post. The work never refetches an entire window
+on each finality step. These hints prove no absence. Withheld, missing or invalid
+proofs keep the resumable `archive-tx-proof` pause without guessing success,
+failure or a repost.
+
+**DROPPED cannot be proved from an archive across bloom-negative blocks whose
+transaction lists are not served.** REVERTED needs the exact authenticated tx
+hash and status-0 receipt; neither a 404 nor a timeout substitutes for it. The
+DROPPED rule is unchanged. A proof from the own L1 account nonce at the finalized
+tip is a design question for M4c, not part of this implementation.
 
 For old rows, reconciliation restores proofs into the own `transaction-proofs/`
 cache with new-file-only publication and read-time re-verification. It does not
@@ -251,8 +270,12 @@ its decoder scratch stays inside the auditor's private work directory.
 
 The audited-node RPC retains one authenticated view per height for its header,
 transactions and receipt statuses. Responses and the block's accumulated raw
-transaction hex are each bounded to 16 MiB. Arrays allow at most 65,536 rows;
-objects allow 256 fields and JSON nesting is limited to 64 levels. Under M2 the
+transaction hex are each bounded to 16 MiB. One shared budget allows at most
+65,536 JSON values (including containers) across the entire response; nested
+arrays cannot multiply that budget. Objects allow 256 fields and JSON nesting
+is limited to 64 levels. The RPC result is moved out of its envelope, not cloned.
+The depositor balance uses the already authenticated block hash with EIP-1898
+`requireCanonical: true`, alongside the cached header/transaction/receipt view. Under M2 the
 verdict, admission and fork checks are `not-applicable`. Replay setup and private
 Engine cleanup have separate `replay-setup` and `engine-cleanup` check classes;
 cleanup uses the last replayed height and preserves any earlier mismatch. Every

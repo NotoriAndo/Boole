@@ -10,27 +10,31 @@ use serde::{
     Deserializer,
 };
 use serde_json::{json, Value};
-use std::{fmt, io::Read, net::IpAddr, time::Duration};
+use std::{cell::Cell, fmt, io::Read, net::IpAddr, time::Duration};
 pub const RPC_RESPONSE_MAX: usize = 16 * 1024 * 1024;
 pub const RPC_ROWS_MAX: usize = 65536;
+pub const RPC_NODES_MAX: usize = 65536;
 #[derive(Clone, Copy)]
-struct BoundedValue {
+struct BoundedValue<'a> {
     depth: usize,
-    allowed: bool,
+    remaining: &'a Cell<usize>,
 }
-impl<'de> DeserializeSeed<'de> for BoundedValue {
+impl<'de> DeserializeSeed<'de> for BoundedValue<'_> {
     type Value = Value;
     fn deserialize<D: Deserializer<'de>>(self, d: D) -> std::result::Result<Value, D::Error> {
-        if !self.allowed {
-            return Err(serde::de::Error::custom("RPC response row cap"));
-        }
+        let remaining = self
+            .remaining
+            .get()
+            .checked_sub(1)
+            .ok_or_else(|| serde::de::Error::custom("RPC response node cap"))?;
+        self.remaining.set(remaining);
         if self.depth >= 64 {
             return Err(serde::de::Error::custom("RPC response depth cap"));
         }
         d.deserialize_any(self)
     }
 }
-impl<'de> Visitor<'de> for BoundedValue {
+impl<'de> Visitor<'de> for BoundedValue<'_> {
     type Value = Value;
     fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("bounded JSON")
@@ -62,7 +66,7 @@ impl<'de> Visitor<'de> for BoundedValue {
         let mut rows = vec![];
         while let Some(value) = a.next_element_seed(Self {
             depth: self.depth + 1,
-            allowed: rows.len() < RPC_ROWS_MAX,
+            remaining: self.remaining,
         })? {
             rows.push(value);
         }
@@ -79,7 +83,7 @@ impl<'de> Visitor<'de> for BoundedValue {
             }
             let value = a.next_value_seed(Self {
                 depth: self.depth + 1,
-                allowed: true,
+                remaining: self.remaining,
             })?;
             map.insert(key, value);
         }
@@ -131,9 +135,10 @@ impl Rpc {
             .read_to_end(&mut bytes)?;
         ensure!(bytes.len() <= RPC_RESPONSE_MAX, "RPC response byte cap");
         let mut decoder = serde_json::Deserializer::from_slice(&bytes);
-        let value = BoundedValue {
+        let remaining = Cell::new(RPC_NODES_MAX);
+        let mut value = BoundedValue {
             depth: 0,
-            allowed: true,
+            remaining: &remaining,
         }
         .deserialize(&mut decoder)?;
         decoder.end()?;
@@ -142,8 +147,8 @@ impl Rpc {
             "audited RPC envelope"
         );
         value
-            .get("result")
-            .cloned()
+            .as_object_mut()
+            .and_then(|object| object.remove("result"))
             .context("audited RPC missing result")
     }
 }
@@ -300,9 +305,10 @@ impl Node for RpcNode {
             .collect()
     }
     fn depositor_balance(&mut self, h: u64) -> Result<u128> {
+        let (block, _, _) = self.block(json!(format!("0x{h:x}")))?;
         let v = self.rpc.call(
             "eth_getBalance",
-            json!([boole_derivation::config::DEPOSITOR, format!("0x{h:x}")]),
+            json!([boole_derivation::config::DEPOSITOR, {"blockHash":block["hash"],"requireCanonical":true}]),
         )?;
         let bytes = boole_devnet_archive::input::quantity_bytes(&v)?;
         ensure!(bytes.len() <= 16, "depositor balance width");

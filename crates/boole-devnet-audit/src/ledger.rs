@@ -89,28 +89,70 @@ fn expected_compensation(
     let records = boole_derivation::m3::decode_verdict_deposits(c, l1, &deposits)?;
     let old = before.m3.as_ref().context("old ledger")?;
     let mut expected = BTreeSet::new();
+    let already_compensated: BTreeSet<_> = old
+        .rewards
+        .values()
+        .filter(|reward| reward.compensation)
+        .map(|reward| reward.key)
+        .collect();
+    let mut targets: BTreeMap<_, _> = before
+        .candidates
+        .iter()
+        .map(|(key, candidate)| {
+            (
+                *key,
+                (
+                    candidate.status(),
+                    old.results.get(key).map_or(0, |r| r.reason),
+                ),
+            )
+        })
+        .collect();
+    // A later record sees the preceding record's status/reason, not a fresh
+    // copy of the pre-block state. This ledger remains independent of the
+    // audited fold's final rewards and event stream.
     for indexed in records {
         let record = indexed.record;
-        if record.kind != RecordKind::Recheck || record.outcome != Outcome::Accept {
-            continue;
-        }
-        for (key, candidate) in &before.candidates {
-            if key.1 == record.commit_hash
-                && candidate.status() == Status::Rejected
-                && old
-                    .results
-                    .get(key)
-                    .is_some_and(|r| r.reason == KERNEL_FAULT)
+        for (key, (status, reason)) in &mut targets {
+            if key.1 != record.commit_hash {
+                continue;
+            }
+            let kernel_fault = *status == Status::Rejected && *reason == KERNEL_FAULT;
+            let compensation = kernel_fault
+                && record.kind == RecordKind::Recheck
+                && record.outcome == Outcome::Accept
                 && before
                     .problems
                     .get(&key.0)
-                    .is_some_and(|p| p.winner.is_some())
-            {
-                ensure!(
-                    expected.insert(*key),
-                    "duplicate qualifying compensation record"
-                );
+                    .is_some_and(|p| p.winner.is_some());
+            if compensation && !already_compensated.contains(key) {
+                expected.insert(*key);
             }
+            *status = match (record.kind, *status, record.outcome) {
+                (RecordKind::Verdict, Status::Checking, Outcome::Accept) => Status::Passed,
+                (RecordKind::Verdict, Status::Checking, Outcome::Reject) => Status::Rejected,
+                (RecordKind::Verdict, Status::Checking, Outcome::Void) => Status::Void,
+                (RecordKind::Verdict, old @ (Status::Superseded | Status::Void), _) => old,
+                (RecordKind::Recheck, Status::Accepted, Outcome::Reject) => Status::Stale,
+                (
+                    RecordKind::Recheck,
+                    old @ (Status::Accepted | Status::Passed),
+                    Outcome::Accept,
+                ) => old,
+                (RecordKind::Recheck, Status::Passed, Outcome::Reject) => Status::Rejected,
+                (RecordKind::Recheck, Status::Rejected, Outcome::Accept) if kernel_fault => {
+                    if compensation {
+                        Status::Accepted
+                    } else {
+                        Status::Passed
+                    }
+                }
+                (RecordKind::Recheck, Status::Rejected, Outcome::Reject) if kernel_fault => {
+                    Status::Rejected
+                }
+                _ => anyhow::bail!("compensation verdict transition"),
+            };
+            *reason = record.reason;
         }
     }
     Ok(expected)
@@ -171,28 +213,9 @@ impl Ledger {
                                 "reward amount/maturity"
                             );
                             if action == 4 {
-                                let old = before.m3.as_ref().context("old ledger")?;
                                 ensure!(
-                                    before
-                                        .candidates
-                                        .get(&k)
-                                        .is_some_and(|v| v.status() == Status::Rejected)
-                                        && old
-                                            .results
-                                            .get(&k)
-                                            .is_some_and(|v| v.reason == KERNEL_FAULT),
-                                    "compensation without kernel-fault REJECT"
-                                );
-                                ensure!(
-                                    before
-                                        .problems
-                                        .get(&k.0)
-                                        .is_some_and(|v| v.winner.is_some())
-                                        && m.results
-                                            .get(&k)
-                                            .is_some_and(|v| v.kind == RecordKind::Recheck
-                                                && v.outcome == Outcome::Accept),
-                                    "compensation without accepted recheck after winner"
+                                    expected_compensation.contains(&k),
+                                    "compensation without qualifying ordered kernel-fault recheck"
                                 );
                                 ensure!(
                                     !next.rewards.values().any(|r| r.key == k && r.compensation),

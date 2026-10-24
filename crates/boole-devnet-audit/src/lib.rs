@@ -54,6 +54,20 @@ fn input_items(logs: &[boole_derivation::InboxLog]) -> Result<Vec<boole_derivati
     }
     Ok(out)
 }
+fn track_record_heights(
+    before: &boole_derivation::m2::State,
+    after: &boole_derivation::m2::State,
+    height: u64,
+    heights: &mut std::collections::BTreeMap<boole_derivation::m2::Key, u64>,
+) {
+    if let Some(after) = &after.m3 {
+        for (key, record) in &after.results {
+            if before.m3.as_ref().and_then(|m| m.results.get(key)) != Some(record) {
+                heights.insert(*key, height);
+            }
+        }
+    }
+}
 fn fork_digest(forks: Option<&ForkTable>) -> Result<String> {
     use sha2::{Digest, Sha256};
     let mut digest = Sha256::new();
@@ -287,13 +301,7 @@ pub fn audit_in(
                 format!("0x{:x}", block.timestamp) == derived.attributes.timestamp
                     && format!("0x{:x}", block.gas_limit) == derived.attributes.gas_limit,
             )?;
-            if let Some(after) = &next.m3 {
-                for (key, record) in &after.results {
-                    if state.m3.as_ref().and_then(|m| m.results.get(key)) != Some(record) {
-                        record_heights.insert(*key, h);
-                    }
-                }
-            }
+            track_record_heights(&state, &next, h, &mut record_heights);
             at(
                 h,
                 "prefix",
@@ -458,6 +466,61 @@ pub mod replay;
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn f6_record_heights_keep_first_result_and_update_only_on_changed_recheck() -> Result<()> {
+        use boole_derivation::{
+            m2::State,
+            m3::{M3Config, Outcome, RecordKind, VerdictRecord},
+        };
+        let mut config = Config::devnet();
+        config.m3 = Some(M3Config::devnet(config.slot_table.len()));
+        let initial = State::new(&config, 30_000_000)?;
+        let key = ([1; 32], [2; 32]);
+        let other = ([3; 32], [4; 32]);
+        let record = VerdictRecord {
+            kind: RecordKind::Verdict,
+            commit_hash: key.1,
+            outcome: Outcome::Accept,
+            reason: 0,
+            gate_epoch: 0,
+            fuel: 1,
+            vstmt_digest: [5; 32],
+        };
+        let mut next = initial.clone();
+        next.m3
+            .as_mut()
+            .unwrap()
+            .results
+            .insert(key, record.clone());
+        let mut heights = std::collections::BTreeMap::new();
+        track_record_heights(&initial, &next, 26, &mut heights);
+        track_record_heights(&next, &next, 100, &mut heights);
+        assert_eq!(
+            heights[&key], 26,
+            "unchanged audit tail overwrote the applied record height"
+        );
+        let mut rechecked = next.clone();
+        let mut record = record;
+        record.kind = RecordKind::Recheck;
+        record.gate_epoch = 1;
+        rechecked
+            .m3
+            .as_mut()
+            .unwrap()
+            .results
+            .insert(key, record.clone());
+        track_record_heights(&next, &rechecked, 110, &mut heights);
+        assert_eq!(heights[&key], 110);
+        let mut later = rechecked.clone();
+        record.commit_hash = other.1;
+        later.m3.as_mut().unwrap().results.insert(other, record);
+        track_record_heights(&rechecked, &later, 120, &mut heights);
+        assert_eq!(
+            heights,
+            std::collections::BTreeMap::from([(key, 110), (other, 120)])
+        );
+        Ok(())
+    }
     #[test]
     fn fork_table_digest_binds_activation_heights_not_only_record_bodies() -> Result<()> {
         let tape: Value = serde_json::from_str(include_str!(

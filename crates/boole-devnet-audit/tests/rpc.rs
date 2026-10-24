@@ -222,7 +222,7 @@ fn l8_audited_rpc_rejects_response_row_counts_above_the_cap() -> Result<()> {
         .err()
         .expect("unbounded audited RPC rows accepted");
     assert!(
-        format!("{error:#}").contains("RPC response row cap"),
+        format!("{error:#}").contains("RPC response node cap"),
         "{error:#}"
     );
     Ok(())
@@ -388,10 +388,10 @@ fn l6_replay_startup_failure_has_its_own_check_class() -> Result<()> {
 }
 
 #[test]
-fn l8_exact_response_row_and_byte_caps_are_accepted() -> Result<()> {
-    use boole_devnet_audit::rpc::{RPC_RESPONSE_MAX, RPC_ROWS_MAX};
+fn l8_exact_response_node_and_byte_caps_are_accepted() -> Result<()> {
+    use boole_devnet_audit::rpc::{RPC_NODES_MAX, RPC_RESPONSE_MAX};
     let mut rows = reply(chain());
-    rows["rows"] = json!(vec![Value::Null; RPC_ROWS_MAX]);
+    rows["rows"] = json!(vec![Value::Null; RPC_NODES_MAX - 5]);
     let server = Server::start(move |_| rows.clone())?;
     RpcNode::new(&server.url)?;
     drop(server);
@@ -402,5 +402,56 @@ fn l8_exact_response_row_and_byte_caps_are_accepted() -> Result<()> {
     assert_eq!(serde_json::to_vec(&bytes)?.len(), RPC_RESPONSE_MAX);
     let server = Server::start(move |_| bytes.clone())?;
     RpcNode::new(&server.url)?;
+    Ok(())
+}
+
+#[test]
+fn f3_nested_arrays_share_one_response_node_budget() -> Result<()> {
+    let mut response = reply(chain());
+    response["extra"] = json!([vec![Value::Null; 40000], vec![Value::Null; 40000]]);
+    assert!(serde_json::to_vec(&response)?.len() < boole_devnet_audit::rpc::RPC_RESPONSE_MAX);
+    let server = Server::start(move |_| response.clone())?;
+    let error = RpcNode::new(&server.url)
+        .err()
+        .context("nested response exceeding total node budget was accepted")?;
+    assert!(format!("{error:#}").contains("node cap"), "{error:#}");
+    Ok(())
+}
+
+#[test]
+fn f6_balance_is_bound_to_the_authenticated_block_hash() -> Result<()> {
+    let block = rpc_block(&rows()?[0], 0)?;
+    let expected = block["hash"].clone();
+    let reads = Arc::new(AtomicUsize::new(0));
+    let observed = reads.clone();
+    let server = Server::start(move |q| {
+        reply(match q["method"].as_str().unwrap() {
+            "eth_chainId" => chain(),
+            "eth_getBlockByNumber" => {
+                observed.fetch_add(1, Ordering::Relaxed);
+                block.clone()
+            }
+            "eth_getBalance" => {
+                if q["params"][1] == json!({"blockHash":expected,"requireCanonical":true}) {
+                    json!("0x0")
+                } else {
+                    json!("0x1")
+                }
+            }
+            m => panic!("unexpected {m}"),
+        })
+    })?;
+    let mut node = RpcNode::new(&server.url)?;
+    node.header(0)?;
+    assert_eq!(
+        node.depositor_balance(0)?,
+        0,
+        "balance came from a different block at the same number"
+    );
+    assert_eq!(
+        reads.load(Ordering::Relaxed),
+        1,
+        "balance refetched a moving header"
+    );
     Ok(())
 }

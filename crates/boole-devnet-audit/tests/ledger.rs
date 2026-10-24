@@ -445,3 +445,170 @@ fn l5_k4_scratch_is_inside_private_audit_work() -> Result<()> {
     );
     Ok(())
 }
+
+fn duplicate_rechecks(second_reject: bool) -> Result<()> {
+    use boole_derivation::{
+        attributes::hex_string,
+        m2::{Candidate, Status},
+        m3::{
+            verdict_deposits, ForkKind, ForkRow, IndexedVerdict, Outcome, RecordKind, KERNEL_FAULT,
+        },
+    };
+    let mut ledger = Ledger::default();
+    for (original, mut before, c, mut l1, events, payments, txs, statuses) in frames()? {
+        let accepted = before
+            .m3
+            .as_ref()
+            .unwrap()
+            .results
+            .iter()
+            .find(|(k, r)| {
+                r.outcome == Outcome::Accept
+                    && !original.m3.as_ref().unwrap().results.contains_key(k)
+            })
+            .map(|(k, r)| (*k, r.clone()));
+        let Some((key, mut record)) = accepted else {
+            ledger.observe(
+                &original, &before, &c, &l1, &events, &payments, &txs, &statuses,
+            )?;
+            continue;
+        };
+        // Retain the recorded completed candidate and applied original queue.
+        // Inject the kernel-fault/winner preconditions, then let TWO actual
+        // KERNEL-FIX activations enqueue the jobs and select distinct epochs.
+        if let Candidate::Live(candidate) = before.candidates.get_mut(&key).unwrap() {
+            candidate.status = Status::Rejected;
+        } else {
+            panic!("retained candidate");
+        }
+        let height = before.height();
+        before.problems.get_mut(&key.0).unwrap().winner = Some([222; 32]);
+        before.problems.get_mut(&key.0).unwrap().closed = Some(height);
+        record.outcome = Outcome::Reject;
+        record.reason = KERNEL_FAULT;
+        let m = before.m3.as_mut().unwrap();
+        m.results.insert(key, record.clone());
+        m.rewards.clear();
+        m.admissions.clear();
+        let mut table = ForkTable::genesis(&c)?;
+        for epoch in 1..=2 {
+            table.rows.push(ForkRow {
+                epoch,
+                height: height + u64::from(epoch),
+                gate_rule_digest: [20 + epoch as u8; 32],
+                kind: ForkKind::KernelFix,
+                list: vec![],
+            });
+        }
+        table.validate(&c).map_err(|s| anyhow::anyhow!("S{s}"))?;
+        let mut records = vec![];
+        let mut due = None;
+        for h in height + 1..height + 40 {
+            l1.parent_hash = l1.hash.clone();
+            l1.hash = hex_string(&[h as u8; 32]);
+            l1.number = h;
+            l1.timestamp += 12;
+            if h == height + 3 {
+                let m = before.m3.as_ref().unwrap();
+                let jobs = &m.queue[m.next_applied..];
+                assert_eq!(jobs.len(), 2);
+                assert_eq!(jobs[0].key, jobs[1].key);
+                assert_eq!(
+                    (jobs[0].epoch_override, jobs[1].epoch_override),
+                    (Some(1), Some(2))
+                );
+                record.kind = RecordKind::Recheck;
+                record.outcome = Outcome::Accept;
+                record.reason = 0;
+                record.gate_epoch = 1;
+                record.fuel = c.m3.as_ref().unwrap().fuel_slot[0];
+                let mut second = record.clone();
+                second.gate_epoch = 2;
+                second.fuel = 0;
+                if second_reject {
+                    second.outcome = Outcome::Reject;
+                    second.reason = KERNEL_FAULT;
+                }
+                records = vec![
+                    IndexedVerdict {
+                        queue_index: jobs[0].queue_index,
+                        record: record.clone(),
+                    },
+                    IndexedVerdict {
+                        queue_index: jobs[1].queue_index,
+                        record: second,
+                    },
+                ];
+                let mut clock = m.clock.clone();
+                let p = c.m3.as_ref().unwrap();
+                let cap = c.q_max * c.v_per_deposit;
+                let first = clock.push(p, cap, jobs[0].avail, records[0].record.fuel)?;
+                let second = clock.push(p, cap, jobs[1].avail, records[1].record.fuel)?;
+                assert_eq!(
+                    first, second,
+                    "fixture did not put both records in one block"
+                );
+                due = Some(first);
+            }
+            let step = before.step_with_verdicts(&c, &l1, &[], &records, &table)?;
+            boole_devnet_audit::verify_fork_events(&table, &before, &step.state, h, &step.events)?;
+            let mut prefix = vec![
+                boole_derivation::system::l1_info(&l1)?,
+                boole_derivation::system::m2_root_deposit(&l1, step.state.root)?,
+            ];
+            prefix.extend(verdict_deposits(&c, &l1, &step.verdicts)?);
+            let statuses = vec![true; prefix.len()];
+            if due == Some(h) {
+                assert_eq!(step.verdicts.len(), 2);
+                assert_eq!(
+                    event_slices(&step.events)
+                        .iter()
+                        .filter(|r| r[0] == 6 && r[117] == 4)
+                        .count(),
+                    1
+                );
+                assert_eq!(
+                    step.state.candidates[&key].status(),
+                    if second_reject {
+                        Status::Stale
+                    } else {
+                        Status::Accepted
+                    }
+                );
+                ledger.observe(
+                    &before,
+                    &step.state,
+                    &c,
+                    &l1,
+                    &step.events,
+                    &step.payments,
+                    &prefix,
+                    &statuses,
+                )?;
+                return Ok(());
+            }
+            ledger.observe(
+                &before,
+                &step.state,
+                &c,
+                &l1,
+                &step.events,
+                &step.payments,
+                &prefix,
+                &statuses,
+            )?;
+            before = step.state;
+        }
+        anyhow::bail!("recheck fixture never reached its common due height");
+    }
+    anyhow::bail!("fixture never accepted")
+}
+
+#[test]
+fn f5_two_same_block_accept_rechecks_compensate_once_in_fold_order() -> Result<()> {
+    duplicate_rechecks(false)
+}
+#[test]
+fn f5_same_block_accept_then_reject_keeps_compensation_and_cancellation_order() -> Result<()> {
+    duplicate_rechecks(true)
+}
