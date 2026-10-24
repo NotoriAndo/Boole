@@ -479,19 +479,18 @@ fn archive_gap_preserves_pending_post_without_old_rpc_or_false_revert() {
     let mut poster = RpcPoster::new(&url, [1; 20]).unwrap();
     worker.join().unwrap();
     poster.bind_journal(std::rc::Rc::new(std::cell::RefCell::new(journal)));
-    for floor in [0] {
-        let error = poster
-            .included_for_posting_since(&hex_string(&[77; 32]), floor)
-            .unwrap_err();
-        assert!(!error.is::<RevertedReceipt>());
-        assert!(matches!(
-            error.downcast_ref::<Error>(),
-            Some(Error::Availability {
-                class: "archive-tx-proof",
-                ..
-            })
-        ));
-    }
+    let error = poster
+        .included_for_posting_since(&hex_string(&[77; 32]), 0)
+        .unwrap_err();
+    assert!(!error.is::<RevertedReceipt>());
+    assert!(matches!(
+        error.downcast_ref::<Error>(),
+        Some(Error::Availability {
+            class: "archive-tx-proof",
+            ..
+        })
+    ));
+
     let error = poster
         .included_for_posting(&hex_string(&[77; 32]))
         .unwrap_err();

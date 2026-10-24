@@ -434,8 +434,7 @@ impl ArchiveClient {
                     }
                 }
             }
-            if !self.coverage[i].is_some_and(|through| height <= through)
-                || Instant::now() >= deadline
+            if self.coverage[i].is_none_or(|through| height > through) || Instant::now() >= deadline
             {
                 continue;
             }
