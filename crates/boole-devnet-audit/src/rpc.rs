@@ -11,6 +11,8 @@ use serde::{
 };
 use serde_json::{json, Value};
 use std::{cell::Cell, fmt, io::Read, net::IpAddr, time::Duration};
+pub const RPC_CONNECT_TIME_MS: usize = 3_000;
+pub const RPC_RESPONSE_TIME_MS: usize = 15_000;
 pub const RPC_RESPONSE_MAX: usize = 16 * 1024 * 1024;
 pub const RPC_ROWS_MAX: usize = 65536;
 pub const RPC_NODES_MAX: usize = 65536;
@@ -139,12 +141,16 @@ impl<'de> Visitor<'de> for BoundedValue<'_> {
 fn timeout_limit(error: &(dyn std::error::Error + 'static)) -> Option<usize> {
     if let Some(e) = error.downcast_ref::<reqwest::Error>() {
         if e.is_timeout() {
-            return Some(if e.is_connect() { 3000 } else { 15000 });
+            return Some(if e.is_connect() {
+                RPC_CONNECT_TIME_MS
+            } else {
+                RPC_RESPONSE_TIME_MS
+            });
         }
     }
     if let Some(e) = error.downcast_ref::<std::io::Error>() {
         if e.kind() == std::io::ErrorKind::TimedOut {
-            return Some(15000);
+            return Some(RPC_RESPONSE_TIME_MS);
         }
         if let Some(inner) = e.get_ref() {
             if let Some(limit) = timeout_limit(inner) {
@@ -188,8 +194,8 @@ impl Rpc {
         let client = reqwest::blocking::Client::builder()
             .no_proxy()
             .redirect(reqwest::redirect::Policy::none())
-            .connect_timeout(Duration::from_secs(3))
-            .timeout(Duration::from_secs(15))
+            .connect_timeout(Duration::from_millis(RPC_CONNECT_TIME_MS as u64))
+            .timeout(Duration::from_millis(RPC_RESPONSE_TIME_MS as u64))
             .build()?;
         Ok(Self { url, client })
     }

@@ -18,6 +18,34 @@ use std::{
     process::{Child, Command, Stdio},
     time::{Duration, Instant},
 };
+/// The operation talks only to the auditor-owned private Engine. This marker
+/// is deliberately attached to individual calls, never to comparisons.
+#[derive(Debug)]
+struct PrivateSide;
+impl std::fmt::Display for PrivateSide {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("auditor private Engine")
+    }
+}
+impl std::error::Error for PrivateSide {}
+fn private_operation<T>(result: Result<T>) -> Result<T> {
+    result.map_err(|e| e.context(PrivateSide))
+}
+fn private_unavailable(error: &anyhow::Error) -> bool {
+    error.is::<PrivateSide>()
+        && (boole_devnet_driver::engine::rpc_unavailable(error)
+            || error
+                .downcast_ref::<boole_devnet_driver::driver::Stall>()
+                .is_some_and(|s| {
+                    matches!(
+                        s.kind,
+                        boole_devnet_driver::driver::StallKind::Availability { .. }
+                    )
+                })
+            || error
+                .chain()
+                .any(|e| e.is::<reqwest::Error>() || e.is::<std::io::Error>()))
+}
 #[derive(Debug)]
 pub struct Failure {
     pub height: u64,
@@ -64,6 +92,21 @@ pub fn report_failure(receipt: &mut Value, error: &anyhow::Error, status: &str) 
     }
     if let Some(stop) = error.downcast_ref::<crate::resource::ResourceStop>() {
         crate::mark_resource_stop(receipt, height, class, *stop);
+        if error.is::<PrivateSide>() {
+            receipt["resource_stop"]["side"] = json!("private-engine");
+        }
+        receipt["checks"]["execution"] = json!("resource-stop");
+    } else if private_unavailable(error) {
+        crate::mark_resource_stop(
+            receipt,
+            height,
+            class,
+            crate::resource::ResourceStop {
+                resource: "private-engine-unavailable",
+                limit: 0,
+            },
+        );
+        receipt["resource_stop"]["side"] = json!("private-engine");
         receipt["checks"]["execution"] = json!("resource-stop");
     } else {
         crate::mark_mismatch(receipt, height, class);
@@ -355,7 +398,7 @@ pub fn replay(
         c,
         forks,
         supervisor,
-        at(0, "replay-setup", private.engine())?,
+        at(0, "replay-setup", private_operation(private.engine()))?,
         &private.http,
         receipt,
     )
@@ -372,7 +415,7 @@ fn replay_engine<E: Engine>(
     receipt: &mut Value,
 ) -> Result<()> {
     receipt["replayed_blocks"] = json!("0");
-    let genesis = at(0, "replay-setup", engine.header(0))?;
+    let genesis = at(0, "replay-setup", private_operation(engine.header(0)))?;
     at(
         0,
         "replay-setup",
@@ -414,21 +457,26 @@ fn replay_engine<E: Engine>(
         let mut phase = "fold";
         if let Err(error) = (|| -> Result<()> {
             ensure!(
-                matches!(driver.step(h)?, StepOutcome::Derived(_)),
+                matches!(
+                    private_operation(driver.step(h).map_err(anyhow::Error::new))?,
+                    StepOutcome::Derived(_)
+                ),
                 "private replay waited for finality"
             );
             phase = "prefix";
-            let actual = driver.engine.head()?;
+            let actual = private_operation(driver.engine.head())?;
             let expected = audited.header(h)?;
             ensure!(
                 actual.hash == expected.hash && actual.number == h,
                 "private replay L2 hash"
             );
             phase = "ledger";
-            let mut private_node = RpcNode::new(private_http)?;
+            let mut private_node = private_operation(RpcNode::new(private_http))?;
             ensure!(
-                private_node.receipt_statuses(h)? == audited.receipt_statuses(h)?
-                    && private_node.depositor_balance(h)? == audited.depositor_balance(h)?,
+                private_operation(private_node.receipt_statuses(h))?
+                    == audited.receipt_statuses(h)?
+                    && private_operation(private_node.depositor_balance(h))?
+                        == audited.depositor_balance(h)?,
                 "private replay execution ledger"
             );
             phase = "input";

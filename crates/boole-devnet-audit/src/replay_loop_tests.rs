@@ -25,6 +25,9 @@ struct Server {
 }
 impl Server {
     fn start(handler: impl Fn(Value) -> Value + Send + 'static) -> Result<Self> {
+        Self::with_status(200, handler)
+    }
+    fn with_status(status: u16, handler: impl Fn(Value) -> Value + Send + 'static) -> Result<Self> {
         let listener = TcpListener::bind("127.0.0.1:0")?;
         listener.set_nonblocking(true)?;
         let url = format!("http://{}", listener.local_addr()?);
@@ -66,7 +69,7 @@ impl Server {
                     let bytes = serde_json::to_vec(&handler(serde_json::from_slice(&body)?))?;
                     write!(
                         stream,
-                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        "HTTP/1.1 {status} Fixture\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                         bytes.len()
                     )?;
                     stream.write_all(&bytes)?;
@@ -159,6 +162,9 @@ use boole_gate_supervisor::rebuild::History;
 #[derive(Clone)]
 struct MemoryEngine {
     expected: String,
+    mode: String,
+    fault_rpc: String,
+    post_heads: usize,
     head: ParentHeader,
     headers: BTreeMap<u64, ParentHeader>,
     txs: BTreeMap<u64, Vec<String>>,
@@ -174,6 +180,9 @@ impl MemoryEngine {
         head.timestamp = 1_790_000_000;
         Self {
             expected: String::new(),
+            mode: String::new(),
+            fault_rpc: String::new(),
+            post_heads: 0,
             headers: BTreeMap::from([(0, head.clone())]),
             head,
             txs: BTreeMap::new(),
@@ -183,6 +192,13 @@ impl MemoryEngine {
 }
 impl Engine for MemoryEngine {
     fn head(&mut self) -> Result<ParentHeader> {
+        if self.head.number == 1 {
+            self.post_heads += 1;
+        }
+        if self.mode == "engine-head-5xx" && self.post_heads >= 2 {
+            boole_devnet_driver::engine::Rpc::new(&self.fault_rpc)?
+                .call("eth_getBlockByNumber", json!(["latest", false]))?;
+        }
         Ok(self.head.clone())
     }
     fn header(&mut self, h: u64) -> Result<ParentHeader> {
@@ -192,6 +208,12 @@ impl Engine for MemoryEngine {
         Ok(self.txs[&h].clone())
     }
     fn call(&mut self, method: &str, p: Value) -> Result<Value> {
+        if self.mode.starts_with("engine-step-5xx") && method == "engine_newPayloadV4" {
+            return boole_devnet_driver::engine::Rpc::new(&self.fault_rpc)?.call(method, p);
+        }
+        if self.mode == "engine-invalid" && method == "engine_newPayloadV4" {
+            return Ok(json!({"status":"INVALID","validationError":"fixture invalid"}));
+        }
         Ok(match method {
             "engine_forkchoiceUpdatedV3" => {
                 if p[1].is_null() {
@@ -258,12 +280,23 @@ struct Audited {
     genesis: boole_derivation::ParentHeader,
     expected: String,
     mode: String,
+    fault_rpc: String,
 }
 impl Node for Audited {
     fn head(&mut self) -> Result<boole_derivation::ParentHeader> {
         self.header(1)
     }
     fn header(&mut self, h: u64) -> Result<boole_derivation::ParentHeader> {
+        if h > 0 && self.mode == "audited-unavailable" {
+            boole_devnet_driver::engine::Rpc::new(&self.fault_rpc)?
+                .call("eth_getBlockByNumber", json!(["latest", false]))?;
+        }
+        if h > 0 && self.mode == "hash-difference" {
+            let mut p = self.genesis.clone();
+            p.number = h;
+            p.hash = hex_string(&[99; 32]);
+            return Ok(p);
+        }
         if h > 0 && self.mode == "audited-header" {
             return Err(crate::resource::ResourceStop {
                 resource: "rpc-nodes",
@@ -282,6 +315,9 @@ impl Node for Audited {
         Ok(vec![])
     }
     fn receipt_statuses(&mut self, _: u64) -> Result<Vec<bool>> {
+        if self.mode == "ledger-difference" {
+            return Ok(vec![true]);
+        }
         if self.mode == "audited-receipts" {
             return Err(crate::resource::ResourceStop {
                 resource: "rpc-nodes",
@@ -318,10 +354,21 @@ fn fixture_child() -> Result<()> {
     let block = rpc_block(&empty_rpc_row()?, 1)?;
     let mut engine = MemoryEngine::new();
     engine.expected = block["hash"].as_str().unwrap().into();
+    let fault_changed = input.changed.clone();
+    let private_tamper = mode == "engine-step-5xx-tamper";
+    let fault = Server::with_status(503, move |_| {
+        if private_tamper {
+            fault_changed.store(true, Ordering::Release);
+        }
+        json!({"error":"private fixture unavailable"})
+    })?;
+    engine.mode = mode.clone();
+    engine.fault_rpc = fault.url.clone();
     let mut audited = Audited {
         genesis: engine.head.clone(),
         expected: engine.expected.clone(),
         mode: mode.clone(),
+        fault_rpc: fault.url.clone(),
     };
     let fail = mode == "resource" || mode == "tamper";
     let tamper = mode == "tamper";
@@ -356,6 +403,14 @@ fn fixture_child() -> Result<()> {
         method => panic!("unexpected fixture RPC {method}"),
     })?;
     let mut receipt = crate::empty_receipt(&Config::devnet(), "journal");
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let refused = format!("http://{}", listener.local_addr()?);
+    drop(listener);
+    let private_http = if mode == "private-rpc-refusal" {
+        &refused
+    } else {
+        &server.url
+    };
     replay_engine(
         &mut input,
         &mut audited,
@@ -363,10 +418,11 @@ fn fixture_child() -> Result<()> {
         None,
         None,
         engine,
-        &server.url,
+        private_http,
         &mut receipt,
     )?;
     drop(server);
+    drop(fault);
     println!();
     crate::emit_receipt(&receipt);
     Ok(())
@@ -461,4 +517,66 @@ fn empty_rpc_row() -> Result<InputRow> {
     row.transactions = Some(vec![]);
     row.receipts = Some(vec![]);
     Ok(row)
+}
+
+fn fix5_loop_case(mode: &str, code: i32, class: &str) -> Result<Value> {
+    let output = Command::new(std::env::current_exe()?)
+        .args([
+            "--exact",
+            "replay::loop_tests::fixture_child",
+            "--nocapture",
+        ])
+        .env("BOOLE_AUDIT_FIX4_CHILD", mode)
+        .output()?;
+    assert_eq!(
+        output.status.code(),
+        Some(code),
+        "{mode}: {} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = String::from_utf8(output.stdout)?;
+    let value: Value = serde_json::from_str(
+        text.lines()
+            .find(|l| l.starts_with('{'))
+            .context("child JSON")?,
+    )?;
+    if code == 2 {
+        assert!(value["first_mismatch"].is_null());
+        assert_eq!(value["resource_stop"]["height"], "1");
+        assert_eq!(value["resource_stop"]["check"], class);
+        assert_eq!(value["resource_stop"]["side"], "private-engine");
+    } else {
+        assert!(value["resource_stop"].is_null());
+        assert_eq!(value["first_mismatch"], json!({"height":"1","class":class}));
+    }
+    Ok(value)
+}
+#[test]
+fn fix5_private_step_5xx_through_driver_stall_is_local() -> Result<()> {
+    fix5_loop_case("engine-step-5xx", 2, "fold")?;
+    Ok(())
+}
+#[test]
+fn fix5_private_head_5xx_is_local_at_prefix() -> Result<()> {
+    fix5_loop_case("engine-head-5xx", 2, "prefix")?;
+    Ok(())
+}
+#[test]
+fn fix5_private_rpc_refusal_is_local_at_ledger() -> Result<()> {
+    fix5_loop_case("private-rpc-refusal", 2, "ledger")?;
+    Ok(())
+}
+#[test]
+fn fix5_invalid_hash_and_ledger_controls_remain_mismatches() -> Result<()> {
+    for (mode, class) in [
+        ("engine-invalid", "fold"),
+        ("hash-difference", "prefix"),
+        ("ledger-difference", "ledger"),
+        ("audited-unavailable", "prefix"),
+        ("engine-step-5xx-tamper", "input"),
+    ] {
+        fix5_loop_case(mode, 1, class)?;
+    }
+    Ok(())
 }

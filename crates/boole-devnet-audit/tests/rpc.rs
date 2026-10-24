@@ -560,3 +560,97 @@ fn b2_cli_resource_stop_is_json_exit_two_without_mismatch() -> Result<()> {
     assert_eq!(receipt["checks"]["node"], "resource-stop");
     Ok(())
 }
+
+#[test]
+fn fix5_actual_cli_rechecks_source_after_a_resource_stop() -> Result<()> {
+    use boole_devnet_archive::{
+        durability::PrivateTempDir,
+        journal::{InputJournal, NetworkIdentity},
+    };
+    let root = PrivateTempDir::new("audit-cli-final-recheck")?;
+    let journal = root.path().join("journal");
+    let manifest = journal.join("input.manifest.json");
+    let config = boole_derivation::m2::Config::devnet();
+    let path = root.path().join("config.json");
+    std::fs::write(&path, serde_json::to_vec(&config)?)?;
+    let rows = rows()?;
+    let mut empty = rows[1].clone();
+    let raw = hex_bytes(&empty.header_rlp, "header")?;
+    let decoded = rlp::decode(&raw).map_err(anyhow::Error::msg)?;
+    let mut fields: Vec<_> = decoded
+        .children
+        .unwrap()
+        .iter()
+        .map(|f| raw[f.span.clone()].to_vec())
+        .collect();
+    fields[4] = rlp::bytes(&boole_devnet_archive::input::receipts_root(&[]));
+    fields[5] = fields[4].clone();
+    fields[6] = rlp::bytes(&[0; 256]);
+    let raw = rlp::list(&fields);
+    empty.header_rlp = hex_string(&raw);
+    empty.block_hash = hex_string(&keccak(&raw));
+    empty.transactions = Some(vec![]);
+    empty.receipts = Some(vec![]);
+    let block = rpc_block(&empty, 0)?;
+    let called = Arc::new(AtomicBool::new(false));
+    let seen = called.clone();
+    let server = Server::start(move |request| match request["method"].as_str().unwrap() {
+        "eth_chainId" => reply(chain()),
+        "eth_getBlockByNumber" => {
+            if request["params"][0] == "latest" {
+                use std::io::Write;
+                std::fs::OpenOptions::new()
+                    .append(true)
+                    .open(&manifest)
+                    .unwrap()
+                    .write_all(b" ")
+                    .unwrap();
+                seen.store(true, Ordering::Release);
+                reply(json!("x".repeat(boole_devnet_audit::rpc::RPC_RESPONSE_MAX)))
+            } else {
+                reply(block.clone())
+            }
+        }
+        method => panic!("unexpected CLI fixture RPC {method}"),
+    })?;
+    let mut node = RpcNode::new(&server.url)?;
+    let genesis = node.header(0)?;
+    let network = NetworkIdentity::new(&config, None, genesis.hash, genesis.gas_limit)?;
+    drop(InputJournal::open(
+        &journal,
+        network,
+        || Ok(rows[0].clone()),
+        false,
+    )?);
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_boole-devnet-audit"))
+        .arg("--journal")
+        .arg(&journal)
+        .arg("--node-rpc")
+        .arg(&server.url)
+        .arg("--m2-config")
+        .arg(path)
+        .args([
+            "--expected-l1-number",
+            "0",
+            "--expected-l1-hash",
+            &rows[0].block_hash,
+        ])
+        .output()?;
+    assert!(
+        called.load(Ordering::Acquire),
+        "did not reach resource after opening own source"
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "{} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let receipt: Value = serde_json::from_slice(&output.stdout)?;
+    assert_eq!(receipt["first_mismatch"]["class"], "input");
+    assert_eq!(receipt["checks"]["input"], "mismatch");
+    assert!(receipt["resource_stop"].is_null());
+    assert_eq!(receipt["superseded_resource_stop"]["resource"], "rpc-bytes");
+    Ok(())
+}

@@ -289,10 +289,22 @@ input mismatches still exit 1. Successful receipt bytes are unchanged.
 The 15 s whole-response deadline, covering both response headers and body reads,
 is also a typed `rpc-time` stop; its `limit` is milliseconds (15,000, or 3,000
 for the existing connection deadline). Refused/reset connections and malformed
-HTTP remain transport failures, not resource bounds.
+HTTP remain transport failures, not resource bounds on the audited-node side.
 
 Replay preserves resource types and the current phase at the actual block height,
 including private RPC initialization, headers, receipts and depositor balance.
+Failures of the auditor-owned private Engine/RPC are local diagnostics, not
+claims about the audited chain. After owned-input revalidation, an Availability
+stall, the driver's public `rpc_unavailable` class, or a private-side transport
+failure uses `resource_stop.resource=private-engine-unavailable`,
+`side=private-engine`, the current height and phase, and exit 2 with null
+`first_mismatch`. Its `limit=0` is an unavailable-limit sentinel, not a zero
+budget. The driver's public transient class erases whether the cause was a send
+timeout, HTTP 429 or 5xx, so the audit does not infer that cause from error text.
+An already typed private RPC resource/time stop keeps its kind and numerical
+limit and gains the same private side label. INVALID payload verdicts, hash
+and ledger differences remain mismatches; audited-node transport failures keep
+their existing phase classification. Successful receipt bytes are unchanged.
 Owned inputs are rechecked before classifying a per-block failure and again
 before emitting the final receipt, even after a resource stop. Verified source
 change outranks that stop: it becomes an input mismatch with exit 1, and the
@@ -307,7 +319,12 @@ The depositor balance uses the already authenticated block hash with EIP-1898
 verdict, admission and fork checks are `not-applicable`. Replay setup and private
 Engine cleanup have separate `replay-setup` and `engine-cleanup` check classes;
 cleanup uses the last replayed height and preserves any earlier mismatch. Every
-input mismatch agrees with `first_mismatch`; resource stops are separate and
+first mismatch is retained. A source change discovered by the unconditional
+final recheck still sets `checks.input=mismatch` after an earlier mismatch,
+without replacing that first class or height; exit 1 stays unchanged. When an
+input failure creates the first mismatch (including a resource-stop supersede),
+its Integrity/Availability height is used if present, otherwise the input tip.
+Cleanup finishes before this final recheck. Resource stops are separate and
 private error details are omitted.
 
 The per-run disk floor is 15 GiB. Preserve the store and journal on a typed stop;

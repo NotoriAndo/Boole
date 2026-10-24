@@ -210,6 +210,7 @@ fn run(args: Args) -> Result<Value> {
         pure_work.path(),
     );
     receipt["mode"] = json!(args.mode);
+    let mut cleanup = None;
     if args.mode == "replay" && boole_devnet_audit::succeeded(&receipt) {
         receipt["replayed_blocks"] = json!("0");
         let started = (|| -> Result<_> {
@@ -227,7 +228,7 @@ fn run(args: Args) -> Result<Value> {
             Ok((private, replay_gate, replay_work))
         })();
         match started {
-            Ok((mut private, replay_gate, replay_work)) => {
+            Ok((private, replay_gate, replay_work)) => {
                 if let Err(error) = boole_devnet_audit::replay::replay(
                     inputs.as_mut(),
                     &mut node,
@@ -239,19 +240,27 @@ fn run(args: Args) -> Result<Value> {
                 ) {
                     boole_devnet_audit::replay::report_failure(&mut receipt, &error, "unavailable");
                 }
-                let stopped = private.stop().is_ok();
-                let issues = private.log_issues().unwrap_or(1);
-                boole_devnet_audit::replay::report_cleanup(&mut receipt, stopped, issues);
-                drop(private);
-                drop(replay_work);
+                cleanup = Some((private, replay_work));
             }
             Err(error) => {
                 boole_devnet_audit::replay::report_failure(&mut receipt, &error, "unavailable")
             }
         }
     }
-    boole_devnet_audit::recheck_inputs(&mut receipt, inputs.as_ref());
+    finish_receipt(&mut receipt, inputs.as_ref(), |receipt| {
+        if let Some((mut private, replay_work)) = cleanup {
+            let stopped = private.stop().is_ok();
+            let issues = private.log_issues().unwrap_or(1);
+            boole_devnet_audit::replay::report_cleanup(receipt, stopped, issues);
+            drop(private);
+            drop(replay_work);
+        }
+    });
     Ok(receipt)
+}
+fn finish_receipt(receipt: &mut Value, inputs: &dyn Inputs, cleanup: impl FnOnce(&mut Value)) {
+    cleanup(receipt);
+    boole_devnet_audit::recheck_inputs(receipt, inputs);
 }
 fn main() {
     match run(Args::parse()) {
@@ -262,5 +271,110 @@ fn main() {
             eprintln!("audit setup unavailable; sources preserved");
             std::process::exit(2)
         }
+    }
+}
+
+#[cfg(test)]
+mod cli_tests {
+    use super::*;
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
+    struct Input(Arc<AtomicBool>);
+    impl boole_gate_supervisor::rebuild::History for Input {
+        fn origin(
+            &mut self,
+            _: u64,
+        ) -> Result<(boole_derivation::L1Block, Vec<boole_derivation::InboxLog>)> {
+            anyhow::bail!("unused")
+        }
+    }
+    impl Inputs for Input {
+        fn tip(&self) -> u64 {
+            9
+        }
+        fn row(&mut self, _: u64) -> Result<boole_devnet_archive::input::InputRow> {
+            anyhow::bail!("unused")
+        }
+        fn check(&self) -> Result<()> {
+            if self.0.load(Ordering::Acquire) {
+                return Err(boole_devnet_archive::error::integrity(
+                    4,
+                    "input",
+                    "cleanup-time source change",
+                ));
+            }
+            Ok(())
+        }
+        fn label(&self) -> &'static str {
+            "journal"
+        }
+    }
+    #[test]
+    fn ordering_child() -> Result<()> {
+        let Ok(mode) = std::env::var("BOOLE_AUDIT_FIX5_ORDER_CHILD") else {
+            return Ok(());
+        };
+        let c = Config::devnet();
+        let mut receipt = if mode == "resource" {
+            boole_devnet_audit::resource_receipt(
+                &c,
+                None,
+                3,
+                "ledger",
+                boole_devnet_audit::resource::ResourceStop {
+                    resource: "rpc-bytes",
+                    limit: 16,
+                },
+            )
+        } else {
+            boole_devnet_audit::failed_receipt(&c, None, 2, "prefix")
+        };
+        let changed = Arc::new(AtomicBool::new(false));
+        let inputs = Input(changed.clone());
+        finish_receipt(&mut receipt, &inputs, |receipt| {
+            boole_devnet_audit::replay::report_cleanup(receipt, false, 1);
+            changed.store(true, Ordering::Release);
+        });
+        println!();
+        boole_devnet_audit::emit_receipt(&receipt);
+        Ok(())
+    }
+    #[test]
+    fn fix5_cli_cleanup_precedes_recheck_and_preserves_first_mismatch() -> Result<()> {
+        for mode in ["resource", "mismatch"] {
+            let output = std::process::Command::new(std::env::current_exe()?)
+                .args(["--exact", "cli_tests::ordering_child", "--nocapture"])
+                .env("BOOLE_AUDIT_FIX5_ORDER_CHILD", mode)
+                .output()?;
+            assert_eq!(
+                output.status.code(),
+                Some(1),
+                "{mode}: {}",
+                String::from_utf8_lossy(&output.stdout)
+            );
+            let text = String::from_utf8(output.stdout)?;
+            let receipt: Value = serde_json::from_str(
+                text.lines()
+                    .find(|l| l.starts_with('{'))
+                    .context("CLI JSON")?,
+            )?;
+            assert_eq!(receipt["checks"]["input"], "mismatch");
+            assert_eq!(
+                receipt["private_engine_cleanup"],
+                json!({"stopped":false,"log_issues":1})
+            );
+            assert_eq!(
+                receipt["first_mismatch"],
+                if mode == "resource" {
+                    json!({"height":"4","class":"input"})
+                } else {
+                    json!({"height":"2","class":"prefix"})
+                }
+            );
+            assert!(receipt["resource_stop"].is_null());
+        }
+        Ok(())
     }
 }
