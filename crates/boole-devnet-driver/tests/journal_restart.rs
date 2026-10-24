@@ -1092,3 +1092,48 @@ impl boole_devnet_archive::client::Fetch for StaticMirror {
         )?)
     }
 }
+
+#[test]
+fn t78_recovered_selected_blocks_keep_own_journal_input_provenance() -> Result<()> {
+    let dir = PrivateTempDir::new("m4-recovered-inputs")?;
+    let engine = MemoryEngine::new();
+    let network = NetworkIdentity::new(
+        &boole_derivation::m2::Config::devnet(),
+        None,
+        engine.head.hash.clone(),
+        30_000_000,
+    )?;
+    let source = JournalSource::open(TipOnly::new(), dir.path(), network.clone(), false)?;
+    let mut a = Driver::new(source, engine);
+    for h in 1..=2 {
+        a.l1.inner.tip = h;
+        a.step(h)?;
+    }
+    let root = a.m2_state().root;
+    let engine = a.engine.clone();
+    drop(a);
+    let mut raw = TipOnly::new();
+    raw.tip = 2;
+    raw.strict = true;
+    let source = JournalSource::open(raw, dir.path(), network, false)?;
+    assert_eq!(source.inputs_label(1), "journal");
+    let mut recovered = Driver::new(source, engine);
+    let evidence = dir.path().join("evidence.jsonl");
+    recovered.set_evidence(&evidence)?;
+    recovered.resume()?;
+    assert_eq!(recovered.m2_state().root, root);
+    let rows: Vec<Value> = std::fs::read_to_string(evidence)?
+        .lines()
+        .map(serde_json::from_str)
+        .collect::<std::result::Result<_, _>>()?;
+    assert_eq!(rows.len(), 2);
+    for row in rows {
+        assert_eq!(row["outcome"], "RECOVERED");
+        assert_eq!(row["verification"], "computed");
+        assert_eq!(
+            row["inputs"], "journal",
+            "recovered evidence omitted input provenance"
+        );
+    }
+    Ok(())
+}

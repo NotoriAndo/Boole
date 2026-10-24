@@ -38,7 +38,8 @@ journal still require preservation and investigation as in the durability guide.
 
 Evidence labels the fresh archive range `archive-verified`, and new live input
 `l1-rpc`. On restart, existing inputs are `journal`. Verdicts remain `computed`
-on the verify driver. Miner status includes `inputs`, `input_ranges`, archive
+on the verify driver. Newly recovered evidence rows also carry the current
+input label; already published evidence bytes retain their original labels. Miner status includes `inputs`, `input_ranges`, archive
 source counters and bounded index alerts alongside its existing verdict trust.
 The miner independently verifies archive inputs; its default verdict trust still
 comes from its configured L2 node. `--verify-own` retains its existing meaning.
