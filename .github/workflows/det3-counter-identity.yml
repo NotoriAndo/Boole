@@ -68,7 +68,7 @@ jobs:
           set -euo pipefail
           test "$(uname -m)" = x86_64
           sudo apt-get update
-          sudo apt-get install -y cmake g++ libgmp-dev zstd
+          sudo apt-get install -y cmake g++ libgmp-dev libuv1-dev pkg-config zstd
           cmake -S tool-sources/lean -B "$RUNNER_TEMP/lean-build" \
             -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++
           cmake --build "$RUNNER_TEMP/lean-build" --target stage1 --parallel 2
