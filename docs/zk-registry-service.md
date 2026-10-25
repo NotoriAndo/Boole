@@ -100,11 +100,17 @@ R's runtime candidate-specific Challenge is separate from its pinned catalog tem
 the allowed digests, not proofs or private migration diagnostics. Old catalogs and indexes are not re-pinned in place.
 
 Deterministic resource limits are INVALID `resource-cap`; wall/memory/observation limits are ERROR
-`resource-unavailable`. New stores pin `error_policy` version1 and its rules digest in the catalog.
+`resource-unavailable`. New stores pin `error_policy` version2 and its rules digest in the catalog;
+existing version1 stores retain their exact pinned rules without migration.
 A matched nonterminal ERROR consumes the reveal, sets CHECKING and clears its deadline.
 CHECKING and QUARANTINED hold the earliest-commit barrier without expiring. A repeated reveal returns
 `already-revealed` without invoking the checker. Terminal submission `output-cap` consumes the commitment
-as REJECTED; reference output caps remain node errors. Stores without `error_policy` retain the original
+as REJECTED; reference output caps remain node errors. Version2 also makes
+`library-outside-certified-base` terminal S: a deterministic certification-scope availability limit,
+with gate verdict ERROR, no node fault, retry or quarantine trigger. Its commitment is consumed as
+REJECTED by the existing terminal-error lifecycle; this is not an INVALID proof verdict and the problem
+remains open. Independently established own profile, target and cap violations remain INVALID.
+Stores without `error_policy` retain the original
 COMMITTED/deadline retry rule and replay their original events unchanged.
 
 Only the operator can `recheck --sequence N` against the immutable recorded submission. Rechecks record the

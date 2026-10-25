@@ -10,11 +10,20 @@
   },
   "lean": {
     "max_heartbeats": 262144,
-    "max_rec_depth": 2048,
-    "worker_stack_bytes": 67108864
+    "max_rec_depth": 4096,
+    "worker_stack_bytes": 268435456,
+    "aggregate_raw": 262144000000000,
+    "declaration_charge": 64,
+    "literal_bytes": 4096
   },
   "nanoda": {
+    "counter_version": 1,
     "steps_per_declaration": 33554432,
+    "depth_per_declaration": 32768,
+    "work_per_declaration": 34359738368,
+    "aggregate_work": 34359738368000000,
+    "declaration_charge": 64,
+    "literal_bytes": 4096,
     "worker_stack_bytes": 67108864
   },
   "conron": {
@@ -29,6 +38,7 @@
     },
     "replay_bytes": 134217728,
     "export_bytes": 2147483648,
+    "export_records": 3000000,
     "small_bytes": 1048576,
     "verdict_bytes": 65536,
     "raw": {

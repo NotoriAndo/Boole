@@ -42,7 +42,8 @@ def generate():
                                      submittable=True, root_id='problem')],
                        packages={'problem': manifest}, excluded={}, reveal_window=65,
                        challenge_window=1, gate=old_gate,
-                       error_policy=dict(version=1, rules_sha256=sha(S.E.POLICY_PATH.read_bytes())))
+                       # This vector is the frozen version1 policy contract.
+                       error_policy=dict(version=1, rules_sha256=sha(S.E.LEGACY_POLICY_PATH.read_bytes())))
         registry._append('catalog', payload, 0, [])
         rows = []
 
@@ -72,7 +73,7 @@ def generate():
         return dict(schema='boole-devnet-m3-service-void-parity-v1.3-draft',
                     provenance=dict(source='scripts/zk_registry/service.py',
                                     source_sha256=sha((ROOT/'scripts/zk_registry/service.py').read_bytes()),
-                                    policy_sha256=sha(S.E.POLICY_PATH.read_bytes()),
+                                    policy_sha256=sha(S.E.LEGACY_POLICY_PATH.read_bytes()),
                                     generator='scripts/devnet/generate_m3_service_vectors.py',
                                     generator_sha256=sha(Path(__file__).read_bytes()),
                                     execution='Registry.commit/reveal/recheck/void; synthetic catalog and injected verifier; fixed integer clocks',

@@ -92,7 +92,7 @@ class Review(unittest.TestCase):
             caps=dict(B.caps(),export_bytes=4)
             with patch.object(B,'caps',return_value=caps),patch.object(CR,'runner',return_value=lambda *a:L.RunResult(0,'12345',0,False)),patch.object(D,'statement_identity') as identity:
                 r=D.export_module(env,'M','N.t',str(p/'sealed/out'),D.Tools('/usr/bin/true','/usr/bin/true','/usr/bin/true','/usr',None),SB.Sandbox.fixture(),tmp,[],5,[],identity=True)
-            self.assertEqual(r['reason'],'output-cap');identity.assert_not_called()
+            self.assertEqual(r['reason'],'statement-resource-cap');identity.assert_not_called()
             package=p/'package';package.mkdir();(package/'Statement.lean').write_text('statement')
             compiled=dict(compile_rc=0,n_errors=0,post=dict(replay=None,killed_by='output-cap:stdout',error='output-cap'))
             with patch.object(C,'compile_in_sandbox',return_value=compiled):

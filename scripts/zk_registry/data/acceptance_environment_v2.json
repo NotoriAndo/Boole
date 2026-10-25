@@ -183,5 +183,13 @@
         }
       ]
     }
+  },
+  "fuel_cap_authority": {
+    "file": "fuel_cap_authority_v1.json",
+    "sha256": "8f1dcbc006209958d62c2c3fcccd9a27261b7324172131497cecdde388dbeb81",
+    "factors": {
+      "lean": 4,
+      "nanoda": 4
+    }
   }
 }

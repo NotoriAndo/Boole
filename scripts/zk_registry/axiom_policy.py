@@ -107,8 +107,12 @@ def resolve(env, manifest: list[dict], build: str, sandbox, timeout: float) -> d
             raise BindingUnavailable(stopped['reason'])
         if D.resource_reason(run):
             raise BindingUnavailable('resource-unavailable')
-        if run.rc != 0 or post.get('replay') != 'ok':
-            continue
+        if unavailable := G.replay_unavailable(run,post):
+            raise BindingUnavailable(unavailable)
+        if run.rc != 0:
+            continue  # only a typed kernel reject may disprove this binding
+        if post.get('replay') != 'ok':
+            raise BindingUnavailable('statement-replay-unavailable')
         own = any(item.get('kind') == 'axiom' and item.get('name') == row['name'] for item in post.get('consts', []))
         bindings[row['name']] = dict(module=module, module_olean_sha256=D.digest(selected),
                                     type_sha256=post.get('type_sha256'), declared_in_module=own,

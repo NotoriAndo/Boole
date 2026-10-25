@@ -32,6 +32,8 @@ FID_MIN_MUTANTS = 10
 ALLOWED_AXIOMS = {"propext", "Classical.choice", "Quot.sound"}
 REPLAY_TOOL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lean", "ZkReplay.lean")
 
+GATE_REPLAY_TOOL = os.path.join(os.path.dirname(REPLAY_TOOL), "GateReplay.lean")
+
 
 def sha256_file(path: str) -> str:
     h = hashlib.sha256()
@@ -110,9 +112,32 @@ def _parse_replay(path: str) -> dict:
 def run_replay(env: L.LeanEnv, olean: str, fqn: str, out_file: str, opts: list[str], lean_path: list[str],
                timeout: float) -> tuple[L.RunResult, dict]:
     tstack = [f"--tstack={L.testnet_caps()['lean']['worker_stack_bytes'] // 1024}"]
-    r = L.run_lean(env, tstack + ["--run", REPLAY_TOOL, olean, fqn, out_file], os.path.dirname(out_file),
+    r = L.run_lean(env, tstack + ["--run", GATE_REPLAY_TOOL, olean, fqn, out_file, json.dumps(L.testnet_caps()['lean'], sort_keys=True)], os.path.dirname(out_file),
                    timeout, extra_lean_path=lean_path)
-    return r, parse_replay(out_file)
+    post = parse_replay(out_file)
+    if r.rc in (0, 2, 3, 4, 70, 71):
+        r.tool_exit = r.rc
+        post['tool_exit'] = r.rc
+    return r, post
+
+
+def replay_unavailable(run, post, *, input_role='reference'):
+    """Classify availability before any caller consumes replay records."""
+    from .closure import resource_reason
+    from .tool_exit import Exit, outcome
+    from .sandbox import boundary_failure
+    stopped=boundary_failure(run)
+    if stopped and stopped['verdict']=='ERROR':return stopped['reason']
+    resource=resource_reason(run)
+    if resource:return resource
+    if post.get('error') in ('output-cap','checker-input-unavailable'):return post['error']
+    if run.rc==Exit.UNAVAILABLE:return 'environment-tool-unavailable:replay'
+    if run.rc in (Exit.CAP,Exit.FAULT) and input_role!='submission':
+        return outcome(run.rc,'replay',input_role)['reason']
+    if run.rc not in (0,Exit.REJECT,Exit.CAP,Exit.FAULT):
+        prefix='' if input_role=='submission' else 'statement-' if input_role=='reference' else 'challenge-'
+        return prefix+'replay-unavailable'
+    return None
 
 
 # ------------------------------------------------------------------------------------------ G-ELAB
@@ -126,6 +151,8 @@ def g_elab(env: L.LeanEnv, pkg_dir: str, build_dir: str, ns: str, work: str, tim
     if r.output_capped or r.killed_by.startswith(('output-cap','capture-failed')):
         from .closure import resource_reason
         return Gate('G-ELAB','ERROR',dict(detail,reason=resource_reason(r),stage='reference:compile'))
+    if r.rc == 70:
+        return Gate('G-ELAB','ERROR',dict(detail,reason='environment-tool-unavailable:compile',stage='reference:compile'))
     if r.rc != 0 or r.timeout or L.errors(msgs):
         detail["errors"] = [L.fmt_msg(m) for m in L.errors(msgs)[:5]] or [r.out[-500:]]
         return Gate("G-ELAB", "FAIL", detail)
@@ -136,6 +163,8 @@ def g_elab(env: L.LeanEnv, pkg_dir: str, build_dir: str, ns: str, work: str, tim
     if r.output_capped or r.killed_by.startswith(('output-cap','capture-failed')):
         from .closure import resource_reason
         return Gate('G-ELAB','ERROR',dict(detail,reason=resource_reason(r),stage='reference:compile'))
+    if r.rc == 70:
+        return Gate('G-ELAB','ERROR',dict(detail,reason='environment-tool-unavailable:compile',stage='reference:compile'))
     if r.rc != 0 or r.timeout or L.errors(msgs):
         detail["errors"] = [L.fmt_msg(m) for m in L.errors(msgs)[:5]] or [r.out[-500:]]
         return Gate("G-ELAB", "FAIL", detail)
@@ -145,8 +174,8 @@ def g_elab(env: L.LeanEnv, pkg_dir: str, build_dir: str, ns: str, work: str, tim
     fqn = f"{ns}.{theorem}"
     rr, post = run_replay(env, os.path.join(build_dir, "Statement.olean"), fqn, os.path.join(work, "replay.out"),
                           E.LEAN_OPTIONS, [build_dir], timeout)
-    if post.get('error') in ('output-cap','checker-input-unavailable'):
-        return Gate('G-ELAB','ERROR',dict(detail,reason=post['error'],stage='reference:replay'))
+    if unavailable := replay_unavailable(rr,post):
+        return Gate('G-ELAB','ERROR',dict(detail,reason=unavailable,stage='reference:replay'))
     detail.update(replay=post["replay"], replay_secs=rr.secs, replay_peak_rss_mb=rr.peak_rss_mb, axioms=post["axioms"],
                   target=post["target"])
     ok = (post["replay"] == "ok" and isinstance(post["target"], dict) and post["target"]["kind"] == "theorem"

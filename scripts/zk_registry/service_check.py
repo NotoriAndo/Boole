@@ -33,8 +33,9 @@ from .service import RegistryError, canonical, digest, read_json, safe_relative,
 class ProductionVerifier:
     """One isolated checker process, selected solely by validated registry metadata."""
 
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, *, rules=None):
         self.config = copy.deepcopy(config)
+        self.rules = rules
         rss = config.get('rss_mb', 12000)
         if type(rss) is not int or rss not in (12000, 20000):
             raise RegistryError('checker guard must be 12000 or production-final 20000 MB')
@@ -66,7 +67,7 @@ class ProductionVerifier:
             envelope={key:self.config[key] for key in ('wall_s','rss_mb','memory_max')},stage=stage,
             reason=reason,detail=detail,canary=self.config.get('canary'),resource_events=resources,
             evidence_sha256=digest(evidence),profile=profile or ((result.boundary or {}).get('assurance') if result else None),
-            **{'class':E.classify(reason,stage,detail)})
+            **{'class':E.classify(reason,stage,detail,rules=self.rules)})
         return dict(verdict='ERROR',reason=reason,attempt=attempt)
 
     def __call__(self, package_dir, submission_dir, work_dir):

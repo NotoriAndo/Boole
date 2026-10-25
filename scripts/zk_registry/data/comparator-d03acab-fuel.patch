@@ -1,0 +1,54 @@
+--- a/Main.lean
++++ b/Main.lean
+@@ -6,0 +7 @@
++import Det3Fuel
+@@ -32,0 +34 @@
++  leanKernel : GateFuel.Replay.Limits := {}
+@@ -242,2 +244,8 @@
+-  try
+-    kernelEnv ← kernelEnv.replay kernelConstMap
++  let extra := quotTargets.foldl (fun n name => n + if origConstMap.contains name then 1 else 0) 0
++  let result ← GateFuel.replay kernelConstMap kernelEnv (← read).leanKernel (fun _ => pure ()) extra
++  recordStatus [("stage", .str "fuel"), ("kernel", .str "lean"),
++    ("debit", Lean.toJson result.debit), ("checked", Lean.toJson result.checked),
++    ("calls", Lean.toJson result.calls), ("depth", Lean.toJson result.peakDepth)]
++  match result.outcome with
++  | .ok env =>
++    kernelEnv := env
+@@ -245,2 +253,5 @@
+-    IO.println "Lean default kernel accepts the solution"
+-  catch e =>
++  | .error (.cap _) =>
++    recordStatus [("stage", .str "policy"), ("reason", .str "resource-cap")]
++    recordStatus [("stage", .str "final"), ("rc", Lean.toJson (3 : Nat))]
++    return ← IO.Process.exit 3
++  | .error (.reject reason) =>
+@@ -248,2 +259,5 @@
+-    IO.println "Lean default kernel rejects the solution"
+-    return some e.toString
++    return some reason
++  | .error (.unavailable _) =>
++    recordStatus [("stage", .str "error"), ("reason", .str "kernel-unavailable")]
++    recordStatus [("stage", .str "final"), ("rc", Lean.toJson (70 : Nat))]
++    return ← IO.Process.exit 70
+@@ -319,0 +334,5 @@
++  let limits := (← read).leanKernel
++  if let .error _ := GateFuel.checkInputs solution.constMap limits.literal_bytes (limits.max_rec_depth * 16) then
++    recordStatus [("stage", .str "policy"), ("reason", .str "resource-cap")]
++    recordStatus [("stage", .str "final"), ("rc", Lean.toJson (3 : Nat))]
++    return ← IO.Process.exit 3
+@@ -361,0 +381 @@
++  lean_kernel : GateFuel.Replay.Limits := {}
+@@ -400,0 +421 @@
++    leanKernel := cfg.lean_kernel
+@@ -419 +440 @@
+-def main (args : List String) : IO UInt32 := do
++def mainCore (args : List String) : IO UInt32 := do
+@@ -430,0 +452,7 @@
++
++/-- Use the configured virtual stack reservation for all replay work. -/
++def main (args : List String) : IO UInt32 := do
++  let task ← IO.asTask (mainCore args) Task.Priority.dedicated
++  match ← IO.wait task with
++  | .ok code => return code
++  | .error e => IO.eprintln e.toString; return 70

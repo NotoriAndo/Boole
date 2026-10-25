@@ -476,7 +476,7 @@ def _compile_and_postcheck(env: L.LeanEnv, problem: dict, pkg_dir: str, text: st
         f.write(r.stderr)
     msgs = r.messages if r.messages is not None else L.parse_messages(r.out, structured_only=True)
     errs = L.errors(msgs)
-    res.update(compile_rc=r.rc, compile_secs=r.secs, compile_timeout=r.timeout, n_errors=len(errs),
+    res.update(compile_rc=r.rc, compile_exit=r.tool_exit, compile_secs=r.secs, compile_timeout=r.timeout, n_errors=len(errs),
                compile_memkill=r.memkill, compile_killed_by=r.killed_by, compile_peak_rss_mb=r.peak_rss_mb,
                output_capped=r.output_capped, streams=r.streams,
                errors=[L.fmt_msg(m) for m in errs[:10]], boundary=r.boundary,
@@ -688,6 +688,9 @@ def _check(pkg_dir: str, proof_path: str, env: L.LeanEnv, workdir: str | None = 
         sandbox = env.extra['acceptance_sandbox']
     if tools is None and isinstance(env.extra.get('acceptance_tools'), D.Tools):
         tools = env.extra['acceptance_tools']
+    if tools is not None:
+        from dataclasses import replace
+        env = replace(env, extra=dict(env.extra, acceptance_tools=tools))
     try:
         selected = sandbox or (Sandbox.fixture() if policy_fixture is not None else Sandbox.production())
         rep['assurance'] = ('test-fixture' if conformance_fixture is not None or policy_fixture is not None
@@ -766,14 +769,29 @@ def _check(pkg_dir: str, proof_path: str, env: L.LeanEnv, workdir: str | None = 
         exported = D.export_module(env, 'ProofMod', chk['theorem_fqn'], os.path.join(sealed, 'Solution.ndjson'),
                                    tools, selected, os.path.join(tmp, 'proof'),
                                    [os.path.join(tmp, 'build'), os.path.join(tmp, 'proof')],
-                                   remaining(), allowed, exposure=selected.exposed_writers)
+                                   remaining(), allowed, exposure=selected.exposed_writers,input_role='submission')
         rep['solution_export'] = exported
         if exported['verdict'] != 'PASS':
-            error.append(exported['reason'])
+            rep['reason'] = exported['reason']
+            (error if exported['verdict']=='ERROR' else invalid).append(exported['reason'])
         else:
             rep['stage']='comparator'
+            budget = None
+            if 'fuel_cap' in problem:
+                from . import fuel_caps as F
+                try:
+                    budget = F.bind(problem, reference.get('statement_closure_sha256'),
+                                    env.extra.get('certified_environment_root'))
+                except F.FuelCapError as ex:
+                    error.append('environment-fuel-cap-unavailable')
+                    rep['reason'] = 'environment-fuel-cap-unavailable'
+                    rep['detail'] = str(ex)
+                    return _finish(rep)
             compared = D.compare_exports(reference['path'], exported['path'], chk['theorem_fqn'], tools, selected,
-                                         os.path.join(sealed, 'kernels'), remaining(), allowed)
+                                         os.path.join(sealed, 'kernels'), remaining(), allowed,
+                                         **({'fuel_budget': budget,
+                                             'candidate_declarations': [item['name'] for item in r['post']['consts']]}
+                                            if budget is not None else {}))
             rep['two_kernels'] = compared
             if compared.get('detail'):rep['detail']=compared['detail']
             if compared['verdict'] != 'PASS':
@@ -812,7 +830,8 @@ def apply_compile_result(r: dict, chk: dict, invalid: list[str], fail: list[str]
         bad = [x for x in pa if x != 'sorryAx' and (x not in permitted or A.native_evaluator_axiom(x))]
         if bad:
             invalid_findings.append(f'#print axioms lists disallowed axioms: {bad}')
-    if post and post.get('replay') == 'ok':
+    if (post and post.get('replay') == 'ok' and post.get('rc') in (0,None)
+            and post.get('tool_exit') in (0,None)):
         target = post.get('target')
         if target in (None, 'missing'):
             invalid_findings.append('theorem not found in the compiled module')
@@ -842,10 +861,18 @@ def apply_compile_result(r: dict, chk: dict, invalid: list[str], fail: list[str]
         ([], [], ['checker-input-unavailable'] if post_record.get('error')=='checker-input-unavailable' else []),
         ([], [], boundary_reasons('ERROR')[:1]),
         (boundary_reasons('INVALID')[:1], [], []),
+        ([], [], ['environment-tool-unavailable:compile'] if r.get('compile_exit')==70 else []),
+        (['resource-cap'] if r.get('compile_exit')==3 else [], [], []),
+        (['tool-fault:compile'] if r.get('compile_exit')==4 else [], [], []),
+        (['resource-cap'] if post_record.get('tool_exit')==3 else [], [], []),
+        (['tool-fault:replay'] if post_record.get('tool_exit')==4 else [], [], []),
+        (['tool-reject:replay'] if post_record.get('tool_exit')==2 else [], [], []),
         ([], [], ['silent-exit'] if r.get('compile_rc') not in (0, None) and not r.get('n_errors') else []),
         (['resource-cap'] if resource_cap else [], [], []),
         (invalid_findings, fail_findings, []),
         ([], ['`#print axioms` output missing'] if pa is None and not established else [], []),
+        ([], [], ['environment-tool-unavailable:replay'] if not established and post_record.get('tool_exit')==70 else []),
+        ([], [], ['replay-unavailable'] if not established and post_record.get('rc') not in (0,None) else []),
         ([], [], [] if established else ['no compiled module for the post-check'] if post is None else
          ['replay-unavailable'] if post.get('replay') != 'ok' else []),
     ]
@@ -883,6 +910,7 @@ def _finish(rep: dict) -> dict:
         detail=('silent-exit:'+str(compile_record.get('compile_rc')) if rep['reason']=='silent-exit' else
                 str(compile_record.get('compile_killed_by','')))
         rep.setdefault('detail',detail)
+        # Informational CLI fields; the service reclassifies failures with the store-bound policy.
         rep['error_group']=E.classify(rep['reason'],rep['stage'],rep['detail'])
     rep['class']=('ACCEPT' if rep['verdict']=='PASS' else 'DEFER' if rep['verdict']=='ERROR' and rep['error_group']!='S' else 'REJECT')
     rep["finished_utc"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())

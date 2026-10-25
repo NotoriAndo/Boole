@@ -33,3 +33,12 @@ has passed. The hosted run is **pending** until the orchestrator publishes the
 branch; local workflow execution does not claim a hosted result or activate a
 catalog. Task Z's CI commit was fetched locally and rebased onto the hardening
 branch; no public Git fetch fallback to historical gate code remains.
+
+The advisory `det3-counter-identity-x86_64` job uses a pinned source SDK to compare 32 public
+generated Init inputs against newly measured aarch64 goldens. It verifies preregistered source
+and export byte identities; no private catalog proof or export is published. The committed
+generator records the derivation. It cannot replace the expected golden with its own result.
+Raw vectors and build manifests are uploaded even on failure. The job does not create an
+x86-64 production profile and is not a required branch-protection check. Hosted runtime,
+including whether it fits 120 minutes, is unmeasured. `ubuntu-latest` and apt package versions
+are unpinned; actions are SHA-pinned. The orchestrator records runtime after publication.

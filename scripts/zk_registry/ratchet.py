@@ -1079,6 +1079,8 @@ def _elaborate(env: L.LeanEnv, pkg: str, modules: list[str], fqn: str, opts: lis
         L.enforce_boundary(r)
         d["steps"].append({"file": rel, "rc": r.rc, "secs": r.secs, "peak_rss_mb": r.peak_rss_mb,
                            "memkill": r.memkill, "timeout": r.timeout})
+        if r.rc == 70:
+            return dict(d,status='ERROR',reason='environment-tool-unavailable:compile',errors=['environment-tool-unavailable:compile'])
         if r.rc != 0 or r.timeout or r.memkill or L.errors(msgs):
             return dict(d, status="FAIL", errors=[L.fmt_msg(m) for m in L.errors(msgs)[:5]] or [r.out[-500:]])
         if rel == "Statement.lean":
@@ -1088,6 +1090,8 @@ def _elaborate(env: L.LeanEnv, pkg: str, modules: list[str], fqn: str, opts: lis
     rr, post = G.run_replay(env, os.path.join(build, "Statement.olean"), fqn, os.path.join(work, "replay.out"), opts,
                             [build], timeout)
     L.enforce_boundary(rr)
+    if unavailable := G.replay_unavailable(rr,post,input_role='submission'):
+        return dict(d,status='ERROR',reason=unavailable,errors=[unavailable])
     d["steps"].append({"file": "replay", "rc": rr.rc, "secs": rr.secs, "peak_rss_mb": rr.peak_rss_mb})
     ok = (post["replay"] == "ok" and isinstance(post["target"], dict) and post["target"]["kind"] == "theorem"
           and set(post["axioms"]) <= G.ALLOWED_AXIOMS | {"sorryAx"} and "sorryAx" in post["axioms"])

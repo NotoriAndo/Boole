@@ -105,6 +105,9 @@ def boundary_failure(result):
         return {'verdict': 'ERROR', 'reason': resource_reason(result) or 'resource-unavailable'}
     boundary = normalized_boundary(result.boundary)
     if boundary and boundary.get('verdict') != 'PASS':
+        if (boundary.get('verdict') not in ('ERROR', 'INVALID')
+                or not isinstance(boundary.get('reason'), str) or not boundary['reason']):
+            return {'verdict': 'ERROR', 'reason': 'sandbox-unavailable'}
         return boundary
     return None
 
@@ -164,7 +167,11 @@ def validate_memory_profiles(descriptor, requested=None):
 
 def stage_kind(argv):
     """Classify the trusted caller's executable stage, not submission stdout or environment."""
+    if argv and os.path.basename(argv[0]) == 'zk_replay':
+        return 'replay'
     name = os.path.basename(argv[0])
+    if len(argv)>3 and argv[1:3]==['-I','-B'] and os.path.basename(argv[3])=='compile_driver.py':
+        return 'compile'
     if name == 'lean':
         return 'replay' if '--run' in argv else 'compile'
     if name == 'lean4export':

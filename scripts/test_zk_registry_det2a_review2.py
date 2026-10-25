@@ -141,6 +141,7 @@ class Review(unittest.TestCase):
             tools=D.Tools('/usr/bin/true',str(binary),'/usr/bin/true','/usr',None)
             with patch.object(D,'prepare_reference',return_value=dict(verdict='PASS',path=str(root/'Challenge'),statement_closure_sha256=None)),patch.object(A,'resolve'),patch.object(A,'validate',return_value=dict(verdict='PASS',allowed_axioms=sorted(C.ALLOWED_AXIOMS))),patch.object(C,'compile_in_sandbox',side_effect=compile),patch.object(B,'caps',return_value=dict(B.caps(),export_bytes=1024)),patch.object(D,'compare_exports') as comparator:
                 result=C.check(pkg,str(proof),env,policy_fixture=env.pins(),tools=tools,sandbox=SB.Sandbox.fixture())
-            self.assertEqual((result['verdict'],result['stage'],result['reason']),('ERROR','export','output-cap'));comparator.assert_not_called()
+            self.assertEqual((result['verdict'],result['stage'],result['reason']),('INVALID','export','resource-cap'))
+            self.assertEqual(result['class'],'REJECT');comparator.assert_not_called()
 
 if __name__=='__main__':unittest.main()

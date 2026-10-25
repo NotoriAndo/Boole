@@ -1,0 +1,72 @@
+diff --git a/Main.lean b/Main.lean
+index 68e7dfd..e24008f 100644
+--- a/Main.lean
++++ b/Main.lean
+@@ -19,0 +20,24 @@ def recordStatus (fields : List (String × Lean.Json)) : IO Unit := do
++structure NanodaLimits where
++  counter_version : Nat := 1
++  steps_per_declaration : Nat := 33554432
++  depth_per_declaration : Nat := 32768
++  work_per_declaration : Nat := 34359738368
++  aggregate_work : Nat := 34359738368000000
++  declaration_charge : Nat := 64
++  literal_bytes : Nat := 4096
++  worker_stack_bytes : Nat := 67108864
++  deriving Lean.FromJson, Lean.ToJson, Repr
++
++structure NanodaStatus where
++  version : Nat
++  code : Nat
++  workers : Nat
++  worker_stack_bytes : Array Nat
++  checked_declarations : Nat
++  aggregate_work : Nat
++  aggregate_steps : Nat
++  maximum_depth : Nat
++  maximum_composed_depth : Nat
++  peak_stack_bytes : Nat
++  deriving Lean.FromJson, Lean.ToJson
++
+@@ -34,0 +59 @@ structure Context where
++  nanodaKernel : NanodaLimits := {}
+@@ -166,0 +192 @@ def runExternalKernel (kernelName : String) (kernelCommand : Array String)
++  IO.FS.withTempFile fun nanodaStatusHandle nanodaStatusPath => do
+@@ -187,0 +214 @@ def runExternalKernel (kernelName : String) (kernelCommand : Array String)
++      ("gate_limits", Lean.toJson (← read).nanodaKernel),
+@@ -200 +227,2 @@ def runExternalKernel (kernelName : String) (kernelCommand : Array String)
+-      envPass := #[]
++      envPass := #[s!"NANODA_STATUS_FILE={nanodaStatusPath}"]
++      envOverride := #[("NANODA_STATUS_FILE", some nanodaStatusPath.toString)]
+@@ -202 +230 @@ def runExternalKernel (kernelName : String) (kernelCommand : Array String)
+-      writablePaths := #[]
++      writablePaths := #[nanodaStatusPath]
+@@ -217,0 +246,25 @@ def runExternalKernel (kernelName : String) (kernelCommand : Array String)
++      if isNanodaKernel kernelName then
++        nanodaStatusHandle.flush
++        let raw ← IO.FS.readFile nanodaStatusPath
++        if raw.utf8ByteSize > 16384 then throw <| .userError "invalid native status"
++        let status : NanodaStatus ← IO.ofExcept <| Lean.FromJson.fromJson? <| ← IO.ofExcept <| Lean.Json.parse raw
++        if status.version != 1 || status.code != ret.toNat || !([0, 2, 3, 4, 70].contains status.code) then
++          throw <| .userError "invalid native status"
++        let nativeStack := (← read).nanodaKernel.worker_stack_bytes
++        if ret == 0 && (status.workers != 4 || status.worker_stack_bytes.size != 4 ||
++            status.worker_stack_bytes.any (· < nativeStack)) then
++          throw <| .userError "invalid native workers"
++        recordStatus [("stage", .str "nanoda-fuel"), ("kernel", .str "nanoda"),
++          ("debit", Lean.toJson status.aggregate_work), ("checked", Lean.toJson status.checked_declarations),
++          ("calls", Lean.toJson status.aggregate_steps), ("depth", Lean.toJson status.maximum_depth),
++          ("composed_depth", Lean.toJson status.maximum_composed_depth)]
++        if ret == 3 || ret == 4 then
++          recordStatus [("stage", .str "policy"), ("reason", .str (if ret == 3 then "resource-cap" else "tool-fault:replay"))]
++          recordStatus [("stage", .str "final"), ("rc", Lean.toJson ret.toNat)]
++          return ← IO.Process.exit ret.toUInt8
++        if ret == 70 then
++          recordStatus [("stage", .str "error"), ("reason", .str "kernel-unavailable")]
++          recordStatus [("stage", .str "final"), ("rc", Lean.toJson (70 : Nat))]
++          return ← IO.Process.exit 70
++      else
++        return ← IO.Process.exit 70
+@@ -381,0 +435 @@ structure Config where
++  nanoda_kernel : NanodaLimits := {}
+@@ -421,0 +476 @@ def M.run (x : M α) (cfg : Config) : IO α := do
++    nanodaKernel := cfg.nanoda_kernel

@@ -14,6 +14,7 @@ import uuid
 
 from . import correctness_runtime as CR
 from . import lean_runner as L
+from . import tool_exit as X
 from .statement_identity import VERSION as IDENTITY_VERSION
 from .sandbox import Sandbox, boundary_failure
 from .sandbox import SandboxUnavailable
@@ -47,6 +48,7 @@ class Tools:
     kernel_prefix: str
     landrun: str | None
     comparator_version: str = 'v4.34.1'
+    lean_replay: str = ''
 
     @classmethod
     def load(cls, root: str) -> Tools:
@@ -67,7 +69,7 @@ class Tools:
             raise ToolsUnavailable('kernels-unavailable')
         directory = Path(root).resolve()
         binaries = {}
-        for name in ('comparator', 'exporter', 'nanoda'):
+        for name in ('comparator', 'exporter', 'nanoda', 'lean_replay'):
             row = pins[name]
             binary = directory / row['path']
             if not binary.is_file() or digest(binary.resolve()) != row['sha256'] or not os.access(binary, os.X_OK):
@@ -121,8 +123,9 @@ def trusted_directory(path, exposure: dict) -> None:
         raise SandboxUnavailable('sandbox-unavailable') from None
 
 
-def statement_identity(export: str, theorem: str, work: str, timeout: float, *, task_env=None, cwd=None, expected_sha256=None) -> dict:
+def statement_identity(export: str, theorem: str, work: str, timeout: float, *, task_env=None, cwd=None, expected_sha256=None, input_role='reference') -> dict:
     """Parse sealed export bytes in a bounded trusted worker; availability never becomes INVALID."""
+    stage = X.outcome(X.Exit.ACCEPT, 'identity', input_role)['stage']
     if timeout <= 0:
         return dict(verdict='ERROR', reason='resource-unavailable')
     try:
@@ -137,10 +140,12 @@ def statement_identity(export: str, theorem: str, work: str, timeout: float, *, 
                          task_env, cwd or str(directory), timeout, 19000)
     except (OSError, ValueError):
         return dict(verdict='ERROR', reason='statement-identity-unavailable')
-    record = dict(seconds=result.secs, peak_rss_mb=result.peak_rss_mb, rc=result.rc,
+    record = dict(stage=stage, seconds=result.secs, peak_rss_mb=result.peak_rss_mb, rc=result.rc,
                   process_receipt=result.process_receipt)
     if resource_reason(result):
         return dict(record, verdict='ERROR', reason=resource_reason(result))
+    if result.rc in (X.Exit.CAP, X.Exit.FAULT):
+        return dict(record, **X.outcome(result.rc, 'identity', input_role))
     try:
         semantic = json.loads(result.out) if result.rc == 0 else {}
         if not isinstance(semantic, dict):
@@ -192,6 +197,9 @@ def prepare_reference(env: L.LeanEnv, problem: dict, package: str, work: str, se
     """Build and seal a pristine Challenge before compiling any solution code."""
     from . import check as C, package as P
 
+    if getattr(tools, 'lean_replay', ''):
+        env = replace(env, extra=dict(env.extra, acceptance_tools=tools,
+                                      kernel_replay_driver=tools.lean_replay))
     started = time.monotonic()
     if sandbox.mode == 'production' or sandbox.disabled_layer:
         sandbox = replace(sandbox, role='reference')
@@ -236,9 +244,10 @@ def prepare_reference(env: L.LeanEnv, problem: dict, package: str, work: str, se
 @FS.guard_trusted_io
 def export_module(env: L.LeanEnv, module: str, theorem: str, output: str, tools: Tools, sandbox: Sandbox,
                   cwd: str, extra_lean_path: list[str], timeout: float, axioms: list[str], *,
-                  exposure: dict | None = None, identity: bool = False) -> dict:
+                  exposure: dict | None = None, identity: bool = False, input_role: str = 'reference') -> dict:
     """Export the target's transitive type/value closure, including primitive and import dependencies."""
     prior = dict(exposure or {})
+    stage = X.outcome(X.Exit.ACCEPT, 'export', input_role)['stage']
     if sandbox.mode == 'production' or sandbox.disabled_layer:
         sandbox = replace(sandbox, role='reference')
     target = Path(output)
@@ -269,17 +278,23 @@ def export_module(env: L.LeanEnv, module: str, theorem: str, output: str, tools:
         result = run(command, task_env, cwd, timeout, 12000)
         # Adapt older injected runners through the same bounded sink contract.
         if not result.streams:sink.feed(result.out.encode('utf-8'))
-    record = dict(stage='closure-export', assurance=sandbox.mode, seconds=result.secs,
+    record = dict(stage=stage, assurance=sandbox.mode, seconds=result.secs,
                   peak_rss_mb=result.peak_rss_mb, rc=result.rc, boundary=result.boundary,
-                  process_receipt=result.process_receipt)
-    if sink.capped:
-        return dict(record,verdict='ERROR',reason='output-cap')
+                  process_receipt=result.process_receipt, streams=result.streams)
     stopped = boundary_failure(result)
-    if stopped:
+    if stopped and stopped['reason'] != 'output-cap':
         return dict(record, verdict=stopped['verdict'], reason=stopped['reason'])
+    if sink.capture_failed or any(s.get('capture_failed') for s in result.streams.values()):
+        return dict(record, verdict='ERROR', reason='capture-failed')
+    if result.timeout or result.memkill or (result.killed_by and not result.killed_by.startswith('output-cap')):
+        return dict(record, verdict='ERROR', reason=resource_reason(result))
+    if sink.capped:
+        return dict(record, **X.outcome(X.Exit.CAP, 'export', input_role))
     reason = resource_reason(result)
     if reason:
         return dict(record, verdict='ERROR', reason=reason)
+    if result.rc in (X.Exit.CAP, X.Exit.FAULT, X.Exit.UNAVAILABLE):
+        return dict(record, **X.outcome(result.rc, 'export', input_role))
     if result.rc != 0:
         return dict(record, verdict='ERROR', reason='export-unavailable', stdout=result.out[-2000:])
     target.chmod(0o444)
@@ -292,11 +307,11 @@ def export_module(env: L.LeanEnv, module: str, theorem: str, output: str, tools:
     if remaining <= 0:
         return dict(record, verdict='ERROR', reason='resource-unavailable')
     semantic = statement_identity(str(target), theorem, str(target.parent / (target.name + '-identity')),
-                                  remaining, expected_sha256=exported_sha)
+                                  remaining, expected_sha256=exported_sha, input_role=input_role)
     record['identity_worker'] = semantic
     exported['identity_worker'] = semantic
     if semantic['verdict'] != 'PASS':
-        return dict(record, verdict='ERROR', reason=semantic['reason'])
+        return dict(record, verdict=semantic['verdict'], reason=semantic['reason'])
     return dict(exported,
                 **{k: semantic[k] for k in ('statement_closure_sha256', 'statement_closure_version')})
 
@@ -304,7 +319,7 @@ def export_module(env: L.LeanEnv, module: str, theorem: str, output: str, tools:
 @FS.guard_trusted_io
 def compare_exports(challenge: str, solution: str, theorem: str, tools: Tools, sandbox: Sandbox,
                     work: str, timeout: float, axioms: list[str], max_constants: int = 1000000,
-                    nanoda_binary: str | None = None) -> dict:
+                    nanoda_binary: str | None = None, *, fuel_budget=None, candidate_declarations=None) -> dict:
     """Run Comparator once; both its empty Lean kernel and built-in nanoda consume the sealed solution."""
     prior = dict(sandbox.exposed_writers)
     try:
@@ -317,9 +332,47 @@ def compare_exports(challenge: str, solution: str, theorem: str, tools: Tools, s
         sandbox = replace(sandbox, role='reference')
     directory = Path(work)
     directory.mkdir(parents=True, exist_ok=True)
-    before = {path: digest(path) for path in (challenge, solution)}
+    protected = [challenge, solution]
+    if fuel_budget is not None:
+        from .fuel_caps import Budget
+        if not isinstance(fuel_budget, Budget):
+            return dict(stage='comparator', verdict='ERROR', reason='environment-fuel-cap-unavailable')
+        try:
+            parent = Path(fuel_budget.state).resolve(strict=True).parent
+            for root in prior:
+                exposed = Path(root).resolve(strict=False)
+                if parent == exposed or parent.is_relative_to(exposed):
+                    raise SandboxUnavailable('sandbox-unavailable')
+            # Identity checks also catch a renamed/aliased previously exposed
+            # ancestor. A nested cache never becomes trusted by its new name.
+            while parent != parent.parent:
+                if FS.root_identity(parent) in prior.values():
+                    raise SandboxUnavailable('sandbox-unavailable')
+                parent = parent.parent
+            if digest(fuel_budget.state) != fuel_budget.state_sha256:
+                return dict(stage='comparator', verdict='ERROR', reason='environment-certified-unavailable')
+        except (OSError, ValueError, RuntimeError, SandboxUnavailable):
+            return dict(stage='comparator', verdict='ERROR', reason='environment-certified-unavailable',
+                        assurance=sandbox.mode)
+        # Parent inode checks plus before/after content hashes do not exclude a
+        # concurrent writer swapping the state file between the reads. Provision
+        # this root immutable; file-inode race exclusion is not claimed.
+        protected.append(fuel_budget.state)
+    before = {path: digest(path) for path in protected}
+    lean_limits = dict(L.testnet_caps()['lean'])
     config = dict(challenge_module='Challenge', solution_module='ProofMod', theorem_names=[theorem],
-                  permitted_axioms=axioms, enable_nanoda=True, max_exported_constants=max_constants)
+                  permitted_axioms=axioms, enable_nanoda=True, max_exported_constants=max_constants,
+                  lean_kernel=lean_limits, nanoda_kernel=dict(L.testnet_caps()['nanoda']))
+    if fuel_budget is not None:
+        config['lean_kernel']['aggregate_raw'] = fuel_budget.lean
+        config['nanoda_kernel']['aggregate_work'] = fuel_budget.nanoda
+        config['certified_base_olean'] = fuel_budget.state
+        if candidate_declarations is not None:
+            if (not isinstance(candidate_declarations, list)
+                    or any(not isinstance(name, str) for name in candidate_declarations)
+                    or len(set(candidate_declarations)) != len(candidate_declarations)):
+                return dict(stage='comparator', verdict='ERROR', reason='environment-certified-unavailable')
+            config['candidate_declarations'] = candidate_declarations
     config_path = directory / 'comparator.json'
     with config_path.open('x') as stream:
         json.dump(config, stream, sort_keys=True)
@@ -330,7 +383,8 @@ def compare_exports(challenge: str, solution: str, theorem: str, tools: Tools, s
         'HOME': str(directory), 'TMPDIR': str(tmp), 'LANG': 'C.UTF-8',
         'COMPARATOR_LEAN4EXPORT': tools.exporter,
         'COMPARATOR_NANODA': nanoda_binary or tools.nanoda,
-        'LEAN_STACK_SIZE_KB': str(L.testnet_caps()['lean']['worker_stack_bytes'] // 1024),
+        'LEAN_STACK_SIZE_KB': str(lean_limits['worker_stack_bytes'] // 1024),
+        'LEAN_NAT_MAX_SIZE': str(lean_limits['literal_bytes']),
     }
     comparator_status = directory / 'comparator.status.jsonl'
     with comparator_status.open('xb'):
@@ -353,7 +407,7 @@ def compare_exports(challenge: str, solution: str, theorem: str, tools: Tools, s
         env['COMPARATOR_LANDRUN'] = str(passthrough)
     command = [tools.comparator, str(config_path), '--exports', challenge, solution]
     command = sandbox.command(command, env,
-                              [tools.kernel_prefix, tools.exporter, tools.nanoda, challenge, solution, str(directory)],
+                              [tools.kernel_prefix, tools.exporter, tools.nanoda, *protected, str(directory)],
                               [str(directory), *([str(status_directory)] if status_directory else [])])
     run = CR.runner(str(directory / 'processes'), timeout)
     result = run(command, env, str(directory), timeout, 12000)
@@ -380,12 +434,16 @@ def compare_exports(challenge: str, solution: str, theorem: str, tools: Tools, s
                   solution_export_sha256=before[solution], comparator_lean=tools.comparator_version,
                   boundary=result.boundary, inner_signals=signals, process_receipt=result.process_receipt,
                   cleanup_errors=cleanup_errors,detail='')
+    if fuel_budget is not None:
+        record['fuel_cap'] = dict(reference=fuel_budget.reference, environment=fuel_budget.environment,
+                                  units=dict(lean=fuel_budget.lean, nanoda=fuel_budget.nanoda),
+                                  state_sha256=fuel_budget.state_sha256)
     if any(digest(path) != value for path, value in before.items()):
         return dict(record, verdict='ERROR', reason='export-integrity')
     if result.output_capped or result.killed_by.startswith(('output-cap','capture-failed')):
         return dict(record, verdict='ERROR', reason=resource_reason(result))
-    if result.rc not in (0, 2):
-        # Only 0/2 are Comparator verdicts. Even plausible kernel output cannot
+    if result.rc not in (0, 2, 3, 4, 70):
+        # Only 0/2/3 reach the structured status validator. Plausible output cannot
         # turn a crash, signal or unknown exit status into a semantic rejection.
         observation = (result.boundary or {}).get('observation') or {}
         resource_events = observation.get('oom_kill_events') or observation.get('pids_max_events')
@@ -407,11 +465,11 @@ def compare_exports(challenge: str, solution: str, theorem: str, tools: Tools, s
         return dict(record, verdict=stopped['verdict'], reason=stopped['reason'])
     if sandbox.mode == 'production':
         # Patched Comparator: 2 is a semantic rejection before any kernel launch; 70 is transport/setup.
-        if result.rc == 70 or signals is None or any('setup_error' in row for row in signals):
+        if signals is None or any('setup_error' in row for row in signals):
             return dict(record, verdict='ERROR', reason='sandbox-unavailable')
         if (any(row.get('inner_exec') != 'ok' or type(row.get('exit')) is not int
                 or not 0 <= row['exit'] < 128 for row in signals)
-                or (result.rc != 2 and not signals)):
+                or (result.rc not in (2, 3, 70) and not signals)):
             return dict(record, verdict='ERROR', reason='sandbox-unavailable')
     # Kernel stdout contains attacker-controlled declaration names. Only the
     # Comparator's own private structured file establishes semantic statuses.
@@ -433,8 +491,14 @@ def compare_exports(challenge: str, solution: str, theorem: str, tools: Tools, s
             if stage in ('lean', 'nanoda', 'quotient'):
                 if set(event) != {'version', 'stage', 'result'} or event['result'] not in ('accept', 'reject'):
                     raise ValueError('invalid kernel status')
+            elif stage in ('fuel', 'nanoda-fuel'):
+                fields = {'debit', 'checked', 'calls', 'depth'} | ({'composed_depth'} if stage == 'nanoda-fuel' else set())
+                kernel = 'nanoda' if stage == 'nanoda-fuel' else 'lean'
+                if (set(event) != {'version', 'stage', 'kernel', *fields} or event['kernel'] != kernel
+                        or any(type(event[key]) is not int or not 0 <= event[key] < 2**64 for key in fields)):
+                    raise ValueError('invalid fuel record')
             elif stage in ('policy', 'error'):
-                allowed = {'resource-cap', 'disallowed-axiom', 'comparator-statement-mismatch'} if stage == 'policy' else {'export-integrity'}
+                allowed = {'resource-cap', 'disallowed-axiom', 'comparator-statement-mismatch', 'certified-base-mismatch', 'tool-fault:replay'} if stage == 'policy' else {'export-integrity', 'kernel-unavailable', 'library-outside-certified-base'}
                 if set(event) != {'version', 'stage', 'reason'} or event['reason'] not in allowed:
                     raise ValueError('invalid semantic status')
             else:
@@ -447,23 +511,39 @@ def compare_exports(challenge: str, solution: str, theorem: str, tools: Tools, s
     nanoda_accepts = statuses.get('nanoda', {}).get('result') == 'accept'
     record.update(lean_accepts=lean_accepts, nanoda_accepts=nanoda_accepts)
     if 'error' in statuses:
-        return dict(record, verdict='ERROR', reason=statuses['error']['reason'])
+        reason = statuses['error']['reason']
+        if reason == 'library-outside-certified-base' and result.rc != 70:
+            return dict(record, verdict='ERROR', reason='sandbox-unavailable')
+        if reason == 'kernel-unavailable':
+            reason = 'environment-tool-unavailable:replay' if result.rc == 70 else 'sandbox-unavailable'
+        return dict(record, verdict='ERROR', reason=reason)
     if 'policy' in statuses:
-        return dict(record, verdict='INVALID' if result.rc == 2 else 'ERROR',
-                    reason=statuses['policy']['reason'] if result.rc == 2 else 'sandbox-unavailable')
+        valid_policy_exit = (result.rc == 2 and statuses['policy']['reason'] in
+                             {'resource-cap', 'disallowed-axiom', 'comparator-statement-mismatch', 'certified-base-mismatch'}
+                             or result.rc == 3 and statuses['policy']['reason'] == 'resource-cap'
+                             or result.rc == 4 and statuses['policy']['reason'] == 'tool-fault:replay'
+                             and 'nanoda-fuel' in statuses)
+        return dict(record, verdict='INVALID' if valid_policy_exit else 'ERROR',
+                    reason=statuses['policy']['reason'] if valid_policy_exit else 'sandbox-unavailable')
+    if result.rc in (3, 4, 70):
+        return dict(record, verdict='ERROR', reason='sandbox-unavailable')
+    if fuel_budget is not None and not {'fuel', 'nanoda-fuel'} <= statuses.keys():
+        return dict(record, verdict='ERROR', reason='sandbox-unavailable')
     if result.rc == 0:
-        if lean_accepts and nanoda_accepts and statuses.get('quotient', {}).get('result') == 'accept':
+        if (lean_accepts and nanoda_accepts and statuses.get('quotient', {}).get('result') == 'accept'
+                and (not (tools.lean_replay or fuel_budget is not None) or {'fuel', 'nanoda-fuel'} <= statuses.keys())):
             return dict(record, verdict='PASS', reason=None)
         return dict(record, verdict='ERROR', reason='sandbox-unavailable')
     if statuses.get('quotient', {}).get('result') == 'reject' and lean_accepts:
         return dict(record, verdict='INVALID', reason='kernel-rejection')
-    if 'lean' not in statuses or 'nanoda' not in statuses:
+    if 'lean' not in statuses or 'nanoda' not in statuses or ((tools.lean_replay or fuel_budget is not None) and not {'fuel', 'nanoda-fuel'} <= statuses.keys()):
         return dict(record, verdict='ERROR', reason='sandbox-unavailable')
     if lean_accepts and nanoda_accepts:
         return dict(record, verdict='ERROR', reason='sandbox-unavailable')
     if nanoda_accepts:
-        # Legacy replay still erases typed resource exceptions.
-        return dict(record, verdict='ERROR', reason='replay-unavailable')
+        if 'fuel' not in statuses:
+            return dict(record, verdict='ERROR', reason='replay-unavailable')
+        return dict(record, verdict='INVALID', reason='kernel-disagreement')
     if lean_accepts:
         return dict(record, verdict='INVALID', reason='kernel-disagreement')
     return dict(record, verdict='INVALID', reason='kernel-rejection')

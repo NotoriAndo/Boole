@@ -1,0 +1,44 @@
+{
+  "headers": {
+    "runtime/exception.h": "58834ad1df155aa675726aed25e84fcd36201dc2cfdeead8d85fb1836ef4bd87",
+    "runtime/flet.h": "d0f0157089320ebe2db1890432810aba0ed1e2915681dbfd01660c7240babc87",
+    "runtime/interrupt.h": "cff836940157911e47094761d726051186bbb3f5c70fba8483eb1851c16d1066",
+    "runtime/memory.h": "bb5ad661f13da089cc2613105bdf4d43da9f02985dde4881b4f2d176e7397fb7",
+    "runtime/stackinfo.h": "0533c89253e1cc74122575e5a47c58e9b9d412e2a146d9ca5f9eae994879e3f1",
+    "runtime/thread.h": "b96540b10258e4ca1d9012f8a6a33da520fdf2089a3af8f3965d52728e2929a9"
+  },
+  "lean": "v4.34.1",
+  "license_sha256": "7ef159fd8db5a7a9e8051aac48997353f26d744e25f730a0594a806c126d2114",
+  "upstream": {
+    "runtime/exception.h": {
+      "commit": "5045d0056413266e57c625dcd7c365b10e377c52",
+      "path": "src/runtime/exception.h",
+      "repository": "https://github.com/leanprover/lean4"
+    },
+    "runtime/flet.h": {
+      "commit": "5045d0056413266e57c625dcd7c365b10e377c52",
+      "path": "src/runtime/flet.h",
+      "repository": "https://github.com/leanprover/lean4"
+    },
+    "runtime/interrupt.h": {
+      "commit": "5045d0056413266e57c625dcd7c365b10e377c52",
+      "path": "src/runtime/interrupt.h",
+      "repository": "https://github.com/leanprover/lean4"
+    },
+    "runtime/memory.h": {
+      "commit": "5045d0056413266e57c625dcd7c365b10e377c52",
+      "path": "src/runtime/memory.h",
+      "repository": "https://github.com/leanprover/lean4"
+    },
+    "runtime/stackinfo.h": {
+      "commit": "5045d0056413266e57c625dcd7c365b10e377c52",
+      "path": "src/runtime/stackinfo.h",
+      "repository": "https://github.com/leanprover/lean4"
+    },
+    "runtime/thread.h": {
+      "commit": "5045d0056413266e57c625dcd7c365b10e377c52",
+      "path": "src/runtime/thread.h",
+      "repository": "https://github.com/leanprover/lean4"
+    }
+  }
+}

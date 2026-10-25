@@ -21,6 +21,14 @@ class IdentityError(ValueError):
     pass
 
 
+class IdentityCap(IdentityError):
+    """A deterministic descriptor limit, distinct from host availability."""
+
+
+class IdentityUnavailable(IdentityError):
+    """A deadline or missing node input never decides a submission."""
+
+
 def encoded(value):
     return json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(',', ':')).encode()
 
@@ -52,7 +60,7 @@ def graph_hash(root, describe, memo, watch=lambda: None):
     active, stack = set(), [(root, False)]
     while stack:
         watch()
-        if len(memo) > 6_000_000: raise IdentityError('hash-work-limit')
+        if len(memo) > 6_000_000: raise IdentityCap('hash-work-limit')
         key, ready = stack.pop()
         if key in memo: continue
         children, make = describe(key)
@@ -93,17 +101,19 @@ class Export:
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
         with os.fdopen(fd, 'rb') as stream:
             before = os.fstat(stream.fileno())
-            if not stat.S_ISREG(before.st_mode) or before.st_size > MAX_BYTES:
-                raise IdentityError('export-size-or-kind')
+            if not stat.S_ISREG(before.st_mode):
+                raise IdentityUnavailable('export-kind')
+            if before.st_size > MAX_BYTES:
+                raise IdentityCap('export-byte-limit')
             raw = hashlib.sha256()
             meta = False
             total = 0
             for count, line in enumerate(iter(lambda: stream.readline(16*1024**2+1), b''), 1):
                 self.watch()
                 total += len(line)
-                if total > MAX_BYTES: raise IdentityError('export-byte-limit')
+                if total > MAX_BYTES: raise IdentityCap('export-byte-limit')
                 if count > MAX_RECORDS or len(line) > 16*1024**2:
-                    raise IdentityError('export-record-limit')
+                    raise IdentityCap('export-record-limit')
                 raw.update(line)
                 try: row = json.loads(line, object_pairs_hook=unique)
                 except (json.JSONDecodeError, UnicodeDecodeError) as error:
@@ -160,7 +170,7 @@ class Export:
         chain, active = [], set()
         while index not in self.name_cache:
             if index in active or index not in self.names: raise IdentityError('bad-name-graph')
-            if len(chain) >= 256: raise IdentityError('name-depth-limit')
+            if len(chain) >= 256: raise IdentityCap('name-depth-limit')
             self.watch()
             active.add(index); kind, body = self.names[index]
             fields(body, 'pre str' if kind == 'str' else 'pre i')
@@ -170,14 +180,14 @@ class Export:
         result = self.name_cache[index]
         for index,kind,value in reversed(chain):
             result = (*result,(kind,value))
-            if len(result) > 256: raise IdentityError('name-depth-limit')
+            if len(result) > 256: raise IdentityCap('name-depth-limit')
             self.name_cache[index] = result
         return result
 
     def watch(self):
         self.operations += 1
         if self.operations % 1024 == 0 and time.monotonic() >= self.deadline:
-            raise IdentityError('identity-deadline')
+            raise IdentityUnavailable('identity-deadline')
 
     def validate_transport(self):
         """Validate ignored proof transport too; this is separate from kernel soundness."""
@@ -420,7 +430,7 @@ class Export:
 
 def identity(path, theorem, timeout=1800):
     if timeout <= 0:
-        raise IdentityError('statement-identity-timeout')
+        raise IdentityUnavailable('statement-identity-timeout')
     return Export(path,timeout).identity(theorem)
 
 
@@ -435,5 +445,7 @@ if __name__ == '__main__':
     try:
         print(json.dumps(identity(args.export, args.theorem, args.timeout), sort_keys=True))
     except (IdentityError, OSError, ValueError, TypeError, KeyError, OverflowError, MemoryError) as exc:
-        print('statement-identity-unavailable: ' + type(exc).__name__, file=sys.stderr)
-        sys.exit(2)
+        # Only this gate-owned worker chooses the code. Diagnostic text is not authority.
+        print(type(exc).__name__, file=sys.stderr)
+        sys.exit(3 if isinstance(exc, IdentityCap) else
+                 70 if isinstance(exc, (IdentityUnavailable, OSError, MemoryError)) else 4)

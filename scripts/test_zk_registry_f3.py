@@ -4,6 +4,8 @@ import importlib
 import io
 import json
 import os
+import shutil
+import subprocess
 from pathlib import Path
 import sys
 import tempfile
@@ -65,6 +67,19 @@ class CaptureRules(unittest.TestCase):
                 self.assertEqual(r.killed_by,'output-cap:stdout')
             self.assertLessEqual(Path(root,'sealed').stat().st_size,1024)
 
+    def test_export_record_cap_counts_across_chunks_and_incomplete_final_record(self):
+        profile=dict(B.caps(),export_records=2)
+        with tempfile.TemporaryDirectory() as root,patch.object(B,'caps',return_value=profile):
+            sink=B.FileSink(str(Path(root)/'sealed'))
+            try:
+                sink.feed(b'{}\n{')
+                sink.feed(b'}\n')
+                self.assertFalse(sink.capped)
+                sink.feed(b'{')
+                self.assertTrue(sink.capped)
+                self.assertEqual(sink.receipt()['records'],3)
+            finally:sink.finish()
+
     def test_message_measure_excludes_paths_and_order(self):
         rows=[dict(severity='error',data='λ',fileName='/a',kind='runtime.maxHeartbeats'),
               dict(severity='warning',data='uses sorry',fileName='/b')]
@@ -124,6 +139,36 @@ class CaptureRules(unittest.TestCase):
 
 
 class StageCaptureRules(unittest.TestCase):
+    def test_export_driver_codes_are_authoritative_after_boundary_and_resource_checks(self):
+        for code,verdict,reason in [(4,'INVALID','tool-fault:export'),(3,'INVALID','resource-cap'),
+                                    (70,'ERROR','environment-tool-unavailable:export'),(137,'ERROR','resource-unavailable')]:
+            with self.subTest(code=code),tempfile.TemporaryDirectory() as root:
+                root=Path(root);script=root/'exporter'
+                script.write_text('#!/usr/bin/python3\nimport sys\nprint("arbitrary diagnostic",file=sys.stderr)\nsys.exit('+str(code)+')\n');script.chmod(0o755)
+                env=L.LeanEnv('/usr',[],'v4.34.1',{},'',str(root/'environment'))
+                tools=D.Tools('/usr/bin/true',str(script),'/usr/bin/true','/usr',None)
+                result=D.export_module(env,'ProofMod','T.t',str(root/'sealed/file'),tools,
+                    SB.Sandbox.fixture(),str(root),[],5,[],input_role='submission')
+                self.assertEqual((result['verdict'],result['reason']),(verdict,reason))
+                if code==70:self.assertEqual(E.classify(result['reason'],result['stage']),'D-node')
+
+    def test_export_caps_follow_input_role_and_never_reach_identity(self):
+        for role in ('submission','reference','challenge'):
+            with self.subTest(role=role),tempfile.TemporaryDirectory() as root:
+                root=Path(root);script=root/'exporter'
+                script.write_text('#!/usr/bin/python3\nimport os\nos.write(1,b"{}\\n"*4)\n');script.chmod(0o755)
+                env=L.LeanEnv('/usr',[],'v4.34.1',{},'',str(root/'environment'))
+                tools=D.Tools('/usr/bin/true',str(script),'/usr/bin/true','/usr',None)
+                profile=dict(B.caps(),export_records=2)
+                with patch.object(B,'caps',return_value=profile),patch.object(D,'statement_identity') as identity:
+                    result=D.export_module(env,'ProofMod','T.t',str(root/'sealed/file'),tools,
+                        SB.Sandbox.fixture(),str(root),[],5,[],identity=True,input_role=role)
+                self.assertEqual((result['verdict'],result['reason']),
+                    ('INVALID' if role=='submission' else 'ERROR',
+                     'resource-cap' if role=='submission' else ('challenge-' if role=='challenge' else 'statement-')+'resource-cap'))
+                if role!='submission':self.assertEqual(E.classify(result['reason'],result['stage']),'D-node')
+                identity.assert_not_called()
+
     def test_export_cap_prevents_identity(self):
         with tempfile.TemporaryDirectory() as root:
             root=Path(root);script=root/'exporter'
@@ -133,7 +178,7 @@ class StageCaptureRules(unittest.TestCase):
             real_caps=B.caps()
             with patch.object(B,'caps',return_value=dict(real_caps,export_bytes=1024)),patch.object(D,'statement_identity') as identity:
                 result=D.export_module(env,'ProofMod','T.t',str(root/'sealed/file'),tools,SB.Sandbox.fixture(),str(root),[],5,[],identity=True)
-            self.assertEqual((result['verdict'],result['reason']),('ERROR','output-cap'))
+            self.assertEqual((result['verdict'],result['reason']),('ERROR','statement-resource-cap'))
             identity.assert_not_called()
 
     def test_oversized_worker_verdict_is_node_error(self):
@@ -159,6 +204,70 @@ class StageCaptureRules(unittest.TestCase):
 
 
 class MessageIntegrationRules(unittest.TestCase):
+    def test_typed_io_unavailability_is_a_node_fault_and_legacy_replay_stays_separate(self):
+        for stage,code,group in [('compile',70,'D-node'),('replay',70,'D-node'),('replay',71,'D-input')]:
+            with self.subTest(stage=stage,code=code):
+                record=dict(compile_rc=0,n_errors=0,printed_axioms=[],post=None)
+                if stage=='compile':record.update(compile_rc=code,compile_exit=code)
+                else:record['post']=dict(rc=code,tool_exit=code,replay=None)
+                invalid,fail,error=[],[],[]
+                C.apply_compile_result(record,{},invalid,fail,error)
+                result=C._finish(dict(stage=stage,compile=record,invalid=invalid,fail=fail,error=error))
+                self.assertEqual((result['verdict'],result['error_group']),('ERROR',group))
+
+    def test_nonzero_replay_cannot_accept_a_complete_looking_record(self):
+        for code in (1,70,71):
+            with self.subTest(code=code):
+                post=dict(rc=code,tool_exit=code if code!=1 else None,replay='ok',
+                          target=dict(kind='theorem'),type_sha256='same',consts=[],axioms=[])
+                invalid,fail,error=[],[],[]
+                C.apply_compile_result(dict(compile_rc=0,n_errors=0,printed_axioms=[],post=post),
+                    dict(reference_type_sha256='same'),invalid,fail,error)
+                self.assertTrue(error)
+                self.assertEqual((invalid,fail),([],[]))
+
+    def test_compile_findings_survive_typed_replay_io_failure(self):
+        invalid,fail,error=[],[],[]
+        C.apply_compile_result(dict(compile_rc=0,n_errors=0,sorry_warnings=1,printed_axioms=[],
+            post=dict(rc=70,tool_exit=70,replay=None)),{},invalid,fail,error)
+        self.assertEqual((invalid,fail,error),([],["declaration uses 'sorry'"],[]))
+
+    def test_established_finding_survives_typed_replay_io_failure(self):
+        invalid,fail,error=['existing finding'],[],[]
+        C.apply_compile_result(dict(compile_rc=0,n_errors=0,printed_axioms=[],
+            post=dict(rc=70,tool_exit=70,replay=None)),{},invalid,fail,error)
+        self.assertEqual((invalid,fail,error),(['existing finding'],[],[]))
+
+    def test_compile_driver_runs_with_only_its_own_directory(self):
+        with tempfile.TemporaryDirectory() as root:
+            owned=Path(root)/'owned-driver';owned.mkdir();(owned/'data').mkdir()
+            source=Path(L.__file__).parent/'compile_support'
+            for name in ('compile_driver.py','bounded_capture.py','tool_exit.py'):
+                shutil.copy2(source/name,owned/name)
+            shutil.copy2(source/'data/testnet_caps_v2.json',owned/'data/testnet_caps_v2.json')
+            result=subprocess.run([sys.executable,'-I','-B',str(owned/'compile_driver.py'),
+                                   '/usr/bin/true','--json'],capture_output=True)
+            self.assertEqual(result.returncode,0,result.stderr.decode())
+
+    def test_typed_replay_fault_precedes_partial_records(self):
+        for code,reason in [(4,'tool-fault:replay')]:
+            with self.subTest(code=code):
+                invalid,fail,error=[],[],[]
+                C.apply_compile_result(dict(compile_rc=0,n_errors=0,printed_axioms=[],
+                    post=dict(rc=code,replay='FAIL: arbitrary diagnostic',tool_exit=code)),{},invalid,fail,error)
+                self.assertEqual((invalid,fail,error),([reason],[],[]))
+
+    def test_trusted_compile_driver_returns_typed_exit_without_diagnostic_matching(self):
+        for native,kind,expected in [(1,None,70),(1,'runtime.maxHeartbeats',3),(1,'elab.typeMismatch',2),(0,None,0)]:
+            with self.subTest(native=native,kind=kind),tempfile.TemporaryDirectory() as root:
+                binary=Path(root)/'bin/lean';binary.parent.mkdir()
+                message='' if kind is None else 'print('+repr(json.dumps(dict(severity='error',data='opaque diagnostic',kind=kind)))+')\n'
+                binary.write_text('#!/usr/bin/python3\nimport sys\n'+message+'sys.exit('+str(native)+')\n');binary.chmod(0o755)
+                env=L.LeanEnv(root,[],'v4.34.1',{},'',root)
+                with L.sandbox_context(SB.Sandbox.fixture(),[root],[root]):
+                    result=L.run_lean(env,['--json','ProofMod.lean'],root,5)
+                self.assertEqual(result.rc,expected)
+
     def test_compile_counts_all_errors_and_never_uses_capped_findings(self):
         for count in [10,20000]:
             with self.subTest(count=count),tempfile.TemporaryDirectory() as root:

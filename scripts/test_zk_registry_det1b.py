@@ -150,9 +150,13 @@ class AvailabilityVerdicts(unittest.TestCase):
             max_heartbeats=4194304, max_rec_depth=16384, worker_stack_bytes=67108864))
         self.assertEqual(caps['status'], 'PROVISIONAL-TESTNET')
         self.assertFalse(caps['mainnet_valid'])
-        self.assertEqual(caps['lean'], dict(max_heartbeats=262144, max_rec_depth=2048,
-                                          worker_stack_bytes=67108864))
-        self.assertEqual(caps['nanoda'], dict(steps_per_declaration=33554432, worker_stack_bytes=67108864))
+        self.assertEqual(caps['lean'], dict(max_heartbeats=262144, max_rec_depth=4096,
+            worker_stack_bytes=268435456, aggregate_raw=262144000000000,
+            declaration_charge=64, literal_bytes=4096))
+        self.assertEqual(caps['nanoda'], dict(counter_version=1, steps_per_declaration=33554432,
+            depth_per_declaration=32768, work_per_declaration=34359738368,
+            aggregate_work=34359738368000000, declaration_charge=64,
+            literal_bytes=4096, worker_stack_bytes=67108864))
         self.assertEqual(caps['conron'], dict(fuel_decrements_per_phase=8589934592))
 
     def test_replay_uses_fixed_provisional_worker_stack(self):
@@ -161,7 +165,7 @@ class AvailabilityVerdicts(unittest.TestCase):
             with patch.object(L, 'run_lean', return_value=L.RunResult(1, '', 0, False)) as run:
                 G.run_replay(env, 'Proof.olean', 'X.goal', str(Path(temp)/'out'),
                              ['--tstack=32768'], [], 10)
-            self.assertIn('--tstack=65536', run.call_args.args[1])
+            self.assertIn('--tstack=262144', run.call_args.args[1])
             self.assertNotIn('--tstack=32768', run.call_args.args[1])
 
     def test_comparator_untyped_lean_negative_cannot_be_disagreement(self):
@@ -282,7 +286,7 @@ class ArtifactPins(unittest.TestCase):
             profile = platform.system()+'-'+platform.machine()
             expected = dict(artifact_profiles={profile:artifact_pins.snapshot(env)})
             pins = dict(kernel_prefix='prefix')
-            for name in ('comparator', 'exporter', 'nanoda'):
+            for name in ('comparator', 'exporter', 'nanoda', 'lean_replay'):
                 binary = root/name; binary.write_bytes(b'#!/bin/sh\nexit 0\n'); binary.chmod(0o755)
                 pins[name] = dict(path=name, sha256=hashlib.sha256(binary.read_bytes()).hexdigest())
             descriptor = dict(binary_profiles={profile:pins}, comparator=dict(lean='v4.34.1'))

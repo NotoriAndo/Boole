@@ -62,21 +62,24 @@ class FailureReceipts(unittest.TestCase):
 
     def test_axiom_probe_keeps_receipts_on_continue_and_boundary_exception(self):
         from zk_registry import axiom_policy as A, gates as G
-        for boundary in [None, {'verdict':'INVALID','reason':'owned-descendants-remained'}]:
-            with self.subTest(boundary=boundary), tempfile.TemporaryDirectory() as temp:
+        for boundary,code in [(None,1),(None,2),({'verdict':'INVALID','reason':'owned-descendants-remained'},1)]:
+            with self.subTest(boundary=boundary,code=code), tempfile.TemporaryDirectory() as temp:
                 root=Path(temp);build=root/'build';build.mkdir()
                 module=build/'Module.olean';module.write_bytes(b'synthetic pristine module')
                 receipt={'observation':'consumed probe evidence'}
                 guard=lambda *args, **kwargs: None
                 guard.step_reports=[receipt]
                 row=dict(module='Module',name='X',module_olean_sha256=D.digest(module))
-                run=L.RunResult(1,'',0,False,boundary=boundary,process_receipt=receipt)
+                run=L.RunResult(code,'',0,False,boundary=boundary,process_receipt=receipt)
                 with patch.object(CR,'runner',return_value=guard), patch.object(G,'run_replay',return_value=(run,{})):
                     if boundary:
                         with self.assertRaises(L.BoundaryInvalid):
                             A.resolve(SimpleNamespace(lean_path=[]),[row],str(build),Sandbox.fixture(),1)
-                    else:
+                    elif code==2:
                         self.assertEqual(A.resolve(SimpleNamespace(lean_path=[]),[row],str(build),Sandbox.fixture(),1),{})
+                    else:
+                        with self.assertRaisesRegex(A.BindingUnavailable,'^statement-replay-unavailable$'):
+                            A.resolve(SimpleNamespace(lean_path=[]),[row],str(build),Sandbox.fixture(),1)
                 self.assertEqual(json.loads((root/'n2-0/process-receipts.json').read_text())['process_receipts'],[receipt])
 
     def test_compile_exception_keeps_receipts(self):

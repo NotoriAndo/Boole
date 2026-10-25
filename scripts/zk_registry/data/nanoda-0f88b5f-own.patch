@@ -1,0 +1,12 @@
+--- a/src/util.rs
++++ b/src/util.rs
+@@ -894,0 +895,2 @@
++    #[serde(default)]
++    pub checked_declaration_names: Option<Vec<Vec<String>>>,
+@@ -1019 +1021 @@
+-                Err(e) => Err(Box::from(format!("Failed to open export file: {:?}", e))),
++                Err(e) => Err(Box::new(e)),
+--- a/src/tests/util.rs
++++ b/src/tests/util.rs
+@@ -19,0 +20 @@
++            checked_declaration_names: None,

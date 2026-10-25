@@ -91,20 +91,108 @@ def statement_assumptions(prime_name: str = "bn128") -> list[str]:
 
 STATEMENT_ASSUMPTIONS = statement_assumptions("bn128")
 
-GENERATOR_SOURCES = ["__init__.py", "r1cs.py", "circom_source.py", "circom_eval.py", "instantiation.py", "lean_emit.py",
-                     "witness.py", "witness_runner.js", "det_search.py", "tags.py", "content.py", "decompose.py",
-                     "package.py", "jsonschema_lite.py", "lean_runner.py", "gates.py", "check.py", "circom_det.py",
-                     "circom_detmod.py", "lean/ZkReplay.lean", "schema/problem.schema.json",
-                     "acceptance.py", "axiom_policy.py", "closure.py", "statement_identity.py", "sandbox.py", "correctness_runtime.py", "safe_fs.py",
-                     "sandbox_backend/launcher.py", "sandbox_backend/isolate.c", "sandbox_backend/filter.c",
-                     "sandbox_backend/probes.c", "sandbox_backend/comparator-landrun", "sandbox_backend/apparmor-bwrap",
-                     "data/acceptance_environment_v2.json", "data/acceptance_tools_v2.json",
-                     "artifact_pins.py", "data/submission_policy_v4.json", "data/submission_policy_v5.json", "data/testnet_caps_v1.json",
-                     "bounded_capture.py", "data/testnet_caps_v2.json", "error_policy.py", "data/error_policy_v1.json",
-                     "data/measuring_stick_conformance_v2.json", "data/comparator-d03acab-export-files.patch",
-                     "data/comparator-d03acab-lean4341.patch", "data/comparator-d03acab-transport.patch",
-                     "data/comparator-d03acab-status.patch",
-                     "data/development-landrun.sh"]
+GENERATOR_SOURCES = [
+    '__init__.py',
+    'r1cs.py',
+    'circom_source.py',
+    'circom_eval.py',
+    'instantiation.py',
+    'lean_emit.py',
+    'witness.py',
+    'witness_runner.js',
+    'det_search.py',
+    'tags.py',
+    'content.py',
+    'decompose.py',
+    'package.py',
+    'jsonschema_lite.py',
+    'lean_runner.py',
+    'gates.py',
+    'check.py',
+    'circom_det.py',
+    'circom_detmod.py',
+    'lean/ZkReplay.lean',
+    'lean/Det3Fuel.lean',
+    'lean/FuelTests.lean',
+    'lean/kernel_fuel_tests.cpp',
+    'lean/kernel_fuel.cpp',
+    'lean/runtime/LICENSE',
+    'lean/runtime/HEADERS.json',
+    'lean/runtime/include/runtime/exception.h',
+    'lean/runtime/include/runtime/flet.h',
+    'lean/runtime/include/runtime/interrupt.h',
+    'lean/runtime/include/runtime/memory.h',
+    'lean/runtime/include/runtime/stackinfo.h',
+    'lean/runtime/include/runtime/thread.h',
+    'generate_fuel_replay.py',
+    'build_fuel_tools.py',
+    'build_nanoda_fuel.py',
+    'publication_provenance.py',
+    'lean/ComparatorMain.lean',
+    'native_tests/nanoda_review.py',
+    'native_tests/library_material.py',
+    'native_tests/StateFromExport.lean',
+    'native_tests/BaseIdentityOrder.lean',
+    'rust/NanodaFuel.rs',
+    'rust/NanodaDriver.rs',
+    'rust/NanodaMain.rs',
+    'data/nanoda-0f88b5f-fuel.patch',
+    'data/comparator-d03acab-nanoda-fuel.patch',
+    'schema/problem.schema.json',
+    'acceptance.py',
+    'axiom_policy.py',
+    'closure.py',
+    'statement_identity.py',
+    'sandbox.py',
+    'correctness_runtime.py',
+    'safe_fs.py',
+    'sandbox_backend/launcher.py',
+    'sandbox_backend/isolate.c',
+    'sandbox_backend/filter.c',
+    'sandbox_backend/probes.c',
+    'sandbox_backend/comparator-landrun',
+    'sandbox_backend/apparmor-bwrap',
+    'data/acceptance_environment_v2.json',
+    'data/acceptance_tools_v2.json',
+    'artifact_pins.py',
+    'data/submission_policy_v4.json',
+    'data/submission_policy_v5.json',
+    'data/testnet_caps_v1.json',
+    'bounded_capture.py',
+    'tool_exit.py',
+    'compile_driver.py',
+    'runtime_staging.py',
+    'compile_support/__init__.py',
+    'compile_support/compile_driver.py',
+    'compile_support/bounded_capture.py',
+    'compile_support/tool_exit.py',
+    'compile_support/data/testnet_caps_v2.json',
+    'lean/GateReplay.lean',
+    'data/testnet_caps_v2.json',
+    'error_policy.py',
+    'data/error_policy_v1.json',
+    'data/measuring_stick_conformance_v2.json',
+    'data/comparator-d03acab-export-files.patch',
+    'data/comparator-d03acab-lean4341.patch',
+    'data/comparator-d03acab-transport.patch',
+    'data/comparator-d03acab-status.patch',
+    'data/comparator-d03acab-fuel.patch',
+    'data/lean4export-076e8e5-exits.patch',
+    'data/development-landrun.sh',
+    'fuel_caps.py',
+    'lean/CertifiedBase.lean',
+    'data/comparator-d03acab-own.patch',
+    'data/nanoda-0f88b5f-own.patch',
+    'data/fuel_cap_authority_v1.json',
+    'lean/CounterReplay.lean',
+    'lean/CertifiedExport.lean',
+    'calibrate_fuel.py',
+    'counter_identity.py',
+    'source_adoption.py',
+    'generate_public_counter_corpus.py',
+    'certify_nanoda.py',
+    'fit_fuel_caps.py',
+]
 
 
 def sha256_file(path: str) -> str:
@@ -198,6 +286,17 @@ def has_statement(problem: dict) -> bool:
 def validate_problem(problem: dict, pkg_dir: str | None = None, schema: dict | None = None) -> list[str]:
     """Schema errors plus semantic checks; with ``pkg_dir`` also file presence and hashes.  The schema follows
     ``schema_version`` (circom packages, AIR packages or ratchet problems)."""
+    if 'fuel_cap' in problem:
+        errors = jsonschema_lite.validate(problem, schema or load_schema(problem.get('schema_version', SCHEMA_VERSION)))
+        if errors:
+            return errors
+        from . import fuel_caps as F
+        try:
+            resolved = F.resolve(problem['fuel_cap'], F.load_authority())
+            if resolved['problem'] != problem.get('package_id'):
+                raise F.FuelCapError('fuel-problem-mismatch')
+        except (F.FuelCapError, OSError, ValueError, KeyError, TypeError) as error:
+            return ['fuel_cap: ' + str(error)]
     if problem.get("schema_version") == SPEC_SCHEMA_VERSION:
         return validate_spec(problem, pkg_dir, schema)
     if problem.get("schema_version") == CORRECTNESS_GNARK_SCHEMA_VERSION:
