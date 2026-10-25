@@ -173,6 +173,13 @@ fn main() -> Result<()> {
         let artifacts = args
             .gate_artifacts
             .unwrap_or_else(|| cache.join("artifacts"));
+        let mut retained =
+            boole_devnet_driver::retention::open(&l1.journal.borrow(), Some(&checkpoint))?;
+        let gates =
+            boole_devnet_driver::retention::workers(&mut retained, &config, &forks, &gates)?;
+        boole_devnet_driver::retention::environment(&mut retained, &config, &artifacts)?;
+        let artifacts = retained.objects();
+        drop(retained);
         let codec = match args.zstd {
             Some(path) => Codec::new(path)?,
             None => Codec::portable_stub(),

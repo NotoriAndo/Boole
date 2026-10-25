@@ -14,6 +14,7 @@ pub(crate) struct Entry {
     pub block: CanonicalBlock,
     pub verdicts: Vec<IndexedVerdict>,
     pub l1: Option<L1Block>,
+    pub header: Option<boole_derivation::ParentHeader>,
 }
 pub(crate) struct Chain {
     pub forks: ForkTable,
@@ -40,24 +41,10 @@ impl Chain {
         l1: &mut impl L1Source,
         node: &mut dyn L2Source,
         finalized: u64,
+        pins: Option<&boole_devnet_archive::pins::ReadOnlyPins>,
     ) -> Result<bool> {
-        if let Some((&height, entry)) = self.blocks.last_key_value() {
-            let Some(actual) = retry_rpc(|| node.block(height))? else {
-                return Ok(false);
-            };
-            ensure!(
-                actual.hash == entry.block.hash && actual.transactions == entry.block.transactions,
-                "canonical L2 anchor changed"
-            );
-            if let Some(previous) = &entry.l1 {
-                ensure!(
-                    fixed::<32>(&retry_rpc(|| l1.block(height))?.hash)?
-                        == fixed::<32>(&previous.hash)?,
-                    "lookahead finalized L1 anchor changed"
-                );
-            }
-        } else {
-            let Some(genesis) = retry_rpc(|| node.block(0))? else {
+        if self.blocks.is_empty() {
+            let Some(genesis) = read_block(node, pins, 0)? else {
                 return Ok(false);
             };
             ensure!(genesis.number == 0, "L2 genesis height");
@@ -67,12 +54,13 @@ impl Chain {
                     block: genesis,
                     verdicts: vec![],
                     l1: None,
+                    header: read_header(node, pins, 0)?,
                 },
             );
         }
         let tip = *self.blocks.last_key_value().context("L2 genesis")?.0;
         for h in tip.checked_add(1).context("L2 height overflow")?..=finalized {
-            let Some(block) = retry_rpc(|| node.block(h))? else {
+            let Some(block) = read_block(node, pins, h)? else {
                 break;
             };
             ensure!(
@@ -109,7 +97,22 @@ impl Chain {
                     block,
                     verdicts,
                     l1: Some(source),
+                    header: read_header(node, pins, h)?,
                 },
+            );
+        }
+        let (&height, entry) = self.blocks.last_key_value().context("canonical tip")?;
+        let Some(actual) = retry_rpc(|| node.block(height))? else {
+            return Ok(false);
+        };
+        ensure!(
+            actual.hash == entry.block.hash && actual.transactions == entry.block.transactions,
+            "canonical L2 anchor changed"
+        );
+        if let Some(previous) = &entry.l1 {
+            ensure!(
+                fixed::<32>(&retry_rpc(|| l1.block(height))?.hash)? == fixed::<32>(&previous.hash)?,
+                "lookahead finalized L1 anchor changed"
             );
         }
         Ok(true)
@@ -228,4 +231,44 @@ fn decode_prefix(c: &Config, l1: &L1Block, txs: &[String]) -> Result<Vec<Indexed
         }
     }
     Ok(m3::decode_verdict_deposits(c, l1, &verdicts)?)
+}
+
+fn read_block(
+    node: &mut dyn L2Source,
+    pins: Option<&boole_devnet_archive::pins::ReadOnlyPins>,
+    h: u64,
+) -> Result<Option<CanonicalBlock>> {
+    if let Some(view) = pins.filter(|p| p.has_selected(h)) {
+        let b = view.binding(h)?;
+        return Ok(Some(CanonicalBlock {
+            number: h,
+            hash: fixed(&b.header.hash)?,
+            parent_hash: b
+                .header
+                .parent_hash
+                .as_deref()
+                .map(fixed)
+                .transpose()?
+                .unwrap_or([0; 32]),
+            transactions: b.transactions.clone(),
+        }));
+    }
+    retry_rpc(|| node.block(h))
+}
+fn read_header(
+    node: &mut dyn L2Source,
+    pins: Option<&boole_devnet_archive::pins::ReadOnlyPins>,
+    h: u64,
+) -> Result<Option<boole_derivation::ParentHeader>> {
+    let Some(view) = pins else { return Ok(None) };
+    if view.has_selected(h) {
+        return Ok(Some(view.binding(h)?.header.clone()));
+    }
+    retry_rpc(|| node.header(h))?.map(Some).ok_or_else(|| {
+        boole_devnet_archive::error::availability(
+            h,
+            "pin-header",
+            "S20: canonical L2 header is unavailable",
+        )
+    })
 }

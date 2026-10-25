@@ -326,6 +326,12 @@ impl InputJournal {
         self.check()?;
         crate::boot::cleanup(&self.root, &self.guard, pins, checkpoint)
     }
+    pub fn network(&self) -> &NetworkIdentity {
+        &self.manifest.network
+    }
+    pub fn anchor_hash(&self) -> &str {
+        &self.manifest.l1_anchor_hash
+    }
     pub fn root(&self) -> &Path {
         &self.root
     }
@@ -614,6 +620,12 @@ pub struct ReadOnlyJournal {
     positions: BTreeMap<u64, Position>,
 }
 impl ReadOnlyJournal {
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+    pub fn network(&self) -> &NetworkIdentity {
+        &self.manifest.network
+    }
     pub fn open(root: &Path, expected: &NetworkIdentity) -> Result<Self> {
         let root = root.canonicalize()?;
         let path = root.join(JOURNAL);

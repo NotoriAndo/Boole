@@ -182,3 +182,125 @@ fn t78_fresh_miner_fills_own_verified_journal_then_restarts_tip_only() -> Result
     assert_eq!(client.m2_state().root, root);
     Ok(())
 }
+
+#[derive(Clone)]
+struct M3View {
+    headers: std::collections::BTreeMap<u64, boole_derivation::ParentHeader>,
+    blocks: std::collections::BTreeMap<u64, boole_devnet_mcp::client::CanonicalBlock>,
+    deny_old: bool,
+}
+impl boole_devnet_mcp::client::L2Source for M3View {
+    fn header(&mut self, h: u64) -> Result<Option<boole_derivation::ParentHeader>> {
+        assert!(!self.deny_old || h >= 2, "historical L2 header {h}");
+        Ok(self.headers.get(&h).cloned())
+    }
+
+    fn root(&mut self, h: u64, origin: &str) -> Result<Option<[u8; 32]>> {
+        Ok(Some(boole_derivation::system::read_m2_root(
+            self.headers[&h].m2_root_deposit.as_deref().unwrap(),
+            h,
+            origin,
+        )?))
+    }
+    fn block(&mut self, h: u64) -> Result<Option<boole_devnet_mcp::client::CanonicalBlock>> {
+        assert!(!self.deny_old || h >= 2, "historical L2 read {h}");
+        Ok(self.blocks.get(&h).cloned())
+    }
+}
+#[test]
+fn t88_m3_miner_pins_before_state_and_restarts_from_bindings() -> Result<()> {
+    use boole_derivation::{
+        attributes::{hex_bytes, hex_string},
+        m2::{Config, State},
+        m3::{ForkTable, M3Config},
+        ParentHeader,
+    };
+    use boole_devnet_mcp::client::CanonicalBlock;
+    let v: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../fixtures/devnet-m4/input-auth-v0.json"
+    ))?;
+    let rows: Vec<InputRow> = serde_json::from_value(v["rows"].clone())?;
+    let d = PrivateTempDir::new("m4c2-miner")?;
+    let mut c = Config::devnet();
+    c.m3 = Some(M3Config::devnet(c.slot_table.len()));
+    let forks = ForkTable::genesis(&c)?;
+    let old: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../fixtures/devnet-m1/s1b-recorded-main.json"
+    ))?;
+    let mut parent: ParentHeader = serde_json::from_value(old[0]["parent"].clone())?;
+    let id = NetworkIdentity::new(&c, Some(&forks), parent.hash.clone(), 30_000_000)?;
+    let mut journal = InputJournal::open(d.path(), id.clone(), || Ok(rows[0].clone()), false)?;
+    for row in rows.iter().skip(1) {
+        journal.append(row)?;
+    }
+    drop(journal);
+    let fixed = |s: &str| -> [u8; 32] { hex_bytes(s, "hash").unwrap().try_into().unwrap() };
+    let mut view = M3View {
+        headers: [(0, parent.clone())].into(),
+        blocks: [(
+            0,
+            CanonicalBlock {
+                number: 0,
+                hash: fixed(&parent.hash),
+                parent_hash: [0; 32],
+                transactions: vec![],
+            },
+        )]
+        .into(),
+        deny_old: false,
+    };
+    let mut state = State::new(&c, 30_000_000)?;
+    for h in 1..=2 {
+        let input = rows[h as usize].verify()?;
+        let (derived, next) = boole_derivation::attributes::derive_with_m3(
+            &state,
+            &c,
+            &input.block,
+            &input.logs,
+            &parent,
+            &[],
+            &forks,
+        )?;
+        parent.parent_hash = Some(parent.hash.clone());
+        parent.hash = hex_string(&[h as u8; 32]);
+        parent.number = h;
+        parent.timestamp = u64::from_str_radix(&derived.attributes.timestamp[2..], 16)?;
+        parent.l1_info = derived.attributes.transactions.first().cloned();
+        parent.m2_root_deposit = derived.attributes.transactions.get(1).cloned();
+        view.headers.insert(h, parent.clone());
+        view.blocks.insert(
+            h,
+            CanonicalBlock {
+                number: h,
+                hash: fixed(&parent.hash),
+                parent_hash: fixed(parent.parent_hash.as_ref().unwrap()),
+                transactions: derived.attributes.transactions,
+            },
+        );
+        state = next;
+    }
+    for restart in [false, true] {
+        let source = JournalSource::open(Tip { rows: rows.clone() }, d.path(), id.clone(), false)?;
+        let mut options = ClientOptions::new(30_000_000);
+        options.forks = Some(forks.clone());
+        let mut node = view.clone();
+        node.deny_old = restart;
+        options.l2 = Some(Box::new(node));
+        let mut client = Client::new(
+            source,
+            NoPost,
+            c.clone(),
+            [7; 20],
+            d.path().to_owned(),
+            options,
+        )?;
+        client.sync()?;
+        assert_eq!(client.m2_state().root, state.root);
+        let pins =
+            boole_devnet_archive::pins::ReadOnlyPins::open(d.path(), &id, &rows[0].block_hash)?
+                .expect("miner state published without default durable pins");
+        assert_eq!(pins.binding(2)?.root, state.root);
+        assert!(d.path().join("retention-tip.json").exists());
+    }
+    Ok(())
+}

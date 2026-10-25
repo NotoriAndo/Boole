@@ -41,11 +41,11 @@ struct Args {
     m2_config: Option<PathBuf>,
     #[arg(long)]
     m3_forks: Option<PathBuf>,
-    #[arg(long, requires_all=["m3_gates","gate_artifacts"])]
+    #[arg(long)]
     verify_own: bool,
-    #[arg(long, requires = "verify_own")]
+    #[arg(long)]
     m3_gates: Option<PathBuf>,
-    #[arg(long, requires = "verify_own")]
+    #[arg(long)]
     gate_artifacts: Option<PathBuf>,
     #[arg(long)]
     zstd: Option<PathBuf>,
@@ -117,12 +117,41 @@ fn main() -> Result<()> {
             boole_devnet_archive::client::ArchiveClient::http(args.archive)?,
         )?
     };
-    let own = if args.verify_own {
-        let workers: Vec<boole_gate_supervisor::process::Worker> = serde_json::from_slice(
-            &std::fs::read(args.m3_gates.context("--verify-own requires --m3-gates")?)?,
+    let retained_release = if c.m3.is_some() {
+        let workers: Vec<boole_gate_supervisor::process::Worker> = args
+            .m3_gates
+            .map(|p| -> Result<_> { Ok(serde_json::from_slice(&std::fs::read(p)?)?) })
+            .transpose()?
+            .unwrap_or_default();
+        let binary_pins: Vec<_> = workers.iter().map(|w| w.binary_sha256).collect();
+        source.journal.borrow().cleanup(&binary_pins, None)?;
+        let mut pins = boole_devnet_driver::retention::open(
+            &source.journal.borrow(),
+            Some(&args.state_dir.join("retention-tip.json")),
         )?;
-        let pins: Vec<_> = workers.iter().map(|w| w.binary_sha256).collect();
-        source.journal.borrow().cleanup(&pins, None)?;
+        let default_forks;
+        let table = if let Some(f) = &forks {
+            f
+        } else {
+            default_forks = boole_derivation::m3::ForkTable::genesis(&c)?;
+            &default_forks
+        };
+        let workers = boole_devnet_driver::retention::workers(&mut pins, &c, table, &workers)?;
+        let original = args
+            .gate_artifacts
+            .unwrap_or_else(|| args.state_dir.join("gate-artifacts"));
+        boole_devnet_driver::retention::environment(&mut pins, &c, &original)?;
+        Some((workers, pins.objects()))
+    } else {
+        ensure!(
+            args.m3_gates.is_none() && args.gate_artifacts.is_none(),
+            "gate retention metadata requires M3"
+        );
+        source.journal.borrow().cleanup(&[], None)?;
+        None
+    };
+    let own = if args.verify_own {
+        let (workers, artifacts) = retained_release.context("--verify-own requires M3")?;
         Some(boole_devnet_mcp::own::OwnVerification {
             gates: workers
                 .into_iter()
@@ -133,12 +162,9 @@ fn main() -> Result<()> {
                     }) as Box<dyn boole_devnet_mcp::own::OwnGate>
                 })
                 .collect(),
-            artifacts: args
-                .gate_artifacts
-                .context("--verify-own requires --gate-artifacts")?,
+            artifacts,
         })
     } else {
-        source.journal.borrow().cleanup(&[], None)?;
         None
     };
     let mut client = Client::new(

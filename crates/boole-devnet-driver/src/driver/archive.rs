@@ -313,6 +313,7 @@ impl ArchiveSink {
             l1: &mut driver.l1,
             engine: &mut driver.engine,
             maximum: height,
+            pins: driver.pins.as_ref().map(|p| p.view()),
         };
         let completed = next
             .candidates
@@ -577,6 +578,7 @@ mod fix2_tests {
                 l1: &mut source,
                 engine: &mut engine,
                 maximum: if mode == 0 { 16 } else { 17 },
+                pins: None,
             };
             let e = boole_gate_supervisor::rebuild::History::origin(&mut anchored, 17).unwrap_err();
             assert!(

@@ -18,3 +18,4 @@ pub mod client;
 pub mod derived;
 pub mod http;
 mod index;
+pub mod pins;

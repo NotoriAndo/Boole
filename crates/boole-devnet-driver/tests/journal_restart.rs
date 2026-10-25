@@ -211,7 +211,7 @@ impl Engine for MemoryEngine {
                 json!({"payloadStatus":{"status":"VALID"},"payloadId":"0x1"})
             }
             "engine_getPayloadV5" => {
-                json!({"executionPayload":{"transactions":self.attributes["transactions"],"blockNumber":format!("0x{:x}",self.head.number+1),"blockHash":format!("0x{:064x}",self.head.number+1),"parentHash":self.head.hash,"timestamp":self.attributes["timestamp"],"gasLimit":self.attributes["gasLimit"]}})
+                json!({"executionPayload":{"transactions":self.attributes["transactions"],"blockNumber":format!("0x{:x}",self.head.number+1),"blockHash":format!("0x{:064x}",self.head.number+1),"parentHash":self.head.hash,"timestamp":self.attributes["timestamp"],"gasLimit":self.attributes["gasLimit"],"feeRecipient":self.head.miner,"extraData":self.head.extra_data}})
             }
             "engine_newPayloadV4" => {
                 self.attributes = p[0].clone();
@@ -2353,5 +2353,252 @@ fn t79_cache_presence_io_failure_is_typed_availability() -> Result<()> {
         ),
         "{error:#}"
     );
+    Ok(())
+}
+
+// T88: even an empty M3 prefix must durably bind its local L2 history before
+// publishing a checkpoint. A later candidate may need any PART height in it.
+#[test]
+fn t88_m3_default_retention_precedes_the_checkpoint() -> Result<()> {
+    use boole_gate_supervisor::supervisor::Mode;
+    let dir = PrivateTempDir::new("m4c2-default-retention")?;
+    let (config, forks, supervisor) = follow_runtime(dir.path(), Mode::Verify)?;
+    let engine = MemoryEngine::new();
+    let identity =
+        NetworkIdentity::new(&config, Some(&forks), engine.head.hash.clone(), 30_000_000)?;
+    let root = dir.path().join("state");
+    let mut raw = TipOnly::new();
+    raw.tip = 2;
+    let mut journal =
+        InputJournal::open(&root, identity.clone(), || Ok(raw.rows[0].clone()), false)?;
+    for h in 1..=2 {
+        journal.append(&raw.rows[h])?;
+    }
+    drop(journal);
+    let source = JournalSource::open(raw, &root, identity.clone(), false)?;
+    let mut driver = Driver::with_m3(source, engine, config, 30_000_000, supervisor, forks)?;
+    let checkpoint = root.join("checkpoint.json");
+    driver.set_journal(&checkpoint)?;
+    driver.step(1)?;
+    let anchor = driver.l1.journal.borrow().anchor_hash().to_owned();
+    let view = boole_devnet_archive::pins::ReadOnlyPins::open(&root, &identity, &anchor)?
+        .expect("checkpoint published without the default durable pin journal");
+    assert_eq!(view.binding(0)?.header.number, 0);
+    assert_eq!(view.binding(1)?.header.hash, driver.engine.head.hash);
+    let cp: Value = serde_json::from_slice(&std::fs::read(checkpoint)?)?;
+    let pin_anchor = serde_json::from_value(cp["pin_journal"].clone())?;
+    view.verify_anchor(&pin_anchor)?;
+    Ok(())
+}
+
+struct CurrentOnlyEngine {
+    inner: MemoryEngine,
+    floor: u64,
+}
+impl Engine for CurrentOnlyEngine {
+    fn head(&mut self) -> Result<ParentHeader> {
+        self.inner.head()
+    }
+    fn header(&mut self, h: u64) -> Result<ParentHeader> {
+        assert!(h >= self.floor, "historical Engine header {h}");
+        self.inner.header(h)
+    }
+    fn transactions(&mut self, h: u64) -> Result<Vec<String>> {
+        assert!(h >= self.floor, "historical Engine transactions {h}");
+        self.inner.transactions(h)
+    }
+    fn call(&mut self, m: &str, p: Value) -> Result<Value> {
+        self.inner.call(m, p)
+    }
+}
+#[test]
+fn t88_cold_restart_uses_own_bindings_and_missing_old_binary_resumes() -> Result<()> {
+    use boole_gate_supervisor::supervisor::Mode;
+    let dir = PrivateTempDir::new("m4c2-retained-restart")?;
+    let (c, f, s) = follow_runtime(&dir.path().join("runtime1"), Mode::Verify)?;
+    let engine = MemoryEngine::new();
+    let identity = NetworkIdentity::new(&c, Some(&f), engine.head.hash.clone(), 30_000_000)?;
+    let root = dir.path().join("state");
+    let mut raw = TipOnly::new();
+    raw.tip = 2;
+    let mut journal =
+        InputJournal::open(&root, identity.clone(), || Ok(raw.rows[0].clone()), false)?;
+    for h in 1..=2 {
+        journal.append(&raw.rows[h])?;
+    }
+    drop(journal);
+    let source = JournalSource::open(raw.clone(), &root, identity.clone(), false)?;
+    let mut d = Driver::with_m3(source, engine, c.clone(), 30_000_000, s, f.clone())?;
+    let cp = root.join("checkpoint.json");
+    d.set_journal(&cp)?;
+    d.step(1)?;
+    d.step(2)?;
+    let before = std::fs::read(&cp)?;
+    let expected = d.m2_state().root;
+    let old = d
+        .supervisor
+        .as_ref()
+        .unwrap()
+        .workers
+        .values()
+        .next()
+        .unwrap()
+        .binary
+        .clone();
+    let saved = dir.path().join("withheld-binary");
+    std::fs::rename(&old, &saved)?;
+    let error = d
+        .resume()
+        .expect_err("missing indexed gate binary silently reacquired");
+    assert!(
+        matches!(
+            error.downcast_ref::<boole_devnet_archive::error::Error>(),
+            Some(boole_devnet_archive::error::Error::Availability { .. })
+        ),
+        "{error:#}"
+    );
+    assert_eq!(std::fs::read(&cp)?, before);
+    assert_eq!(d.m2_state().root, expected);
+    std::fs::rename(saved, old)?;
+    d.resume()?;
+    let engine = d.engine.clone();
+    drop(d);
+    raw.strict = true;
+    let source = JournalSource::open(raw, &root, identity, false)?;
+    let (_, _, s) = follow_runtime(&dir.path().join("runtime2"), Mode::Verify)?;
+    let mut d = Driver::with_m3(
+        source,
+        CurrentOnlyEngine {
+            inner: engine,
+            floor: 2,
+        },
+        c,
+        30_000_000,
+        s,
+        f,
+    )?;
+    d.set_journal(&cp)?;
+    d.resume()?;
+    assert_eq!(d.m2_state().height(), 2);
+    assert_eq!(d.m2_state().root, expected);
+    Ok(())
+}
+#[test]
+fn t88_future_epoch_reuses_retained_binary_without_the_original_path() -> Result<()> {
+    use boole_derivation::m3::{ForkKind, ForkRow};
+    use boole_gate_supervisor::{process::host_profile, supervisor::Mode};
+    let dir = PrivateTempDir::new("m4c2-future-epoch")?;
+    let (c, mut f, mut s) = follow_runtime(dir.path(), Mode::Verify)?;
+    let mut future = s.workers.values().next().unwrap().clone();
+    future.descriptor.fixed = true;
+    let gate = future.descriptor.digest();
+    s.workers.insert(gate, future);
+    let raw = TipOnly::new();
+    let engine = MemoryEngine::new();
+    let id = NetworkIdentity::new(&c, Some(&f), engine.head.hash.clone(), 30_000_000)?;
+    let root = dir.path().join("node");
+    let source = JournalSource::open(raw, &root, id.clone(), false)?;
+    let mut d = Driver::with_m3(source, engine, c, 30_000_000, s, f.clone())?;
+    assert!(
+        d.supervisor.as_ref().unwrap().workers.contains_key(&gate),
+        "future supplied release was discarded"
+    );
+    d.supervisor
+        .as_mut()
+        .unwrap()
+        .workers
+        .get_mut(&gate)
+        .unwrap()
+        .binary = dir.path().join("no-longer-available-original");
+    f.rows.push(ForkRow {
+        epoch: 1,
+        height: 1,
+        gate_rule_digest: gate,
+        kind: ForkKind::KernelFix,
+        list: vec![],
+    });
+    d.set_forks(f)?;
+    let source = d.l1.journal.borrow();
+    let pins =
+        boole_devnet_archive::pins::ReadOnlyPins::open(&root, &id, source.anchor_hash())?.unwrap();
+    assert!(pins
+        .artifact(&boole_devnet_archive::pins::ArtifactRole::StubBinary {
+            epoch: 1,
+            gate,
+            profile: host_profile()
+        })
+        .is_some());
+    pins.verify_releases(&[(1, gate)].into(), &Default::default())?;
+    Ok(())
+}
+
+#[test]
+fn t88_legacy_full_journal_bootstraps_once_then_denies_historical_engine() -> Result<()> {
+    use boole_gate_supervisor::supervisor::Mode;
+    let dir = PrivateTempDir::new("m4c2-legacy-bootstrap")?;
+    let (c, f, s) = follow_runtime(&dir.path().join("old-runtime"), Mode::Verify)?;
+    let mut raw = TipOnly::new();
+    raw.tip = 2;
+    let engine = MemoryEngine::new();
+    let id = NetworkIdentity::new(&c, Some(&f), engine.head.hash.clone(), 30_000_000)?;
+    let root = dir.path().join("node");
+    std::fs::create_dir(&root)?;
+    let cp = root.join("checkpoint.json");
+    let mut journal = InputJournal::open(&root, id.clone(), || Ok(raw.rows[0].clone()), false)?;
+    for h in 1..=2 {
+        journal.append(&raw.rows[h])?;
+    }
+    drop(journal);
+    let mut old = Driver::with_m3(raw.clone(), engine, c.clone(), 30_000_000, s, f.clone())?;
+    old.set_journal(&cp)?;
+    old.step(1)?;
+    old.step(2)?;
+    let expected = old.m2_state().root;
+    let engine = old.engine.clone();
+    drop(old);
+    assert!(!root.join("pins-v1").exists());
+    raw.strict = true;
+    let source = JournalSource::open(raw.clone(), &root, id.clone(), false)?;
+    let (_, _, s) = follow_runtime(&dir.path().join("new-runtime"), Mode::Verify)?;
+    let mut d = Driver::with_m3(source, engine, c.clone(), 30_000_000, s, f.clone())?;
+    d.set_journal(&cp)?;
+    d.resume()?;
+    assert_eq!(d.m2_state().root, expected);
+    let engine = d.engine.clone();
+    drop(d);
+    let bytes = std::fs::read(&cp)?;
+    let moved = root.join("pins-v1-preserved");
+    std::fs::rename(root.join("pins-v1"), &moved)?;
+    let journal = InputJournal::open(&root, id.clone(), || unreachable!(), false)?;
+    let error = boole_devnet_driver::retention::open(&journal, Some(&cp))
+        .err()
+        .expect("modern pin loss became legacy bootstrap");
+    assert!(
+        matches!(
+            error.downcast_ref::<boole_devnet_archive::error::Error>(),
+            Some(boole_devnet_archive::error::Error::Availability { .. })
+        ),
+        "{error:#}"
+    );
+    assert_eq!(std::fs::read(&cp)?, bytes);
+    assert!(!root.join("pins-v1").exists());
+    drop(journal);
+    std::fs::rename(moved, root.join("pins-v1"))?;
+    let source = JournalSource::open(raw, &root, id, false)?;
+    let (_, _, s) = follow_runtime(&dir.path().join("cold-runtime"), Mode::Verify)?;
+    let mut d = Driver::with_m3(
+        source,
+        CurrentOnlyEngine {
+            inner: engine,
+            floor: 2,
+        },
+        c,
+        30_000_000,
+        s,
+        f,
+    )?;
+    d.set_journal(&cp)?;
+    d.resume()?;
+    assert_eq!(d.m2_state().root, expected);
     Ok(())
 }

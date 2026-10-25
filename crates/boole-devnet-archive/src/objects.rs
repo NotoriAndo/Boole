@@ -124,6 +124,12 @@ impl Objects {
     }
     /// Remove a disposable authenticated cache copy, never an authoritative row.
     pub fn retire(&self, key: &str, verify: impl Fn(&[u8]) -> Result<()>) -> Result<()> {
+        if self.root.join("retention.required.json").try_exists()? {
+            return Err(crate::error::startup(
+                20,
+                "retirement of authoritative pin objects is refused",
+            ));
+        }
         self.check()?;
         let path = self.path(key)?;
         let before = crate::version::file_stamp(&path)?;

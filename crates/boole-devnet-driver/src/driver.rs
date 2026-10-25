@@ -95,6 +95,7 @@ struct AnchoredHistory<'a, L, E> {
     l1: &'a mut L,
     engine: &'a mut E,
     maximum: u64,
+    pins: Option<&'a boole_devnet_archive::pins::ReadOnlyPins>,
 }
 impl<L: L1Source, E: Engine> boole_gate_supervisor::rebuild::History for AnchoredHistory<'_, L, E> {
     fn origin(
@@ -103,6 +104,18 @@ impl<L: L1Source, E: Engine> boole_gate_supervisor::rebuild::History for Anchore
     ) -> Result<(boole_derivation::L1Block, Vec<boole_derivation::InboxLog>)> {
         if height > self.maximum {
             return Err(boole_gate_supervisor::rebuild::Integrity("future L2 origin").into());
+        }
+        if let Some(pins) = self.pins {
+            let journal = self
+                .l1
+                .input_journal()
+                .context("S20: own journal missing")?;
+            let journal = journal.borrow();
+            pins.check()?;
+            let input = journal.get(height)?;
+            pins.binding(height)?
+                .verify(journal.network(), &input.block)?;
+            return Ok((input.block, input.logs));
         }
         let header = self.engine.header(height)?;
         if header.number != height {
@@ -133,6 +146,7 @@ pub struct Driver<L, E> {
     stalled: Option<Stall>,
     pub supervisor: Option<boole_gate_supervisor::supervisor::Supervisor>,
     forks: Option<boole_derivation::m3::ForkTable>,
+    pub(crate) pins: Option<boole_devnet_archive::pins::PinStore>,
     evidence: Option<boole_devnet_archive::log::BoundLog>,
     recover_engine_tail: bool,
     tail_replay: Option<Vec<Value>>,
@@ -168,6 +182,7 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
             stalled: None,
             supervisor: None,
             forks: None,
+            pins: None,
             evidence: None,
             recover_engine_tail: false,
             tail_replay: None,
@@ -203,6 +218,21 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
             &boole_gate_supervisor::supervisor::Host::local()?,
         )?;
         let mut driver = Self::construct(l1, engine, config, l2_gas_limit)?;
+        if let Some(journal) = driver.l1.input_journal() {
+            let mut pins = boole_devnet_archive::pins::PinStore::open(&journal.borrow())?;
+            let retained = crate::retention::workers(
+                &mut pins,
+                &driver.config,
+                &forks,
+                &supervisor.workers.values().cloned().collect::<Vec<_>>(),
+            )?;
+            for worker in retained {
+                supervisor
+                    .workers
+                    .insert(worker.descriptor.digest(), worker);
+            }
+            driver.pins = Some(pins);
+        }
         driver.supervisor = Some(supervisor);
         driver.forks = Some(forks);
         Ok(driver)
@@ -353,6 +383,22 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
             .validate(&self.config)
             .map_err(|s| anyhow::anyhow!("startup S{s}"))?;
         forks.validate_history(&self.m2)?;
+        if let Some(pins) = &mut self.pins {
+            let supervisor = self.supervisor.as_mut().context("M3 supervisor")?;
+            let supplied = supervisor.workers.values().cloned().collect::<Vec<_>>();
+            for worker in crate::retention::workers(pins, &self.config, &forks, &supplied)? {
+                supervisor
+                    .workers
+                    .insert(worker.descriptor.digest(), worker);
+            }
+            if pins.view().has_selected(self.m2.height()) {
+                let source = self.l1.input_journal().context("S20 own journal")?;
+                let required =
+                    boole_devnet_archive::pins::requirements(&self.m2, &self.config, &forks, true)?;
+                let binding = pins.view().binding(self.m2.height())?.clone();
+                pins.prepare(&source.borrow(), binding, &required)?;
+            }
+        }
         self.supervisor
             .as_mut()
             .context("M3 supervisor")?
@@ -372,6 +418,18 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
         parent: &ParentHeader,
     ) -> Result<(Derived, State)> {
         if self.config.m3.is_some() {
+            if let Some(pins) = &mut self.pins {
+                let journal = self.l1.input_journal().context("S20: own journal")?;
+                pins.refresh(&journal.borrow())?;
+                let req = boole_devnet_archive::pins::requirements(
+                    state,
+                    &self.config,
+                    self.forks.as_ref().context("M3 forks")?,
+                    true,
+                )?;
+                pins.view()
+                    .verify(&*journal.borrow(), &req, state.height())?;
+            }
             let forks = self.forks.as_ref().context("M3 runtime not configured")?;
             let records = if self.follows(l1.number) {
                 let m = state.m3.as_ref().context("M3 state")?;
@@ -400,6 +458,7 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
                     l1: &mut self.l1,
                     engine: &mut self.engine,
                     maximum: state.height(),
+                    pins: self.pins.as_ref().map(|p| p.view()),
                 };
                 self.supervisor.as_mut().context("M3 supervisor")?.collect(
                     state,
@@ -457,6 +516,13 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
                 "checkpoint",
                 "checkpoint changed while reading",
             ));
+        }
+        if let (Some(pins), Some(anchor)) = (
+            &self.pins,
+            self.checkpoint.as_ref().and_then(|v| v.get("pin_journal")),
+        ) {
+            pins.view()
+                .verify_anchor(&serde_json::from_value(anchor.clone())?)?;
         }
         self.checkpoint_stamp = before;
         self.journal = Some(path.to_owned());
@@ -524,6 +590,7 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
                 ));
             }
         }
+        let retained = self.retained_history(parent)?;
         if self.m2.height() == parent.number {
             if self
                 .selected_head
@@ -549,13 +616,30 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
         if self.config.m3.is_some() {
             for h in 1..=parent.number {
                 if self.follows(h) {
-                    let header = self.engine.header(h)?;
+                    let header = retained
+                        .as_ref()
+                        .and_then(|m| m.get(&h))
+                        .map(|b| Ok(b.header.clone()))
+                        .unwrap_or_else(|| self.engine.header(h))?;
                     let origin = boole_derivation::system::l1_origin(
                         header.l1_info.as_deref().context("follow origin")?,
                         h,
                     )?;
-                    let l1 = self.l1.block_by_hash(&origin)?;
-                    let txs = self.engine.transactions(h)?;
+                    let l1 = if retained.is_some() {
+                        self.l1
+                            .input_journal()
+                            .context("S20 journal")?
+                            .borrow()
+                            .get(h)?
+                            .block
+                    } else {
+                        self.l1.block_by_hash(&origin)?
+                    };
+                    let txs = retained
+                        .as_ref()
+                        .and_then(|m| m.get(&h))
+                        .map(|b| Ok(b.transactions.clone()))
+                        .unwrap_or_else(|| self.engine.transactions(h))?;
                     self.provide_follow_block(&l1, &txs)?;
                 }
             }
@@ -563,9 +647,19 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
         let mut recovered = vec![];
         let mut last_derived = None;
         let mut state = State::new(&self.config, self.l2_gas_limit)?;
-        let mut previous = self.engine.header(0).context("L2 genesis for re-fold")?;
+        let mut previous = retained
+            .as_ref()
+            .and_then(|m| m.get(&0))
+            .map(|b| Ok(b.header.clone()))
+            .unwrap_or_else(|| self.engine.header(0))
+            .context("L2 genesis for re-fold")?;
         for height in 1..=parent.number {
-            let header = if height == parent.number {
+            let header = if let Some(map) = &retained {
+                map.get(&height)
+                    .context("S20: retained header gap")?
+                    .header
+                    .clone()
+            } else if height == parent.number {
                 parent.clone()
             } else {
                 self.engine
@@ -583,17 +677,34 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
                 .context("L2 history missing L1-info")?;
             let origin = boole_derivation::system::l1_origin(deposit, height)
                 .context("decode re-fold L1-info")?;
-            let l1 = self
-                .l1
-                .block_by_hash(&origin)
-                .context("anchored L1 re-fold")?;
+            let own = if retained.is_some() {
+                Some(
+                    self.l1
+                        .input_journal()
+                        .context("S20 journal")?
+                        .borrow()
+                        .get(height)?,
+                )
+            } else {
+                None
+            };
+            let l1 = if let Some(input) = &own {
+                input.block.clone()
+            } else {
+                self.l1
+                    .block_by_hash(&origin)
+                    .context("anchored L1 re-fold")?
+            };
             if l1.number != height || !l1.hash.eq_ignore_ascii_case(&origin) {
                 bail!("anchored L1 re-fold identity mismatch");
             }
-            let logs = self
-                .l1
-                .inbox_logs(&origin)
-                .context("anchored re-fold logs")?;
+            let logs = if let Some(input) = own {
+                input.logs
+            } else {
+                self.l1
+                    .inbox_logs(&origin)
+                    .context("anchored re-fold logs")?
+            };
             self.check_m2_transport(&logs)?;
             let (derived, next) = self
                 .fold(&state, &l1, &logs, &previous)
@@ -608,7 +719,11 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
                 next.root,
             )?;
             if self.config.m3.is_some() {
-                let txs = self.engine.transactions(height)?;
+                let txs = retained
+                    .as_ref()
+                    .and_then(|m| m.get(&height))
+                    .map(|b| Ok(b.transactions.clone()))
+                    .unwrap_or_else(|| self.engine.transactions(height))?;
                 check_payload_transactions(&json!({"transactions":txs}), &derived)
                     .map_err(|_| VerdictMismatch { height })?;
             }
@@ -624,6 +739,19 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
                         "M2 checkpoint disagrees with anchored re-fold",
                     ));
                 }
+            }
+            if let Some(pins) = &mut self.pins {
+                let source = self.l1.input_journal().context("S20 journal")?;
+                let req = boole_devnet_archive::pins::requirements(
+                    &next,
+                    &self.config,
+                    self.forks.as_ref().context("M3 forks")?,
+                    true,
+                )?;
+                let mut binding = retained.as_ref().context("retained map")?[&height].clone();
+                binding.root = next.root;
+                pins.prepare(&source.borrow(), binding, &req)?;
+                pins.select(height, &header.hash, next.root)?;
             }
             if self.l1.input_journal().is_some() {
                 let record = json!({"height":height,"outcome":"RECOVERED","inputs":self.l1.inputs_label(height),"verdicts":if self.follows(height){"checkpoint-trusted"}else{"computed"},"environment":"pending","trust_ranges":self.trust_ranges(height),"verification":if self.follows(height){"checkpoint-trusted"}else{"computed"},"block_hash":header.hash,"l1":{"hash":l1.hash},"m2_root":boole_derivation::attributes::hex_string(&next.root),"attribute_digest":boole_derivation::attributes::hex_string(&Sha256::digest(derived.canonical_bytes()?))});
@@ -644,6 +772,9 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
             last_derived = Some(derived);
             state = next;
             previous = header;
+        }
+        if let Some(pins) = &mut self.pins {
+            pins.finish_bootstrap()?;
         }
         // Publish recovery evidence only after the complete replay/checkpoint comparison.
         if let Some(pending) = &mut self.tail_replay {
@@ -708,7 +839,10 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
                 "M4 integrity: checkpoint changed before publication",
             ));
         }
-        let value = json!({"version":1,"height":state.height(),"m2_root":boole_derivation::attributes::hex_string(&state.root),"l2_hash":record["block_hash"],"l1_hash":record["l1"]["hash"],"config_digest":self.config_digest()?});
+        let mut value = json!({"version":1,"height":state.height(),"m2_root":boole_derivation::attributes::hex_string(&state.root),"l2_hash":record["block_hash"],"l1_hash":record["l1"]["hash"],"config_digest":self.config_digest()?});
+        if let Some(pins) = &self.pins {
+            value["pin_journal"] = serde_json::to_value(pins.view().anchor(state.height())?)?;
+        }
         let nonce = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
             .as_nanos();
@@ -1171,6 +1305,20 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
                 ));
             }
         }
+        if let Some(pins) = &mut self.pins {
+            let source = self.l1.input_journal().context("S20 journal")?;
+            let req = boole_devnet_archive::pins::requirements(
+                &next,
+                &self.config,
+                self.forks.as_ref().context("M3 forks")?,
+                true,
+            )?;
+            pins.prepare(
+                &source.borrow(),
+                crate::retention::payload_binding(payload, next.root)?,
+                &req,
+            )?;
+        }
         let imported = self.call(
             record,
             "engine_newPayloadV4",
@@ -1201,6 +1349,17 @@ impl<L: L1Source, E: Engine> Driver<L, E> {
             let txs = self.engine.transactions(height)?;
             check_payload_transactions(&json!({"transactions":txs}), &derived)
                 .map_err(|_| VerdictMismatch { height })?;
+        }
+        if let Some(pins) = &mut self.pins {
+            let b = pins
+                .view()
+                .prepared(height, hash)
+                .context("S20: prepared selected header")?;
+            anyhow::ensure!(
+                serde_json::to_vec(&b.header)? == serde_json::to_vec(&head)?,
+                "selected header differs from durable pin"
+            );
+            pins.select(height, hash, next.root)?;
         }
         boole_devnet_archive::fault::hit("B4", height, "driver")?;
         record["block_hash"] = json!(hash);
@@ -1320,3 +1479,5 @@ mod tests {
 }
 
 pub mod archive;
+
+mod retained;

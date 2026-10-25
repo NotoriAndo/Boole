@@ -243,15 +243,34 @@ fn driver(
     let network = NetworkIdentity::new(c, Some(table), engine.header(0)?.hash, gas)?;
     let source = JournalSource::open(RpcL1::new_m2(proxy)?, &root, network, false)?;
     let guard = boole_devnet_archive::state_dir::acquire(&cache)?;
+    let mut retained = boole_devnet_driver::retention::open(
+        &source.journal.borrow(),
+        Some(&root.join("checkpoint.json")),
+    )?;
+    let known = boole_devnet_driver::retention::workers(&mut retained, c, table, workers)?;
+    boole_devnet_driver::retention::environment(&mut retained, c, &rt.path.join("artifacts"))?;
+    let artifacts = retained.objects();
+    drop(retained);
+    let mut rebound = workers.to_vec();
+    for worker in known {
+        if let Some(old) = rebound
+            .iter_mut()
+            .find(|w| w.descriptor.digest() == worker.descriptor.digest())
+        {
+            *old = worker;
+        } else {
+            rebound.push(worker);
+        }
+    }
     let supervisor = Supervisor::new(
         c,
         table,
         Mode::Verify,
-        workers.to_vec(),
+        rebound,
         Some(Codec::new(zstd_binary()?)?),
         &cache,
         &cache,
-        &rt.path.join("artifacts"),
+        &artifacts,
         Host::local()?,
         Envelope::default(),
     )?;
@@ -276,6 +295,14 @@ fn miner(
     let source = JournalSource::open(RpcL1::new_m2(proxy)?, root, network, false)?;
     let pins: Vec<_> = workers.iter().map(|w| w.binary_sha256).collect();
     source.journal.borrow().cleanup(&pins, None)?;
+    let mut retained = boole_devnet_driver::retention::open(
+        &source.journal.borrow(),
+        Some(&root.join("retention-tip.json")),
+    )?;
+    let workers = boole_devnet_driver::retention::workers(&mut retained, c, table, workers)?;
+    boole_devnet_driver::retention::environment(&mut retained, c, artifacts)?;
+    let artifacts = retained.objects();
+    drop(retained);
     Client::new(
         source,
         RpcPoster::new(proxy, user)?,
@@ -299,7 +326,7 @@ fn miner(
                         }) as Box<dyn boole_devnet_mcp::own::OwnGate>
                     })
                     .collect(),
-                artifacts: artifacts.into(),
+                artifacts,
             }),
         },
     )
@@ -1119,3 +1146,6 @@ fn tip_proxy_waits_for_delayed_headers_and_preserves_application_errors() -> Res
 
 #[path = "support/archive_live.rs"]
 mod archive_live;
+
+#[path = "support/pin_live.rs"]
+mod pin_live;
