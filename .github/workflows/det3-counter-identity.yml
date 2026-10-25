@@ -1,0 +1,117 @@
+# Advisory architecture identity only: runtime unmeasured; not a required check.
+# ubuntu-latest and apt versions are not pinned. No production binary attestation.
+name: det3-counter-identity
+
+on:
+  push:
+    paths:
+      - scripts/zk_registry/**
+      - fixtures/public-counter-identity-v1/**
+      - .github/workflows/det3-counter-identity.yml
+  pull_request:
+    paths:
+      - scripts/zk_registry/**
+      - fixtures/public-counter-identity-v1/**
+      - .github/workflows/det3-counter-identity.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  det3-counter-identity-x86_64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      CARGO_BUILD_JOBS: "2"
+      ELAN_HOME: /tmp/det3-elan-unused
+      MATHLIB_CACHE_DIR: /tmp/det3-mathlib-unused
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - name: Pinned Lean source SDK for the counter probe
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: leanprover/lean4
+          ref: 5045d0056413266e57c625dcd7c365b10e377c52
+          path: tool-sources/lean
+          persist-credentials: false
+      - name: Pinned Comparator sources
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: leanprover/comparator
+          ref: d03acab154d269c06e60e4de7e4cc85deebff94b
+          path: tool-sources/comparator
+          persist-credentials: false
+      - name: Pinned export sources
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: leanprover/lean4export
+          ref: 076e8e57707e813375e8f9da8bf989799ace9680
+          path: tool-sources/export
+          persist-credentials: false
+      - name: Pinned nanoda sources
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: ammkrn/nanoda_lib
+          ref: 0f88b5f382f0f3f08aed4af0dd6c0e48c3fd7a44
+          path: tool-sources/nanoda
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+        with:
+          toolchain: 1.95.0
+      - name: Build source SDK and provision locked Cargo sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = x86_64
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ libgmp-dev libuv1-dev pkg-config zstd
+          cmake -S tool-sources/lean -B "$RUNNER_TEMP/lean-build" \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++
+          cmake --build "$RUNNER_TEMP/lean-build" --target stage1 --parallel 2
+          "$RUNNER_TEMP/lean-build/stage1/bin/lean" --version
+          mkdir "$RUNNER_TEMP/nanoda-dependencies"
+          git -C tool-sources/nanoda archive 0f88b5f382f0f3f08aed4af0dd6c0e48c3fd7a44 | \
+            tar -x -C "$RUNNER_TEMP/nanoda-dependencies"
+          cargo fetch --locked --manifest-path "$RUNNER_TEMP/nanoda-dependencies/Cargo.toml"
+      - name: Build actual counter drivers (source SDK profile, no production attestation)
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/scripts"
+          export RUSTUP_AUTO_INSTALL=0 CARGO_NET_OFFLINE=true
+          python3 -B -m zk_registry.build_fuel_tools \
+            --lean-prefix "$RUNNER_TEMP/lean-build/stage1" \
+            --comparator-source tool-sources/comparator --export-source tool-sources/export \
+            --out "$RUNNER_TEMP/counter-build" --counter-only --cxx /usr/bin/g++ --cxx-abi libstdc++
+          python3 -B -m zk_registry.build_nanoda_fuel \
+            --nanoda-source tool-sources/nanoda --cargo "$(rustup which cargo)" \
+            --out "$RUNNER_TEMP/nanoda-build" \
+            --local-sidecar "$GITHUB_WORKSPACE/target/counter-build-private-paths.json"
+      - name: Compare 32 public generated Init counter vectors
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/scripts"
+          export RUSTUP_AUTO_INSTALL=0 CARGO_NET_OFFLINE=true
+          python3 -B -m zk_registry.counter_identity \
+            --fixture fixtures/public-counter-identity-v1 --out "$RUNNER_TEMP/counter-results" \
+            --lean-counter "$RUNNER_TEMP/counter-build/comparator/.lake/build/bin/counter_replay" \
+            --nanoda "$RUNNER_TEMP/nanoda-build/target/release/nanoda_bin" \
+            --expected fixtures/public-counter-identity-v1/GOLDEN-aarch64.json
+      - name: Retain counter results and exact build manifests
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: det3-counter-identity-x86_64
+          path: |
+            ${{ runner.temp }}/counter-results
+            ${{ runner.temp }}/counter-build/FUEL-BUILD.json
+            ${{ runner.temp }}/counter-build/FUEL-UNIT-TESTS.json
+            ${{ runner.temp }}/nanoda-build/NANODA-FUEL-BUILD.json
+            ${{ runner.temp }}/nanoda-build/NANODA-UNIT-TESTS.json
+            ${{ runner.temp }}/nanoda-build/NANODA-REVIEW-TESTS.json
+            ${{ runner.temp }}/nanoda-build/native-review

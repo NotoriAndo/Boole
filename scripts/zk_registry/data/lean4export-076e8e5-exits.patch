@@ -1,0 +1,59 @@
+--- a/Main.lean
++++ b/Main.lean
+@@ -4 +4 @@
+-def main (args : List String) : IO Unit := do
++def exportMain (args : List String) : IO UInt32 := do
+@@ -13,6 +13,21 @@
+-  M.run env do
+-    let _ ← initState env opts
+-    dumpMetadata
+-    for c in constants do
+-      modify (fun st => { st with noMDataExprs := {} })
+-      dumpConstant c
++  try
++    M.run env do
++      let _ ← initState env opts
++      dumpMetadata
++      for c in constants do
++        modify (fun st => { st with noMDataExprs := {} })
++        dumpConstant c
++    return 0
++  catch e =>
++    IO.eprintln e.toString
++    match e with
++    | .userError _ => return 4
++    | _ => return 70
++
++/-- Loading the provisioned module is node availability, even when Lean wraps it as userError. -/
++def main (args : List String) : IO UInt32 := do
++  try
++    exportMain args
++  catch e =>
++    IO.eprintln e.toString
++    return 70
+--- a/Export.lean
++++ b/Export.lean
+@@ -97 +97 @@
+-  | .anonymous => unreachable!
++  | .anonymous => throw <| IO.userError "invalid exporter input"
+@@ -115 +115 @@
+-  | .zero | .mvar _ => unreachable!
++  | .zero | .mvar _ => throw <| IO.userError "invalid exporter input"
+@@ -135 +135 @@
+-  | .fvar .. | .mvar ..=> unreachable!
++  | .fvar .. | .mvar ..=> throw <| IO.userError "invalid exporter input"
+@@ -160 +160 @@
+-    | .fvar .. | .mvar .. => panic! "cannot export free variables or metavariables"
++    | .fvar .. | .mvar .. => throw <| IO.userError "invalid exporter expression"
+@@ -237 +237 @@
+-    | if (← get).ignoreMissing then return else panic! s!"Constant {c} not found in environment."
++    | if (← get).ignoreMissing then return else throw <| IO.userError "missing exporter constant"
+@@ -296 +296 @@
+-        | if (← get).ignoreMissing then return else panic! s!"Constant {c} not found in environment."
++        | if (← get).ignoreMissing then return else throw <| IO.userError "missing exporter constant"
+@@ -319 +319 @@
+-        | _ => panic! "Expected a `ConstantInfo.ctorInfo`."
++        | _ => throw <| IO.userError "invalid exporter constructor"
+@@ -339 +339 @@
+-      | _ => panic! "expected a `constantinfo.recinfo`."
++      | _ => throw <| IO.userError "invalid exporter recursor"

@@ -1,6 +1,6 @@
 """A small JSON Schema validator for the subset of draft 2020-12 used by the registry schemas.
 
-Supported keywords: ``type``, ``enum``, ``const``, ``pattern``, ``minLength``, ``minimum``,
+Supported keywords: ``type``, ``enum``, ``const``, ``pattern``, ``minLength``, ``maxLength``, ``minimum``,
 ``maximum``, ``minItems``, ``properties``, ``required``, ``additionalProperties``, ``items``,
 ``allOf``, ``anyOf``, ``if``/``then``/``else``, ``$ref`` (local ``#/$defs/...`` only) and the
 annotations ``$schema``, ``$id``, ``title``, ``description``, ``$defs``.  Any other keyword is an
@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 
 _ANNOTATIONS = {"$schema", "$id", "title", "description", "$defs", "$comment", "examples"}
-_SUPPORTED = {"type", "enum", "const", "pattern", "minLength", "minimum", "maximum", "minItems", "properties",
+_SUPPORTED = {"type", "enum", "const", "pattern", "minLength", "maxLength", "minimum", "maximum", "minItems", "properties",
               "required", "additionalProperties", "items", "allOf", "anyOf", "if", "then", "else", "$ref"}
 
 _TYPES = {
@@ -57,6 +57,8 @@ def validate(instance, schema: dict, root: dict | None = None, path: str = "$") 
             errs.append(f"{path}: does not match {schema['pattern']}")
         if "minLength" in schema and len(instance) < schema["minLength"]:
             errs.append(f"{path}: shorter than {schema['minLength']}")
+        if "maxLength" in schema and len(instance) > schema["maxLength"]:
+            errs.append(f"{path}: longer than {schema['maxLength']}")
     if _TYPES["number"](instance):
         if "minimum" in schema and instance < schema["minimum"]:
             errs.append(f"{path}: below {schema['minimum']}")

@@ -12,21 +12,23 @@
     "exit_status": {
       "success": 0,
       "semantic_rejection": 2,
-      "transport_failure": 70
+      "transport_failure": 70,
+      "resource_cap": 3
     },
     "status_patch": "comparator-d03acab-status.patch",
     "status_contract": {
       "version": 1,
       "channel": "COMPARATOR_STATUS_FILE",
-      "format": "JSONL: policy or error, per-kernel and quotient status, final exit; kernel stdout is never authority"
-    }
+      "format": "JSONL: policy/error, bounded fuel counters, per-kernel and quotient status, final exit; kernel stdout is never authority"
+    },
+    "fuel_driver": "lean/Det3Fuel.lean + lean/kernel_fuel.cpp (pinned Lean runtime)"
   },
   "exporter": {
     "repository": "https://github.com/leanprover/lean4export",
     "revision": "076e8e57707e813375e8f9da8bf989799ace9680",
     "declared_lean": "v4.34.0",
     "build_lean": "v4.34.1",
-    "patch": "lean-toolchain only: v4.34.0 to v4.34.1",
+    "patch": "lean4export-076e8e5-exits.patch (after toolchain v4.34.1)",
     "licence": "Apache-2.0"
   },
   "nanoda": {
@@ -134,61 +136,241 @@
       "kernel_prefix": "lean-4.34.1-linux_aarch64",
       "comparator": {
         "path": "comparator/.lake/build/bin/comparator",
-        "sha256": "e379d9a677b47e6ad4fcf50b8f1c682b41d8f4d0318923a2e23a558ee12e7306",
+        "sha256": "c7af113cae6bfc79bf36dc79b30b559443975ba83b89c3baac2b98dc99477f1e",
         "provenance": {
           "revision": "d03acab154d269c06e60e4de7e4cc85deebff94b",
           "build_lean": "v4.34.1",
           "platform": "Linux-aarch64",
-          "main_sha256": "7a71238b4feb535bd1ad4172fabb4bb35e380ebc848a685a20ae240de7dc937f",
+          "main_sha256": "3e78d49a96906a62d11fbf3af86b70904bc50ca213ba795b2ef499afa622b665",
           "patch_order": [
             "comparator-d03acab-export-files.patch",
-            "comparator-d03acab-lean4341.patch",
             "comparator-d03acab-transport.patch",
-            "comparator-d03acab-status.patch"
+            "comparator-d03acab-status.patch",
+            "comparator-d03acab-fuel.patch",
+            "comparator-d03acab-nanoda-fuel.patch",
+            "comparator-d03acab-own.patch"
           ],
-          "prior_binary_sha256": "fe0a4234774b0f98b53239e4e06131d25ed2c38e057685298e8ee85c014ce295",
-          "prior_binary_origin": "Pinned Lean 4.34.1 native build with export-files, toolchain and transport patches; replaced by the status-channel rebuild."
+          "prior_binary_sha256": "509e851d9e2af6c22d8b47dea747f64eeb236d4cd1300f776b3241191cffd1ee",
+          "prior_binary_origin": "DET3c before certified own replay and comparison context",
+          "fuel_sources": {
+            "CertifiedBase.lean": "1d4637338cb3f245f7ded822891f458150d9c534ea1bb6d5377109656049935d",
+            "CertifiedExport.lean": "60207ef9aaa972ce000f08e55503e7ea296a7d5bb05078b2a920e4739f4ad87f",
+            "CounterReplay.lean": "fe1c86c24880a27a99510fdb53093202988ed16d171b20af9ecedb1f26d599bc",
+            "Det3Fuel.lean": "a956ca8259f627199900b4a9ac0b89eed2fab649ad3b5da5558d578b84234203",
+            "Main.lean": "3e78d49a96906a62d11fbf3af86b70904bc50ca213ba795b2ef499afa622b665",
+            "ZkReplay.lean": "b943215f3de315a342599919a7156363c04c3d1da4c7590f051cfab5eaf2539a",
+            "kernel_fuel.cpp": "1c7429ab97d144d1caa1f85d030505b53738326cb1cd69bdf3ef79ed0345fa8d"
+          },
+          "binary_sha256": "c7af113cae6bfc79bf36dc79b30b559443975ba83b89c3baac2b98dc99477f1e",
+          "patch_sha256": {
+            "comparator-d03acab-export-files.patch": "f00c59c1313c34071520d275d7ecf69a7d49dc4bebf168cfc0d04d1ab13c9c27",
+            "comparator-d03acab-transport.patch": "50eb9ee60da83a11cc20a3185ce698e5dace1112e842bf52cc3c9a058ea24164",
+            "comparator-d03acab-status.patch": "bbacf658e86debb75f6fc48117b3e8f4a18ead0984937e63617f16e97e58d8fb",
+            "comparator-d03acab-fuel.patch": "06f7f8c9b9a3fc0a793cb319f1a8f090fa5a91fea6c4408f1651baf3d0e464f4",
+            "comparator-d03acab-nanoda-fuel.patch": "c64c9a6633221f8082abc3780759533e23496f96ae37c793eb9933154eb77696",
+            "comparator-d03acab-own.patch": "764e0f9514a7db7b6dfd411f334dbbc3a5e8c3aed21518db6a15b4460cb9a716"
+          }
         }
       },
       "exporter": {
         "path": "lean4export/.lake/build/bin/lean4export",
-        "sha256": "cf5d18bcb62e92bf3446a7f88c1d709dae77ba2ddca9cd049dfd46e94e84904f"
+        "sha256": "0f8cade17494e78fc67f06c6704c57c64f671771cf24fc59f369b2cb648895fb",
+        "provenance": {
+          "main_sha256": "ebdfba83a27b48ef1b947a99cad23ca0ea487a5db9e8a0ad53fb23024b763488",
+          "export_sha256": "6227f30254bb4f7548f356b2c9b3bf8f6d2b8076aa6b0146c927188dbcd24e9d",
+          "patch": "lean4export-076e8e5-exits.patch",
+          "build_lean": "v4.34.1"
+        }
       },
       "nanoda": {
         "path": "nanoda/target/release/nanoda_bin",
-        "sha256": "909da1aff6aa04e11303a525d173279ff0020d18f36ffeee66e2cf24c30bd89b"
+        "sha256": "97aeaaf3b332ac1a6960a0b0139be88e1062a13af4fbf1f70ec3201c3b0d131b",
+        "provenance": {
+          "binary_sha256": "97aeaaf3b332ac1a6960a0b0139be88e1062a13af4fbf1f70ec3201c3b0d131b",
+          "cargo_config_isolated": true,
+          "cargo_cwd": "/",
+          "cargo_lock_sha256": "154b4c74a390c732651d1a81bbc84ff25ac0104cb6e77132569dd17ea81cdc7c",
+          "cargo_sha256": "959e627e4d7b8d8b618d32ae7af795ce9f1544656822eb9d407b4fd76a4f53b0",
+          "cargo_toml_sha256": "2ffc3a39a8376586419a9274a35996ba9988982a5ca003fd903fff36fca07a70",
+          "flags": [
+            "--remap-path-prefix",
+            "<build-root>/nanoda=/boole/nanoda",
+            "--remap-path-prefix",
+            "<cargo-registry>=/boole/cargo-registry"
+          ],
+          "inherited_flags_ignored": true,
+          "modules": {
+            "NanodaDriver.rs": "7ad88264aab8189fba6587681372d2667c3978e076987eeb445f513d406050c4",
+            "NanodaFuel.rs": "aac1a2160ea09a10bd72ee956ffedc9d56cb6e123f88503d357dc6dde94d6504",
+            "NanodaMain.rs": "2dd5febbffb3fb38f064b91e3f588621b20cfa4b41cf8ff73ce1ef11efd0ebb1"
+          },
+          "own_patch_sha256": "524c3953efa0ace49ea332846fb32d29bad0e88f2d5247c025167ed5027e00c4",
+          "patch_sha256": "b4e67d150f5002932deca00fbd5b78ee23848fc6a9249a87dd7208b902905889",
+          "revision": "0f88b5f382f0f3f08aed4af0dd6c0e48c3fd7a44",
+          "rustc_sha256": "db0c9200524653ed0ff20a2950b49402879887ad4932c4de18606df9de5cf3d9",
+          "rustc_vV": "rustc 1.95.0 (59807616e 2026-04-14)\nbinary: rustc\ncommit-hash: 59807616e1fa2540724bfbac14d7976d7e4a3860\ncommit-date: 2026-04-14\nhost: aarch64-unknown-linux-gnu\nrelease: 1.95.0\nLLVM version: 22.1.2\n",
+          "source_build_path": "<build-root>/nanoda",
+          "sources": {
+            "src/debug_printer.rs": "184918c06946c0efcc57868e47098428bd1d98179725344ba81b1103eb940c81",
+            "src/env.rs": "52c1593f0e08c4e7b9b9f8a97e48bfdde1d449253bf0c3e4967321b46dbece01",
+            "src/expr.rs": "bac3d8d163313ed0952efb24df4c992325e9083f972dff5176121325962dea60",
+            "src/gate_driver.rs": "7ad88264aab8189fba6587681372d2667c3978e076987eeb445f513d406050c4",
+            "src/gate_fuel.rs": "aac1a2160ea09a10bd72ee956ffedc9d56cb6e123f88503d357dc6dde94d6504",
+            "src/inductive.rs": "cd27f1e06d5acf9654f06ab4dfd2855959aa0a3bf584702c229bdf0a2a61c761",
+            "src/level.rs": "9ea3063de2c43de53d2366e01b5a7ae2cd91c35b9dcee7cc976967acd84b40de",
+            "src/lib.rs": "499f7fa74457ef6f5eba7756bd91c5b2a93a9849bdef657ddf2c33ce03fce87a",
+            "src/main.rs": "2dd5febbffb3fb38f064b91e3f588621b20cfa4b41cf8ff73ce1ef11efd0ebb1",
+            "src/name.rs": "ab79614c6c5a1574035dcf44e70bdbbb1cf8ca1aa02d385dcdf9443df5ec9f93",
+            "src/parser.rs": "ff6b18c1b69a0319ad7579a72e12ae2e718e088a870adc2e3bc46e2d42535607",
+            "src/pretty_printer.rs": "9e45e1951d06d84631d0fee1fdcef60161a757abef53d428625257a0fbe6deb3",
+            "src/quot.rs": "5727b3f299721c629a24341c0729398caca0d05379f8a02730d535333833f629",
+            "src/tc.rs": "bf7469504ad154e2c8ae738f053a2329f5eabce45036a58c0e4d172243634e67",
+            "src/tests.rs": "8af730f36984da57fe8ef62818cf3d83c993ed44d1452abc028cc16fcf952f0e",
+            "src/tests/level.rs": "5d9c48216082dceab5e278f4121ec9176810d396d29846acb369b3cdc0a80a6f",
+            "src/tests/name.rs": "7dcb2127f912651f31d47d081f72b2a5cbd98f57d17569db4379733178ed1157",
+            "src/tests/natlit.rs": "4710e7daaf796cf32d95da75275d9c536e25ca4e7e43eb003d800e67c16bb2d7",
+            "src/tests/pretty_printer.rs": "eb93ca77fc48bd095ecfa2719ad8c5b1bf861d1c5bdce585e1b460de3eb301a4",
+            "src/tests/util.rs": "d14406a0882b4a86306afb732679087e8f8de6f4291bef0ce5c10538f9a76789",
+            "src/union_find.rs": "2728ab1d2dcd84489a6bb4fa984af22c40236bf813205e42a1c55ca825bdc757",
+            "src/unique_hasher.rs": "e457ec69139dee08c4f21f3fee5bc9a2cfe6bb14e5d5bd217ca35d6a368daea5",
+            "src/util.rs": "e32d888aefaec4e25403c7b586152c8fae7725458c24a2a0d3a50912cfd7b8f6"
+          },
+          "root_utf8_bytes": {
+            "<build-root>": 58,
+            "<cargo-registry>": 45
+          }
+        }
       },
-      "payload_memory_max_bytes": 11534336000
+      "payload_memory_max_bytes": 11534336000,
+      "lean_replay": {
+        "path": "comparator/.lake/build/bin/zk_replay",
+        "sha256": "9be5b067725243c58e3be1d2ba93f01186f406d834e78685578ac0d530e45ffa"
+      }
     },
     "Darwin-arm64": {
       "assurance": "dev-unsandboxed",
       "kernel_prefix": "lean-4.34.1-darwin_aarch64",
       "comparator": {
         "path": "comparator/.lake/build/bin/comparator",
-        "sha256": "153dcbe1335a80b77fdb34cc0cb3ce3af57666f99e0b12f04aa95d7d6fc415cf",
+        "sha256": "fef88d5be2bf1fa6043d1f8b7f803612799167400bd1ee1a419ca9ac39d13255",
         "provenance": {
           "revision": "d03acab154d269c06e60e4de7e4cc85deebff94b",
           "build_lean": "v4.34.1",
           "platform": "Darwin-arm64",
-          "main_sha256": "7a71238b4feb535bd1ad4172fabb4bb35e380ebc848a685a20ae240de7dc937f",
+          "main_sha256": "3e78d49a96906a62d11fbf3af86b70904bc50ca213ba795b2ef499afa622b665",
           "patch_order": [
             "comparator-d03acab-export-files.patch",
-            "comparator-d03acab-lean4341.patch",
             "comparator-d03acab-transport.patch",
-            "comparator-d03acab-status.patch"
+            "comparator-d03acab-status.patch",
+            "comparator-d03acab-fuel.patch",
+            "comparator-d03acab-nanoda-fuel.patch",
+            "comparator-d03acab-own.patch"
           ],
-          "prior_binary_sha256": "5f4153e81ca6450496e26733b44c36c186f7c0115215d7c90e63de7627be24a3",
-          "prior_binary_origin": "Native Lean 4.34.1 build of pinned Comparator plus export-files, toolchain and transport patches; replaced by the status-channel rebuild."
+          "prior_binary_sha256": "ae9fecc4ba3fdc3bf1c1ac6eaac8eaa9f3e0d889f9cd5ba6b86349f09c0494e9",
+          "prior_binary_origin": "C8 before certified comparison context",
+          "fuel_sources": {
+            "CertifiedBase.lean": "1d4637338cb3f245f7ded822891f458150d9c534ea1bb6d5377109656049935d",
+            "CertifiedExport.lean": "60207ef9aaa972ce000f08e55503e7ea296a7d5bb05078b2a920e4739f4ad87f",
+            "CounterReplay.lean": "fe1c86c24880a27a99510fdb53093202988ed16d171b20af9ecedb1f26d599bc",
+            "Det3Fuel.lean": "a956ca8259f627199900b4a9ac0b89eed2fab649ad3b5da5558d578b84234203",
+            "Main.lean": "3e78d49a96906a62d11fbf3af86b70904bc50ca213ba795b2ef499afa622b665",
+            "ZkReplay.lean": "b943215f3de315a342599919a7156363c04c3d1da4c7590f051cfab5eaf2539a",
+            "kernel_fuel.cpp": "1c7429ab97d144d1caa1f85d030505b53738326cb1cd69bdf3ef79ed0345fa8d"
+          },
+          "binary_sha256": "fef88d5be2bf1fa6043d1f8b7f803612799167400bd1ee1a419ca9ac39d13255",
+          "patch_sha256": {
+            "comparator-d03acab-export-files.patch": "f00c59c1313c34071520d275d7ecf69a7d49dc4bebf168cfc0d04d1ab13c9c27",
+            "comparator-d03acab-transport.patch": "50eb9ee60da83a11cc20a3185ce698e5dace1112e842bf52cc3c9a058ea24164",
+            "comparator-d03acab-status.patch": "bbacf658e86debb75f6fc48117b3e8f4a18ead0984937e63617f16e97e58d8fb",
+            "comparator-d03acab-fuel.patch": "06f7f8c9b9a3fc0a793cb319f1a8f090fa5a91fea6c4408f1651baf3d0e464f4",
+            "comparator-d03acab-nanoda-fuel.patch": "c64c9a6633221f8082abc3780759533e23496f96ae37c793eb9933154eb77696",
+            "comparator-d03acab-own.patch": "764e0f9514a7db7b6dfd411f334dbbc3a5e8c3aed21518db6a15b4460cb9a716"
+          }
         }
       },
       "exporter": {
         "path": "lean4export/.lake/build/bin/lean4export",
-        "sha256": "17da1e168bf5d41484c940e41c1f68230798ebb38d09174b564e955895279d0f"
+        "sha256": "ca8890cf0f275252b6b7a3b6423810428c14fd61a2a572da1f1ace6e56f92f56",
+        "provenance": {
+          "main_sha256": "ebdfba83a27b48ef1b947a99cad23ca0ea487a5db9e8a0ad53fb23024b763488",
+          "patch": "lean4export-076e8e5-exits.patch",
+          "build_lean": "v4.34.1",
+          "export_sha256": "6227f30254bb4f7548f356b2c9b3bf8f6d2b8076aa6b0146c927188dbcd24e9d"
+        }
       },
       "nanoda": {
         "path": "nanoda/target/release/nanoda_bin",
-        "sha256": "b4707ccf4e413a3e764f9d64a6c544c12ae4c5b60567dd383cc23679c2e373cb"
+        "sha256": "993aecb750959486d5ca8b7af09f1eeb51fa200418fbc30eeceb64717b030927",
+        "provenance": {
+          "binary_sha256": "993aecb750959486d5ca8b7af09f1eeb51fa200418fbc30eeceb64717b030927",
+          "cargo_config_isolated": true,
+          "cargo_cwd": "/",
+          "cargo_lock_sha256": "154b4c74a390c732651d1a81bbc84ff25ac0104cb6e77132569dd17ea81cdc7c",
+          "cargo_sha256": "c512bff73c86143b557463f021d0c3d5b0490d97d65040ba59ea2b3427784758",
+          "cargo_toml_sha256": "2ffc3a39a8376586419a9274a35996ba9988982a5ca003fd903fff36fca07a70",
+          "flags": [
+            "--remap-path-prefix",
+            "<build-root>/nanoda=/boole/nanoda",
+            "--remap-path-prefix",
+            "<cargo-registry>=/boole/cargo-registry"
+          ],
+          "inherited_flags_ignored": true,
+          "modules": {
+            "NanodaDriver.rs": "7ad88264aab8189fba6587681372d2667c3978e076987eeb445f513d406050c4",
+            "NanodaFuel.rs": "aac1a2160ea09a10bd72ee956ffedc9d56cb6e123f88503d357dc6dde94d6504",
+            "NanodaMain.rs": "2dd5febbffb3fb38f064b91e3f588621b20cfa4b41cf8ff73ce1ef11efd0ebb1"
+          },
+          "own_patch_sha256": "524c3953efa0ace49ea332846fb32d29bad0e88f2d5247c025167ed5027e00c4",
+          "patch_sha256": "b4e67d150f5002932deca00fbd5b78ee23848fc6a9249a87dd7208b902905889",
+          "revision": "0f88b5f382f0f3f08aed4af0dd6c0e48c3fd7a44",
+          "rustc_sha256": "b829b733131d4e1673eeebd1f34d06ae1e9ff4977b051313cf42e2a9e79ecf1c",
+          "rustc_vV": "rustc 1.95.0 (59807616e 2026-04-14)\nbinary: rustc\ncommit-hash: 59807616e1fa2540724bfbac14d7976d7e4a3860\ncommit-date: 2026-04-14\nhost: aarch64-apple-darwin\nrelease: 1.95.0\nLLVM version: 22.1.2\n",
+          "source_build_path": "<build-root>/nanoda",
+          "sources": {
+            "src/debug_printer.rs": "184918c06946c0efcc57868e47098428bd1d98179725344ba81b1103eb940c81",
+            "src/env.rs": "52c1593f0e08c4e7b9b9f8a97e48bfdde1d449253bf0c3e4967321b46dbece01",
+            "src/expr.rs": "bac3d8d163313ed0952efb24df4c992325e9083f972dff5176121325962dea60",
+            "src/gate_driver.rs": "7ad88264aab8189fba6587681372d2667c3978e076987eeb445f513d406050c4",
+            "src/gate_fuel.rs": "aac1a2160ea09a10bd72ee956ffedc9d56cb6e123f88503d357dc6dde94d6504",
+            "src/inductive.rs": "cd27f1e06d5acf9654f06ab4dfd2855959aa0a3bf584702c229bdf0a2a61c761",
+            "src/level.rs": "9ea3063de2c43de53d2366e01b5a7ae2cd91c35b9dcee7cc976967acd84b40de",
+            "src/lib.rs": "499f7fa74457ef6f5eba7756bd91c5b2a93a9849bdef657ddf2c33ce03fce87a",
+            "src/main.rs": "2dd5febbffb3fb38f064b91e3f588621b20cfa4b41cf8ff73ce1ef11efd0ebb1",
+            "src/name.rs": "ab79614c6c5a1574035dcf44e70bdbbb1cf8ca1aa02d385dcdf9443df5ec9f93",
+            "src/parser.rs": "ff6b18c1b69a0319ad7579a72e12ae2e718e088a870adc2e3bc46e2d42535607",
+            "src/pretty_printer.rs": "9e45e1951d06d84631d0fee1fdcef60161a757abef53d428625257a0fbe6deb3",
+            "src/quot.rs": "5727b3f299721c629a24341c0729398caca0d05379f8a02730d535333833f629",
+            "src/tc.rs": "bf7469504ad154e2c8ae738f053a2329f5eabce45036a58c0e4d172243634e67",
+            "src/tests.rs": "8af730f36984da57fe8ef62818cf3d83c993ed44d1452abc028cc16fcf952f0e",
+            "src/tests/level.rs": "5d9c48216082dceab5e278f4121ec9176810d396d29846acb369b3cdc0a80a6f",
+            "src/tests/name.rs": "7dcb2127f912651f31d47d081f72b2a5cbd98f57d17569db4379733178ed1157",
+            "src/tests/natlit.rs": "4710e7daaf796cf32d95da75275d9c536e25ca4e7e43eb003d800e67c16bb2d7",
+            "src/tests/pretty_printer.rs": "eb93ca77fc48bd095ecfa2719ad8c5b1bf861d1c5bdce585e1b460de3eb301a4",
+            "src/tests/util.rs": "d14406a0882b4a86306afb732679087e8f8de6f4291bef0ce5c10538f9a76789",
+            "src/union_find.rs": "2728ab1d2dcd84489a6bb4fa984af22c40236bf813205e42a1c55ca825bdc757",
+            "src/unique_hasher.rs": "e457ec69139dee08c4f21f3fee5bc9a2cfe6bb14e5d5bd217ca35d6a368daea5",
+            "src/util.rs": "e32d888aefaec4e25403c7b586152c8fae7725458c24a2a0d3a50912cfd7b8f6"
+          },
+          "root_utf8_bytes": {
+            "<build-root>": 88,
+            "<cargo-registry>": 30
+          }
+        }
+      },
+      "lean_replay": {
+        "path": "comparator/.lake/build/bin/zk_replay",
+        "sha256": "afbf5935e870789fccc5df995ddefeaedbfdf148d50b11a90178f269d252e5df"
       }
     }
+  },
+  "trusted_exit_protocol": {
+    "version": 1,
+    "accept": 0,
+    "reject": 2,
+    "resource_cap": 3,
+    "tool_fault": 4,
+    "unavailable": 70,
+    "legacy_kernel_unavailable": 71,
+    "availability_precedence": "boundary, signal, wall/RSS, capture failure before driver codes; diagnostics never authority"
   }
 }

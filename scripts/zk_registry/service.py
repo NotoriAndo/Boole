@@ -38,7 +38,7 @@ UNSUPPORTED_SPEC = 'tracked tooling has no general reference-differential/mutant
 COMMIT_DOMAIN = 'boole-zk-registry-commit/v1'
 EVENT_DOMAIN = b'boole-zk-registry-event/v1\0'
 ZERO_HASH = '0' * 64
-SERVICE_SOURCES = ('service.py', 'service_check.py', 'catalog_v2.py', 'error_policy.py', 'data/error_policy_v1.json')
+SERVICE_SOURCES = ('service.py', 'service_check.py', 'catalog_v2.py', 'error_policy.py', 'data/error_policy_v1.json', 'data/error_policy_v2.json')
 
 
 class RegistryError(ValueError):
@@ -332,7 +332,7 @@ class Registry:
                            reveal_window=reveal_window, challenge_window=challenge_window,
                            submission_policy=dict(version=5, sha256=P.sha256_file(str(Path(__file__).parent / 'data/submission_policy_v5.json'))))
             if error_policy is not None:
-                payload['error_policy'] = (dict(version=1, rules_sha256=P.sha256_file(str(E.POLICY_PATH)))
+                payload['error_policy'] = (dict(version=E.RULES['version'], rules_sha256=P.sha256_file(str(E.POLICY_PATH)))
                                            if error_policy == 'current' else copy.deepcopy(error_policy))
                 payload['gate'] = registry.gate
                 registry._policy(payload)
@@ -457,12 +457,7 @@ class Registry:
         if descriptor is None:
             return None
         try:
-            raw = E.POLICY_PATH.read_bytes()
-            rules = json.loads(raw)
-            if (set(descriptor) != {'version', 'rules_sha256'} or descriptor['version'] != 1
-                    or rules['version'] != 1 or hashlib.sha256(raw).hexdigest() != descriptor['rules_sha256']
-                    or hashlib.sha256(raw).hexdigest() != E.RULES_SHA256):
-                raise ValueError('mismatch')
+            rules = E.load(descriptor)
         except (OSError, ValueError, KeyError, TypeError) as ex:
             raise RegistryError('error-policy-mismatch') from ex
         return rules
@@ -584,7 +579,7 @@ class Registry:
                         commit['status'] = 'REJECTED'
                     else:
                         commit['status'] = 'CHECKING'
-                        trigger = E.quarantine_trigger([row for row in commit['attempts'] if row.get('gate') == payload['gate']])
+                        trigger = E.quarantine_trigger([row for row in commit['attempts'] if row.get('gate') == payload['gate']], rules=rules)
                         if prior == 'QUARANTINED' or trigger:
                             commit['status'] = 'QUARANTINED'
                             if trigger:
@@ -755,17 +750,18 @@ class Registry:
         return envelope == 'escalated' or isinstance(envelope, dict) and envelope.get('wall_s') == 3600
 
     @staticmethod
-    def _resource_envelope(context):
+    def _resource_envelope(context, rules):
         envelope = context.get('envelope')
         if isinstance(envelope, dict):
             return {key:envelope.get(key) for key in ('wall_s','rss_mb','memory_max')}
-        return E.RULES.get(envelope) if envelope in ('standard','escalated') else None
+        return rules.get(envelope) if envelope in ('standard','escalated') else None
 
     def _execute(self, state, sequence, manifest, gate, context=None):
         verifier = self.verifier if gate == self.gate else self.gates.get(gate)
         if verifier is None:
             raise RegistryError('replay-gate-unavailable')
         commit = state['commits'][str(sequence)]
+        rules = self._policy(state) or E.RULES
         supplied = context is not None
         context = self._context(verifier, context)
         history = self._history(sequence)
@@ -776,25 +772,25 @@ class Registry:
         if hasattr(verifier, 'config'):
             from .service_check import ProductionVerifier
             config = copy.deepcopy(verifier.config)
-            profile = E.RULES['escalated' if self._escalated(context) else 'standard']
+            profile = rules['escalated' if self._escalated(context) else 'standard']
             config.update(profile, worker_id=context['worker'], host_id=context['host'],
                           canary=context.get('canary'), attempt_index=index)
-            verifier = ProductionVerifier(config)
+            verifier = ProductionVerifier(config, rules=rules)
         verdict = self._check(state, commit['problem'], manifest, verifier)
         if verdict['verdict'] == 'ERROR':
             observed = dict(context)
             observed.update(copy.deepcopy(verdict.get('attempt') or {}))
             mismatch = supplied and (any(observed.get(key) != context.get(key) for key in ('worker','host')) or
-                                     self._resource_envelope(observed) != self._resource_envelope(context))
+                                     self._resource_envelope(observed, rules) != self._resource_envelope(context, rules))
             observed.update(index=index, gate=gate, reason=verdict.get('reason', 'checker-unavailable'))
             observed.setdefault('stage', 'worker')
             observed.setdefault('detail', '')
             observed.setdefault('resource_events', [])
             observed.setdefault('evidence_sha256', digest(verdict))
-            observed['class'] = observed.get('class') or E.classify(observed['reason'], observed['stage'], observed['detail'])
+            observed['class'] = E.classify(observed['reason'], observed['stage'], observed['detail'], rules=rules)
             if mismatch or index > 1 and not self._healthy(observed):
                 observed['class'] = 'D-node'
-            if E.quarantine_trigger([row for row in commit.get('attempts', []) if row.get('gate') == gate]+[observed]) and observed['class'] == 'T':
+            if E.quarantine_trigger([row for row in commit.get('attempts', []) if row.get('gate') == gate]+[observed], rules=rules) and observed['class'] == 'T':
                 observed['class'] = 'I'
             verdict['attempt'] = observed
         self._attempt_record(dict(event='finish', sequence=sequence, index=index, time=self.clock(),
@@ -811,7 +807,7 @@ class Registry:
         for sequence, commit in state['commits'].items():
             attempts = commit.get('attempts', [])
             notices = []
-            if attempts:
+            if attempts and commit['status'] in ('CHECKING', 'QUARANTINED'):
                 notices.append(('checking', 'info'))
             if any(row['class'] == 'D-node' for row in attempts):
                 notices.append(('worker-unhealthy', 'page'))
@@ -1039,15 +1035,20 @@ class Registry:
                 context = self._context(verifier)
                 if not self._healthy(context):
                     raise RegistryError('replay-unavailable')
-                config.update({key:value for key,value in E.envelope(index+1,failures[0]).items()
+                config.update({key:value for key,value in E.envelope(index+1,failures[0],rules=rules).items()
                                if key in ('wall_s','rss_mb','memory_max')})
                 if index == 2 and failures[1].get('envelope') == 'escalated':
                     config.update(rules['standard'])
                 config['worker_id'] = context['worker']+'/replay-'+str(index+1)
-                selected = ProductionVerifier(config)
+                selected = ProductionVerifier(config, rules=rules)
             verdict = self._check(state, problem, manifest, selected)
-            if verdict['verdict'] == 'ERROR' and 'attempt' not in verdict:
-                verdict['attempt'] = dict(reason=verdict.get('reason'), stage='worker', **{'class':E.classify(verdict.get('reason'),'worker','')})
+            if verdict['verdict'] == 'ERROR':
+                attempt = dict(verdict.get('attempt') or {})
+                attempt['reason'] = verdict.get('reason', 'checker-unavailable')
+                attempt.setdefault('stage', 'worker')
+                attempt.setdefault('detail', '')
+                attempt['class'] = E.classify(attempt['reason'], attempt['stage'], attempt['detail'], rules=rules)
+                verdict['attempt'] = attempt
             if verdict['verdict'] != 'ERROR' or self._terminal(verdict, rules):
                 if logged['verdict'] == 'ERROR' and verdict['verdict'] == 'ERROR':
                     if verdict.get('reason') == logged.get('reason'):

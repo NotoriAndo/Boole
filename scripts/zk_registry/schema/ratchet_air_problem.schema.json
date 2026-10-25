@@ -26,6 +26,83 @@
   ],
   "additionalProperties": false,
   "properties": {
+    "fuel_cap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cap",
+        "sha256"
+      ],
+      "properties": {
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "cap": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "version",
+            "reference",
+            "problem",
+            "environment",
+            "statement",
+            "own_declarations",
+            "units"
+          ],
+          "properties": {
+            "version": {
+              "type": "integer",
+              "enum": [
+                1
+              ]
+            },
+            "reference": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "problem": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024,
+              "$comment": "maxLength counts Unicode code points; runtime binding additionally requires 1..1024 UTF-8 bytes."
+            },
+            "environment": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "statement": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "own_declarations": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "units": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "lean",
+                "nanoda"
+              ],
+              "properties": {
+                "lean": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 18446744073709551615
+                },
+                "nanoda": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 18446744073709551615
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "statement_closure_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$", "description": "Gate-owned semantic statement closure identity; null until compiled and bound."},
     "schema_version": {"const": "zk-registry-ratchet-air-problem/v1"},
     "kind": {"const": "ratchet"},

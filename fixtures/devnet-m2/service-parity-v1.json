@@ -4863,7 +4863,7 @@
     "generator_sha256": "85cee6d94380b84df1579c39ae622e3cbaec7fdc382b83b5d411f9035cf737c7",
     "python": "3.9.6",
     "source": "scripts/zk_registry/service.py",
-    "source_sha256": "2919ca0fef6692fd50b54d5e0b10b566780a6cf50e71d023d41f3f5b41dab3c0"
+    "source_sha256": "b360ee8b161a694ae4b913fed4151365ddfc485ad49720ffbc88c01b0e5aca34"
   },
   "schema": "boole-devnet-m2-service-parity-v1"
 }

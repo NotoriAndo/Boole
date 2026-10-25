@@ -16,6 +16,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 import signal
 import subprocess
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
@@ -215,6 +216,7 @@ class RunResult:
     messages: list | None = None
     message_summary: dict | None = None
     stderr: str = ""
+    tool_exit: int | None = None          # gate-owned driver protocol, not diagnostic text
 
 
 class ResourceUnavailable(RuntimeError):
@@ -334,18 +336,48 @@ def run_lean(env: LeanEnv, args: list[str], cwd: str, timeout: float, extra_lean
     rss = rss_limit_mb or _LIMITS["rss_mb"]
     task_env = process_env(env, extra_lean_path)
     command = [env.lean, '-j', '4'] + args
+    replay_driver = None
+    run_index = args.index('--run') + 1 if '--run' in args else len(args)
+    replay_source = os.path.join(os.path.dirname(__file__), 'lean', 'GateReplay.lean')
+    if run_index < len(args) and os.path.realpath(args[run_index]) == os.path.realpath(replay_source):
+        from . import artifact_pins
+        import platform
+        try:
+            tools = env.extra.get('acceptance_tools')
+            driver = os.path.realpath(getattr(tools, 'lean_replay', '') or env.extra.get('kernel_replay_driver', ''))
+            with open(os.path.join(os.path.dirname(__file__), 'data/acceptance_tools_v2.json')) as stream:
+                authority = json.load(stream)
+            pin = authority['binary_profiles'][platform.system() + '-' + platform.machine()]['lean_replay']
+            if artifact_pins.digest(driver) != pin['sha256'] or not os.access(driver, os.X_OK):
+                raise ValueError('kernel replay driver pin')
+            replay_driver = driver
+        except (OSError, ValueError, KeyError, TypeError):
+            return RunResult(70, '', 0, False, tool_exit=70)
+        command = [replay_driver, *args[run_index + 1:]]
+        task_env['LEAN_STACK_SIZE_KB'] = str(testnet_caps()['lean']['worker_stack_bytes'] // 1024)
+        task_env['LEAN_NAT_MAX_SIZE'] = str(testnet_caps()['lean']['literal_bytes'])
+    context = _SANDBOX.get()
+    typed_compile = context is not None and '--json' in args and '--run' not in args
+    driver = os.path.join(os.path.dirname(__file__), 'compile_support', 'compile_driver.py')
+    if typed_compile:
+        command = [sys.executable, '-I', '-B', driver, *command]
     context = _SANDBOX.get()
     runner = run_process
     if context is not None:
         sandbox, readable, writable, guarded = context
         runner = guarded or runner
         command = sandbox.command(command, task_env, [os.path.realpath(env.toolchain),
-                                  *(os.path.realpath(path) for path in env.lean_path), *readable],
+                                  *(os.path.realpath(path) for path in env.lean_path),
+                                  *([replay_driver] if replay_driver else []),
+                                  *([os.path.dirname(driver)] if typed_compile else []), *readable],
                                   [task_env['TMPDIR'], *writable], submission_controlled=submission_controlled)
     from . import bounded_capture as BC
     def execute():
-        if slots is None:return runner(command, task_env, cwd, timeout, rss)
-        with slots:return runner(command, task_env, cwd, timeout, rss)
+        if slots is None:result = runner(command, task_env, cwd, timeout, rss)
+        else:
+            with slots:result = runner(command, task_env, cwd, timeout, rss)
+        if typed_compile:result.tool_exit = result.rc
+        return result
     if BC.configured():return execute()
     from .sandbox import stage_kind
     sink = BC.MessageSink(retain_all=True) if stage_kind([env.lean, *args]) == 'compile' else BC.RawSink()

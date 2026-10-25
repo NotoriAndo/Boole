@@ -9,3 +9,6 @@
 CLAUDE.md
 AGENTS.md
 .claude/
+
+# Retired private measurement inputs, never publish.
+/fixtures/counter-identity-v1/

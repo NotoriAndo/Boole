@@ -1,0 +1,570 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 88b4389..f2b626c 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -93,0 +94 @@ dependencies = [
++ "libc",
+diff --git a/Cargo.toml b/Cargo.toml
+index 9866410..f69d99a 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -9,0 +10,2 @@ description = "A type checker for the Lean 4 programming language and theorem pr
++[workspace]
++
+@@ -24,0 +27 @@ num-bigint = { version = "0.5.1", features = ["rand_0_10", "serde"] }
++libc = "=0.2.180"
+@@ -37 +40 @@ path = "src/main.rs"
+-bench = false
+\ No newline at end of file
++bench = false
+diff --git a/src/expr.rs b/src/expr.rs
+index ec7883b..b35e829 100644
+--- a/src/expr.rs
++++ b/src/expr.rs
+@@ -174,0 +175 @@ impl<'t, 'p: 't> TcCtx<'t, 'p> {
++        let _gate_helper = self.fuel.helper();
+@@ -230,0 +232 @@ impl<'t, 'p: 't> TcCtx<'t, 'p> {
++        let _gate_helper = self.fuel.helper();
+@@ -286,0 +289 @@ impl<'t, 'p: 't> TcCtx<'t, 'p> {
++        let _gate_helper = self.fuel.helper();
+@@ -345,0 +349 @@ impl<'t, 'p: 't> TcCtx<'t, 'p> {
++        let _gate_helper = self.fuel.helper();
+@@ -403 +407 @@ impl<'t, 'p: 't> TcCtx<'t, 'p> {
+-        assert_eq!(self.read_levels(ks).len(), self.read_levels(vs).len());
++        crate::gate_assert_eq!(self.read_levels(ks).len(), self.read_levels(vs).len());
+@@ -713,0 +718 @@ impl<'t, 'p: 't> TcCtx<'t, 'p> {
++        let _gate_helper = self.fuel.helper();
+@@ -744,0 +750 @@ impl<'t, 'p: 't> TcCtx<'t, 'p> {
++        let _gate_helper = self.fuel.helper();
+diff --git a/src/inductive.rs b/src/inductive.rs
+index 6c2e56b..ad60235 100644
+--- a/src/inductive.rs
++++ b/src/inductive.rs
+@@ -9 +9 @@ impl<'t, 'p: 't> ExportFile<'p> {
+-        match self.declars.get(ind_name).unwrap() {
++        match self.declars.get(ind_name).unwrap_or_else(|| crate::gate_fuel::reject()) {
+@@ -13 +13 @@ impl<'t, 'p: 't> ExportFile<'p> {
+-                        match self.declars.get(ctor_name).unwrap() {
++                        match self.declars.get(ctor_name).unwrap_or_else(|| crate::gate_fuel::reject()) {
+@@ -23 +23 @@ impl<'t, 'p: 't> ExportFile<'p> {
+-                            _ => panic!("expected constructor")
++                            _ => crate::gate_reject!("expected constructor")
+@@ -30 +30 @@ impl<'t, 'p: 't> ExportFile<'p> {
+-            _ => panic!("Not an inductive declaration")
++            _ => crate::gate_reject!("Not an inductive declaration")
+@@ -40 +40 @@ impl<'t, 'p: 't> ExportFile<'p> {
+-                assert_eq!(ind.is_recursive, block_is_recursive);
++                crate::gate_assert_eq!(ind.is_recursive, block_is_recursive);
+@@ -43 +43 @@ impl<'t, 'p: 't> ExportFile<'p> {
+-                    assert!(!ctx.has_nested_pfx(ind.info.ty, nested_pfx));
++                    crate::gate_assert!(!ctx.has_nested_pfx(ind.info.ty, nested_pfx));
+@@ -45 +45 @@ impl<'t, 'p: 't> ExportFile<'p> {
+-                        match self.declars.get(ind_name).unwrap() {
++                        match self.declars.get(ind_name).unwrap_or_else(|| crate::gate_fuel::reject()) {
+@@ -47 +47 @@ impl<'t, 'p: 't> ExportFile<'p> {
+-                                assert!(!ctx.has_nested_pfx(ind_data.info.ty, nested_pfx))
++                                crate::gate_assert!(!ctx.has_nested_pfx(ind_data.info.ty, nested_pfx))
+@@ -49 +49 @@ impl<'t, 'p: 't> ExportFile<'p> {
+-                            _ => panic!("expected inductive declar")
++                            _ => crate::gate_reject!("expected inductive declar")
+@@ -54 +54 @@ impl<'t, 'p: 't> ExportFile<'p> {
+-                        match self.declars.get(ctor_name).unwrap() {
++                        match self.declars.get(ctor_name).unwrap_or_else(|| crate::gate_fuel::reject()) {
+@@ -56 +56 @@ impl<'t, 'p: 't> ExportFile<'p> {
+-                                assert!(!ctx.has_nested_pfx(ctor_data.info.ty, nested_pfx))
++                                crate::gate_assert!(!ctx.has_nested_pfx(ctor_data.info.ty, nested_pfx))
+@@ -58 +58 @@ impl<'t, 'p: 't> ExportFile<'p> {
+-                            _ => panic!("expected constructor")
++                            _ => crate::gate_reject!("expected constructor")
+@@ -66 +66 @@ impl<'t, 'p: 't> ExportFile<'p> {
+-            _ => panic!("expected inductive")
++            _ => crate::gate_reject!("expected inductive")
+@@ -163 +163 @@ impl<'t, 'p: 't> TcCtx<'t, 'p> {
+-            panic!(
++            crate::gate_reject!(
+@@ -365 +365 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-            assert!(!self.ctx.read_expr(ind.ty).has_fvars());
++            crate::gate_assert!(!self.ctx.read_expr(ind.ty).has_fvars());
+@@ -367 +367 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-                assert!(!self.ctx.read_expr(c.ty).has_fvars());
++                crate::gate_assert!(!self.ctx.read_expr(c.ty).has_fvars());
+@@ -399 +399 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-                assert!(!self.ctx.read_expr(replaced_ctor_w_params).has_fvars());
++                crate::gate_assert!(!self.ctx.read_expr(replaced_ctor_w_params).has_fvars());
+@@ -410 +410 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-                None => panic!("inductive type {} is missing", i),
++                None => crate::gate_reject!("inductive type {} is missing", i),
+@@ -438 +438 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-                _ => panic!("exhausted telescope early"),
++                _ => crate::gate_reject!("exhausted telescope early"),
+@@ -461 +461 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-                    _ => panic!(),
++                    _ => crate::gate_reject!(),
+@@ -504 +504 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-        assert!(self.ctx.eq_antisymm(codom_level, st.block_codom.unwrap()));
++        crate::gate_assert!(self.ctx.eq_antisymm(codom_level, st.block_codom.unwrap()));
+@@ -556 +556 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-            panic!("nested types cannot contain locals (loose bvars found)")
++            crate::gate_reject!("nested types cannot contain locals (loose bvars found)")
+@@ -568 +568 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-                out.push(header_of_ctor(self.env.get_constructor(ctor_name).unwrap()));
++                out.push(header_of_ctor(self.env.get_constructor(ctor_name).unwrap_or_else(|| crate::gate_fuel::reject())));
+@@ -582 +582 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-            let t = self.env.get_inductive(n).unwrap();
++            let t = self.env.get_inductive(n).unwrap_or_else(|| crate::gate_fuel::reject());
+@@ -623 +623 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-        assert!(nested_container_ty.num_params as usize <= args.len());
++        crate::gate_assert!(nested_container_ty.num_params as usize <= args.len());
+@@ -765 +765 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-                        panic!("non-positive occurrence");
++                        crate::gate_reject!("non-positive occurrence");
+@@ -773 +773 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-                    assert!(self.which_valid_ind_app(st, ctor_type_cursor).is_some());
++                    crate::gate_assert!(self.which_valid_ind_app(st, ctor_type_cursor).is_some());
+@@ -801 +801 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-                _ => panic!(),
++                _ => crate::gate_reject!(),
+@@ -845 +845 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-                _ => panic!(),
++                _ => crate::gate_reject!(),
+@@ -872 +872 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-                _ => panic!(),
++                _ => crate::gate_reject!(),
+@@ -895 +895 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-                _ => panic!(),
++                _ => crate::gate_reject!(),
+@@ -905 +905 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-                panic!("Constructor argument was too large for the corresponding inductive type")
++                crate::gate_reject!("Constructor argument was too large for the corresponding inductive type")
+@@ -915 +915 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-        assert!(self.is_valid_ind_app(st, parent_ind_name, ctor_type_cursor))
++        crate::gate_assert!(self.is_valid_ind_app(st, parent_ind_name, ctor_type_cursor))
+@@ -979 +979 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-            [] => panic!("inductive declaration with no types declared"),
++            [] => crate::gate_reject!("inductive declaration with no types declared"),
+@@ -1118 +1118 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-                _ => panic!(),
++                _ => crate::gate_reject!(),
+@@ -1276 +1276 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-                    assert!(old.aux_data_ck(new));
++                    crate::gate_assert!(old.aux_data_ck(new));
+@@ -1281 +1281 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-                _ => panic!(),
++                _ => crate::gate_reject!(),
+@@ -1292 +1292 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-                        assert!(old.aux_data_ck(new));
++                        crate::gate_assert!(old.aux_data_ck(new));
+@@ -1297 +1297 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-                    _ => panic!(),
++                    _ => crate::gate_reject!(),
+@@ -1315,2 +1315,2 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-        assert_eq!(imported_rr.ctor_name, constructed_rr.ctor_name);
+-        assert_eq!(imported_rr.ctor_telescope_size_wo_params, constructed_rr.ctor_telescope_size_wo_params);
++        crate::gate_assert_eq!(imported_rr.ctor_name, constructed_rr.ctor_name);
++        crate::gate_assert_eq!(imported_rr.ctor_telescope_size_wo_params, constructed_rr.ctor_telescope_size_wo_params);
+@@ -1330 +1330 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-                    assert!(old_r.aux_data_ck(new_r));
++                    crate::gate_assert!(old_r.aux_data_ck(new_r));
+@@ -1336 +1336 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-                    assert_eq!(old_rec_rules.len(), new_rec_rules.len());
++                    crate::gate_assert_eq!(old_rec_rules.len(), new_rec_rules.len());
+@@ -1341 +1341 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-                _ => panic!("Expected (Declar::Recursor, Declar::Recursor)"),
++                _ => crate::gate_reject!("Expected (Declar::Recursor, Declar::Recursor)"),
+@@ -1430 +1430 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-        let InductiveData { all_ind_names, .. } = self.env.get_inductive(&main_ind_ty_name).unwrap();
++        let InductiveData { all_ind_names, .. } = self.env.get_inductive(&main_ind_ty_name).unwrap_or_else(|| crate::gate_fuel::reject());
+@@ -1627 +1627 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-                _ => panic!(),
++                _ => crate::gate_reject!(),
+@@ -1687 +1687 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-                assert!(original.aux_data_ck(&restored));
++                crate::gate_assert!(original.aux_data_ck(&restored));
+@@ -1691 +1691 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-                assert_eq!(original.rec_rules.len(), restored.rec_rules.len());
++                crate::gate_assert_eq!(original.rec_rules.len(), restored.rec_rules.len());
+@@ -1695 +1695 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-                    assert_eq!(old.ctor_name, new.ctor_name);
++                    crate::gate_assert_eq!(old.ctor_name, new.ctor_name);
+@@ -1735,2 +1735,2 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-        let new_ctor @ ConstructorData { .. } = self.env.get_constructor(&old_ctor.info.name).unwrap();
+-        assert!(old_ctor.aux_data_ck(&new_ctor));
++        let new_ctor @ ConstructorData { .. } = self.env.get_constructor(&old_ctor.info.name).unwrap_or_else(|| crate::gate_fuel::reject());
++        crate::gate_assert!(old_ctor.aux_data_ck(&new_ctor));
+@@ -1756 +1756 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-                    assert!(old.aux_data_ck(new));
++                    crate::gate_assert!(old.aux_data_ck(new));
+@@ -1761 +1761 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-                _ => panic!(),
++                _ => crate::gate_reject!(),
+@@ -1767 +1767 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-                    _ => panic!(),
++                    _ => crate::gate_reject!(),
+@@ -1774,0 +1775,22 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
++
++#[cfg(test)]
++mod gate_semantic_tests {
++    use super::*;
++    #[test]
++    fn gate_nonpositive_generated_argument_is_a_typed_reject() {
++        let export=crate::gate_driver::gate_tests::generated_export(0);
++        let result=std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
++            export.with_tc(crate::env::EnvLimit::Empty,|tc| {
++                let levels=tc.ctx.alloc_levels_slice(&[]);
++                let name=tc.ctx.str1("GeneratedInductive");
++                let ind=tc.ctx.mk_const(name,levels);
++                let body=tc.ctx.prop();
++                let cursor=tc.ctx.mk_pi(name,crate::expr::BinderStyle::Default,ind,body);
++                let mut state=InductiveCheckState::new(levels,0,Vec::new(),Vec::new());
++                state.ind_consts.push(ind);
++                tc.check_positivity1(&state,cursor);
++            });
++        }));
++        assert_eq!(result.unwrap_err().downcast_ref::<crate::gate_fuel::Stop>(),Some(&crate::gate_fuel::Stop::Reject));
++    }
++}
+diff --git a/src/level.rs b/src/level.rs
+index 870f9df..2dfc023 100644
+--- a/src/level.rs
++++ b/src/level.rs
+@@ -43,0 +44 @@ impl<'t, 'p: 't> TcCtx<'t, 'p> {
++        let _gate_helper = self.fuel.helper();
+@@ -55,0 +57 @@ impl<'t, 'p: 't> TcCtx<'t, 'p> {
++        let _gate_helper = self.fuel.helper();
+@@ -101,0 +104 @@ impl<'t, 'p: 't> TcCtx<'t, 'p> {
++        let _gate_helper = self.fuel.helper();
+@@ -176,0 +180 @@ impl<'t, 'p: 't> TcCtx<'t, 'p> {
++        let _gate_helper = self.fuel.helper();
+@@ -229,0 +234 @@ impl<'t, 'p: 't> TcCtx<'t, 'p> {
++        let _gate_helper = self.fuel.helper();
+diff --git a/src/lib.rs b/src/lib.rs
+index f7ca1d9..3c4aa6f 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -23 +23,5 @@ pub mod util;
+-pub(crate) const STACK_SIZE: usize = 16_777_216;
++pub(crate) const STACK_SIZE: usize = 67_108_864;
++
++pub mod gate_fuel;
++
++pub mod gate_driver;
+diff --git a/src/name.rs b/src/name.rs
+index 3fa8e98..704dd0b 100644
+--- a/src/name.rs
++++ b/src/name.rs
+@@ -46,0 +47 @@ impl<'x, 't: 'x, 'p: 't> TcCtx<'t, 'p> {
++        let _gate_helper = self.fuel.helper();
+diff --git a/src/parser.rs b/src/parser.rs
+index 224074c..fd963c9 100644
+--- a/src/parser.rs
++++ b/src/parser.rs
+@@ -418,0 +419 @@ pub(crate) fn parse_export_file<'p, R: BufRead>(
++    if let Some(limits) = parser.config.gate_limits { crate::gate_driver::preflight_dag(&parser.dag, limits); }
+@@ -429 +430 @@ pub(crate) fn parse_export_file<'p, R: BufRead>(
+-                        assert!(all_ctor_names.contains(&info.name))
++                        crate::gate_assert!(all_ctor_names.contains(&info.name))
+@@ -431 +432 @@ pub(crate) fn parse_export_file<'p, R: BufRead>(
+-                    _ => panic!("failed to find inductive {:?}", parser.name_to_string(*inductive_name))
++                    _ => crate::gate_reject!("failed to find inductive {:?}", parser.name_to_string(*inductive_name))
+@@ -766 +767 @@ impl<'a, R: BufRead> Parser<'a, R> {
+-                assert!(!is_unsafe);
++                crate::gate_assert!(!is_unsafe);
+@@ -773 +774 @@ impl<'a, R: BufRead> Parser<'a, R> {
+-                    assert!(self.declars.insert(name, axiom).is_none());
++                    crate::gate_assert!(self.declars.insert(name, axiom).is_none());
+@@ -777 +778 @@ impl<'a, R: BufRead> Parser<'a, R> {
+-                        return Err(Box::from(format!("export file declares unpermitted axiom {:?}", name_string)))
++                        crate::gate_fuel::reject()
+@@ -784 +785 @@ impl<'a, R: BufRead> Parser<'a, R> {
+-                assert!(!matches!(safety, DefinitionSafety::Unsafe | DefinitionSafety::Partial));
++                crate::gate_assert!(!matches!(safety, DefinitionSafety::Unsafe | DefinitionSafety::Partial));
+@@ -791 +792 @@ impl<'a, R: BufRead> Parser<'a, R> {
+-                assert!(self.declars.insert(name, definition).is_none());
++                crate::gate_assert!(self.declars.insert(name, definition).is_none());
+@@ -800 +801 @@ impl<'a, R: BufRead> Parser<'a, R> {
+-                assert!(self.declars.insert(name, theorem).is_none());
++                crate::gate_assert!(self.declars.insert(name, theorem).is_none());
+@@ -803 +804 @@ impl<'a, R: BufRead> Parser<'a, R> {
+-                assert!(!is_unsafe);
++                crate::gate_assert!(!is_unsafe);
+@@ -810 +811 @@ impl<'a, R: BufRead> Parser<'a, R> {
+-                assert!(self.declars.insert(name, definition).is_none());
++                crate::gate_assert!(self.declars.insert(name, definition).is_none());
+@@ -818 +819 @@ impl<'a, R: BufRead> Parser<'a, R> {
+-                assert!(self.declars.insert(name, quot).is_none());
++                crate::gate_assert!(self.declars.insert(name, quot).is_none());
+@@ -824 +825 @@ impl<'a, R: BufRead> Parser<'a, R> {
+-                    assert!(!is_unsafe);
++                    crate::gate_assert!(!is_unsafe);
+@@ -840 +841 @@ impl<'a, R: BufRead> Parser<'a, R> {
+-                    assert!(self.declars.insert(name, inductive).is_none());
++                    crate::gate_assert!(self.declars.insert(name, inductive).is_none());
+@@ -843 +844 @@ impl<'a, R: BufRead> Parser<'a, R> {
+-                    assert!(!is_unsafe);
++                    crate::gate_assert!(!is_unsafe);
+@@ -857 +858 @@ impl<'a, R: BufRead> Parser<'a, R> {
+-                    assert!(self.declars.insert(name, ctor).is_none());
++                    crate::gate_assert!(self.declars.insert(name, ctor).is_none());
+@@ -860 +861 @@ impl<'a, R: BufRead> Parser<'a, R> {
+-                    assert!(!is_unsafe);
++                    crate::gate_assert!(!is_unsafe);
+@@ -883 +884 @@ impl<'a, R: BufRead> Parser<'a, R> {
+-                    assert!(self.declars.insert(name, recursor).is_none())
++                    crate::gate_assert!(self.declars.insert(name, recursor).is_none())
+@@ -969,0 +971 @@ where D: Deserializer<'de> {
++            if v.len() > 4096 * 3 { std::panic::panic_any(crate::gate_fuel::Stop::Cap); }
+diff --git a/src/quot.rs b/src/quot.rs
+index 991b480..60b28e2 100644
+--- a/src/quot.rs
++++ b/src/quot.rs
+@@ -79,2 +79,2 @@ pub fn check_eq<'x, 't: 'x, 'p: 't>(ctx: &'x mut TcCtx<'t, 'p>, declar: &Declar<
+-            assert_eq!(ctx.read_levels(info.uparams).len(), 1);
+-            assert_eq!(num_params, 2);
++            crate::gate_assert_eq!(ctx.read_levels(info.uparams).len(), 1);
++            crate::gate_assert_eq!(num_params, 2);
+@@ -83 +83 @@ pub fn check_eq<'x, 't: 'x, 'p: 't>(ctx: &'x mut TcCtx<'t, 'p>, declar: &Declar<
+-                owise => panic!("Bad `Eq` type; inductive `Eq` is expected to have 1 uparam, found {}", owise.len()),
++                owise => crate::gate_reject!("Bad `Eq` type; inductive `Eq` is expected to have 1 uparam, found {}", owise.len()),
+@@ -92 +92 @@ pub fn check_eq<'x, 't: 'x, 'p: 't>(ctx: &'x mut TcCtx<'t, 'p>, declar: &Declar<
+-                    assert_eq!(cname, ctor_name);
++                    crate::gate_assert_eq!(cname, ctor_name);
+@@ -97 +97 @@ pub fn check_eq<'x, 't: 'x, 'p: 't>(ctx: &'x mut TcCtx<'t, 'p>, declar: &Declar<
+-                                _ => panic!(),
++                                _ => crate::gate_reject!(),
+@@ -107 +107 @@ pub fn check_eq<'x, 't: 'x, 'p: 't>(ctx: &'x mut TcCtx<'t, 'p>, declar: &Declar<
+-                        None => panic!(
++                        None => crate::gate_reject!(
+@@ -112 +112 @@ pub fn check_eq<'x, 't: 'x, 'p: 't>(ctx: &'x mut TcCtx<'t, 'p>, declar: &Declar<
+-                owise => panic!(
++                owise => crate::gate_reject!(
+@@ -118 +118 @@ pub fn check_eq<'x, 't: 'x, 'p: 't>(ctx: &'x mut TcCtx<'t, 'p>, declar: &Declar<
+-        None => panic!("cannot add Quot; improperly formed `Eq` type := {:?} ", ctx.debug_print(declar.info().name)),
++        None => crate::gate_reject!("cannot add Quot; improperly formed `Eq` type := {:?} ", ctx.debug_print(declar.info().name)),
+@@ -137,2 +137,2 @@ pub fn check_quot<'x, 't: 'x, 'p: 't>(ctx: &'x mut TcCtx<'t, 'p>, declar: &Decla
+-    let quot_name = ctx.export_file.name_cache.quot.unwrap();
+-    let quot_mk_name = ctx.export_file.name_cache.quot_mk.unwrap();
++    let quot_name = ctx.export_file.name_cache.quot.unwrap_or_else(|| crate::gate_fuel::reject());
++    let quot_mk_name = ctx.export_file.name_cache.quot_mk.unwrap_or_else(|| crate::gate_fuel::reject());
+@@ -272 +272,17 @@ pub fn check_quot<'x, 't: 'x, 'p: 't>(ctx: &'x mut TcCtx<'t, 'p>, declar: &Decla
+-        panic!("invalid quotient declaration {:?}", ctx.debug_print(declar.info().name))
++        crate::gate_reject!("invalid quotient declaration {:?}", ctx.debug_print(declar.info().name))
++    }
++}
++
++#[cfg(test)]
++mod gate_semantic_tests {
++    #[test]
++    fn gate_quotient_prerequisite_rejection_is_typed() {
++        let export=crate::gate_driver::gate_tests::generated_export(1);
++        let result=std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
++            export.with_ctx(|ctx| {
++                let info=*export.declars.get_index(0).unwrap().1.info();
++                let declaration=crate::env::Declar::Quot {info};
++                super::check_eq(ctx,&declaration);
++            });
++        }));
++        assert_eq!(result.unwrap_err().downcast_ref::<crate::gate_fuel::Stop>(),Some(&crate::gate_fuel::Stop::Reject));
+diff --git a/src/tc.rs b/src/tc.rs
+index c51c7c4..5bbf3dd 100644
+--- a/src/tc.rs
++++ b/src/tc.rs
+@@ -85 +85 @@ impl<'p> ExportFile<'p> {
+-            Axiom { .. } => self.with_tc_and_declar(*d.info(), |tc| tc.check_declar_info(d).unwrap()),
++            Axiom { .. } => self.with_tc_and_declar(*d.info(), |tc| tc.check_declar_info(d).unwrap_or_else(|_| crate::gate_fuel::reject())),
+@@ -90 +90 @@ impl<'p> ExportFile<'p> {
+-                    tc.check_declar_info(d).unwrap();
++                    tc.check_declar_info(d).unwrap_or_else(|_| crate::gate_fuel::reject());
+@@ -95,2 +95,2 @@ impl<'p> ExportFile<'p> {
+-                self.with_tc_and_declar(*d.info(), |tc| tc.check_declar_info(d).unwrap());
+-                assert!(self.declars.get(&ctor_data.inductive_name).is_some());
++                self.with_tc_and_declar(*d.info(), |tc| tc.check_declar_info(d).unwrap_or_else(|_| crate::gate_fuel::reject()));
++                crate::gate_assert!(self.declars.get(&ctor_data.inductive_name).is_some());
+@@ -99 +99 @@ impl<'p> ExportFile<'p> {
+-                self.with_tc_and_declar(*d.info(), |tc| tc.check_declar_info(d).unwrap());
++                self.with_tc_and_declar(*d.info(), |tc| tc.check_declar_info(d).unwrap_or_else(|_| crate::gate_fuel::reject()));
+@@ -102 +102 @@ impl<'p> ExportFile<'p> {
+-                        panic!("Recursors must be derived from an associated inductive type, but recursor {:?} had none", ctx.debug_print(recursor_data.info.name))
++                        crate::gate_reject!("Recursors must be derived from an associated inductive type, but recursor {:?} had none", ctx.debug_print(recursor_data.info.name))
+@@ -106 +106 @@ impl<'p> ExportFile<'p> {
+-                            panic!("Recursors must be derived from an associated inductive declaration. Inductive declaration {:?} does not exist", ctx.debug_print(*ind_name))
++                            crate::gate_reject!("Recursors must be derived from an associated inductive declaration. Inductive declaration {:?} does not exist", ctx.debug_print(*ind_name))
+@@ -110 +110 @@ impl<'p> ExportFile<'p> {
+-                            panic!("Recursors must be derived from an associated inductive type. Declaration {:?} is not an inductive type", ctx.debug_print(*ind_name))
++                            crate::gate_reject!("Recursors must be derived from an associated inductive type. Declaration {:?} is not an inductive type", ctx.debug_print(*ind_name))
+@@ -118 +118 @@ impl<'p> ExportFile<'p> {
+-                            panic!(
++                            crate::gate_reject!(
+@@ -126 +126 @@ impl<'p> ExportFile<'p> {
+-                                panic!(
++                                crate::gate_reject!(
+@@ -201,2 +201,2 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-        assert!(self.ctx.no_dupes_all_params(info.uparams));
+-        assert!(!self.ctx.has_fvars(info.ty));
++        crate::gate_assert!(self.ctx.no_dupes_all_params(info.uparams));
++        crate::gate_assert!(!self.ctx.has_fvars(info.ty));
+@@ -225 +225 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-                    assert!(self.ctx.all_uparams_defined(c_uparam, this_declar_info.uparams))
++                    crate::gate_assert!(self.ctx.all_uparams_defined(c_uparam, this_declar_info.uparams))
+@@ -230 +230 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-            panic!("declaration not found in infer_const, {:?}", self.ctx.debug_print(c_name))
++            crate::gate_reject!("declaration not found in infer_const, {:?}", self.ctx.debug_print(c_name))
+@@ -255 +255 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-        let ConstructorData { num_params, num_fields, .. } = self.env.get_constructor(&ctor_name0).unwrap();
++        let ConstructorData { num_params, num_fields, .. } = self.env.get_constructor(&ctor_name0).unwrap_or_else(|| crate::gate_fuel::reject());
+@@ -285 +285 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-            _ => panic!("ensur_sort could not produce a sort"),
++            _ => crate::gate_reject!("ensur_sort could not produce a sort"),
+@@ -296 +296 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-            _ => panic!("ensure_pi could not produce a pi"),
++            _ => crate::gate_reject!("ensure_pi could not produce a pi"),
+@@ -304 +304 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-            _ => panic!("infer_sort_of could not infer a sort"),
++            _ => crate::gate_reject!("infer_sort_of could not infer a sort"),
+@@ -373,0 +374,12 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
++        let literal_bits = self.ctx.export_file.config.gate_limits.map_or(32768, |limits| limits.literal_bytes * 8);
++        if arg1.bits() > literal_bits || arg2.bits() > literal_bits { std::panic::panic_any(crate::gate_fuel::Stop::Cap); }
++        // Bound predicted intermediate size before any arithmetic allocation.
++        use num_traits::ToPrimitive;
++        let predicted = match op {
++            Add => arg1.bits().max(arg2.bits()).saturating_add(1),
++            Mul => arg1.bits().saturating_add(arg2.bits()),
++            Pow if arg1 > num_bigint::BigUint::from(1u8) => arg2.to_u64().and_then(|power| arg1.bits().checked_mul(power)).unwrap_or(u64::MAX),
++            Shl => arg2.to_u64().and_then(|shift| arg1.bits().checked_add(shift)).unwrap_or(u64::MAX),
++            _ => 0,
++        };
++        if predicted > literal_bits { std::panic::panic_any(crate::gate_fuel::Stop::Cap); }
+@@ -492 +504 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-            self.env.get_structure(&struct_ty_name, true).unwrap();
++            self.env.get_structure(&struct_ty_name, true).unwrap_or_else(|| crate::gate_fuel::reject());
+@@ -494 +506 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-        let ConstructorData { info: ctor_info, .. } = self.env.get_constructor(&all_ctor_names[0]).unwrap();
++        let ConstructorData { info: ctor_info, .. } = self.env.get_constructor(&all_ctor_names[0]).unwrap_or_else(|| crate::gate_fuel::reject());
+@@ -502 +514 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-                _ => panic!("Ran out of param telescope"),
++                _ => crate::gate_reject!("Ran out of param telescope"),
+@@ -511 +523 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-                          panic!("infer_proj prop")
++                          crate::gate_reject!("infer_proj prop")
+@@ -519 +531 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-                _ => panic!("Ran out of constructor telescope"),
++                _ => crate::gate_reject!("Ran out of constructor telescope"),
+@@ -526 +538 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-                    panic!("infer_proj prop")
++                    crate::gate_reject!("infer_proj prop")
+@@ -530 +542 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-            _ => panic!("Ran out of constructor telescope getting field"),
++            _ => crate::gate_reject!("Ran out of constructor telescope getting field"),
+@@ -534,0 +547 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
++        let _gate_probe = self.ctx.fuel.enter(0);
+@@ -545 +558 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-            Var { .. } => panic!("no loose bvars allowed in infer"),
++            Var { .. } => crate::gate_reject!("no loose bvars allowed in infer"),
+@@ -575 +588 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-            assert!(self.ctx.all_uparams_defined(l, declar_info.uparams))
++            crate::gate_assert!(self.ctx.all_uparams_defined(l, declar_info.uparams))
+@@ -614 +627 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-                        _ => panic!(),
++                        _ => crate::gate_reject!(),
+@@ -670 +683 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-                _ => panic!(),
++                _ => crate::gate_reject!(),
+@@ -750 +763 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-                    _ => panic!()
++                    _ => crate::gate_reject!()
+@@ -765 +778 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-                    _ => panic!()
++                    _ => crate::gate_reject!()
+@@ -785,0 +799 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
++        let _gate_probe = self.ctx.fuel.enter(1);
+@@ -856 +870 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-            Var { .. } => panic!("Loose bvars are not allowed"),
++            Var { .. } => crate::gate_reject!("Loose bvars are not allowed"),
+@@ -976 +990 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-    pub fn assert_def_eq(&mut self, u: ExprPtr<'t>, v: ExprPtr<'t>) { assert!(self.def_eq(u, v)) }
++    pub fn assert_def_eq(&mut self, u: ExprPtr<'t>, v: ExprPtr<'t>) { if !self.def_eq(u, v) { std::panic::panic_any(crate::gate_fuel::Stop::Reject); } }
+@@ -978,0 +993 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
++        let _gate_probe = self.ctx.fuel.enter(2);
+@@ -1153 +1168 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-            _ => panic!("Quot iota"),
++            _ => crate::gate_reject!("Quot iota"),
+@@ -1259 +1274 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-                    _ => panic!(),
++                    _ => crate::gate_reject!(),
+@@ -1341 +1356 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-            _ => panic!("expected a sort")
++            _ => crate::gate_reject!("expected a sort")
+@@ -1349 +1364 @@ impl<'x, 't: 'x, 'p: 't> TypeChecker<'x, 't, 'p> {
+-            _ => panic!("expected a sort")
++            _ => crate::gate_reject!("expected a sort")
+diff --git a/src/tests/util.rs b/src/tests/util.rs
+index 3dcec10..f067d33 100644
+--- a/src/tests/util.rs
++++ b/src/tests/util.rs
+@@ -17,0 +18 @@ pub(crate) fn test_get_export_file<'p>(config_path: Option<&Path>) -> Result<(Ex
++            gate_limits: None,
+diff --git a/src/util.rs b/src/util.rs
+index a251636..396320f 100644
+--- a/src/util.rs
++++ b/src/util.rs
+@@ -10 +10 @@ use num_bigint::BigUint;
+-use num_traits::{ Pow, identities::Zero };
++use num_traits::identities::Zero;
+@@ -161 +161 @@ pub(crate) fn nat_shl(x: BigUint, y: BigUint) -> BigUint {
+-    x * BigUint::from(2u8).pow(y)
++    { use num_traits::ToPrimitive; x << y.to_usize().unwrap_or_else(|| std::panic::panic_any(crate::gate_fuel::Stop::Cap)) }
+@@ -165 +165 @@ pub(crate) fn nat_shr(x: BigUint, y: BigUint) -> BigUint {
+-    x / BigUint::from(2u8).pow(y)
++    { use num_traits::ToPrimitive; if y >= BigUint::from(x.bits()) { BigUint::zero() } else { x >> y.to_usize().unwrap() } }
+@@ -223,0 +224 @@ impl<'p> ExportFile<'p> {
++        crate::gate_fuel::with_state(|fuel| {
+@@ -225 +226 @@ impl<'p> ExportFile<'p> {
+-        let mut ctx = TcCtx::new(self, &mut dag);
++        let mut ctx = TcCtx::new(self, &mut dag, fuel);
+@@ -226,0 +228 @@ impl<'p> ExportFile<'p> {
++        })
+@@ -231,0 +234 @@ impl<'p> ExportFile<'p> {
++        crate::gate_fuel::with_state(|fuel| {
+@@ -233 +236 @@ impl<'p> ExportFile<'p> {
+-        let mut ctx = TcCtx::new(self, &mut dag);
++        let mut ctx = TcCtx::new(self, &mut dag, fuel);
+@@ -236,0 +240 @@ impl<'p> ExportFile<'p> {
++        })
+@@ -241,0 +246 @@ impl<'p> ExportFile<'p> {
++        crate::gate_fuel::with_state(|fuel| {
+@@ -243 +248 @@ impl<'p> ExportFile<'p> {
+-        let mut ctx = TcCtx::new(self, &mut dag);
++        let mut ctx = TcCtx::new(self, &mut dag, fuel);
+@@ -246,0 +252 @@ impl<'p> ExportFile<'p> {
++        })
+@@ -257,0 +264 @@ pub struct TcCtx<'t, 'p> {
++    pub(crate) fuel: &'t crate::gate_fuel::State,
+@@ -279 +286 @@ impl<'t, 'p: 't> TcCtx<'t, 'p> {
+-    pub fn new(export_file: &'t ExportFile<'p>, tdag: &'t mut LeanDag<'t>) -> Self {
++    pub fn new(export_file: &'t ExportFile<'p>, tdag: &'t mut LeanDag<'t>, fuel: &'t crate::gate_fuel::State) -> Self {
+@@ -280,0 +288 @@ impl<'t, 'p: 't> TcCtx<'t, 'p> {
++            fuel,
+@@ -312,0 +321 @@ impl<'t, 'p: 't> TcCtx<'t, 'p> {
++        self.fuel.event(0, 1);
+@@ -324,0 +334 @@ impl<'t, 'p: 't> TcCtx<'t, 'p> {
++        self.fuel.event(1, 1);
+@@ -336,0 +347 @@ impl<'t, 'p: 't> TcCtx<'t, 'p> {
++        self.fuel.event(2, 1);
+@@ -372,0 +384 @@ impl<'t, 'p: 't> TcCtx<'t, 'p> {
++        self.fuel.event(3, 1);
+@@ -383,0 +396 @@ impl<'t, 'p: 't> TcCtx<'t, 'p> {
++        self.fuel.event(3, 1);
+@@ -394,0 +408 @@ impl<'t, 'p: 't> TcCtx<'t, 'p> {
++        self.fuel.event(3, 1);
+@@ -405,0 +420,2 @@ impl<'t, 'p: 't> TcCtx<'t, 'p> {
++        self.fuel.bound_literal(s.len() as u64);
++        self.fuel.event(4, 1+(s.len() as u64).div_ceil(8));
+@@ -418,0 +435,2 @@ impl<'t, 'p: 't> TcCtx<'t, 'p> {
++        self.fuel.bound_literal(n.bits().div_ceil(8));
++        self.fuel.event(5, 1+n.bits().div_ceil(64));
+@@ -429,0 +448 @@ impl<'t, 'p: 't> TcCtx<'t, 'p> {
++        self.fuel.event(6, 1+ls.len() as u64);
+@@ -439,0 +459 @@ impl<'t, 'p: 't> TcCtx<'t, 'p> {
++        self.fuel.event(6, 1+ls.len() as u64);
+@@ -872,0 +893,2 @@ pub struct Config {
++    #[serde(default)]
++    pub gate_limits: Option<crate::gate_fuel::Limits>,

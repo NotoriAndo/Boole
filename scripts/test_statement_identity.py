@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+import subprocess
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).parent))
@@ -33,6 +34,33 @@ def fixture(body=1):
 
 
 class ClosureIdentity(unittest.TestCase):
+    def test_worker_caps_faults_and_missing_node_inputs_keep_their_roles(self):
+        from zk_registry import closure as D,error_policy as E,bounded_capture as B
+        self.assertEqual((I.MAX_RECORDS,I.MAX_BYTES),(B.caps()['export_records'],B.caps()['export_bytes']))
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);cap=root/'cap';bad=root/'bad';bad.write_text('{}\n')
+            with cap.open('wb') as stream:stream.truncate(I.MAX_BYTES+1)
+            for role in ('submission','reference'):
+                for path,code,reason in [(cap,3,'resource-cap'),(bad,4,'tool-fault:identity'),(root/'absent',70,None)]:
+                    with self.subTest(role=role,code=code):
+                        result=D.statement_identity(str(path),'goal',str(root/(role+str(code))),5,input_role=role)
+                        self.assertEqual(result['rc'],code)
+                        if code==70:
+                            self.assertEqual((result['verdict'],result['reason']),('ERROR','statement-identity-unavailable'))
+                        elif role=='submission':
+                            self.assertEqual((result['verdict'],result['reason']),('INVALID',reason))
+                        else:
+                            self.assertEqual(result['verdict'],'ERROR')
+                            self.assertEqual(E.classify(result['reason'],result['stage']),'D-node')
+
+    def test_worker_uses_typed_cap_exit_and_does_not_read_a_prefix(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path=Path(temp)/'sealed'
+            with path.open('wb') as stream:stream.truncate(I.MAX_BYTES+1)
+            result=subprocess.run([sys.executable,'-I','-B',I.__file__,str(path),'goal'],capture_output=True)
+            self.assertEqual(result.returncode,3)
+            self.assertEqual(result.stdout,b'')
+
     def test_every_package_schema_can_bind_a_semantic_identity(self):
         schemas = list((Path(P.__file__).parent / "schema").glob("*problem.schema.json"))
         self.assertEqual(len(schemas), 10)

@@ -170,6 +170,7 @@ def reference(unit: dict, kind: str, stage: Path, build: Path, env: L.LeanEnv, t
     path = stage / (kind + '-reference.lean')
     put(path, CG.theorem_template(unit, kind))
     result, messages = L.compile_module(env, str(stage), path.name, str(build), CG.LEAN_OPTIONS, timeout)
+    if result.rc == 70:raise L.ResourceUnavailable('environment-tool-unavailable:compile')
     warnings = [message for message in messages if message.get('severity') == 'warning']
     if (result.rc != 0 or result.timeout or result.memkill or result.killed_by or L.errors(messages)
             or len(warnings) != 1 or 'sorry' not in warnings[0].get('data', '')):
@@ -179,6 +180,8 @@ def reference(unit: dict, kind: str, stage: Path, build: Path, env: L.LeanEnv, t
     replay_result, replay = G.run_replay(env, str(build / (kind + '-reference.olean')), fqn,
                                        str(stage / 'evidence' / (kind + '-reference.type')),
                                        CG.LEAN_OPTIONS, [str(build)], timeout)
+    if unavailable := G.replay_unavailable(replay_result,replay):
+        raise L.ResourceUnavailable(unavailable)
     if (replay_result.rc != 0 or replay_result.timeout or replay_result.memkill or replay_result.killed_by
             or replay.get('replay') != 'ok' or not isinstance(replay.get('target'), dict)
             or replay['target']['kind'] != 'theorem' or 'sorryAx' not in replay['axioms']

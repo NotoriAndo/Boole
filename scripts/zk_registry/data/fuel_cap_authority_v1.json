@@ -1,0 +1,539 @@
+{
+  "version": 1,
+  "factors": {
+    "lean": 4,
+    "nanoda": 4
+  },
+  "references": {
+    "ae0dfa599eae12fad9f81b6c02ecbdff18db3ba27dd47fd4533d0cc13cd65ef2": {
+      "eligible": true,
+      "environment": "9fecddc3821ee66664c23a90b91f6787e99ac9c9105b3a1b769ab81a396d5079",
+      "own_declarations": "1b14f2f59fdd5cccedfaec90e832b4d1d6759f5755d1ca264e1b38e4a0f8b877",
+      "path": "certified-own-delta/v1",
+      "problem": "BooleCS/g07",
+      "reference_export": "51fd45b6b9bca0f0ab144f1b643beb2bc86484392f2835cfe517f2691f37f0d8",
+      "statement": "925c8376aa9ae5c1e0118463351a3842e48d27a16c55b2cd698077e4704c9ae1",
+      "units": {
+        "lean": 5086118,
+        "nanoda": 237927802
+      }
+    },
+    "8ca25d9eda27f95e0457c4d337cb3c0bf993273296da572b040c3822a165ef8e": {
+      "eligible": true,
+      "environment": "95fcff9ce2aca709988c5c676b1ede3cd5a4ca796ec7256d9a532c669bd9ec4b",
+      "own_declarations": "6b1edd7545fc724aadedf17ff59f6a24ed8b3f01a9240cf05f68ce34af36d810",
+      "path": "certified-own-delta/v1",
+      "problem": "BooleCS/g09",
+      "reference_export": "9b7151293efc3391075d18bb8433b3f4ff0468e21a4b90cbe70e466cfd9352e2",
+      "statement": "fefe25e0a3b6d628b7aa6767d2d27601e345ca788cccf73f3707044b67745b7b",
+      "units": {
+        "lean": 29266348,
+        "nanoda": 1161659850
+      }
+    },
+    "27c955ce420bdc1401655e05857b376ec4b8e21314b906715e0cfde95cea8e34": {
+      "eligible": true,
+      "environment": "011640147244a7d2b6a2277f3c11072ea0d297ba21d09eb42ee2414dd658bab7",
+      "own_declarations": "80f7a7c780675a1066058332a80ecda0a363b3ab8bd923edf2a1039d64c8cbb2",
+      "path": "certified-own-delta/v1",
+      "problem": "BooleCS/g12",
+      "reference_export": "f11d5c5898671295233433d3a656a86ac4148aa22c0ea8f801a3dc9d22ac4e1a",
+      "statement": "04dda081a586644c92b63585bd97735633a48ba5fbaee719ff38119395cbb58f",
+      "units": {
+        "lean": 28618154,
+        "nanoda": 1455537181
+      }
+    },
+    "daf708ab571bb43d996cee79ed95aae0e172725105075a70b5198c1a03df3d49": {
+      "eligible": true,
+      "environment": "c610904a86ba8b8b0a24f11aea398904a5004d6edc17236b89f34ea43e3e2629",
+      "own_declarations": "b34e2c6efcc878b8ec8888fae66902dfcee6ba496232a38a8bf0a3609cd67a60",
+      "path": "certified-own-delta/v1",
+      "problem": "BooleCS/n02",
+      "reference_export": "85b06dc556d7b8ed52c79e9490f84b242786f84a2039910d28c90e98491d899b",
+      "statement": "51eb732ad58672cfb0f9a5f1928323612ebcf9ea5def34cce01d4a89ee943d21",
+      "units": {
+        "lean": 2267057,
+        "nanoda": 105014823
+      }
+    },
+    "a850b626c61146984e51e29bcecde747ca53bc84f10416ca04547ddcf86242c3": {
+      "eligible": true,
+      "environment": "7e56e7f138199e78bdae7c7f9f6f119e0580e8c2faa5ef3cf3d7ecd97c2c3466",
+      "own_declarations": "953e9af45f8589286b1ddd7d3d4d42eb2bf649de343ad4b7e3789aba19c0d152",
+      "path": "certified-own-delta/v1",
+      "problem": "BooleCS/n05",
+      "reference_export": "2c84d09f342d38afb78aa863c78d576df5ed81ee663a4c723ec3e723f1c7953a",
+      "statement": "3a7241a60452febc630024c494725e9d28f2a7469b9d288531cb4f46e4eef407",
+      "units": {
+        "lean": 1247797,
+        "nanoda": 54747934
+      }
+    },
+    "e276ad5940c6a5b6e99e05d680d4332cd5659a5f057b19881af851abc9f2e02e": {
+      "eligible": true,
+      "environment": "e08a59508bc29abc98fdb4388e28a88421c75c24066edaf3b03a764dfe0edc43",
+      "own_declarations": "7eb9c02d188a40e8a239f544caef02c8f55ce3df1fdc3cb8a0606f9e2e349de8",
+      "path": "certified-own-delta/v1",
+      "problem": "BooleCS/n08",
+      "reference_export": "adf0d542d7a6ec68ba52d3ade532f82776947f90567e62cf0f2799ed09ac507a",
+      "statement": "5d8e626040490d4786eb573007afe3358398aa9cc6ef1c9ed834d0982a6b3eb0",
+      "units": {
+        "lean": 2364470,
+        "nanoda": 104865134
+      }
+    },
+    "010e0ceebb4681d36025c0f28ae565248f7377686b382346ef38ff82cf9fd85f": {
+      "eligible": true,
+      "environment": "4e8ffaa3d76f61fc45696f0b21a1298b1f7d99f6ce93a8a2c62dcb6d69cef3c8",
+      "own_declarations": "d7e687f4f2d67d73118c168dc6262de8e4c68fb8d1f532476fed682cd3084a7b",
+      "path": "certified-own-delta/v1",
+      "problem": "BooleCS/t36",
+      "reference_export": "73830eaca29e32a51eb5bc09b7ad65ff6c33f8ce39fab2959405218a0761a562",
+      "statement": "d3cfad47520778275fe6c4950ac985fa2b5badea9b0eda80aae9b352f2e9007b",
+      "units": {
+        "lean": 11716446,
+        "nanoda": 568024543
+      }
+    }
+  },
+  "environments": {
+    "bc642988469fde9d6d18eb29fdd3c568c077fb45fdfc5e692a4f813e0ce7aede": {
+      "eligible": true,
+      "certified_kernels": [
+        "lean",
+        "nanoda"
+      ],
+      "profiles": {
+        "Darwin-arm64": {
+          "state_sha256": "7cd94ce88ac92150e147d25ed77620912393436914db667febe978b32430f77f",
+          "certificate_sha256": "b34933b1bcd9f8b96afc7f384b94de3c5f57c2427adc5e13bac42820e14df739"
+        },
+        "Linux-aarch64": {
+          "state_sha256": "7cd94ce88ac92150e147d25ed77620912393436914db667febe978b32430f77f",
+          "certificate_sha256": "c088ede924ebd59aa7180be6b54fb4b8fb9353a5c839026bd77ce83634aea683"
+        }
+      }
+    },
+    "bf0a216617ce2f5a5be81f1b8a64602abe4fb7e53bbfaff2ab1de93b37a5dcfc": {
+      "eligible": true,
+      "certified_kernels": [
+        "lean",
+        "nanoda"
+      ],
+      "profiles": {
+        "Darwin-arm64": {
+          "state_sha256": "1895f2d5d248ac033e60bd4a9f987ef7ec7a61046355be1fda8b78dae78b81ec",
+          "certificate_sha256": "c9d811f6128b9dc681856abcfd91076fd0eda25715eaa2d8ceedc440ccd333af"
+        },
+        "Linux-aarch64": {
+          "state_sha256": "1895f2d5d248ac033e60bd4a9f987ef7ec7a61046355be1fda8b78dae78b81ec",
+          "certificate_sha256": "60e06d78f7fd730e616e57fbdc3d8f9d546762a1317f6f2b9390b972db977085"
+        }
+      }
+    },
+    "9fecddc3821ee66664c23a90b91f6787e99ac9c9105b3a1b769ab81a396d5079": {
+      "eligible": true,
+      "certified_kernels": [
+        "lean",
+        "nanoda"
+      ],
+      "profiles": {
+        "Darwin-arm64": {
+          "state_sha256": "05c44ce7cc3620790c191e364925ac633fd5a5d600226e0b6eb11ce7181c399f",
+          "certificate_sha256": "face7c43035bf7f49e56f16eda1087ee76b14e1ac2ef1042ddd12cf4c48bb4cb"
+        },
+        "Linux-aarch64": {
+          "state_sha256": "05c44ce7cc3620790c191e364925ac633fd5a5d600226e0b6eb11ce7181c399f",
+          "certificate_sha256": "aadbb61a41b42ed11c06445a4ced6d136cd255015ddf3efd7a440b4f1f08d34f"
+        }
+      }
+    },
+    "a23ea8d2489c3e1658cc640fa21c7f01c20ec4baa09bd8c825dc2078b5003d90": {
+      "eligible": true,
+      "certified_kernels": [
+        "lean",
+        "nanoda"
+      ],
+      "profiles": {
+        "Darwin-arm64": {
+          "state_sha256": "0e8c40d7b3b0ea061de9ca143a5445c8b45595bb6a9d40c3cbde87571af01457",
+          "certificate_sha256": "ba7bd6e9b439f095e662259a5ff7b0a86367232a26f7a727370526ede025d5a9"
+        },
+        "Linux-aarch64": {
+          "state_sha256": "0e8c40d7b3b0ea061de9ca143a5445c8b45595bb6a9d40c3cbde87571af01457",
+          "certificate_sha256": "8e56661ba0eea8715e44107e8acb695f0ef678d4e8047154f7f49e75669538fd"
+        }
+      }
+    },
+    "95fcff9ce2aca709988c5c676b1ede3cd5a4ca796ec7256d9a532c669bd9ec4b": {
+      "eligible": true,
+      "certified_kernels": [
+        "lean",
+        "nanoda"
+      ],
+      "profiles": {
+        "Darwin-arm64": {
+          "state_sha256": "5cd0c5315e6c75f424c213482fa5d6f05cd45ddf469a65fc74e9fa765ebef8e0",
+          "certificate_sha256": "e7e665e3630598ed6abae1735577975d95c113052716a71d62033c1d2a41b9c5"
+        },
+        "Linux-aarch64": {
+          "state_sha256": "5cd0c5315e6c75f424c213482fa5d6f05cd45ddf469a65fc74e9fa765ebef8e0",
+          "certificate_sha256": "98b5ecafd82113538b9feef27b347a8412f836fc09b9ac7da560d7f855b467f7"
+        }
+      }
+    },
+    "011640147244a7d2b6a2277f3c11072ea0d297ba21d09eb42ee2414dd658bab7": {
+      "eligible": true,
+      "certified_kernels": [
+        "lean",
+        "nanoda"
+      ],
+      "profiles": {
+        "Darwin-arm64": {
+          "state_sha256": "304192e3267ec9334e5f9668116c479d3b5bc2a671c6f8fe2fa14dc93b94852e",
+          "certificate_sha256": "01b74604c288e264a7e51bfdb659bb4b81d894cc501190e29b7734c99e2037c8"
+        },
+        "Linux-aarch64": {
+          "state_sha256": "304192e3267ec9334e5f9668116c479d3b5bc2a671c6f8fe2fa14dc93b94852e",
+          "certificate_sha256": "c76485b6221927dc9cfa82edd76c523fce966150fb56cd5f23e05261c87be6a4"
+        }
+      }
+    },
+    "c610904a86ba8b8b0a24f11aea398904a5004d6edc17236b89f34ea43e3e2629": {
+      "eligible": true,
+      "certified_kernels": [
+        "lean",
+        "nanoda"
+      ],
+      "profiles": {
+        "Darwin-arm64": {
+          "state_sha256": "c97681ac45463d8e29587574005ec2cd5f43d2686634a6c3c1404473f04f6a6d",
+          "certificate_sha256": "c3bedacb19aaa1d6f153a2ab19d9090f8a487856908929fac510f22d9ca0cb9c"
+        },
+        "Linux-aarch64": {
+          "state_sha256": "c97681ac45463d8e29587574005ec2cd5f43d2686634a6c3c1404473f04f6a6d",
+          "certificate_sha256": "f6a3e45936b60146f4fb378aaf23819d5b5a14328c9e5e2dd8b471fdb4fe995b"
+        }
+      }
+    },
+    "7e56e7f138199e78bdae7c7f9f6f119e0580e8c2faa5ef3cf3d7ecd97c2c3466": {
+      "eligible": true,
+      "certified_kernels": [
+        "lean",
+        "nanoda"
+      ],
+      "profiles": {
+        "Darwin-arm64": {
+          "state_sha256": "6a36f18703acdd0384b41d76205628542169ab4e939f17f5d9d4a3eb5216d1f7",
+          "certificate_sha256": "159bab10894b7e608a8697b06257d3ba89c733128187c2313a341594b249b599"
+        },
+        "Linux-aarch64": {
+          "state_sha256": "6a36f18703acdd0384b41d76205628542169ab4e939f17f5d9d4a3eb5216d1f7",
+          "certificate_sha256": "1b37e0fec04e21fb2673cf5e89a9a7fc9d9df6f35ec99361bbf469c3fc9ea924"
+        }
+      }
+    },
+    "ecb05d0e4839408846f6685a1f1160b9b5f50aa7098fbd0995bdd8cef4898a7c": {
+      "eligible": true,
+      "certified_kernels": [
+        "lean",
+        "nanoda"
+      ],
+      "profiles": {
+        "Darwin-arm64": {
+          "state_sha256": "137488b1d2349ea8d86ea0cca23ced3e83eacd74cb0c6227b504c4b17b70f70d",
+          "certificate_sha256": "6f5ba8cf9f2d4717f831fa97e278622284df1d4e0d5e5b0a21e6a8cb7008faf4"
+        },
+        "Linux-aarch64": {
+          "state_sha256": "137488b1d2349ea8d86ea0cca23ced3e83eacd74cb0c6227b504c4b17b70f70d",
+          "certificate_sha256": "5ed7c4609e65d2d7b5cc85011756fdd0e98a6210c0001b97dd026d16e981ad5a"
+        }
+      }
+    },
+    "e08a59508bc29abc98fdb4388e28a88421c75c24066edaf3b03a764dfe0edc43": {
+      "eligible": true,
+      "certified_kernels": [
+        "lean",
+        "nanoda"
+      ],
+      "profiles": {
+        "Darwin-arm64": {
+          "state_sha256": "b5ce42019a075bfd16ab7ef80d6324022d7054ed85d7f959ac88d8a16c68e2a3",
+          "certificate_sha256": "655b152b261ef99b41abd425536c4eccfd5a36413ce49c863ce99776911e22d8"
+        },
+        "Linux-aarch64": {
+          "state_sha256": "b5ce42019a075bfd16ab7ef80d6324022d7054ed85d7f959ac88d8a16c68e2a3",
+          "certificate_sha256": "dc4802a8e74992b3f471333d0a516919cd9af5e7ece66d89ad1f95fe77eae186"
+        }
+      }
+    },
+    "2fb6947c074e933fa60fb0897afd1ab7319fcd47b1504d90041be60a6bc73bf1": {
+      "eligible": true,
+      "certified_kernels": [
+        "lean",
+        "nanoda"
+      ],
+      "profiles": {
+        "Darwin-arm64": {
+          "state_sha256": "e565f99ed37e6f82568d4ce8469bce134ecfc7253733831a3db4e9bf919ca852",
+          "certificate_sha256": "74d7a4799ddfa722f0264724a3e1b9e37a9d5c2fe9e6aa0218d8a5b2a673c2a0"
+        },
+        "Linux-aarch64": {
+          "state_sha256": "e565f99ed37e6f82568d4ce8469bce134ecfc7253733831a3db4e9bf919ca852",
+          "certificate_sha256": "ca6718ae97f0b967890bb76717975be22faa6acf3d2f223bd4fdd078b9b54f80"
+        }
+      }
+    },
+    "5068df07f4e9d56a23d9b2335ad67c97532f9ea35ddd8fceadaccf6ea6fe7931": {
+      "eligible": true,
+      "certified_kernels": [
+        "lean",
+        "nanoda"
+      ],
+      "profiles": {
+        "Darwin-arm64": {
+          "state_sha256": "0494467164d9a47545a8698ef3ea289a949228fdbfc2802238b2853332281d88",
+          "certificate_sha256": "a74cecf16176ce433f557a0e24bb9692535240dbab4a5dc8d0bc109272a44127"
+        },
+        "Linux-aarch64": {
+          "state_sha256": "0494467164d9a47545a8698ef3ea289a949228fdbfc2802238b2853332281d88",
+          "certificate_sha256": "71982c3018d04f561146a5818cc1f2e32540d5071592f8a9edd4ebf0e1cd937e"
+        }
+      }
+    },
+    "6d7a903cb5970c59bbecf615bf400a79e86dc1b3d32584614cc4beb3b29d9baa": {
+      "eligible": true,
+      "certified_kernels": [
+        "lean",
+        "nanoda"
+      ],
+      "profiles": {
+        "Darwin-arm64": {
+          "state_sha256": "8d9276cda2da1c5309ec49ae498230854bcc6dab9323660e7d29d7a0c42b44ec",
+          "certificate_sha256": "e990cb740db8f659a28e093a985655d3ec051fe6e129b0c8f8aad2411728a59b"
+        },
+        "Linux-aarch64": {
+          "state_sha256": "8d9276cda2da1c5309ec49ae498230854bcc6dab9323660e7d29d7a0c42b44ec",
+          "certificate_sha256": "5231b74c0c2cb2f6fa07e659a6011f13c98f46397bec71448e34107a7427927c"
+        }
+      }
+    },
+    "2c681ddeb2b3ddaa1e77e9d621ca8371662369eca78ecd7208ca0d6c8c29eb02": {
+      "eligible": true,
+      "certified_kernels": [
+        "lean",
+        "nanoda"
+      ],
+      "profiles": {
+        "Darwin-arm64": {
+          "state_sha256": "a8e4dfd9cee0ef81c9d06b3f11d655bcf11dcbd2577d8e80913322b624980dc0",
+          "certificate_sha256": "1d531511070d417109bb195b962765d0bc703e15693e289e511e21a61a27643b"
+        },
+        "Linux-aarch64": {
+          "state_sha256": "a8e4dfd9cee0ef81c9d06b3f11d655bcf11dcbd2577d8e80913322b624980dc0",
+          "certificate_sha256": "8cb29fd019d42bc0076c8bfcbdbaa9c78b5abd0573b3a3093d4933e1de497b8f"
+        }
+      }
+    },
+    "5ca356880c3bcb2da2ef9348d48363be3137d7e8e5998f3d498ae9cb92307df9": {
+      "eligible": true,
+      "certified_kernels": [
+        "lean",
+        "nanoda"
+      ],
+      "profiles": {
+        "Darwin-arm64": {
+          "state_sha256": "2d90a8cc6a82eb033dbe3881d777a6b81b19836fc6d4fe83054836cdeb09e746",
+          "certificate_sha256": "fae0f51b89ea5138666713879f925244d4e17b8daaef02c2285fd9fe5b416f04"
+        },
+        "Linux-aarch64": {
+          "state_sha256": "2d90a8cc6a82eb033dbe3881d777a6b81b19836fc6d4fe83054836cdeb09e746",
+          "certificate_sha256": "a16dbe8ecbb701c87e8f78b91dd1ecc4f6aca673a57a002b1cde5288c68cee47"
+        }
+      }
+    },
+    "825af710e21aab5298dfb878c2407d5856914afc1a70782f7eaaa8e330b487b3": {
+      "eligible": true,
+      "certified_kernels": [
+        "lean",
+        "nanoda"
+      ],
+      "profiles": {
+        "Darwin-arm64": {
+          "state_sha256": "59b5ba76c77ac37e5aee0393c73382077799ed686b01e4e10b4d32ef8013cc9b",
+          "certificate_sha256": "c9943a3be4d00949f19e6a8a7f8f9cd6ed9aa5c4a2bf25fb148499e88ae4f0cd"
+        },
+        "Linux-aarch64": {
+          "state_sha256": "59b5ba76c77ac37e5aee0393c73382077799ed686b01e4e10b4d32ef8013cc9b",
+          "certificate_sha256": "2931f2209084103b6a2f5cbd13b75458fac2365006c2a2a2e21d8204fb0a3c2d"
+        }
+      }
+    },
+    "4e8ffaa3d76f61fc45696f0b21a1298b1f7d99f6ce93a8a2c62dcb6d69cef3c8": {
+      "eligible": true,
+      "certified_kernels": [
+        "lean",
+        "nanoda"
+      ],
+      "profiles": {
+        "Darwin-arm64": {
+          "state_sha256": "1d40d629521e08b27b58d52428be88333eb1f0a43138c58c7d216a8b0a2e03c0",
+          "certificate_sha256": "7ae5bb850b55921661bc65b0a8fe4e6fbf499a4951b23abb377b3759878c7d21"
+        },
+        "Linux-aarch64": {
+          "state_sha256": "1d40d629521e08b27b58d52428be88333eb1f0a43138c58c7d216a8b0a2e03c0",
+          "certificate_sha256": "594b5655f79401922a8fbcb0511aeedeab4bfa521e14898d252822b0dcc8b2e7"
+        }
+      }
+    },
+    "6c216bfd91e809b36ccdb4794865392a6ae401538b65298329a0dd568eceed43": {
+      "eligible": false,
+      "certified_kernels": [],
+      "profiles": {},
+      "exclusion": {
+        "reason": "base-certification-measured-rss-cap",
+        "measured_peak_rss_mib": 11000.65625,
+        "native_exit_code": -15,
+        "cap_mib": 11000,
+        "Linux_reference_trials": 0
+      }
+    },
+    "a943181c1bd7aae4c3929d417cf0e6c3f264ecb0e21fca575a9cc0ed88718212": {
+      "eligible": false,
+      "certified_kernels": [],
+      "profiles": {},
+      "exclusion": {
+        "reason": "base-certification-measured-rss-cap",
+        "measured_peak_rss_mib": 11004.03125,
+        "native_exit_code": -15,
+        "cap_mib": 11000,
+        "Linux_reference_trials": 0
+      }
+    },
+    "5fd984aa03c8df2b63dcf8b57e81a9fc46efec0c17fa8e296d6ff19a85195701": {
+      "eligible": false,
+      "certified_kernels": [],
+      "profiles": {},
+      "exclusion": {
+        "reason": "base-certification-measured-rss-cap",
+        "measured_peak_rss_mib": 11025.140625,
+        "native_exit_code": -15,
+        "cap_mib": 11000,
+        "Linux_reference_trials": 0
+      }
+    }
+  },
+  "unknown_pool_eligible": false,
+  "status": "MEASURED-REFERENCE-CAPS-LOCAL-ONLY",
+  "calibration": {
+    "fitted_reference_cohort": 15,
+    "fitted_reference_IDs_are": "calibration/proposed package IDs; no issuance or new registry kind",
+    "eligible_reference_caps": 7,
+    "tier_exclusions": [
+      {
+        "problem": "BooleCS/g08",
+        "reason": "reference-path-unqualified",
+        "darwin_status": "EXCLUDED",
+        "linux_status": "UNQUALIFIED"
+      },
+      {
+        "problem": "BooleCS/n07",
+        "reason": "reference-path-unqualified",
+        "darwin_status": "EXCLUDED",
+        "linux_status": "UNQUALIFIED"
+      },
+      {
+        "problem": "BooleCS/n12",
+        "reason": "reference-path-unqualified",
+        "darwin_status": "EXCLUDED",
+        "linux_status": "UNQUALIFIED"
+      },
+      {
+        "problem": "BooleCS/t11",
+        "reason": "reference-path-unqualified",
+        "darwin_status": "EXCLUDED",
+        "linux_status": "UNQUALIFIED"
+      },
+      {
+        "problem": "BooleCS/t16",
+        "reason": "reference-path-unqualified",
+        "darwin_status": "EXCLUDED",
+        "linux_status": "UNQUALIFIED"
+      },
+      {
+        "problem": "BooleCS/t17",
+        "reason": "reference-path-unqualified",
+        "darwin_status": "EXCLUDED",
+        "linux_status": "UNQUALIFIED"
+      },
+      {
+        "problem": "BooleCS/t19",
+        "reason": "reference-path-unqualified",
+        "darwin_status": "EXCLUDED",
+        "linux_status": "UNQUALIFIED"
+      },
+      {
+        "problem": "BooleCS/t32",
+        "reason": "reference-path-unqualified",
+        "darwin_status": "EXCLUDED",
+        "linux_status": "UNQUALIFIED"
+      }
+    ],
+    "excluded_EVM_reference_count": 627,
+    "excluded_EVM_environments": {
+      "6c216bfd91e809b36ccdb4794865392a6ae401538b65298329a0dd568eceed43": {
+        "reason": "base-certification-measured-rss-cap",
+        "measured_peak_rss_mib": 11000.65625,
+        "native_exit_code": -15,
+        "cap_mib": 11000,
+        "Linux_reference_trials": 0
+      },
+      "a943181c1bd7aae4c3929d417cf0e6c3f264ecb0e21fca575a9cc0ed88718212": {
+        "reason": "base-certification-measured-rss-cap",
+        "measured_peak_rss_mib": 11004.03125,
+        "native_exit_code": -15,
+        "cap_mib": 11000,
+        "Linux_reference_trials": 0
+      },
+      "5fd984aa03c8df2b63dcf8b57e81a9fc46efec0c17fa8e296d6ff19a85195701": {
+        "reason": "base-certification-measured-rss-cap",
+        "measured_peak_rss_mib": 11025.140625,
+        "native_exit_code": -15,
+        "cap_mib": 11000,
+        "Linux_reference_trials": 0
+      }
+    },
+    "actual_Linux_EVM_reference_trials": 0,
+    "unmeasured_pool_ineligible": 2122,
+    "activation": false,
+    "network_problem_issuance": false,
+    "N7": false,
+    "M_FULL": false,
+    "projection": {
+      "margin": 1.1,
+      "wall_seconds": 1800,
+      "rss_mib": 11000,
+      "worst_seconds_per_unit": {
+        "lean": 4.820519912779012e-07,
+        "nanoda": 3.938202485865376e-09
+      },
+      "overhead_seconds": 53.251186166000004,
+      "linux_upper_rss": {
+        "lean": {
+          "slope": 2.269930971129296e-05,
+          "intercept": 1361.0447635303603,
+          "observations": 7
+        },
+        "nanoda": {
+          "slope": 4.7543005972555844e-07,
+          "intercept": 1356.944057595927,
+          "observations": 7
+        }
+      },
+      "maximum_identity_rss_mib": 2053,
+      "comparator_wall_in_overhead": true,
+      "scope": "measured checked-own cohort; N7/M-FULL remains unqualified"
+    }
+  }
+}

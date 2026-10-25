@@ -44,15 +44,17 @@ changed artifacts give ERROR `environment-mismatch`; an unmeasured profile gives
 Version strings and operator-provided hashes cannot replace these tracked byte pins. Challenge export and sealed
 reference integrity failures, including a rebuilt Challenge hash mismatch, are node ERRORs, never INVALID.
 
-Testnet cap candidates live together in [testnet_caps_v1.json](../scripts/zk_registry/data/testnet_caps_v1.json),
+The current testnet cap profile is [testnet_caps_v2.json](../scripts/zk_registry/data/testnet_caps_v2.json),
 marked **PROVISIONAL-TESTNET**, with no mainnet validity. Lean's candidates are 262,144 heartbeat thousands per
-declaration, `maxRecDepth` 2,048 (raw 32,768), and a 64 MiB worker stack. Nanoda's candidates are 33,554,432 steps
-per declaration and 64 MiB; con-ron's candidate is 8,589,934,592 native decrement calls per phase.
+declaration, `maxRecDepth` 4,096 (raw 65,536), and a 256 MiB replay worker stack. Nanoda's candidates are 33,554,432 steps
+per declaration, depth 32,768 and four 64 MiB workers; con-ron's candidate is 8,589,934,592 native decrement calls per phase.
 The gate fixes the Lean replay worker stack
-from this profile. Legacy replay still uses unlimited kernel calls: an untyped negative is ERROR `replay-unavailable`.
-Lean kernel heartbeat/depth caps and the nanoda worker-stack cap are recorded candidates, **not enforced**.
-Deterministic fuel/depth enforcement for all kernels and mandatory con-ron are subsequent upgrades; these values
-do not claim that existing nanoda/con-ron binaries enforce those budgets. Final caps require the full population,
+from this profile. The native C5 driver applies nonzero per-declaration heartbeat/depth limits in both module postcheck and Comparator replay. An archived untyped negative remains ERROR `replay-unavailable`.
+Lean heartbeat/depth and aggregate debit are enforced by the C5 driver. The pinned C6 nanoda enforces
+steps, work, composed depth and an aggregate allowance. Its work ceiling is 34,359,738,368 per declaration;
+the structural aggregate fallback is 34,359,738,368,000,000. These are provisional ceilings, not per-problem liveness bounds.
+Mandatory con-ron remains a subsequent upgrade. Archived nanoda binaries without the new native protocol
+cannot establish acceptance under this profile. Per-problem caps require measured references,
 actual cap-profile probes and quiet timing/RSS remeasurement on the genesis toolchain at **M-FULL**.
 The same profile separately enforces elaboration limits: `maxHeartbeats` 4,194,304 per command,
 `maxRecDepth` 16,384 and a 64 MiB thread stack. Package compiler options cannot replace these limits.
@@ -192,34 +194,156 @@ at least 99% PASS-UNCHANGED among every applicable item, not a completed prefix.
 The original development root is incomplete. Its 267 NOT-RUN and three resource-ERROR templates await the Linux
 production-mode catalog run; Task Y-fix does not repeat them on macOS or promote development evidence.
 
-Gate outcomes are PASS / FAIL / INVALID / ERROR. A Lean acceptance with an independent nanoda rejection remains
+Gate outcomes are PASS / FAIL / INVALID / ERROR. A Lean acceptance with an independent typed nanoda rejection remains
 INVALID `kernel-disagreement`. A nanoda acceptance with a legacy, untyped Lean negative is ERROR
 `replay-unavailable`: changing only the local worker stack can produce that negative. Legacy ZkReplay failure gives ERROR only when compilation has established no deterministic INVALID/FAIL.
-Observed resource failures take precedence, followed by structured boundary ERROR and INVALID, then an
-exit-code-only availability rule, deterministic compile/postcheck findings, and missing print or replay output.
-A nonzero compile exit without structured Lean error diagnostics is ERROR `silent-exit`; raw stdout/stderr
-lines do not count toward the submission compile error count. Other message consumers retain bounded,
+Observed resource failures take precedence, followed by structured boundary ERROR and INVALID,
+typed driver outcomes, the legacy exit-code-only availability rule, other compile/postcheck
+findings, and missing print or replay output.
+Only sandbox-context compiles use the minimal `compile_support/` driver capsule; standalone
+generators and tactic batteries retain native Lean exits and direct RSS measurement.
+The package-pinned `lean/ZkReplay.lean` remains byte-identical; gate typed outcomes execute
+through the separate `lean/GateReplay.lean`.
+The native replay driver is resolved from the accepted tools after explicit arguments and
+service `env.extra` tools are unified. Gate-owned reference replay failures, including
+limits-JSON decoding, are unavailable outcomes; a missing binding probe does not establish
+`n2-binding-mismatch`. G-ELAB, ratchet elaboration and correctness references preserve this
+availability distinction before reading any replay record. The offline native builder runs
+generated-input kernel tests for logical-limit bits/reset, declaration precharge, aggregate
+debit and shared-DAG/literal boundaries. Runtime header provenance includes upstream commit
+and source paths; source archives disable host Git configuration and CRLF conversion.
+
+A gate-owned compile driver returns 0 for success, 2 for structured Lean errors, 3 for structured
+heartbeat/recursion exhaustion, 4 for a deterministic tool fault and 70 for unavailable execution.
+A nonzero Lean exit without structured errors returns 70 and is D-node ERROR, including
+untyped allocation and output-file failures. Exit 4 is reserved for a fault explicitly typed by
+the trusted driver and is INVALID `tool-fault:compile`; raw stdout/stderr lines do not count toward the submission
+compile error count. An untyped, injected or historical nonzero exit without structured diagnostics
+remains ERROR `silent-exit`. Other message consumers retain bounded,
 prefixed raw-line reports. A boundary verdict is applied before that exit-code-only rule. Missing
 `#print axioms` output is FAIL only when no deterministic finding exists: a submission can capture the appended
 command with `#guard_msgs`. Like unavailable replay, it never changes an established deterministic verdict.
 The printed-axiom diagnostic must be at the appended command line and start with the exact quoted full theorem
 name. Replay axioms and Comparator's permitted-axioms check remain the acceptance authority. Abort, signals and shell-encoded signal statuses are ERROR `resource-unavailable` in compile,
-replay and export; Comparator uses its own private JSONL status file and 0/2 exit contract; kernel stdout is never a verdict channel.
+replay and export; Comparator uses its own private JSONL status file and 0/2/3/70 exit contract; kernel stdout is never a verdict channel.
 Transport exit 70, unknown exits, missing/malformed statuses and contradictory final status are ERROR.
 Two kernel acceptances followed by a deterministic Quotient post-check rejection are INVALID `kernel-rejection`;
 this rejection must not be masked as an inconsistent success. Comparator `export-integrity` is ERROR.
 Compile heartbeat/recursion exhaustion uses Lean's structured `runtime.maxHeartbeats`/`runtime.maxRecDepth`
 diagnostic kinds for INVALID `resource-cap`; English message text does not decide this classification.
+The exporter and identity worker use typed exit 3 for deterministic limits and 4 for deterministic
+tool faults. Submission faults are INVALID `tool-fault:export` or `tool-fault:identity`; a reference or
+challenge fault is a D-node ERROR. These codes are consumed only after boundary and resource checks.
+Known driver IO unavailable (70) is D-node `environment-tool-unavailable:<stage>`;
+the identity worker keeps its existing `statement-identity-unavailable` D-node reason.
+The native replay driver returns 2 for typed kernel rejection, 3 for a logical budget cap and 70 for unavailable execution. A physical stack exception needs the runtime logical-limit bit before it can become a cap. Archived legacy code 71 remains ERROR `replay-unavailable`. A nonzero replay never establishes acceptance from partial
+records; independent compile findings retain their precedence.
+C5 input preflight bounds literal bytes and DAG depth before replay. The same pinned native driver serves module postcheck and Comparator. Kernel checkpoints are reset/read through the pinned runtime translation unit, not the allocation heartbeat counter. Aggregate debit includes the raw checkpoints and 64 units for every checked declaration, including postponed checks and the three quotient declarations checked outside the replay. The provisional structural aggregate ceiling remains separate from C8's measured per-problem caps; it does not establish full N7 liveness. Runtime headers and the offline native build recipe are source-bound alongside the driver.
+C6 counts name, level and expression reads, fixed-size interning attempts weighted by eight, and string,
+number and level-list interning by size. Attempts are charged even when an immutable shared entry already exists.
+Every declaration is charged 64 units. Literal and intermediate sizes are bounded before replay or primitive work.
+Each active native check reserves its variable allowance; unused units return only when results commit in export order.
+A smaller final allowance runs after preceding checks finish, keeping cap outcomes independent of worker scheduling.
+The native status file is private, bounded and separate from diagnostic streams. Typed 3 maps to `resource-cap`,
+4 to `tool-fault:replay`, and 70 to unavailable execution; signals and untyped exits remain ERROR.
+Successful acceptance requires both native debit records, both kernels and the quotient check.
+The source-bound offline builders reproduce the two native drivers from locally provisioned pinned objects.
+
+C8 binds an optional package `fuel_cap` to a measured reference, its statement, certified environment
+and reference declaration manifest. The environment descriptor pins the authority table's exact bytes
+and fixes each kernel's factor at four. Operators provision the certified state under
+`certified_environment_root/<environment>/state.olean`; an operator cannot choose larger allowances.
+The gate verifies the actual problem, statement and state bytes before using either allowance.
+Missing or changed provisioning is a D-node error. A state below any submission-writable root is
+refused before native execution. Unknown or unmeasured references cannot use this path.
+
+The cached path first checks every overlapping declaration against the certified state's payload,
+then checks the same new declarations in both kernels. Candidate helper declarations may differ from
+the reference's helpers within the bound allowance. The calibration manifest binds the reference's
+checked set. Lean uses raw heartbeat debit; nanoda uses deterministic work.
+Both debits include 64 units per checked declaration. Cached identity never establishes
+acceptance for a new declaration, and a missing target or changed base cannot be skipped.
+This cached profile admits new safe definitions and theorems. Axioms, inductive groups, constructors,
+recursors and opaque declarations must already belong to the certified state.
+After validating supplied payloads, comparison resolves omitted base declarations from that state.
+Mandatory primitive comparison and the axiom closure remain required; supplied declarations are never
+overwritten by cache entries. The sealed export and both kernels' checked own sets stay unchanged.
+
+Calibration keeps own-reference counter vectors, actual kernel timings, and an actual Comparator
+execution at fourfold caps. Eligibility requires both OS measurements, matching vectors and two-kernel
+state certificates. Projection uses worst observed aggregate seconds per unit, explicit setup cost
+(including the entire measured Comparator wall time), a nonnegative Linux upper RSS fit covering the
+Comparator process tree, and a 10% margin. A projection over 1,800 seconds or 11,000 MiB is excluded or
+requires a separate tier. Physical interruptions and incomplete certificates never create eligibility.
+These measured cohort bounds do not establish adversarial memory bounds, N7 or M-FULL.
+
+The retained local cohort has 17 matching two-kernel state certificates across both OSes and
+15 BooleCS reference outcomes. Seven references fit fourfold caps: padded projections range
+from 62.2 to 144.5 seconds and 2,258.3 to 4,537.5 MiB. Eight references hit deterministic
+identity caps and remain excluded. Another 627 EVM references are excluded because their
+bases failed Mac physical certification; no Linux EVM reference trials are inferred.
+The unknown 2,122 stay ineligible. These cap records bind calibration/proposed package
+identities; they do not issue a catalog or introduce a registry kind. Legacy uncapped
+compatibility checks do not grant eligibility under this measured cap authority.
+
+The advisory `det3-counter-identity-x86_64` CI job compares 32 public generated Init exports
+against newly measured aarch64 vectors. The committed generator preregisters source bytes before
+compilation and seals export bytes before measurement; private catalog exports are excluded from
+this branch's entire history. This covers architecture identity, not real-workload performance.
+The job has not run on hosted CI: its 120-minute limit is unmeasured, `ubuntu-latest` and apt
+versions are unpinned, and it is not required by branch protection. Actions are SHA-pinned.
+Record actual runtime when the orchestrator publishes and runs it. Counter identity does not
+provision or qualify an x86-64 production artifact profile.
+
+Capped checks use the trusted replay's module-owned CONST names. Independently decidable
+own violations run first: forbidden declaration profiles, target-not-own, input count,
+literal/depth bounds and mandatory per-declaration aggregate charges remain INVALID.
+Unsupported allowed library material is never charged to those own guards. If those guards
+pass, an allowed library declaration outside the pruned certified base is ERROR with the
+native typed reason `library-outside-certified-base`. New registries use error policy v2:
+this reason belongs to terminal S, a deterministic submission availability limitation, not
+a D-node fault. It is not retried or a quarantine trigger. Existing registries retain their
+exact v1 policy bytes and descriptor; no registry or catalog migration is performed.
+The D-node health override starts at attempt 2. A first-attempt terminal S remains
+terminal even on an unhealthy node, as for `output-cap`; independently detected
+worker identity or envelope mismatches override classification on supplied-context
+rechecks (attempt 2 and later); the first reveal has no supplied context.
+The operator's local tooling sets `RUSTUP_AUTO_INSTALL=0` and `CARGO_NET_OFFLINE=true`
+for every build; published builders enforce these settings themselves.
+Kernel replay cannot measure further own work against an uncertified dependency; that
+limitation is ERROR rather than a fabricated resource-cap outcome. Structural statement
+and axiom comparisons, supplied base payload identity/caps and challenge/base checks
+run before that exit: none invokes a kernel over uncertified dependencies. Kernel replay
+stays after the S exit because it requires those dependencies. Profile, target, statement,
+axiom, kernel and resource violations remain INVALID wherever independently established.
+This does not extend certification or silently fall back to uncapped admission.
+
+Decoder disagreements on gate-generated exports (semver, axiom/literal settings, JSON
+syntax/EOF) are ERROR in both capped and legacy paths. Decode-time `Stop::Reject` for
+unpermitted axioms, unsafe/partial declarations and duplicate assertions is also exit 70,
+rather than 2: the decoder consumes a gate-generated export after the miner's source/profile
+checks. A decoder-side disagreement there is a trusted-tool fault; miner-supplied export
+bytes cannot bypass those earlier checks. Explicit measured decoder cap stops remain separate.
+
+The operator selects a provisioned immutable state root; authority fixes its environment suffix
+and content digest. Parent inode checks and before/after hashes do not exclude a concurrent writer
+replacing the file inode between reads. This is not a file-inode race exclusion guarantee. Fuel
+metadata schemas count Unicode code points with maxLength; binding additionally enforces at most
+1,024 UTF-8 bytes, so package validation applies the stricter runtime bound.
+
 The exported-constant cap remains deterministic INVALID `resource-cap`. Wall/memory/observation interruption is
 retryable ERROR `resource-unavailable`, not mathematical rejection. Time/RSS cover the owned process tree;
 sampled cooperative guards are not certified adversarial peak-memory bounds.
 
 The tracked v2 cap profile declares every stream kind. Compile stdout is measured while draining by JSON
 message count and UTF-8 diagnostic data bytes, excluding file names and positions. Limits are 16,384 messages
-and 16 MiB data; replay records 128 MiB, sealed exports 2 GiB and identity stdout 1 MiB. Stdout/stderr use separate
+and 16 MiB data; replay records 128 MiB, sealed exports 2 GiB / 3,000,000 records and identity stdout 1 MiB. Stdout/stderr use separate
 pipes and streaming byte counts/SHA-256. Raw logs retain 512 KiB head plus 512 KiB tail, with a registry 256 MiB
 guard. Raw diagnostics do not establish verdicts. Structured overflow is ERROR `output-cap` before partial
-findings can be applied; reference-stage overflow is a node fault. A drain error is ERROR `capture-failed`.
+findings can be applied. Sealed export byte/record caps and identity work caps instead return
+INVALID `resource-cap` on submission input and D-node ERROR on reference/challenge input. An export
+prefix never reaches identity or Comparator. The input role is trusted caller metadata, separate
+from the exporter's sandbox execution role. A drain error is ERROR `capture-failed`.
 These caps are fixed across retry envelopes. Without `--keep`, attempt builds and exports are removed after
 success or failure; bounded diagnostics and digests remain, and export-integrity evidence is retained.
 
@@ -227,6 +351,15 @@ Replay records have exact tab-separated field counts, LF termination and bounded
 produce ERROR `replay-unavailable` with detail `malformed-record`. Unexpected checker exceptions and usage
 errors exit 3 with an ERROR report; a consumer requires agreement between the report and exit code.
 Error groups, reference-stage handling and resource-only retry envelopes are pinned in `error_policy_v1.json`.
+
+The DET3 classification work is staged; these rules do not establish full N7 resource liveness:
+
+| F3 row | Current rule | Remaining gate |
+|---|---|---|
+| 11, local wall/RSS/OOM inside fuel | ERROR / DEFER; no inferred deterministic cap from a physical interruption | Only the measured cohort has a padded fit; adversarial bounds and N7 remain open |
+| 13, kernel negative | Typed INVALID rejection/cap in both kernels; digest-bound fourfold own budgets when provisioned; untyped archives remain ERROR | Eligibility is limited to measured references; x86-64 CI and broader platform qualification remain |
+| 14, trusted driver deterministic fault | INVALID `tool-fault:<stage>` on submission; D-node on reference | Typed driver protocol |
+| Export/identity cap | INVALID `resource-cap` on submission; D-node on reference/challenge | Fixed byte/record/work measures |
 
 New store submission policy v5 scans all solver-written helper declarations and proof text exactly as written.
 Forbidden words may not appear anywhere in that text, including comments and string literals. The reason gives

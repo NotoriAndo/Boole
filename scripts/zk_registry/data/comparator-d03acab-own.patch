@@ -1,0 +1,149 @@
+--- a/Main.lean
++++ b/Main.lean
+@@ -7,0 +8 @@
++import CertifiedBase
+@@ -36,0 +38 @@
++  selected_declarations : Nat := 0
+@@ -59,0 +62,2 @@
++  certifiedBasePath : Option System.FilePath := none
++  candidateDeclarations : Option (Array String) := none
+@@ -189 +193 @@
+-    (solutionExport : String) : M (Option String) := do
++    (solutionExport : String) (checkedNames : Option (Array (Array String)) := none) : M (Option String) := do
+@@ -214,0 +219 @@
++      ("checked_declaration_names", Lean.toJson checkedNames),
+@@ -256,0 +262,4 @@
++        if let some names := checkedNames then
++          if ret == 0 && (status.selected_declarations != names.size ||
++              status.checked_declarations != names.size) then
++            throw <| .userError "invalid native selection"
+@@ -288 +297,2 @@
+-def runBuiltinKernel (solution : Export.ExportedEnv) : M (Option String) := do
++def runBuiltinKernel (solution : Export.ExportedEnv) (cached : Option Lean.Environment := none)
++    (own : Option (Std.HashMap Lean.Name Lean.ConstantInfo) := none) : M (Option String) := do
+@@ -291 +301 @@
+-  let mut kernelEnv := env.toKernelEnv
++  let mut kernelEnv := (cached.getD env).toKernelEnv
+@@ -292,0 +303 @@
++  let inputConstMap := own.getD origConstMap
+@@ -296,2 +307,2 @@
+-  let kernelConstMap := quotTargets.foldl (init := origConstMap) (·.erase ·)
+-  let extra := quotTargets.foldl (fun n name => n + if origConstMap.contains name then 1 else 0) 0
++  let kernelConstMap := quotTargets.foldl (init := inputConstMap) (·.erase ·)
++  let extra := quotTargets.foldl (fun n name => n + if inputConstMap.contains name then 1 else 0) 0
+@@ -324 +335,4 @@
+-        if info != info' then
++        if cached.isSome then
++          let .ok true ← GateBase.equivalent info info' |
++            throw <| .userError "Quotient constant mismatch"
++        else if info != info' then
+@@ -384 +398,26 @@
+-  if solution.constMap.size > (← read).maxExportedConstants then
++  let theoremNames ← getTheoremNames
++  let definitionNames ← getDefinitionNames
++  let mut provisioned : Option Lean.Environment := none
++  let mut guardedConstants := solution.constMap
++  let mut uncertifiedLibrary := false
++  if let some path := (← read).certifiedBasePath then
++    let base ← try GateBase.imported path catch _ =>
++      recordStatus [("stage", .str "error"), ("reason", .str "kernel-unavailable")]
++      recordStatus [("stage", .str "final"), ("rc", Lean.toJson (70 : Nat))]
++      return ← IO.Process.exit 70
++    let declared := (← read).candidateDeclarations.getD
++      (challenge.constMap.toList.map (fun (name, _) => name.toString)).toArray
++    let own ← match GateBase.moduleOwned solution.constMap base.toKernelEnv declared with
++      | .error _ =>
++        recordStatus [("stage", .str "policy"), ("reason", .str "certified-base-mismatch")]
++        throw <| .userError "module-owned declaration profile mismatch"
++      | .ok own => pure own
++    if theoremNames.any (fun name => !own.contains name) then
++      recordStatus [("stage", .str "policy"), ("reason", .str "certified-base-mismatch")]
++      throw <| .userError "target must belong to the own delta"
++    uncertifiedLibrary := GateBase.hasUncertifiedLibrary solution.constMap base.toKernelEnv declared
++    -- Unsupported library payloads cannot consume the miner's input allowance.
++    -- The module-owned subset still has all independently decidable guards.
++    if uncertifiedLibrary then guardedConstants := own
++    provisioned := some base
++  if guardedConstants.size > (← read).maxExportedConstants then
+@@ -388 +427,2 @@
+-  if let .error _ := GateFuel.checkInputs solution.constMap limits.literal_bytes (limits.max_rec_depth * 16) then
++  let nanodaLimits := (← read).nanodaKernel
++  if let .error _ := GateFuel.checkInputs guardedConstants limits.literal_bytes (limits.max_rec_depth * 16) then
+@@ -392,2 +432,53 @@
+-  let theoremNames ← getTheoremNames
+-  let definitionNames ← getDefinitionNames
++  if uncertifiedLibrary then
++    -- These mandatory per-declaration debits need no uncertified dependencies.
++    if guardedConstants.size * limits.declaration_charge > limits.aggregate_raw ||
++        guardedConstants.size * nanodaLimits.declaration_charge > nanodaLimits.aggregate_work then
++      recordStatus [("stage", .str "policy"), ("reason", .str "resource-cap")]
++      recordStatus [("stage", .str "final"), ("rc", Lean.toJson (3 : Nat))]
++      return ← IO.Process.exit 3
++  let mut cached : Option Lean.Environment := none
++  let mut own : Option (Std.HashMap Lean.Name Lean.ConstantInfo) := none
++  let mut checkedNames : Option (Array (Array String)) := none
++  if let some base := provisioned then
++    if let .error _ ← GateBase.select challenge.constMap base.toKernelEnv 12000000 false then
++      recordStatus [("stage", .str "error"), ("reason", .str "kernel-unavailable")]
++      recordStatus [("stage", .str "final"), ("rc", Lean.toJson (70 : Nat))]
++      return ← IO.Process.exit 70
++    -- Direct reference-measurement callers may use the pristine challenge's
++    -- declarations. Production check() supplies module-owned CONST names.
++    let declared := (← read).candidateDeclarations.getD
++      (challenge.constMap.toList.map (fun (name, _) => name.toString)).toArray
++    cached := some base
++    match ← GateBase.select solution.constMap base.toKernelEnv 12000000 true (some declared) with
++    | .error (.cap _) =>
++      recordStatus [("stage", .str "policy"), ("reason", .str "resource-cap")]
++      recordStatus [("stage", .str "final"), ("rc", Lean.toJson (3 : Nat))]
++      return ← IO.Process.exit 3
++    | .error (.reject _) =>
++      recordStatus [("stage", .str "policy"), ("reason", .str "certified-base-mismatch")]
++      throw <| .userError "certified base or declaration profile mismatch"
++    | .error (.unavailable _) =>
++      -- Structural statement/axiom checks also need no uncertified kernel work.
++      uncertifiedLibrary := true
++    | .ok declarations =>
++      if theoremNames.any (fun name => !declarations.contains name) then
++        recordStatus [("stage", .str "policy"), ("reason", .str "certified-base-mismatch")]
++        throw <| .userError "target must belong to the own delta"
++      let names := declarations.toList.map Prod.fst |>.toArray.qsort (fun a b => a.toString < b.toString)
++      checkedNames := some (names.map GateBase.nameParts)
++      own := some declarations
++      cached := some base
++  -- Every supplied certified-base payload has been checked for identity.
++  -- Statement and axiom traversal is structural, including uncertified material.
++  -- Omitted base declarations come from that state for comparison;
++  -- supplied declarations remain intact and the own replay set stays unchanged.
++  let mut comparisonChallenge := challenge
++  let mut comparisonSolution := solution
++  if let some base := cached then
++    for (name, info) in base.constants.toList do
++      if !comparisonChallenge.constMap.contains name then
++        comparisonChallenge := { comparisonChallenge with
++          constMap := comparisonChallenge.constMap.insert name info }
++      if !comparisonSolution.constMap.contains name then
++        comparisonSolution := { comparisonSolution with
++          constMap := comparisonSolution.constMap.insert name info }
+@@ -395 +486 @@
+-  if let .error error := Comparator.compareAt challenge solution targets definitionNames (← primitiveTargets) then
++  if let .error error := Comparator.compareAt comparisonChallenge comparisonSolution targets definitionNames (← primitiveTargets) then
+@@ -398 +489 @@
+-  if let .error error := Comparator.checkAxioms solution theoremNames definitionNames (← getLegalAxioms) then
++  if let .error error := Comparator.checkAxioms comparisonSolution theoremNames definitionNames (← getLegalAxioms) then
+@@ -400,0 +492,4 @@
++  if uncertifiedLibrary then
++    recordStatus [("stage", .str "error"), ("reason", .str "library-outside-certified-base")]
++    recordStatus [("stage", .str "final"), ("rc", Lean.toJson (70 : Nat))]
++    return ← IO.Process.exit 70
+@@ -403,2 +498,2 @@
+-    result := result <|> (← runExternalKernel kernelName kernelCommand solutionExport)
+-  result := result <|> (← runBuiltinKernel solution)
++    result := result <|> (← runExternalKernel kernelName kernelCommand solutionExport checkedNames)
++  result := result <|> (← runBuiltinKernel solution cached own)
+@@ -435,0 +531,2 @@
++  certified_base_olean : Option String := none
++  candidate_declarations : Option (Array String) := none
+@@ -476,0 +574,2 @@
++    certifiedBasePath := cfg.certified_base_olean.map System.FilePath.mk
++    candidateDeclarations := cfg.candidate_declarations

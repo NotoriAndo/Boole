@@ -1,0 +1,3 @@
+# Verbatim pinned public sources retain upstream whitespace and byte identity.
+fixtures/nanoda-public-sources-v1/src/*.rs -whitespace
+fixtures/nanoda-public-sources-v1/src/tests/*.rs -whitespace
