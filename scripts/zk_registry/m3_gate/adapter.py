@@ -257,6 +257,23 @@ def decode_reply(raw, descriptor, context, *, fork_authorized=False):
     for key in ('outcome', 'reason', 'action', 'failure_class', 'detail', 'gate_error', 'native_followup'):
         if value[key] != expected[key] or type(value[key]) is not type(expected[key]):
             raise ValueError('reply mapping mismatch')
+    # VOID-only identity and scalar syntax apply even to unavailable results.
+    M.check_statement(value['outcome'], value['reason'], value['statement_id'], context)
+    counters = value['counter_identity']
+    if counters is not None:
+        C.fields(counters, ('lean', 'nanoda'))
+        for kernel, entry in counters.items():
+            C.fields(entry, ('summary', 'vector'))
+            C.fields(entry['vector'], ('sha256', 'records'))
+            C.digest(entry['vector']['sha256']); C.uint(entry['vector']['records'])
+            keys = (('calls', 'checked', 'code', 'debit', 'depth', 'version') if kernel == 'lean' else
+                    ('version', 'code', 'checked_declarations', 'aggregate_work', 'aggregate_steps',
+                     'maximum_depth', 'maximum_composed_depth', 'selected_declarations'))
+            C.fields(entry['summary'], keys)
+            for count in entry['summary'].values():
+                C.uint(count)
+            if entry['summary']['version'] != 1 or entry['summary']['code'] not in (0, 3):
+                raise ValueError('unknown counter identity version/outcome')
     C.fields(value['kernels'], ('lean', 'nanoda'))
     total = 0; incomplete = False
     for kernel, state in value['kernels'].items():
@@ -285,7 +302,6 @@ def decode_reply(raw, descriptor, context, *, fork_authorized=False):
         if total != value['fuel'] or total > context['slot_fuel']:
             raise ValueError('fuel mismatch')
     if value['outcome'] in ('ACCEPT', 'REJECT', 'VOID'):
-        M.check_statement(value['outcome'], value['reason'], value['statement_id'], context)
         if value['outcome'] == 'ACCEPT' and context['lane'] != 1:
             raise ValueError('fuel or lane mismatch')
         if (value['outcome'] == 'ACCEPT' or value['row'] in ('kernel_reject', 'kernel_disagreement')) and any(

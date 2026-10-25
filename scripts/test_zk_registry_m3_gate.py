@@ -226,7 +226,9 @@ class Adapter(Front):
         result, _, context = self.invoke('unavailable', dict(verdict='ERROR', reason='sandbox-unavailable', rc=70))
         A.decode_reply(C.canonical(result), self.desc, context)
         for changes in (dict(kernels={}), dict(kernels=M.not_run(), fuel=10),
-                        dict(kernels=dict(lean=dict(state='unknown', debit=9, charged=0), nanoda=M.unknown()['nanoda']))):
+                        dict(kernels=dict(lean=dict(state='unknown', debit=9, charged=0), nanoda=M.unknown()['nanoda'])),
+                        dict(statement_id={}), dict(statement_id=M.void_statement(context)),
+                        dict(counter_identity={'unknown': 1})):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 A.decode_reply(C.canonical(dict(result, **changes)), self.desc, context)
 
