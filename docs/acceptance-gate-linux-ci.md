@@ -39,6 +39,6 @@ generated Init inputs against newly measured aarch64 goldens. It verifies prereg
 and export byte identities; no private catalog proof or export is published. The committed
 generator records the derivation. It cannot replace the expected golden with its own result.
 Raw vectors and build manifests are uploaded even on failure. The job does not create an
-x86-64 production profile and is not a required branch-protection check. Hosted runtime,
-including whether it fits 120 minutes, is unmeasured. `ubuntu-latest` and apt package versions
-are unpinned; actions are SHA-pinned. The orchestrator records runtime after publication.
+x86-64 production profile and is not a required branch-protection check. Its first hosted run
+(2026-10-25) matched the golden exactly in 77 minutes, within the 120-minute limit.
+`ubuntu-latest` and apt package versions are unpinned; actions are SHA-pinned.

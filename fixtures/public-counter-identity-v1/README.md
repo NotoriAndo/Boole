@@ -20,4 +20,5 @@ event slots (0..6). Slot 7 is reserved and has no producer. Identity includes
 full deterministic per-declaration vector hashes and typed outcomes. This is
 counter architecture coverage, not real-workload timing prediction, cap
 calibration, package eligibility or an x86 production attestation. The x86 CI
-job is advisory, has never run, and its 120-minute fit remains unmeasured.
+job is advisory; its first hosted run (2026-10-25) matched this golden exactly
+in 77 minutes.

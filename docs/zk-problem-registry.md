@@ -290,10 +290,10 @@ The advisory `det3-counter-identity-x86_64` CI job compares 32 public generated 
 against newly measured aarch64 vectors. The committed generator preregisters source bytes before
 compilation and seals export bytes before measurement; private catalog exports are excluded from
 this branch's entire history. This covers architecture identity, not real-workload performance.
-The job has not run on hosted CI: its 120-minute limit is unmeasured, `ubuntu-latest` and apt
-versions are unpinned, and it is not required by branch protection. Actions are SHA-pinned.
-Record actual runtime when the orchestrator publishes and runs it. Counter identity does not
-provision or qualify an x86-64 production artifact profile.
+Its first hosted run (2026-10-25) reproduced the aarch64 golden exactly in 77 minutes, within
+the 120-minute limit. `ubuntu-latest` and apt versions are unpinned, and it is not required by
+branch protection. Actions are SHA-pinned. Counter identity does not provision or qualify an
+x86-64 production artifact profile.
 
 Capped checks use the trusted replay's module-owned CONST names. Independently decidable
 own violations run first: forbidden declaration profiles, target-not-own, input count,
