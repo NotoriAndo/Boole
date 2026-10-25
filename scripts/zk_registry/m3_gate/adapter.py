@@ -104,6 +104,8 @@ def axioms(export, own):
         if name in seen:
             continue
         seen.add(name)
+        if name not in export.declarations:
+            raise F.SubmissionTypeError('implicit type/dependency absent')
         kind, value = export.declarations[name]
         if kind == 'axiom' and name not in F.ALLOWED_AXIOMS:
             raise F.Refusal('axiom_rejected', 'axiom closure')
@@ -118,7 +120,10 @@ def reply(descriptor, context, mapped, statement, states, fuel, counter=None):
     if mapped['outcome'] in ('ACCEPT', 'REJECT', 'VOID'):
         M.check_statement(mapped['outcome'], mapped['reason'], statement, context)
         C.uint(fuel)
-        if fuel > context['slot_fuel'] or any(s['state'] == 'unknown' for s in states.values()):
+        intake=(mapped['row']=='output_terminal' and states==M.output_limit() and fuel==0)
+        if mapped['row']=='output_terminal' and not intake:
+            raise ValueError('invalid terminal intake execution state')
+        if fuel > context['slot_fuel'] or any(s['state'] == 'unknown' for s in states.values()) and not intake:
             raise ValueError('unbound result fuel')
     value = dict(version=1, gate_rule_digest=C.identity(descriptor), descriptor_sha256=C.sha(C.encode(descriptor)),
         input_digest=C.sha(C.canonical(context)),
@@ -140,6 +145,22 @@ def compare_exports(*args, public_counter=False, **kwargs):
     return D.compare_exports(*args, **kwargs)
 
 
+def check_reference(reference, export, package, target):
+    """Trusted work inside the submission phase keeps its node provenance."""
+    try:
+        reference_path = Path(reference)
+        if D.digest(reference_path) != package['reference_sha256']:
+            raise F.Refusal('node_fault', 'reference address')
+        trusted = export if export.raw_sha256 == package['reference_sha256'] else F.read_export(reference_path, 'reference')
+        if trusted.identity(target)[F.I.SUFFIX] != package['statement']:
+            raise F.Refusal('node_fault', 'reference statement binding')
+        return reference_path
+    except F.Refusal:
+        raise
+    except Exception:
+        raise F.Refusal('node_fault', 'trusted reference computation') from None
+
+
 def run(bundle, package_bytes, inventory_bytes, context, descriptor_bytes, gate_digest,
         reference, tools, counter_driver, work, *, certified_root=None,
         phase='first', public_counter=False):
@@ -157,66 +178,63 @@ def run(bundle, package_bytes, inventory_bytes, context, descriptor_bytes, gate_
         inventory = F.Inventory(inventory_bytes, descriptor['artifact_table_sha256'])
         pkg = F.package(package_bytes, context['package_sha256'], inventory)
         statement = pkg['statement']
-        if len(bundle) > F.RAW_MAX:
-            raise F.Refusal('structural_cap', 'bundle byte limit')
-        if pkg['env_id'] != context['env_id'] or C.sha(bundle) != context['export_digest']:
+        bound=F.bind_bundle(bundle,context['export_digest'])
+        if pkg['env_id'] != context['env_id']:
             raise F.Refusal('input_integrity', 'job binding')
+        if bound.size > F.RAW_MAX:
+            raise F.Refusal('structural_cap', 'bound bundle byte limit')
         if context['leaf_kind'] == 2:
             raise F.Refusal('generator_unavailable')
         if context['lane'] != 1:
             raise F.Refusal('node_fault', 'lane-2 metric gate not qualified in A1')
-        raw = F.unpack(bundle)
+        raw = F.unpack(bound.data)
         source = directory/'solution.ndjson'
         with source.open('xb') as stream:
             stream.write(raw)
         source.chmod(0o400)
         export = F.read_export(source)
-        checked = F.partition(export, inventory, pkg)
-        reference_path = Path(reference)
-        if D.digest(reference_path) != pkg['reference_sha256']:
-            raise F.Refusal('node_fault', 'reference address')
-        trusted = export if export.raw_sha256 == pkg['reference_sha256'] else F.read_export(reference_path, 'reference')
-        target = F.fqn(pkg['target'])
-        if trusted.identity(target)[F.I.SUFFIX] != statement:
-            raise F.Refusal('node_fault', 'reference statement binding')
-        if export.identity(target)[F.I.SUFFIX] != statement:
-            raise F.Refusal('statement_mismatch')
-        axioms(export, checked.own)
-        budget = None
-        if pkg['mode'] == 'certified-own':
-            try:
-                authority = FC.load_authority()
-            except (FC.FuelCapError, OSError, ValueError, TypeError, KeyError):
-                raise F.Refusal('node_fault', 'local fuel authority unavailable') from None
-            try:
-                resolved = FC.resolve(pkg['fuel_cap'], authority)
-                if resolved['problem'] != pkg['problem'] or resolved['statement'] != statement:
-                    raise FC.FuelCapError('package cap identity')
-            except FC.FuelCapError:
-                raise F.Refusal('fuel_binding_invalid') from None
-            try:
-                budget = FC.bind(dict(package_id=pkg['problem'], fuel_cap=pkg['fuel_cap']), statement, certified_root)
-            except FC.FuelCapError:
-                raise F.Refusal('node_fault', 'certified state unavailable') from None
-            caps = dict(lean=budget.lean, nanoda=budget.nanoda)
-        elif public_counter:
-            # Explicit qualification mode is limited to the committed public
-            # corpus. It cannot make an arbitrary uncapped package eligible.
-            fixture = Path(__file__).resolve().parents[3]/'fixtures/public-counter-identity-v1'
-            manifest = C.loads((fixture/'manifest.json').read_bytes())
-            if target != 'PublicCounter.target' or export.raw_sha256 not in {u['raw_sha256'] for u in manifest['units']}:
-                raise F.Refusal('fuel_binding_invalid')
-            caps = dict(FC.STRUCTURAL)
-        else:
-            raise F.Refusal('fuel_binding_invalid', 'no uncapped admission')
-        scalar_cap = sum(caps[k]*descriptor['fuel'][k+'_weight'] for k in caps)
-        if scalar_cap > context['slot_fuel'] or scalar_cap >= 2**64:
-            raise F.Refusal('fuel_binding_invalid', 'slot cap')
-        if len(checked.own)*64 > min(caps.values()):
-            return finish('resource_cap')
-        if checked.library:
-            return finish('library_terminal')
-        own = [F.selector(name) for name in checked.own]
+        with F.submission_boundary():
+            checked = F.partition(export, inventory, pkg)
+            target = F.fqn(pkg['target'])
+            reference_path = check_reference(reference, export, pkg, target)
+            if export.identity(target)[F.I.SUFFIX] != statement:
+                raise F.Refusal('statement_mismatch')
+            axioms(export, checked.own)
+            budget = None
+            if pkg['mode'] == 'certified-own':
+                try:
+                    authority = FC.load_authority()
+                except (FC.FuelCapError, OSError, ValueError, TypeError, KeyError):
+                    raise F.Refusal('node_fault', 'local fuel authority unavailable') from None
+                try:
+                    resolved = FC.resolve(pkg['fuel_cap'], authority)
+                    if resolved['problem'] != pkg['problem'] or resolved['statement'] != statement:
+                        raise FC.FuelCapError('package cap identity')
+                except FC.FuelCapError:
+                    raise F.Refusal('fuel_binding_invalid') from None
+                try:
+                    budget = FC.bind(dict(package_id=pkg['problem'], fuel_cap=pkg['fuel_cap']), statement, certified_root)
+                except FC.FuelCapError:
+                    raise F.Refusal('node_fault', 'certified state unavailable') from None
+                caps = dict(lean=budget.lean, nanoda=budget.nanoda)
+            elif public_counter:
+                # Explicit qualification mode is limited to the committed public
+                # corpus. It cannot make an arbitrary uncapped package eligible.
+                fixture = Path(__file__).resolve().parents[3]/'fixtures/public-counter-identity-v1'
+                manifest = C.loads((fixture/'manifest.json').read_bytes())
+                if target != 'PublicCounter.target' or export.raw_sha256 not in {u['raw_sha256'] for u in manifest['units']}:
+                    raise F.Refusal('node_fault','public counter corpus mismatch')
+                caps = dict(FC.STRUCTURAL)
+            else:
+                raise F.Refusal('fuel_binding_invalid', 'no uncapped admission')
+            scalar_cap = sum(caps[k]*descriptor['fuel'][k+'_weight'] for k in caps)
+            if scalar_cap > context['slot_fuel'] or scalar_cap >= 2**64:
+                raise F.Refusal('fuel_binding_invalid', 'slot cap')
+            if len(checked.own)*64 > min(caps.values()):
+                return finish('resource_cap')
+            if checked.library:
+                return finish('library_terminal')
+            own = [F.selector(name) for name in checked.own]
         if public_counter:
             counters = CI.one(source, directory/'counter-identity', Path(counter_driver), Path(tools.nanoda))
         result = compare_exports(str(reference_path), str(source), target, tools, Sandbox.development(),
@@ -226,6 +244,12 @@ def run(bundle, package_bytes, inventory_bytes, context, descriptor_bytes, gate_
         (directory/'COMPARATOR.json').write_text(json.dumps(result, indent=2)+'\n')
         mapped_observation = observation(result)
         events = result.get('comparator_status', [])
+        if mapped_observation.row=='output_terminal':
+            # closure returns before status decoding when capture hits its bound.
+            # Preserve unknown actual work; this terminal intake outcome charges
+            # zero under bounded-debit/v2, without asserting that no kernel ran.
+            states=M.output_limit();fuel=0
+            return finish(mapped_observation)
         front_stop = (result.get('rc') == 2 and
                       any(e.get('stage')=='final' and e.get('rc')==2 for e in events) and
                       any(e.get('stage')=='policy' and e.get('reason')==result.get('reason') for e in events) and
@@ -261,7 +285,7 @@ def run(bundle, package_bytes, inventory_bytes, context, descriptor_bytes, gate_
         # This exception is chosen only by the trusted front end, never parsed
         # out of miner strings or diagnostics.
         return finish(ex.row)
-    except (OSError, ValueError, TypeError, KeyError, MemoryError, RecursionError):
+    except Exception:
         states = M.unknown(); fuel = None
         return finish('node_fault')
 
@@ -293,6 +317,8 @@ def decode_reply(raw, descriptor, context, *, fork_authorized=False):
             raise ValueError('reply mapping mismatch')
     # VOID-only identity and scalar syntax apply even to unavailable results.
     M.check_statement(value['outcome'], value['reason'], value['statement_id'], context)
+    if value['row']=='output_terminal' and (value['kernels']!=M.output_limit() or value['fuel']!=0):
+        raise ValueError('output limit requires unobserved work and zero intake charge')
     counters = value['counter_identity']
     if counters is not None:
         C.fields(counters, ('lean', 'nanoda'))
@@ -313,6 +339,9 @@ def decode_reply(raw, descriptor, context, *, fork_authorized=False):
     for kernel, state in value['kernels'].items():
         C.fields(state, ('state', 'debit', 'charged'))
         if state['state'] == 'unknown':
+            if value['row']=='output_terminal' and state==dict(state='unknown',debit=None,charged=0):
+                C.uint(state['charged'])
+                continue
             if state['debit'] is not None or state['charged'] is not None:
                 raise ValueError('fabricated unknown counter')
             incomplete = True

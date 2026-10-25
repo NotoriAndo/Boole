@@ -1,6 +1,8 @@
 """Bounded data grammar and authenticated declaration ownership, before kernels."""
 from dataclasses import dataclass
+from contextlib import contextmanager
 import os
+import hashlib
 import re
 import stat
 from .. import statement_identity as I
@@ -20,6 +22,28 @@ class Refusal(ValueError):
     def __init__(self, row, detail=''):
         super().__init__(row)
         self.row, self.detail = row, detail
+
+
+class SubmissionTypeError(Exception):
+    """An explicit type/dependency failure discovered from submitted data."""
+
+
+# Exact types only: broad ValueError/KeyError/TypeError handlers could turn a
+# trusted implementation bug into a miner rejection. Physical deadlines are
+# deliberately absent; IdentityUnavailable remains a node/availability fault.
+SUBMISSION_ERRORS = {I.IdentityError: 'front_invalid', I.IdentityCap: 'structural_cap',
+                     SubmissionTypeError: 'input_type', UnicodeEncodeError: 'front_invalid',
+                     UnicodeDecodeError: 'front_invalid'}
+
+
+@contextmanager
+def submission_boundary():
+    try:
+        yield
+    except Refusal:
+        raise
+    except Exception as error:
+        raise Refusal(SUBMISSION_ERRORS.get(type(error), 'node_fault'), 'submission computation') from None
 
 
 def name_key(name):
@@ -75,6 +99,55 @@ def pack(export):
     if type(export) is not bytes or not export or len(export) + len(MAGIC) + 8 > RAW_MAX:
         raise Refusal('structural_cap', 'bundle size')
     return MAGIC + len(export).to_bytes(8, 'big') + export
+
+
+@dataclass(frozen=True)
+class BundleSource:
+    """Node-local sealed artifact path; never a field in miner metadata."""
+    path: str
+
+
+@dataclass(frozen=True)
+class BoundBundle:
+    size: int
+    digest: str
+    data: object
+
+
+def bind_bundle(source, expected):
+    """Hash through EOF before admission; retain at most the framing allowance.
+
+    The retention bound controls memory only. An oversized input is not rejected
+    until its WHOLE content address has been checked, including the discarded tail.
+    """
+    hashed=hashlib.sha256();size=0;kept=[]
+    def consume(chunk):
+        nonlocal size,kept
+        hashed.update(chunk);size+=len(chunk)
+        if size<=RAW_MAX:
+            kept.append(bytes(chunk))
+        else:
+            kept=[]
+    try:
+        if type(source) is bytes:
+            view=memoryview(source)
+            for start in range(0,len(view),1024**2):consume(view[start:start+1024**2])
+        elif type(source) is BundleSource:
+            with os.fdopen(os.open(source.path,os.O_RDONLY|os.O_NOFOLLOW),'rb') as stream:
+                before=os.fstat(stream.fileno())
+                if not stat.S_ISREG(before.st_mode):raise Refusal('input_failure','bundle kind')
+                for chunk in iter(lambda:stream.read(1024**2),b''):consume(chunk)
+                after=os.fstat(stream.fileno())
+                if (before.st_size,before.st_mtime_ns,before.st_ino)!=(after.st_size,after.st_mtime_ns,after.st_ino):
+                    raise Refusal('input_integrity','bundle changed')
+        else:
+            raise Refusal('input_failure','bundle source unavailable')
+    except OSError:
+        raise Refusal('input_failure','bundle read unavailable') from None
+    actual=hashed.hexdigest()
+    if actual!=expected:
+        raise Refusal('input_integrity','bundle content address')
+    return BoundBundle(size,actual,b''.join(kept) if size<=RAW_MAX else None)
 
 
 def unpack(raw):
@@ -180,7 +253,7 @@ def read_export(path, role='submission'):
         return DataExport(path)
     except (I.IdentityUnavailable, OSError, MemoryError):
         raise Refusal('node_fault', 'export unavailable') from None
-    except I.IdentityCap:
+    except (I.IdentityCap,C.JsonDepthError):
         raise Refusal('structural_cap' if role == 'submission' else 'node_fault', 'export limit') from None
     except I.IdentityError as ex:
         row = 'unknown_constant' if str(ex) == 'missing-constant' else 'front_invalid'
@@ -216,24 +289,33 @@ class Checked:
 
 
 def public_name(name):
-    """Lean private namespaces are visibility wrappers, never policy escapes."""
-    while len(name) >= 4 and name[0] == ('str', '_private'):
-        index = next((i for i, part in enumerate(name[1:], 1) if part[0] == 'num'), None)
-        if index is None or index < 2 or index + 1 == len(name):
-            break
-        name = name[index+1:]
+    """Lean 4.34.1 Lean/PrivateName.lean:38-64 privateToUserNameAux.
+
+    isPrivatePrefix removes the first numeric component only when it is zero;
+    an anonymous main module is legal. Later numeric components remain user data.
+    """
+    if name and name[0] == ('str','_private'):
+        index=next((i for i,part in enumerate(name[1:],1) if part[0]=='num'),None)
+        if index is not None and name[index][1]==0:return name[index+1:]
     return name
 
 
 def reserved(name, *, reference=False):
     # Package/environment namespaces forbid new declarations, not references
     # to their authenticated definitions. Admitted Boole.R<k> stays disjoint.
-    name = public_name(name)
-    if not reference and (name[0] in (('str', 'Leaf'), ('str', 'BooleCS')) or
-                          len(name) > 1 and name[:2] == (('str', 'Boole'), ('str', 'Leaf'))):
-        return True
-    return (len(name) > 1 and name[0] == ('str', 'Boole') and name[1][0] == 'str'
-            and re.match(r'R(?:[0-9]+|$)', name[1][1]) is not None)
+    candidates=[public_name(name)]
+    if name and name[0]==('str','_private'):
+        # Also reserve namespace tails in noncanonical private wrappers, e.g.
+        # _private.M.0.Foo.1.BooleCS.X. This policy view does not alias that
+        # original Name to the Lean user Name Foo.1.BooleCS.X.
+        candidates += [name[i+1:] for i,part in enumerate(name) if part[0]=='num' and i+1<len(name)]
+    for current in candidates:
+        if not current:continue
+        if not reference and (current[0] in (('str','Leaf'),('str','BooleCS')) or
+                len(current)>1 and current[:2]==(('str','Boole'),('str','Leaf'))):return True
+        if (len(current)>1 and current[0]==('str','Boole') and current[1][0]=='str'
+                and re.match(r'R(?:[0-9]+|$)',current[1][1]) is not None):return True
+    return False
 
 
 def own_input_caps(export, starts):

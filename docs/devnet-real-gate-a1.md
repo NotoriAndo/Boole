@@ -11,7 +11,8 @@ to the subsequent supervisor integration. No real EENV5 identity is issued here.
 
 `codec.py` is the normative schema and field order. The compact ASCII JSON
 descriptor has version 1, adapter `boole-m3-real/v1`, source and kernel-set pins,
-v2 error-policy binding, cap/authority/inventory pins, the full-file SHA-256 of
+reference interpreter `CPython 3.9.6`, JSON nesting limit 127, v2 error-policy
+binding, cap/authority/inventory pins, the full-file SHA-256 of
 `acceptance_environment_v2.json` and `acceptance_tools_v2.json`, grammar version, fuel
 weights and a sorted architecture map. Each profile binds Comparator, nanoda,
 Lean replay, counter replay, exporter, Lean runtime, imports, sandbox and codec.
@@ -42,7 +43,12 @@ Fixtures exercise the schema without claiming a released EENV5 artifact table.
 The bundle is `BOOLE-M3/EXPORT-BUNDLE/v1`, NUL, an unsigned 64-bit big-endian
 export length and exactly that many NDJSON export bytes, within 128 MiB including
 the frame. The front parser checks every record, intern reference, DAG and scalar
-before invoking a kernel. There is no Lean source elaboration or miner program.
+before invoking a kernel. Bytes are strict UTF-8 without a BOM or unpaired
+surrogates. A lexical, quote-aware limit of 127 JSON containers applies to every
+record, including metadata, before JSON parsing. This matches nanoda
+`parser.rs` (strict `BufRead::read_line` and `serde_json::from_str`) and pinned
+serde_json 1.0.145's default 128-level recursion budget. Paired surrogate escapes
+are allowed. There is no Lean source elaboration or miner program.
 
 `front.py` derives base and library membership by structured declaration name
 and complete normalized payload digest from authenticated inventories. Cached
@@ -51,7 +57,9 @@ absent from both inventories are own declarations; miner labels have no effect.
 The certified-own adapter passes that explicit checked-own set to DET3. An empty set or a target
 that is not an own theorem is rejected before a kernel; there is no challenge-name fallback.
 
-Order: authenticate release/tools/inventory/package and input bindings; parse
+Order: authenticate release/tools/inventory/package; stream-hash the entire
+bundle, including an oversized tail, and confirm the bound `export_digest`
+before any size verdict; parse
 all export structure; identify cached payloads; prioritize reserved declarations
 and references over cached-payload mismatch; check own name grammar, literal/depth,
 authenticated references, safety, profile and axiom rules; bind the trusted
@@ -67,12 +75,25 @@ environment or package inventory. Missing declarations are a typed
 `unknown_constant` rejection (0106), not a reserved-name violation. The
 `Boole.R<k>.*` declaration and reference ban remains in force. Reserved own
 declarations are checked before reference policy, independently of row order.
-Lean `_private.<module>.<n>.` wrappers are stripped before every reserved check.
+Private-name conversion follows Lean 4.34.1 `Lean/PrivateName.lean:38-64`: strip
+the root `_private` string prefix through its first numeric component only when
+that component is zero, including the anonymous module. Thus
+`_private.M.0.Foo.1.BooleCS.X` converts to `Foo.1.BooleCS.X`. Reservation also
+conservatively checks numeric suffixes of private wrappers, so that spelling and
+`_private.0.BooleCS.X` cannot hide a reserved declaration.
 `Boole.R<digits>` prefixes remain reserved, while `Boole.Ratchet.*` is permitted.
 An identical authenticated payload is cached input; a changed reserved payload
 is a reserved redeclaration (0201), before the generic payload mismatch (0106).
 An own axiom is never allowed by its spelling alone: only an exact authenticated
 inventory payload can supply a permitted base axiom.
+
+All submission-derived computation after `read_export` and before the first
+kernel runs in one explicit guarded boundary. Its exact exception-type allowlist
+maps `IdentityError` and Unicode encoding/decoding errors to malformed 0106,
+`IdentityCap` to size/work 0108, and explicit `SubmissionTypeError` to type 0301.
+Every other exception remains DEFER(D-node); generic KeyError, ValueError and
+RuntimeError are not miner rejections. Trusted reference computation retains
+node provenance inside that phase.
 
 Malformed submission data is a cheap typed rejection. A missing or malformed
 trusted reference, generated export, tool or inventory is DEFER(D-node).
@@ -83,7 +104,9 @@ Natural literals use the fixed 4,096-byte cap: decimal length is bounded at
 9,865 digits before conversion, then converted in nine-digit chunks and checked
 by bit length. JSON integer fields are u64 and bounded before conversion. These
 rules do not depend on the interpreter's configurable integer-string limit.
-Oversized bundles reject with 0108 even at the CLI boundary. Confirmed pre-kernel
+Only digest-matching bundles over 128 MiB reject with 0108, including at the CLI.
+Mismatched bytes cause a D-input integrity STOP, regardless of size; missing
+bundle bytes remain D-input availability failure. Confirmed pre-kernel
 rc 2 resource caps reject with 0108 and zero kernel work; the front's declaration
 fuel precheck rejects with 0303. Physical interruptions remain availability failures.
 
@@ -95,8 +118,11 @@ loads the descriptor-bound v2 rules. Physical failure takes transient precedence
 submission-specific faults on trusted inputs become D-node. Native text is not
 searched for semantic causes. Submission `output-cap` is terminal S/0109;
 capture failure and physical interruption remain transient. Neither S outcome
-retries or quarantines. Missing status/counter evidence remains a separate tool
-protocol failure: it never fabricates zero work or a completed-kernel rejection.
+retries or quarantines. The actual closure output-cap record has no
+`comparator_status`; it is terminal 0109 with unknown actual kernel work and a
+zero terminal intake charge under the explicit v2 charge rule below. Other
+missing status/counter evidence remains a tool protocol failure and never
+fabricates zero work or a completed-kernel rejection.
 Unknown or inconsistent replies defer; local timeouts never authorize VOID.
 VOID/0802 requires an explicit published-fork authorization from the caller.
 Comparator statement, base or axiom disagreement after front validation is
@@ -114,20 +140,26 @@ attribution, typed runtime and pre-kernel cap provenance, and general structured
 selection. Those missing causes remain DEFER(D-node); 0306 is never inferred from
 generic replay tool fault or a silent exit. Every current `tool-fault:replay`,
 including a non-Stop nanoda panic, maps to `kernel_panic_cause_missing`,
-DEFER(D-node), never 0307. Native changes require a separate release and fitted remeasurement.
+DEFER(D-node), never 0307. No producible 0307 row exists, and the strict reply
+decoder refuses it. Native changes require a separate release and fitted remeasurement.
 An undifferentiated native cap with no exceeded aggregate counter defers, because
 the existing marker cannot distinguish per-declaration fuel from depth.
 
 ## Debits and final channel
 
-`bounded-debit/v1` fixes nanoda-before-Lean execution and positive integer scalar
+`bounded-debit/v2` fixes nanoda-before-Lean execution and positive integer scalar
 weights. Executed kernels report the exact raw debit. Only a confirmed typed
 logical cap charges `min(raw debit, kernel allowance)`; other completed work
 charges its exact debit. Scalar fuel is the checked u64 weighted sum. Front-only
 failures and the declaration-count precheck run neither kernel and charge zero.
 An early typed nanoda cap reports Lean `not-run`, null debit and zero charge.
 A missing executed counter is `unknown`, with null debit, charge and total fuel,
-and forces DEFER. It never defaults to zero. Physical interruptions cannot earn
+and forces DEFER. The sole terminal output-cap exception keeps both states
+`unknown` and raw debits null, while charging zero intake fuel. This is not an
+assertion that kernels did not run. The strict decoder refuses other state or
+charge combinations for 0109. Positive debits, weights and all fitted numerical
+caps retain their previous rule and values. Other unknown work never defaults
+to zero. Physical interruptions cannot earn
 a logical cap verdict. A1's fixture weights do not calibrate a production clock.
 
 Invoke `python3 -B -m zk_registry.m3_gate` with the required descriptor, gate
@@ -144,6 +176,7 @@ Lane 2 defers and kind 2 remains VOID/0804 until their separate qualifications.
 The 32 public vectors and seven fitted packages exercise existing native tools;
 Public-counter mode checks the complete committed corpus and explicitly refuses
 `candidate_declarations`; certified-own mode alone supplies a selected delta.
+A public-counter corpus mismatch is DEFER(D-node), never package VOID.
 The legacy generator/executor source identity is unchanged.
 This evidence does not admit Linux production, x86 production, M-FULL or a new
 environment. Reset versus migration is an operator decision needed at M3d-c.

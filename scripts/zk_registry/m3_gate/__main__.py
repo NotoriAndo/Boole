@@ -2,7 +2,7 @@
 import argparse
 from pathlib import Path
 import sys
-from . import adapter as A, codec as C
+from . import adapter as A, codec as C, front as F
 
 
 def read(path, cap, *, overflow=False):
@@ -26,7 +26,7 @@ def main():
         raw_descriptor = read(args.descriptor, 65536)
         descriptor = C.decode(raw_descriptor, args.gate_digest)
         context = C.loads(read(args.context, 65536))
-        result = A.run(read(args.bundle, 134217728, overflow=True), read(args.package, 1048576),
+        result = A.run(F.BundleSource(args.bundle), read(args.package, 1048576),
             read(args.inventory, 67108864), context, raw_descriptor, args.gate_digest,
             args.reference, A.D.Tools.load(args.tools_root), args.counter_driver, args.work,
             certified_root=args.certified_root, phase=args.phase, public_counter=args.public_counter)

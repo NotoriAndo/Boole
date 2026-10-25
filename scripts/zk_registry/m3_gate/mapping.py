@@ -25,11 +25,11 @@ ROWS = {
     'statement_mismatch': Row('REJECT', 0x0107, 'apply'),
     'axiom_rejected': Row('REJECT', 0x0305, 'apply'),
     'kernel_reject': Row('REJECT', 0x0301, 'apply'),
+    'input_type': Row('REJECT', 0x0301, 'apply'),
     'kernel_disagreement': Row('REJECT', 0x0302, 'apply'),
     'resource_cap': Row('REJECT', 0x0303, 'apply'),
     'depth_cause_missing': Row('DEFER', 0, 'repair', 'environment-native-cause-unavailable', 'distinct-depth-cause'),
     'cap_cause_missing': Row('DEFER', 0, 'repair', 'environment-native-cause-unavailable', 'typed-cap-origin'),
-    'tool_fault': Row('REJECT', 0x0307, 'apply'),
     'kernel_panic_cause_missing': Row('DEFER', 0, 'repair', 'environment-native-cause-unavailable', 'explicit-kernel-panic-cause'),
     'output_terminal': Row('REJECT', 0x0109, 'terminal', 'output-cap'),
     'library_terminal': Row('REJECT', 0x010a, 'terminal', 'library-outside-certified-base'),
@@ -37,7 +37,7 @@ ROWS = {
     'input_failure': Row('DEFER', 0, 'retry', 'replay-unavailable'),
     'node_fault': Row('DEFER', 0, 'repair', 'environment-tool-unavailable'),
     'input_availability': Row('STALL', 0, 'wait'),
-    'input_integrity': Row('STOP', 0, 'preserve'),
+    'input_integrity': Row('STOP', 0, 'preserve', 'replay-unavailable'),
     'package_invalid': Row('VOID', 0x0801, 'apply'),
     'fuel_binding_invalid': Row('VOID', 0x0803, 'apply'),
     'generator_unavailable': Row('VOID', 0x0804, 'apply'),
@@ -76,8 +76,8 @@ def classify(observation, descriptor, phase='first'):
     # Submission-specific typed faults/limits are never proof verdicts when a
     # trusted reference or a generated export was the failed input.
     if o.role != 'submission' and o.row in ('front_invalid', 'name_grammar', 'unknown_constant', 'reserved_name', 'statement_mismatch',
-            'axiom_rejected', 'kernel_reject', 'kernel_disagreement', 'resource_cap', 'structural_cap',
-            'tool_fault', 'library_terminal', 'output_terminal'):
+            'axiom_rejected', 'input_type', 'kernel_reject', 'kernel_disagreement', 'resource_cap', 'structural_cap',
+            'library_terminal', 'output_terminal'):
         o = Observation('node_fault', o.stage, o.role)
         row = ROWS[o.row]
     detail = 'malformed-record' if o.row == 'trusted_disagreement' else o.detail
@@ -152,3 +152,8 @@ def not_run():
 
 def unknown():
     return {k: dict(state='unknown', debit=None, charged=None) for k in ('lean', 'nanoda')}
+
+
+def output_limit():
+    """Terminal S has zero intake charge; actual unreported work stays unknown."""
+    return {k:dict(state='unknown',debit=None,charged=0) for k in ('lean','nanoda')}
