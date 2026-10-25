@@ -172,8 +172,8 @@ not establish a general performance improvement or regression.
 Exact direct measurement commands (the executable was built before measurement):
 
 ```sh
-/usr/bin/time -l /Users/seoyong/projects/Boole/target/debug/deps/native_capacity-6f26ba504621f258 --ignored --exact native_capacity_131072_accounts_and_full_pending_queue --nocapture --test-threads=1
-/usr/bin/time -l /Users/seoyong/projects/Boole/target/debug/deps/native_capacity-6f26ba504621f258 --ignored --exact competing::native_eight_distinct_forks_131072_accounts --nocapture --test-threads=1
+/usr/bin/time -l target/debug/deps/native_capacity-6f26ba504621f258 --ignored --exact native_capacity_131072_accounts_and_full_pending_queue --nocapture --test-threads=1
+/usr/bin/time -l target/debug/deps/native_capacity-6f26ba504621f258 --ignored --exact competing::native_eight_distinct_forks_131072_accounts --nocapture --test-threads=1
 ```
 
 Raw sequential stdout/stderr and surrounding source/executable identity checks:
@@ -181,7 +181,7 @@ Raw sequential stdout/stderr and surrounding source/executable identity checks:
 ```text
 834091ee2d584fab2f1e60b12cdf58aae80e5fcb
 c19416f3b0033e135d0edc02c471829ef6a641be
-0cff3c0e13ac3a3c16cc0165fa294c8f970fb6c9f1e02bf0b34215f611ade956  /Users/seoyong/projects/Boole/target/debug/deps/native_capacity-6f26ba504621f258
+0cff3c0e13ac3a3c16cc0165fa294c8f970fb6c9f1e02bf0b34215f611ade956  target/debug/deps/native_capacity-6f26ba504621f258
 
 running 1 test
 test native_capacity_131072_accounts_and_full_pending_queue ... capacity-progress {"elapsedMs":19235,"fundedBlocks":32,"resources":{"balanceEntries":16385,"confirmedTransfers":16384,"historyBlocks":42,"historyBytes":8737838,"historyLimitBlocks":100000,"historyLimitBytes":268435456,"nonceEntries":1,"pendingBytes":0,"pendingLimitBytes":5242880,"pendingLimitTransfers":512,"pendingTransfers":0}}
@@ -217,7 +217,7 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; fin
            196887224  peak memory footprint
 834091ee2d584fab2f1e60b12cdf58aae80e5fcb
 c19416f3b0033e135d0edc02c471829ef6a641be
-0cff3c0e13ac3a3c16cc0165fa294c8f970fb6c9f1e02bf0b34215f611ade956  /Users/seoyong/projects/Boole/target/debug/deps/native_capacity-6f26ba504621f258
+0cff3c0e13ac3a3c16cc0165fa294c8f970fb6c9f1e02bf0b34215f611ade956  target/debug/deps/native_capacity-6f26ba504621f258
 
 running 1 test
 test competing::native_eight_distinct_forks_131072_accounts ... competing-progress fundedBlocks=32 elapsedMs=19565
@@ -262,5 +262,5 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; fin
            467026712  peak memory footprint
 834091ee2d584fab2f1e60b12cdf58aae80e5fcb
 c19416f3b0033e135d0edc02c471829ef6a641be
-0cff3c0e13ac3a3c16cc0165fa294c8f970fb6c9f1e02bf0b34215f611ade956  /Users/seoyong/projects/Boole/target/debug/deps/native_capacity-6f26ba504621f258
+0cff3c0e13ac3a3c16cc0165fa294c8f970fb6c9f1e02bf0b34215f611ade956  target/debug/deps/native_capacity-6f26ba504621f258
 ```

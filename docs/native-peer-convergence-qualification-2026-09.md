@@ -93,7 +93,7 @@ checks passed first. No runtime changed in this qualification branch.
 Executed at approximately 09:52–09:56 UTC without another local build/test load:
 
 ```sh
-/usr/bin/time -l /Users/seoyong/projects/Boole/target/debug/deps/native_capacity-6f26ba504621f258 \
+/usr/bin/time -l target/debug/deps/native_capacity-6f26ba504621f258 \
   --ignored --exact native_eight_winning_candidates_131072_accounts \
   --nocapture --test-threads=1
 ```

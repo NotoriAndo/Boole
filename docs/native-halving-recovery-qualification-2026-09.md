@@ -103,7 +103,7 @@ Compiling ring v0.17.14
    Compiling boole-p2p v0.1.0 (/private/tmp/boole-r1-integration-worktree.LGTdSb/crates/boole-p2p)
    Compiling boole-node v0.1.0 (/private/tmp/boole-r1-integration-worktree.LGTdSb/crates/boole-node)
     Finished `test` profile [unoptimized + debuginfo] target(s) in 12.01s
-     Running tests/native_halving_recovery.rs (/Users/seoyong/projects/Boole/target/debug/deps/native_halving_recovery-e1a82046755316b7)
+     Running tests/native_halving_recovery.rs (target/debug/deps/native_halving_recovery-e1a82046755316b7)
 
 running 1 test
 test small_reward_maturity_fork_recovery_preserves_original_transfer ... halving-result {"audit":{"accounting":{"balanceAtoms":"200000000000000","issuedAtoms":"200000000000000","lockedAtoms":"50000000000000","pendingRewardEntries":10,"spendableAtoms":"150000000000000","supplyCapAtoms":"100000000000000000"},"confirmedTransfers":{"amountAtoms":"100000000","count":1,"feeAtoms":"1000"},"genesisHash":"933a672120674efa9ec6205f344e1830febdec58b0ffcd2603ccc8a9723610c1","headHash":"00003c4da1ff44e121a4daf4219f4b73eafcd053427307ae2eb4ba7df0ebf7ff","height":"40","networkId":"boole-native-testnet-1","resources":{"balanceEntries":3,"confirmedTransfers":1,"historyBlocks":40,"historyBytes":31677,"historyLimitBlocks":100000,"historyLimitBytes":268435456,"nonceEntries":1,"pendingBytes":0,"pendingLimitBytes":5242880,"pendingLimitTransfers":512,"pendingTransfers":0},"schema":"boole.native.audit.v1","scope":"confirmed_canonical"},"auditMs":22,"elapsedMs":4180,"finalFilesBlake3":["18c0f2e533e0ddd5ba88fd7e5e4cf4f81597be30a63f5bef8aee7c77b44f3c61","af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262","6c47e834ab12aab1a3969a72628b5ea3d83de6e2dc2207b3cb6fa3cbf2cab270"],"finalReopenMs":22,"forkAdoptionMs":33,"forkHead":"0000ec593e904ad1a3fa0485361920582780e9bf3516412b376727e80c7dc5ce","forkReopenMs":17,"maxAppendMs":14,"maxCandidateAppendMs":0,"maxTemplateMs":0,"oldHead":"00006775a2347dbfe26ac90074fcd07427593420d90c879ac948f4b5dcd0e699","reconfirmedHeight":40,"specialRewardAtoms":"5000000000000","specialRewardHeight":16,"transferId":"cdb4efacad08ff3e0a51470961e26d5704ebfd5d09d69747caf5c8ae7f3ff7a4"}
@@ -180,7 +180,7 @@ by the fixture; the node does not promise to keep an unfunded orphan in its pool
 Measurement command (the second run used the verified OS instrumentation scope):
 
 ```sh
-/usr/bin/time -l /Users/seoyong/projects/Boole/target/debug/deps/native_halving_recovery-e1a82046755316b7 --ignored --exact actual_first_halving_fork_recovery_10024_blocks --nocapture --test-threads=1
+/usr/bin/time -l target/debug/deps/native_halving_recovery-e1a82046755316b7 --ignored --exact actual_first_halving_fork_recovery_10024_blocks --nocapture --test-threads=1
 ```
 
 ### First execution and instrumentation failure — raw output
@@ -188,7 +188,7 @@ Measurement command (the second run used the verified OS instrumentation scope):
 ```text
 b38b8320ef08e4153c71448d63b4973d18de1fce
 dda76c2414cc1a303a2647c83ecca9782d4f53e4
-ee8375539c50b71fc36a085af12039425be399b0c7d2dbfb0cb13e1e914e32f4  /Users/seoyong/projects/Boole/target/debug/deps/native_halving_recovery-e1a82046755316b7
+ee8375539c50b71fc36a085af12039425be399b0c7d2dbfb0cb13e1e914e32f4  target/debug/deps/native_halving_recovery-e1a82046755316b7
 
 running 1 test
 test actual_first_halving_fork_recovery_10024_blocks ... halving-progress {"elapsedMs":41363,"head":"000056d1a9ce410da73e80afacead5a73ecc0aab7c6c6d45f4a6b16927560b52","height":512,"issuedAtoms":"2560000000000000","lastRewardAtoms":"5000000000000","resources":{"balanceEntries":1,"confirmedTransfers":0,"historyBlocks":512,"historyBytes":399584,"historyLimitBlocks":100000,"historyLimitBytes":268435456,"nonceEntries":0,"pendingBytes":0,"pendingLimitBytes":5242880,"pendingLimitTransfers":512,"pendingTransfers":0}}
@@ -221,7 +221,7 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; fini
 time: sysctl kern.clockrate: Operation not permitted
 b38b8320ef08e4153c71448d63b4973d18de1fce
 dda76c2414cc1a303a2647c83ecca9782d4f53e4
-ee8375539c50b71fc36a085af12039425be399b0c7d2dbfb0cb13e1e914e32f4  /Users/seoyong/projects/Boole/target/debug/deps/native_halving_recovery-e1a82046755316b7
+ee8375539c50b71fc36a085af12039425be399b0c7d2dbfb0cb13e1e914e32f4  target/debug/deps/native_halving_recovery-e1a82046755316b7
 ```
 
 ### Infrastructure retry 1 — raw output
@@ -229,7 +229,7 @@ ee8375539c50b71fc36a085af12039425be399b0c7d2dbfb0cb13e1e914e32f4  /Users/seoyong
 ```text
 b38b8320ef08e4153c71448d63b4973d18de1fce
 dda76c2414cc1a303a2647c83ecca9782d4f53e4
-ee8375539c50b71fc36a085af12039425be399b0c7d2dbfb0cb13e1e914e32f4  /Users/seoyong/projects/Boole/target/debug/deps/native_halving_recovery-e1a82046755316b7
+ee8375539c50b71fc36a085af12039425be399b0c7d2dbfb0cb13e1e914e32f4  target/debug/deps/native_halving_recovery-e1a82046755316b7
 
 running 1 test
 test actual_first_halving_fork_recovery_10024_blocks ... halving-progress {"elapsedMs":41768,"head":"000056d1a9ce410da73e80afacead5a73ecc0aab7c6c6d45f4a6b16927560b52","height":512,"issuedAtoms":"2560000000000000","lastRewardAtoms":"5000000000000","resources":{"balanceEntries":1,"confirmedTransfers":0,"historyBlocks":512,"historyBytes":399584,"historyLimitBlocks":100000,"historyLimitBytes":268435456,"nonceEntries":0,"pendingBytes":0,"pendingLimitBytes":5242880,"pendingLimitTransfers":512,"pendingTransfers":0}}
@@ -278,5 +278,5 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; fini
             39453128  peak memory footprint
 b38b8320ef08e4153c71448d63b4973d18de1fce
 dda76c2414cc1a303a2647c83ecca9782d4f53e4
-ee8375539c50b71fc36a085af12039425be399b0c7d2dbfb0cb13e1e914e32f4  /Users/seoyong/projects/Boole/target/debug/deps/native_halving_recovery-e1a82046755316b7
+ee8375539c50b71fc36a085af12039425be399b0c7d2dbfb0cb13e1e914e32f4  target/debug/deps/native_halving_recovery-e1a82046755316b7
 ```

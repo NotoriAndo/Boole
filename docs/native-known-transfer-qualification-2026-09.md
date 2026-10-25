@@ -58,7 +58,7 @@ The first explicit attempt ran at approximately 10:05 UTC without other local
 build/test load:
 
 ```sh
-/usr/bin/time -l /Users/seoyong/projects/Boole/target/debug/deps/native_pending_resources-d1ef5a781f39c868 \
+/usr/bin/time -l target/debug/deps/native_pending_resources-d1ef5a781f39c868 \
   --ignored --exact exact_known_transfer_retries_have_bounded_cpu_cost \
   --nocapture --test-threads=1
 ```

@@ -484,7 +484,7 @@ test native_http::tests::timed_out_http_callers_do_not_release_admission_while_t
 
 test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 311 filtered out; finished in 17.33s
 
-   Compiling boole-node v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-node)
+   Compiling boole-node v0.1.0 (crates/boole-node)
     Finished `test` profile [unoptimized + debuginfo] target(s) in 1.21s
      Running tests/native_capacity.rs (target/debug/deps/native_capacity-6f26ba504621f258)
 
@@ -496,7 +496,7 @@ ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 15 filtered out; finished in 26.32s
 
-    Checking boole-node v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-node)
+    Checking boole-node v0.1.0 (crates/boole-node)
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.49s
 docs-smoke: PASS
 ```
@@ -509,7 +509,7 @@ docs-smoke: PASS
 Compiling boole-node v0.1.0 (/private/tmp/boole-r1-http-drain-worktree.kl1exv/crates/boole-node)
    Compiling boole-testkit v0.1.0 (/private/tmp/boole-r1-http-drain-worktree.kl1exv/crates/boole-testkit)
     Finished `test` profile [unoptimized + debuginfo] target(s) in 9.92s
-     Running tests/native_http.rs (/Users/seoyong/projects/Boole/target/debug/deps/native_http-1b121ee1a1d92267)
+     Running tests/native_http.rs (target/debug/deps/native_http-1b121ee1a1d92267)
 
 running 1 test
 test native_shutdown_closes_unfinished_http_bodies_before_the_request_deadline ... native-http-shutdown-body elapsedMs=7003 timely=false
@@ -533,7 +533,7 @@ error: test failed, to rerun pass `-p boole-node --test native_http`
 
 ```text
 Finished `test` profile [unoptimized + debuginfo] target(s) in 0.98s
-     Running tests/native_http.rs (/Users/seoyong/projects/Boole/target/debug/deps/native_http-1b121ee1a1d92267)
+     Running tests/native_http.rs (target/debug/deps/native_http-1b121ee1a1d92267)
 
 running 1 test
 test native_shutdown_closes_an_unread_large_response_and_releases_state_ownership ...
@@ -556,7 +556,7 @@ error: test failed, to rerun pass `-p boole-node --test native_http`
 
 ```text
 Finished `test` profile [unoptimized + debuginfo] target(s) in 3.27s
-     Running tests/native_http.rs (/Users/seoyong/projects/Boole/target/debug/deps/native_http-1b121ee1a1d92267)
+     Running tests/native_http.rs (target/debug/deps/native_http-1b121ee1a1d92267)
 
 running 1 test
 test native_shutdown_closes_an_unread_large_response_and_releases_state_ownership ... [DEBUG-native-http-drain] remaining state owners=1
@@ -582,7 +582,7 @@ error: test failed, to rerun pass `-p boole-node --test native_http`
 
 ```text
 Finished `test` profile [unoptimized + debuginfo] target(s) in 3.56s
-     Running tests/native_http.rs (/Users/seoyong/projects/Boole/target/debug/deps/native_http-1b121ee1a1d92267)
+     Running tests/native_http.rs (target/debug/deps/native_http-1b121ee1a1d92267)
 
 running 2 tests
 test native_shutdown_closes_an_unread_large_response_and_releases_state_ownership ... native-http-shutdown-response elapsedMs=0 timely=true responseBytes=272026 trailingBytes=130500
@@ -598,7 +598,7 @@ test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; fini
 
 ```text
 Finished `test` profile [unoptimized + debuginfo] target(s) in 5.54s
-     Running unittests src/lib.rs (/Users/seoyong/projects/Boole/target/debug/deps/boole_node-9cd49e707f28be6c)
+     Running unittests src/lib.rs (target/debug/deps/boole_node-9cd49e707f28be6c)
 
 running 1 test
 test native_http::tests::shutdown_state_owner_cleanup_is_bounded_and_never_forces_a_retained_owner ... native-http-state-owner-timeout elapsedMs=1000 retainedLockPreserved=true
@@ -611,7 +611,7 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 313 filtered out; fi
 
 ```text
 Finished `test` profile [unoptimized + debuginfo] target(s) in 2.83s
-     Running unittests src/lib.rs (/Users/seoyong/projects/Boole/target/debug/deps/boole_node-9cd49e707f28be6c)
+     Running unittests src/lib.rs (target/debug/deps/boole_node-9cd49e707f28be6c)
 
 running 1 test
 test native_http::tests::shutdown_disconnects_clients_but_waits_for_an_already_admitted_block ... boole-node: native HTTP drain expired; closing remaining client sockets
@@ -625,7 +625,7 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 314 filtered out; fi
 
 ```text
 Finished `test` profile [unoptimized + debuginfo] target(s) in 2.56s
-     Running tests/native_http.rs (/Users/seoyong/projects/Boole/target/debug/deps/native_http-1b121ee1a1d92267)
+     Running tests/native_http.rs (target/debug/deps/native_http-1b121ee1a1d92267)
 
 running 9 tests
 test native_http_reports_pinned_network_and_refuses_browser_cross_origin_and_public_bind ... ok
@@ -644,7 +644,7 @@ test two_independent_rpc_nodes_mine_transfer_and_rejoin_with_identical_accountin
 test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.29s
 
     Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
-     Running unittests src/lib.rs (/Users/seoyong/projects/Boole/target/debug/deps/boole_node-9cd49e707f28be6c)
+     Running unittests src/lib.rs (target/debug/deps/boole_node-9cd49e707f28be6c)
 
 running 5 tests
 test native_http::tests::diagnostics_do_not_confer_readiness_or_bypass_their_own_limit_and_shutdown_boundary ... ok
@@ -659,7 +659,7 @@ test native_http::tests::timed_out_http_callers_do_not_release_admission_while_t
 test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 310 filtered out; finished in 17.33s
 
     Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
-     Running unittests src/lib.rs (/Users/seoyong/projects/Boole/target/debug/deps/boole_node-9cd49e707f28be6c)
+     Running unittests src/lib.rs (target/debug/deps/boole_node-9cd49e707f28be6c)
 
 running 1 test
 test local_node::tests::active_connection_cap_releases_only_when_connection_io_drops ... ok
@@ -667,7 +667,7 @@ test local_node::tests::active_connection_cap_releases_only_when_connection_io_d
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 314 filtered out; finished in 0.05s
 
     Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
-     Running unittests src/lib.rs (/Users/seoyong/projects/Boole/target/debug/deps/boole_node-9cd49e707f28be6c)
+     Running unittests src/lib.rs (target/debug/deps/boole_node-9cd49e707f28be6c)
 
 running 5 tests
 test p2p_lifecycle::tests::dropping_a_lease_removes_only_its_socket ... ok
@@ -705,7 +705,7 @@ warning: build failed, waiting for other jobs to finish...
 Finished `dev` profile [unoptimized + debuginfo] target(s) in 21.25s
    Compiling boole-node v0.1.0 (/private/tmp/boole-r1-http-drain-worktree.kl1exv/crates/boole-node)
     Finished `test` profile [unoptimized + debuginfo] target(s) in 0.89s
-     Running tests/native_peer_rotation.rs (/Users/seoyong/projects/Boole/target/debug/deps/native_peer_rotation-5c23921ecc6a47a1)
+     Running tests/native_peer_rotation.rs (target/debug/deps/native_peer_rotation-5c23921ecc6a47a1)
 
 running 1 test
 test stopped_configuration_revokes_old_transport_key_and_explicit_reenrollment_preserves_ledger ... native-peer-rotation-phase process-ready elapsedMs=36
@@ -751,7 +751,7 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 
    Compiling boole-node v0.1.0 (/private/tmp/boole-r1-http-drain-worktree.kl1exv/crates/boole-node)
     Finished `test` profile [unoptimized + debuginfo] target(s) in 1.39s
-     Running tests/native_capacity.rs (/Users/seoyong/projects/Boole/target/debug/deps/native_capacity-6f26ba504621f258)
+     Running tests/native_capacity.rs (target/debug/deps/native_capacity-6f26ba504621f258)
 
 running 1 test
 test mixed::small_mixed_p2p_http_pressure_preserves_state_and_diagnostics ... mixed-network {"advertised":{"hash":"0000238874213f313ec8275b19912f2e9e9630a5481480e8dc3288e937507042","height":45},"diagnosticMaxMicros":440,"drained":{"authority":"local_process_only","ledgerReadiness":"not_checked","peers":{"acceptedConnections":4,"activeInboundWorkers":0,"activeOutboundRounds":0,"authenticatedConnections":4,"authenticationFailures":0,"completedInboundRounds":0,"enabled":true,"failedInboundRounds":4,"limits":{"handshakeTimeoutMs":2000,"inboundKeyCooldownMs":500,"maxHandshakesPerSecond":8,"maxInboundWorkers":4,"maxMessageBytes":1048576,"maxOutboundWorkers":8,"maxPeers":8,"maxRoundBlocks":256,"maxRoundBytes":8388608,"maxRoundRequests":64,"roundTimeoutMs":10000},"listenAddress":"127.0.0.1:64513","localPeerId":"7123b8762614eff919fae17b68ec1d1d7a357b70cb61f4e4ed93ea72099484ed","peakInboundWorkers":4,"peakOutboundRounds":8,"peers":[{"address":"127.0.0.1:64515","consecutiveFailures":1,"failedRounds":1,"lastFailureStage":"block_download","peerId":"9b0e4117c92abc3fb41b73199bb0e07a918f6a468c1fa2fca595e482af4d3c11","retryDelayMs":500,"state":"retrying","successfulRounds":0},{"address":"127.0.0.1:64516","consecutiveFailures":1,"failedRounds":1,"lastFailureStage":"block_download","peerId":"c29d1215729e0cbea8e555a1906503cbcca9b60d831627607f4c59491f4ad884","retryDelayMs":500,"state":"retrying","successfulRounds":0},{"address":"127.0.0.1:64517","consecutiveFailures":1,"failedRounds":1,"lastFailureStage":"block_download","peerId":"7bbd2ffa3590a19d44384d4bd8b2a44db3e129205dbd27b5484ebcc0de14d842","retryDelayMs":500,"state":"retrying","successfulRounds":0},{"address":"127.0.0.1:64518","consecutiveFailures":1,"failedRounds":1,"lastFailureStage":"block_download","peerId":"b3feff5c7e7ffe92dc30e5cb52bc4a32693ee28e396b6fa31fdf413638af250e","retryDelayMs":500,"state":"retrying","successfulRounds":0},{"address":"127.0.0.1:64519","consecutiveFailures":1,"failedRounds":1,"lastFailureStage":"block_download","peerId":"e0a55c86b5730af552dc9066e41080ff1795f34347bb3eb03261cc9341abd0a7","retryDelayMs":500,"state":"retrying","successfulRounds":0},{"address":"127.0.0.1:64520","consecutiveFailures":1,"failedRounds":1,"lastFailureStage":"block_download","peerId":"7e6c5a044eba486ce2be92cdd9c822dffaea77a89361bc904cfa534db7c0196c","retryDelayMs":500,"state":"retrying","successfulRounds":0},{"address":"127.0.0.1:64521","consecutiveFailures":1,"failedRounds":1,"lastFailureStage":"block_download","peerId":"a115a60f4ff8721859de43fcc9f56ace97dcfdce6d4c117da7c97e9d85c57ccf","retryDelayMs":500,"state":"retrying","successfulRounds":0},{"address":"127.0.0.1:64522","consecutiveFailures":1,"failedRounds":1,"lastFailureStage":"block_download","peerId":"2a6a57fdb29aea0c4b2a21977d55bce08b7cd0febc6c02ec3ddf9438358302f1","retryDelayMs":500,"state":"retrying","successfulRounds":0}],"rejectedConnections":1,"rejectedPeerRounds":0,"running":true},"rpc":{"activeDiagnostics":1,"activeRequests":0,"diagnosticLimit":2,"requestLimit":8},"schema":"boole.native.diagnostics.v1","stopping":false},"elapsedMs":21391,"finalSentBytesPerPeer":[9007936,9007936,9007936,9007936,9007936,9007936,9007936,9007936],"fundedBlocks":2,"httpBodyBytesSentPerClient":8388607,"localHead":"00009efa3c0a5376c32ed2818d39c89193e09180d72fbfe155a586df1f5f1887","networkMs":916,"overlap":{"authority":"local_process_only","ledgerReadiness":"not_checked","peers":{"acceptedConnections":4,"activeInboundWorkers":4,"activeOutboundRounds":8,"authenticatedConnections":4,"authenticationFailures":0,"completedInboundRounds":0,"enabled":true,"failedInboundRounds":0,"limits":{"handshakeTimeoutMs":2000,"inboundKeyCooldownMs":500,"maxHandshakesPerSecond":8,"maxInboundWorkers":4,"maxMessageBytes":1048576,"maxOutboundWorkers":8,"maxPeers":8,"maxRoundBlocks":256,"maxRoundBytes":8388608,"maxRoundRequests":64,"roundTimeoutMs":10000},"listenAddress":"127.0.0.1:64513","localPeerId":"7123b8762614eff919fae17b68ec1d1d7a357b70cb61f4e4ed93ea72099484ed","peakInboundWorkers":4,"peakOutboundRounds":8,"peers":[{"address":"127.0.0.1:64515","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"9b0e4117c92abc3fb41b73199bb0e07a918f6a468c1fa2fca595e482af4d3c11","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:64516","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"c29d1215729e0cbea8e555a1906503cbcca9b60d831627607f4c59491f4ad884","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:64517","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"7bbd2ffa3590a19d44384d4bd8b2a44db3e129205dbd27b5484ebcc0de14d842","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:64518","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"b3feff5c7e7ffe92dc30e5cb52bc4a32693ee28e396b6fa31fdf413638af250e","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:64519","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"e0a55c86b5730af552dc9066e41080ff1795f34347bb3eb03261cc9341abd0a7","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:64520","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"7e6c5a044eba486ce2be92cdd9c822dffaea77a89361bc904cfa534db7c0196c","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:64521","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"a115a60f4ff8721859de43fcc9f56ace97dcfdce6d4c117da7c97e9d85c57ccf","retryDelayMs":0,"state":"not_connected","successfulRounds":0},{"address":"127.0.0.1:64522","consecutiveFailures":0,"failedRounds":0,"lastFailureStage":null,"peerId":"2a6a57fdb29aea0c4b2a21977d55bce08b7cd0febc6c02ec3ddf9438358302f1","retryDelayMs":0,"state":"not_connected","successfulRounds":0}],"rejectedConnections":1,"rejectedPeerRounds":0,"running":true},"rpc":{"activeDiagnostics":1,"activeRequests":8,"diagnosticLimit":2,"requestLimit":8},"schema":"boole.native.diagnostics.v1","stopping":false},"partialBytesPerPeer":[8188312,8188312,8188312,8188312,8188312,8188312,8188312,8188312],"stopMicros":498}
@@ -763,12 +763,12 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; fin
 
 ### Large mixed-resource follow-up and exact source/executable identities
 
-Command: `/usr/bin/time -l /Users/seoyong/projects/Boole/target/debug/deps/native_capacity-6f26ba504621f258 --ignored --exact mixed::native_mixed_p2p_http_pressure_131072_accounts --nocapture --test-threads=1`
+Command: `/usr/bin/time -l target/debug/deps/native_capacity-6f26ba504621f258 --ignored --exact mixed::native_mixed_p2p_http_pressure_131072_accounts --nocapture --test-threads=1`
 
 ```text
 ecb549cb4cf646648eee269304898a8c2c53f7a5
 51c917e9d761a5c3c67d49f3f78963540c9d8aeb
-60b09f7048081a83eebcb05f1a3cd1091588ae566dec977f73dfd646971a9f50  /Users/seoyong/projects/Boole/target/debug/deps/native_capacity-6f26ba504621f258
+60b09f7048081a83eebcb05f1a3cd1091588ae566dec977f73dfd646971a9f50  target/debug/deps/native_capacity-6f26ba504621f258
 
 running 1 test
 test mixed::native_mixed_p2p_http_pressure_131072_accounts ... mixed-progress fundedBlocks=32 elapsedMs=19192
@@ -805,21 +805,21 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; fin
            453952472  peak memory footprint
 ecb549cb4cf646648eee269304898a8c2c53f7a5
 51c917e9d761a5c3c67d49f3f78963540c9d8aeb
-60b09f7048081a83eebcb05f1a3cd1091588ae566dec977f73dfd646971a9f50  /Users/seoyong/projects/Boole/target/debug/deps/native_capacity-6f26ba504621f258
+60b09f7048081a83eebcb05f1a3cd1091588ae566dec977f73dfd646971a9f50  target/debug/deps/native_capacity-6f26ba504621f258
 ```
 
 ### First held-input small regression
 
 ```text
    Compiling ring v0.17.14
-   Compiling boole-core v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-core)
-   Compiling boole-native-shadow-protocol v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-native-shadow-protocol)
-   Compiling boole-evm-adapter v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-evm-adapter)
+   Compiling boole-core v0.1.0 (crates/boole-core)
+   Compiling boole-native-shadow-protocol v0.1.0 (crates/boole-native-shadow-protocol)
+   Compiling boole-evm-adapter v0.1.0 (crates/boole-evm-adapter)
    Compiling rustls v0.23.45
    Compiling rustls-webpki v0.103.15
-   Compiling boole-testkit v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-testkit)
-   Compiling boole-p2p v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-p2p)
-   Compiling boole-node v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-node)
+   Compiling boole-testkit v0.1.0 (crates/boole-testkit)
+   Compiling boole-p2p v0.1.0 (crates/boole-p2p)
+   Compiling boole-node v0.1.0 (crates/boole-node)
     Finished `test` profile [unoptimized + debuginfo] target(s) in 10.63s
      Running tests/native_capacity.rs (target/debug/deps/native_capacity-6f26ba504621f258)
 
@@ -846,22 +846,22 @@ ok
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 15 filtered out; finished in 21.63s
 
     Checking ring v0.17.14
-    Checking boole-core v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-core)
-    Checking boole-native-shadow-protocol v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-native-shadow-protocol)
-    Checking boole-lean-runner v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-lean-runner)
-    Checking boole-evm-adapter v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-evm-adapter)
+    Checking boole-core v0.1.0 (crates/boole-core)
+    Checking boole-native-shadow-protocol v0.1.0 (crates/boole-native-shadow-protocol)
+    Checking boole-lean-runner v0.1.0 (crates/boole-lean-runner)
+    Checking boole-evm-adapter v0.1.0 (crates/boole-evm-adapter)
     Checking rustls-webpki v0.103.15
     Checking rustls v0.23.45
-    Checking boole-p2p v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-p2p)
-    Checking boole-testkit v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-testkit)
-    Checking boole-node v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-node)
+    Checking boole-p2p v0.1.0 (crates/boole-p2p)
+    Checking boole-testkit v0.1.0 (crates/boole-testkit)
+    Checking boole-node v0.1.0 (crates/boole-node)
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.47s
 docs-smoke: PASS
 ```
 
 ### First large held-input shutdown measurement and identity checks
 
-Command: `/usr/bin/time -l /Users/seoyong/projects/Boole/target/debug/deps/native_capacity-6f26ba504621f258 --ignored --exact mixed::native_mixed_shutdown_131072_accounts --nocapture --test-threads=1`
+Command: `/usr/bin/time -l target/debug/deps/native_capacity-6f26ba504621f258 --ignored --exact mixed::native_mixed_shutdown_131072_accounts --nocapture --test-threads=1`
 
 ```text
  M tasks/lessons.md

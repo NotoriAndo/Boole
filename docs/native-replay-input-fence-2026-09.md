@@ -123,7 +123,7 @@ local build/test load was intentionally scheduled. The capacity test and its
 competing-fork support had no diff from the preregistered base.
 
 ```sh
-/usr/bin/time -l /Users/seoyong/projects/Boole/target/debug/deps/native_capacity-6f26ba504621f258 \
+/usr/bin/time -l target/debug/deps/native_capacity-6f26ba504621f258 \
   --ignored --exact native_capacity_131072_accounts_and_full_pending_queue \
   --nocapture --test-threads=1
 ```

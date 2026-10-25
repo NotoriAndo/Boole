@@ -92,7 +92,7 @@ were unchanged from the previous qualification. No other local build/test ran
 during this measurement, approximately 11:30–11:37 UTC on September 23.
 
 ```sh
-/usr/bin/time -l /Users/seoyong/projects/Boole/target/debug/deps/native_capacity-6f26ba504621f258 \\
+/usr/bin/time -l target/debug/deps/native_capacity-6f26ba504621f258 \\
   --ignored --exact competing::native_eight_distinct_forks_131072_accounts \\
   --nocapture --test-threads=1
 ```
