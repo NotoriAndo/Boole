@@ -201,6 +201,16 @@ class IdentityTests(unittest.TestCase):
         # Optional witness measurements do not change generator package content.
         self.assertNotIn('kernel_nonvac.py', listed)
         present -= {'kernel_nonvac.py'}
+        # The M3 adapter is a separate release, not a package generator. Its
+        # source_release binds the whole Python registry tree; adding it must
+        # not rotate the frozen catalog's generator identity.
+        from zk_registry.m3_gate import adapter as m3
+        m3_files = {'m3_gate/'+name+'.py' for name in
+                    ('__init__', '__main__', 'adapter', 'codec', 'front', 'mapping')}
+        self.assertEqual({str(p.relative_to(here)) for p in (here/'m3_gate').rglob('*.py')}, m3_files)
+        self.assertTrue(m3_files.isdisjoint(listed))
+        self.assertRegex(m3.source_release(), r'^[0-9a-f]{64}$')
+        present -= m3_files
         self.assertEqual(present - listed - set(air_det.generator_files()) - set(noir_det.generator_files())
                          - set(gnark_det.generator_files()) - set(zokrates_det.generator_files())
                          - set(halo2_det.generator_files()) - set(mech_air.source_files()), set())
