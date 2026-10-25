@@ -642,3 +642,5 @@ pub fn recheck_inputs(receipt: &mut Value, inputs: &dyn Inputs) {
         }
     }
 }
+
+pub mod private_engine;

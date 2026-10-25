@@ -216,13 +216,13 @@ fn run(args: Args) -> Result<Value> {
         let started = (|| -> Result<_> {
             let replay_work = PrivateTempDir::new_in(work.path(), "replay")?;
             let replay_gate = supervisor(&args, &config, forks.as_ref(), replay_work.path())?;
+            let (binary, genesis) = boole_devnet_audit::private_engine::replay_arguments(
+                args.op_reth.as_deref(),
+                args.l2_genesis.as_deref(),
+            )?;
             let private = boole_devnet_audit::replay::PrivateEngine::start(
-                args.op_reth
-                    .as_deref()
-                    .context("replay requires --op-reth")?,
-                args.l2_genesis
-                    .as_deref()
-                    .context("replay requires --l2-genesis")?,
+                binary,
+                genesis,
                 replay_work.path(),
             )?;
             Ok((private, replay_gate, replay_work))

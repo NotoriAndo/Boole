@@ -1,7 +1,7 @@
 //! Retained-record rebuild qualification, separate from fold authority.
 use boole_derivation::{
-    m2::{Config, State, Status},
-    m3::{ForkTable, KERNEL_FAULT},
+    m2::{Config, Key, State, Status},
+    m3::{ForkKind, ForkTable, RecordKind, KERNEL_FAULT},
 };
 use boole_gate_supervisor::{
     codec::Codec,
@@ -33,6 +33,24 @@ pub fn check(
             checked: 0,
         });
     };
+    // A quarantine row's wire hash names the first-verdict job retagged at
+    // activation, not a foreign COMMIT with the same unproven hash. Preserve
+    // the resolved full keys once rather than scanning the queue per candidate.
+    let quarantined: std::collections::BTreeSet<Key> = m
+        .queue
+        .iter()
+        .filter(|job| {
+            job.kind == RecordKind::Verdict
+                && forks.is_some_and(|f| {
+                    f.rows.iter().any(|row| {
+                        job.epoch_override == Some(row.epoch)
+                            && row.kind == ForkKind::Quarantine
+                            && row.list.iter().any(|item| item.commit_hash == job.key.1)
+                    })
+                })
+        })
+        .map(|job| job.key)
+        .collect();
     let retained: Vec<_> = state
         .candidates
         .iter()
@@ -40,11 +58,7 @@ pub fn check(
             matches!(candidate.status(), Status::Accepted | Status::Stale)
                 || (candidate.status() == Status::Rejected
                     && m.results.get(key).is_some_and(|r| r.reason == KERNEL_FAULT))
-                || forks.is_some_and(|f| {
-                    f.rows
-                        .iter()
-                        .any(|r| r.list.iter().any(|i| i.commit_hash == key.1))
-                })
+                || quarantined.contains(key)
         })
         .map(|(key, _)| *key)
         .collect();

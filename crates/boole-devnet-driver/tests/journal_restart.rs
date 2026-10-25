@@ -1884,11 +1884,12 @@ fn m1_bloom_negative_reverted_inbox_post_reconciles_without_historical_l1_reads(
 }
 
 #[test]
-fn l2_unrequestable_heights_skip_local_posting_cache_reads() -> Result<()> {
+fn t79_cache_installs_own_proofs_despite_zero_remote_budget_or_backoff() -> Result<()> {
     use boole_devnet_archive::client::{ArchiveClient, Fetch, NotServed};
-    struct Missing;
+    struct Missing(std::sync::Arc<std::sync::atomic::AtomicUsize>);
     impl Fetch for Missing {
         fn get(&mut self, _: &str, _: &str, _: usize) -> Result<Vec<u8>> {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             Err(NotServed.into())
         }
         fn observe(
@@ -1898,11 +1899,18 @@ fn l2_unrequestable_heights_skip_local_posting_cache_reads() -> Result<()> {
             _: usize,
             _: std::time::Instant,
         ) -> Result<Vec<u8>> {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             Ok(br#"{"covered_through":1000}"#.to_vec())
         }
         fn backoff(&mut self, _: u64) {}
     }
-    for count in [1, 40] {
+    for (count, mode) in [
+        (1, "valid"),
+        (40, "valid"),
+        (1, "corrupt"),
+        (1, "foreign"),
+        (256, "bounded"),
+    ] {
         let root = PrivateTempDir::new("posting-skip-local")?;
         let fixture: Value = serde_json::from_str(include_str!(
             "../../../fixtures/devnet-m4/input-auth-v0.json"
@@ -1910,6 +1918,7 @@ fn l2_unrequestable_heights_skip_local_posting_cache_reads() -> Result<()> {
         let initial: Vec<InputRow> = serde_json::from_value(fixture["rows"].clone())?;
         let template = archive_proof_fixture::reverted_inbox_row(initial[1].clone())?;
         let mut rows = vec![initial[0].clone()];
+        let mut proofs = vec![];
         for h in 1..=count {
             let raw = hex_bytes(&template.header_rlp, "header")?;
             let decoded = rlp::decode(&raw).map_err(anyhow::Error::msg)?;
@@ -1922,13 +1931,14 @@ fn l2_unrequestable_heights_skip_local_posting_cache_reads() -> Result<()> {
             fields[0] = rlp::bytes(&hex_bytes(&rows.last().unwrap().block_hash, "parent")?);
             fields[8] = rlp::uint(h);
             let raw = rlp::list(&fields);
-            rows.push(InputRow {
-                schema_version: 1,
-                block_hash: hex_string(&keccak(&raw)),
-                header_rlp: hex_string(&raw),
-                transactions: None,
-                receipts: None,
-            });
+            let mut proof = template.clone();
+            proof.block_hash = hex_string(&keccak(&raw));
+            proof.header_rlp = hex_string(&raw);
+            proof.verify()?;
+            proofs.push(proof.clone());
+            proof.transactions = None;
+            proof.receipts = None;
+            rows.push(proof);
         }
         let network = NetworkIdentity::new(
             &boole_derivation::m2::Config::devnet(),
@@ -1946,24 +1956,68 @@ fn l2_unrequestable_heights_skip_local_posting_cache_reads() -> Result<()> {
         own.rows = rows.clone();
         own.tip = count;
         own.strict = true;
-        let archives = ArchiveClient::new(vec!["http://127.0.0.1:1".into()], Box::new(Missing))?;
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let archives = ArchiveClient::new(
+            vec!["http://127.0.0.1:1".into()],
+            Box::new(Missing(calls.clone())),
+        )?;
         let mut source = JournalSource::open_archive(own, root.path(), network, false, archives)?;
         let absent = hex_string(&[99; 32]);
         assert!(source.restore_posting_proof(&absent, 0).is_err());
-        // First turn exhausts 32 network requests. The next turn rotates past
-        // those heights, then must skip both budget-zero and backoff heights.
+        // The remote scheduler now has either an exhausted budget or a
+        // backoff. A local verified proof must still resolve the own post.
         let cache = root.path().join("transaction-proofs");
-        for row in &rows[1..] {
-            std::fs::write(cache.join(&row.block_hash[2..]), b"unread sentinel")?;
+        let proof = &proofs[0];
+        let remote_before = calls.load(std::sync::atomic::Ordering::Relaxed);
+        let tx = proof.verify()?.canonical_receipts[0].0.clone();
+        if mode == "bounded" {
+            for row in rows.iter().skip(1).take(40) {
+                std::fs::write(cache.join(&row.block_hash[2..]), b"corrupt sentinel")?;
+            }
+        } else {
+            let bytes = match mode {
+                "valid" => serde_json::to_vec(proof)?,
+                "foreign" => serde_json::to_vec(&initial[1])?,
+                _ => b"corrupt proof".to_vec(),
+            };
+            std::fs::write(cache.join(&proof.block_hash[2..]), bytes)?;
         }
-        assert!(source.restore_posting_proof(&absent, 0).is_err());
-        for row in rows.iter().skip(1).take(count.min(32) as usize) {
+        let result = source.restore_posting_proof(&tx, 0);
+        if mode == "valid" {
+            result?;
             assert_eq!(
-                std::fs::read(cache.join(&row.block_hash[2..]))?,
-                b"unread sentinel",
-                "unrequestable height cache was read/quarantined"
+                source.journal.borrow().transaction_receipt_since(&tx, 0)?,
+                Some((1, false))
             );
+        } else {
+            assert!(result.is_err(), "{mode} cache installed");
+            assert!(source
+                .journal
+                .borrow()
+                .transaction_receipt_since(&tx, 0)
+                .is_err());
+            let quarantined = std::fs::read_dir(cache.join("corrupt"))?.count();
+            assert!(
+                quarantined > 0 && quarantined <= 32,
+                "local read allowance exceeded: {quarantined}"
+            );
+            if mode == "bounded" {
+                assert!(
+                    rows.iter()
+                        .skip(1)
+                        .take(40)
+                        .filter(|r| cache.join(&r.block_hash[2..]).exists())
+                        .count()
+                        >= 8,
+                    "unbounded local read pass"
+                );
+            }
         }
+        assert_eq!(
+            calls.load(std::sync::atomic::Ordering::Relaxed),
+            remote_before,
+            "cache phase caused remote I/O"
+        );
         // Mandatory own manifest checks still run even with no request budget.
         use std::io::Write;
         std::fs::OpenOptions::new()
@@ -1977,5 +2031,327 @@ fn l2_unrequestable_heights_skip_local_posting_cache_reads() -> Result<()> {
             Some(boole_devnet_archive::error::Error::Availability { .. })
         ));
     }
+    Ok(())
+}
+
+#[test]
+fn t79_cache_finishes_selected_batch_before_returning_a_known_post() -> Result<()> {
+    let root = PrivateTempDir::new("posting-cache-batch")?;
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../fixtures/devnet-m4/input-auth-v0.json"
+    ))?;
+    let initial: Vec<InputRow> = serde_json::from_value(fixture["rows"].clone())?;
+    let first = initial[1].clone();
+    let mut second = archive_proof_fixture::reverted_inbox_row(initial[1].clone())?;
+    let raw = hex_bytes(&second.header_rlp, "header")?;
+    let fields = rlp::decode(&raw)
+        .map_err(anyhow::Error::msg)?
+        .children
+        .unwrap();
+    let mut fields: Vec<_> = fields
+        .iter()
+        .map(|f| raw[f.span.clone()].to_vec())
+        .collect();
+    fields[0] = rlp::bytes(&hex_bytes(&first.block_hash, "parent")?);
+    fields[8] = rlp::uint(2);
+    // Distinct opaque envelope for this authentication-only fixture; native
+    // qualification separately checks actual EVM execution and exact REVERTED.
+    let unique = vec![0x7f, 0xc1, 0x01];
+    fields[4] = rlp::bytes(&receipts_root(std::slice::from_ref(&unique)));
+    second.transactions = Some(vec![hex_string(&unique)]);
+    let raw = rlp::list(&fields);
+    second.header_rlp = hex_string(&raw);
+    second.block_hash = hex_string(&keccak(&raw));
+    second.verify()?;
+    let proofs = [first, second];
+    let network = NetworkIdentity::new(
+        &boole_derivation::m2::Config::devnet(),
+        None,
+        MemoryEngine::new().head.hash,
+        30_000_000,
+    )?;
+    let mut journal = InputJournal::open(
+        root.path(),
+        network.clone(),
+        || Ok(initial[0].clone()),
+        false,
+    )?;
+    for proof in &proofs {
+        let mut row = proof.clone();
+        row.transactions = None;
+        journal.append(&row)?;
+    }
+    drop(journal);
+    let cache = root.path().join("transaction-proofs");
+    std::fs::create_dir(&cache)?;
+    for proof in &proofs {
+        std::fs::write(
+            cache.join(&proof.block_hash[2..]),
+            serde_json::to_vec(proof)?,
+        )?;
+    }
+    let mut source = JournalSource::open(TipOnly::new(), root.path(), network, false)?;
+    // Choose the requested proof from the actual first directory entry. The
+    // other selected proof must install too, whatever the filesystem's order.
+    let first = std::fs::read_dir(&cache)?
+        .filter_map(|e| e.ok())
+        .find_map(|e| {
+            proofs
+                .iter()
+                .position(|p| e.file_name().to_str() == Some(&p.block_hash[2..]))
+        })
+        .unwrap();
+    let receipts = [
+        proofs[0].verify()?.canonical_receipts,
+        proofs[1].verify()?.canonical_receipts,
+    ];
+    let known = receipts[first]
+        .iter()
+        .find(|(hash, _)| !receipts[1 - first].iter().any(|(other, _)| other == hash))
+        .unwrap();
+    source.restore_posting_proof(&known.0, 0)?;
+    for (i, rows) in receipts.iter().enumerate() {
+        for (hash, status) in rows {
+            assert_eq!(
+                source.journal.borrow().transaction_receipt_since(hash, 0)?,
+                Some((i as u64 + 1, *status)),
+                "selected cache proof was discarded on early return"
+            );
+        }
+    }
+    Ok(())
+}
+
+fn posting_cache_chain(count: u64) -> Result<(Vec<InputRow>, Vec<InputRow>, NetworkIdentity)> {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../fixtures/devnet-m4/input-auth-v0.json"
+    ))?;
+    let initial: Vec<InputRow> = serde_json::from_value(fixture["rows"].clone())?;
+    let template = archive_proof_fixture::reverted_inbox_row(initial[1].clone())?;
+    let mut rows = vec![initial[0].clone()];
+    let mut proofs = vec![];
+    for h in 1..=count {
+        let raw = hex_bytes(&template.header_rlp, "header")?;
+        let mut fields: Vec<_> = rlp::decode(&raw)
+            .map_err(anyhow::Error::msg)?
+            .children
+            .unwrap()
+            .iter()
+            .map(|f| raw[f.span.clone()].to_vec())
+            .collect();
+        fields[0] = rlp::bytes(&hex_bytes(&rows.last().unwrap().block_hash, "parent")?);
+        fields[8] = rlp::uint(h);
+        let unique = vec![0x7f, (h >> 8) as u8, h as u8];
+        fields[4] = rlp::bytes(&receipts_root(std::slice::from_ref(&unique)));
+        let raw = rlp::list(&fields);
+        let mut proof = template.clone();
+        proof.transactions = Some(vec![hex_string(&unique)]);
+        proof.block_hash = hex_string(&keccak(&raw));
+        proof.header_rlp = hex_string(&raw);
+        proof.verify()?;
+        proofs.push(proof.clone());
+        proof.transactions = None;
+        proof.receipts = None;
+        rows.push(proof);
+    }
+    let network = NetworkIdentity::new(
+        &boole_derivation::m2::Config::devnet(),
+        None,
+        MemoryEngine::new().head.hash,
+        30_000_000,
+    )?;
+    Ok((rows, proofs, network))
+}
+
+#[test]
+fn t79_cache_remote_budget_only_visits_proofs_still_missing_after_local_install() -> Result<()> {
+    use boole_devnet_archive::client::{ArchiveClient, Fetch, NotServed};
+    use std::sync::{Arc, Mutex};
+    struct Missing(Arc<Mutex<Vec<String>>>);
+    impl Fetch for Missing {
+        fn get(&mut self, _: &str, route: &str, _: usize) -> Result<Vec<u8>> {
+            self.0.lock().unwrap().push(route.into());
+            Err(NotServed.into())
+        }
+        fn observe(
+            &mut self,
+            _: &str,
+            route: &str,
+            _: usize,
+            _: std::time::Instant,
+        ) -> Result<Vec<u8>> {
+            self.0.lock().unwrap().push(route.into());
+            Ok(br#"{"covered_through":1000}"#.to_vec())
+        }
+        fn backoff(&mut self, _: u64) {}
+    }
+    let root = PrivateTempDir::new("posting-cache-remote-budget")?;
+    let (rows, proofs, network) = posting_cache_chain(40)?;
+    let mut journal =
+        InputJournal::open(root.path(), network.clone(), || Ok(rows[0].clone()), false)?;
+    for row in &rows[1..] {
+        journal.append(row)?;
+    }
+    drop(journal);
+    let calls = Arc::new(Mutex::new(vec![]));
+    let archives = ArchiveClient::new(
+        vec!["http://127.0.0.1:1".into()],
+        Box::new(Missing(calls.clone())),
+    )?;
+    let mut source =
+        JournalSource::open_archive(TipOnly::new(), root.path(), network, false, archives)?;
+    let cache = root.path().join("transaction-proofs");
+    for proof in &proofs[..6] {
+        std::fs::write(
+            cache.join(&proof.block_hash[2..]),
+            serde_json::to_vec(proof)?,
+        )?;
+    }
+    assert!(source
+        .restore_posting_proof(&hex_string(&[99; 32]), 0)
+        .is_err());
+    let calls = calls.lock().unwrap();
+    assert_eq!(
+        calls.len(),
+        32,
+        "the complete remote allowance should remain useful"
+    );
+    for proof in &proofs[..6] {
+        assert!(
+            !calls
+                .iter()
+                .any(|route| route.ends_with(&proof.block_hash[2..])),
+            "remote budget spent on an already installed local proof: {}",
+            proof.block_hash
+        );
+    }
+    assert_eq!(
+        calls.iter().filter(|r| r.starts_with("l1/txs/")).count(),
+        31
+    );
+    Ok(())
+}
+
+#[test]
+fn t79_cache_needed_proof_last_beyond_32_files_is_tried_first() -> Result<()> {
+    use boole_devnet_archive::client::{ArchiveClient, Fetch, NotServed};
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+    struct Missing(Arc<AtomicUsize>);
+    impl Fetch for Missing {
+        fn get(&mut self, _: &str, _: &str, _: usize) -> Result<Vec<u8>> {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            Err(NotServed.into())
+        }
+        fn observe(
+            &mut self,
+            _: &str,
+            _: &str,
+            _: usize,
+            _: std::time::Instant,
+        ) -> Result<Vec<u8>> {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            Ok(br#"{"covered_through":1000}"#.to_vec())
+        }
+        fn backoff(&mut self, _: u64) {}
+    }
+    let root = PrivateTempDir::new("posting-cache-needed-last")?;
+    let (rows, proofs, network) = posting_cache_chain(64)?;
+    let mut journal =
+        InputJournal::open(root.path(), network.clone(), || Ok(rows[0].clone()), false)?;
+    for row in &rows[1..] {
+        journal.append(row)?;
+    }
+    drop(journal);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let archives = ArchiveClient::new(
+        vec!["http://127.0.0.1:1".into()],
+        Box::new(Missing(calls.clone())),
+    )?;
+    let mut source =
+        JournalSource::open_archive(TipOnly::new(), root.path(), network, false, archives)?;
+    assert!(source
+        .restore_posting_proof(&hex_string(&[99; 32]), 0)
+        .is_err());
+    assert_eq!(calls.load(Ordering::Relaxed), 32);
+    let cache = root.path().join("transaction-proofs");
+    for proof in &proofs {
+        std::fs::write(
+            cache.join(&proof.block_hash[2..]),
+            serde_json::to_vec(proof)?,
+        )?;
+    }
+    // Select the actual final cache entry, avoiding filesystem-order assumptions.
+    let files: Vec<_> = std::fs::read_dir(&cache)?
+        .map(|e| e.map(|e| e.file_name()))
+        .collect::<std::io::Result<_>>()?;
+    let ordered: Vec<_> = files
+        .iter()
+        .filter_map(|name| {
+            proofs
+                .iter()
+                .position(|p| name.to_str() == Some(&p.block_hash[2..]))
+        })
+        .collect();
+    assert_eq!(ordered.len(), 64);
+    let needed = *ordered.last().unwrap();
+    for (i, proof) in proofs.iter().enumerate() {
+        if i != needed {
+            source
+                .journal
+                .borrow_mut()
+                .install_transaction_proof(i as u64 + 1, proof)?;
+        }
+    }
+    assert_eq!(
+        source
+            .journal
+            .borrow()
+            .missing_transaction_proofs_since(0)?,
+        vec![needed as u64 + 1]
+    );
+    let tx = proofs[needed].verify()?.canonical_receipts[0].0.clone();
+    source.restore_posting_proof(&tx, 0)?;
+    assert_eq!(
+        source.journal.borrow().transaction_receipt_since(&tx, 0)?,
+        Some((needed as u64 + 1, false))
+    );
+    assert_eq!(
+        calls.load(Ordering::Relaxed),
+        32,
+        "local cache priority caused remote traffic"
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg(unix)]
+fn t79_cache_presence_io_failure_is_typed_availability() -> Result<()> {
+    let root = PrivateTempDir::new("posting-cache-presence-io")?;
+    let (rows, proofs, network) = posting_cache_chain(1)?;
+    let mut journal =
+        InputJournal::open(root.path(), network.clone(), || Ok(rows[0].clone()), false)?;
+    journal.append(&rows[1])?;
+    drop(journal);
+    let cache = root.path().join("transaction-proofs");
+    std::fs::create_dir(&cache)?;
+    let mut source = JournalSource::open(TipOnly::new(), root.path(), network, false)?;
+    let path = cache.join(&proofs[0].block_hash[2..]);
+    std::os::unix::fs::symlink(&path, &path)?;
+    let tx = proofs[0].verify()?.canonical_receipts[0].0.clone();
+    let error = source.restore_posting_proof(&tx, 0).unwrap_err();
+    assert!(
+        matches!(
+            error.downcast_ref::<boole_devnet_archive::error::Error>(),
+            Some(boole_devnet_archive::error::Error::Availability {
+                height: 1,
+                class: "posting-cache-io",
+                ..
+            })
+        ),
+        "{error:#}"
+    );
     Ok(())
 }

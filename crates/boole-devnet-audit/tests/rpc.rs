@@ -377,13 +377,14 @@ fn l6_replay_startup_failure_has_its_own_check_class() -> Result<()> {
     let output = run("replay")?;
     assert!(!output.status.success());
     let receipt: Value = serde_json::from_slice(&output.stdout)?;
-    assert_eq!(
-        receipt["first_mismatch"],
-        json!({"height":"0","class":"replay-setup"})
-    );
-    assert_eq!(receipt["checks"]["replay-setup"], "mismatch");
+    assert_eq!(output.status.code(), Some(2));
+    assert!(receipt["first_mismatch"].is_null());
+    assert_eq!(receipt["resource_stop"]["resource"], "private-engine-setup");
+    assert_eq!(receipt["resource_stop"]["height"], "0");
+    assert_eq!(receipt["resource_stop"]["check"], "replay-setup");
+    assert_eq!(receipt["resource_stop"]["side"], "private-engine");
     assert_eq!(receipt["checks"]["prefix"], "ok");
-    assert_eq!(receipt["checks"]["execution"], "unavailable");
+    assert_eq!(receipt["checks"]["execution"], "resource-stop");
     Ok(())
 }
 

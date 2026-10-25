@@ -184,20 +184,35 @@ Optional proof I/O, including coverage probes, is limited to 32 requests per
 new finality step or 30-second retry turn when finality is unchanged. The own
 pause window rotates after the last attempted height, preventing an old missing
 prefix from starving a later post. The work never refetches an entire window
-on each finality step. These hints prove no absence. Withheld, missing or invalid
+on each finality step. Retry history expires one maximum backoff (30 seconds)
+after eligibility, within 60 seconds after the last attempt. A starved height
+can therefore restart its retry history at one second; rotation and the shared
+32-request budget still apply. These hints prove no absence. Withheld, missing or invalid
 proofs keep the resumable `archive-tx-proof` pause without guessing success,
 failure or a repost.
 
 **DROPPED cannot be proved from an archive across bloom-negative blocks whose
 transaction lists are not served.** REVERTED needs the exact authenticated tx
 hash and status-0 receipt; neither a 404 nor a timeout substitutes for it. The
-DROPPED rule is unchanged. A proof from the own L1 account nonce at the finalized
-tip is a design question for M4c, not part of this implementation.
+DROPPED rule is unchanged. A finalized account nonce above the submitted nonce
+is only a nonterminal “nonce consumed, inclusion unresolved” observation: the
+original may already have succeeded, reverted, or been replaced. Terminal
+DROPPED requires authenticated exclusion or replacement evidence; the nonce
+alone is insufficient. No nonce-based terminal status is implemented.
 
 For old rows, reconciliation restores proofs into the own `transaction-proofs/`
 cache with new-file-only publication and read-time re-verification. It does not
 rewrite the original input journal. Restart can use that cache without an archive
-or historical L1 RPC. An empty transaction trie proves absence without a list.
+or historical L1 RPC. Cache installation runs before remote scheduling, even
+with zero remote budget or backoff. It probes paths for needed heights directly,
+rotating over missing-height metadata with at most 32 local presence checks per
+turn and a separate allowance of at most 32 verified cache reads. Unrelated
+cache files are not scanned; hints confer no authority. Presence I/O failures
+are availability stops. Each install still checks the own manifest, row versions
+and exact header/proof binding. A selected bounded batch is completed before
+returning a hit. The subsequent remote phase excludes already installed proofs,
+then skips budget, backoff and all-source covered-404 heights before reading
+rows, preserving the 32-request cap. An empty transaction trie proves absence without a list.
 Each posting intent retains its finalized-height floor; legacy intents use zero.
 A missing proof at or below a new intent's floor does not delay that intent.
 
@@ -305,10 +320,70 @@ An already typed private RPC resource/time stop keeps its kind and numerical
 limit and gains the same private side label. INVALID payload verdicts, hash
 and ledger differences remain mismatches; audited-node transport failures keep
 their existing phase classification. Successful receipt bytes are unchanged.
-Two private-side paths still report a mismatch and are left to M4c: a private
-Engine outage inside an M3 verdict rebuild, which the supervisor records as no
-verdict yet (`verdict`), and a private Engine that exits or times out during
-startup (`replay-setup`).
+Every private Engine operation is wrapped before Driver or supervisor error
+erasure. The unresolved-fault tracker resets each replay step; a successful
+retry clears only the same operation. Only failed/pending work consults it.
+An outage swallowed inside an M3 rebuild is a local stop at the current replay
+height / `verdict`, with the original origin height and operation as diagnostics.
+The private lifecycle preflights the binary pin, executable, genesis and fixed
+arguments before spawn. Bad setup is `private-engine-setup`; early exit or spawn
+unavailability is `private-engine-startup-unavailable`; the absolute 60-second
+readiness deadline is `private-engine-startup-time` (limit in milliseconds).
+Readiness responses are capped at 4 KiB and must complete before the deadline.
+Startup stops are at height 0 / `replay-setup`, side `private-engine`, exit 2,
+with null mismatch. Bounded exit-code/signal evidence is kept; stderr text is
+never a classification input. The lifecycle owns cleanup after every spawn.
+The component comparison freezes ten symbols and every same-height word of
+length 0–3 over eight status/reason seeds, two winner contexts and two prior
+CANCELLED-compensation contexts. The
+[compensation invariant proof](devnet-audit-compensation-seeds-v0.md) excludes
+15 impossible context cells uniformly before execution; each excluded seed must
+also fail the auditor's input check. The remaining 17 component contexts produce
+18,887 words and 54,570 symbols: 558 accepted and 18,329 rejected, with 25
+compensation cases, 22 quarantine activations/byte-mutation controls and 51
+admission cases. These counts are asserted. This corpus has zero findings;
+its snapshots do not certify joint full-history reachability.
+A second frozen corpus derives three prior-compensation states from genesis
+using the public fold and injected verdicts: LOCKED/ACCEPTED with an active
+admission, VESTED/ACCEPTED, and VESTED/STALE with a retired admission. Signed
+POOLs and reveals precede two COMMIT/OPEN/PART candidates; a kernel-fault loser
+is accepted after another winner through a real KERNEL-FIX recheck. Empty
+heights vest its reward, and a further recheck produces STALE. No state fields
+are assigned to synthesize those snapshots. Every binary ACCEPT/REJECT word of
+length 0–3 then activates real KERNEL-FIX rows across heights; STALE has no new
+target job. All 45 histories pass, with 102 symbols/activations, 306 height
+steps, 146 recheck records, 22 repeated ACCEPTs, 11 LOCKED cancellations,
+11 VESTED-to-STALE transitions and 22 admission retirements. These counts are
+asserted. A separate forged cross-height replay pairs a previously observed
+ledger with an alternate reachable pre-grant state and a fresh reward id to
+exercise the event-ledger duplicate guard. That corrupted pair is a negative
+control, not a claimed valid history. The already_compensated=true reversal
+branch remains defensive and unreachable by the reward invariant.
+The M3 spec names unapplied CHECKING first-verdict jobs. Requiring a unique
+quarantine match additionally codifies the fold's current activation behavior;
+the spec does not state uniqueness. Candidates are keyed by `(problem_id, commit_hash)`, because a commitment hash
+alone is not unique across problems. A genesis-derived two-problem control
+commits the same hash to both problems and opens/completes only one. Its
+quarantine at height 10 and due verdict at height 11 preserve the original
+roots; the unrevealed candidate receives no result, reward or admission through
+vesting. The independent decoder binds each record to its ordered queue job's
+full key, and K4 binds a quarantine selector to the full key of the activated
+first-verdict job. A wrong-problem OPEN preimage stays refused. Four additional
+collision-shaped component words cover both rechecks' ACCEPT/REJECT combinations,
+including two distinct compensation rewards/admissions for equal hashes under
+different problems. They do not claim equal-hash OPEN preimages are constructible.
+Two CHECKING jobs with that hash remain an ambiguous quarantine selector, refused
+by both checks. These alias controls have zero findings.
+The two original frozen corpora total 18,932 words, with different explicit
+alphabets; the added alias words and controls are separate. The winner comparison checks
+consistency between admissions decoded from fold-produced events and fold
+state; it is not an independent prediction. S14 input validation shares
+ForkTable::validate with the fold. Successful cases also check actual 0x08 bytes
+and mutations, quarantine epochs/dispositions, ordered status/result changes,
+compensation eligibility and reward totals. Every remaining discrepancy fails
+the test. The full auditor invokes the fold before its independent ledger checks;
+the consensus transition implementation is unchanged.
+
 Owned inputs are rechecked before classifying a per-block failure and again
 before emitting the final receipt, even after a resource stop. Verified source
 change outranks that stop: it becomes an input mismatch with exit 1, and the

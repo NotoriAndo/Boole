@@ -140,3 +140,25 @@ fn fix4_first_stop_survives_later_reporting_paths() {
     assert_eq!(mismatch["first_mismatch"], first);
     assert!(mismatch["resource_stop"].is_null());
 }
+
+#[test]
+fn t81_startup_absent_binary_is_a_sanitized_local_setup_stop() -> anyhow::Result<()> {
+    let work = boole_devnet_archive::durability::PrivateTempDir::new("audit-startup-red")?;
+    let error = boole_devnet_audit::replay::PrivateEngine::start(
+        &work.path().join("absent"),
+        &work.path().join("genesis"),
+        work.path(),
+    )
+    .err()
+    .expect("missing binary started");
+    let mut receipt = receipt();
+    boole_devnet_audit::replay::report_failure(&mut receipt, &error, "unavailable");
+    assert!(receipt["first_mismatch"].is_null(), "{receipt}");
+    assert_eq!(receipt["resource_stop"]["resource"], "private-engine-setup");
+    assert_eq!(receipt["resource_stop"]["height"], "0");
+    assert_eq!(receipt["resource_stop"]["side"], "private-engine");
+    assert!(!receipt
+        .to_string()
+        .contains(&work.path().display().to_string()));
+    Ok(())
+}

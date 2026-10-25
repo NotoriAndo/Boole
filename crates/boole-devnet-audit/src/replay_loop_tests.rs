@@ -1,5 +1,5 @@
 use crate::Node;
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use boole_derivation::ParentHeader;
 use boole_derivation::{
     attributes::{hex_bytes, hex_string},
@@ -8,6 +8,7 @@ use boole_derivation::{
 };
 use boole_devnet_archive::input::InputRow;
 use serde_json::{json, Value};
+use std::process::Command;
 use std::{
     io::{Read, Write},
     net::TcpListener,
@@ -202,6 +203,9 @@ impl Engine for MemoryEngine {
         Ok(self.head.clone())
     }
     fn header(&mut self, h: u64) -> Result<ParentHeader> {
+        if self.mode == "rebuild-header" && h > 0 {
+            return Err(boole_devnet_driver::engine::TransientRpcError.into());
+        }
         Ok(self.headers[&h].clone())
     }
     fn transactions(&mut self, h: u64) -> Result<Vec<String>> {
@@ -578,5 +582,229 @@ fn fix5_invalid_hash_and_ledger_controls_remain_mismatches() -> Result<()> {
     ] {
         fix5_loop_case(mode, 1, class)?;
     }
+    Ok(())
+}
+
+// Real Driver -> AnchoredHistory -> Supervisor rebuild erasure. No gate worker
+// is needed: the owned Engine fails on the first rebuild read, before execution.
+struct TapeSource(Vec<Value>);
+impl L1Source for TapeSource {
+    fn finalized(&mut self) -> Result<u64> {
+        Ok(self.0.len() as u64)
+    }
+    fn block(&mut self, h: u64) -> Result<L1Block> {
+        Ok(serde_json::from_value(
+            self.0[h as usize - 1]["l1"].clone(),
+        )?)
+    }
+    fn block_by_hash(&mut self, hash: &str) -> Result<L1Block> {
+        Ok(serde_json::from_value(
+            self.0
+                .iter()
+                .find(|r| r["l1"]["hash"] == hash)
+                .context("tape origin")?["l1"]
+                .clone(),
+        )?)
+    }
+    fn inbox_logs(&mut self, hash: &str) -> Result<Vec<InboxLog>> {
+        Ok(serde_json::from_value(
+            self.0
+                .iter()
+                .find(|r| r["l1"]["hash"] == hash)
+                .context("tape logs")?["logs"]
+                .clone(),
+        )?)
+    }
+}
+#[test]
+fn t81_private_real_m3_rebuild_erasure_and_input_precedence() -> Result<()> {
+    use boole_devnet_archive::durability::PrivateTempDir;
+    use boole_gate_supervisor::{
+        codec::Codec,
+        process::Envelope,
+        supervisor::{Host, Mode},
+    };
+    let tape: Value =
+        serde_json::from_str(include_str!("../../../fixtures/devnet-m3/round-v1.3.json"))?;
+    let mut c: Config = serde_json::from_str(tape["config_json"].as_str().unwrap())?;
+    let rows = tape["heights"].as_array().unwrap();
+    let work = PrivateTempDir::new("private-rebuild")?;
+    let configured_gate = std::env::var_os("BOOLE_DEVNET_GATE");
+    let gate = configured_gate
+        .clone()
+        .map(std::path::PathBuf::from)
+        .unwrap_or(
+            std::env::current_exe()?
+                .parent()
+                .context("test binary directory")?
+                .parent()
+                .context("profile directory")?
+                .join("boole-gate-supervisor"),
+        );
+    if !gate.try_exists()? {
+        anyhow::ensure!(
+            configured_gate.is_none(),
+            "configured BOOLE_DEVNET_GATE is missing"
+        );
+        eprintln!("SKIP t81_private_real_m3_rebuild: build boole-gate-supervisor or set BOOLE_DEVNET_GATE to its binary");
+        return Ok(());
+    }
+    let pin = boole_gate_supervisor::codec::digest(&std::fs::read(&gate)?);
+    let descriptor = boole_gate_supervisor::stub::Descriptor::pinned(pin);
+    c.m3.as_mut().unwrap().genesis_gate_rule_digest = descriptor.digest();
+    let f = ForkTable::genesis(&c)?;
+    let artifacts = work.path().join("artifacts");
+    boole_gate_supervisor::supervisor::install_devnet_artifacts(&c, &artifacts)?;
+    let sup = Supervisor::new(
+        &c,
+        &f,
+        Mode::Verify,
+        vec![boole_gate_supervisor::process::Worker {
+            descriptor,
+            binary: gate,
+            binary_sha256: pin,
+        }],
+        Some(Codec::portable_stub()),
+        &work.path().join("cache"),
+        work.path(),
+        &artifacts,
+        Host::local()?,
+        Envelope::default(),
+    )?;
+    let tracker = Tracker::default();
+    let mut memory = MemoryEngine::new();
+    memory.head = serde_json::from_value(rows[0]["parent"].clone())?;
+    memory.headers.insert(0, memory.head.clone());
+    memory.mode = "rebuild-header".into();
+    let mut driver = Driver::with_m3(
+        TapeSource(rows.clone()),
+        Tracked::new(memory, tracker.clone()),
+        c.clone(),
+        30_000_000,
+        sup,
+        f.clone(),
+    )?;
+    for row in rows {
+        let h = row["height"].as_u64().unwrap();
+        driver.engine.inner_mut().expected = row["result"]["block_hash"].as_str().unwrap().into();
+        tracker.begin(h, "fold");
+        match driver.step(h) {
+            Ok(_) => {}
+            Err(error) => {
+                assert!(
+                    matches!(
+                        error.kind,
+                        boole_devnet_driver::driver::StallKind::VerdictPending { .. }
+                    ),
+                    "{error:?}"
+                );
+                let fault = tracker.unresolved().context("header failure erased")?;
+                assert!(fault.origin.unwrap() < h);
+                assert_eq!(fault.operation, "header");
+                let mut receipt = crate::empty_receipt(&c, "journal");
+                failed_step(
+                    &mut receipt,
+                    h,
+                    "fold",
+                    anyhow::Error::new(error.clone()),
+                    &tracker,
+                    Ok(()),
+                );
+                assert!(receipt["first_mismatch"].is_null(), "{receipt}");
+                assert_eq!(receipt["resource_stop"]["check"], "verdict");
+                assert_eq!(receipt["resource_stop"]["height"], h.to_string());
+                assert_eq!(
+                    receipt["resource_stop"]["origin_height"],
+                    fault.origin.unwrap().to_string()
+                );
+                let mut tampered = crate::empty_receipt(&c, "journal");
+                failed_step(
+                    &mut tampered,
+                    h,
+                    "fold",
+                    anyhow::Error::new(error),
+                    &tracker,
+                    Err(anyhow::anyhow!("owned input changed")),
+                );
+                assert_eq!(tampered["first_mismatch"]["class"], "input");
+                assert!(tampered["resource_stop"].is_null());
+                return Ok(());
+            }
+        }
+    }
+    bail!("no rebuild reached")
+}
+
+#[test]
+fn t81_private_retry_clears_only_same_operation_and_step_resets() -> Result<()> {
+    let tracker = Tracker::default();
+    tracker.begin(26, "fold");
+    let mut memory = MemoryEngine::new();
+    memory.headers.insert(1, memory.head.clone());
+    memory.headers.insert(2, memory.head.clone());
+    memory.mode = "rebuild-header".into();
+    let mut engine = Tracked::new(memory, tracker.clone());
+    assert!(engine.header(1).is_err());
+    engine.head()?;
+    assert_eq!(tracker.unresolved().unwrap().origin, Some(1));
+    assert!(engine.header(2).is_err());
+    engine.inner_mut().mode.clear();
+    engine.header(1)?;
+    assert_eq!(tracker.unresolved().unwrap().origin, Some(2));
+    engine.header(2)?;
+    assert!(
+        tracker.unresolved().is_none(),
+        "recovered retry kept a fault"
+    );
+    engine.inner_mut().mode = "rebuild-header".into();
+    assert!(engine.header(1).is_err());
+    tracker.begin(27, "fold");
+    assert!(tracker.unresolved().is_none(), "stale fault crossed a step");
+    Ok(())
+}
+
+#[test]
+fn t81_explicit_missing_rebuild_gate_dependency_is_a_failure() -> Result<()> {
+    let work = boole_devnet_archive::durability::PrivateTempDir::new("missing-rebuild-gate")?;
+    let output = Command::new(std::env::current_exe()?)
+        .args([
+            "--exact",
+            "replay::loop_tests::t81_private_real_m3_rebuild_erasure_and_input_precedence",
+            "--nocapture",
+        ])
+        .env("BOOLE_DEVNET_GATE", work.path().join("absent-gate"))
+        .output()?;
+    assert!(
+        !output.status.success(),
+        "explicitly configured missing gate was silently skipped"
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("configured BOOLE_DEVNET_GATE is missing"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    Ok(())
+}
+#[test]
+fn t81_unset_and_unavailable_rebuild_gate_is_an_explicit_skip() -> Result<()> {
+    let work = boole_devnet_archive::durability::PrivateTempDir::new("unset-rebuild-gate")?;
+    let deps = work.path().join("profile/deps");
+    std::fs::create_dir_all(&deps)?;
+    let executable = deps.join("audit-test");
+    std::fs::copy(std::env::current_exe()?, &executable)?;
+    let output = Command::new(executable)
+        .args([
+            "--exact",
+            "replay::loop_tests::t81_private_real_m3_rebuild_erasure_and_input_precedence",
+            "--nocapture",
+        ])
+        .env_remove("BOOLE_DEVNET_GATE")
+        .output()?;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("SKIP t81_private_real_m3_rebuild"));
     Ok(())
 }
