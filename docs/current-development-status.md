@@ -1,6 +1,6 @@
 # Boole — current development status
 
-Updated: 2026-10-24. This is the tracked entrypoint for current progress and the
+Updated: 2026-10-25. This is the tracked entrypoint for current progress and the
 ordered development roadmap. Edit it in place; execution evidence stays in its
 own result record. Local Master/Execution documents link here instead of owning
 a second current cursor. Work methods follow the
@@ -18,7 +18,7 @@ twelve-hour delegation.
 
 ## Current boundary
 
-**Devnet M3 v1.3 and M4a (October 23–24, devnet only).**
+**Devnet M3 v1.3, M4a and M4b (October 23–24, devnet only).**
 - [#446](https://github.com/NotoriAndo/Boole/pull/446) adds the pure verdict,
   settlement and reward fold behind an optional M3 profile. One global queue
   orders checks, and due heights follow a checked fuel clock, never bytes.
@@ -27,9 +27,9 @@ twelve-hour delegation.
 - [#447](https://github.com/NotoriAndo/Boole/pull/447) adds the node-local gate
   supervisor. It rebuilds each job's inputs from L1 by digest, runs it in an
   isolated worker with typed outcomes, and keeps a result cache that is never
-  authority. A pinned devnet stub gate drives every verdict path until the real
-  gate is connected after DET3. The driver refuses any payload whose system deposits
-  differ from the exact expected prefix.
+  authority. A pinned devnet stub gate drives every verdict path. DET3 has merged
+  (below), but the real gate is not yet connected to the supervisor. The driver
+  refuses any payload whose system deposits differ from the exact expected prefix.
 - [#448](https://github.com/NotoriAndo/Boole/pull/448) resets the devnet to
   [v1.3](devnet-verdicts-v1.3.md). Live recordings on replicas A, B and C cover a
   full round from COMMIT to reward vest. They include restarts, a reorg,
@@ -44,13 +44,51 @@ twelve-hour delegation.
   replays from it and reads only the L1 tip, never old L1 history. Crash windows
   around checkpoints and publication either recover by proven rules or stop
   typed, and crash-test hooks exist only in a qualification build. See
-  [node durability](devnet-node-durability-v0.md). A fresh node still
-  bootstraps from finalized genesis; archive-assisted join is the next M4 step.
+  [node durability](devnet-node-durability-v0.md). Without an archive, a fresh
+  node still bootstraps from finalized genesis; M4b1 adds archive-assisted joins.
 - [#451](https://github.com/NotoriAndo/Boole/pull/451) updates tokio to 1.53.3
   for RUSTSEC-2026-0386. No workspace crate uses the affected `AsyncFd` API.
+- [#453](https://github.com/NotoriAndo/Boole/pull/453) (M4b1) adds an
+  [archive node](devnet-archive-v0.md) and archive-assisted joins. An archive is
+  an ordinary verify node that also keeps finalized headers, receipts and
+  derived objects in a store re-verified on every read, behind a loopback-only,
+  GET-only API. A joining node anchors on its own finalized L1 tip, never the
+  archive, and checks every downloaded object against it, so an archive can
+  speed up a join but never change its result. A bad object is discarded; with
+  no good source the join stalls resumably and never yields a REJECT. Live, a
+  fresh driver and a fresh miner joined from an archive with equal L2 hashes and
+  M2 roots at all 99 heights.
+- [#454](https://github.com/NotoriAndo/Boole/pull/454) ignores RUSTSEC-2026-0387
+  for the verify-only k256 path until the k256 0.14 upgrade. Outside tests, k256
+  only recovers public keys from public signatures, so no secret reaches the
+  affected crypto-bigint code. The ignore is to be re-reviewed by 2026-11-24.
+- [#455](https://github.com/NotoriAndo/Boole/pull/455) (M4b2) adds three pieces.
+  - A follow join can take L2 system prefixes from a verified archive for an
+    explicit height range. Matching each M2ROOT proves consistency, not
+    correctness, so those heights are labelled `checkpoint-trusted`.
+  - `boole-devnet-audit` is an independent, read-only auditor. It recomputes the
+    fold from an input journal or a verified archive, or replays every L2 block
+    in a fresh private engine, and checks verdicts, reward records, admissions
+    and fork-table rows. It stops at the first mismatch and never repairs a
+    source. A local resource limit is a typed stop, never a mismatch. Durable
+    pins and the environment build still report `pending`.
+  - An archive also serves L1 transaction lists checked against
+    `transactionsRoot`. A miner whose post finalized in an archive-filled range
+    reconciles it from the authenticated receipt, including REVERTED, instead of
+    staying paused.
 
 This is still closed-local devnet work. The stub gate is not a proof verifier,
-testnet minting stays off, and there is no public activation.
+testnet minting stays off, and there is no public activation. The next devnet
+step is M4c1: the private-engine lifecycle in the auditor, a differential test
+of the fold against the audit, and cached-proof liveness. M4c2 then covers pins
+and retention.
+
+**ZK1b zero-knowledge proof (October 25, local only).** One full compressed CPU
+proof of the pinned guest was produced and verified locally: 1,272,970 bytes and
+1,633 core shards, in a 37,294 s run with 21.6 GB peak RSS. The saved proof also
+verifies in a fresh process, and a verifying key derived independently from the
+pinned program equals the saved one. The SNARK wrap is not done; it needs
+downloads that are not approved yet.
 
 **Node environment, testnet node and M3 direction (October 23 decisions).**
 - **Node environment.** Accepted proofs join the node environment under
@@ -299,6 +337,39 @@ limited to a safe allowlist; commands that define elaboration code are rejected.
     quarantine that a fixed gate still cannot decide. Replay keeps nonterminal
     observations and tells unavailable checks apart from disagreements. This adds
     no reward effect.
+- **Gate determinism DET3 (October 25).**
+  [#458](https://github.com/NotoriAndo/Boole/pull/458) merged after its final
+  head passed the Linux qualification exactly: 216 of 216 production controls,
+  all seven fitted references with both kernels' debits exact, all 20 pilot
+  gate runs with the same verdicts and reasons, and all 32 public counter cases.
+  No catalog is issued and no fitted cap changed.
+  - **Typed tool exits.** Every gate-owned tool shares one exit protocol: accept,
+    typed rejection, deterministic cap, typed tool fault or unavailable.
+    Diagnostic text never decides a verdict.
+  - **Kernel fuel.** Both kernels now enforce deterministic fuel per declaration
+    through pinned native drivers, and cap outcomes do not depend on worker
+    scheduling. Acceptance needs both kernels and both debit records.
+  - **Measured fuel caps.** An optional package `fuel_cap` sets each kernel's
+    allowance to four times a measured reference's debit. The published
+    authority file, `fuel_cap_authority_v1.json`, pins seven fitted public
+    references, and operators cannot raise an allowance.
+  - **Certification scope.** An allowed library declaration outside the
+    certified base is ERROR `library-outside-certified-base`, after every check
+    that can still return INVALID. Under error policy v2 it is terminal group S:
+    not a node fault, not retried and not a quarantine trigger. Existing v1
+    stores keep their v1 rules unchanged.
+  - **Counter identity.** A public corpus of 32 generated counter cases has an
+    aarch64 golden accepted by both kernels. An advisory x86-64 CI job rebuilds
+    the counter drivers and compares against it; its hosted run reproduced the
+    golden exactly in 77 minutes. It is not a required check, and Linux-x86_64
+    still has no production profile.
+  - **Publication paths.** A guard now checks every tracked text file for
+    personal host paths. Before it,
+    [#456](https://github.com/NotoriAndo/Boole/pull/456) made the September
+    native records use repository-relative paths, and
+    [#457](https://github.com/NotoriAndo/Boole/pull/457) replaced the
+    supply-chain golden's tool paths with root tokens and re-derived its
+    bindings.
 - **Resource verdicts and artifact pins.** Host resource failures, trusted export
   corruption and untyped legacy replay failures return ERROR. The judge binds
   Lean executable/runtime bytes and ordered module roots: `.olean`, `.olean.*`
@@ -310,8 +381,9 @@ limited to a safe allowlist; commands that define elaboration code are rejected.
   boundary verdicts precede the exit-code-only rule; raw stderr is not a Lean error.
   Deterministic compile/postcheck findings precede missing print or replay output, and Comparator uses its own status
   channel. Pinned core/library roots and trusted builds precede proof roots. Gate-owned
-  testnet limits are provisional; Lean kernel step/depth and nanoda stack candidates
-  are recorded but not enforced. Full deterministic fuel enforcement remains a later upgrade. See the
+  testnet limits are provisional. Since DET3 both kernels enforce deterministic fuel
+  per declaration; full resource liveness and adversarial memory bounds remain
+  later work. See the
   [registry contract](zk-problem-registry.md) for the classifications and limits.
 - macOS results remain development evidence only.
 
