@@ -225,7 +225,7 @@ class Front(MacProfile):
         with self.assertRaisesRegex(F.Refusal, 'axiom_rejected'):
             A.axioms(export, ((('str', 'goal'),),))
     def setUp(self):
-        super().setUp()
+        MacProfile.setUp(self)  # This fixture is also reused by ReservedNames.
         self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
         self.path = Path(self.tmp.name)/'export.ndjson'
         self.rows = fixture()
@@ -302,7 +302,7 @@ class Front(MacProfile):
             F.partition(F.read_export(self.path), inventory, self.pkg)
 
 
-class ReservedNames(unittest.TestCase):
+class ReservedNames(MacProfile):
     def test_anonymous_main_private_name_is_reserved(self):
         self.add_definition(('_private',0,'BooleCS','X'));self.rejected('reserved_name')
 
