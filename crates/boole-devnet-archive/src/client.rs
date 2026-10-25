@@ -334,15 +334,7 @@ impl ArchiveClient {
     /// source can still recover availability without restarting the fold.
     pub fn posting_finality(&mut self, height: u64) {
         let now = Instant::now();
-        self.not_served_routes.retain(|_, until| now < *until);
-        // Keep active exponential retry history through one maximum backoff
-        // after eligibility; inactive heights expire within 60 seconds.
-        self.proof_retry.retain(|_, retry| {
-            retry
-                .at
-                .checked_add(Duration::from_secs(30))
-                .is_some_and(|until| now < until)
-        });
+        self.expire_posting_history(now);
         let changed = self.sources != self.proof_sources;
         if changed {
             self.not_served_routes.clear();
@@ -365,11 +357,30 @@ impl ArchiveClient {
         }
         self.proof_finality = height;
     }
+    fn expire_posting_history(&mut self, now: Instant) {
+        self.not_served_routes.retain(|_, until| now < *until);
+        // Keep active exponential retry history through one maximum backoff
+        // after eligibility; inactive heights expire within 60 seconds. A starved
+        // height may restart at 1 s; rotation and the 32-request cap still apply.
+        self.proof_retry.retain(|_, retry| {
+            retry
+                .at
+                .checked_add(Duration::from_secs(30))
+                .is_some_and(|until| now < until)
+        });
+    }
     /// Metadata-only scheduling hint. Header/proof authentication is still
     /// mandatory when a request is made; own journal integrity checks run
     /// independently even when this turn cannot request anything.
     pub fn posting_requestable(&self, hash: &str) -> bool {
+        let now = Instant::now();
+        let route = format!("l1/txs/{}", hash.trim_start_matches("0x"));
         self.proof_budget > 0
+            && self.sources.iter().any(|source| {
+                self.not_served_routes
+                    .get(&(source.clone(), route.clone()))
+                    .is_none_or(|until| now >= *until)
+            })
             && !self.proof_retry.get(hash).is_some_and(|retry| {
                 self.proof_finality < retry.finality && Instant::now() < retry.at
             })
@@ -957,14 +968,19 @@ mod retry_expiry_tests {
         assert!(client.transaction_row(&second).is_err());
         assert_eq!(client.not_served_routes.len(), 2);
         assert_eq!(client.proof_retry.len(), 2);
-        let expired = Instant::now() - Duration::from_secs(60);
+        let expired = Instant::now();
+        let future = expired + Duration::from_secs(61);
+        client.proof_retry.get_mut(&second.block_hash).unwrap().at = future;
+        for until in client.not_served_routes.values_mut() {
+            *until = future + Duration::from_secs(30);
+        }
         for ((_, route), until) in &mut client.not_served_routes {
             if route.ends_with(&first.block_hash[2..]) {
                 *until = expired;
             }
         }
         client.proof_retry.get_mut(&first.block_hash).unwrap().at = expired;
-        client.posting_finality(3);
+        client.expire_posting_history(future);
         assert_eq!(
             client.not_served_routes.len(),
             1,
@@ -976,6 +992,90 @@ mod retry_expiry_tests {
             "inactive retry history grew forever"
         );
         assert!(client.proof_retry.contains_key(&second.block_hash));
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod t79_retry_controls {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+    struct Missing(Arc<Mutex<Vec<String>>>);
+    impl Fetch for Missing {
+        fn get(&mut self, _: &str, route: &str, _: usize) -> Result<Vec<u8>> {
+            self.0.lock().unwrap().push(route.into());
+            Err(NotServed.into())
+        }
+        fn observe(&mut self, _: &str, _: &str, _: usize, _: Instant) -> Result<Vec<u8>> {
+            self.0.lock().unwrap().push("info".into());
+            Ok(br#"{"covered_through":10000}"#.to_vec())
+        }
+        fn backoff(&mut self, _: u64) {
+            panic!("covered 404 retry storm")
+        }
+    }
+    #[test]
+    fn t79_retry_budget_rotation_and_expiry_negative_controls() -> Result<()> {
+        let calls = Arc::new(Mutex::new(vec![]));
+        let mut c = ArchiveClient::new(
+            vec!["http://127.0.0.1:1".into()],
+            Box::new(Missing(calls.clone())),
+        )?;
+        let rows: Vec<_> = (1..=256)
+            .map(|h| crate::input::empty_fixture(h, [0; 32]))
+            .collect();
+        let mut visited = std::collections::BTreeSet::new();
+        for turn in 0..12 {
+            c.posting_finality(1000 + turn);
+            let before = calls.lock().unwrap().len();
+            let mut heights: Vec<_> = (1..=256).collect();
+            c.posting_probe_order(&mut heights);
+            for h in heights {
+                let row = &rows[h as usize - 1];
+                if c.posting_requestable(&row.block_hash) {
+                    assert!(c.transaction_row(row).is_err());
+                }
+            }
+            assert!(
+                calls.lock().unwrap().len() - before <= POSTING_REQUESTS_MAX,
+                "whole turn budget overflow"
+            );
+            visited.extend(c.proof_retry.keys().cloned());
+        }
+        assert_eq!(
+            visited.len(),
+            256,
+            "old missing prefix starved later heights"
+        );
+        assert_eq!(c.failures, vec![0], "not-served penalized the source");
+        // Even after exponential history expires, covered 404 routes are not
+        // requestable. The driver must skip their journal reads as metadata.
+        c.proof_retry.clear();
+        c.posting_finality(1500);
+        for row in &rows {
+            assert!(
+                !c.posting_requestable(&row.block_hash),
+                "covered not-served height was requestable"
+            );
+        }
+
+        // Advance only the scheduler's expired timestamps, never the contract's
+        // clock/deadlines. Histories expire even for continuously new heights.
+        for turn in 0..64 {
+            c.expire_posting_history(Instant::now() + Duration::from_secs(61));
+            c.posting_finality(2000 + turn);
+            assert!(
+                c.proof_retry.is_empty() && c.not_served_routes.is_empty(),
+                "unbounded retry history"
+            );
+            let row = crate::input::empty_fixture(1000 + turn, [0; 32]);
+            assert!(c.transaction_row(&row).is_err());
+            assert_eq!(
+                c.proof_retry[&row.block_hash].attempts, 1,
+                "expired history did not restart at one second"
+            );
+            assert!(c.proof_retry.len() <= POSTING_REQUESTS_MAX);
+        }
         Ok(())
     }
 }

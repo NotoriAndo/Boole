@@ -3,7 +3,7 @@ use anyhow::{ensure, Context, Result};
 use boole_derivation::{
     attributes::hex_bytes,
     m2::{Config, Key, State, Status},
-    m3::{Outcome, RecordKind, RewardPayment, RewardStatus, KERNEL_FAULT},
+    m3::{ForkKind, ForkRow, Outcome, RecordKind, RewardPayment, RewardStatus, KERNEL_FAULT},
     L1Block,
 };
 use serde_json::{json, Value};
@@ -65,6 +65,77 @@ fn sum(mut values: impl Iterator<Item = u128>) -> Result<u128> {
         a.checked_add(b).context("ledger total overflow")
     })
 }
+// The spec names unapplied CHECKING first-verdict jobs. Requiring a unique
+// match additionally codifies the fold's activation behavior; the spec does not
+// state uniqueness. Count the immutable pre-height queue before outcomes.
+fn check_quarantine_targets(before: &State, activation: Option<&ForkRow>) -> Result<()> {
+    let Some(row) = activation.filter(|row| row.kind == ForkKind::Quarantine) else {
+        return Ok(());
+    };
+    let old = before.m3.as_ref().context("old ledger")?;
+    // Allocate counters only for the declared targets, not the whole queue.
+    let mut counts: BTreeMap<_, u8> = row.list.iter().map(|item| (item.commit_hash, 0)).collect();
+    for job in old.queue.iter().skip(old.next_applied) {
+        if job.kind == RecordKind::Verdict
+            && before
+                .candidates
+                .get(&job.key)
+                .is_some_and(|c| c.status() == Status::Checking)
+        {
+            if let Some(n) = counts.get_mut(&job.key.1) {
+                // Only zero, one and multiple matter; never overflow.
+                *n = n.saturating_add(1).min(2);
+            }
+        }
+    }
+    for item in &row.list {
+        match counts.get(&item.commit_hash).copied().unwrap_or(0) {
+            0 => anyhow::bail!("quarantine target is not queued CHECKING"),
+            1 => {}
+            _ => anyhow::bail!("ambiguous quarantine target"),
+        }
+    }
+    Ok(())
+}
+// Rewards/rechecks specification invariant, proved by induction in
+// docs/devnet-audit-compensation-seeds-v0.md. This is an input check, not a
+// comparison to the fold's output or an exception based on a failed word.
+fn check_compensation_context(before: &State) -> Result<()> {
+    (|| -> Result<()> {
+        let old = before.m3.as_ref().context("old ledger")?;
+        for reward in old.rewards.values().filter(|r| r.compensation) {
+            let status = before
+                .candidates
+                .get(&reward.key)
+                .context("compensation candidate missing")?
+                .status();
+            ensure!(
+                matches!(status, Status::Accepted | Status::Stale),
+                "compensation candidate must be ACCEPTED or STALE"
+            );
+            ensure!(
+                before
+                    .problems
+                    .get(&reward.key.0)
+                    .is_some_and(|p| p.winner.is_some()),
+                "compensation requires the original problem winner"
+            );
+            match reward.status {
+                RewardStatus::Cancelled => ensure!(
+                    status == Status::Stale,
+                    "cancelled compensation requires STALE"
+                ),
+                RewardStatus::Locked => ensure!(
+                    status == Status::Accepted,
+                    "locked compensation requires ACCEPTED"
+                ),
+                RewardStatus::Vested => {}
+            }
+        }
+        Ok(())
+    })()
+    .context(AdmissionViolation)
+}
 // V_h is independently computed and checked against this exact system prefix
 // by the caller. Decode it independently of the audited fold's rewards/events.
 fn expected_compensation(
@@ -72,7 +143,10 @@ fn expected_compensation(
     c: &Config,
     l1: &L1Block,
     prefix: &[String],
+    activation: Option<&ForkRow>,
 ) -> Result<BTreeSet<Key>> {
+    check_compensation_context(before)?;
+    check_quarantine_targets(before, activation)?;
     let mut deposits = vec![];
     for tx in prefix.iter().skip(2).take_while(|t| t.starts_with("0x7e")) {
         let raw = hex_bytes(tx, "system")?;
@@ -88,6 +162,8 @@ fn expected_compensation(
     }
     let records = boole_derivation::m3::decode_verdict_deposits(c, l1, &deposits)?;
     let old = before.m3.as_ref().context("old ledger")?;
+    #[cfg(test)]
+    differential::reset_trace(before);
     let mut expected = BTreeSet::new();
     let already_compensated: BTreeSet<_> = old
         .rewards
@@ -95,7 +171,7 @@ fn expected_compensation(
         .filter(|reward| reward.compensation)
         .map(|reward| reward.key)
         .collect();
-    let mut targets: BTreeMap<_, _> = before
+    let mut targets: BTreeMap<Key, (Status, u16)> = before
         .candidates
         .iter()
         .map(|(key, candidate)| {
@@ -111,49 +187,67 @@ fn expected_compensation(
     // A later record sees the preceding record's status/reason, not a fresh
     // copy of the pre-block state. This ledger remains independent of the
     // audited fold's final rewards and event stream.
-    for indexed in records {
+    // A verdict identifies the next queue job, not every candidate sharing its
+    // hash. COMMIT does not prove the problem binding; OPEN does. Since k > 0,
+    // jobs enqueued at this height cannot be due in this height's prefix.
+    for (offset, indexed) in records.into_iter().enumerate() {
+        let position = old
+            .next_applied
+            .checked_add(offset)
+            .context("verdict queue overflow")?;
+        let job = old.queue.get(position).context("verdict queue target")?;
         let record = indexed.record;
-        for (key, (status, reason)) in &mut targets {
-            if key.1 != record.commit_hash {
-                continue;
-            }
-            let kernel_fault = *status == Status::Rejected && *reason == KERNEL_FAULT;
-            let compensation = kernel_fault
-                && record.kind == RecordKind::Recheck
-                && record.outcome == Outcome::Accept
-                && before
-                    .problems
-                    .get(&key.0)
-                    .is_some_and(|p| p.winner.is_some());
-            if compensation && !already_compensated.contains(key) {
-                expected.insert(*key);
-            }
-            *status = match (record.kind, *status, record.outcome) {
-                (RecordKind::Verdict, Status::Checking, Outcome::Accept) => Status::Passed,
-                (RecordKind::Verdict, Status::Checking, Outcome::Reject) => Status::Rejected,
-                (RecordKind::Verdict, Status::Checking, Outcome::Void) => Status::Void,
-                (RecordKind::Verdict, old @ (Status::Superseded | Status::Void), _) => old,
-                (RecordKind::Recheck, Status::Accepted, Outcome::Reject) => Status::Stale,
-                (
-                    RecordKind::Recheck,
-                    old @ (Status::Accepted | Status::Passed),
-                    Outcome::Accept,
-                ) => old,
-                (RecordKind::Recheck, Status::Passed, Outcome::Reject) => Status::Rejected,
-                (RecordKind::Recheck, Status::Rejected, Outcome::Accept) if kernel_fault => {
-                    if compensation {
-                        Status::Accepted
-                    } else {
-                        Status::Passed
-                    }
-                }
-                (RecordKind::Recheck, Status::Rejected, Outcome::Reject) if kernel_fault => {
-                    Status::Rejected
-                }
-                _ => anyhow::bail!("compensation verdict transition"),
-            };
-            *reason = record.reason;
+        ensure!(
+            indexed.queue_index == job.queue_index
+                && record.kind == job.kind
+                && record.commit_hash == job.key.1,
+            "verdict queue identity"
+        );
+        let key = &job.key;
+        let (status, reason) = targets.get_mut(key).context("verdict candidate")?;
+        let kernel_fault = *status == Status::Rejected && *reason == KERNEL_FAULT;
+        let compensation = kernel_fault
+            && record.kind == RecordKind::Recheck
+            && record.outcome == Outcome::Accept
+            && before
+                .problems
+                .get(&key.0)
+                .is_some_and(|p| p.winner.is_some());
+        // Defensive, unreachable already-compensated case: a prior reward
+        // requires ACCEPTED/STALE, but this reversal requires REJECTED. See
+        // docs/devnet-audit-compensation-seeds-v0.md.
+        #[cfg(test)]
+        if compensation && already_compensated.contains(key) {
+            differential::duplicate_compensation();
         }
+        if compensation && !already_compensated.contains(key) {
+            expected.insert(*key);
+        }
+        *status = match (record.kind, *status, record.outcome) {
+            (RecordKind::Verdict, Status::Checking, Outcome::Accept) => Status::Passed,
+            (RecordKind::Verdict, Status::Checking, Outcome::Reject) => Status::Rejected,
+            (RecordKind::Verdict, Status::Checking, Outcome::Void) => Status::Void,
+            (RecordKind::Verdict, old @ (Status::Superseded | Status::Void), _) => old,
+            (RecordKind::Recheck, Status::Accepted, Outcome::Reject) => Status::Stale,
+            (RecordKind::Recheck, old @ (Status::Accepted | Status::Passed), Outcome::Accept) => {
+                old
+            }
+            (RecordKind::Recheck, Status::Passed, Outcome::Reject) => Status::Rejected,
+            (RecordKind::Recheck, Status::Rejected, Outcome::Accept) if kernel_fault => {
+                if compensation {
+                    Status::Accepted
+                } else {
+                    Status::Passed
+                }
+            }
+            (RecordKind::Recheck, Status::Rejected, Outcome::Reject) if kernel_fault => {
+                Status::Rejected
+            }
+            _ => anyhow::bail!("compensation verdict transition"),
+        };
+        *reason = record.reason;
+        #[cfg(test)]
+        differential::trace(*key, *status, &record);
     }
     Ok(expected)
 }
@@ -181,7 +275,13 @@ impl Ledger {
             .filter(|(tag, b)| *tag == 2 && b[64] == Status::Stale as u8)
             .map(|(_, b)| key(b, 0))
             .collect::<Result<_>>()?;
-        let expected_compensation = expected_compensation(before, c, l1, prefix)?;
+        // The caller binds fork-history rows to the canonical FORK_TABLE/event.
+        // Eligibility is checked against the pre-height queue, before outcomes.
+        let activation = m
+            .fork_history
+            .iter()
+            .find(|r| r.epoch != 0 && r.height == l1.number);
+        let expected_compensation = expected_compensation(before, c, l1, prefix, activation)?;
         let mut compensated = BTreeSet::new();
         let mut next = self.clone();
         let mut vested = vec![];
@@ -271,6 +371,8 @@ impl Ledger {
                                     "reused or noncontiguous admission k"
                                 );
                                 next.admissions.insert(k, (identity, false));
+                                #[cfg(test)]
+                                differential::admitted(identity);
                             }
                             2 => {
                                 let a =
@@ -428,3 +530,7 @@ impl Ledger {
         json!({"total":self.admissions.len().to_string(),"active":self.admissions.values().filter(|(_,retired)|!*retired).count().to_string(),"retired":self.admissions.values().filter(|(_,retired)|*retired).count().to_string()})
     }
 }
+
+#[cfg(test)]
+#[path = "ledger_differential_tests.rs"]
+mod differential;

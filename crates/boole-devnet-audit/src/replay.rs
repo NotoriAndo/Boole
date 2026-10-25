@@ -1,50 +1,18 @@
 //! Replay writes only to a freshly spawned, auditor-owned private Engine.
+use crate::private_engine::{operation as private_operation, PrivateSide, Tracked, Tracker};
 use crate::{rpc::RpcNode, Inputs, Node};
-use anyhow::{bail, ensure, Context, Result};
+use anyhow::{ensure, Context, Result};
 use boole_derivation::{m2::Config, m3::ForkTable, InboxLog, L1Block};
 use boole_devnet_driver::{
     driver::{Driver, StepOutcome},
-    engine::{Engine, Rpc, RpcEngine},
+    engine::Engine,
     l1::L1Source,
 };
 use boole_gate_supervisor::supervisor::Supervisor;
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
-use std::{
-    collections::BTreeMap,
-    io::Write,
-    net::TcpListener,
-    path::{Path, PathBuf},
-    process::{Child, Command, Stdio},
-    time::{Duration, Instant},
-};
-/// The operation talks only to the auditor-owned private Engine. This marker
-/// is deliberately attached to individual calls, never to comparisons.
-#[derive(Debug)]
-struct PrivateSide;
-impl std::fmt::Display for PrivateSide {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("auditor private Engine")
-    }
-}
-impl std::error::Error for PrivateSide {}
-fn private_operation<T>(result: Result<T>) -> Result<T> {
-    result.map_err(|e| e.context(PrivateSide))
-}
+use std::collections::BTreeMap;
 fn private_unavailable(error: &anyhow::Error) -> bool {
-    error.is::<PrivateSide>()
-        && (boole_devnet_driver::engine::rpc_unavailable(error)
-            || error
-                .downcast_ref::<boole_devnet_driver::driver::Stall>()
-                .is_some_and(|s| {
-                    matches!(
-                        s.kind,
-                        boole_devnet_driver::driver::StallKind::Availability { .. }
-                    )
-                })
-            || error
-                .chain()
-                .any(|e| e.is::<reqwest::Error>() || e.is::<std::io::Error>()))
+    error.is::<PrivateSide>() && crate::private_engine::unavailable(error)
 }
 #[derive(Debug)]
 pub struct Failure {
@@ -88,6 +56,9 @@ pub fn report_failure(receipt: &mut Value, error: &anyhow::Error, status: &str) 
         && !receipt["resource_stop"].is_null()
         && !error.is::<crate::resource::ResourceStop>();
     if !crate::succeeded(receipt) && !input_overrides_resource {
+        return;
+    }
+    if crate::private_engine::report(receipt, error) {
         return;
     }
     if let Some(stop) = error.downcast_ref::<crate::resource::ResourceStop>() {
@@ -135,225 +106,7 @@ pub fn report_cleanup(receipt: &mut Value, stopped: bool, issues: usize) {
         receipt["checks"]["execution"] = json!("mismatch");
     }
 }
-pub struct PrivateEngine {
-    child: Child,
-    birth: String,
-    pub http: String,
-    auth: String,
-    jwt: PathBuf,
-    log: PathBuf,
-    stopped: bool,
-}
-fn birth(pid: u32) -> Result<String> {
-    let output = Command::new("ps")
-        .args(["-p", &pid.to_string(), "-o", "lstart="])
-        .output()?;
-    ensure!(output.status.success(), "own process birth unavailable");
-    Ok(String::from_utf8(output.stdout)?.trim().to_owned())
-}
-fn record(pid: u32, birth: &str, state: &str) -> Result<()> {
-    if let Some(path) = std::env::var_os("BOOLE_DEVNET_OWNED_PIDS") {
-        let mut file = std::fs::OpenOptions::new()
-            .append(true)
-            .create(true)
-            .open(path)?;
-        writeln!(
-            file,
-            "{}",
-            json!({"name":"audit-replay-op-reth","pid":pid,"pid_birth":birth,"state":state})
-        )?;
-        file.sync_all()?;
-    }
-    Ok(())
-}
-impl PrivateEngine {
-    pub fn start(binary: &Path, genesis: &Path, root: &Path) -> Result<Self> {
-        let pins: Value =
-            serde_json::from_str(include_str!("../../../fixtures/devnet-m1/pins.json"))?;
-        let actual =
-            boole_derivation::attributes::hex_string(&Sha256::digest(std::fs::read(binary)?));
-        ensure!(
-            actual.trim_start_matches("0x")
-                == pins["op_reth"]["sha256"].as_str().context("op-reth pin")?,
-            "private op-reth binary pin"
-        );
-        let mut ports = vec![];
-        for _ in 0..3 {
-            ports.push(TcpListener::bind("127.0.0.1:0")?);
-        }
-        let http_port = ports[0].local_addr()?.port();
-        let auth_port = ports[1].local_addr()?.port();
-        let p2p_port = ports[2].local_addr()?.port();
-        let jwt = root.join("jwt.hex");
-        let mut secret = [0; 32];
-        use ring::rand::SecureRandom;
-        ring::rand::SystemRandom::new()
-            .fill(&mut secret)
-            .map_err(|_| anyhow::anyhow!("private JWT randomness"))?;
-        boole_gate_supervisor::codec::private_file(
-            &jwt,
-            &boole_derivation::attributes::hex_string(&secret).as_bytes()[2..],
-        )?;
-        let log = std::fs::File::create(root.join("private-op-reth.log"))?;
-        drop(ports);
-        let child = Command::new(binary)
-            .arg("node")
-            .args([
-                "--http",
-                "--ipcdisable",
-                "--disable-discovery",
-                "--disable-tx-gossip",
-                "--engine.suppress-persistence-during-build",
-            ])
-            .arg("--chain")
-            .arg(genesis)
-            .arg("--datadir")
-            .arg(root.join("engine"))
-            .args([
-                "--http.addr",
-                "127.0.0.1",
-                "--http.port",
-                &http_port.to_string(),
-                "--http.api",
-                "eth,net,web3",
-                "--authrpc.addr",
-                "127.0.0.1",
-                "--authrpc.port",
-                &auth_port.to_string(),
-            ])
-            .arg("--authrpc.jwtsecret")
-            .arg(&jwt)
-            .args([
-                "--addr",
-                "127.0.0.1",
-                "--port",
-                &p2p_port.to_string(),
-                "--max-outbound-peers",
-                "0",
-                "--max-inbound-peers",
-                "0",
-                "--engine.persistence-threshold",
-                "0",
-                "--engine.memory-block-buffer-target",
-                "0",
-            ])
-            .arg("--log.file.directory")
-            .arg(root.join("logs"))
-            .stdout(Stdio::from(log.try_clone()?))
-            .stderr(Stdio::from(log))
-            .spawn()?;
-        let mut engine = Self {
-            birth: String::new(),
-            child,
-            http: format!("http://127.0.0.1:{http_port}"),
-            auth: format!("http://127.0.0.1:{auth_port}"),
-            jwt,
-            log: root.join("private-op-reth.log"),
-            stopped: false,
-        };
-        engine.birth = birth(engine.child.id())?;
-        record(engine.child.id(), &engine.birth, "started")?;
-        let rpc = Rpc::new(&engine.http)?;
-        let start = Instant::now();
-        while start.elapsed() < Duration::from_secs(60) {
-            ensure!(engine.child.try_wait()?.is_none(), "private Engine exited");
-            if rpc.call("eth_chainId", json!([])).is_ok() {
-                return Ok(engine);
-            }
-            std::thread::sleep(Duration::from_millis(100));
-        }
-        bail!("private Engine startup timeout")
-    }
-    pub fn engine(&self) -> Result<RpcEngine> {
-        RpcEngine::new(&self.auth, &self.http, &self.jwt)
-    }
-    pub fn stop(&mut self) -> Result<()> {
-        if self.stopped {
-            return Ok(());
-        }
-        let mut forced = false;
-        if self.child.try_wait()?.is_none() {
-            if self.birth.is_empty() {
-                // An unreaped Child still owns its PID even if ps setup failed.
-                let _ = self.child.kill();
-                self.child.wait()?;
-                self.stopped = true;
-                bail!("private Engine birth instrumentation failed")
-            }
-            ensure!(
-                birth(self.child.id())? == self.birth,
-                "own Engine PID identity changed"
-            );
-            ensure!(
-                Command::new("kill")
-                    .args(["-s", "INT", &self.child.id().to_string()])
-                    .status()?
-                    .success(),
-                "own Engine stop signal"
-            );
-            let start = Instant::now();
-            while self.child.try_wait()?.is_none() && start.elapsed() < Duration::from_secs(10) {
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            if self.child.try_wait()?.is_none() {
-                ensure!(
-                    birth(self.child.id())? == self.birth,
-                    "own Engine PID changed"
-                );
-                self.child.kill()?;
-                self.child.wait()?;
-                forced = true;
-            }
-        }
-        self.stopped = true;
-        record(self.child.id(), &self.birth, "stopped")?;
-        self.preserve_log()?;
-        ensure!(!forced, "private Engine required forced cleanup");
-        Ok(())
-    }
-    pub fn log_issues(&self) -> Result<usize> {
-        let (bytes, _) = boole_devnet_archive::journal::read_bound(&self.log, 4 * 1024 * 1024)?;
-        Ok(std::str::from_utf8(&bytes)?
-            .lines()
-            .filter(|line| line.contains("WARN") || line.contains("ERROR"))
-            .count())
-    }
-    fn preserve_log(&self) -> Result<()> {
-        if let Some(directory) = std::env::var_os("BOOLE_DEVNET_AUDIT_LOG_DIR") {
-            let directory = PathBuf::from(directory);
-            let mut builder = std::fs::DirBuilder::new();
-            builder.recursive(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::DirBuilderExt;
-                builder.mode(0o700);
-            }
-            builder.create(&directory)?;
-            let raw = boole_devnet_archive::journal::read_bound(&self.log, 4 * 1024 * 1024)?.0;
-            let name = self
-                .log
-                .parent()
-                .context("private log parent")?
-                .file_name()
-                .context("private log identity")?;
-            let path = directory.join(format!("{}.log", name.to_string_lossy()));
-            if path.try_exists()? {
-                ensure!(
-                    boole_devnet_archive::journal::read_bound(&path, 4 * 1024 * 1024)?.0 == raw,
-                    "private log evidence changed"
-                );
-            } else {
-                boole_devnet_archive::journal::publish_new(&path, &raw)?;
-            }
-        }
-        Ok(())
-    }
-}
-impl Drop for PrivateEngine {
-    fn drop(&mut self) {
-        let _ = self.stop();
-    }
-}
+pub use crate::private_engine::PrivateEngine;
 struct Source<'a> {
     inputs: &'a mut dyn Inputs,
     hashes: BTreeMap<String, u64>,
@@ -410,11 +163,14 @@ fn replay_engine<E: Engine>(
     c: Config,
     forks: Option<ForkTable>,
     supervisor: Option<Supervisor>,
-    mut engine: E,
+    engine: E,
     private_http: &str,
     receipt: &mut Value,
 ) -> Result<()> {
     receipt["replayed_blocks"] = json!("0");
+    let tracker = Tracker::default();
+    tracker.begin(0, "replay-setup");
+    let mut engine = Tracked::new(engine, tracker.clone());
     let genesis = at(0, "replay-setup", private_operation(engine.header(0)))?;
     at(
         0,
@@ -454,16 +210,18 @@ fn replay_engine<E: Engine>(
         })(),
     )?;
     for h in 1..=tip {
+        tracker.begin(h, "fold");
         let mut phase = "fold";
         if let Err(error) = (|| -> Result<()> {
             ensure!(
                 matches!(
-                    private_operation(driver.step(h).map_err(anyhow::Error::new))?,
+                    driver.step(h).map_err(anyhow::Error::new)?,
                     StepOutcome::Derived(_)
                 ),
                 "private replay waited for finality"
             );
             phase = "prefix";
+            tracker.phase(phase);
             let actual = private_operation(driver.engine.head())?;
             let expected = audited.header(h)?;
             ensure!(
@@ -471,6 +229,7 @@ fn replay_engine<E: Engine>(
                 "private replay L2 hash"
             );
             phase = "ledger";
+            tracker.phase(phase);
             let mut private_node = private_operation(RpcNode::new(private_http))?;
             ensure!(
                 private_operation(private_node.receipt_statuses(h))?
@@ -483,36 +242,7 @@ fn replay_engine<E: Engine>(
             driver.l1.inputs.check()?;
             Ok(())
         })() {
-            // Reverify owned inputs before classifying an operational stop.
-            // A local bound from the recheck is not evidence of tampering.
-            if driver
-                .l1
-                .inputs
-                .check()
-                .is_err_and(|e| !e.is::<crate::resource::ResourceStop>())
-            {
-                crate::mark_mismatch(receipt, h, "input");
-                receipt["checks"]["execution"] = json!("mismatch");
-                return Ok(());
-            }
-            let class = if error
-                .downcast_ref::<boole_devnet_driver::driver::Stall>()
-                .is_some_and(|s| {
-                    matches!(
-                        s.kind,
-                        boole_devnet_driver::driver::StallKind::VerdictPending { .. }
-                            | boole_devnet_driver::driver::StallKind::Verdict { .. }
-                    )
-                }) {
-                "verdict"
-            } else {
-                phase
-            };
-            report_failure(
-                receipt,
-                &error.context(Failure { height: h, class }),
-                "mismatch",
-            );
+            failed_step(receipt, h, phase, error, &tracker, driver.l1.inputs.check());
             return Ok(());
         }
         receipt["replayed_blocks"] = json!(h.to_string());
@@ -522,6 +252,62 @@ fn replay_engine<E: Engine>(
     Ok(())
 }
 
+fn failed_step(
+    receipt: &mut Value,
+    h: u64,
+    phase: &'static str,
+    error: anyhow::Error,
+    tracker: &Tracker,
+    checked: Result<()>,
+) {
+    if checked.is_err_and(|e| !e.is::<crate::resource::ResourceStop>()) {
+        crate::mark_mismatch(receipt, h, "input");
+        receipt["checks"]["execution"] = json!("mismatch");
+        return;
+    }
+    let class = if error
+        .downcast_ref::<boole_devnet_driver::driver::Stall>()
+        .is_some_and(|s| {
+            matches!(
+                s.kind,
+                boole_devnet_driver::driver::StallKind::VerdictPending { .. }
+                    | boole_devnet_driver::driver::StallKind::Verdict { .. }
+            )
+        }) {
+        "verdict"
+    } else {
+        phase
+    };
+    let erased_private = error
+        .downcast_ref::<boole_devnet_driver::driver::Stall>()
+        .is_some_and(|s| {
+            matches!(
+                s.kind,
+                boole_devnet_driver::driver::StallKind::VerdictPending { .. }
+                    | boole_devnet_driver::driver::StallKind::Availability { .. }
+            )
+        });
+    let error = if erased_private {
+        if let Some(mut fault) = tracker.unresolved() {
+            fault.phase = class;
+            error.context(fault)
+        } else {
+            error
+        }
+    } else {
+        error
+    };
+    report_failure(
+        receipt,
+        &error.context(Failure { height: h, class }),
+        "mismatch",
+    );
+}
+
 #[cfg(test)]
 #[path = "replay_loop_tests.rs"]
 mod loop_tests;
+
+#[cfg(test)]
+#[path = "private_engine_live_tests.rs"]
+mod private_live;

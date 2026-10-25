@@ -86,6 +86,22 @@ pub trait L1Source {
     }
 }
 
+fn verify_posting_proof(row: &boole_devnet_archive::input::InputRow, bytes: &[u8]) -> Result<()> {
+    let proof: boole_devnet_archive::input::InputRow = serde_json::from_slice(bytes)?;
+    anyhow::ensure!(
+        proof.block_hash == row.block_hash
+            && proof.header_rlp == row.header_rlp
+            && proof.transactions.is_some()
+            && row
+                .receipts
+                .as_ref()
+                .is_none_or(|r| Some(r) == proof.receipts.as_ref()),
+        "posting proof origin binding"
+    );
+    proof.verify()?;
+    Ok(())
+}
+
 /// The opt-in library source used by durable driver/client entrypoints.
 /// Legacy recording sources remain available for pure v1.3 replay.
 pub struct JournalSource<L> {
@@ -95,6 +111,7 @@ pub struct JournalSource<L> {
     live_head: Option<(u64, String)>,
     acquisition: boole_devnet_archive::objects::Objects,
     posting_proofs: Option<boole_devnet_archive::objects::Objects>,
+    posting_local_cursor: u64,
     journal_replay: bool,
     archives: Option<boole_devnet_archive::client::ArchiveClient>,
     archive_heights: std::collections::BTreeSet<u64>,
@@ -138,6 +155,7 @@ impl<L: L1Source> JournalSource<L> {
             } else {
                 None
             },
+            posting_local_cursor: 0,
             journal_replay: false,
             archives: None,
             archive_heights: Default::default(),
@@ -233,6 +251,7 @@ impl<L: L1Source> JournalSource<L> {
                 &root.join("transaction-proofs"),
                 "transaction-proofs",
             )?),
+            posting_local_cursor: 0,
             journal_replay: false,
             archives: Some(archives),
             archive_heights,
@@ -431,7 +450,7 @@ impl<L> std::ops::DerefMut for JournalSource<L> {
 }
 impl<L: L1Source> L1Source for JournalSource<L> {
     fn restore_posting_proof(&mut self, tx: &str, floor: u64) -> Result<()> {
-        use boole_devnet_archive::{error::Error, input::InputRow};
+        use boole_devnet_archive::error::Error;
         match self.journal.borrow().transaction_receipt_since(tx, floor) {
             Ok(_) => return Ok(()),
             Err(e)
@@ -452,71 +471,111 @@ impl<L: L1Source> L1Source for JournalSource<L> {
             archives.posting_finality(self.journal.borrow().tip());
             archives.posting_probe_order(&mut heights);
         }
-        for h in heights {
-            if let Some(archives) = &self.archives {
-                if archives.posting_requests_remaining() == 0 {
-                    break;
-                }
-                if !self
+        // Phase 1 probes only needed heights, not unrelated directory entries.
+        // Presence is an untrusted hint; cap probes and authenticated local reads
+        // independently at 32. Rotate over missing metadata to avoid starvation.
+        let mut local = Vec::new();
+        if let Some(cache) = &self.posting_proofs {
+            cache.check()?;
+            let mut needed = heights.clone();
+            needed.sort_unstable();
+            let start = needed.partition_point(|h| *h <= self.posting_local_cursor);
+            needed.rotate_left(start);
+            for h in needed.into_iter().take(32) {
+                self.posting_local_cursor = h;
+                let hash = self
                     .journal
                     .borrow()
                     .hash(h)
-                    .is_some_and(|hash| archives.posting_requestable(hash))
-                {
-                    continue;
+                    .context("posting cache height")?
+                    .to_owned();
+                let present = self
+                    .journal
+                    .borrow()
+                    .root()
+                    .join("transaction-proofs")
+                    .join(hash.trim_start_matches("0x"))
+                    .try_exists()
+                    .map_err(|error| {
+                        boole_devnet_archive::error::availability(
+                            h,
+                            "posting-cache-io",
+                            format!("cache presence unavailable: {error}"),
+                        )
+                    })?;
+                if present {
+                    local.push(h);
                 }
             }
+        }
+        for h in local {
             let row = self.journal.borrow().row(h)?;
-            let verify = |bytes: &[u8]| -> Result<()> {
-                let proof: InputRow = serde_json::from_slice(bytes)?;
-                anyhow::ensure!(
-                    proof.block_hash == row.block_hash
-                        && proof.header_rlp == row.header_rlp
-                        && proof.transactions.is_some()
-                        && row
-                            .receipts
-                            .as_ref()
-                            .is_none_or(|r| Some(r) == proof.receipts.as_ref()),
-                    "posting proof origin binding"
-                );
-                proof.verify()?;
-                Ok(())
-            };
-            let cached = if let Some(cache) = &self.posting_proofs {
-                match cache.read(&row.block_hash, verify) {
-                    Ok(bytes) => bytes,
-                    Err(e)
-                        if matches!(
-                            e.downcast_ref::<Error>(),
-                            Some(Error::Integrity {
-                                class: "object-quarantine",
-                                ..
-                            })
-                        ) =>
-                    {
-                        None
-                    }
-                    Err(e) => return Err(e),
+            let cached = self
+                .posting_proofs
+                .as_ref()
+                .expect("cache scan requires own store")
+                .read(&row.block_hash, |bytes| verify_posting_proof(&row, bytes));
+            match cached {
+                Ok(Some(bytes)) => {
+                    self.journal
+                        .borrow_mut()
+                        .install_transaction_proof(h, &serde_json::from_slice(&bytes)?)?;
                 }
-            } else {
-                None
+                Ok(None) => {}
+                Err(e)
+                    if matches!(
+                        e.downcast_ref::<Error>(),
+                        Some(Error::Integrity {
+                            class: "object-quarantine",
+                            ..
+                        })
+                    ) => {}
+                Err(e) => return Err(e),
+            }
+        }
+        // Finish the selected bounded batch before returning a hit. Otherwise
+        // directory order discards already-selected proofs behind that hit.
+        if self.journal.borrow().transaction_receipt(tx)?.is_some() {
+            return Ok(());
+        }
+        // Phase 2 reads rows only for still-missing, requestable remote candidates.
+        // Phase 1 may have installed proofs since `heights` was scheduled.
+        let still_missing: std::collections::BTreeSet<_> = self
+            .journal
+            .borrow()
+            .missing_transaction_proofs_since(floor)?
+            .into_iter()
+            .collect();
+        // Requests (including coverage probes) retain the archive's cap of 32.
+        for h in heights {
+            if !still_missing.contains(&h) {
+                continue;
+            }
+            let Some(archives) = &mut self.archives else {
+                break;
             };
-            let proof = if let Some(bytes) = cached {
-                serde_json::from_slice(&bytes)?
-            } else {
-                let Some(archives) = &mut self.archives else {
-                    continue;
-                };
-                let Ok(proof) = archives.transaction_row(&row) else {
-                    continue;
-                };
-                let bytes = serde_json::to_vec(&proof)?;
-                self.posting_proofs
-                    .as_ref()
-                    .context("posting proof cache")?
-                    .put(&row.block_hash, &bytes, verify)?;
-                proof
+            if archives.posting_requests_remaining() == 0 {
+                break;
+            }
+            if !self
+                .journal
+                .borrow()
+                .hash(h)
+                .is_some_and(|hash| archives.posting_requestable(hash))
+            {
+                continue;
+            }
+            let row = self.journal.borrow().row(h)?;
+            let Ok(proof) = archives.transaction_row(&row) else {
+                continue;
             };
+            let bytes = serde_json::to_vec(&proof)?;
+            self.posting_proofs
+                .as_ref()
+                .context("posting proof cache")?
+                .put(&row.block_hash, &bytes, |bytes| {
+                    verify_posting_proof(&row, bytes)
+                })?;
             self.journal
                 .borrow_mut()
                 .install_transaction_proof(h, &proof)?;
