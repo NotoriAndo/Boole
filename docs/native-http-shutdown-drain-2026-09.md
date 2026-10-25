@@ -538,7 +538,7 @@ Finished `test` profile [unoptimized + debuginfo] target(s) in 0.98s
 running 1 test
 test native_shutdown_closes_an_unread_large_response_and_releases_state_ownership ...
 thread 'native_shutdown_closes_an_unread_large_response_and_releases_state_ownership' (8558701) panicked at crates/boole-node/tests/native_http.rs:396:36:
-unread response must not retain state ownership: state directory is already locked by another process: /var/folders/rz/vz57tt8555zcz4r6hr4cbqv80000gn/T/boole-native-http-shutdown-response-1790174074259729000
+unread response must not retain state ownership: state directory is already locked by another process: $TMPDIR/boole-native-http-shutdown-response-1790174074259729000
 note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 FAILED
 

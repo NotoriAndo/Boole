@@ -45,7 +45,13 @@
       "licenseFile": "licenses/LICENSE-GPL-3.0.txt",
       "localSource": "local-docs/supply-chain-fidelity-p0-2026-07-22/package",
       "anchors": {
-        "releaseRoot": "c90f29a1992f4d51d38de4cbecae270ff76e91d15b96910e7b182092a8c62c0a"
+        "releaseRoot": "44e06ec9212d689d18dfa93d98849d259bdb4ad5c6fd897034f855ab032c7f41"
+      },
+      "redaction": {
+        "originalReleaseRoot": "c90f29a1992f4d51d38de4cbecae270ff76e91d15b96910e7b182092a8c62c0a",
+        "originalToolchainLockSha256": "47a2aea87f06989fd1c6ce7b871c8981da5f4e8f64ebd232926c2b9cc4d402d7",
+        "date": "2026-10-25",
+        "description": "absolute paths replaced by root tokens; tool digests unchanged"
       }
     }
   ]

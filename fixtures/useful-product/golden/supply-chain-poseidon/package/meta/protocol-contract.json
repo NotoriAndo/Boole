@@ -10,7 +10,7 @@
   },
   "expected_input": [1, 2],
   "expected_public_output": "7853200120776062878684798364095072458815029376092732009249414926327459813530",
-  "toolchain_lock_sha256": "47a2aea87f06989fd1c6ce7b871c8981da5f4e8f64ebd232926c2b9cc4d402d7",
+  "toolchain_lock_sha256": "7c48708bb1785d6fb5a6b0d6669ba41c527a5a69c9c3a409e5512a64abb8b99f",
   "source_files": {
     "source/main.circom": "c0e22729c16dac55d6777c5d01bc2e076e7c2cd2e4b4661db17a90b9e8eeab4c",
     "source/poseidon.circom": "2582464669b69827164bd08ee0337997e1957f2ab4f00cdd86d533ca5e9d9234",
