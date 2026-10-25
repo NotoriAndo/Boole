@@ -182,9 +182,9 @@ Final test executable SHA-256:
 Commands used the existing Rust 1.95 workspace target, with no paid/external run:
 
 ```sh
-CARGO_TARGET_DIR=/Users/seoyong/projects/Boole/target cargo test -p boole-cli \\
+CARGO_TARGET_DIR=target cargo test -p boole-cli \\
   --test native_operator_rehearsal -- --nocapture --test-threads=1
-CARGO_TARGET_DIR=/Users/seoyong/projects/Boole/target cargo clippy -p boole-cli \\
+CARGO_TARGET_DIR=target cargo clippy -p boole-cli \\
   --test native_operator_rehearsal -- -D warnings
 ```
 

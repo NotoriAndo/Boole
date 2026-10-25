@@ -46,7 +46,7 @@ while main and all three safety holds below remained unchanged. Only the pre-exi
   merged secure-peer/wallet patches again in the future PR.
 - Preparation used `/private/tmp/boole-r1-integration-worktree.LGTdSb`; after
   integrated verification, the same feature branch was checked out at the durable
-  project root `/Users/seoyong/projects/Boole`. Main remains at `9be7cb0`.
+  project root (the repository checkout). Main remains at `9be7cb0`.
   All 23 worktrees created for this follow-up were checked clean, including
   ignored/untracked files, and removed without force. Every original branch and
   measurement commit was retained. Other sessions' worktrees were not pruned.
@@ -478,8 +478,8 @@ source/executable identities; exact-tree ancestry changes do not rewrite them.
 Commands:
 
 ```sh
-CARGO_TARGET_DIR=/Users/seoyong/projects/Boole/target cargo test -p boole-cli --test native_operator_rehearsal -- --nocapture --test-threads=1
-CARGO_TARGET_DIR=/Users/seoyong/projects/Boole/target cargo test -p boole-cli --test native_cli -- --nocapture --test-threads=1
+CARGO_TARGET_DIR=target cargo test -p boole-cli --test native_operator_rehearsal -- --nocapture --test-threads=1
+CARGO_TARGET_DIR=target cargo test -p boole-cli --test native_cli -- --nocapture --test-threads=1
 ```
 
 Raw integrated-consumer output (public disposable fixture identities only):
@@ -495,7 +495,7 @@ Raw integrated-consumer output (public disposable fixture identities only):
    Compiling boole-miner v0.1.0 (/private/tmp/boole-r1-integration-worktree.LGTdSb/crates/boole-miner)
    Compiling boole-cli v0.1.0 (/private/tmp/boole-r1-integration-worktree.LGTdSb/crates/boole-cli)
     Finished `test` profile [unoptimized + debuginfo] target(s) in 12.51s
-     Running tests/native_operator_rehearsal.rs (/Users/seoyong/projects/Boole/target/debug/deps/native_operator_rehearsal-d4777efa06a28b99)
+     Running tests/native_operator_rehearsal.rs (target/debug/deps/native_operator_rehearsal-d4777efa06a28b99)
 
 running 1 test
 test three_real_nodes_transfer_partition_rejoin_and_restore_without_duplicate_payment ...    Compiling ring v0.17.14
@@ -551,7 +551,7 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
    Compiling boole-miner v0.1.0 (/private/tmp/boole-r1-integration-worktree.LGTdSb/crates/boole-miner)
    Compiling boole-cli v0.1.0 (/private/tmp/boole-r1-integration-worktree.LGTdSb/crates/boole-cli)
     Finished `test` profile [unoptimized + debuginfo] target(s) in 8.76s
-     Running tests/native_cli.rs (/Users/seoyong/projects/Boole/target/debug/deps/native_cli-580d9a89c2e7fc2b)
+     Running tests/native_cli.rs (target/debug/deps/native_cli-580d9a89c2e7fc2b)
 
 running 1 test
 test encrypted_owner_cli_mines_transfers_and_retries_only_the_saved_signed_transaction ...    Compiling ring v0.17.14
@@ -595,7 +595,7 @@ consumer follow-up, not required CI, an external-operator run or launch approval
    Compiling boole-miner v0.1.0 (/private/tmp/boole-r1-integration-worktree.LGTdSb/crates/boole-miner)
    Compiling boole-cli v0.1.0 (/private/tmp/boole-r1-integration-worktree.LGTdSb/crates/boole-cli)
     Finished `test` profile [unoptimized + debuginfo] target(s) in 20.35s
-     Running tests/native_operator_rehearsal.rs (/Users/seoyong/projects/Boole/target/debug/deps/native_operator_rehearsal-d4777efa06a28b99)
+     Running tests/native_operator_rehearsal.rs (target/debug/deps/native_operator_rehearsal-d4777efa06a28b99)
 
 running 1 test
 test three_real_nodes_transfer_partition_rejoin_and_restore_without_duplicate_payment ...    Compiling ring v0.17.14
@@ -661,28 +661,28 @@ This remains one-host functional evidence, not full CI or R2/R3 authority.
 
 ```text
    Compiling rustls v0.23.45
-   Compiling boole-core v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-core)
-   Compiling boole-native-shadow-protocol v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-native-shadow-protocol)
-   Compiling boole-evm-adapter v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-evm-adapter)
+   Compiling boole-core v0.1.0 (crates/boole-core)
+   Compiling boole-native-shadow-protocol v0.1.0 (crates/boole-native-shadow-protocol)
+   Compiling boole-evm-adapter v0.1.0 (crates/boole-evm-adapter)
    Compiling tokio-rustls v0.26.4
-   Compiling boole-p2p v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-p2p)
+   Compiling boole-p2p v0.1.0 (crates/boole-p2p)
    Compiling hyper-rustls v0.27.9
-   Compiling boole-node v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-node)
-   Compiling boole-wallet-agent v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-wallet-agent)
-   Compiling boole-testkit v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-testkit)
+   Compiling boole-node v0.1.0 (crates/boole-node)
+   Compiling boole-wallet-agent v0.1.0 (crates/boole-wallet-agent)
+   Compiling boole-testkit v0.1.0 (crates/boole-testkit)
    Compiling reqwest v0.12.28
-   Compiling boole-miner v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-miner)
-   Compiling boole-cli v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-cli)
+   Compiling boole-miner v0.1.0 (crates/boole-miner)
+   Compiling boole-cli v0.1.0 (crates/boole-cli)
     Finished `test` profile [unoptimized + debuginfo] target(s) in 11.25s
      Running tests/native_operator_rehearsal.rs (target/debug/deps/native_operator_rehearsal-d4777efa06a28b99)
 
 running 1 test
 test three_real_nodes_transfer_partition_rejoin_and_restore_without_duplicate_payment ...    Compiling ring v0.17.14
-   Compiling boole-wallet-agent v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-wallet-agent)
+   Compiling boole-wallet-agent v0.1.0 (crates/boole-wallet-agent)
    Compiling rustls v0.23.45
    Compiling rustls-webpki v0.103.15
-   Compiling boole-p2p v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-p2p)
-   Compiling boole-node v0.1.0 (/Users/seoyong/projects/Boole/crates/boole-node)
+   Compiling boole-p2p v0.1.0 (crates/boole-p2p)
+   Compiling boole-node v0.1.0 (crates/boole-node)
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.10s
 native-operator-phase process-ready elapsedMs=28
 native-operator-phase process-ready elapsedMs=26

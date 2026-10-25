@@ -162,7 +162,7 @@ limits and validation remain unchanged.
 Direct measurement command:
 
 ```sh
-/usr/bin/time -l /Users/seoyong/projects/Boole/target/debug/deps/native_capacity-6f26ba504621f258 --ignored --exact mixed::native_mixed_p2p_http_pressure_131072_accounts --nocapture --test-threads=1
+/usr/bin/time -l target/debug/deps/native_capacity-6f26ba504621f258 --ignored --exact mixed::native_mixed_p2p_http_pressure_131072_accounts --nocapture --test-threads=1
 ```
 
 Raw stdout/stderr and source/executable identity checks:
@@ -170,7 +170,7 @@ Raw stdout/stderr and source/executable identity checks:
 ```text
 460bb191587ccd5787b7757242370d0d78bc245e
 ef12dd52d6716b54672897bbd356291bc0f04e88
-8bade0d46ea204fcc64d8d99be1ec9ddb20fb54d68039f5b4fba7ab80dda9352  /Users/seoyong/projects/Boole/target/debug/deps/native_capacity-6f26ba504621f258
+8bade0d46ea204fcc64d8d99be1ec9ddb20fb54d68039f5b4fba7ab80dda9352  target/debug/deps/native_capacity-6f26ba504621f258
 
 running 1 test
 test mixed::native_mixed_p2p_http_pressure_131072_accounts ... mixed-progress fundedBlocks=32 elapsedMs=19155
@@ -207,5 +207,5 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; fin
            446563288  peak memory footprint
 460bb191587ccd5787b7757242370d0d78bc245e
 ef12dd52d6716b54672897bbd356291bc0f04e88
-8bade0d46ea204fcc64d8d99be1ec9ddb20fb54d68039f5b4fba7ab80dda9352  /Users/seoyong/projects/Boole/target/debug/deps/native_capacity-6f26ba504621f258
+8bade0d46ea204fcc64d8d99be1ec9ddb20fb54d68039f5b4fba7ab80dda9352  target/debug/deps/native_capacity-6f26ba504621f258
 ```

@@ -118,7 +118,7 @@ qualification branch and no other local build/test ran during measurement.
 Executed on September 23 at approximately 11:04–11:11 UTC:
 
 ```sh
-/usr/bin/time -l /Users/seoyong/projects/Boole/target/debug/deps/native_capacity-6f26ba504621f258 \
+/usr/bin/time -l target/debug/deps/native_capacity-6f26ba504621f258 \
   --ignored --exact competing::native_eight_distinct_forks_131072_accounts \
   --nocapture --test-threads=1
 ```

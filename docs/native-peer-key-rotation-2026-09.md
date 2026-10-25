@@ -91,14 +91,14 @@ boundary first, without adding a new mechanism merely to produce a code change.
 Command (compilation excluded from scenario time):
 
 ```sh
-CARGO_TARGET_DIR=/Users/seoyong/projects/Boole/target cargo test -p boole-node --test native_peer_rotation -- --nocapture --test-threads=1
+CARGO_TARGET_DIR=target cargo test -p boole-node --test native_peer_rotation -- --nocapture --test-threads=1
 ```
 
 Raw strengthened-regression output:
 
 ```text
     Finished `test` profile [unoptimized + debuginfo] target(s) in 0.80s
-     Running tests/native_peer_rotation.rs (/Users/seoyong/projects/Boole/target/debug/deps/native_peer_rotation-5c23921ecc6a47a1)
+     Running tests/native_peer_rotation.rs (target/debug/deps/native_peer_rotation-5c23921ecc6a47a1)
 
 running 1 test
 test stopped_configuration_revokes_old_transport_key_and_explicit_reenrollment_preserves_ledger ... native-peer-rotation-phase process-ready elapsedMs=28

@@ -60,7 +60,7 @@ The 1,024-recipient small fork took 467ms and its restart 395ms.
 Command, approximately 07:24–07:28 UTC, with no other local compile/test load:
 
 ```sh
-/usr/bin/time -l /Users/seoyong/projects/Boole/target/debug/deps/native_capacity-6f26ba504621f258 \
+/usr/bin/time -l target/debug/deps/native_capacity-6f26ba504621f258 \
   --ignored --exact native_recent_fork_131072_accounts --nocapture --test-threads=1
 ```
 

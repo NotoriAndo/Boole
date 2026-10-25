@@ -81,7 +81,7 @@ to the existing OS tool before either capacity attempt.
 Command, executed from the feature worktree at approximately 06:51 UTC:
 
 ```sh
-/usr/bin/time -l /Users/seoyong/projects/Boole/target/debug/deps/native_capacity-6f26ba504621f258 \
+/usr/bin/time -l target/debug/deps/native_capacity-6f26ba504621f258 \
   --ignored --exact native_capacity_131072_accounts_and_full_pending_queue \
   --nocapture --test-threads=1
 ```

@@ -89,7 +89,7 @@ its focused clippy, formatting, docs smoke and diff checks passed beforehand.
 Executed at approximately 08:21 UTC, without other local builds/tests:
 
 ```sh
-/usr/bin/time -l /Users/seoyong/projects/Boole/target/debug/deps/native_capacity-6f26ba504621f258 \
+/usr/bin/time -l target/debug/deps/native_capacity-6f26ba504621f258 \
   --ignored --exact native_eight_peer_forks_131072_accounts \
   --nocapture --test-threads=1
 ```

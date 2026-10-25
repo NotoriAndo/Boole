@@ -81,7 +81,7 @@ focused harness clippy, formatting, docs smoke and diff checks passed first.
 Executed at approximately 09:10 UTC without other local build/test load:
 
 ```sh
-/usr/bin/time -l /Users/seoyong/projects/Boole/target/debug/deps/native_capacity-6f26ba504621f258 \
+/usr/bin/time -l target/debug/deps/native_capacity-6f26ba504621f258 \
   --ignored --exact native_repeated_losing_fork_131072_accounts \
   --nocapture --test-threads=1
 ```
