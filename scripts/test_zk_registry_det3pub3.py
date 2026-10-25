@@ -25,11 +25,16 @@ class BoundPolicy(unittest.TestCase):
     def test_adapter_error_uses_the_bound_policy(self):
         for version in (1, 2):
             descriptor = dict(version=version, rules_sha256=(E.LEGACY_POLICY_SHA256 if version == 1 else E.RULES_SHA256))
-            verifier = SC.ProductionVerifier(dict(canary=True))
-            verifier.rules = E.load(descriptor)
-            with self.subTest(version=version):
-                self.assertEqual(verifier.error('library-outside-certified-base')['attempt']['class'],
-                                 'T' if version == 1 else 'S')
+            for binding in ('assignment', 'constructor'):
+                with self.subTest(version=version, binding=binding):
+                    rules = E.load(descriptor)
+                    if binding == 'constructor':
+                        verifier = SC.ProductionVerifier(dict(canary=True), rules=rules)
+                    else:
+                        verifier = SC.ProductionVerifier(dict(canary=True))
+                        verifier.rules = rules
+                    self.assertEqual(verifier.error('library-outside-certified-base')['attempt']['class'],
+                                     'T' if version == 1 else 'S')
 
     def test_replay_reclassifies_present_attempt_classes_with_the_store_policy(self):
         for version in (1, 2):
@@ -121,6 +126,18 @@ class BoundPolicy(unittest.TestCase):
 
 
 class Sidecar(unittest.TestCase):
+    def test_workflow_control_rejects_a_broken_harness_import(self):
+        symlink_to = Path.symlink_to
+        def broken_import(link, target, **kwargs):
+            return symlink_to(link, Path(target)/'missing-harness', **kwargs)
+        with patch.object(Path, 'symlink_to', broken_import):
+            result = unittest.TestResult()
+            Sidecar('test_workflow_control_detects_the_real_ignore_rule_being_removed').run(result)
+        self.assertEqual(result.errors, [])
+        self.assertEqual(len(result.failures), 1, 'a broken harness passed as an expected mutant rejection')
+        self.assertIn('unmutated workflow control', result.failures[0][1])
+        self.assertRegex(result.failures[0][1], r'ImportError|ModuleNotFoundError')
+
     def test_workflow_control_detects_the_real_ignore_rule_being_removed(self):
         self._workflow_control_mutant(remove_ignore=True)
 
@@ -132,19 +149,30 @@ class Sidecar(unittest.TestCase):
             root = Path(temporary); workflow = root/'.github/workflows/det3-counter-identity.yml'
             workflow.parent.mkdir(parents=True)
             text = (ROOT/'.github/workflows/det3-counter-identity.yml').read_text()
+            workflow.write_text(text)
+            ignore = (ROOT/'.gitignore').read_text()
+            (root/'.gitignore').write_text(ignore)
+            (root/'scripts').symlink_to(ROOT/'scripts', target_is_directory=True)
+            def run_control():
+                with patch.dict(globals(), ROOT=root):
+                    result = unittest.TestResult()
+                    Sidecar('test_counter_workflow_supplies_an_explicit_git_ignored_sidecar').run(result)
+                return result
+            baseline = run_control()
+            self.assertEqual(baseline.errors, [], 'unmutated workflow control must have no errors')
+            self.assertEqual(baseline.failures, [], 'unmutated workflow control must pass')
             if upload_sidecar:
                 text = text.replace('          path: |\n', '          path: |\n            ${{ github.workspace }}/target\n')
             workflow.write_text(text)
-            ignore = (ROOT/'.gitignore').read_text()
             if remove_ignore:
                 ignore = ignore.replace('/target/\n', '')
             (root/'.gitignore').write_text(ignore)
-            (root/'scripts').symlink_to(ROOT/'scripts', target_is_directory=True)
-            with patch.dict(globals(), ROOT=root):
-                result = unittest.TestResult()
-                Sidecar('test_counter_workflow_supplies_an_explicit_git_ignored_sidecar').run(result)
+            result = run_control()
             self.assertEqual(result.errors, [])
             self.assertEqual(len(result.failures), 1, 'the actual workflow control accepted an unsafe input')
+            expected = ('exact build roots require an explicitly ignored sidecar' if remove_ignore else
+                        'private sidecar lies inside an artifact upload path')
+            self.assertIn(expected, result.failures[0][1])
 
     def test_counter_workflow_supplies_an_explicit_git_ignored_sidecar(self):
         workflow = (ROOT/'.github/workflows/det3-counter-identity.yml').read_text()
