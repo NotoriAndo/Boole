@@ -93,6 +93,8 @@ def classify(observation, descriptor, phase='first'):
 
 VOID_DOMAIN = b'BOOLE-M3/VOID-STATEMENT/v1\0'
 QUARANTINE_DOMAIN = b'BOOLE-M3/QUARANTINE-STATEMENT/v1\0'
+UNSET_STATEMENT = object()
+NO_VALID_STATEMENT = object()
 
 
 def void_statement(context):
@@ -111,12 +113,12 @@ def quarantine_fingerprint(context):
     return C.sha(b''.join(parts) + (0x0802).to_bytes(2, 'big'))
 
 
-def quarantine_statement(context, authenticated_statement=None, *, fork_authorized=False):
-    """None means authenticated package grammar failed, never a missing local copy."""
+def quarantine_statement(context, authenticated_statement, *, fork_authorized=False):
+    """Only NO_VALID_STATEMENT asserts completed authentication found no statement."""
     if type(fork_authorized) is not bool or not fork_authorized:
         raise ValueError('published quarantine authorization required')
     fallback = quarantine_fingerprint(context)
-    if authenticated_statement is None:
+    if authenticated_statement is NO_VALID_STATEMENT:
         return fallback
     C.digest(authenticated_statement)
     if authenticated_statement in (void_statement(context), fallback):
@@ -125,9 +127,10 @@ def quarantine_statement(context, authenticated_statement=None, *, fork_authoriz
 
 
 def check_statement(outcome, reason, statement, context, *, fork_authorized=False,
-                    authenticated_statement=None):
+                    authenticated_statement=UNSET_STATEMENT):
     fingerprint = void_statement(context)
-    quarantine = quarantine_fingerprint(context) if 'commit_hash' in context else None
+    C.digest(context.get('commit_hash'))
+    quarantine = quarantine_fingerprint(context)
     if outcome == 'VOID' and reason == 0x0801:
         if statement != fingerprint or statement == '0'*64:
             raise ValueError('0801 requires its VOID-only fingerprint')
@@ -137,7 +140,7 @@ def check_statement(outcome, reason, statement, context, *, fork_authorized=Fals
             raise ValueError('0802 requires its authenticated statement or exact fallback')
     elif statement == fingerprint:
         raise ValueError('VOID fingerprint used outside 0801')
-    elif quarantine is not None and statement == quarantine:
+    elif statement == quarantine:
         raise ValueError('quarantine fingerprint used outside authorized 0802')
     elif outcome in ('ACCEPT', 'VOID'):
         C.digest(statement)

@@ -57,18 +57,31 @@ absent from both inventories are own declarations; miner labels have no effect.
 The certified-own adapter passes that explicit checked-own set to DET3. An empty set or a target
 that is not an own theorem is rejected before a kernel; there is no challenge-name fallback.
 
-Order: authenticate release/tools/inventory/package completely, before any
-transport verdict or package-dependent reference/state fetch; stream-hash the entire
-bundle, including an oversized tail, and confirm the bound `export_digest`
-before any size verdict; parse
-all export structure; identify cached payloads; prioritize reserved declarations
-and references over cached-payload mismatch; check own name grammar, literal/depth,
-authenticated references, safety, profile and axiom rules; bind the trusted
-reference and both statements; traverse the own axiom closure; resolve cap,
-certified-state and scalar allowance; apply the own declaration-count precheck;
-then report allowed library material outside the certified base as terminal S.
-After the reserved declaration pass, own checks use export declaration order. A library S exit cannot
-erase an independently decidable earlier own/statement/axiom violation.
+Order is shared by decoded and typed-decoder transport paths:
+
+1. Authenticate release/tools/inventory and the complete package, before any
+   transport verdict or package-dependent reference/state fetch.
+2. For certified-own packages, resolve cap identity, measured-reference equality
+   and scalar slot allowance from the package plus pinned authority alone. An
+   invalid published binding is 0803 before local reference access or any
+   submission-phase REJECT; a local authority load failure stays D-node.
+3. Kind 2 is VOID/0804, then lane 2 is D-node, before reading decoder evidence or
+   submission transport. When both apply, kind2 wins. Compression cannot change
+   either route's first failure.
+4. Validate any private decoder channel and its release/tool/transport bindings.
+   A typed invalid-data result can reject only with explicit no decoded output;
+   a present bound output contradicts that result and is D-node. Real output
+   address corruption remains STOP. Otherwise stream-hash the entire bundle,
+   including an oversized tail, and confirm `export_digest` before any size
+   verdict; compare OPEN/package environment, then apply the bundle byte limit.
+5. Parse all export structure; identify cached payloads; prioritize reserved
+   declarations/references over payload mismatch; check own names, literal/depth,
+   authenticated references, safety, profile and axioms. Bind local reference
+   bytes and both statements, then traverse the own axiom closure.
+6. Bind certified state (or the explicit public-counter qualification), check
+   scalar allowance and own declaration count, then report uncertified library
+   material as terminal S. Own checks use declaration order after reservation;
+   a library S exit cannot erase an earlier independent own/statement/axiom fault.
 
 Package authentication is `front.package`, not a partial allowance lookup. First
 confirm the caller-bound SHA-256 of the carried package, then its 1 MiB limit,
@@ -81,8 +94,11 @@ the descriptor. Unsupported local inventory/environment is D-node. Published
 package grammar failure is VOID/0801 even if submission transport is broken or
 the reference file is absent. Its authenticated carried bytes determine the
 0801 fingerprint. Only a valid package can proceed to a transport verdict;
-malformed submission transport then uses `front_invalid`/0106. The `fuel_cap`
-field is subsequently resolved against the pinned authority at the cap stage.
+malformed submission transport then uses `front_invalid`/0106. The certified-own `fuel_cap`
+identity and reference binding are resolved at step 2, before local reference
+bytes, decoder evidence and submission-phase REJECTs. The CLI streams package
+bytes through EOF with at most 1 MiB retained; a correct oversized address is 0801,
+and a corrupt tail remains an integrity STOP.
 
 The M3-A3 amendment reserves `Leaf.*`, `Boole.Leaf.*` and `BooleCS.*` against new declarations
 only. Their references must resolve to complete payloads authenticated by the
@@ -152,8 +168,8 @@ unknown inventory/environment or a local authority load failure is D-node;
 only a published cap binding invalid against the pinned authority is VOID/0803.
 For certified-own packages, the M3 caller additionally requires
 `FC.resolve(...).reference_export == package.reference_sha256`. Mismatch is the
-published `fuel_binding_invalid`/0803 row, before certified-state binding or
-kernel execution. Missing or corrupt local bytes of the correctly bound
+published `fuel_binding_invalid`/0803 row at step 2, before decoder/submission
+verdicts and before any reference or certified-state file access. Missing or corrupt local bytes of the correctly bound
 reference are D-node. This M3 rule does not change frozen `fuel_caps.py`, registry
 releases, reference debits or the exact fourfold allowances. A candidate may
 still choose a different safe own delta and allowed library material.
@@ -173,9 +189,11 @@ fingerprint are never substitutes. The problem stays open, and the candidate
 retains its original queue index. No timeout or local retry authorizes this row.
 `mapping.quarantine_statement` and `check_statement`, and the adapter reply
 encoder/decoder, take explicit `fork_authorized` and `authenticated_statement`
-arguments. Here `None` means completed authentication found no valid package
-statement; missing local package/inventory bytes must defer instead of requesting
-the fallback. The consumer must pass a valid statement whenever one is available;
+arguments. The required `mapping.NO_VALID_STATEMENT` sentinel alone asserts
+completed authentication found no valid package statement. Omitting the argument
+or passing `None` cannot select the fallback. Missing local package/inventory
+bytes must defer instead. Every statement validation also requires `commit_hash`,
+including ACCEPT, REJECT and other VOID reasons. The consumer must pass a valid statement whenever one is available;
 it cannot select the fallback in its place. This is a new gate contract, with no
 fold/wire change or reinterpretation of historical descriptors.
 
@@ -184,16 +202,21 @@ fold/wire change or reinterpretation of historical descriptors.
 The real transport controller must separate decoder data errors from host I/O,
 resource and output-write faults. The private channel consumed by `decoder.py`
 is at most 8,192 bytes of canonical JSON, with exactly these ordered fields:
-`version`, `context_sha256`, `status`, `cause`, `raw_sha256`, `raw_bytes`.
-Version is integer 1; `context_sha256` is SHA-256 of the complete canonical job
-context, including the commit and package bindings. It is node-controlled
-evidence from decoding authenticated L1 transport, never a bundle field or a
-miner-supplied status. It is consumed only after complete package authentication.
+`version`, `context_sha256`, `gate_rule_digest`, `descriptor_sha256`,
+`decoder_sha256`, `transport_sha256`, `status`, `cause`, `raw_sha256`, `raw_bytes`.
+Version is integer 2. Bind the full canonical job context, both descriptor
+identities, the pinned decoder artifact and the complete authenticated transport
+bytes before decompression. Expected decoder/transport digests are explicit
+trusted node arguments, not values copied from the status itself. The controller
+must verify the decoder artifact against its authenticated release configuration
+and hash the reconstructed transport. No new operational tool pin is invented by
+this Python contract. The channel is private node evidence, never miner metadata;
+it is read after package/cap and kind/lane checks. Version 1 is refused.
 
 | status | cause | decoded fields and result |
 | --- | --- | --- |
 | `ok` | `none` | Nonzero output SHA-256 and positive u64 byte count; both must equal the actual fully address-checked bundle before any size verdict. |
-| `invalid-data` | `frame`, `checksum`, `digest` | Both output fields null; typed decoder data failure gives `front_invalid` REJECT/0106, both kernels not-run/fuel0. |
+| `invalid-data` | `frame`, `checksum`, `digest` | Both output fields null and explicit no decoded output; then `front_invalid` REJECT/0106, not-run/fuel0. Present matching output is contradictory D-node; corrupt output address is STOP. |
 | `unavailable` | `read`, `write`, `resource`, `tool`, `protocol` | Both output fields null; local DEFER(D-node), no submitted attempt or proof verdict. |
 
 Missing, foreign-job, noncanonical, inconsistent or unknown channel evidence is
@@ -206,10 +229,14 @@ Outer process wall/RSS/capture interruption keeps its existing transient policy.
 
 The Python bundle path is uncompressed data: `front.unpack` and the strict
 NDJSON parser invoke no external decoder and do not classify any exit code.
-Existing Python read/write/MemoryError failures stay D-node; malformed submitted
-grammar is 0106. `run(..., decoder_status=...)` optionally consumes typed transport
-evidence. CLI `--decoder-status` names a private status file read lazily after
-package authentication, so a missing sidecar cannot mask a package-invalid 0801.
+Python export/reference/output I/O and MemoryError stay D-node; missing external
+bundle bytes keep their D-input availability class. Malformed submitted
+grammar is 0106. `run(..., decoder_status=..., decoder_pin=...,
+transport_digest=...)` consumes the channel with both required node bindings.
+Pass `bundle=None` only to explicitly report no decoded output; the CLI uses
+`--no-decoded-output` instead of `--bundle`. CLI `--decoder-status` is paired with
+`--decoder-pin` and `--transport-digest`; all are consumed only after package/cap
+and kind/lane decisions, so a sidecar cannot mask 0801, 0803 or 0804.
 Omitting it means the caller already supplies decoded bytes under the original
 binding contract; it does not authorize an untyped compressed-transport failure.
 
@@ -241,7 +268,7 @@ to zero. Physical interruptions cannot earn
 a logical cap verdict. A1's fixture weights do not calibrate a production clock.
 
 Invoke `python3 -B -m zk_registry.m3_gate` with the required descriptor, gate
-digest, bundle, package, inventory, context, reference, tool-root, counter-driver
+digest, bundle (or explicit no decoded output), package, inventory, context, reference, tool-root, counter-driver
 and exclusive work paths; use `PYTHONPATH=scripts`. Certified-own packages also
 need the certified-root binding. The final channel is one
 `BOOLE-M3/GATE/v1 ` marker followed by canonical reply JSON. An undecodable

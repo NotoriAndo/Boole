@@ -5,7 +5,8 @@ import stat
 from . import codec as C, front as F
 
 MAX_BYTES = 8192
-FIELDS = ('version', 'context_sha256', 'status', 'cause', 'raw_sha256', 'raw_bytes')
+FIELDS = ('version', 'context_sha256', 'gate_rule_digest', 'descriptor_sha256',
+          'decoder_sha256', 'transport_sha256', 'status', 'cause', 'raw_sha256', 'raw_bytes')
 CAUSES = {'ok': frozenset({'none'}),
           'invalid-data': frozenset({'frame', 'checksum', 'digest'}),
           'unavailable': frozenset({'read', 'write', 'resource', 'tool', 'protocol'})}
@@ -17,7 +18,7 @@ class Source:
     path: str
 
 
-def read(source, context):
+def read(source, context, descriptor, *, decoder_pin, transport_digest):
     try:
         if type(source) is bytes:
             raw = source
@@ -35,10 +36,15 @@ def read(source, context):
             raise ValueError('decoder status source')
         if len(raw) > MAX_BYTES:
             raise ValueError('decoder status cap')
+        C.digest(decoder_pin); C.digest(transport_digest)
         value = C.loads(raw)
         C.fields(value, FIELDS)
-        if (C.canonical(value) != raw or type(value['version']) is not int or value['version'] != 1
-                or value['context_sha256'] != C.sha(C.canonical(context))):
+        if (C.canonical(value) != raw or type(value['version']) is not int or value['version'] != 2
+                or value['context_sha256'] != C.sha(C.canonical(context))
+                or value['gate_rule_digest'] != C.identity(descriptor)
+                or value['descriptor_sha256'] != C.sha(C.encode(descriptor))
+                or value['decoder_sha256'] != decoder_pin
+                or value['transport_sha256'] != transport_digest):
             raise ValueError('decoder status binding/version')
         status, cause = value['status'], value['cause']
         if type(status) is not str or type(cause) is not str or cause not in CAUSES.get(status, ()):
@@ -49,7 +55,6 @@ def read(source, context):
             raise ValueError('fabricated decoded output')
     except (OSError, ValueError, TypeError, KeyError, RecursionError):
         raise F.Refusal('node_fault', 'decoder channel unavailable or malformed') from None
-    if status != 'ok':
-        raise F.Refusal('front_invalid' if status == 'invalid-data' else 'node_fault',
-                        'typed transport decoder')
+    if status == 'unavailable':
+        raise F.Refusal('node_fault', 'typed transport decoder unavailable')
     return value
