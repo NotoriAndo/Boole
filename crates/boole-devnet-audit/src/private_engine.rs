@@ -697,6 +697,7 @@ mod tests {
                 Duration::from_millis(150),
                 false,
             )?;
+            println!();
             crate::emit_receipt(&r);
         }
         Ok(())
