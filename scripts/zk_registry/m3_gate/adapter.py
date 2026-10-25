@@ -41,8 +41,13 @@ def context_check(context):
         raise ValueError('solver')
 
 
+def host_profile():
+    """The single injectable host boundary; production uses the actual platform."""
+    return platform.system()+'-'+platform.machine()
+
+
 def tool_pins(tools, counter):
-    profile = platform.system()+'-'+platform.machine()
+    profile = host_profile()
     table = C.loads((Path(D.__file__).parent/'data/acceptance_tools_v2.json').read_bytes())
     environment = L.production_descriptor()['artifact_profiles'][profile]
     return dict(comparator=D.digest(tools.comparator), nanoda=D.digest(tools.nanoda),
@@ -54,7 +59,7 @@ def tool_pins(tools, counter):
 
 def verify_tools(descriptor, tools, counter):
     C.validate(descriptor)
-    profile = platform.system()+'-'+platform.machine()
+    profile = host_profile()
     if profile != 'Darwin-arm64':
         raise F.Refusal('node_fault', 'A1 has no production controller')
     entry = descriptor['profiles'].get(profile)

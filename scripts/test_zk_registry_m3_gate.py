@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -75,7 +76,52 @@ class Observations(unittest.TestCase):
                              ('kernel_panic_cause_missing', 'DEFER', 'D-node'))
 
 
-class Descriptor(unittest.TestCase):
+class MacProfile(unittest.TestCase):
+    """Contract fixtures describe the Mac development release on every test host."""
+    def setUp(self):
+        super().setUp()
+        profile = patch.object(A, 'host_profile', return_value='Darwin-arm64')
+        profile.start()
+        self.addCleanup(profile.stop)
+
+
+class HostProfiles(unittest.TestCase):
+    def assert_linux_refused(self, machine):
+        host = SimpleNamespace(system=lambda: 'Linux', machine=lambda: machine)
+        with patch.object(A, 'platform', host), \
+             patch.object(A.artifact_pins, 'snapshot', side_effect=AssertionError('unexpected SDK access')):
+            self.assertEqual(A.host_profile(), 'Linux-'+machine)
+            with self.assertRaises(F.Refusal) as refusal:
+                A.verify_tools(descriptor(), object(), 'synthetic')
+            self.assertEqual(refusal.exception.row, 'node_fault')
+            mapped = M.classify(M.Observation(refusal.exception.row), descriptor())
+            self.assertEqual((mapped['outcome'], mapped['failure_class']), ('DEFER', 'D-node'))
+
+    def test_real_linux_aarch64_profile_refuses(self):
+        self.assert_linux_refused('aarch64')
+
+    def test_real_linux_x86_64_profile_refuses(self):
+        self.assert_linux_refused('x86_64')
+
+    def test_host_profile_reads_both_platform_parts(self):
+        for system, machine in (('Darwin', 'arm64'), ('Linux', 'aarch64'), ('Linux', 'x86_64')):
+            with self.subTest(system=system, machine=machine), \
+                 patch.object(A, 'platform', SimpleNamespace(system=lambda: system, machine=lambda: machine)):
+                self.assertEqual(A.host_profile(), system+'-'+machine)
+
+
+class Descriptor(MacProfile):
+    def test_tool_pins_uses_injected_profile_without_native_tools(self):
+        tools = SimpleNamespace(comparator='synthetic', nanoda='synthetic',
+                                lean_replay='synthetic', exporter='synthetic')
+        environment = A.L.production_descriptor()['artifact_profiles']['Darwin-arm64']
+        with patch.object(A, 'platform', SimpleNamespace(system=lambda: 'Linux', machine=lambda: 'x86_64')), \
+             patch.object(A.D, 'digest', return_value='6'*64):
+            pins = A.tool_pins(tools, 'synthetic')
+        expected_runtime = dict(binary=environment['lean_binary_sha256'], runtime=environment['runtime_libraries'])
+        self.assertEqual(pins['lean_runtime'], C.sha(C.canonical(expected_runtime)))
+        self.assertEqual(pins['imports'], C.sha(C.canonical(environment['olean_roots'])))
+
     def test_reference_interpreter_is_recorded_in_descriptor(self):
         value=descriptor()
         self.assertEqual(value.get('reference_interpreter'),dict(implementation='CPython',version='3.9.6'))
@@ -133,7 +179,7 @@ class Descriptor(unittest.TestCase):
                 C.decode(C.canonical(selected), C.identity(value))
 
 
-class Front(unittest.TestCase):
+class Front(MacProfile):
     def test_strict_native_utf8_json_grammar(self):
         for raw in (b'\xef\xbb\xbf{}',b'\xff\xfe{\x00}\x00',b'{"x":"\\ud800"}',b'{"x":"\xed\xa0\x80"}'):
             with self.subTest(raw=raw),self.assertRaises(ValueError):C.loads(raw)
@@ -179,6 +225,7 @@ class Front(unittest.TestCase):
         with self.assertRaisesRegex(F.Refusal, 'axiom_rejected'):
             A.axioms(export, ((('str', 'goal'),),))
     def setUp(self):
+        super().setUp()
         self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
         self.path = Path(self.tmp.name)/'export.ndjson'
         self.rows = fixture()
@@ -435,7 +482,8 @@ class Adapter(Front):
         context['export_digest'] = C.sha(raw)
         encoded = C.canonical(self.pkg) if package_bytes is None else package_bytes
         context['package_sha256'] = C.sha(encoded)
-        with patch.object(A, 'verify_tools'), patch.object(A.FC, 'load_authority', return_value=self.authority, side_effect=authority_error), \
+        with patch.object(A.Sandbox, 'development', return_value=A.Sandbox.fixture()), \
+             patch.object(A, 'verify_tools'), patch.object(A.FC, 'load_authority', return_value=self.authority, side_effect=authority_error), \
              patch.object(A.FC, 'bind', return_value=A.FC.Budget(256, 256, '7'*64, 'synthetic', '8'*64, '9'*64)), \
              patch.object(A.D, 'compare_exports', return_value=self.native if native is None else native) as compare:
             result = A.run(raw, encoded, self.inventory.raw, context, C.encode(self.desc), C.identity(self.desc),
