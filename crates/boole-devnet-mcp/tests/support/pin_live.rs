@@ -267,6 +267,83 @@ fn probe(url: &str, method: &str, params: Value, id: &str) -> Result<std::proces
     .arg(url);
     Ok(c.output()?)
 }
+fn initial_pools(c: &Config, pkg: &[u8], carried: &[u8], salts: &[Hash; 2]) -> Vec<(u8, Vec<u8>)> {
+    salts
+        .iter()
+        .enumerate()
+        .map(|(slot, salt)| {
+            let leaf = boole_derivation::m2::pool_leaf(
+                c.chain_id,
+                2,
+                &[],
+                1,
+                pkg.len() as u32,
+                carried,
+                salt,
+            );
+            (8, pool_at(c, slot as u8, leaf, 1, 3, slot as u32 + 1))
+        })
+        .collect()
+}
+#[test]
+fn i16_schedule_is_valid_for_both_real_slots_before_any_node_run() -> Result<()> {
+    let mut c = config();
+    c.m3 = Some(M3Config::devnet(c.slot_table.len()));
+    c.m3.as_mut().unwrap().genesis_gate_rule_digest = Descriptor::pinned([1; 32]).digest();
+    let f = ForkTable::genesis(&c)?;
+    let mut state = State::new(&c, 30_000_000)?;
+    let pkg = package(10000);
+    let carried = boole_gate_supervisor::raw_frame::encode(&pkg)?;
+    let salts = [[9; 32], [10; 32]];
+    let tape: Value = serde_json::from_str(include_str!(
+        "../../../../fixtures/devnet-m3/round-v1.3.json"
+    ))?;
+    for row in tape["heights"].as_array().unwrap().iter().take(5) {
+        let l1: boole_derivation::L1Block = serde_json::from_value(row["l1"].clone())?;
+        let bodies = match l1.number {
+            1 => initial_pools(&c, &pkg, &carried, &salts),
+            5 => salts
+                .iter()
+                .enumerate()
+                .map(|(slot, salt)| {
+                    (
+                        9,
+                        problem_encoded(
+                            slot as u8,
+                            1,
+                            0,
+                            *salt,
+                            &[],
+                            &carried,
+                            (1, pkg.len() as u32),
+                        ),
+                    )
+                })
+                .collect(),
+            _ => vec![],
+        };
+        let inputs: Vec<_> = bodies
+            .into_iter()
+            .enumerate()
+            .map(|(i, (kind, body))| Input {
+                transaction_index: 0,
+                log_index: i as u64,
+                kind,
+                body,
+            })
+            .collect();
+        let step = state.step_with_verdicts(&c, &l1, &inputs, &[], &f)?;
+        if l1.number == 1 {
+            assert_eq!(step.codes, vec![0x85, 0x85], "global POOL sequence");
+        }
+        if l1.number == 5 {
+            assert_eq!(step.codes, vec![0x86, 0x86], "two valid problem reveals");
+        }
+        state = step.state;
+    }
+    assert!(state.rounds[&(0, 1)].problem.is_some() && state.rounds[&(1, 1)].problem.is_some());
+    Ok(())
+}
 fn proof_for(c: &Config, p: Hash, tag: u8, salt: u8, lane: u8) -> Result<Proof> {
     let raw = export(tag, 777);
     let frame = boole_gate_supervisor::raw_frame::encode(&raw)?;
@@ -391,20 +468,7 @@ fn i16_pinned_forks_restart_with_no_old_l1_or_archive_and_resume_withheld_pin() 
     for latest in 1..=72u64 {
         let mut items = vec![];
         match latest {
-            1 => {
-                for (slot, salt) in salts.iter().enumerate() {
-                    let leaf = boole_derivation::m2::pool_leaf(
-                        c.chain_id,
-                        2,
-                        &[],
-                        1,
-                        pkg.len() as u32,
-                        &carried,
-                        salt,
-                    );
-                    items.push((8, pool_at(&c, slot as u8, leaf, 1, 3, 1)));
-                }
-            }
+            1 => items = initial_pools(&c, &pkg, &carried, &salts),
             5 => {
                 for (slot, salt) in salts.iter().enumerate() {
                     items.push((
@@ -424,7 +488,10 @@ fn i16_pinned_forks_restart_with_no_old_l1_or_archive_and_resume_withheld_pin() 
             6..=9 => {
                 let i = (latest - 6) as usize;
                 let slot = usize::from(i >= 2);
-                let p = model.rounds[&(slot as u8, 1)]
+                let p = model
+                    .rounds
+                    .get(&(slot as u8, 1))
+                    .with_context(|| format!("I16 missing draw for slot {slot} at {latest}"))?
                     .problem
                     .context("I16 drawn problem")?;
                 let proof = proof_for(
