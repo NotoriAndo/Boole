@@ -1,5 +1,7 @@
 """M3 real-release contracts, using synthetic inventories only."""
 import copy
+import contextlib
+import io
 import json
 from pathlib import Path
 import sys
@@ -19,15 +21,83 @@ from test_statement_identity import fixture
 def descriptor():
     tools = ('comparator', 'nanoda', 'lean_replay', 'counter_replay', 'exporter',
              'lean_runtime', 'imports', 'sandbox', 'codec')
-    return dict(version=1, adapter='boole-m3-real/v1', source_sha256='1'*64,
+    value = dict(version=1, adapter='boole-m3-real/v1', source_sha256='1'*64,
         kernel_set_digest='2'*64, policy=dict(version=2, rules_sha256=E.RULES_SHA256),
-        caps_sha256='3'*64, fuel_authority_sha256='4'*64, artifact_table_sha256='5'*64,
+        caps_sha256='3'*64, fuel_authority_sha256='4'*64,
+        acceptance_environment_sha256=C.sha((Path(A.L.__file__).parent/'data/acceptance_environment_v2.json').read_bytes()),
+        acceptance_tools_sha256=C.sha((Path(A.L.__file__).parent/'data/acceptance_tools_v2.json').read_bytes()),
+        artifact_table_sha256='5'*64,
         grammar=1, fuel=dict(lean_weight=1, nanoda_weight=1, cap_charge='bounded-debit/v1'),
         profiles={name: dict(assurance=assurance, tools={key: '6'*64 for key in tools})
                   for name, assurance in [('Darwin-arm64', 'development'), ('Linux-aarch64', 'production')]})
+    value['kernel_set_digest'] = C.kernel_set_identity(value)
+    return value
+
+
+OBSERVATION_CASES = [
+    ('PASS', None, 'accept', ''),
+    ('INVALID', 'kernel-rejection', 'kernel_reject', ''),
+    ('INVALID', 'kernel-disagreement', 'kernel_disagreement', ''),
+    ('INVALID', 'resource-cap', 'resource_cap', ''),
+    ('INVALID', 'tool-fault:replay', 'kernel_panic_cause_missing', ''),
+    ('INVALID', 'disallowed-axiom', 'trusted_disagreement', 'malformed-record'),
+    ('INVALID', 'comparator-statement-mismatch', 'trusted_disagreement', 'malformed-record'),
+    ('INVALID', 'certified-base-mismatch', 'trusted_disagreement', 'malformed-record'),
+    ('INVALID', 'unknown', 'malformed_result', ''),
+    ('ERROR', 'library-outside-certified-base', 'library_terminal', ''),
+    ('ERROR', 'resource-unavailable', 'transient', ''),
+    ('ERROR', 'capture-failed', 'transient', ''),
+    ('ERROR', 'output-cap', 'output_terminal', ''),
+    ('ERROR', 'replay-unavailable', 'input_failure', ''),
+    ('ERROR', 'silent-exit', 'input_failure', 'malformed-record'),
+    ('ERROR', 'sandbox-unavailable', 'node_fault', ''),
+    ('ERROR', 'unknown', 'node_fault', ''),
+    ('unknown', None, 'malformed_result', ''),
+]
+
+
+class Observations(unittest.TestCase):
+    def test_observed_reason_table(self):
+        for verdict, reason, row, detail in OBSERVATION_CASES:
+            with self.subTest(verdict=verdict, reason=reason):
+                observed = A.observation(dict(verdict=verdict, reason=reason))
+                self.assertEqual((observed.row, observed.detail), (row, detail))
+
+    def test_generic_nanoda_panic_is_never_a_rejection(self):
+        observed = A.observation(dict(verdict='INVALID', reason='tool-fault:replay', rc=4))
+        for phase in ('first', 'retry', 'replay'):
+            result = M.classify(observed, descriptor(), phase)
+            self.assertEqual((result['row'], result['outcome'], result['failure_class']),
+                             ('kernel_panic_cause_missing', 'DEFER', 'D-node'))
 
 
 class Descriptor(unittest.TestCase):
+    def test_full_environment_and_tools_files_are_runtime_pins(self):
+        from types import SimpleNamespace
+        value=descriptor();data=Path(A.L.__file__).parent/'data'
+        value['caps_sha256']=A.D.digest(data/'testnet_caps_v2.json')
+        value['fuel_authority_sha256']=A.D.digest(data/'fuel_cap_authority_v1.json')
+        env=A.L.production_descriptor()['artifact_profiles']['Darwin-arm64']
+        with patch.object(A.artifact_pins,'snapshot',return_value=dict(env,olean_roots=env['olean_roots'][:1])), \
+             patch.object(A,'tool_pins',return_value=value['profiles']['Darwin-arm64']['tools']), \
+             patch.object(A,'source_release',return_value=value['source_sha256']):
+            A.verify_tools(value,SimpleNamespace(kernel_prefix='synthetic'),'synthetic')
+            for key in ('acceptance_environment_sha256','acceptance_tools_sha256'):
+                bad=copy.deepcopy(value);bad[key]='a'*64;bad['kernel_set_digest']=C.kernel_set_identity(bad)
+                with self.subTest(key=key),self.assertRaisesRegex(F.Refusal,'node_fault'):
+                    A.verify_tools(bad,SimpleNamespace(kernel_prefix='synthetic'),'synthetic')
+    def test_profiles_and_kernel_set_are_closed_release_inputs(self):
+        good=descriptor()
+        bad=copy.deepcopy(good);bad['profiles']['Linux-x86_64']=copy.deepcopy(bad['profiles']['Linux-aarch64'])
+        assurance=copy.deepcopy(good);assurance['profiles']['Linux-aarch64']['assurance']='development'
+        missing=copy.deepcopy(good);del missing['profiles']['Linux-aarch64']
+        digest=copy.deepcopy(good);digest['kernel_set_digest']='9'*64
+        for value in (bad,assurance,missing):
+            value['kernel_set_digest']=C.kernel_set_identity(value)
+        for value in (bad,assurance,missing,digest):
+            with self.subTest(profiles=list(value['profiles'])),self.assertRaises(ValueError):
+                C.decode(C.canonical(value))
+
     def test_host_selection_keeps_the_same_global_identity(self):
         value = descriptor(); raw = C.encode(value); identity = C.identity(value)
         for name in value['profiles']:
@@ -56,10 +126,32 @@ class Descriptor(unittest.TestCase):
 
 
 class Front(unittest.TestCase):
+    def test_own_allowed_axiom_name_without_inventory_payload_is_rejected(self):
+        table=self.inventory.data();del table['base'][F.name_key((('str','propext'),))]
+        raw=C.canonical(table);inventory=F.Inventory(raw,C.sha(raw))
+        with self.assertRaisesRegex(F.Refusal,'axiom_rejected'):
+            F.partition(F.read_export(self.path),inventory,dict(self.pkg,mode='full'))
+    def test_natural_literal_limit_is_independent_of_interpreter_int_limits(self):
+        from types import SimpleNamespace
+        real_int = int; converted = []
+        def limited_int(value):
+            converted.append(len(value))
+            if len(value) > 640:
+                raise ValueError('simulated Python integer digit limit')
+            return real_int(value)
+        export = SimpleNamespace(exprs={99: ('natVal', '1'+'0'*4999)})
+        with patch.object(F, 'int', limited_int, create=True):
+            F.own_input_caps(export, [99])
+        self.assertTrue(all(n <= 640 for n in converted))
+        export.exprs[99] = ('natVal', '1'+'0'*9865)
+        with patch.object(F, 'int', side_effect=AssertionError('conversion before length guard'), create=True):
+            with self.assertRaisesRegex(F.Refusal, 'structural_cap'):
+                F.own_input_caps(export, [99])
+
     def test_selector_preserves_numeric_components_without_string_aliases(self):
         self.assertEqual(F.selector((('str', 'N'), ('num', 1), ('str', 'x'))), 'N.1.x')
         for name in ((('str', 'N'), ('str', '1')), (('str', 'N.1'),), (('str', 'N'), ('str', 'λ'))):
-            with self.subTest(name=name), self.assertRaisesRegex(F.Refusal, 'node_fault'):
+            with self.subTest(name=name), self.assertRaisesRegex(F.Refusal, 'name_grammar'):
                 F.selector(name)
 
     def test_numeric_axiom_is_a_rejection_not_a_package_void(self):
@@ -121,6 +213,12 @@ class Front(unittest.TestCase):
                 with self.assertRaisesRegex(F.Refusal, 'front_invalid'):
                     F.read_export(self.path)
 
+    def test_json_integer_admission_is_interpreter_independent(self):
+        with self.path.open('ab') as stream:
+            stream.write(b'{"ie":'+b'1'*1000+b',"bvar":0}\n')
+        with self.assertRaisesRegex(F.Refusal,'front_invalid'):
+            F.read_export(self.path)
+
     def test_own_literal_limit_does_not_charge_an_unused_library_payload(self):
         self.rows.insert(1, {'in': 6, 'str': dict(pre=0, str='allowedLibrary')})
         self.rows += [{'ie': 99, 'strVal': 'x'*4097},
@@ -144,14 +242,15 @@ class ReservedNames(unittest.TestCase):
     def add_definition(self, parts, *, authenticated=False):
         parent = 0
         for index, part in enumerate(parts, 6):
-            self.rows.append({'in': index, 'str': dict(pre=parent, str=part)})
+            self.rows.append({'in': index, **({'num': dict(pre=parent, i=part)} if type(part) is int else
+                                             {'str': dict(pre=parent, str=part)})})
             parent = index
         self.rows.append({'def': dict(name=parent, levelParams=[], type=0, value=1,
                                      hints='opaque', safety='safe', all=[parent])})
         self.write(self.rows)
         if authenticated:
             export = F.read_export(self.path); table = self.inventory.data()
-            name = tuple(('str', part) for part in parts)
+            name = tuple(('num' if type(part) is int else 'str', part) for part in parts)
             table['base'][F.name_key(name)] = F.payload(export, name)
             table['base'] = dict(sorted(table['base'].items()))
             raw = C.canonical(table); self.inventory = F.Inventory(raw, C.sha(raw))
@@ -173,6 +272,44 @@ class ReservedNames(unittest.TestCase):
     def test_declare_leaf_spec_is_reserved(self):
         self.add_definition(('Leaf', 'spec'))
         self.rejected('reserved_name')
+
+    def test_declare_boole_r12_is_reserved(self):
+        self.add_definition(('Boole', 'R12', 'x'))
+        self.rejected('reserved_name')
+
+    def test_declare_boole_leaf_is_reserved(self):
+        self.add_definition(('Boole', 'Leaf', 'foo'))
+        self.rejected('reserved_name')
+
+    def test_private_declaration_cannot_hide_boolecs(self):
+        self.add_definition(('_private', 'M', 0, 'BooleCS', 'X'))
+        self.rejected('reserved_name')
+
+    def test_private_reference_cannot_hide_admitted_boole_r(self):
+        index = self.add_definition(('_private', 'M', 0, 'Boole', 'R12', 'x'), authenticated=True)
+        self.rows.append({'ie': 99, 'const': dict(name=index, us=[])})
+        next(row['thm'] for row in self.rows if 'thm' in row)['value'] = 99
+        self.write(self.rows); self.rejected('reserved_name')
+
+    def test_reserved_redeclaration_precedes_cached_payload_mismatch(self):
+        for parts in (('BooleCS', 'Con'), ('Boole', 'Leaf', 'spec')):
+            with self.subTest(parts=parts):
+                self.setUp()
+                index = self.add_definition(parts, authenticated=True)
+                next(row['def'] for row in self.rows if 'def' in row and row['def']['name']==index)['value'] = 2
+                self.write(self.rows); self.rejected('reserved_name')
+
+    def test_reserved_reference_precedes_an_unrelated_base_mismatch(self):
+        index=self.add_definition(('Boole','R12','x'),authenticated=True)
+        self.rows.append({'ie':99,'const':dict(name=index,us=[])})
+        next(row['thm'] for row in self.rows if 'thm' in row)['value']=99
+        next(row['axiom'] for row in self.rows if 'axiom' in row)['type']=1
+        self.write(self.rows);self.rejected('reserved_name')
+
+    def test_boole_ratchet_namespace_is_not_an_admission(self):
+        self.add_definition(('Boole', 'Ratchet', 'helper'))
+        own = F.partition(F.read_export(self.path), self.inventory, self.pkg).own
+        self.assertIn((('str', 'Boole'), ('str', 'Ratchet'), ('str', 'helper')), own)
 
     def test_reference_admitted_boole_r_is_reserved(self):
         index = self.add_definition(('Boole', 'R1', 'x'), authenticated=True)
@@ -226,6 +363,17 @@ class ReservedNames(unittest.TestCase):
 
 
 class Adapter(Front):
+    def test_generic_panic_keeps_its_defer_cause_without_counters(self):
+        result,_,context=self.invoke('panic-without-counters',dict(verdict='INVALID',reason='tool-fault:replay',rc=4))
+        self.assertEqual((result['row'],result['outcome'],result['failure_class']),
+                         ('kernel_panic_cause_missing','DEFER','D-node'))
+        A.decode_reply(C.canonical(result),self.desc,context)
+    def test_public_counter_mode_refuses_candidate_selection(self):
+        with patch.object(A.D,'compare_exports') as inner:
+            for selected in (None, [], ['goal']):
+                with self.subTest(selected=selected),self.assertRaises(ValueError):
+                    A.compare_exports(public_counter=True,candidate_declarations=selected)
+            inner.assert_not_called()
     def setUp(self):
         super().setUp()
         self.bundle = F.pack(self.path.read_bytes())
@@ -246,13 +394,13 @@ class Adapter(Front):
             dict(version=1, stage='fuel', kernel='lean', debit=2),
             dict(version=1, stage='final', rc=0)])
 
-    def invoke(self, label, native=None, bundle=None, phase='first', package_bytes=None):
+    def invoke(self, label, native=None, bundle=None, phase='first', package_bytes=None, authority_error=None):
         context = dict(self.context)
         raw = self.bundle if bundle is None else bundle
         context['export_digest'] = C.sha(raw)
         encoded = C.canonical(self.pkg) if package_bytes is None else package_bytes
         context['package_sha256'] = C.sha(encoded)
-        with patch.object(A, 'verify_tools'), patch.object(A.FC, 'load_authority', return_value=self.authority), \
+        with patch.object(A, 'verify_tools'), patch.object(A.FC, 'load_authority', return_value=self.authority, side_effect=authority_error), \
              patch.object(A.FC, 'bind', return_value=A.FC.Budget(256, 256, '7'*64, 'synthetic', '8'*64, '9'*64)), \
              patch.object(A.D, 'compare_exports', return_value=self.native if native is None else native) as compare:
             result = A.run(raw, encoded, self.inventory.raw, context, C.encode(self.desc), C.identity(self.desc),
@@ -268,6 +416,60 @@ class Adapter(Front):
         for key, value in [('input_digest', 'a'*64), ('fuel', 0), ('reason', 1), ('statement_id', '0'*64)]:
             with self.subTest(field=key), self.assertRaises(ValueError):
                 A.decode_reply(C.canonical(dict(result, **{key: value})), self.desc, context)
+
+    def test_submission_name_grammar_cannot_become_a_node_defer(self):
+        original = copy.deepcopy(self.rows)
+        for index, spelling in enumerate(('λ', '', 'goal.with.dot')):
+            with self.subTest(spelling=spelling):
+                self.rows = copy.deepcopy(original)
+                self.rows += [{'in':6,'str':dict(pre=0,str=spelling)},
+                              {'def':dict(name=6,levelParams=[],type=0,value=1,hints='opaque',safety='safe',all=[6])}]
+                self.write(self.rows)
+                self.pkg['reference_sha256'] = C.sha(self.path.read_bytes())
+                result, compare, _ = self.invoke('name-grammar-'+str(index), bundle=F.pack(self.path.read_bytes()))
+                self.assertEqual((result['outcome'], result['reason']), ('REJECT', 0x0103))
+                compare.assert_not_called()
+
+    def test_pre_kernel_resource_and_output_caps_are_terminal_rejections(self):
+        for index, (verdict, reason, expected) in enumerate((('INVALID','resource-cap',0x0108), ('ERROR','output-cap',0x0109))):
+            native = dict(verdict=verdict, reason=reason, rc=2, comparator_status=[
+                dict(version=1, stage='policy', reason=reason), dict(version=1, stage='final', rc=2)])
+            result, _, context = self.invoke('pre-kernel-cap-'+str(index), native)
+            self.assertEqual((result['outcome'], result['reason'], result['kernels'], result['fuel']),
+                             ('REJECT', expected, M.not_run(), 0))
+            A.decode_reply(C.canonical(result), self.desc, context)
+
+    def test_output_limit_keeps_known_kernel_debits_and_never_invents_them(self):
+        native=dict(self.native,verdict='ERROR',reason='output-cap')
+        result,_,context=self.invoke('output-with-counters',native)
+        self.assertEqual((result['outcome'],result['reason'],result['fuel']),('REJECT',0x0109,5))
+        self.assertTrue(all(v['state']=='executed' for v in result['kernels'].values()))
+        A.decode_reply(C.canonical(result),self.desc,context)
+        native=dict(verdict='ERROR',reason='output-cap',rc=2,comparator_status=[])
+        result,_,_=self.invoke('output-without-records',native)
+        self.assertEqual((result['outcome'],result['fuel']),('DEFER',None))
+
+    def test_cli_oversized_bundle_is_a_typed_structural_rejection(self):
+        from zk_registry.m3_gate import __main__ as main
+        directory = Path(self.tmp.name)/'cli'; directory.mkdir()
+        for name, raw in [('descriptor',C.encode(self.desc)),('package',C.canonical(self.pkg)),
+                          ('inventory',self.inventory.raw),('context',C.canonical(self.context))]:
+            (directory/name).write_bytes(raw)
+        bundle = directory/'bundle'
+        with bundle.open('wb') as stream:
+            stream.truncate(F.RAW_MAX+1)
+        argv = ['gate_m3','--gate-digest',C.identity(self.desc)]
+        for name in ('descriptor','package','inventory','context','bundle'):
+            argv += ['--'+name,str(directory/name)]
+        argv += ['--reference',str(self.path),'--tools-root','synthetic','--counter-driver','synthetic',
+                 '--work',str(directory/'work')]
+        stdout=io.StringIO()
+        with patch.object(sys,'argv',argv), patch.object(A.D.Tools,'load',return_value=object()), \
+             patch.object(A,'verify_tools'), contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(io.StringIO()):
+            code=main.main()
+        self.assertEqual(code,0)
+        value=C.loads(stdout.getvalue()[len(A.MARKER):])
+        self.assertEqual((value['outcome'],value['reason']),('REJECT',0x0108))
 
     def test_early_cap_does_not_fabricate_lean_work(self):
         native = dict(verdict='INVALID', reason='resource-cap', rc=3, comparator_status=[
@@ -298,11 +500,44 @@ class Adapter(Front):
         result, _, _ = self.invoke('bad-generated', dict(verdict='ERROR', reason='sandbox-unavailable', rc=70))
         self.assertEqual((result['outcome'], result['failure_class']), ('DEFER', 'D-node'))
 
+    def test_trusted_comparator_disagreements_are_class_i_after_front_validation(self):
+        for index, reason in enumerate(('comparator-statement-mismatch', 'certified-base-mismatch', 'disallowed-axiom')):
+            for phase in ('first', 'retry', 'replay'):
+                with self.subTest(reason=reason, phase=phase):
+                    native = dict(verdict='INVALID', reason=reason, rc=2, comparator_status=[
+                        dict(version=1, stage='policy', reason=reason), dict(version=1, stage='final', rc=2)])
+                    result, compare, context = self.invoke('disagreement-'+str(index)+'-'+phase, native, phase=phase)
+                    compare.assert_called_once()
+                    self.assertEqual((result['outcome'], result['failure_class'], result['row']),
+                                     ('DEFER', 'I', 'trusted_disagreement'))
+                    A.decode_reply(C.canonical(result), self.desc, context)
+
     def test_authenticated_malformed_package_uses_void_only_fingerprint(self):
         result, compare, context = self.invoke('bad-package', package_bytes=b'{}')
         self.assertEqual((result['outcome'], result['reason']), ('VOID', 0x0801))
         self.assertEqual(result['statement_id'], M.void_statement(context)); compare.assert_not_called()
         A.decode_reply(C.canonical(result), self.desc, context)
+
+    def test_release_inventory_or_environment_mismatch_is_node_defer(self):
+        for index, key in enumerate(('inventory_sha256', 'env_id')):
+            for phase in ('first', 'retry', 'replay'):
+                with self.subTest(key=key, phase=phase):
+                    pkg = dict(self.pkg, **{key: 'a'*64})
+                    result, compare, context = self.invoke('release-'+str(index)+'-'+phase,
+                        package_bytes=C.canonical(pkg), phase=phase)
+                    self.assertEqual((result['outcome'], result['failure_class']), ('DEFER', 'D-node'))
+                    compare.assert_not_called(); A.decode_reply(C.canonical(result), self.desc, context)
+
+    def test_local_authority_load_failure_is_not_a_published_cap_void(self):
+        for phase in ('first', 'retry', 'replay'):
+            result, compare, context = self.invoke('authority-'+phase, phase=phase,
+                authority_error=A.FC.FuelCapError('fuel-authority-unavailable'))
+            self.assertEqual((result['outcome'], result['failure_class']), ('DEFER', 'D-node'))
+            compare.assert_not_called(); A.decode_reply(C.canonical(result), self.desc, context)
+        self.pkg['fuel_cap']['sha256'] = 'a'*64
+        result, compare, context = self.invoke('invalid-published-cap')
+        self.assertEqual((result['outcome'], result['reason']), ('VOID', 0x0803))
+        compare.assert_not_called(); A.decode_reply(C.canonical(result), self.desc, context)
 
     def test_reply_needs_actual_both_kernel_runs_for_acceptance(self):
         result, _, context = self.invoke('both-needed')
@@ -320,15 +555,22 @@ class Adapter(Front):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 A.decode_reply(C.canonical(dict(result, **changes)), self.desc, context)
 
-    def test_unrepresentable_valid_target_defers_without_package_void(self):
-        with self.assertRaisesRegex(F.Refusal, 'node_fault'):
+    def test_reply_cannot_use_an_unknown_row_with_malformed_result_fields(self):
+        result,_,context=self.invoke('unknown-result-row',dict(verdict='INVALID',reason='unknown',rc=2))
+        self.assertEqual(result['row'],'malformed_result')
+        for row in ('unknown-row',[],None):
+            with self.subTest(row=row),self.assertRaises(ValueError):
+                A.decode_reply(C.canonical(dict(result,row=row)),self.desc,context)
+
+    def test_unrepresentable_target_rejects_without_a_node_defer(self):
+        with self.assertRaisesRegex(F.Refusal, 'name_grammar'):
             F.fqn([['str', 'goal.with.dot']])
         self.rows[4]['str']['str'] = 'goal.with.dot'
         self.write(self.rows)
         export = F.read_export(self.path)
         self.pkg.update(target=[['str', 'goal.with.dot']], reference_sha256=export.raw_sha256)
         result, compare, _ = self.invoke('target-representation', bundle=F.pack(self.path.read_bytes()))
-        self.assertEqual((result['outcome'], result['failure_class']), ('DEFER', 'D-node'))
+        self.assertEqual((result['outcome'], result['reason']), ('REJECT', 0x0103))
         compare.assert_not_called()
 
     def test_library_terminal_after_own_guards_in_all_three_phases(self):
@@ -356,6 +598,7 @@ class Adapter(Front):
 MAPPING_CASES = [
     ('accept', 'ACCEPT', 0, 'apply', ''),
     ('front_invalid', 'REJECT', 0x0106, 'apply', ''),
+    ('name_grammar', 'REJECT', 0x0103, 'apply', ''),
     ('unknown_constant', 'REJECT', 0x0106, 'apply', ''),
     ('structural_cap', 'REJECT', 0x0108, 'apply', ''),
     ('reserved_name', 'REJECT', 0x0201, 'apply', ''),
@@ -379,6 +622,7 @@ MAPPING_CASES = [
     ('fuel_binding_invalid', 'VOID', 0x0803, 'apply', ''),
     ('generator_unavailable', 'VOID', 0x0804, 'apply', ''),
     ('malformed_result', 'DEFER', 0, 'repair', 'D-node'),
+    ('trusted_disagreement', 'DEFER', 0, 'retry', 'I'),
     ('quarantine_void', 'VOID', 0x0802, 'fork-only', ''),
 ]
 

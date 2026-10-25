@@ -1,4 +1,4 @@
-# Real gate release contract, A1
+# Real gate release contract, M3d-a
 
 `scripts/zk_registry/m3_gate` defines the data-only boundary for a future M3
 gate release. This slice does not activate a release or change the fold, wire,
@@ -11,13 +11,17 @@ to the subsequent supervisor integration. No real EENV5 identity is issued here.
 
 `codec.py` is the normative schema and field order. The compact ASCII JSON
 descriptor has version 1, adapter `boole-m3-real/v1`, source and kernel-set pins,
-v2 error-policy binding, cap/authority/inventory pins, grammar version, fuel
+v2 error-policy binding, cap/authority/inventory pins, the full-file SHA-256 of
+`acceptance_environment_v2.json` and `acceptance_tools_v2.json`, grammar version, fuel
 weights and a sorted architecture map. Each profile binds Comparator, nanoda,
 Lean replay, counter replay, exporter, Lean runtime, imports, sandbox and codec.
 Only integer numeric values are accepted; duplicate, unknown and reordered
 fields, alternate JSON encodings, floats, booleans as integers and host paths or
 clocks are refused. The source pin covers the complete Python registry package
-with relative names and byte lengths. Mac profiles require development assurance.
+with relative names and byte lengths. The complete sorted profile map contains
+exactly `Darwin-arm64` development and `Linux-aarch64` production; x86-64 is refused.
+The kernel-set digest is checked against `BOOLE-M3/KERNEL-SET/v1`, NUL, and the
+canonical object containing both full-file pins and that complete profile map.
 
 The descriptor identity is SHA-256 of `BOOLE-M3/REAL-GATE-DESCRIPTOR/v1` followed
 by a NUL and canonical descriptor bytes. Its ordinary byte SHA-256 remains a
@@ -44,31 +48,44 @@ before invoking a kernel. There is no Lean source elaboration or miner program.
 and complete normalized payload digest from authenticated inventories. Cached
 theorem digests include proof terms, reducibility hints and safety flags. Names
 absent from both inventories are own declarations; miner labels have no effect.
-The adapter passes that explicit checked-own set to DET3. An empty set or a target
+The certified-own adapter passes that explicit checked-own set to DET3. An empty set or a target
 that is not an own theorem is rejected before a kernel; there is no challenge-name fallback.
 
 Order: authenticate release/tools/inventory/package and input bindings; parse
-all export structure; authenticate cached payloads; reject reserved own
-declarations; check own literal/depth, reference, safety, profile and axiom rules; bind the trusted
+all export structure; identify cached payloads; prioritize reserved declarations
+and references over cached-payload mismatch; check own name grammar, literal/depth,
+authenticated references, safety, profile and axiom rules; bind the trusted
 reference and both statements; traverse the own axiom closure; resolve cap,
 certified-state and scalar allowance; apply the own declaration-count precheck;
 then report allowed library material outside the certified base as terminal S.
 After the reserved declaration pass, own checks use export declaration order. A library S exit cannot
 erase an independently decidable earlier own/statement/axiom violation.
 
-The M3-A3 amendment reserves `Leaf.*` and `BooleCS.*` against new declarations
+The M3-A3 amendment reserves `Leaf.*`, `Boole.Leaf.*` and `BooleCS.*` against new declarations
 only. Their references must resolve to complete payloads authenticated by the
 environment or package inventory. Missing declarations are a typed
 `unknown_constant` rejection (0106), not a reserved-name violation. The
 `Boole.R<k>.*` declaration and reference ban remains in force. Reserved own
 declarations are checked before reference policy, independently of row order.
+Lean `_private.<module>.<n>.` wrappers are stripped before every reserved check.
+`Boole.R<digits>` prefixes remain reserved, while `Boole.Ratchet.*` is permitted.
+An identical authenticated payload is cached input; a changed reserved payload
+is a reserved redeclaration (0201), before the generic payload mismatch (0106).
+An own axiom is never allowed by its spelling alone: only an exact authenticated
+inventory payload can supply a permitted base axiom.
 
 Malformed submission data is a cheap typed rejection. A missing or malformed
 trusted reference, generated export, tool or inventory is DEFER(D-node).
 Content-address mismatch of a bound job input is a sticky STOP, not a proof
 verdict; missing external input is a resumable STALL at the integration boundary.
-Valid structured targets or own names unrepresentable by the existing native
-String selector conservatively defer rather than aliasing a different name.
+Unsupported or empty own names reject with 0103, without aliasing another name.
+Natural literals use the fixed 4,096-byte cap: decimal length is bounded at
+9,865 digits before conversion, then converted in nine-digit chunks and checked
+by bit length. JSON integer fields are u64 and bounded before conversion. These
+rules do not depend on the interpreter's configurable integer-string limit.
+Oversized bundles reject with 0108 even at the CLI boundary. Confirmed pre-kernel
+rc 2 resource caps reject with 0108 and zero kernel work; the front's declaration
+fuel precheck rejects with 0303. Physical interruptions remain availability failures.
 
 ## Outcome contract
 
@@ -76,10 +93,16 @@ String selector conservatively defer rather than aliasing a different name.
 test vectors cover every row on first execution, retry and replay. Every path
 loads the descriptor-bound v2 rules. Physical failure takes transient precedence;
 submission-specific faults on trusted inputs become D-node. Native text is not
-searched for semantic causes. Outer capture truncation is transient; structured
-submission output overflow is terminal S. Neither S outcome retries or quarantines.
+searched for semantic causes. Submission `output-cap` is terminal S/0109;
+capture failure and physical interruption remain transient. Neither S outcome
+retries or quarantines. Missing status/counter evidence remains a separate tool
+protocol failure: it never fabricates zero work or a completed-kernel rejection.
 Unknown or inconsistent replies defer; local timeouts never authorize VOID.
 VOID/0802 requires an explicit published-fork authorization from the caller.
+Comparator statement, base or axiom disagreement after front validation is
+DEFER class I, not a miner rejection. Silent exit also maps to I. A package's
+unknown inventory/environment or a local authority load failure is D-node;
+only a published cap binding invalid against the pinned authority is VOID/0803.
 
 Authenticated malformed packages alone use the nonzero SHA-256 fingerprint of
 `BOOLE-M3/VOID-STATEMENT/v1`, NUL, chain u64, problem/environment/package SHA-256
@@ -89,8 +112,9 @@ rejection and every other VOID reason. It is not an ordinary proof statement id.
 Current native follow-ups are explicit depth attribution, explicit kernel-panic
 attribution, typed runtime and pre-kernel cap provenance, and general structured own/target
 selection. Those missing causes remain DEFER(D-node); 0306 is never inferred from
-generic replay tool fault or a silent exit. Existing closed typed replay faults
-can use 0307. Native changes require a separate release and fitted remeasurement.
+generic replay tool fault or a silent exit. Every current `tool-fault:replay`,
+including a non-Stop nanoda panic, maps to `kernel_panic_cause_missing`,
+DEFER(D-node), never 0307. Native changes require a separate release and fitted remeasurement.
 An undifferentiated native cap with no exceeded aggregate counter defers, because
 the existing marker cannot distinguish per-declaration fuel from depth.
 
@@ -118,5 +142,8 @@ The explicit `--public-counter` qualification mode admits only committed corpus
 content addresses and `PublicCounter.target`; it is not an uncapped intake path.
 Lane 2 defers and kind 2 remains VOID/0804 until their separate qualifications.
 The 32 public vectors and seven fitted packages exercise existing native tools;
-this evidence does not admit Linux production, x86 production, M-FULL or a new
+Public-counter mode checks the complete committed corpus and explicitly refuses
+`candidate_declarations`; certified-own mode alone supplies a selected delta.
+The legacy generator/executor source identity is unchanged.
+This evidence does not admit Linux production, x86 production, M-FULL or a new
 environment. Reset versus migration is an operator decision needed at M3d-c.

@@ -8,6 +8,8 @@ from . import codec as C
 
 MAGIC = b'BOOLE-M3/EXPORT-BUNDLE/v1\0'
 RAW_MAX = 134217728
+LITERAL_BYTES = 4096  # frozen literal_bytes in testnet_caps_v2.json, both kernels
+NAT_DECIMAL_MAX_DIGITS = (8 * LITERAL_BYTES * 30103) // 100000 + 1
 ALLOWED_AXIOMS = frozenset({(('str', 'Classical'), ('str', 'choice')),
                            (('str', 'Quot'), ('str', 'sound')), (('str', 'propext'),)})
 PACKAGE_KEYS = ('version', 'mode', 'problem', 'env_id', 'target', 'statement',
@@ -45,9 +47,9 @@ def as_name(key):
 
 def fqn(name):
     # The native target CLI splits Strings on dots. Quoting would change the
-    # selected name; a valid structured target outside this subset must defer.
+    # selected name; targets outside this release's grammar are rejected.
     if any(kind != 'str' or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_']*", value) for kind, value in name):
-        raise Refusal('node_fault', 'nonportable target selector')
+        raise Refusal('name_grammar', 'nonportable target selector')
     return '.'.join(value for _, value in name)
 
 
@@ -55,7 +57,7 @@ def selector(name):
     """Injective portable subset of the native Name.toString membership key.
 
     Numeric components are supported by that existing opaque String selector.
-    String components that could collide/require Lean-specific escaping defer;
+    String components that could collide/require Lean-specific escaping reject;
     they are never flattened into a different structured name.
     """
     parts = []
@@ -65,7 +67,7 @@ def selector(name):
         elif kind == 'str' and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_']*", value):
             parts.append(value)
         else:
-            raise Refusal('node_fault', 'nonportable own selector')
+            raise Refusal('name_grammar', 'nonportable own selector')
     return '.'.join(parts)
 
 
@@ -130,13 +132,13 @@ def package(raw, expected_sha256, inventory):
         for key in ('env_id', 'statement', 'reference_sha256', 'inventory_sha256'):
             C.digest(obj[key])
         name_key(obj['target'])
-        if obj['inventory_sha256'] != inventory.sha256 or obj['env_id'] != inventory.data()['environment']:
-            raise ValueError('environment binding')
         if C.canonical(obj) != raw:
             raise ValueError('noncanonical package')
-        return obj
     except (ValueError, TypeError, KeyError, RecursionError) as ex:
         raise Refusal('package_invalid', 'authenticated package grammar') from ex
+    if obj['inventory_sha256'] != inventory.sha256 or obj['env_id'] != inventory.data()['environment']:
+        raise Refusal('node_fault', 'package not in descriptor inventory/environment')
+    return obj
 
 
 class DataExport(I.Export):
@@ -213,13 +215,25 @@ class Checked:
     library: tuple
 
 
+def public_name(name):
+    """Lean private namespaces are visibility wrappers, never policy escapes."""
+    while len(name) >= 4 and name[0] == ('str', '_private'):
+        index = next((i for i, part in enumerate(name[1:], 1) if part[0] == 'num'), None)
+        if index is None or index < 2 or index + 1 == len(name):
+            break
+        name = name[index+1:]
+    return name
+
+
 def reserved(name, *, reference=False):
     # Package/environment namespaces forbid new declarations, not references
     # to their authenticated definitions. Admitted Boole.R<k> stays disjoint.
-    if not reference and name[0] in (('str', 'Leaf'), ('str', 'BooleCS')):
+    name = public_name(name)
+    if not reference and (name[0] in (('str', 'Leaf'), ('str', 'BooleCS')) or
+                          len(name) > 1 and name[:2] == (('str', 'Boole'), ('str', 'Leaf'))):
         return True
     return (len(name) > 1 and name[0] == ('str', 'Boole') and name[1][0] == 'str'
-            and re.fullmatch(r'R[0-9]*', name[1][1]) is not None)
+            and re.match(r'R(?:[0-9]+|$)', name[1][1]) is not None)
 
 
 def own_input_caps(export, starts):
@@ -233,9 +247,18 @@ def own_input_caps(export, starts):
         if depths.get(index, 0) >= depth:
             continue
         depths[index] = depth; tag, value = export.exprs[index]
-        if tag == 'natVal' and (len(value) > 10000 or (int(value).bit_length()+7)//8 > 4096):
-            raise Refusal('structural_cap', 'own natural literal')
-        if tag == 'strVal' and len(value.encode()) > 4096:
+        if tag == 'natVal':
+            if len(value) > NAT_DECIMAL_MAX_DIGITS:
+                raise Refusal('structural_cap', 'own natural literal digit limit')
+            # Nine-digit conversions are below every supported Python integer
+            # string limit; no interpreter setting changes the admission rule.
+            natural = 0
+            for start in range(0, len(value), 9):
+                chunk = value[start:start+9]
+                natural = natural * 10**len(chunk) + int(chunk)
+            if natural.bit_length() > 8 * LITERAL_BYTES:
+                raise Refusal('structural_cap', 'own natural literal')
+        if tag == 'strVal' and len(value.encode()) > LITERAL_BYTES:
             raise Refusal('structural_cap', 'own string literal')
         children = ([value['type'], value['body']] if tag in ('lam', 'forallE') else
                     [value[k] for k in ('type', 'value', 'body')] if tag == 'letE' else
@@ -245,28 +268,45 @@ def own_input_caps(export, starts):
 
 
 def partition(export, inventory, pkg):
-    table = inventory.data(); own, base, library = [], [], []
+    table = inventory.data(); own, base, library = [], [], []; mismatched = []
     # Inventory digest is verified before any miner data is inspected.
     for name, (kind, value) in export.declarations.items():
-        key = name_key(name)
+        try:
+            key = name_key(name)
+        except ValueError:
+            raise Refusal('name_grammar', 'empty or invalid own name') from None
         if key in table['base'] or key in table['library']:
             group = 'base' if key in table['base'] else 'library'
             if payload(export, name) != table[group][key]:
-                raise Refusal('front_invalid', 'changed authenticated declaration')
+                # An identical authenticated payload is cached input, not a new
+                # declaration. Changed reserved payloads take the policy cause.
+                if reserved(name):
+                    raise Refusal('reserved_name', 'reserved redeclaration')
+                mismatched.append(name)
             (base if group == 'base' else library).append(name)
         else:
             own.append(name)
     # Declarations precede reference policy, independent of export row order.
     if any(reserved(name) for name in own):
         raise Refusal('reserved_name', 'reserved declaration')
-    authenticated = set(base) | set(library)
+    own_expressions = {}
+    own_dependencies = {}
     for name in own:
-        kind, value = export.declarations[name]
+        _, value = export.declarations[name]
         starts = [value['type']] + ([value['value']] if 'value' in value else [])
-        own_input_caps(export, starts)
         dependencies = export.dependencies(starts, set())
         if any(reserved(dep, reference=True) for dep in dependencies):
-            raise Refusal('reserved_name', 'reserved-name')
+            raise Refusal('reserved_name', 'reserved reference')
+        own_expressions[name], own_dependencies[name] = starts, dependencies
+    if mismatched:
+        raise Refusal('front_invalid', 'changed authenticated declaration')
+    authenticated = set(base) | set(library)
+    for name in own:
+        selector(name)
+        kind, value = export.declarations[name]
+        starts = own_expressions[name]
+        own_input_caps(export, starts)
+        dependencies = own_dependencies[name]
         if any(dep[0] in (('str', 'Leaf'), ('str', 'BooleCS')) and dep not in authenticated
                for dep in dependencies):
             raise Refusal('unknown_constant', 'unauthenticated package reference')
@@ -274,7 +314,7 @@ def partition(export, inventory, pkg):
             raise Refusal('front_invalid', 'own unsafe/partial')
         if pkg['mode'] == 'certified-own' and kind not in ('def', 'thm'):
             raise Refusal('front_invalid', 'own declaration profile')
-        if kind == 'axiom' and name not in ALLOWED_AXIOMS:
+        if kind == 'axiom':
             raise Refusal('axiom_rejected', 'own axiom')
     target = tuple(tuple(part) for part in pkg['target'])
     if target not in own or export.declarations[target][0] != 'thm':

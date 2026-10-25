@@ -53,6 +53,7 @@ def tool_pins(tools, counter):
 
 
 def verify_tools(descriptor, tools, counter):
+    C.validate(descriptor)
     profile = platform.system()+'-'+platform.machine()
     if profile != 'Darwin-arm64':
         raise F.Refusal('node_fault', 'A1 has no production controller')
@@ -65,7 +66,9 @@ def verify_tools(descriptor, tools, counter):
         raise F.Refusal('node_fault', 'runtime/import artifact mismatch')
     if (tool_pins(tools, counter) != entry['tools'] or descriptor['source_sha256'] != source_release()
             or descriptor['caps_sha256'] != D.digest(Path(L.__file__).parent/'data/testnet_caps_v2.json')
-            or descriptor['fuel_authority_sha256'] != D.digest(Path(L.__file__).parent/'data/fuel_cap_authority_v1.json')):
+            or descriptor['fuel_authority_sha256'] != D.digest(Path(L.__file__).parent/'data/fuel_cap_authority_v1.json')
+            or descriptor['acceptance_environment_sha256'] != D.digest(Path(L.__file__).parent/'data/acceptance_environment_v2.json')
+            or descriptor['acceptance_tools_sha256'] != D.digest(Path(L.__file__).parent/'data/acceptance_tools_v2.json')):
         raise F.Refusal('node_fault', 'release pin mismatch')
 
 
@@ -75,18 +78,20 @@ def observation(record):
         return M.Observation('accept')
     if verdict == 'INVALID':
         row = {'kernel-rejection': 'kernel_reject', 'kernel-disagreement': 'kernel_disagreement',
-               'resource-cap': 'resource_cap', 'tool-fault:replay': 'tool_fault',
-               'disallowed-axiom': 'axiom_rejected', 'comparator-statement-mismatch': 'statement_mismatch',
-               'certified-base-mismatch': 'front_invalid'}.get(reason, 'malformed_result')
-        return M.Observation(row)
+               'resource-cap': 'resource_cap', 'tool-fault:replay': 'kernel_panic_cause_missing',
+               'disallowed-axiom': 'trusted_disagreement', 'comparator-statement-mismatch': 'trusted_disagreement',
+               'certified-base-mismatch': 'trusted_disagreement'}.get(reason, 'malformed_result')
+        return M.Observation(row, detail='malformed-record' if row == 'trusted_disagreement' else '')
     if verdict == 'ERROR':
         if reason == 'library-outside-certified-base':
             return M.Observation('library_terminal')
         # Raw transport truncation is not the structured submission output cap.
-        if reason in ('resource-unavailable', 'capture-failed', 'output-cap'):
+        if reason == 'output-cap':
+            return M.Observation('output_terminal')
+        if reason in ('resource-unavailable', 'capture-failed'):
             return M.Observation('transient')
         if reason in ('replay-unavailable', 'silent-exit'):
-            return M.Observation('input_failure', detail=record.get('detail', ''))
+            return M.Observation('input_failure', detail='malformed-record' if reason == 'silent-exit' else record.get('detail', ''))
         return M.Observation('node_fault')
     return M.Observation('malformed_result')
 
@@ -124,6 +129,17 @@ def reply(descriptor, context, mapped, statement, states, fuel, counter=None):
     return value
 
 
+def compare_exports(*args, public_counter=False, **kwargs):
+    """Keep full-corpus qualification distinct from certified own selection.
+
+    Refuse an explicit selection instead of silently dropping it in the legacy
+    unbudgeted executor. Existing registry/generator source identities stay frozen.
+    """
+    if 'candidate_declarations' in kwargs and (public_counter or kwargs.get('fuel_budget') is None):
+        raise ValueError('public counter mode refuses candidate_declarations')
+    return D.compare_exports(*args, **kwargs)
+
+
 def run(bundle, package_bytes, inventory_bytes, context, descriptor_bytes, gate_digest,
         reference, tools, counter_driver, work, *, certified_root=None,
         phase='first', public_counter=False):
@@ -141,6 +157,8 @@ def run(bundle, package_bytes, inventory_bytes, context, descriptor_bytes, gate_
         inventory = F.Inventory(inventory_bytes, descriptor['artifact_table_sha256'])
         pkg = F.package(package_bytes, context['package_sha256'], inventory)
         statement = pkg['statement']
+        if len(bundle) > F.RAW_MAX:
+            raise F.Refusal('structural_cap', 'bundle byte limit')
         if pkg['env_id'] != context['env_id'] or C.sha(bundle) != context['export_digest']:
             raise F.Refusal('input_integrity', 'job binding')
         if context['leaf_kind'] == 2:
@@ -168,6 +186,9 @@ def run(bundle, package_bytes, inventory_bytes, context, descriptor_bytes, gate_
         if pkg['mode'] == 'certified-own':
             try:
                 authority = FC.load_authority()
+            except (FC.FuelCapError, OSError, ValueError, TypeError, KeyError):
+                raise F.Refusal('node_fault', 'local fuel authority unavailable') from None
+            try:
                 resolved = FC.resolve(pkg['fuel_cap'], authority)
                 if resolved['problem'] != pkg['problem'] or resolved['statement'] != statement:
                     raise FC.FuelCapError('package cap identity')
@@ -198,13 +219,22 @@ def run(bundle, package_bytes, inventory_bytes, context, descriptor_bytes, gate_
         own = [F.selector(name) for name in checked.own]
         if public_counter:
             counters = CI.one(source, directory/'counter-identity', Path(counter_driver), Path(tools.nanoda))
-        result = D.compare_exports(str(reference_path), str(source), target, tools, Sandbox.development(),
+        result = compare_exports(str(reference_path), str(source), target, tools, Sandbox.development(),
             str(directory/'compare'), 1800, ['Classical.choice', 'Quot.sound', 'propext'],
-            candidate_declarations=own, **(dict(fuel_budget=budget) if budget is not None else {}))
+            public_counter=public_counter,
+            **(dict(fuel_budget=budget,candidate_declarations=own) if budget is not None else {}))
         (directory/'COMPARATOR.json').write_text(json.dumps(result, indent=2)+'\n')
         mapped_observation = observation(result)
         events = result.get('comparator_status', [])
-        if result.get('verdict') in ('PASS', 'INVALID'):
+        front_stop = (result.get('rc') == 2 and
+                      any(e.get('stage')=='final' and e.get('rc')==2 for e in events) and
+                      any(e.get('stage')=='policy' and e.get('reason')==result.get('reason') for e in events) and
+                      not any(e.get('stage') in ('fuel','nanoda-fuel','lean','nanoda') for e in events))
+        if front_stop and result.get('reason') in ('resource-cap','output-cap'):
+            states = M.not_run(); fuel = 0
+            if result['reason'] == 'resource-cap':
+                mapped_observation = M.Observation('structural_cap')
+        elif result.get('verdict') in ('PASS', 'INVALID') or mapped_observation.row == 'output_terminal':
             if (events and not any(e.get('stage') in ('fuel', 'nanoda-fuel', 'lean', 'nanoda') for e in events)
                     and any(e.get('stage') == 'policy' and e.get('reason') in
                             ('comparator-statement-mismatch', 'disallowed-axiom', 'certified-base-mismatch') for e in events)):
@@ -214,6 +244,8 @@ def run(bundle, package_bytes, inventory_bytes, context, descriptor_bytes, gate_
                     states, fuel = M.kernel_states(events, result['rc'], result['verdict'], caps, descriptor['fuel'])
                 except ValueError:
                     states = M.unknown(); fuel = None
+                    if mapped_observation.row == 'kernel_panic_cause_missing':
+                        return finish(mapped_observation)
                     return finish('malformed_result')
                 # Native exit 3 currently conflates aggregate work, per-item
                 # fuel and depth. Only an actually exceeded aggregate counter
@@ -252,9 +284,11 @@ def decode_reply(raw, descriptor, context, *, fork_authorized=False):
         raise ValueError('reply input mismatch')
     if value['detail'] not in ('', 'malformed-record'):
         raise ValueError('unknown detail code')
+    if type(value['row']) is not str or value['row'] not in M.ROWS:
+        raise ValueError('unknown reply row')
     expected = M.classify(M.Observation(value['row'], detail=value['detail'],
                                       fork_authorized=fork_authorized), descriptor)
-    for key in ('outcome', 'reason', 'action', 'failure_class', 'detail', 'gate_error', 'native_followup'):
+    for key in ('row', 'outcome', 'reason', 'action', 'failure_class', 'detail', 'gate_error', 'native_followup'):
         if value[key] != expected[key] or type(value[key]) is not type(expected[key]):
             raise ValueError('reply mapping mismatch')
     # VOID-only identity and scalar syntax apply even to unavailable results.

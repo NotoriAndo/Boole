@@ -5,10 +5,10 @@ import sys
 from . import adapter as A, codec as C
 
 
-def read(path, cap):
+def read(path, cap, *, overflow=False):
     with Path(path).open('rb') as stream:
         raw = stream.read(cap+1)
-    if len(raw) > cap:
+    if len(raw) > cap and not overflow:
         raise ValueError('input exceeds framing cap')
     return raw
 
@@ -26,7 +26,7 @@ def main():
         raw_descriptor = read(args.descriptor, 65536)
         descriptor = C.decode(raw_descriptor, args.gate_digest)
         context = C.loads(read(args.context, 65536))
-        result = A.run(read(args.bundle, 134217728), read(args.package, 1048576),
+        result = A.run(read(args.bundle, 134217728, overflow=True), read(args.package, 1048576),
             read(args.inventory, 67108864), context, raw_descriptor, args.gate_digest,
             args.reference, A.D.Tools.load(args.tools_root), args.counter_driver, args.work,
             certified_root=args.certified_root, phase=args.phase, public_counter=args.public_counter)

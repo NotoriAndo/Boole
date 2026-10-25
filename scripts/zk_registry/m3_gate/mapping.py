@@ -18,6 +18,7 @@ class Row:
 ROWS = {
     'accept': Row('ACCEPT', 0, 'apply'),
     'front_invalid': Row('REJECT', 0x0106, 'apply'),
+    'name_grammar': Row('REJECT', 0x0103, 'apply'),
     'unknown_constant': Row('REJECT', 0x0106, 'apply'),
     'structural_cap': Row('REJECT', 0x0108, 'apply'),
     'reserved_name': Row('REJECT', 0x0201, 'apply'),
@@ -41,6 +42,7 @@ ROWS = {
     'fuel_binding_invalid': Row('VOID', 0x0803, 'apply'),
     'generator_unavailable': Row('VOID', 0x0804, 'apply'),
     'malformed_result': Row('DEFER', 0, 'repair', 'environment-result-unavailable'),
+    'trusted_disagreement': Row('DEFER', 0, 'retry', 'replay-unavailable'),
     'quarantine_void': Row('VOID', 0x0802, 'fork-only'),
 }
 NATIVE_FOLLOWUPS = tuple(sorted({r.native_followup for r in ROWS.values() if r.native_followup}
@@ -73,18 +75,19 @@ def classify(observation, descriptor, phase='first'):
     row = ROWS[o.row]
     # Submission-specific typed faults/limits are never proof verdicts when a
     # trusted reference or a generated export was the failed input.
-    if o.role != 'submission' and o.row in ('front_invalid', 'unknown_constant', 'reserved_name', 'statement_mismatch',
+    if o.role != 'submission' and o.row in ('front_invalid', 'name_grammar', 'unknown_constant', 'reserved_name', 'statement_mismatch',
             'axiom_rejected', 'kernel_reject', 'kernel_disagreement', 'resource_cap', 'structural_cap',
             'tool_fault', 'library_terminal', 'output_terminal'):
         o = Observation('node_fault', o.stage, o.role)
         row = ROWS[o.row]
-    group = E.classify(row.error, o.stage, o.detail, rules=rules) if row.error else ''
+    detail = 'malformed-record' if o.row == 'trusted_disagreement' else o.detail
+    group = E.classify(row.error, o.stage, detail, rules=rules) if row.error else ''
     if row.outcome == 'DEFER' and group == 'D-node':
         action = 'repair'
     else:
         action = row.action
     return dict(row=o.row, outcome=row.outcome, reason=row.reason, action=action,
-                failure_class=group, detail='malformed-record' if o.detail == 'malformed-record' else '',
+                failure_class=group, detail='malformed-record' if detail == 'malformed-record' else '',
                 gate_error=row.error, native_followup=row.native_followup)
 
 
