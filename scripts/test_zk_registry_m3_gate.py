@@ -2,6 +2,7 @@
 import copy
 import contextlib
 import io
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -435,6 +436,180 @@ class ReservedNames(MacProfile):
 
 
 class Adapter(Front):
+    def test_cli_authenticates_package_before_opening_decoder_status(self):
+        from zk_registry.m3_gate import __main__ as main
+        directory = Path(self.tmp.name)/'decoder-cli'
+        directory.mkdir()
+        for name, raw in [('descriptor', C.encode(self.desc)), ('inventory', self.inventory.raw)]:
+            (directory/name).write_bytes(raw)
+        for index, (package, expected) in enumerate(((b'{}', ('VOID', 0x0801)),
+                (C.canonical(self.pkg), ('DEFER', 0)))):
+            (directory/'package').write_bytes(package)
+            context = dict(self.context, package_sha256=C.sha(package))
+            (directory/'context').write_bytes(C.canonical(context))
+            argv = ['gate_m3', '--gate-digest', C.identity(self.desc)]
+            for name in ('descriptor', 'package', 'inventory', 'context'):
+                argv += ['--'+name, str(directory/name)]
+            argv += ['--bundle', str(directory/'missing-bundle'), '--reference', str(directory/'missing-reference'),
+                     '--decoder-status', str(directory/'missing-status'), '--tools-root', 'synthetic',
+                     '--counter-driver', 'synthetic', '--work', str(directory/('work-'+str(index)))]
+            stdout = io.StringIO()
+            with patch.object(sys, 'argv', argv), patch.object(A.D.Tools, 'load', return_value=object()), \
+                 patch.object(A, 'verify_tools'), contextlib.redirect_stdout(stdout), \
+                 contextlib.redirect_stderr(io.StringIO()):
+                code = main.main()
+            self.assertEqual(code, 0)
+            result = C.loads(stdout.getvalue()[len(A.MARKER):])
+            self.assertEqual((result['outcome'], result['reason']), expected)
+            A.decode_reply(C.canonical(result), self.desc, context)
+
+    def test_quarantine_preserves_a_valid_authenticated_statement(self):
+        _, _, context = self.invoke('quarantine-bound-source')
+        statement = self.pkg['statement']
+        mapped = M.classify(M.Observation('quarantine_void', fork_authorized=True), self.desc)
+        selected = M.quarantine_statement(context, statement, fork_authorized=True)
+        self.assertEqual(selected, statement)
+        reply = A.reply(self.desc, context, mapped, selected, M.not_run(), 0,
+                        fork_authorized=True, authenticated_statement=statement)
+        A.decode_reply(C.canonical(reply), self.desc, context,
+                       fork_authorized=True, authenticated_statement=statement)
+        fallback = M.quarantine_fingerprint(context)
+        with self.assertRaises(ValueError):
+            A.decode_reply(C.canonical(dict(reply, statement_id=fallback)), self.desc, context,
+                           fork_authorized=True, authenticated_statement=statement)
+        for authority in (False, 1, None):
+            with self.subTest(authority=authority), self.assertRaises(ValueError):
+                M.quarantine_statement(context, fork_authorized=authority)
+        for key in ('chain_id', 'problem_id', 'commit_hash', 'env_id', 'package_sha256'):
+            changed = dict(context)
+            changed[key] = context[key]+1 if key == 'chain_id' else 'f'*64
+            self.assertNotEqual(M.quarantine_fingerprint(changed), fallback)
+
+    def test_decoder_channel_is_strict_and_success_is_bound_to_actual_output(self):
+        channel = dict(version=1, context_sha256=C.sha(C.canonical(self.context)),
+                       status='ok', cause='none', raw_sha256=C.sha(self.bundle), raw_bytes=len(self.bundle))
+        result, compare, _ = self.invoke('decoder-success', decoder_status=C.canonical(channel))
+        self.assertEqual(result['outcome'], 'ACCEPT'); compare.assert_called_once()
+        variants = [dict(channel, context_sha256='f'*64), dict(channel, status='invalid-data', cause='write'),
+                    dict(channel, raw_sha256='f'*64), dict(channel, raw_bytes=len(self.bundle)+1),
+                    dict(channel, version=True), dict(channel, raw_bytes=True), dict(channel, unknown=1)]
+        for index, bad in enumerate(variants):
+            result, compare, _ = self.invoke('bad-decoder-'+str(index), decoder_status=C.canonical(bad))
+            self.assertEqual((result['outcome'], result['failure_class']), ('DEFER', 'D-node'))
+            compare.assert_not_called()
+
+    def test_python_output_write_fault_stays_node_defer(self):
+        original_open = Path.open
+        def write_fault(path, *args, **kwargs):
+            if path.name == 'solution.ndjson':
+                raise OSError(28, 'synthetic host write failure')
+            return original_open(path, *args, **kwargs)
+        with patch.object(Path, 'open', write_fault):
+            result, compare, _ = self.invoke('host-output-write')
+        self.assertEqual((result['outcome'], result['failure_class']), ('DEFER', 'D-node'))
+        compare.assert_not_called()
+
+    def test_typed_decoder_data_and_host_write_faults_are_distinct(self):
+        undecoded = b'no decoded bundle'
+        context = dict(self.context, export_digest=C.sha(undecoded))
+        for index, (status, cause, row, outcome, reason) in enumerate((
+                ('invalid-data', 'frame', 'front_invalid', 'REJECT', 0x0106),
+                ('unavailable', 'write', 'node_fault', 'DEFER', 0),
+                ('unavailable', 'read', 'node_fault', 'DEFER', 0),
+                ('unavailable', 'resource', 'node_fault', 'DEFER', 0))):
+            channel = C.canonical(dict(version=1, context_sha256=C.sha(C.canonical(context)),
+                status=status, cause=cause, raw_sha256=None, raw_bytes=None))
+            result, compare, bound = self.invoke('decoder-'+str(index), bundle=undecoded,
+                                                 decoder_status=channel)
+            self.assertEqual((result['row'], result['outcome'], result['reason']), (row, outcome, reason))
+            self.assertEqual((result['kernels'], result['fuel']), (M.not_run(), 0))
+            if outcome == 'DEFER': self.assertEqual(result['failure_class'], 'D-node')
+            compare.assert_not_called()
+            A.decode_reply(C.canonical(result), self.desc, bound)
+        # An old untyped exit1 is never enough to blame the input.
+        result, compare, _ = self.invoke('decoder-untyped-exit', bundle=undecoded,
+                                         decoder_status=C.canonical(dict(exit_code=1)))
+        self.assertEqual((result['outcome'], result['failure_class']), ('DEFER', 'D-node'))
+        compare.assert_not_called()
+
+    def test_authorized_statementless_quarantine_has_its_own_exact_fingerprint(self):
+        original, _, context = self.invoke('quarantine-source')
+        material = (b'BOOLE-M3/QUARANTINE-STATEMENT/v1\0' + context['chain_id'].to_bytes(8, 'big')
+            + b''.join(bytes.fromhex(context[k]) for k in ('problem_id', 'commit_hash', 'env_id', 'package_sha256'))
+            + (0x0802).to_bytes(2, 'big'))
+        expected = hashlib.sha256(material).hexdigest()
+        mapped = M.classify(M.Observation('quarantine_void', fork_authorized=True), self.desc)
+        reply = dict(original, **{k:mapped[k] for k in
+            ('row','outcome','reason','action','failure_class','detail','gate_error','native_followup')})
+        reply.update(statement_id=expected, fuel=0, kernels=M.not_run())
+        A.decode_reply(C.canonical(reply), self.desc, context, fork_authorized=True)
+        for bad in ('0'*64, M.void_statement(context), 'f'*64):
+            with self.subTest(statement=bad), self.assertRaises(ValueError):
+                A.decode_reply(C.canonical(dict(reply, statement_id=bad)), self.desc, context,
+                               fork_authorized=True)
+        with self.assertRaises(ValueError):
+            A.decode_reply(C.canonical(reply), self.desc, context)
+        for row in ('accept', 'front_invalid', 'package_invalid', 'fuel_binding_invalid'):
+            mapped = M.classify(M.Observation(row), self.desc)
+            other = dict(original, **{k:mapped[k] for k in
+                ('row','outcome','reason','action','failure_class','detail','gate_error','native_followup')})
+            other['statement_id'] = expected
+            with self.subTest(row=row), self.assertRaises(ValueError):
+                A.decode_reply(C.canonical(other), self.desc, context)
+
+    def test_package_authentication_precedes_transport_and_reference_access(self):
+        bad_target = dict(self.pkg, target=False)
+        noncanonical = C.canonical(dict(reversed(list(self.pkg.items()))))
+        cases = (b'{}', C.canonical(bad_target), noncanonical)
+        for index, package in enumerate(cases):
+            for phase in ('first', 'retry', 'replay'):
+                result, compare, context = self.invoke('package-first-'+str(index)+'-'+phase,
+                    package_bytes=package, bundle=b'broken transport', phase=phase,
+                    reference=Path(self.tmp.name)/'absent-reference',
+                    decoder_status=A.DC.Source(str(Path(self.tmp.name)/'absent-decoder-status')))
+                self.assertEqual((result['row'], result['outcome'], result['reason']),
+                                 ('package_invalid', 'VOID', 0x0801))
+                self.assertEqual(result['statement_id'], M.void_statement(context))
+                self.assertEqual((result['kernels'], result['fuel']), (M.not_run(), 0))
+                compare.assert_not_called()
+                A.decode_reply(C.canonical(result), self.desc, context)
+        result, compare, _ = self.invoke('valid-package-broken-transport', bundle=b'broken transport')
+        self.assertEqual((result['outcome'], result['reason']), ('REJECT', 0x0106))
+        compare.assert_not_called()
+
+    def test_missing_or_corrupt_bound_reference_stays_node_defer(self):
+        corrupt = Path(self.tmp.name)/'corrupt-reference'
+        corrupt.write_bytes(b'local corruption')
+        for index, path in enumerate((Path(self.tmp.name)/'missing-reference', corrupt)):
+            result, compare, context = self.invoke('unavailable-reference-'+str(index), reference=path)
+            self.assertEqual((result['outcome'], result['failure_class']), ('DEFER', 'D-node'))
+            compare.assert_not_called()
+            A.decode_reply(C.canonical(result), self.desc, context)
+
+    def test_measured_reference_export_mismatch_is_a_published_cap_void(self):
+        row = dict(next(iter(self.authority['references'].values())), reference_export='a'*64)
+        key = A.FC.digest(row)
+        self.authority['references'] = {key: row}
+        self.pkg['fuel_cap']['cap']['reference'] = key
+        self.pkg['fuel_cap']['sha256'] = A.FC.digest(self.pkg['fuel_cap']['cap'])
+        for phase in ('first', 'retry', 'replay'):
+            result, compare, context = self.invoke('wrong-measured-reference-'+phase, phase=phase)
+            self.assertEqual((result['row'], result['outcome'], result['reason']),
+                             ('fuel_binding_invalid', 'VOID', 0x0803))
+            self.assertEqual((result['kernels'], result['fuel']), (M.not_run(), 0))
+            compare.assert_not_called()
+            A.decode_reply(C.canonical(result), self.desc, context)
+
+    def test_open_environment_mismatch_is_a_terminal_front_rejection(self):
+        self.context['env_id'] = 'a'*64  # another environment allowed by OPEN's caller
+        for phase in ('first', 'retry', 'replay'):
+            result, compare, context = self.invoke('other-open-env-'+phase, phase=phase)
+            self.assertEqual((result['row'], result['outcome'], result['reason'], result['action']),
+                             ('front_invalid', 'REJECT', 0x0106, 'apply'))
+            self.assertEqual((result['kernels'], result['fuel']), (M.not_run(), 0))
+            compare.assert_not_called()
+            A.decode_reply(C.canonical(result), self.desc, context)
+
     def test_unproducible_tool_fault_row_is_refused(self):
         result,_,context=self.invoke('invalid-0307')
         result.update(row='tool_fault',outcome='REJECT',reason=0x0307)
@@ -476,7 +651,7 @@ class Adapter(Front):
             dict(version=1, stage='fuel', kernel='lean', debit=2),
             dict(version=1, stage='final', rc=0)])
 
-    def invoke(self, label, native=None, bundle=None, phase='first', package_bytes=None, authority_error=None, reference=None, public_counter=False):
+    def invoke(self, label, native=None, bundle=None, phase='first', package_bytes=None, authority_error=None, reference=None, public_counter=False, decoder_status=None):
         context = dict(self.context)
         raw = self.bundle if bundle is None else bundle
         context['export_digest'] = C.sha(raw)
@@ -487,7 +662,7 @@ class Adapter(Front):
              patch.object(A.FC, 'bind', return_value=A.FC.Budget(256, 256, '7'*64, 'synthetic', '8'*64, '9'*64)), \
              patch.object(A.D, 'compare_exports', return_value=self.native if native is None else native) as compare:
             result = A.run(raw, encoded, self.inventory.raw, context, C.encode(self.desc), C.identity(self.desc),
-                self.path if reference is None else reference, object(), 'synthetic', Path(self.tmp.name)/label, phase=phase,public_counter=public_counter)
+                self.path if reference is None else reference, object(), 'synthetic', Path(self.tmp.name)/label, phase=phase,public_counter=public_counter, decoder_status=decoder_status)
         return result, compare, context
 
     def input_reference(self):
@@ -722,22 +897,24 @@ class Adapter(Front):
         compare.assert_not_called()
 
     def test_library_terminal_after_own_guards_in_all_three_phases(self):
+        reference = self.input_reference()
         self.rows.insert(1, {'in': 6, 'str': dict(pre=0, str='allowedLibrary')})
         self.rows.append({'def': dict(name=6, levelParams=[], type=0, value=1, hints='opaque', safety='safe', all=[6])})
         self.write(self.rows); export = F.read_export(self.path)
         table = self.inventory.data(); name = (('str', 'allowedLibrary'),)
         table['library'][F.name_key(name)] = F.payload(export, name)
         raw = C.canonical(table); self.inventory = F.Inventory(raw, C.sha(raw))
-        self.pkg.update(inventory_sha256=self.inventory.sha256, reference_sha256=export.raw_sha256)
+        self.pkg.update(inventory_sha256=self.inventory.sha256)
         self.desc['artifact_table_sha256'] = self.inventory.sha256
         for phase in ('first', 'retry', 'replay'):
-            result, compare, _ = self.invoke('library-'+phase, bundle=F.pack(self.path.read_bytes()), phase=phase)
+            result, compare, _ = self.invoke('library-'+phase, bundle=F.pack(self.path.read_bytes()),
+                                             phase=phase, reference=reference)
             self.assertEqual((result['outcome'], result['reason'], result['failure_class']), ('REJECT', 0x010a, 'S'))
             compare.assert_not_called()
         self.rows.insert(1, {'in': 7, 'str': dict(pre=0, str='badOwn')})
         self.rows.append({'axiom': dict(name=7, levelParams=[], type=0, isUnsafe=False)})
         self.write(self.rows)
-        result, compare, _ = self.invoke('own-before-library', bundle=F.pack(self.path.read_bytes()))
+        result, compare, _ = self.invoke('own-before-library', bundle=F.pack(self.path.read_bytes()), reference=reference)
         self.assertEqual((result['outcome'], result['reason']), ('REJECT', 0x0106)); compare.assert_not_called()
 
 

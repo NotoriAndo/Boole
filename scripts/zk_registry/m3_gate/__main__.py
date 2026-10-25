@@ -2,7 +2,7 @@
 import argparse
 from pathlib import Path
 import sys
-from . import adapter as A, codec as C, front as F
+from . import adapter as A, codec as C, front as F, decoder as DC
 
 
 def read(path, cap, *, overflow=False):
@@ -21,6 +21,7 @@ def main():
     parser.add_argument('--certified-root')
     parser.add_argument('--phase', choices=('first', 'retry', 'replay'), default='first')
     parser.add_argument('--public-counter', action='store_true')
+    parser.add_argument('--decoder-status')
     args = parser.parse_args()
     try:
         raw_descriptor = read(args.descriptor, 65536)
@@ -29,7 +30,8 @@ def main():
         result = A.run(F.BundleSource(args.bundle), read(args.package, 1048576),
             read(args.inventory, 67108864), context, raw_descriptor, args.gate_digest,
             args.reference, A.D.Tools.load(args.tools_root), args.counter_driver, args.work,
-            certified_root=args.certified_root, phase=args.phase, public_counter=args.public_counter)
+            certified_root=args.certified_root, phase=args.phase, public_counter=args.public_counter,
+            decoder_status=DC.Source(args.decoder_status) if args.decoder_status is not None else None)
         encoded = C.canonical(result)
         A.decode_reply(encoded, descriptor, context)
         print(A.MARKER+encoded.decode())
