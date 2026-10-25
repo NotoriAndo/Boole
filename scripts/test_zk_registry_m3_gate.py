@@ -137,6 +137,94 @@ class Front(unittest.TestCase):
             F.partition(F.read_export(self.path), inventory, self.pkg)
 
 
+class ReservedNames(unittest.TestCase):
+    setUp = Front.setUp
+    write = Front.write
+
+    def add_definition(self, parts, *, authenticated=False):
+        parent = 0
+        for index, part in enumerate(parts, 6):
+            self.rows.append({'in': index, 'str': dict(pre=parent, str=part)})
+            parent = index
+        self.rows.append({'def': dict(name=parent, levelParams=[], type=0, value=1,
+                                     hints='opaque', safety='safe', all=[parent])})
+        self.write(self.rows)
+        if authenticated:
+            export = F.read_export(self.path); table = self.inventory.data()
+            name = tuple(('str', part) for part in parts)
+            table['base'][F.name_key(name)] = F.payload(export, name)
+            table['base'] = dict(sorted(table['base'].items()))
+            raw = C.canonical(table); self.inventory = F.Inventory(raw, C.sha(raw))
+            self.pkg['inventory_sha256'] = self.inventory.sha256
+        return parent
+
+    def rejected(self, expected):
+        with self.assertRaises(F.Refusal) as caught:
+            F.partition(F.read_export(self.path), self.inventory, self.pkg)
+        for phase in ('first', 'retry', 'replay'):
+            result = M.classify(M.Observation(caught.exception.row), descriptor(), phase)
+            self.assertEqual((result['row'], result['outcome'], result['reason']),
+                             (expected, 'REJECT', 0x0201 if expected == 'reserved_name' else 0x0106))
+
+    def test_declare_boolecs_is_reserved(self):
+        self.add_definition(('BooleCS', 'X'))
+        self.rejected('reserved_name')
+
+    def test_declare_leaf_spec_is_reserved(self):
+        self.add_definition(('Leaf', 'spec'))
+        self.rejected('reserved_name')
+
+    def test_reference_admitted_boole_r_is_reserved(self):
+        index = self.add_definition(('Boole', 'R1', 'x'), authenticated=True)
+        self.rows.append({'ie': 99, 'const': dict(name=index, us=[])})
+        next(row['thm'] for row in self.rows if 'thm' in row)['value'] = 99
+        self.write(self.rows); self.rejected('reserved_name')
+
+    def test_unauthenticated_boolecs_reference_is_unknown_constant(self):
+        self.rows += [{'in': 6, 'str': dict(pre=0, str='BooleCS')},
+                      {'in': 7, 'str': dict(pre=6, str='Y')},
+                      {'ie': 99, 'const': dict(name=7, us=[])}]
+        next(row['thm'] for row in self.rows if 'thm' in row)['value'] = 99
+        self.write(self.rows); self.rejected('unknown_constant')
+
+    def test_unknown_constant_on_a_trusted_input_stays_node_fault(self):
+        self.rows += [{'in': 6, 'str': dict(pre=0, str='BooleCS')},
+                      {'in': 7, 'str': dict(pre=6, str='Y')},
+                      {'ie': 99, 'const': dict(name=7, us=[])}]
+        self.write(self.rows)
+        with self.assertRaisesRegex(F.Refusal, 'node_fault'):
+            F.read_export(self.path, 'reference')
+        for role in ('reference', 'gate-generated'):
+            for phase in ('first', 'retry', 'replay'):
+                mapped = M.classify(M.Observation('unknown_constant', role=role), descriptor(), phase)
+                self.assertEqual((mapped['outcome'], mapped['failure_class']), ('DEFER', 'D-node'))
+
+    def test_authenticated_leaf_reference_is_allowed(self):
+        index = self.add_definition(('Leaf', 'spec'), authenticated=True)
+        self.rows.append({'ie': 99, 'const': dict(name=index, us=[])})
+        next(row['thm'] for row in self.rows if 'thm' in row)['value'] = 99
+        self.write(self.rows)
+        self.assertEqual(F.partition(F.read_export(self.path), self.inventory, self.pkg).own,
+                         ((('str', 'goal'),),))
+
+    def test_authenticated_boolecs_con_and_constructor_references_are_allowed(self):
+        self.add_definition(('BooleCS', 'Con'), authenticated=True)
+        # Keep distinct intern ids for the constructor's child name.
+        self.rows += [{'in': 9, 'str': dict(pre=7, str='mk')},
+                      {'def': dict(name=9, levelParams=[], type=0, value=1,
+                                   hints='opaque', safety='safe', all=[9])},
+                      {'ie': 99, 'const': dict(name=7, us=[])},
+                      {'ie': 100, 'const': dict(name=9, us=[])},
+                      {'ie': 101, 'app': dict(fn=99, arg=100)}]
+        next(row['thm'] for row in self.rows if 'thm' in row)['value'] = 101
+        self.write(self.rows); export = F.read_export(self.path); table = self.inventory.data()
+        name = (('str', 'BooleCS'), ('str', 'Con'), ('str', 'mk'))
+        table['base'][F.name_key(name)] = F.payload(export, name)
+        table['base'] = dict(sorted(table['base'].items())); raw = C.canonical(table)
+        inventory = F.Inventory(raw, C.sha(raw))
+        self.assertEqual(F.partition(export, inventory, self.pkg).own, ((('str', 'goal'),),))
+
+
 class Adapter(Front):
     def setUp(self):
         super().setUp()
@@ -268,6 +356,7 @@ class Adapter(Front):
 MAPPING_CASES = [
     ('accept', 'ACCEPT', 0, 'apply', ''),
     ('front_invalid', 'REJECT', 0x0106, 'apply', ''),
+    ('unknown_constant', 'REJECT', 0x0106, 'apply', ''),
     ('structural_cap', 'REJECT', 0x0108, 'apply', ''),
     ('reserved_name', 'REJECT', 0x0201, 'apply', ''),
     ('statement_mismatch', 'REJECT', 0x0107, 'apply', ''),

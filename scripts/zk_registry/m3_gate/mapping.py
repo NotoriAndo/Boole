@@ -18,6 +18,7 @@ class Row:
 ROWS = {
     'accept': Row('ACCEPT', 0, 'apply'),
     'front_invalid': Row('REJECT', 0x0106, 'apply'),
+    'unknown_constant': Row('REJECT', 0x0106, 'apply'),
     'structural_cap': Row('REJECT', 0x0108, 'apply'),
     'reserved_name': Row('REJECT', 0x0201, 'apply'),
     'statement_mismatch': Row('REJECT', 0x0107, 'apply'),
@@ -72,7 +73,7 @@ def classify(observation, descriptor, phase='first'):
     row = ROWS[o.row]
     # Submission-specific typed faults/limits are never proof verdicts when a
     # trusted reference or a generated export was the failed input.
-    if o.role != 'submission' and o.row in ('front_invalid', 'reserved_name', 'statement_mismatch',
+    if o.role != 'submission' and o.row in ('front_invalid', 'unknown_constant', 'reserved_name', 'statement_mismatch',
             'axiom_rejected', 'kernel_reject', 'kernel_disagreement', 'resource_cap', 'structural_cap',
             'tool_fault', 'library_terminal', 'output_terminal'):
         o = Observation('node_fault', o.stage, o.role)

@@ -48,13 +48,20 @@ The adapter passes that explicit checked-own set to DET3. An empty set or a targ
 that is not an own theorem is rejected before a kernel; there is no challenge-name fallback.
 
 Order: authenticate release/tools/inventory/package and input bindings; parse
-all export structure; authenticate cached payloads; check own literal/depth,
-reserved-name, safety, declaration-profile and axiom rules; bind the trusted
+all export structure; authenticate cached payloads; reject reserved own
+declarations; check own literal/depth, reference, safety, profile and axiom rules; bind the trusted
 reference and both statements; traverse the own axiom closure; resolve cap,
 certified-state and scalar allowance; apply the own declaration-count precheck;
 then report allowed library material outside the certified base as terminal S.
-Own declaration checks use export declaration order. A library S exit cannot
+After the reserved declaration pass, own checks use export declaration order. A library S exit cannot
 erase an independently decidable earlier own/statement/axiom violation.
+
+The M3-A3 amendment reserves `Leaf.*` and `BooleCS.*` against new declarations
+only. Their references must resolve to complete payloads authenticated by the
+environment or package inventory. Missing declarations are a typed
+`unknown_constant` rejection (0106), not a reserved-name violation. The
+`Boole.R<k>.*` declaration and reference ban remains in force. Reserved own
+declarations are checked before reference policy, independently of row order.
 
 Malformed submission data is a cheap typed rejection. A missing or malformed
 trusted reference, generated export, tool or inventory is DEFER(D-node).

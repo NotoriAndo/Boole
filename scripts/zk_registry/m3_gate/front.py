@@ -180,7 +180,10 @@ def read_export(path, role='submission'):
         raise Refusal('node_fault', 'export unavailable') from None
     except I.IdentityCap:
         raise Refusal('structural_cap' if role == 'submission' else 'node_fault', 'export limit') from None
-    except (I.IdentityError, ValueError, TypeError, KeyError, RecursionError):
+    except I.IdentityError as ex:
+        row = 'unknown_constant' if str(ex) == 'missing-constant' else 'front_invalid'
+        raise Refusal(row if role == 'submission' else 'node_fault', 'export grammar') from None
+    except (ValueError, TypeError, KeyError, RecursionError):
         raise Refusal('front_invalid' if role == 'submission' else 'node_fault', 'export grammar') from None
 
 
@@ -210,8 +213,10 @@ class Checked:
     library: tuple
 
 
-def reserved(name):
-    if name[0] in (('str', 'Leaf'), ('str', 'BooleCS')):
+def reserved(name, *, reference=False):
+    # Package/environment namespaces forbid new declarations, not references
+    # to their authenticated definitions. Admitted Boole.R<k> stays disjoint.
+    if not reference and name[0] in (('str', 'Leaf'), ('str', 'BooleCS')):
         return True
     return (len(name) > 1 and name[0] == ('str', 'Boole') and name[1][0] == 'str'
             and re.fullmatch(r'R[0-9]*', name[1][1]) is not None)
@@ -251,12 +256,20 @@ def partition(export, inventory, pkg):
             (base if group == 'base' else library).append(name)
         else:
             own.append(name)
+    # Declarations precede reference policy, independent of export row order.
+    if any(reserved(name) for name in own):
+        raise Refusal('reserved_name', 'reserved declaration')
+    authenticated = set(base) | set(library)
     for name in own:
         kind, value = export.declarations[name]
         starts = [value['type']] + ([value['value']] if 'value' in value else [])
         own_input_caps(export, starts)
-        if reserved(name) or any(reserved(dep) for dep in export.dependencies(starts, set())):
+        dependencies = export.dependencies(starts, set())
+        if any(reserved(dep, reference=True) for dep in dependencies):
             raise Refusal('reserved_name', 'reserved-name')
+        if any(dep[0] in (('str', 'Leaf'), ('str', 'BooleCS')) and dep not in authenticated
+               for dep in dependencies):
+            raise Refusal('unknown_constant', 'unauthenticated package reference')
         if value.get('isUnsafe') or value.get('safety', 'safe') != 'safe':
             raise Refusal('front_invalid', 'own unsafe/partial')
         if pkg['mode'] == 'certified-own' and kind not in ('def', 'thm'):
