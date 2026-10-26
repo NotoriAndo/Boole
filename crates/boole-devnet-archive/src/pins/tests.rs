@@ -806,39 +806,49 @@ fn interrupted_bootstrap(f: &mut Fixture) -> Result<(Hash, std::path::PathBuf)> 
 #[test]
 #[cfg(unix)]
 fn concurrent_tail_directory_change_is_pending_without_adopting_authority() -> Result<()> {
-    let mut f = fixture(true)?;
-    let old = f.pins.view().record_id();
-    let (digest, _) = interrupted_bootstrap(&mut f)?;
-    let records = f.pins.view.root.join("records");
-    let preserved = f.pins.view.root.join("test-preserved-records");
-    let a = records.clone();
-    let b = preserved.clone();
-    super::cursor::BEFORE_TAIL_FENCE.with(|slot| {
-        *slot.borrow_mut() = Some(Box::new(move || {
-            std::fs::rename(&a, &b).unwrap();
-            std::fs::create_dir(&a).unwrap();
-        }))
-    });
-    let error = f
-        .pins
-        .refresh(&f.source)
-        .expect_err("concurrent directory replacement escaped fence");
-    std::fs::remove_dir(&records)?;
-    std::fs::rename(&preserved, &records)?;
-    assert!(
-        matches!(
-            error.downcast_ref::<crate::error::Error>(),
-            Some(crate::error::Error::Availability { .. })
-        ),
-        "{error:#}"
-    );
-    assert_eq!(
-        f.pins.view().record_id(),
-        old,
-        "pending read adopted unconfirmed authority"
-    );
-    f.pins.refresh(&f.source)?;
-    assert_eq!(f.pins.view().record_id(), digest);
+    for replace_with_file in [false, true] {
+        let mut f = fixture(true)?;
+        let old = f.pins.view().record_id();
+        let (digest, _) = interrupted_bootstrap(&mut f)?;
+        let records = f.pins.view.root.join("records");
+        let preserved = f.pins.view.root.join("test-preserved-records");
+        let a = records.clone();
+        let b = preserved.clone();
+        super::cursor::BEFORE_TAIL_FENCE.with(|slot| {
+            *slot.borrow_mut() = Some(Box::new(move || {
+                std::fs::rename(&a, &b).unwrap();
+                if replace_with_file {
+                    std::fs::write(&a, b"concurrent replacement").unwrap();
+                } else {
+                    std::fs::create_dir(&a).unwrap();
+                }
+            }))
+        });
+        let error = f
+            .pins
+            .refresh(&f.source)
+            .expect_err("concurrent directory replacement escaped fence");
+        if replace_with_file {
+            std::fs::remove_file(&records)?;
+        } else {
+            std::fs::remove_dir(&records)?;
+        }
+        std::fs::rename(&preserved, &records)?;
+        assert!(
+            matches!(
+                error.downcast_ref::<crate::error::Error>(),
+                Some(crate::error::Error::Availability { .. })
+            ),
+            "{error:#}"
+        );
+        assert_eq!(
+            f.pins.view().record_id(),
+            old,
+            "pending read adopted unconfirmed authority"
+        );
+        f.pins.refresh(&f.source)?;
+        assert_eq!(f.pins.view().record_id(), digest);
+    }
     Ok(())
 }
 #[test]

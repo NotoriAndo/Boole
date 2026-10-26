@@ -229,7 +229,7 @@ impl PinStore {
                     action();
                 }
             });
-            if directory_stamp(&root)? != before {
+            if !directory_stamp(&root).is_ok_and(|observed| observed == before) {
                 return Err(availability(
                     self.view.height(),
                     "pin-version",
