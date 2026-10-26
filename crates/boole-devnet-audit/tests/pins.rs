@@ -190,3 +190,63 @@ fn t81_concurrent_pin_version_change_is_pending_not_false_ok() -> Result<()> {
     assert_eq!(r["k4"]["pin_retention"], "local-unavailable");
     Ok(())
 }
+
+#[test]
+#[cfg(unix)]
+fn fix1_interrupted_own_publication_is_pending_and_keeps_both_links() -> Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    let f = setup()?;
+    std::fs::set_permissions(&f.artifact, std::fs::Permissions::from_mode(0o600))?;
+    let parent = f.artifact.parent().unwrap();
+    let stage = parent.join(format!(".devnet-new-{}", "b".repeat(32)));
+    std::fs::DirBuilder::new().mode(0o700).create(&stage)?;
+    let alias = stage.join("value");
+    std::fs::hard_link(&f.artifact, &alias)?;
+    let r = run(&f, None)?;
+    assert!(
+        r["first_mismatch"].is_null(),
+        "publication was classified K4: {r}"
+    );
+    assert_eq!(r["k4"]["status"], "pending");
+    assert!(alias.exists() && f.artifact.exists());
+    std::fs::remove_file(alias)?;
+    std::fs::remove_dir(stage)?;
+    assert_eq!(run(&f, None)?["k4"]["status"], "ok");
+    Ok(())
+}
+
+#[test]
+#[cfg(unix)]
+fn fix1_interrupted_record_publication_is_pending_but_unrelated_alias_is_k4() -> Result<()> {
+    use std::os::unix::fs::DirBuilderExt;
+    let f = setup()?;
+    let records = f.source.root().join("pins-v1/records");
+    let path = std::fs::read_dir(&records)?
+        .filter_map(|r| r.ok())
+        .map(|r| r.path())
+        .find(|p| {
+            p.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("00000000000000000000-")
+        })
+        .unwrap();
+    let stage = records.join(format!(".devnet-new-{}", "d".repeat(32)));
+    std::fs::DirBuilder::new().mode(0o700).create(&stage)?;
+    let alias = stage.join("value");
+    std::fs::hard_link(&path, &alias)?;
+    let r = run(&f, None)?;
+    assert!(r["first_mismatch"].is_null(), "{r}");
+    assert_eq!(r["k4"]["status"], "pending");
+    std::fs::remove_file(alias)?;
+    std::fs::remove_dir(stage)?;
+    let foreign = f._dir.path().join("unrelated-hard-link");
+    std::fs::hard_link(&path, &foreign)?;
+    let r = run(&f, None)?;
+    assert_eq!(
+        r["first_mismatch"],
+        serde_json::json!({"height":"0","class":"K4"})
+    );
+    assert!(path.exists() && foreign.exists());
+    Ok(())
+}

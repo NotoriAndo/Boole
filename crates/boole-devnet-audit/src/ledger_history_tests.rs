@@ -817,3 +817,6 @@ fn t82_alias_open_cannot_rebind_the_preimage_to_another_problem() -> Result<()> 
     assert_eq!(h.state.candidates[&(p0, ch)].status(), Status::Open);
     Ok(())
 }
+
+#[path = "pin_retention_tests.rs"]
+mod pin_retention;
