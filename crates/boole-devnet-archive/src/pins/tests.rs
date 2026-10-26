@@ -609,7 +609,7 @@ fn fix1_writer_refresh_and_verify_do_not_reread_the_verified_prefix() -> Result<
     Ok(())
 }
 #[test]
-fn fix1_refresh_adopts_only_the_durable_new_hash_chained_suffix() -> Result<()> {
+fn writer_refuses_an_external_valid_suffix_without_adopting_it() -> Result<()> {
     let mut f = fixture(true)?;
     let frame = Frame {
         version: 1,
@@ -626,9 +626,24 @@ fn fix1_refresh_adopts_only_the_durable_new_hash_chained_suffix() -> Result<()> 
     ));
     publish_new(&path, &raw)?;
     PIN_COST.with(|c| c.set((0, 0, 0)));
-    f.pins.refresh(&f.source)?;
-    assert_eq!(f.pins.view().record_id(), digest);
-    assert_eq!(PIN_COST.with(|c| c.get().0), 1, "old prefix was read again");
+    let old = f.pins.view().record_id();
+    let error = f
+        .pins
+        .refresh(&f.source)
+        .expect_err("external record was adopted");
+    assert!(
+        matches!(
+            error.downcast_ref::<crate::error::Error>(),
+            Some(crate::error::Error::Integrity { .. })
+        ),
+        "{error:#}"
+    );
+    assert_eq!(
+        f.pins.view().record_id(),
+        old,
+        "foreign suffix advanced authority"
+    );
+    assert_eq!(std::fs::read(&path)?, raw, "foreign evidence changed");
     Ok(())
 }
 
@@ -755,5 +770,201 @@ fn fix1_incremental_cursor_cannot_refresh_from_a_foreign_source() -> Result<()> 
         "{e:#}"
     );
     assert_eq!(f.pins.view().record_id(), before);
+    Ok(())
+}
+
+// Exercise the real publisher's error return after its target hard-link exists.
+fn interrupted_bootstrap(f: &mut Fixture) -> Result<(Hash, std::path::PathBuf)> {
+    let frame = Frame {
+        version: 1,
+        sequence: f.pins.view.files.len() as u64,
+        previous: f.pins.view.last,
+        event: Event::Bootstrapped,
+    };
+    let raw = serde_json::to_vec(&frame)?;
+    let digest = frame_hash(&f.pins.view.manifest, &raw)?;
+    let path = f.pins.view.root.join("records").join(format!(
+        "{:020}-{}.json",
+        frame.sequence,
+        hex::encode(digest)
+    ));
+    crate::durability::fail_parent_sync(path.clone());
+    let result = f.pins.finish_bootstrap();
+    crate::durability::clear_parent_sync_failure();
+    assert!(result.is_err(), "injected post-link publication succeeded");
+    assert_eq!(
+        std::fs::read(&path)?,
+        raw,
+        "linked bytes missing after failure"
+    );
+    assert!(
+        f.pins.tail_dirty,
+        "failed publication forgot its unconfirmed tail"
+    );
+    Ok((digest, path))
+}
+#[test]
+#[cfg(unix)]
+fn concurrent_tail_directory_change_is_pending_without_adopting_authority() -> Result<()> {
+    let mut f = fixture(true)?;
+    let old = f.pins.view().record_id();
+    let (digest, _) = interrupted_bootstrap(&mut f)?;
+    let records = f.pins.view.root.join("records");
+    let preserved = f.pins.view.root.join("test-preserved-records");
+    let a = records.clone();
+    let b = preserved.clone();
+    super::cursor::BEFORE_TAIL_FENCE.with(|slot| {
+        *slot.borrow_mut() = Some(Box::new(move || {
+            std::fs::rename(&a, &b).unwrap();
+            std::fs::create_dir(&a).unwrap();
+        }))
+    });
+    let error = f
+        .pins
+        .refresh(&f.source)
+        .expect_err("concurrent directory replacement escaped fence");
+    std::fs::remove_dir(&records)?;
+    std::fs::rename(&preserved, &records)?;
+    assert!(
+        matches!(
+            error.downcast_ref::<crate::error::Error>(),
+            Some(crate::error::Error::Availability { .. })
+        ),
+        "{error:#}"
+    );
+    assert_eq!(
+        f.pins.view().record_id(),
+        old,
+        "pending read adopted unconfirmed authority"
+    );
+    f.pins.refresh(&f.source)?;
+    assert_eq!(f.pins.view().record_id(), digest);
+    Ok(())
+}
+#[test]
+#[cfg(unix)]
+fn own_post_link_publication_failure_refreshes_once_then_advances_incrementally() -> Result<()> {
+    let mut f = fixture(true)?;
+    let count = f.pins.view.files.len();
+    let (digest, path) = interrupted_bootstrap(&mut f)?;
+    PIN_COST.with(|c| c.set((0, 0, 0)));
+    f.pins.refresh(&f.source)?;
+    assert_eq!(f.pins.view().record_id(), digest);
+    assert_eq!(f.pins.view.files.len(), count + 1);
+    assert!(f.pins.view.index.bootstrapped && !f.pins.tail_dirty);
+    assert_eq!(PIN_COST.with(|c| c.get().0), 1);
+    let bytes = std::fs::read(&path)?;
+    PIN_COST.with(|c| c.set((0, 0, 0)));
+    f.pins.refresh(&f.source)?;
+    assert_eq!(PIN_COST.with(|c| c.get().0), 0);
+    let parent = boole_derivation::attributes::hex_bytes(f.source.hash(4).unwrap(), "parent")?
+        .try_into()
+        .unwrap();
+    f.source.append(&empty_fixture(5, parent))?;
+    let b = binding(&f.source, 5)?;
+    f.pins.prepare(&f.source, b.clone(), &[f.request])?;
+    f.pins.select(5, &b.header.hash, b.root)?;
+    assert_eq!(f.pins.view().height(), 5);
+    assert_eq!(std::fs::read(path)?, bytes);
+    Ok(())
+}
+
+#[test]
+fn unchanged_candidate_rows_are_not_revisited_after_a_nonzero_restart() -> Result<()> {
+    let mut f = fixture(false)?;
+    let requests: Vec<_> = (0u64..1000)
+        .map(|i| {
+            let mut r = f.request.clone();
+            r.key.1 = super::hash(&i.to_be_bytes());
+            r
+        })
+        .collect();
+    for h in 0..=4 {
+        let b = binding(&f.source, h)?;
+        f.pins
+            .prepare(&f.source, b.clone(), if h == 4 { &requests } else { &[] })?;
+        f.pins.select(h, &b.header.hash, b.root)?;
+    }
+    drop(f.pins);
+    f.pins = PinStore::open(&f.source)?;
+    // Full startup and initial ready coverage are outside the per-height delta.
+    f.pins.view().verify(&f.source, &requests, 4)?;
+    let parent = boole_derivation::attributes::hex_bytes(f.source.hash(4).unwrap(), "parent")?
+        .try_into()
+        .unwrap();
+    f.source.append(&empty_fixture(5, parent))?;
+    let b = binding(&f.source, 5)?;
+    PIN_ROW_VISITS.with(|c| c.set(0));
+    crate::journal::CHECK_COUNT.with(|c| c.set(0));
+    f.pins.refresh(&f.source)?;
+    f.pins.view().verify(&f.source, &requests, 4)?;
+    f.pins.prepare(&f.source, b.clone(), &requests)?;
+    f.pins.select(5, &b.header.hash, b.root)?;
+    assert!(
+        PIN_ROW_VISITS.with(|c| c.get()) <= 1,
+        "unchanged historical rows were revisited: {}",
+        PIN_ROW_VISITS.with(|c| c.get())
+    );
+    assert!(
+        crate::journal::CHECK_COUNT.with(|c| c.get()) <= 12,
+        "per-row journal checks remain: {}",
+        crate::journal::CHECK_COUNT.with(|c| c.get())
+    );
+    let mut added = requests[0].clone();
+    added.key.1 = [249; 32];
+    let mut next = requests.clone();
+    next.push(added.clone());
+    f.pins.prepare(&f.source, b, &next)?;
+    assert!(f.pins.view.index.candidates[&added.key].covers(&added));
+    let mut missing = requests[0].clone();
+    missing.components.insert([250; 32]);
+    assert!(
+        f.pins.view().verify(&f.source, &[missing], 5).is_err(),
+        "candidate cache hid new requirements"
+    );
+    // A new journal session cannot inherit candidate proofs from another source.
+    let other = fixture(true)?;
+    PIN_ROW_VISITS.with(|c| c.set(0));
+    f.pins.view().verify(&other.source, &requests, 4)?;
+    assert!(
+        PIN_ROW_VISITS.with(|c| c.get()) >= 4,
+        "candidate proof crossed journal sessions"
+    );
+    // An unchanged height still re-fences source versions on each operation.
+    use std::io::Write;
+    std::fs::OpenOptions::new()
+        .append(true)
+        .open(f.source.root().join(crate::journal::JOURNAL))?
+        .write_all(b" ")?;
+    assert!(
+        f.pins.view().verify(&f.source, &requests, 5).is_err(),
+        "height cache hid a journal mutation"
+    );
+    Ok(())
+}
+
+#[test]
+fn matching_external_record_created_during_publication_is_not_self_published() -> Result<()> {
+    let mut f = fixture(true)?;
+    let previous = f.pins.view().record_id();
+    crate::journal::BEFORE_NEW_FILE_LINK.with(|slot| {
+        *slot.borrow_mut() = Some(Box::new(|path, bytes| std::fs::write(path, bytes).unwrap()))
+    });
+    assert!(
+        f.pins.finish_bootstrap().is_err(),
+        "foreign target did not cause EEXIST"
+    );
+    let error = f
+        .pins
+        .refresh(&f.source)
+        .expect_err("EEXIST was mistaken for a self-published record");
+    assert!(
+        matches!(
+            error.downcast_ref::<crate::error::Error>(),
+            Some(crate::error::Error::Integrity { .. })
+        ),
+        "{error:#}"
+    );
+    assert_eq!(f.pins.view().record_id(), previous);
     Ok(())
 }

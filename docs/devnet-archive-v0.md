@@ -271,6 +271,29 @@ There is no whole-index copy per write. Existing immutable prefix bytes remain
 subject to full verification at the next startup and by every read-only auditor;
 the hot cursor is not an online scan for arbitrary out-of-band old-file writes.
 
+The running writer accepts a recovered suffix only for its own exact pending
+sequence/digest and a successful own hard-link publication. An external append,
+including an identical target that caused EEXIST, is an integrity error. Suffix
+validation is staged in memory until the directory/version fence passes;
+concurrent changes are availability and cannot advance the live cursor. A failed
+post-link publication can be refreshed, synced and adopted once without restart.
+
+Unchanged selected candidate coverage is cached for the own journal's current
+process-local session and complete candidate requirements. New/expanded pins
+verify their affected rows; unchanged candidates do not revisit old intervals or
+reopen their release descriptor. Journal ownership/version/disk checks fence each
+verification batch instead of each cached row token; each new row still
+re-authenticates its bytes. Every operation rechecks its fences even at the same
+height. A new journal session or an independent reader cannot inherit candidate
+proofs. Requirement metadata comparisons remain proportional to the supplied
+candidate count. Startup and every read-only auditor retain full verification.
+
+CI exercises SIGKILL at all four pin-publication cuts from a selected height-4
+prefix. Recovery preserves that checkpoint, finishes height 5 and then advances
+the incremental writer to height 6 before another full restart check. In-process
+post-link failure/retry and concurrent-directory controls run in ordinary libtest;
+their injection callbacks do not exist in ordinary release binaries.
+
 Artifact digest reuse is process-local and tied to an unchanged R1 file version
 (device/inode, length, modification and change times). There is no persisted
 verification receipt. **Coarse-timestamp limit:** on filesystems such as ext4 or

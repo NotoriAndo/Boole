@@ -18,6 +18,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[cfg(test)]
+thread_local! { pub(crate) static CHECK_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
 pub const DISK_FLOOR: u64 = 15 * 1024 * 1024 * 1024;
 pub const MANIFEST: &str = "input.manifest.json";
 pub const JOURNAL: &str = "input.ndjson";
@@ -91,7 +93,9 @@ struct Position {
     has_transaction_proof: bool,
     supplemental_proof: Option<InputRow>,
 }
+static NEXT_PIN_SESSION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 pub struct InputJournal {
+    pin_session: u64,
     root: PathBuf,
     path: PathBuf,
     guard: state_dir::StateDirGuard,
@@ -134,19 +138,42 @@ fn read_observed(
     ensure!(before.len <= limit as u64, "file byte cap");
     let mut bytes = vec![];
     (&file).take(limit as u64 + 1).read_to_end(&mut bytes)?;
-    ensure!(
-        bytes.len() as u64 == before.len
-            && version(&file.metadata()?)? == before
-            && path_version(path)?.as_ref() == Some(&before),
-        "file changed while reading"
-    );
+    let after = version(&file.metadata()?);
+    if bytes.len() as u64 != before.len
+        || after.as_ref().ok() != Some(&before)
+        || !path_version(path).is_ok_and(|observed| observed.as_ref() == Some(&before))
+    {
+        return Err(availability(
+            0,
+            "file-version",
+            "file changed while reading",
+        ));
+    }
     Ok((bytes, before))
 }
 /// R1 create-new publication pattern: temp fsync, hard-link without replace, dir fsync.
 pub fn publish_new(path: &Path, bytes: &[u8]) -> Result<()> {
     publish_new_at(path, bytes, None)
 }
+#[cfg(test)]
+type NewFileLinkHook = Box<dyn FnOnce(&Path, &[u8])>;
+#[cfg(test)]
+thread_local! { pub(crate) static BEFORE_NEW_FILE_LINK: std::cell::RefCell<Option<NewFileLinkHook>> = const { std::cell::RefCell::new(None) }; }
 pub fn publish_new_at(path: &Path, bytes: &[u8], point: Option<(u64, &str)>) -> Result<()> {
+    publish_new_observed(path, bytes, point, &mut false)
+}
+/// Report actual successful linkage even when a later publication step fails.
+/// EEXIST alone is never evidence of an own publication.
+pub(crate) fn publish_pin_record(path: &Path, bytes: &[u8], linked: &mut bool) -> Result<()> {
+    publish_new_observed(path, bytes, None, linked)
+}
+fn publish_new_observed(
+    path: &Path,
+    bytes: &[u8],
+    point: Option<(u64, &str)>,
+    linked: &mut bool,
+) -> Result<()> {
+    *linked = false;
     let parent = path.parent().context("new-file parent")?;
     let temp = durability::PrivateTempDir::new_in(parent, ".devnet-new")?;
     let staged = temp.path().join("value");
@@ -163,7 +190,14 @@ pub fn publish_new_at(path: &Path, bytes: &[u8], point: Option<(u64, &str)>) -> 
     if let Some((h, role)) = point {
         crate::fault::hit("B9a", h, role)?;
     }
+    #[cfg(test)]
+    BEFORE_NEW_FILE_LINK.with(|slot| {
+        if let Some(action) = slot.borrow_mut().take() {
+            action(path, bytes);
+        }
+    });
     std::fs::hard_link(&staged, path)?;
+    *linked = true;
     if let Some((h, role)) = point {
         crate::fault::hit("B9", h, role)?;
     }
@@ -228,7 +262,15 @@ impl InputJournal {
         }
         let (positions, observed) = Self::load(&path, &manifest, repair)
             .map_err(|e| integrity(0, "input", format!("{e:#}")))?;
+        let pin_session = NEXT_PIN_SESSION
+            .fetch_update(
+                std::sync::atomic::Ordering::Relaxed,
+                std::sync::atomic::Ordering::Relaxed,
+                |id| id.checked_add(1),
+            )
+            .map_err(|_| availability(0, "pin-session", "process-local pin session exhausted"))?;
         let out = Self {
+            pin_session,
             root,
             path,
             guard,
@@ -358,6 +400,14 @@ impl InputJournal {
     /// lifetime writer/version fence must still pass before reusing this token.
     pub fn verified_row_digest(&self, h: u64) -> Result<[u8; 32]> {
         self.check()?;
+        self.pin_row_digest_in_checked_scope(h)
+    }
+    pub(crate) fn pin_session_id(&self) -> u64 {
+        self.pin_session
+    }
+    /// Only the pin verifier's batch may use this token, fenced by check() at
+    /// both ends. Each new row still authenticates its bytes through row().
+    pub(crate) fn pin_row_digest_in_checked_scope(&self, h: u64) -> Result<[u8; 32]> {
         self.positions
             .get(&h)
             .map(|p| p.encoded_digest)
@@ -372,6 +422,8 @@ impl InputJournal {
             .find_map(|(h, p)| p.hash.eq_ignore_ascii_case(hash).then_some(*h))
     }
     pub fn check(&self) -> Result<()> {
+        #[cfg(test)]
+        CHECK_COUNT.with(|n| n.set(n.get() + 1));
         if !self.guard.is_current()
             || file_stamp(&self.path)?.as_ref() != Some(&self.observed)
             || file_stamp(&self.root.join(MANIFEST))?.as_ref() != Some(&self.manifest_stamp)
@@ -719,6 +771,32 @@ impl ReadOnlyJournal {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_bound_read_replaced_during_its_final_observation_is_availability() -> anyhow::Result<()> {
+        fn replace(path: &std::path::Path) -> anyhow::Result<Option<crate::version::FileStamp>> {
+            let bytes = std::fs::read(path)?;
+            std::fs::rename(path, path.with_extension("preserved"))?;
+            std::fs::write(path, bytes)?;
+            crate::version::file_stamp(path)
+        }
+        let dir = crate::durability::PrivateTempDir::new("pin-read-race")?;
+        let path = dir.path().join("row");
+        std::fs::write(&path, b"bound bytes")?;
+        let error = super::read_observed(&path, 1024, crate::version::stamp, replace).unwrap_err();
+        assert!(
+            matches!(
+                error.downcast_ref::<crate::error::Error>(),
+                Some(crate::error::Error::Availability { .. })
+            ),
+            "{error:#}"
+        );
+        assert_eq!(
+            std::fs::read(path.with_extension("preserved"))?,
+            b"bound bytes"
+        );
+        Ok(())
+    }
+
     use super::*;
     use crate::input::empty_fixture;
     #[test]

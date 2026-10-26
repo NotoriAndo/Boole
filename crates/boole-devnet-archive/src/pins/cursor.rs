@@ -1,5 +1,7 @@
 //! Writer-owned incremental cursor. Read-only auditors always use the full path.
 use super::*;
+#[cfg(test)]
+thread_local! { pub(super) static BEFORE_TAIL_FENCE: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const { std::cell::RefCell::new(None) }; }
 #[derive(Clone, PartialEq, Eq)]
 pub(super) struct DirectoryStamp {
     modified: std::time::SystemTime,
@@ -30,7 +32,9 @@ pub(super) struct VerifiedRow {
 }
 impl ReadOnlyPins {
     pub(super) fn verified_row(&self, source: &dyn PinInputs, h: u64) -> Result<VerifiedRow> {
-        let id = source.pin_row_id(h)?;
+        #[cfg(test)]
+        PIN_ROW_VISITS.with(|n| n.set(n.get() + 1));
+        let id = source.pin_row_id_in_checked_scope(h)?;
         if self.writer && id.is_some() {
             if let Some(row) = self
                 .verified_rows
@@ -140,67 +144,102 @@ impl PinStore {
         let root = self.view.root.join("records");
         let before = directory_stamp(&root)?;
         if self.tail_dirty || before != self.view.records_stamp {
-            let all = names(&root)?;
-            if all.len() < self.view.files.len() {
-                return Err(availability(
-                    self.view.height(),
-                    "pin-record",
-                    "S20: pin prefix removed",
-                ));
-            }
-            if !all
-                .iter()
-                .take(self.view.files.len())
-                .eq(self.view.files.iter().map(|f| &f.0))
-            {
-                return Err(availability(
-                    self.view.height(),
-                    "pin-record",
-                    "S20: verified pin prefix names changed",
-                ));
-            }
-            for name in all.into_iter().skip(self.view.files.len()) {
-                let sequence = self.view.files.len() as u64;
-                let path = root.join(&name);
-                let (raw, stamp) = pin_read(&path, RECORD_MAX)?;
-                #[cfg(test)]
-                PIN_COST.with(|c| {
-                    let (r, w, i) = c.get();
-                    c.set((r + 1, w, i));
-                });
-                let digest = frame_hash(&self.view.manifest, &raw)?;
-                ensure!(
-                    name == format!("{sequence:020}-{}.json", hex::encode(digest)),
-                    "pin suffix name/digest"
-                );
-                let frame: Frame = serde_json::from_slice(&raw)?;
-                ensure!(
-                    frame.version == 1
-                        && frame.sequence == sequence
-                        && frame.previous == self.view.last,
-                    "pin suffix chain/version"
-                );
-                validate_event(&self.view.index, &frame.event, sequence)?;
-                if let Event::Prepared {
-                    binding, inputs, ..
-                } = &frame.event
-                {
-                    binding.verify(
-                        source.network(),
-                        &self.view.verified_row(source, binding.header.number)?.block,
-                    )?;
-                    for (h, digest) in inputs {
-                        ensure!(
-                            self.view.verified_row(source, *h)?.digest == *digest,
-                            "new pin input digest differs"
-                        );
-                    }
+            // Read and validate into a bounded pending result. Neither an error
+            // nor a concurrent directory change may advance live authority.
+            let staged = (|| -> Result<Vec<(String, FileStamp, Hash, Frame)>> {
+                let all = names(&root)?;
+                if all.len() < self.view.files.len() {
+                    return Err(availability(
+                        self.view.height(),
+                        "pin-record",
+                        "S20: pin prefix removed",
+                    ));
                 }
-                // A retry after a failed publication confirms durability before
-                // its complete suffix is adopted into the writer's cursor.
-                std::fs::File::open(&path)?.sync_all()?;
-                crate::durability::fsync_parent_dir(&path)?;
-                apply(&mut self.view.index, &frame.event, sequence)?;
+                if !all
+                    .iter()
+                    .take(self.view.files.len())
+                    .eq(self.view.files.iter().map(|f| &f.0))
+                {
+                    return Err(availability(
+                        self.view.height(),
+                        "pin-record",
+                        "S20: verified pin prefix names changed",
+                    ));
+                }
+                let mut staged = vec![];
+                for name in all.into_iter().skip(self.view.files.len()) {
+                    let sequence = self.view.files.len() as u64;
+                    let expected = self
+                        .pending_publication
+                        .filter(|(seq, _)| *seq == sequence)
+                        .map(|(_, digest)| format!("{sequence:020}-{}.json", hex::encode(digest)));
+                    if expected.as_ref() != Some(&name) {
+                        return Err(integrity(
+                            self.view.height(),
+                            "pin-writer",
+                            "pin record set changed outside this writer",
+                        ));
+                    }
+                    let path = root.join(&name);
+                    let (raw, stamp) = pin_read(&path, RECORD_MAX)?;
+                    #[cfg(test)]
+                    PIN_COST.with(|c| {
+                        let (r, w, i) = c.get();
+                        c.set((r + 1, w, i));
+                    });
+                    let digest = frame_hash(&self.view.manifest, &raw)?;
+                    ensure!(
+                        name == format!("{sequence:020}-{}.json", hex::encode(digest)),
+                        "pin suffix name/digest"
+                    );
+                    let frame: Frame = serde_json::from_slice(&raw)?;
+                    ensure!(
+                        frame.version == 1
+                            && frame.sequence == sequence
+                            && frame.previous == self.view.last,
+                        "pin suffix chain/version"
+                    );
+                    validate_event(&self.view.index, &frame.event, sequence)?;
+                    if let Event::Prepared {
+                        binding, inputs, ..
+                    } = &frame.event
+                    {
+                        binding.verify(
+                            source.network(),
+                            &self.view.verified_row(source, binding.header.number)?.block,
+                        )?;
+                        for (h, digest) in inputs {
+                            ensure!(
+                                self.view.verified_row(source, *h)?.digest == *digest,
+                                "new pin input digest differs"
+                            );
+                        }
+                    }
+                    // A retry after a failed publication confirms durability before
+                    // its complete suffix is adopted into the writer's cursor.
+                    std::fs::File::open(&path)?.sync_all()?;
+                    crate::durability::fsync_parent_dir(&path)?;
+                    staged.push((name, stamp, digest, frame));
+                }
+                Ok(staged)
+            })();
+            #[cfg(test)]
+            BEFORE_TAIL_FENCE.with(|slot| {
+                if let Some(action) = slot.borrow_mut().take() {
+                    action();
+                }
+            });
+            if directory_stamp(&root)? != before {
+                return Err(availability(
+                    self.view.height(),
+                    "pin-version",
+                    "pin suffix changed while reading",
+                ));
+            }
+            let staged = staged?;
+            source.check()?;
+            for (name, stamp, digest, frame) in staged {
+                apply(&mut self.view.index, &frame.event, frame.sequence)?;
                 if let Event::Artifacts { values } = frame.event {
                     for a in values {
                         self.view
@@ -211,12 +250,9 @@ impl PinStore {
                 self.view.files.push((name, stamp));
                 self.view.last = digest;
             }
-            ensure!(
-                directory_stamp(&root)? == before,
-                "pin suffix changed while reading"
-            );
             self.view.records_stamp = before;
             self.tail_dirty = false;
+            self.pending_publication = None;
         }
         // Exact restored versions are hashed afresh; immutable own bytes reuse
         // their already verified version. No old record body is read here.
@@ -230,6 +266,7 @@ impl PinStore {
         for a in self.view.index.artifacts.values() {
             self.view.verify_artifact(a)?;
         }
+        source.check()?;
         self.view.check()
     }
 }
