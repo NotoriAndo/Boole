@@ -61,10 +61,14 @@ Order is shared by decoded and typed-decoder transport paths:
 
 1. Authenticate release/tools/inventory and the complete package, before any
    transport verdict or package-dependent reference/state fetch.
-2. For certified-own packages, resolve cap identity, measured-reference equality
-   and scalar slot allowance from the package plus pinned authority alone. An
-   invalid published binding is 0803 before local reference access or any
-   submission-phase REJECT; a local authority load failure stays D-node.
+2. Decide admission mode first: a package outside certified-own requires the
+   node's explicit public-counter qualification mode; otherwise it is 0803 before
+   local reference access or any submission-phase REJECT. Qualification mode
+   still requires the later public-corpus binding and grants no uncapped intake.
+   For certified-own, resolve cap problem, statement and environment identity,
+   measured-reference equality and scalar slot allowance from the package plus
+   pinned authority alone. The cap environment must equal the package env_id;
+   any invalid published binding is 0803 here. Local authority load failure stays D-node.
 3. Kind 2 is VOID/0804, then lane 2 is D-node, before reading decoder evidence or
    submission transport. When both apply, kind2 wins. Compression cannot change
    either route's first failure.

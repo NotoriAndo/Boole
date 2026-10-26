@@ -153,17 +153,20 @@ def compare_exports(*args, public_counter=False, **kwargs):
     return D.compare_exports(*args, **kwargs)
 
 
-def published_caps(package, descriptor, context):
+def published_caps(package, descriptor, context, *, public_counter=False):
     """Decide published bindings without reference/state/submission file access."""
     if package['mode'] != 'certified-own':
-        return None
+        if public_counter:
+            return None
+        raise F.Refusal('fuel_binding_invalid', 'no uncapped admission')
     try:
         authority = FC.load_authority()
     except (FC.FuelCapError, OSError, ValueError, TypeError, KeyError):
         raise F.Refusal('node_fault', 'local fuel authority unavailable') from None
     try:
         resolved = FC.resolve(package['fuel_cap'], authority)
-        if resolved['problem'] != package['problem'] or resolved['statement'] != package['statement']:
+        if (resolved['problem'] != package['problem'] or resolved['statement'] != package['statement']
+                or resolved['environment'] != package['env_id']):
             raise FC.FuelCapError('package cap identity')
         if resolved['reference_export'] != package['reference_sha256']:
             raise FC.FuelCapError('package measured reference binding')
@@ -210,7 +213,7 @@ def run(bundle, package_bytes, inventory_bytes, context, descriptor_bytes, gate_
         inventory = F.Inventory(inventory_bytes, descriptor['artifact_table_sha256'])
         pkg = F.package(package_bytes, context['package_sha256'], inventory)
         statement = pkg['statement']
-        caps = published_caps(pkg, descriptor, context)
+        caps = published_caps(pkg, descriptor, context, public_counter=public_counter)
         if context['leaf_kind'] == 2:
             raise F.Refusal('generator_unavailable')
         if context['lane'] != 1:

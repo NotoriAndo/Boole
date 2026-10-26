@@ -752,6 +752,43 @@ class Adapter(Front):
                     compare.assert_not_called()
                     A.decode_reply(C.canonical(result), self.desc, context)
 
+    def test_full_without_public_counter_void_precedes_reference_environment_and_transport(self):
+        self.pkg.update(mode='full', fuel_cap=None)
+        absent = Path(self.tmp.name)/'absent-full-reference'
+        cases = (('reference', absent, self.bundle, '7'*64),
+                 ('environment', self.path, self.bundle, 'a'*64),
+                 ('transport', self.path, b'broken bound frame', '7'*64))
+        for name, reference, bundle, environment in cases:
+            self.context['env_id'] = environment
+            for phase in ('first', 'retry', 'replay'):
+                with self.subTest(case=name, phase=phase):
+                    result, compare, context = self.invoke('full-order-'+name+'-'+phase,
+                        reference=reference, bundle=bundle, phase=phase)
+                    self.assertEqual((result['row'], result['outcome'], result['reason']),
+                                     ('fuel_binding_invalid', 'VOID', 0x0803))
+                    self.assertEqual((result['kernels'], result['fuel']), (M.not_run(), 0))
+                    compare.assert_not_called()
+                    A.decode_reply(C.canonical(result), self.desc, context)
+
+    def test_cap_environment_void_precedes_local_reference_access(self):
+        row = dict(next(iter(self.authority['references'].values())), environment='9'*64)
+        key = A.FC.digest(row)
+        self.authority['references'] = {key: row}
+        self.pkg['fuel_cap']['cap'].update(environment='9'*64, reference=key)
+        self.pkg['fuel_cap']['sha256'] = A.FC.digest(self.pkg['fuel_cap']['cap'])
+        # Resolve a valid authority/cap pair; only its package binding is wrong.
+        self.assertEqual(A.FC.resolve(self.pkg['fuel_cap'], self.authority)['environment'], '9'*64)
+        for index, reference in enumerate((self.path, Path(self.tmp.name)/'absent-cap-environment-reference')):
+            for phase in ('first', 'retry', 'replay'):
+                with self.subTest(reference=index, phase=phase):
+                    result, compare, context = self.invoke('cap-env-'+str(index)+'-'+phase,
+                        reference=reference, phase=phase)
+                    self.assertEqual((result['row'], result['outcome'], result['reason']),
+                                     ('fuel_binding_invalid', 'VOID', 0x0803))
+                    self.assertEqual((result['kernels'], result['fuel']), (M.not_run(), 0))
+                    compare.assert_not_called()
+                    A.decode_reply(C.canonical(result), self.desc, context)
+
     def test_open_environment_mismatch_is_a_terminal_front_rejection(self):
         self.context['env_id'] = 'a'*64  # another environment allowed by OPEN's caller
         for phase in ('first', 'retry', 'replay'):
