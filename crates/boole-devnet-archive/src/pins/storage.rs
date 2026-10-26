@@ -5,7 +5,10 @@ use super::{
 };
 use crate::{
     error::{availability, integrity, startup},
-    journal::{publish_new, read_bound, InputJournal, NetworkIdentity, ReadOnlyJournal},
+    journal::{
+        publish_new, read_bound, read_external_bound, InputJournal, NetworkIdentity,
+        ReadOnlyJournal,
+    },
     state_dir::{self, StateDirGuard},
     version::{file_stamp, FileStamp},
 };
@@ -1067,7 +1070,14 @@ impl PinStore {
                 self.view.verify_artifact(old)?;
                 continue;
             }
-            let (raw, _) = read_bound(&source.path, 256 * 1024 * 1024)?;
+            // A retained object reused for another epoch is still owned state.
+            // Only operator sources outside this store may have hard-link aliases.
+            let owned = source.path.canonicalize()?.starts_with(&self.view.root);
+            let (raw, _) = if owned {
+                read_bound(&source.path, 256 * 1024 * 1024)?
+            } else {
+                read_external_bound(&source.path, 256 * 1024 * 1024)?
+            };
             ensure!(hash(&raw) == source.digest, "pin artifact source digest");
             let path = self.view.artifact_path(source.digest);
             if !path.try_exists()? {

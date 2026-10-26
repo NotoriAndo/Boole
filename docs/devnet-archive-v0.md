@@ -328,6 +328,14 @@ still fails K4. Writer startup completes large artifact staging under the existi
 keeps its existing smaller role cap. Parents of the three pin directories are
 fsynced before pin authority is published.
 
+Operator-supplied gate binaries, environment artifacts and audit JSON/genesis
+inputs may have hard-link aliases. Their bounded, no-follow reads bind length,
+mtime, device/inode and ctime through the read. Pin imports then authenticate the
+expected digest and publish an independent single-link store copy. Reusing an
+object already inside the pin store still uses the state-file alias guard, as
+does every subsequent store read. Checkpoints, journals and owned logs retain
+their single-link requirement.
+
 An `ok` audit requires a stable source window and a node head at the same input
 tip. A continuously publishing node cannot guarantee that window: pin growth
 makes its snapshot pending and an input-journal version change retains the

@@ -673,7 +673,7 @@ fn t83_recovered_follow_evidence_never_claims_computed_verification() -> Result<
     let target = std::env::var_os("CARGO_TARGET_DIR")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target"));
-    let gate = target.join("debug/boole-gate-supervisor");
+    let gate = follow_gate(&target)?;
     let pin: [u8; 32] = Sha256::digest(std::fs::read(&gate)?).into();
     let descriptor = Descriptor::pinned(pin);
     let mut config = boole_derivation::m2::Config::devnet();
@@ -1318,6 +1318,32 @@ fn fix2_m1_restart_sink_republishes_unseen_corruption_without_sticky_stop() -> R
     Ok(())
 }
 
+fn follow_gate(target: &std::path::Path) -> Result<std::path::PathBuf> {
+    let hard_linked = std::env::var_os("BOOLE_TEST_HARDLINKED_FOLLOW_GATE");
+    let gate = hard_linked
+        .as_ref()
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| target.join("debug/boole-gate-supervisor"));
+    #[cfg(unix)]
+    {
+        use std::{io::Write, os::unix::fs::MetadataExt};
+        let links = std::fs::symlink_metadata(&gate)?.nlink();
+        assert!(links >= 1);
+        if hard_linked.is_some() {
+            assert_eq!(
+                links, 2,
+                "portable Linux-source reproduction lost its alias"
+            );
+        }
+        writeln!(
+            std::io::stderr(),
+            "FOLLOW-RUNTIME gate_nlink={links} hard_linked_override={}",
+            hard_linked.is_some()
+        )?;
+    }
+    Ok(gate)
+}
+
 fn follow_runtime(
     root: &std::path::Path,
     mode: boole_gate_supervisor::supervisor::Mode,
@@ -1335,7 +1361,7 @@ fn follow_runtime(
     let target = std::env::var_os("CARGO_TARGET_DIR")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target"));
-    let gate = target.join("debug/boole-gate-supervisor");
+    let gate = follow_gate(&target)?;
     let pin = digest(&std::fs::read(&gate)?);
     let descriptor = Descriptor::pinned(pin);
     let mut config = boole_derivation::m2::Config::devnet();

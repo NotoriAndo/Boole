@@ -4,7 +4,7 @@ use crate::{
     error::{availability, integrity, startup},
     input::{InputRow, VerifiedInput, ROW_MAX},
     state_dir,
-    version::{file_stamp, stamp, FileStamp},
+    version::{file_observation, file_stamp, observe, stamp, FileStamp},
 };
 use anyhow::{ensure, Context, Result};
 use boole_derivation::attributes::{hex_bytes, hex_string};
@@ -101,6 +101,11 @@ pub struct InputJournal {
     positions: BTreeMap<u64, Position>,
 }
 pub(crate) fn regular(path: &Path, write: bool) -> Result<File> {
+    let file = open_no_follow(path, write)?;
+    stamp(&file.metadata()?)?;
+    Ok(file)
+}
+fn open_no_follow(path: &Path, write: bool) -> Result<File> {
     let mut options = OpenOptions::new();
     options.read(true).write(write);
     #[cfg(unix)]
@@ -108,20 +113,31 @@ pub(crate) fn regular(path: &Path, write: bool) -> Result<File> {
         use std::os::unix::fs::OpenOptionsExt;
         options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
     }
-    let file = options.open(path)?;
-    stamp(&file.metadata()?)?;
-    Ok(file)
+    Ok(options.open(path)?)
 }
 pub fn read_bound(path: &Path, limit: usize) -> Result<(Vec<u8>, FileStamp)> {
-    let file = regular(path, false)?;
-    let before = stamp(&file.metadata()?)?;
+    read_observed(path, limit, stamp, file_stamp)
+}
+/// Read an external regular file without imposing the owned-state alias rule.
+/// Callers authenticate its content before importing an independent store copy.
+pub fn read_external_bound(path: &Path, limit: usize) -> Result<(Vec<u8>, FileStamp)> {
+    read_observed(path, limit, observe, file_observation)
+}
+fn read_observed(
+    path: &Path,
+    limit: usize,
+    version: fn(&std::fs::Metadata) -> Result<FileStamp>,
+    path_version: fn(&Path) -> Result<Option<FileStamp>>,
+) -> Result<(Vec<u8>, FileStamp)> {
+    let file = open_no_follow(path, false)?;
+    let before = version(&file.metadata()?)?;
     ensure!(before.len <= limit as u64, "file byte cap");
     let mut bytes = vec![];
     (&file).take(limit as u64 + 1).read_to_end(&mut bytes)?;
     ensure!(
         bytes.len() as u64 == before.len
-            && stamp(&file.metadata()?)? == before
-            && file_stamp(path)?.as_ref() == Some(&before),
+            && version(&file.metadata()?)? == before
+            && path_version(path)?.as_ref() == Some(&before),
         "file changed while reading"
     );
     Ok((bytes, before))
@@ -705,6 +721,24 @@ impl ReadOnlyJournal {
 mod tests {
     use super::*;
     use crate::input::empty_fixture;
+    #[test]
+    #[cfg(unix)]
+    fn external_reads_allow_aliases_but_keep_type_size_and_state_guards() -> Result<()> {
+        use std::os::unix::fs::symlink;
+        let root = durability::PrivateTempDir::new("external-bound")?;
+        let source = root.path().join("source");
+        let alias = root.path().join("alias");
+        let link = root.path().join("symlink");
+        std::fs::write(&source, b"abc")?;
+        std::fs::hard_link(&source, &alias)?;
+        assert_eq!(read_external_bound(&alias, 3)?.0, b"abc");
+        assert!(read_external_bound(&alias, 2).is_err());
+        assert!(read_bound(&alias, 3).is_err());
+        symlink(&source, &link)?;
+        assert!(read_external_bound(&link, 3).is_err());
+        assert!(read_external_bound(root.path(), 3).is_err());
+        Ok(())
+    }
     #[test]
     fn b9_manifest_and_initial_evidence_aliases_are_recovered_before_single_link_reads(
     ) -> Result<()> {

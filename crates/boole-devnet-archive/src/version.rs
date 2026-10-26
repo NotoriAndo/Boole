@@ -25,23 +25,41 @@ impl FileStamp {
 }
 
 pub fn file_stamp(path: &Path) -> anyhow::Result<Option<FileStamp>> {
+    file_version(path, stamp)
+}
+pub fn file_observation(path: &Path) -> anyhow::Result<Option<FileStamp>> {
+    file_version(path, observe)
+}
+fn file_version(
+    path: &Path,
+    version: fn(&fs::Metadata) -> anyhow::Result<FileStamp>,
+) -> anyhow::Result<Option<FileStamp>> {
     let metadata = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error.into()),
     };
-    stamp(&metadata).map(Some)
+    version(&metadata).map(Some)
 }
 
 pub fn stamp(metadata: &fs::Metadata) -> anyhow::Result<FileStamp> {
+    let observed = observe(metadata)?;
+    #[cfg(unix)]
+    use std::os::unix::fs::MetadataExt;
+    #[cfg(unix)]
+    anyhow::ensure!(metadata.nlink() == 1, "devnet state has a hard-link alias");
+    Ok(observed)
+}
+
+/// Version observation for operator-supplied sources, whose aliases are allowed.
+/// Owned state files must use `stamp` instead.
+pub fn observe(metadata: &fs::Metadata) -> anyhow::Result<FileStamp> {
     anyhow::ensure!(
         metadata.is_file() && !metadata.file_type().is_symlink(),
         "devnet state path is not a regular file"
     );
     #[cfg(unix)]
     use std::os::unix::fs::MetadataExt;
-    #[cfg(unix)]
-    anyhow::ensure!(metadata.nlink() == 1, "devnet state has a hard-link alias");
     Ok(FileStamp {
         len: metadata.len(),
         modified: metadata.modified()?,

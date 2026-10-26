@@ -146,6 +146,104 @@ fn fixture(complete: bool) -> Result<Fixture> {
     })
 }
 #[test]
+#[cfg(unix)]
+fn t88_hard_linked_external_gate_is_copied_but_store_aliases_still_fail() -> Result<()> {
+    check_external_alias_copy(true)
+}
+#[test]
+#[cfg(unix)]
+fn t88_hard_linked_external_environment_is_copied_but_store_aliases_still_fail() -> Result<()> {
+    check_external_alias_copy(false)
+}
+#[cfg(unix)]
+fn check_external_alias_copy(executable: bool) -> Result<()> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let mut f = fixture(false)?;
+    let source = f._dir.path().join("external-gate");
+    let alias = f._dir.path().join("external-gate-alias");
+    let raw: &[u8] = if executable {
+        b"portable hard-linked gate source"
+    } else {
+        b"portable hard-linked environment source"
+    };
+    std::fs::write(&source, raw)?;
+    std::fs::set_permissions(&source, std::fs::Permissions::from_mode(0o700))?;
+    std::fs::hard_link(&source, &alias)?;
+    let before = std::fs::metadata(&source)?;
+    assert_eq!(before.nlink(), 2);
+    let artifact = ArtifactSource {
+        role: if executable {
+            ArtifactRole::StubBinary {
+                epoch: 1,
+                gate: [8; 32],
+                profile: "portable-fixture".into(),
+            }
+        } else {
+            ArtifactRole::Environment {
+                component: super::hash(raw),
+            }
+        },
+        digest: super::hash(raw),
+        path: source.clone(),
+        executable,
+    };
+    let mut wrong = artifact.clone();
+    wrong.digest = [0xff; 32];
+    let error = f
+        .pins
+        .install_artifacts(std::slice::from_ref(&wrong))
+        .unwrap_err();
+    assert!(
+        error.to_string().contains("pin artifact source digest"),
+        "{error:#}"
+    );
+    assert!(!f.pins.view().artifact_path(wrong.digest).exists());
+    assert!(f.pins.view().artifact(&artifact.role).is_none());
+    f.pins.install_artifacts(std::slice::from_ref(&artifact))?;
+    let object = f.pins.view().artifact_path(artifact.digest);
+    let stored = std::fs::metadata(&object)?;
+    assert_eq!(stored.nlink(), 1);
+    assert_ne!((stored.dev(), stored.ino()), (before.dev(), before.ino()));
+    assert_eq!(std::fs::read(&object)?, raw);
+    let after = std::fs::metadata(&source)?;
+    assert_eq!(after.nlink(), 2);
+    assert_eq!(after.permissions().mode(), before.permissions().mode());
+    assert_eq!(
+        (
+            after.dev(),
+            after.ino(),
+            after.len(),
+            after.mtime(),
+            after.mtime_nsec(),
+            after.ctime(),
+            after.ctime_nsec()
+        ),
+        (
+            before.dev(),
+            before.ino(),
+            before.len(),
+            before.mtime(),
+            before.mtime_nsec(),
+            before.ctime(),
+            before.ctime_nsec()
+        )
+    );
+    assert_eq!(std::fs::read(&source)?, raw);
+    assert_eq!(std::fs::read(&alias)?, raw);
+    f.pins.view().check()?;
+    let retained = f.pins.view().artifact(&artifact.role).unwrap().clone();
+    f.pins.view().verify_artifact(&retained)?;
+    std::fs::hard_link(&object, f._dir.path().join("store-alias"))?;
+    assert_eq!(std::fs::metadata(&object)?.nlink(), 2);
+    assert!(f.pins.view().verify_artifact(&retained).is_err());
+    assert!(f.pins.view().check().is_err());
+    assert!(
+        ReadOnlyPins::open(f.source.root(), f.source.network(), f.source.anchor_hash()).is_err()
+    );
+    Ok(())
+}
+
+#[test]
 fn t88_deleted_old_gate_artifact_is_availability_without_original_source_fallback() -> Result<()> {
     let mut f = fixture(true)?;
     f.pins
