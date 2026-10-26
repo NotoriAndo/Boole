@@ -260,12 +260,29 @@ Objects writer lock or invoking quarantine/repair. Verification rereads the
 required own-journal rows and retained artifacts and checks their digests and L2
 origin bindings. Missing coverage is availability, never a synthetic verdict or
 a historical-L1 fallback. A changed source cannot remain a successful read-only
-verification. Artifact digests are memoized only within the process and an
-unchanged R1 file version (device/inode, length, modification and change times).
-Fresh startup and restored or replaced versions hash again. Every verification
-still checks source versions, and changed files stop before reuse. This avoids
-rehashing one binary for every candidate and epoch; it is not a persisted
-verification receipt. `RealGateInventoryPending` is the named unavailable seam for the
+verification.
+
+The exclusive own writer verifies the complete prefix, retained rows and bindings
+at startup. It then advances an append-only cursor: only new record bodies after
+the verified sequence are read, and new events are checked against a sparse set
+of touched keys before publication. Verified input rows reuse the own journal's
+authenticated position digests under its lifetime ownership/version fence.
+There is no whole-index copy per write. Existing immutable prefix bytes remain
+subject to full verification at the next startup and by every read-only auditor;
+the hot cursor is not an online scan for arbitrary out-of-band old-file writes.
+
+Artifact digest reuse is process-local and tied to an unchanged R1 file version
+(device/inode, length, modification and change times). There is no persisted
+verification receipt. **Coarse-timestamp limit:** on filesystems such as ext4 or
+tmpfs on Linux before 6.13, an external same-length in-place rewrite within one
+timestamp tick can leave those fields equal. Such a collision may evade the
+writer's artifact/row caches for the rest of that process, not merely one tick.
+No periodic rehash is claimed. Fresh startup and independent full audits hash
+again; normal replaced/restored versions invalidate the cache. The owner must
+keep these append-only stores private. This is a filesystem-version optimization,
+not a guarantee against adversarial same-tick rewrites or silent bit rot.
+
+`RealGateInventoryPending` is the named unavailable seam for the
 complete transitive real-gate inventory; stub artifacts cannot supply it.
 
 Own-journal M3 driver and miner stores enable retention by default, including
@@ -284,8 +301,12 @@ that already contains the selected binding; a later suffix cannot satisfy an
 earlier anchor. Read-only verification also binds the retention deletion guard.
 
 A pre-M4c store can bootstrap from its complete verified own input journal and
-historical local L2 headers/transactions. A durable ceiling bounds this one-time
-bootstrap, and successful full replay seals it. A modern checkpoint with missing
+historical local L2 headers/transactions. The driver's durable ceiling bounds its
+one-time historical Engine bootstrap; successful full replay seals it. The miner
+records the journal tip at bootstrap start, but that marker is not a fetch ceiling:
+it may consume additional independently checked canonical L2 blocks while catching
+up. It seals bootstrap when the fold reaches finalized L1. No historical L1 read
+is enabled by either marker. A modern checkpoint with missing
 pins must stop; it cannot re-enter bootstrap. Subsequent restart/recheck history
 comes from the journal and pinned L2 bindings, with only the current L2 head
 observed live. There is no historical L1 fallback, pin pruning or compaction.
@@ -297,7 +318,23 @@ against the identity-bound pin view. Only then can `k4.status=ok` and
 `rebuilt` records rebuild coverage separately. Missing or concurrently changed
 pins remain `pending` / `local-unavailable` with checked zero and null verification
 height; corrupt or foreign pins are K4 failures. Archive-only inputs have no
-node-owned pin journal and remain pending. Environment/J4 stay pending, and
+node-owned pin journal and remain pending.
+
+A recognized own-writer staging pair (the value and its published name are two
+links to the same owned staging inode) means interrupted/in-progress publication,
+so an audit stays pending without repairing either name. An unrelated hard link
+still fails K4. Writer startup completes large artifact staging under the existing
+256 MiB artifact cap, using bounded streaming comparison; input/record staging
+keeps its existing smaller role cap. Parents of the three pin directories are
+fsynced before pin authority is published.
+
+An `ok` audit requires a stable source window and a node head at the same input
+tip. A continuously publishing node cannot guarantee that window: pin growth
+makes its snapshot pending and an input-journal version change retains the
+existing input-check failure. Quiesce publication at a common tip for the audit
+and its final recheck, then resume production. No concurrent source is repaired,
+no moving-tip `ok` is asserted, and no source-version check is skipped to get one.
+Environment/J4 stay pending, and
 local retention does not assert the separate two-source readiness policy.
 
 ## Independent read-only audit (M4b2)

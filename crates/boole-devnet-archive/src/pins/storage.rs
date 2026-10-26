@@ -26,6 +26,7 @@ const RECORD_MAX: usize = 64 * 1024 * 1024;
 #[cfg(test)]
 thread_local! {
     static ARTIFACT_HASHES: std::cell::RefCell<BTreeMap<Hash, usize>> = const { std::cell::RefCell::new(BTreeMap::new()) };
+    static PIN_COST: std::cell::Cell<(usize, usize, usize)> = const { std::cell::Cell::new((0, 0, 0)) };
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -73,7 +74,7 @@ struct Frame {
     previous: Hash,
     event: Event,
 }
-#[derive(Clone, Default)]
+#[derive(Default)]
 struct Index {
     candidates: BTreeMap<Key, CandidatePin>,
     intervals: IntervalUnion,
@@ -84,6 +85,28 @@ struct Index {
     artifacts: BTreeMap<ArtifactRole, Artifact>,
     bootstrap: Option<u64>,
     bootstrapped: bool,
+}
+// Production deliberately has no whole-index Clone. A test-only implementation
+// makes any accidental copy in the exercised writer path visible to cost tests.
+#[cfg(test)]
+impl Clone for Index {
+    fn clone(&self) -> Self {
+        PIN_COST.with(|c| {
+            let (r, w, i) = c.get();
+            c.set((r, w, i + self.bindings.len()));
+        });
+        Self {
+            candidates: self.candidates.clone(),
+            intervals: self.intervals.clone(),
+            inputs: self.inputs.clone(),
+            bindings: self.bindings.clone(),
+            selected: self.selected.clone(),
+            selected_at: self.selected_at.clone(),
+            artifacts: self.artifacts.clone(),
+            bootstrap: self.bootstrap,
+            bootstrapped: self.bootstrapped,
+        }
+    }
 }
 fn hash(bytes: &[u8]) -> Hash {
     Sha256::digest(bytes).into()
@@ -125,6 +148,9 @@ fn typed(error: anyhow::Error, height: u64) -> anyhow::Error {
         )
     }
 }
+#[path = "publication.rs"]
+mod publication;
+use publication::{pin_read, pin_stamp};
 fn names(root: &Path) -> Result<Vec<String>> {
     let mut result = vec![];
     for e in std::fs::read_dir(root)? {
@@ -248,12 +274,20 @@ fn apply(index: &mut Index, event: &Event, sequence: u64) -> Result<()> {
     }
     Ok(())
 }
+#[path = "cursor.rs"]
+mod cursor;
+use cursor::{directory_stamp, validate_event, DirectoryStamp, VerifiedRow};
+
 pub trait PinInputs {
     fn pin_network(&self) -> &NetworkIdentity;
     fn pin_anchor(&self) -> &str;
     fn pin_tip(&self) -> u64;
     fn pin_row(&self, h: u64) -> Result<crate::input::InputRow>;
     fn pin_check(&self) -> Result<()>;
+    /// An authenticated append-only position token, available only to the own writer.
+    fn pin_row_id(&self, _h: u64) -> Result<Option<Hash>> {
+        Ok(None)
+    }
 }
 impl PinInputs for InputJournal {
     fn pin_network(&self) -> &NetworkIdentity {
@@ -266,7 +300,15 @@ impl PinInputs for InputJournal {
         self.tip()
     }
     fn pin_row(&self, h: u64) -> Result<crate::input::InputRow> {
+        #[cfg(test)]
+        PIN_COST.with(|c| {
+            let (r, w, i) = c.get();
+            c.set((r, w + 1, i));
+        });
         self.row(h)
+    }
+    fn pin_row_id(&self, h: u64) -> Result<Option<Hash>> {
+        Ok(Some(self.verified_row_digest(h)?))
     }
     fn pin_check(&self) -> Result<()> {
         self.check()
@@ -299,6 +341,9 @@ pub struct ReadOnlyPins {
     last: Hash,
     index: Index,
     artifact_stamps: BTreeMap<Hash, Option<FileStamp>>,
+    writer: bool,
+    records_stamp: DirectoryStamp,
+    verified_rows: std::sync::Mutex<BTreeMap<u64, VerifiedRow>>,
     // Process-local only. Reuse a digest check solely while the complete R1
     // file identity/version remains equal; startup and restored versions hash
     // again. Every read still fences all source versions in check().
@@ -318,7 +363,7 @@ impl ReadOnlyPins {
                 && !std::fs::symlink_metadata(&root)?.file_type().is_symlink(),
             "pin directory type"
         );
-        let (raw, manifest_stamp) = read_bound(&root.join(MANIFEST), 65536)?;
+        let (raw, manifest_stamp) = pin_read(&root.join(MANIFEST), 65536)?;
         let manifest: Manifest = serde_json::from_slice(&raw)?;
         if manifest.schema_version != 1
             || manifest.network != *network
@@ -331,7 +376,7 @@ impl ReadOnlyPins {
         }
         .verify_mode()?;
         let (marker, marker_stamp) =
-            read_bound(&root.join("objects/retention.required.json"), 65536)?;
+            pin_read(&root.join("objects/retention.required.json"), 65536)?;
         ensure!(
             serde_json::from_slice::<Manifest>(&marker)? == manifest,
             "retention marker identity"
@@ -351,7 +396,12 @@ impl ReadOnlyPins {
                     "S20: missing pin record; restore the complete prefix",
                 ));
             }
-            let (raw, stamp) = read_bound(&root.join("records").join(&name), RECORD_MAX)?;
+            let (raw, stamp) = pin_read(&root.join("records").join(&name), RECORD_MAX)?;
+            #[cfg(test)]
+            PIN_COST.with(|c| {
+                let (r, w, i) = c.get();
+                c.set((r + 1, w, i));
+            });
             let digest = frame_hash(&manifest, &raw)?;
             ensure!(
                 name == format!("{seq:020}-{}.json", hex::encode(digest)),
@@ -372,12 +422,12 @@ impl ReadOnlyPins {
             .map(|a| {
                 Ok((
                     a.digest,
-                    file_stamp(&root.join("objects").join(hex_string(&a.digest)))?,
+                    pin_stamp(&root.join("objects").join(hex_string(&a.digest)))?,
                 ))
             })
             .collect::<Result<BTreeMap<_, _>>>()?;
         let view = Self {
-            root,
+            root: root.clone(),
             manifest,
             manifest_stamp,
             marker_stamp,
@@ -386,6 +436,9 @@ impl ReadOnlyPins {
             index,
             artifact_stamps,
             verified_artifacts: Default::default(),
+            writer: false,
+            records_stamp: directory_stamp(&root.join("records"))?,
+            verified_rows: Default::default(),
         };
         view.check()?;
         Ok(Some(view))
@@ -394,29 +447,55 @@ impl ReadOnlyPins {
         self.check_inner().map_err(|e| typed(e, self.height()))
     }
     fn check_inner(&self) -> Result<()> {
-        if file_stamp(&self.root.join("objects/retention.required.json"))?.as_ref()
+        if pin_stamp(&self.root.join("objects/retention.required.json"))?.as_ref()
             != Some(&self.marker_stamp)
-            || file_stamp(&self.root.join(MANIFEST))?.as_ref() != Some(&self.manifest_stamp)
-            || names(&self.root.join("records"))?
-                != self.files.iter().map(|v| v.0.clone()).collect::<Vec<_>>()
+            || pin_stamp(&self.root.join(MANIFEST))?.as_ref() != Some(&self.manifest_stamp)
         {
             return Err(availability(
                 self.height(),
                 "pin-version",
-                "pin source changed during read",
+                "pin manifest/retention source changed",
             ));
         }
-        for (name, stamp) in &self.files {
-            if file_stamp(&self.root.join("records").join(name))?.as_ref() != Some(stamp) {
+        if self.writer {
+            if directory_stamp(&self.root.join("records"))? != self.records_stamp {
                 return Err(availability(
                     self.height(),
                     "pin-version",
-                    "pin record version changed",
+                    "pin record directory changed; refresh required",
                 ));
+            }
+            if let Some((name, stamp)) = self.files.last() {
+                if pin_stamp(&self.root.join("records").join(name))?.as_ref() != Some(stamp) {
+                    return Err(availability(
+                        self.height(),
+                        "pin-version",
+                        "pin frontier changed",
+                    ));
+                }
+            }
+        } else {
+            if names(&self.root.join("records"))?
+                != self.files.iter().map(|v| v.0.clone()).collect::<Vec<_>>()
+            {
+                return Err(availability(
+                    self.height(),
+                    "pin-version",
+                    "pin source changed during read",
+                ));
+            }
+            for (name, stamp) in &self.files {
+                if pin_stamp(&self.root.join("records").join(name))?.as_ref() != Some(stamp) {
+                    return Err(availability(
+                        self.height(),
+                        "pin-version",
+                        "pin record version changed",
+                    ));
+                }
             }
         }
         for (digest, before) in &self.artifact_stamps {
-            if file_stamp(&self.artifact_path(*digest))? != *before {
+            if pin_stamp(&self.artifact_path(*digest))? != *before {
                 return Err(availability(
                     self.height(),
                     "pin-version",
@@ -472,7 +551,7 @@ impl ReadOnlyPins {
                 .get(&a.digest)
                 .cloned();
             if cached.as_ref() == Some(expected) {
-                if file_stamp(&path)?.as_ref() != Some(expected) {
+                if pin_stamp(&path)?.as_ref() != Some(expected) {
                     return Err(availability(
                         self.height(),
                         "pin-version",
@@ -489,13 +568,8 @@ impl ReadOnlyPins {
                 return Ok(());
             }
         }
-        let (raw, observed) = read_bound(&path, 256 * 1024 * 1024).map_err(|e| {
-            integrity(
-                self.height(),
-                "pin-artifact",
-                format!("retained artifact: {e:#}"),
-            )
-        })?;
+        let (raw, observed) =
+            pin_read(&path, 256 * 1024 * 1024).map_err(|e| typed(e, self.height()))?;
         if self.artifact_stamps.get(&a.digest).and_then(Option::as_ref) != Some(&observed) {
             return Err(availability(
                 self.height(),
@@ -573,8 +647,8 @@ impl ReadOnlyPins {
                 let expected = self.index.inputs.get(&h).ok_or_else(|| {
                     availability(h, "pin-input", "S20: interior input pin missing")
                 })?;
-                let row = source.pin_row(h)?;
-                if row_hash(&row)? != *expected {
+                let row = self.verified_row(source, h)?;
+                if row.digest != *expected {
                     return Err(integrity(
                         h,
                         "pin-input",
@@ -587,7 +661,7 @@ impl ReadOnlyPins {
                     self.binding(h)?
                 };
                 binding
-                    .verify(source.pin_network(), &row.verify()?.block)
+                    .verify(source.pin_network(), &row.block)
                     .map_err(|e| integrity(h, "pin-binding", format!("{e:#}")))?;
             }
         }
@@ -597,6 +671,9 @@ impl ReadOnlyPins {
                 "pin-height",
                 "S20: pin verification height missing",
             ));
+        }
+        if !self.writer {
+            self.verify_all(source)?;
         }
         source.pin_check()?;
         self.check()
@@ -622,7 +699,7 @@ impl ReadOnlyPins {
                     )
                 })?;
             self.verify_artifact(desc)?;
-            let (raw, _) = read_bound(&self.artifact_path(desc.digest), 65536)?;
+            let (raw, _) = pin_read(&self.artifact_path(desc.digest), 65536)?;
             ensure!(
                 hash(&[b"BOOLE-M3/GATE-DESCRIPTOR/v1".as_slice(), &raw].concat()) == *gate,
                 "stub gate descriptor domain binding"
@@ -780,6 +857,7 @@ pub struct PinStore {
     guard: StateDirGuard,
     records_guard: StateDirGuard,
     objects_guard: StateDirGuard,
+    tail_dirty: bool,
 }
 impl PinStore {
     pub fn open(source: &InputJournal) -> Result<Self> {
@@ -787,11 +865,18 @@ impl PinStore {
         let root = source.root().join(DIR);
         let existed = root.try_exists()?;
         let guard = state_dir::acquire(&root)?;
+        crate::durability::fsync_parent_dir(&root)?;
         let records_guard = state_dir::acquire(&root.join("records"))?;
+        crate::durability::fsync_parent_dir(&root.join("records"))?;
         crate::boot::cleanup_publications(&root, &guard)?;
         crate::boot::cleanup_publications(&root.join("records"), &records_guard)?;
         let objects_guard = state_dir::acquire(&root.join("objects"))?;
-        crate::boot::cleanup_publications(&root.join("objects"), &objects_guard)?;
+        crate::durability::fsync_parent_dir(&root.join("objects"))?;
+        crate::boot::cleanup_publications_with_limit(
+            &root.join("objects"),
+            &objects_guard,
+            256 * 1024 * 1024,
+        )?;
         if !root.join(MANIFEST).try_exists()? {
             if existed && !names(&root.join("records"))?.is_empty() {
                 return Err(availability(
@@ -816,7 +901,7 @@ impl PinStore {
         if !root.join("objects/retention.required.json").try_exists()?
             && names(&root.join("records"))?.is_empty()
         {
-            let (raw, _) = read_bound(&root.join(MANIFEST), 65536)?;
+            let (raw, _) = pin_read(&root.join(MANIFEST), 65536)?;
             let m: Manifest = serde_json::from_slice(&raw)?;
             ensure!(
                 m.network == *source.network()
@@ -827,16 +912,24 @@ impl PinStore {
             );
             publish_new(&root.join("objects/retention.required.json"), &raw)?;
         }
-        let view = ReadOnlyPins::open(source.root(), source.network(), source.anchor_hash())?
+        let mut view = ReadOnlyPins::open(source.root(), source.network(), source.anchor_hash())?
             .context("pin journal")?;
         for a in view.index.artifacts.values() {
             view.verify_artifact(a)?;
         }
+        // The complete record prefix is verified above. Verify every retained
+        // row/binding once before enabling the exclusive writer's cursor.
+        view.writer = true;
+        view.verify_all(source)?;
+        view.writer = false;
+        view.check()?;
+        view.writer = true;
         Ok(Self {
             view,
             guard,
             records_guard,
             objects_guard,
+            tail_dirty: false,
         })
     }
     pub fn view(&self) -> &ReadOnlyPins {
@@ -873,37 +966,8 @@ impl PinStore {
         Ok(())
     }
     pub fn refresh(&mut self, source: &InputJournal) -> Result<()> {
-        source.check()?;
-        let next = ReadOnlyPins::open(source.root(), source.network(), source.anchor_hash())?
-            .context("pin journal")?;
-        ensure!(
-            next.files
-                .iter()
-                .map(|v| &v.0)
-                .eq(self.view.files.iter().map(|v| &v.0)),
-            "pin record set changed outside this writer"
-        );
-        {
-            let old = self
-                .view
-                .verified_artifacts
-                .lock()
-                .map_err(|_| anyhow::anyhow!("pin verification cache poisoned"))?;
-            let mut verified = next
-                .verified_artifacts
-                .lock()
-                .map_err(|_| anyhow::anyhow!("pin verification cache poisoned"))?;
-            for (digest, stamp) in old.iter() {
-                if next.artifact_stamps.get(digest).and_then(Option::as_ref) == Some(stamp) {
-                    verified.insert(*digest, stamp.clone());
-                }
-            }
-        }
-        for a in next.index.artifacts.values() {
-            next.verify_artifact(a)?;
-        }
-        self.view = next;
-        Ok(())
+        self.refresh_tail(source)
+            .map_err(|e| typed(e, self.view.height()))
     }
     pub fn install_bytes(
         &mut self,
@@ -980,17 +1044,20 @@ impl PinStore {
         ensure!(raw.len() <= RECORD_MAX, "pin record size cap");
         let digest = frame_hash(&self.view.manifest, &raw)?;
         let name = format!("{:020}-{}.json", frame.sequence, hex::encode(digest));
-        let mut next = self.view.index.clone();
-        apply(&mut next, &frame.event, frame.sequence)?;
+        validate_event(&self.view.index, &frame.event, frame.sequence)?;
         let path = self.view.root.join("records").join(&name);
+        self.tail_dirty = true;
         publish_new(&path, &raw)?;
+        apply(&mut self.view.index, &frame.event, frame.sequence)?;
         self.view
             .files
-            .push((name, file_stamp(&path)?.context("published pin record")?));
+            .push((name, pin_stamp(&path)?.context("published pin record")?));
         self.view.last = digest;
-        self.view.index = next;
+        self.view.records_stamp = directory_stamp(&self.view.root.join("records"))?;
+        self.tail_dirty = false;
         self.view.check()
     }
+
     pub fn install_artifacts(&mut self, values: &[ArtifactSource]) -> Result<()> {
         self.view.check()?;
         let mut added = vec![];
@@ -1064,7 +1131,10 @@ impl PinStore {
                 && self.view.manifest.l1_anchor_hash == source.anchor_hash(),
             "pin writer source identity"
         );
-        binding.verify(source.network(), &source.get(binding.header.number)?.block)?;
+        binding.verify(
+            source.network(),
+            &self.view.verified_row(source, binding.header.number)?.block,
+        )?;
         if let Some(hash) = self.view.index.selected.get(&binding.header.number) {
             ensure!(
                 *hash == binding.header.hash,
@@ -1087,7 +1157,7 @@ impl PinStore {
             for (&lo, &hi) in &req.intervals().0 {
                 for h in lo..=hi {
                     if !self.view.index.inputs.contains_key(&h) {
-                        inputs.insert(h, row_hash(&source.row(h)?)?);
+                        inputs.insert(h, self.view.verified_row(source, h)?.digest);
                     }
                 }
             }

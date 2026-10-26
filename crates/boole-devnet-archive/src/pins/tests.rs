@@ -479,3 +479,183 @@ fn t88_immutable_artifacts_hash_once_per_version_and_restoration_reverifies() ->
     );
     Ok(())
 }
+
+#[test]
+fn fix1_writer_refresh_and_verify_do_not_reread_the_verified_prefix() -> Result<()> {
+    let mut f = fixture(true)?;
+    f.pins
+        .view()
+        .verify(&f.source, std::slice::from_ref(&f.request), 4)?;
+    PIN_COST.with(|c| c.set((0, 0, 0)));
+    f.pins.refresh(&f.source)?;
+    f.pins
+        .view()
+        .verify(&f.source, std::slice::from_ref(&f.request), 4)?;
+    f.pins
+        .view()
+        .verify(&f.source, std::slice::from_ref(&f.request), 4)?;
+    let parent = f.source.get(4)?.block.hash;
+    f.source.append(&empty_fixture(
+        5,
+        boole_derivation::attributes::hex_bytes(&parent, "parent")?
+            .try_into()
+            .unwrap(),
+    ))?;
+    let b = binding(&f.source, 5)?;
+    f.pins.prepare(&f.source, b.clone(), &[f.request])?;
+    f.pins.select(5, &b.header.hash, b.root)?;
+    let costs = PIN_COST.with(|c| c.get());
+    assert_eq!(costs.0, 0, "refresh reread old records: {costs:?}");
+    assert!(costs.1 <= 1, "verify reread authenticated rows: {costs:?}");
+    assert_eq!(costs.2, 0, "publication copied the whole index: {costs:?}");
+    Ok(())
+}
+#[test]
+fn fix1_refresh_adopts_only_the_durable_new_hash_chained_suffix() -> Result<()> {
+    let mut f = fixture(true)?;
+    let frame = Frame {
+        version: 1,
+        sequence: f.pins.view.files.len() as u64,
+        previous: f.pins.view.last,
+        event: Event::Bootstrapped,
+    };
+    let raw = serde_json::to_vec(&frame)?;
+    let digest = frame_hash(&f.pins.view.manifest, &raw)?;
+    let path = f.source.root().join(DIR).join("records").join(format!(
+        "{:020}-{}.json",
+        frame.sequence,
+        hex::encode(digest)
+    ));
+    publish_new(&path, &raw)?;
+    PIN_COST.with(|c| c.set((0, 0, 0)));
+    f.pins.refresh(&f.source)?;
+    assert_eq!(f.pins.view().record_id(), digest);
+    assert_eq!(PIN_COST.with(|c| c.get().0), 1, "old prefix was read again");
+    Ok(())
+}
+
+#[test]
+#[cfg(unix)]
+fn fix1_large_private_artifact_staging_recovers_without_manual_repair() -> Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+    let f = fixture(false)?;
+    let objects = f.pins.objects();
+    let stage = objects.join(format!(".devnet-new-{}", "a".repeat(32)));
+    std::fs::DirBuilder::new().mode(0o700).create(&stage)?;
+    let file = std::fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .mode(0o600)
+        .open(stage.join("value"))?;
+    let length = crate::input::ROW_MAX as u64 + 1;
+    file.set_len(length)?;
+    file.sync_all()?;
+    drop(file);
+    drop(f.pins);
+    let p = PinStore::open(&f.source)?;
+    assert!(!stage.exists(), "large orphan staging blocked startup");
+    let saved = p
+        .objects()
+        .join("corrupt")
+        .join(format!("publication-{}", "a".repeat(32)))
+        .join("value");
+    assert_eq!(std::fs::metadata(saved)?.len(), length);
+    Ok(())
+}
+
+#[test]
+#[cfg(unix)]
+fn fix1_parent_directory_sync_failure_precedes_pin_authority() -> Result<()> {
+    for suffix in ["", "records", "objects"] {
+        let f = fixture(false)?;
+        drop(f.pins);
+        let root = f.source.root().join(DIR);
+        std::fs::rename(&root, f._dir.path().join("preserved-pins"))?;
+        let failed = if suffix.is_empty() {
+            root.clone()
+        } else {
+            root.join(suffix)
+        };
+        crate::durability::fail_parent_sync(failed);
+        let result = PinStore::open(&f.source);
+        crate::durability::clear_parent_sync_failure();
+        assert!(
+            result.is_err(),
+            "{suffix}: pin authority published before parent fsync"
+        );
+        assert!(
+            !root.join(MANIFEST).exists(),
+            "manifest escaped a directory durability failure"
+        );
+        drop(result);
+        PinStore::open(&f.source)?;
+    }
+    Ok(())
+}
+
+#[path = "cost_tests.rs"]
+mod cost;
+
+#[test]
+#[cfg(unix)]
+fn fix1_large_linked_artifact_publication_completes_recovery() -> Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
+    let f = fixture(false)?;
+    let root = f.pins.objects();
+    let stage = root.join(format!(".devnet-new-{}", "c".repeat(32)));
+    std::fs::DirBuilder::new().mode(0o700).create(&stage)?;
+    let value = stage.join("value");
+    let file = std::fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .mode(0o600)
+        .open(&value)?;
+    let length = crate::input::ROW_MAX as u64 + 1;
+    file.set_len(length)?;
+    file.sync_all()?;
+    drop(file);
+    let published = root.join(hex_string(&[0; 32]));
+    std::fs::hard_link(&value, &published)?;
+    drop(f.pins);
+    let pins = PinStore::open(&f.source)?;
+    assert!(!stage.exists());
+    let m = std::fs::metadata(published)?;
+    assert_eq!(m.len(), length);
+    assert_eq!(m.nlink(), 1);
+    assert!(
+        pins.view()
+            .index
+            .artifacts
+            .values()
+            .all(|a| a.digest != [0; 32]),
+        "orphan bytes became pin authority"
+    );
+    Ok(())
+}
+
+#[test]
+fn fix1_incremental_cursor_cannot_refresh_from_a_foreign_source() -> Result<()> {
+    let mut f = fixture(true)?;
+    let mut network = f.source.network().clone();
+    network.l2_genesis_hash = hex_string(&[44; 32]);
+    let other = InputJournal::open(
+        &f._dir.path().join("foreign"),
+        network,
+        || f.source.row(0),
+        false,
+    )?;
+    let before = f.pins.view().record_id();
+    let e = f
+        .pins
+        .refresh(&other)
+        .expect_err("warm cursor accepted a foreign source identity");
+    assert!(
+        matches!(
+            e.downcast_ref::<crate::error::Error>(),
+            Some(crate::error::Error::Startup { number: 20, .. })
+        ),
+        "{e:#}"
+    );
+    assert_eq!(f.pins.view().record_id(), before);
+    Ok(())
+}

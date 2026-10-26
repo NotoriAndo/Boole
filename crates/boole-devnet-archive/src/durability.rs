@@ -651,6 +651,14 @@ pub fn read_stable_prefix_on_file(file: &mut File) -> anyhow::Result<String> {
 
 #[cfg(unix)]
 pub fn fsync_parent_dir(path: &Path) -> anyhow::Result<()> {
+    #[cfg(test)]
+    PARENT_SYNC_FAILURE.with(|slot| -> anyhow::Result<()> {
+        if slot.borrow().as_deref() == Some(path) {
+            slot.borrow_mut().take();
+            anyhow::bail!("injected parent directory fsync failure");
+        }
+        Ok(())
+    })?;
     let dir = path.parent().unwrap_or_else(|| Path::new("."));
     let dir = if dir.as_os_str().is_empty() {
         Path::new(".")
@@ -660,6 +668,21 @@ pub fn fsync_parent_dir(path: &Path) -> anyhow::Result<()> {
     let dir_file = File::open(dir)?;
     dir_file.sync_all()?;
     Ok(())
+}
+
+#[cfg(test)]
+thread_local! { static PARENT_SYNC_FAILURE: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) }; }
+#[cfg(test)]
+pub(crate) fn fail_parent_sync(path: PathBuf) {
+    PARENT_SYNC_FAILURE.with(|slot| {
+        assert!(slot.replace(Some(path)).is_none());
+    });
+}
+#[cfg(test)]
+pub(crate) fn clear_parent_sync_failure() {
+    PARENT_SYNC_FAILURE.with(|slot| {
+        slot.borrow_mut().take();
+    });
 }
 
 #[cfg(not(unix))]

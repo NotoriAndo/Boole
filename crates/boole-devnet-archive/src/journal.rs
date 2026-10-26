@@ -338,6 +338,15 @@ impl InputJournal {
     pub fn tip(&self) -> u64 {
         *self.positions.last_key_value().expect("anchor").0
     }
+    /// Digest authenticated at full startup or a checked own append. The
+    /// lifetime writer/version fence must still pass before reusing this token.
+    pub fn verified_row_digest(&self, h: u64) -> Result<[u8; 32]> {
+        self.check()?;
+        self.positions
+            .get(&h)
+            .map(|p| p.encoded_digest)
+            .ok_or_else(|| availability(h, "journal", "verified row position absent"))
+    }
     pub fn hash(&self, h: u64) -> Option<&str> {
         self.positions.get(&h).map(|p| p.hash.as_str())
     }
