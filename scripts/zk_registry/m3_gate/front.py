@@ -114,17 +114,18 @@ class BoundBundle:
     data: object
 
 
-def bind_bundle(source, expected):
+def bind_bundle(source, expected, *, retention_limit=None):
     """Hash through EOF before admission; retain at most the framing allowance.
 
     The retention bound controls memory only. An oversized input is not rejected
     until its WHOLE content address has been checked, including the discarded tail.
     """
+    limit = RAW_MAX if retention_limit is None else retention_limit
     hashed=hashlib.sha256();size=0;kept=[]
     def consume(chunk):
         nonlocal size,kept
         hashed.update(chunk);size+=len(chunk)
-        if size<=RAW_MAX:
+        if size<=limit:
             kept.append(bytes(chunk))
         else:
             kept=[]
@@ -147,7 +148,7 @@ def bind_bundle(source, expected):
     actual=hashed.hexdigest()
     if actual!=expected:
         raise Refusal('input_integrity','bundle content address')
-    return BoundBundle(size,actual,b''.join(kept) if size<=RAW_MAX else None)
+    return BoundBundle(size,actual,b''.join(kept) if size<=limit else None)
 
 
 def unpack(raw):
@@ -191,7 +192,23 @@ class Inventory:
         return C.loads(self.raw)  # callers never mutate a retained authenticated object
 
 
+@dataclass(frozen=True)
+class PackageSource:
+    """A node-local package whose complete address precedes its size decision."""
+    path: str
+
+
 def package(raw, expected_sha256, inventory):
+    if type(raw) is PackageSource:
+        try:
+            bound = bind_bundle(BundleSource(raw.path), expected_sha256, retention_limit=1048576)
+        except Refusal as error:
+            if error.row == 'input_integrity':
+                raise
+            raise Refusal('node_fault', 'local package unavailable') from None
+        if bound.size > 1048576:
+            raise Refusal('package_invalid', 'authenticated package size')
+        raw = bound.data
     if type(raw) is not bytes or C.sha(raw) != expected_sha256:
         raise Refusal('input_integrity', 'package address')
     try:

@@ -206,7 +206,7 @@ class IdentityTests(unittest.TestCase):
         # not rotate the frozen catalog's generator identity.
         from zk_registry.m3_gate import adapter as m3
         m3_files = {'m3_gate/'+name+'.py' for name in
-                    ('__init__', '__main__', 'adapter', 'codec', 'front', 'mapping')}
+                    ('__init__', '__main__', 'adapter', 'codec', 'decoder', 'front', 'mapping')}
         self.assertEqual({str(p.relative_to(here)) for p in (here/'m3_gate').rglob('*.py')}, m3_files)
         self.assertTrue(m3_files.isdisjoint(listed))
         self.assertRegex(m3.source_release(), r'^[0-9a-f]{64}$')

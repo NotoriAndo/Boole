@@ -2,7 +2,7 @@
 import argparse
 from pathlib import Path
 import sys
-from . import adapter as A, codec as C, front as F
+from . import adapter as A, codec as C, front as F, decoder as DC
 
 
 def read(path, cap, *, overflow=False):
@@ -15,21 +15,29 @@ def read(path, cap, *, overflow=False):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    for name in ('descriptor', 'gate-digest', 'bundle', 'package', 'inventory', 'context',
+    for name in ('descriptor', 'gate-digest', 'package', 'inventory', 'context',
                  'reference', 'tools-root', 'counter-driver', 'work'):
         parser.add_argument('--'+name, required=True)
+    output = parser.add_mutually_exclusive_group(required=True)
+    output.add_argument('--bundle')
+    output.add_argument('--no-decoded-output', action='store_true')
     parser.add_argument('--certified-root')
     parser.add_argument('--phase', choices=('first', 'retry', 'replay'), default='first')
     parser.add_argument('--public-counter', action='store_true')
+    parser.add_argument('--decoder-status')
+    parser.add_argument('--decoder-pin')
+    parser.add_argument('--transport-digest')
     args = parser.parse_args()
     try:
         raw_descriptor = read(args.descriptor, 65536)
         descriptor = C.decode(raw_descriptor, args.gate_digest)
         context = C.loads(read(args.context, 65536))
-        result = A.run(F.BundleSource(args.bundle), read(args.package, 1048576),
+        result = A.run(None if args.no_decoded_output else F.BundleSource(args.bundle), F.PackageSource(args.package),
             read(args.inventory, 67108864), context, raw_descriptor, args.gate_digest,
             args.reference, A.D.Tools.load(args.tools_root), args.counter_driver, args.work,
-            certified_root=args.certified_root, phase=args.phase, public_counter=args.public_counter)
+            certified_root=args.certified_root, phase=args.phase, public_counter=args.public_counter,
+            decoder_status=DC.Source(args.decoder_status) if args.decoder_status is not None else None,
+            decoder_pin=args.decoder_pin, transport_digest=args.transport_digest)
         encoded = C.canonical(result)
         A.decode_reply(encoded, descriptor, context)
         print(A.MARKER+encoded.decode())

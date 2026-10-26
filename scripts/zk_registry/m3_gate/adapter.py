@@ -8,6 +8,7 @@ import hashlib
 import json
 import platform
 from . import codec as C, front as F, mapping as M
+from . import decoder as DC
 from .. import closure as D, fuel_caps as FC, lean_runner as L
 from .. import counter_identity as CI
 from .. import artifact_pins
@@ -121,9 +122,11 @@ def axioms(export, own):
         pending.extend(export.groups.get(name, ()))
 
 
-def reply(descriptor, context, mapped, statement, states, fuel, counter=None):
+def reply(descriptor, context, mapped, statement, states, fuel, counter=None, *,
+          fork_authorized=False, authenticated_statement=M.UNSET_STATEMENT):
     if mapped['outcome'] in ('ACCEPT', 'REJECT', 'VOID'):
-        M.check_statement(mapped['outcome'], mapped['reason'], statement, context)
+        M.check_statement(mapped['outcome'], mapped['reason'], statement, context,
+                          fork_authorized=fork_authorized, authenticated_statement=authenticated_statement)
         C.uint(fuel)
         intake=(mapped['row']=='output_terminal' and states==M.output_limit() and fuel==0)
         if mapped['row']=='output_terminal' and not intake:
@@ -150,6 +153,32 @@ def compare_exports(*args, public_counter=False, **kwargs):
     return D.compare_exports(*args, **kwargs)
 
 
+def published_caps(package, descriptor, context, *, public_counter=False):
+    """Decide published bindings without reference/state/submission file access."""
+    if package['mode'] != 'certified-own':
+        if public_counter:
+            return None
+        raise F.Refusal('fuel_binding_invalid', 'no uncapped admission')
+    try:
+        authority = FC.load_authority()
+    except (FC.FuelCapError, OSError, ValueError, TypeError, KeyError):
+        raise F.Refusal('node_fault', 'local fuel authority unavailable') from None
+    try:
+        resolved = FC.resolve(package['fuel_cap'], authority)
+        if (resolved['problem'] != package['problem'] or resolved['statement'] != package['statement']
+                or resolved['environment'] != package['env_id']):
+            raise FC.FuelCapError('package cap identity')
+        if resolved['reference_export'] != package['reference_sha256']:
+            raise FC.FuelCapError('package measured reference binding')
+        caps = dict(resolved['units'])
+        scalar = sum(caps[k]*descriptor['fuel'][k+'_weight'] for k in caps)
+        if scalar > context['slot_fuel'] or scalar >= 2**64:
+            raise FC.FuelCapError('slot cap')
+        return caps
+    except FC.FuelCapError:
+        raise F.Refusal('fuel_binding_invalid') from None
+
+
 def check_reference(reference, export, package, target):
     """Trusted work inside the submission phase keeps its node provenance."""
     try:
@@ -168,7 +197,8 @@ def check_reference(reference, export, package, target):
 
 def run(bundle, package_bytes, inventory_bytes, context, descriptor_bytes, gate_digest,
         reference, tools, counter_driver, work, *, certified_root=None,
-        phase='first', public_counter=False):
+        phase='first', public_counter=False, decoder_status=None,
+        decoder_pin=None, transport_digest=None):
     """All caller-supplied paths are node-local bindings, never bundle fields."""
     descriptor = C.decode(descriptor_bytes, gate_digest)
     context_check(context)
@@ -183,15 +213,36 @@ def run(bundle, package_bytes, inventory_bytes, context, descriptor_bytes, gate_
         inventory = F.Inventory(inventory_bytes, descriptor['artifact_table_sha256'])
         pkg = F.package(package_bytes, context['package_sha256'], inventory)
         statement = pkg['statement']
-        bound=F.bind_bundle(bundle,context['export_digest'])
-        if pkg['env_id'] != context['env_id']:
-            raise F.Refusal('input_integrity', 'job binding')
-        if bound.size > F.RAW_MAX:
-            raise F.Refusal('structural_cap', 'bound bundle byte limit')
+        caps = published_caps(pkg, descriptor, context, public_counter=public_counter)
         if context['leaf_kind'] == 2:
             raise F.Refusal('generator_unavailable')
         if context['lane'] != 1:
             raise F.Refusal('node_fault', 'lane-2 metric gate not qualified in A1')
+        if decoder_status is None and (decoder_pin is not None or transport_digest is not None):
+            raise F.Refusal('node_fault', 'decoder bindings without a channel')
+        decoded = (DC.read(decoder_status, context, descriptor, decoder_pin=decoder_pin,
+                           transport_digest=transport_digest) if decoder_status is not None else None)
+        if decoded is not None and decoded['status'] == 'invalid-data':
+            if bundle is None:
+                raise F.Refusal('front_invalid', 'typed decoder produced no output')
+            # A present authenticated output contradicts invalid-data. Real
+            # address corruption still takes the integrity STOP path.
+            try:
+                F.bind_bundle(bundle, context['export_digest'])
+            except F.Refusal as error:
+                if error.row == 'input_integrity':
+                    raise
+                raise F.Refusal('node_fault', 'inconsistent decoder output') from None
+            raise F.Refusal('node_fault', 'invalid-data with bound output')
+        if bundle is None:
+            raise F.Refusal('node_fault', 'decoder has no authenticated output or failure')
+        bound=F.bind_bundle(bundle,context['export_digest'])
+        if decoded is not None and (decoded['raw_sha256'] != bound.digest or decoded['raw_bytes'] != bound.size):
+            raise F.Refusal('node_fault', 'decoder output binding')
+        if pkg['env_id'] != context['env_id']:
+            raise F.Refusal('front_invalid', 'OPEN environment differs from package')
+        if bound.size > F.RAW_MAX:
+            raise F.Refusal('structural_cap', 'bound bundle byte limit')
         raw = F.unpack(bound.data)
         source = directory/'solution.ndjson'
         with source.open('xb') as stream:
@@ -207,16 +258,6 @@ def run(bundle, package_bytes, inventory_bytes, context, descriptor_bytes, gate_
             axioms(export, checked.own)
             budget = None
             if pkg['mode'] == 'certified-own':
-                try:
-                    authority = FC.load_authority()
-                except (FC.FuelCapError, OSError, ValueError, TypeError, KeyError):
-                    raise F.Refusal('node_fault', 'local fuel authority unavailable') from None
-                try:
-                    resolved = FC.resolve(pkg['fuel_cap'], authority)
-                    if resolved['problem'] != pkg['problem'] or resolved['statement'] != statement:
-                        raise FC.FuelCapError('package cap identity')
-                except FC.FuelCapError:
-                    raise F.Refusal('fuel_binding_invalid') from None
                 try:
                     budget = FC.bind(dict(package_id=pkg['problem'], fuel_cap=pkg['fuel_cap']), statement, certified_root)
                 except FC.FuelCapError:
@@ -295,7 +336,7 @@ def run(bundle, package_bytes, inventory_bytes, context, descriptor_bytes, gate_
         return finish('node_fault')
 
 
-def decode_reply(raw, descriptor, context, *, fork_authorized=False):
+def decode_reply(raw, descriptor, context, *, fork_authorized=False, authenticated_statement=M.UNSET_STATEMENT):
     """A strict final channel; no report/exit/marker disagreement is accepted."""
     if type(raw) is not bytes or len(raw) > 65536:
         raise ValueError('bounded reply required')
@@ -321,7 +362,8 @@ def decode_reply(raw, descriptor, context, *, fork_authorized=False):
         if value[key] != expected[key] or type(value[key]) is not type(expected[key]):
             raise ValueError('reply mapping mismatch')
     # VOID-only identity and scalar syntax apply even to unavailable results.
-    M.check_statement(value['outcome'], value['reason'], value['statement_id'], context)
+    M.check_statement(value['outcome'], value['reason'], value['statement_id'], context,
+                      fork_authorized=fork_authorized, authenticated_statement=authenticated_statement)
     if value['row']=='output_terminal' and (value['kernels']!=M.output_limit() or value['fuel']!=0):
         raise ValueError('output limit requires unobserved work and zero intake charge')
     counters = value['counter_identity']

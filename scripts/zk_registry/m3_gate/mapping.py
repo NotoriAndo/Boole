@@ -92,6 +92,9 @@ def classify(observation, descriptor, phase='first'):
 
 
 VOID_DOMAIN = b'BOOLE-M3/VOID-STATEMENT/v1\0'
+QUARANTINE_DOMAIN = b'BOOLE-M3/QUARANTINE-STATEMENT/v1\0'
+UNSET_STATEMENT = object()
+NO_VALID_STATEMENT = object()
 
 
 def void_statement(context):
@@ -102,13 +105,43 @@ def void_statement(context):
     return C.sha(b''.join(parts) + (0x0801).to_bytes(2, 'big'))
 
 
-def check_statement(outcome, reason, statement, context):
+def quarantine_fingerprint(context):
+    C.uint(context['chain_id'], True)
+    parts = [QUARANTINE_DOMAIN, context['chain_id'].to_bytes(8, 'big')]
+    for key in ('problem_id', 'commit_hash', 'env_id', 'package_sha256'):
+        parts.append(bytes.fromhex(C.digest(context[key])))
+    return C.sha(b''.join(parts) + (0x0802).to_bytes(2, 'big'))
+
+
+def quarantine_statement(context, authenticated_statement, *, fork_authorized=False):
+    """Only NO_VALID_STATEMENT asserts completed authentication found no statement."""
+    if type(fork_authorized) is not bool or not fork_authorized:
+        raise ValueError('published quarantine authorization required')
+    fallback = quarantine_fingerprint(context)
+    if authenticated_statement is NO_VALID_STATEMENT:
+        return fallback
+    C.digest(authenticated_statement)
+    if authenticated_statement in (void_statement(context), fallback):
+        raise ValueError('VOID fingerprint is not an authenticated proof statement')
+    return authenticated_statement
+
+
+def check_statement(outcome, reason, statement, context, *, fork_authorized=False,
+                    authenticated_statement=UNSET_STATEMENT):
     fingerprint = void_statement(context)
+    C.digest(context.get('commit_hash'))
+    quarantine = quarantine_fingerprint(context)
     if outcome == 'VOID' and reason == 0x0801:
         if statement != fingerprint or statement == '0'*64:
             raise ValueError('0801 requires its VOID-only fingerprint')
+    elif outcome == 'VOID' and reason == 0x0802:
+        if statement != quarantine_statement(context, authenticated_statement,
+                                              fork_authorized=fork_authorized):
+            raise ValueError('0802 requires its authenticated statement or exact fallback')
     elif statement == fingerprint:
         raise ValueError('VOID fingerprint used outside 0801')
+    elif statement == quarantine:
+        raise ValueError('quarantine fingerprint used outside authorized 0802')
     elif outcome in ('ACCEPT', 'VOID'):
         C.digest(statement)
     elif statement != '0'*64:
