@@ -6,6 +6,9 @@ license.workspace = true
 rust-version.workspace = true
 publish = false
 
+[lib]
+path = "src/real_lib.rs"
+
 [dependencies]
 anyhow.workspace = true
 boole-derivation = { path = "../boole-derivation" }
