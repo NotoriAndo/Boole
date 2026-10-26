@@ -307,11 +307,10 @@ impl Config {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 mod tests {
     use super::*;
     #[test]
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     fn authenticated_package_decode_is_distinct_from_the_submission_export_commitment() -> Result<()>
     {
         let Some(path) = std::env::var_os("BOOLE_M3_REAL_DECODER") else {
