@@ -428,3 +428,54 @@ fn t88_missing_manifest_stops_as_availability_without_recreating_authority() -> 
     restored.view().verify(&f.source, &[f.request], 4)?;
     Ok(())
 }
+
+#[test]
+#[cfg(unix)]
+fn t88_immutable_artifacts_hash_once_per_version_and_restoration_reverifies() -> Result<()> {
+    let mut f = fixture(true)?;
+    let fresh =
+        ReadOnlyPins::open(f.source.root(), f.source.network(), f.source.anchor_hash())?.unwrap();
+    ARTIFACT_HASHES.with(|c| c.borrow_mut().clear());
+    for _ in 0..3 {
+        fresh.verify(&f.source, std::slice::from_ref(&f.request), 4)?;
+    }
+    let counts = ARTIFACT_HASHES.with(|c| c.borrow().clone());
+    assert_eq!(counts.len(), 3);
+    assert!(
+        counts.values().all(|n| *n == 1),
+        "same immutable artifacts repeatedly hashed: {counts:?}"
+    );
+    let a = &f.artifacts[1];
+    let path = f.pins.view().artifact_path(a.digest);
+    let saved = std::fs::read(&path)?;
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700))?;
+    std::fs::write(&path, b"changed pinned binary")?;
+    assert!(
+        fresh
+            .verify_releases(&f.request.gates, &f.request.components)
+            .is_err(),
+        "cached verification hid a changed file"
+    );
+    let bad = f
+        .pins
+        .refresh(&f.source)
+        .expect_err("new version was not hashed");
+    assert!(
+        matches!(
+            bad.downcast_ref::<crate::error::Error>(),
+            Some(crate::error::Error::Integrity { .. })
+        ),
+        "{bad:#}"
+    );
+    assert_eq!(std::fs::read(&path)?, b"changed pinned binary");
+    std::fs::write(&path, &saved)?;
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o500))?;
+    f.pins.refresh(&f.source)?;
+    f.pins.view().verify(&f.source, &[f.request], 4)?;
+    assert!(
+        ARTIFACT_HASHES.with(|c| c.borrow()[&a.digest] >= 3),
+        "restored version inherited stale verification"
+    );
+    Ok(())
+}

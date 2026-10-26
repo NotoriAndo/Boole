@@ -23,6 +23,10 @@ use std::{
 pub const DIR: &str = "pins-v1";
 const MANIFEST: &str = "manifest.json";
 const RECORD_MAX: usize = 64 * 1024 * 1024;
+#[cfg(test)]
+thread_local! {
+    static ARTIFACT_HASHES: std::cell::RefCell<BTreeMap<Hash, usize>> = const { std::cell::RefCell::new(BTreeMap::new()) };
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Manifest {
@@ -295,6 +299,10 @@ pub struct ReadOnlyPins {
     last: Hash,
     index: Index,
     artifact_stamps: BTreeMap<Hash, Option<FileStamp>>,
+    // Process-local only. Reuse a digest check solely while the complete R1
+    // file identity/version remains equal; startup and restored versions hash
+    // again. Every read still fences all source versions in check().
+    verified_artifacts: std::sync::Mutex<BTreeMap<Hash, FileStamp>>,
 }
 impl ReadOnlyPins {
     pub fn open(root: &Path, network: &NetworkIdentity, anchor: &str) -> Result<Option<Self>> {
@@ -377,6 +385,7 @@ impl ReadOnlyPins {
             last,
             index,
             artifact_stamps,
+            verified_artifacts: Default::default(),
         };
         view.check()?;
         Ok(Some(view))
@@ -454,6 +463,32 @@ impl ReadOnlyPins {
                 "S20: retained artifact missing; restore verified bytes",
             ));
         }
+        #[cfg(unix)]
+        if let Some(expected) = self.artifact_stamps.get(&a.digest).and_then(Option::as_ref) {
+            let cached = self
+                .verified_artifacts
+                .lock()
+                .map_err(|_| anyhow::anyhow!("pin verification cache poisoned"))?
+                .get(&a.digest)
+                .cloned();
+            if cached.as_ref() == Some(expected) {
+                if file_stamp(&path)?.as_ref() != Some(expected) {
+                    return Err(availability(
+                        self.height(),
+                        "pin-version",
+                        "pinned artifact changed after digest verification",
+                    ));
+                }
+                if expected.len != a.bytes {
+                    return Err(integrity(
+                        self.height(),
+                        "pin-artifact",
+                        "retained artifact length differs from its role",
+                    ));
+                }
+                return Ok(());
+            }
+        }
         let (raw, observed) = read_bound(&path, 256 * 1024 * 1024).map_err(|e| {
             integrity(
                 self.height(),
@@ -468,6 +503,8 @@ impl ReadOnlyPins {
                 "artifact version changed before verification",
             ));
         }
+        #[cfg(test)]
+        ARTIFACT_HASHES.with(|counts| *counts.borrow_mut().entry(a.digest).or_default() += 1);
         if raw.len() as u64 != a.bytes || hash(&raw) != a.digest {
             return Err(integrity(
                 self.height(),
@@ -475,6 +512,10 @@ impl ReadOnlyPins {
                 "retained artifact bytes differ",
             ));
         }
+        self.verified_artifacts
+            .lock()
+            .map_err(|_| anyhow::anyhow!("pin verification cache poisoned"))?
+            .insert(a.digest, observed);
         Ok(())
     }
     pub fn verify(
@@ -842,6 +883,22 @@ impl PinStore {
                 .eq(self.view.files.iter().map(|v| &v.0)),
             "pin record set changed outside this writer"
         );
+        {
+            let old = self
+                .view
+                .verified_artifacts
+                .lock()
+                .map_err(|_| anyhow::anyhow!("pin verification cache poisoned"))?;
+            let mut verified = next
+                .verified_artifacts
+                .lock()
+                .map_err(|_| anyhow::anyhow!("pin verification cache poisoned"))?;
+            for (digest, stamp) in old.iter() {
+                if next.artifact_stamps.get(digest).and_then(Option::as_ref) == Some(stamp) {
+                    verified.insert(*digest, stamp.clone());
+                }
+            }
+        }
         for a in next.index.artifacts.values() {
             next.verify_artifact(a)?;
         }

@@ -260,7 +260,12 @@ Objects writer lock or invoking quarantine/repair. Verification rereads the
 required own-journal rows and retained artifacts and checks their digests and L2
 origin bindings. Missing coverage is availability, never a synthetic verdict or
 a historical-L1 fallback. A changed source cannot remain a successful read-only
-verification. `RealGateInventoryPending` is the named unavailable seam for the
+verification. Artifact digests are memoized only within the process and an
+unchanged R1 file version (device/inode, length, modification and change times).
+Fresh startup and restored or replaced versions hash again. Every verification
+still checks source versions, and changed files stop before reuse. This avoids
+rehashing one binary for every candidate and epoch; it is not a persisted
+verification receipt. `RealGateInventoryPending` is the named unavailable seam for the
 complete transitive real-gate inventory; stub artifacts cannot supply it.
 
 Own-journal M3 driver and miner stores enable retention by default, including
