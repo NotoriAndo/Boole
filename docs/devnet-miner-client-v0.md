@@ -155,14 +155,62 @@ inclusion guarantee under censorship or a stalled chain.
 Finalized state determines completion. With M4a enabled, inclusion and revert
 status come from the journal's re-verified transaction and receipt proofs. The
 client waits for finalized inclusion before progressing; it never re-queries
-historical receipts through RPC. Missing parts can be reposted after a bounded delay.
-A canonical reverted receipt marks that submission step REVERTED in its private
-record and progress response, without blocking other submissions. Reposting
-remains subject to the same M2 windows and budgets. An orphaned receipt is not
-canonical inclusion.
-An uncertain send outcome retains the same durable preimage and reconciles its
-on-chain candidate before retrying. Retries use the same item for the same
-submission. New submissions prepare their export again with new secrets; encoding
+historical receipts through RPC. After at least two observed L1 heads, an
+Acknowledged or Ambiguous PART may rebroadcast its identical retained signed
+bytes, at most three times after the initial send, within the same M2 window
+and P_BLK budget. The hash, nonce, fees and body are unchanged. The attempt is
+fsynced before the network call, including its count and last head, so a crash
+cannot reset the limit. Any reply, including nonce-too-low, leaves the send
+state and inclusion unresolved. COMMIT, OPEN and CANCEL are not automatically
+rebroadcast; they wait for authenticated reconciliation and may stall if the
+mempool loses them. After the PART retry cap, it also waits. There is no fee bump.
+Each tick gives all submissions' first/new signed attempts priority over
+rebroadcasts. Only remaining P_BLK budget is used for retries, whose stages must
+pass the ordinary window check again on every tick. Because of that ordering, a
+retry never takes budget from a first send known in the same tick; a first send
+that only becomes eligible in a later tick at the same head can still move to
+the next head. A receipt is rechecked before each queued retry. A fresh
+finalized nonce-consumed observation records a durable local no-rebroadcast
+decision for that exact PART hash, without burning attempts or
+claiming inclusion. It survives restart; saved nonce observations still do not
+become current proof authority.
+A canonical reverted receipt marks that stage REVERTED in its private record;
+a NotSent stage or a finalized successful receipt whose fold effect is still
+missing also permits a new signed attempt. Every attempt remains within the
+same M2 windows and budgets. An orphaned receipt is not canonical inclusion.
+
+Before signing, the client fsyncs an explicit Intent. An interrupted signing
+window recovers as NotSent because no send can precede durable Prepared. Legacy
+records without this stamp remain conservative. Prepared and later records
+retain the assigned local hash across send/save errors; recovery re-reads the
+published record instead of writing an older memory copy. A missing or damaged
+signed posting record is a typed per-stage error, preserves the independent
+receipt result and blocks rebroadcast of that stage. If runtime error recovery
+later re-reads that submission, the same damage isolates the whole submission,
+as described next, until the file is repaired. Startup still re-verifies
+retained signed records before opening the client, and refuses the entire store
+if any is missing or invalid. Runtime error recovery uses that same identity
+validation; an invalid or unreadable submission is isolated with a typed
+per-submission progress error and an in-memory diagnostic, preserves the file,
+and allows later submissions to progress. It is rechecked before resuming; it
+is never overwritten from a stale memory copy. Startup's whole-store refusal
+remains unchanged. The default Poster adapter refuses a send; a sending adapter
+must explicitly implement durable Prepared persistence.
+
+Nonce assignment uses the endpoint's `pending` account nonce, not a local floor
+above unresolved records. If the mempool forgets an ambiguous A, a different
+own B may receive the same nonce and replace A. A and B remain independently
+reconciled; nonce consumption cannot decide inclusion, success, revert or drop.
+A synthetic two-item RPC control preserves this case. A local high-water floor
+would instead queue all later items behind a possibly unbroadcast COMMIT/OPEN/
+CANCEL whose rebroadcast is not implemented; the bounded PART retries do not
+close every such gap. Use one client/store per posting account; no allocator is
+shared with other wallets. The signer must return the requested zero priority
+fee and exact gas-price-derived maximum fee, or no send is attempted.
+
+An uncertain send outcome retains the same durable preimage and exact signed
+bytes. It never authorizes preparing a replacement signed transaction.
+New submissions prepare their export again with new secrets; encoding
 is deterministic and byte-unique compressed streams are not promised. Public
 devnet order flow still exposes parts before finality;
 the production private-order-flow/escrow protections are not implemented.

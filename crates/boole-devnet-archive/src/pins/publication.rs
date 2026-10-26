@@ -71,5 +71,21 @@ pub(super) fn pin_read(path: &Path, cap: usize) -> Result<(Vec<u8>, FileStamp)> 
     read_bound(path, cap).map_err(|e| classify(path, e))
 }
 pub(super) fn pin_stamp(path: &Path) -> Result<Option<FileStamp>> {
+    #[cfg(test)]
+    STAMP_FAILURE.with(|slot| {
+        if slot.borrow().as_deref() == Some(path) {
+            slot.borrow_mut().take();
+            return Err(availability(
+                0,
+                "pin-publication",
+                "injected post-publication stamp failure",
+            ));
+        }
+        Ok(())
+    })?;
     file_stamp(path).map_err(|e| classify(path, e))
+}
+#[cfg(test)]
+thread_local! {
+    pub(super) static STAMP_FAILURE: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
 }

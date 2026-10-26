@@ -1,11 +1,15 @@
 //! Closed-local devnet miner MCP. Native-chain MCP remains a separate binary.
 use serde_json::Value;
+#[cfg(test)]
+extern crate self as boole_devnet_mcp;
 mod chain;
 pub mod client;
 pub mod codec;
 pub mod hook;
 mod m3_status;
+pub mod nonce;
 pub mod own;
+pub mod posting;
 pub mod protocol;
 pub mod store;
 pub mod wire;

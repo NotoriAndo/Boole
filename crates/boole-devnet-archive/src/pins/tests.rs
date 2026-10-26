@@ -880,6 +880,41 @@ fn own_post_link_publication_failure_refreshes_once_then_advances_incrementally(
 }
 
 #[test]
+fn stamp_failure_after_publish_does_not_apply_before_refresh() -> Result<()> {
+    let mut f = fixture(true)?;
+    let count = f.pins.view.files.len();
+    let previous = f.pins.view.last;
+    let frame = Frame {
+        version: 1,
+        sequence: count as u64,
+        previous,
+        event: Event::Bootstrapped,
+    };
+    let digest = frame_hash(&f.pins.view.manifest, &serde_json::to_vec(&frame)?)?;
+    let path = f.pins.view.root.join("records").join(format!(
+        "{:020}-{}.json",
+        count,
+        hex::encode(digest)
+    ));
+    super::publication::STAMP_FAILURE.with(|s| *s.borrow_mut() = Some(path.clone()));
+    assert!(f.pins.finish_bootstrap().is_err());
+    assert!(path.is_file(), "the publication must have completed");
+    assert!(
+        !f.pins.view.index.bootstrapped,
+        "unobserved publication mutated the live index"
+    );
+    assert_eq!(f.pins.view.files.len(), count);
+    assert_eq!(f.pins.view.last, previous);
+    f.pins.refresh(&f.source)?;
+    assert!(f.pins.view.index.bootstrapped);
+    assert_eq!(f.pins.view.files.len(), count + 1);
+    assert_eq!(f.pins.view.last, digest);
+    f.pins.refresh(&f.source)?;
+    assert_eq!(f.pins.view.files.len(), count + 1);
+    Ok(())
+}
+
+#[test]
 fn unchanged_candidate_rows_are_not_revisited_after_a_nonzero_restart() -> Result<()> {
     let mut f = fixture(false)?;
     let requests: Vec<_> = (0u64..1000)

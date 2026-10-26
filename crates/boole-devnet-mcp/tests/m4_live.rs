@@ -1,6 +1,9 @@
 //! I15: actual SIGKILL boundaries over a complete v1.3 A/B/C round.
 #![allow(clippy::too_many_arguments)]
 //! Drivers and miner consume only their own authenticated journals below the live tip.
+#[path = "support/posting.rs"]
+#[allow(dead_code)]
+mod posting_fixture;
 #[path = "../../boole-devnet-driver/tests/support/mod.rs"]
 #[allow(dead_code)]
 mod support;
@@ -40,24 +43,73 @@ use support::{m2::*, *};
 type Live = Driver<JournalSource<RpcL1>, RpcEngine>;
 type Miner = Client<JournalSource<RpcL1>, RpcPoster>;
 
+#[test]
+fn i15_proxy_counts_raw_hashes_and_distinguishes_same_bytes_from_new_postings() -> Result<()> {
+    let upstream = posting_fixture::Server::new(|q| {
+        Ok(match q["method"].as_str().context("method")? {
+            "eth_getBlockByNumber" => json!({"number":"0x0"}),
+            "eth_sendRawTransaction" => {
+                let raw = boole_derivation::attributes::hex_bytes(
+                    q["params"][0].as_str().unwrap(),
+                    "raw",
+                )?;
+                json!(hex_string(&boole_derivation::user_tx::keccak(&raw)))
+            }
+            other => bail!("unexpected proxy test method {other}"),
+        })
+    });
+    let proxy = TipProxy::start(&upstream.url)?;
+    let rpc = Rpc::new(&proxy.url)?;
+    let (a, _) = posting_fixture::signed(3, &[0; 200], 7);
+    let (b, _) = posting_fixture::signed(3, &[0; 200], 8);
+    for raw in [&a, &a, &b] {
+        rpc.call("eth_sendRawTransaction", json!([hex_string(raw)]))?;
+    }
+    let counts = serde_json::to_value(proxy.posting_counts.lock().unwrap().clone())?;
+    let first = hex_string(&boole_derivation::user_tx::keccak(&a));
+    let second = hex_string(&boole_derivation::user_tx::keccak(&b));
+    assert_eq!(
+        counts.as_object().unwrap().len(),
+        2,
+        "I15 raw-send counts are empty or merge distinct signed hashes"
+    );
+    assert_eq!(counts[&first]["sends"], 2);
+    assert_eq!(counts[&second]["sends"], 1);
+    assert!(proxy.denied.lock().unwrap().is_empty());
+    Ok(())
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+struct PostingCount {
+    stage: String,
+    sends: u64,
+}
 struct TipProxy {
     url: String,
     stop: Arc<AtomicBool>,
     thread: Option<thread::JoinHandle<()>>,
     denied: Arc<Mutex<Vec<Value>>>,
-    posting_counts: Arc<Mutex<std::collections::BTreeMap<String, u64>>>,
+    posting_counts: Arc<Mutex<std::collections::BTreeMap<String, PostingCount>>>,
+    dropped_part: Arc<Mutex<Option<String>>>,
 }
 impl TipProxy {
     fn start(upstream: &str) -> Result<Self> {
+        Self::start_with_drop(upstream, false)
+    }
+    fn start_with_drop(upstream: &str, drop_part: bool) -> Result<Self> {
         let listener = TcpListener::bind("127.0.0.1:0")?;
         listener.set_nonblocking(true)?;
         let addr = listener.local_addr()?;
         let stop = Arc::new(AtomicBool::new(false));
         let denied = Arc::new(Mutex::new(vec![]));
-        let posting_counts = Arc::new(Mutex::new(std::collections::BTreeMap::<String, u64>::new()));
+        let posting_counts = Arc::new(Mutex::new(
+            std::collections::BTreeMap::<String, PostingCount>::new(),
+        ));
         let s = stop.clone();
         let d = denied.clone();
         let posts = posting_counts.clone();
+        let dropped_part = Arc::new(Mutex::new(None));
+        let dropped = dropped_part.clone();
         let upstream = upstream.to_owned();
         let handle = thread::spawn(move || {
             let rpc = Rpc::new(&upstream).unwrap();
@@ -139,39 +191,66 @@ impl TipProxy {
                             .push(json!({"method":method,"height":n,"tip":tip}));
                         json!({"jsonrpc":"2.0","id":request["id"],"error":{"code":-32099,"message":"TIP_ONLY historical read refused"}})
                     } else {
+                        let mut drop_hash = None;
+                        if method == "eth_sendRawTransaction" {
+                            let signed = boole_derivation::attributes::hex_bytes(
+                                params[0].as_str().context("signed post")?,
+                                "signed post",
+                            )?;
+                            ensure!(signed.first() == Some(&2), "I15 signed post type");
+                            let fields = boole_derivation::rlp::decode(&signed[1..])
+                                .map_err(anyhow::Error::msg)?
+                                .children
+                                .context("signed fields")?;
+                            let data = fields.get(7).context("signed calldata")?.bytes;
+                            ensure!(data.len() >= 4, "calldata length");
+                            let (kind, body) = boole_derivation::inbox::item(&data[4..])
+                                .map_err(anyhow::Error::msg)?;
+                            let stage = match kind {
+                                2 => "commit".to_owned(),
+                                3 => "open".to_owned(),
+                                7 => "cancel".to_owned(),
+                                4 => {
+                                    ensure!(body.len() >= 55, "PART length");
+                                    format!("part:{}", u16::from_be_bytes([body[53], body[54]]))
+                                }
+                                _ => bail!("unexpected miner posting kind"),
+                            };
+                            let hash = hex_string(&boole_derivation::user_tx::keccak(&signed));
+                            let mut counts = posts.lock().unwrap();
+                            if drop_part && kind == 4 && dropped.lock().unwrap().is_none() {
+                                drop_hash = Some(hash.clone());
+                            }
+                            let row = counts.entry(hash).or_insert(PostingCount {
+                                stage: stage.clone(),
+                                sends: 0,
+                            });
+                            ensure!(row.stage == stage, "posting hash stage changed");
+                            row.sends += 1;
+                            if let Some(root) = std::env::var_os("BOOLE_DEVNET_RUN_DIR") {
+                                fs::write(
+                                    PathBuf::from(root).join("posting-counts.json"),
+                                    serde_json::to_vec(&*counts)?,
+                                )?;
+                            }
+                        }
                         let response: Value =
                             transport.post(&upstream).json(&request).send()?.json()?;
                         let value = &response["result"];
-                        if method == "eth_sendTransaction" && value.as_str().is_some() {
-                            let raw = boole_derivation::attributes::hex_bytes(
-                                params[0]["data"].as_str().context("posted calldata")?,
-                                "calldata",
-                            )?;
-                            ensure!(raw.len() >= 69, "posted calldata length");
-                            let stage = match raw[68] {
-                                2 => Some("commit".to_owned()),
-                                3 => Some("open".to_owned()),
-                                4 => {
-                                    ensure!(raw.len() >= 124, "PART calldata length");
-                                    Some(format!(
-                                        "part:{}",
-                                        u16::from_be_bytes([raw[122], raw[123]])
-                                    ))
-                                }
-                                7 => Some("cancel".to_owned()),
-                                _ => None,
-                            };
-                            if let Some(stage) = stage {
-                                let mut counts = posts.lock().unwrap();
-                                *counts.entry(stage).or_default() += 1;
-                                if let Some(root) = std::env::var_os("BOOLE_DEVNET_RUN_DIR") {
-                                    fs::write(
-                                        PathBuf::from(root).join("posting-counts.json"),
-                                        serde_json::to_vec(&*counts)?,
-                                    )?;
-                                }
-                            }
+                        if let Some(hash) = drop_hash {
+                            ensure!(
+                                value == &json!(hash),
+                                "drop control requires acknowledged raw send"
+                            );
+                            rpc.call("anvil_dropTransaction", json!([hash]))?;
+                            ensure!(
+                                rpc.call("eth_getTransactionByHash", json!([hash]))?
+                                    .is_null(),
+                                "pending transaction was not dropped"
+                            );
+                            *dropped.lock().unwrap() = Some(hash);
                         }
+
                         if method == "eth_getBlockByNumber" || method == "eth_getBlockByHash" {
                             if let (Ok(n), Some(h)) =
                                 (quantity(&value["number"]), value["hash"].as_str())
@@ -215,6 +294,7 @@ impl TipProxy {
             thread: Some(handle),
             denied,
             posting_counts,
+            dropped_part,
         })
     }
 }
@@ -610,6 +690,13 @@ fn c_run(
 
 #[test]
 fn i15_kill_boundary_full_round_abc_tip_only_and_miner_restart() -> Result<()> {
+    i15_round(false)
+}
+#[test]
+fn anvil_pending_part_rebroadcast_through_vest() -> Result<()> {
+    i15_round(true)
+}
+fn i15_round(drop_part: bool) -> Result<()> {
     let Some(op) = pinned("BOOLE_DEVNET_OP_RETH", "op_reth")? else {
         return Ok(());
     };
@@ -670,7 +757,7 @@ fn i15_kill_boundary_full_round_abc_tip_only_and_miner_restart() -> Result<()> {
     ];
     // Runtime::node returns only after its actual anonymous Engine request is 401.
     let mut unauthenticated_engine_401_probes = nodes.len();
-    let proxy = TipProxy::start("http://127.0.0.1:28545")?;
+    let proxy = TipProxy::start_with_drop("http://127.0.0.1:28545", drop_part)?;
     let (a, ag) = driver(&nodes[0], &rt, &c, &table, &workers, &proxy.url)?;
     let (b, bg) = driver(&nodes[1], &rt, &c, &table, &workers, &proxy.url)?;
     let _guards = [ag, bg];
@@ -786,14 +873,25 @@ fn i15_kill_boundary_full_round_abc_tip_only_and_miner_restart() -> Result<()> {
         if finalized > 0 {
             client.as_mut().unwrap().tick()?;
         }
-        for (stage, count) in proxy.posting_counts.lock().unwrap().iter() {
-            if stage == "open" || stage.starts_with("part:") {
-                ensure!(
-                    *count == 1,
-                    "included {stage} reposted {count} times across finality delay"
-                );
-            }
+        let counts = proxy.posting_counts.lock().unwrap();
+        let mut distinct = std::collections::BTreeMap::<String, usize>::new();
+        for count in counts.values() {
+            *distinct.entry(count.stage.clone()).or_default() += 1;
+            ensure!(
+                count.sends
+                    <= if count.stage.starts_with("part:") {
+                        4
+                    } else {
+                        1
+                    },
+                "posting/rebroadcast count exceeded"
+            );
         }
+        ensure!(
+            distinct.values().all(|n| *n == 1),
+            "new signed posting for an unreverted stage"
+        );
+        drop(counts);
         let status = client
             .as_mut()
             .unwrap()
@@ -1031,12 +1129,40 @@ fn i15_kill_boundary_full_round_abc_tip_only_and_miner_restart() -> Result<()> {
             == 3,
         "no terminal reposting"
     );
+    let terminal_counts = proxy.posting_counts.lock().unwrap().clone();
+    ensure!(!terminal_counts.is_empty(), "I15 posting evidence is empty");
+    for stage in ["commit", "open", "part:0"] {
+        ensure!(
+            terminal_counts.values().any(|c| c.stage == stage),
+            "missing posting evidence for {stage}"
+        );
+    }
+    client.as_mut().unwrap().tick()?;
+    client.as_mut().unwrap().tick()?;
+    ensure!(
+        *proxy.posting_counts.lock().unwrap() == terminal_counts,
+        "terminal submission sent again"
+    );
     drop(client.take());
     let prepared: Value =
         serde_json::from_slice(&fs::read(private.join(format!("submission-{id}.json")))?)?;
     let body: Vec<u8> = serde_json::from_value(prepared["prepared"]["body"].clone())?;
     let secret: Hash = serde_json::from_value(prepared["prepared"]["cancel_secret"].clone())?;
     let mut result = json!({"schema":"boole-devnet-m4a-i15-v1.3","case":case,"config_json":serde_json::to_string(&c)?,"forks":table,"gate_descriptors":[descriptor],"events":events,"rows":rows,"locked":locked,"vested":vested,"final_submission":final_view,"acceptance":{"every_height_compared":comparisons,"actual_sigkill":true,"unauthenticated_engine_401_probes":unauthenticated_engine_401_probes,"full_round_through_vest":true,"miner_journal_restart":true,"tip_only_denied_requests":proxy.denied.lock().unwrap().clone(),"client_execution":"library; B11 uses the actual stdio client binary","no_terminal_reposting":true,"posting_counts":proxy.posting_counts.lock().unwrap().clone()},"provenance":{"producer_commit":String::from_utf8(Command::new("git").args(["rev-parse","HEAD"]).output()?.stdout)?.trim(),"producer_sha256":hex_string(&hash(include_bytes!("m4_live.rs"))),"producer_binary_sha256":hex_string(&hash(&fs::read(std::env::current_exe()?)?)),"driver_binary_sha256":hex_string(&hash(&fs::read(driver_binary())?)),"client_binary_sha256":hex_string(&hash(&fs::read(client_binary())?)),"gate_binary_sha256":hex_string(&pin),"cargo_lock_sha256":hex_string(&hash(include_bytes!("../../../Cargo.lock"))),"support_sha256":hex_string(&hash(include_bytes!("../../boole-devnet-driver/tests/support/mod.rs"))),"wire_support_sha256":hex_string(&hash(include_bytes!("../../boole-devnet-driver/tests/support/m2.rs"))),"engine_profile":engine_profile(),"client_pins":fixture_json("pins.json")?,"l1_genesis_sha256":hex_string(&hash(&fs::read(l1p)?)),"l2_genesis_sha256":hex_string(&hash(&fs::read(gp)?)),"qualification_faults":cfg!(feature = "qualification-faults"),"producer_profile":if cfg!(debug_assertions){"debug"}else{"release"}}});
+    let dropped = proxy.dropped_part.lock().unwrap().clone();
+    if drop_part {
+        let hash = dropped
+            .as_ref()
+            .context("missing controlled mempool drop")?;
+        ensure!(
+            terminal_counts[hash].sends == 2,
+            "expected exactly one real same-bytes rebroadcast"
+        );
+    }
+    result["acceptance"]["dropped_pending_part"] = json!(dropped);
+    result["acceptance"]["distinct_signed_postings"] = json!(terminal_counts.len());
+    result["acceptance"]["same_bytes_rebroadcasts"] =
+        json!(terminal_counts.values().map(|c| c.sends - 1).sum::<u64>());
     ensure!(
         proxy.denied.lock().unwrap().is_empty(),
         "TIP_ONLY proxy saw historical reads or protocol failures"
@@ -1149,3 +1275,45 @@ mod archive_live;
 
 #[path = "support/pin_live.rs"]
 mod pin_live;
+
+#[test]
+fn pending_drop_control_drops_one_acknowledged_part_before_identical_rebroadcast() -> Result<()> {
+    use std::sync::atomic::AtomicUsize;
+    let drops = Arc::new(AtomicUsize::new(0));
+    let seen = drops.clone();
+    let upstream = posting_fixture::Server::new(move |q| {
+        Ok(match q["method"].as_str().unwrap() {
+            "eth_getBlockByNumber" => json!({"number":"0x0"}),
+            "eth_sendRawTransaction" => {
+                let raw = boole_derivation::attributes::hex_bytes(
+                    q["params"][0].as_str().unwrap(),
+                    "raw",
+                )?;
+                json!(hex_string(&boole_derivation::user_tx::keccak(&raw)))
+            }
+            "anvil_dropTransaction" => {
+                seen.fetch_add(1, Ordering::SeqCst);
+                json!(true)
+            }
+            "eth_getTransactionByHash" => Value::Null,
+            other => bail!("unexpected drop control method {other}"),
+        })
+    });
+    let proxy = TipProxy::start_with_drop(&upstream.url, true)?;
+    let rpc = Rpc::new(&proxy.url)?;
+    let mut body = vec![0; 55];
+    body[0] = 1;
+    let (raw, _) = posting_fixture::signed(4, &body, 7);
+    let hash = hex_string(&boole_derivation::user_tx::keccak(&raw));
+    for _ in 0..2 {
+        assert_eq!(
+            rpc.call("eth_sendRawTransaction", json!([hex_string(&raw)]))?,
+            json!(hash)
+        );
+    }
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
+    assert_eq!(proxy.dropped_part.lock().unwrap().as_ref(), Some(&hash));
+    assert_eq!(proxy.posting_counts.lock().unwrap()[&hash].sends, 2);
+    assert!(proxy.denied.lock().unwrap().is_empty());
+    Ok(())
+}

@@ -10,6 +10,11 @@ pub struct Store {
     pub path: PathBuf,
     _lock: File,
 }
+#[cfg(test)]
+thread_local! {
+    pub(crate) static FAIL_NEXT_WRITE: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+    pub(crate) static FAIL_AFTER_RENAME: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+}
 impl Store {
     pub fn open(path: PathBuf) -> Result<Self> {
         if !path.exists() {
@@ -59,6 +64,18 @@ impl Store {
             "store file name"
         );
         let target = self.path.join(name);
+        #[cfg(test)]
+        if FAIL_NEXT_WRITE.with(|slot| {
+            let mut slot = slot.borrow_mut();
+            if slot.as_ref() == Some(&target) {
+                slot.take();
+                true
+            } else {
+                false
+            }
+        }) {
+            anyhow::bail!("injected save failure after send");
+        }
         if target.exists() {
             check_private(&target)?;
         }
@@ -66,6 +83,18 @@ impl Store {
         let tmp = scratch.0.join("next");
         private_file(&tmp, &serde_json::to_vec(value)?)?;
         fs::rename(tmp, target)?;
+        #[cfg(test)]
+        if FAIL_AFTER_RENAME.with(|slot| {
+            let mut slot = slot.borrow_mut();
+            if slot.as_ref() == Some(&self.path.join(name)) {
+                slot.take();
+                true
+            } else {
+                false
+            }
+        }) {
+            anyhow::bail!("injected directory fsync failure after rename");
+        }
         if name.starts_with("submission-") {
             boole_devnet_archive::fault::hit("B11", 0, "client")?;
         }
