@@ -26,13 +26,52 @@ pub fn fixture_with(c: Config, tag: Option<u8>) -> (Config, State, Key, Archive)
     fixture_with_fuel(c, tag, 777)
 }
 pub fn fixture_with_fuel(c: Config, tag: Option<u8>, fuel: u64) -> (Config, State, Key, Archive) {
+    fixture_with_open_packages(c, tag, fuel, &[])
+}
+pub fn fixture_with_open_packages(
+    c: Config,
+    tag: Option<u8>,
+    fuel: u64,
+    pkgs: &[Hash],
+) -> (Config, State, Key, Archive) {
+    fixture_with_content(c, tag, fuel, pkgs, None, None)
+}
+pub fn fixture_with_content(
+    c: Config,
+    tag: Option<u8>,
+    fuel: u64,
+    pkgs: &[Hash],
+    real_package: Option<Vec<u8>>,
+    real_raw: Option<Vec<u8>>,
+) -> (Config, State, Key, Archive) {
+    fixture_with_layout(c, tag, fuel, pkgs, real_package, real_raw, &[], &[], None)
+}
+/// Independent OPEN/REVEAL encoder; the public fold decides which wire inputs
+/// are accepted before real reconstruction sees them.
+#[allow(clippy::too_many_arguments)]
+pub fn fixture_with_layout(
+    c: Config,
+    tag: Option<u8>,
+    fuel: u64,
+    pkgs: &[Hash],
+    real_package: Option<Vec<u8>>,
+    real_raw: Option<Vec<u8>>,
+    model: &[u8],
+    required: &[Hash],
+    body_override: Option<&[u8]>,
+) -> (Config, State, Key, Archive) {
     use scenario::*;
-    let package = if tag.is_some() {
-        boole_gate_supervisor::stub::package(10000)
-    } else {
-        b"generator-v1".to_vec()
-    };
-    let root = pool_leaf(c.chain_id, 2, &[], &package, &[9; 32]);
+    let kind = if real_package.is_some() { 1 } else { 2 };
+    let package = real_package.unwrap_or_else(|| {
+        if tag.is_some() {
+            boole_gate_supervisor::stub::package(10000)
+        } else {
+            b"generator-v1".to_vec()
+        }
+    });
+    let root = pool_leaf(c.chain_id, kind, required, &package, &[9; 32]);
+    let mut reveal = problem_body(0, 1, 0, required, [9; 32], &[], &package);
+    reveal[10] = kind;
     let mut prepared = State::new(&c, 30_000_000).unwrap();
     run(
         &mut prepared,
@@ -40,28 +79,28 @@ pub fn fixture_with_fuel(c: Config, tag: Option<u8>, fuel: u64) -> (Config, Stat
         vec![input(8, pool(&c, root, 1, 3, 1), 0)],
     );
     until(&mut prepared, &c, 4);
-    run(
-        &mut prepared,
-        &c,
-        vec![input(
-            9,
-            problem_body(0, 1, 0, &[], [9; 32], &[], &package),
-            0,
-        )],
-    );
+    run(&mut prepared, &c, vec![input(9, reveal.clone(), 0)]);
     let p = *prepared.problems.keys().next().unwrap();
-    let raw = tag
-        .map(|t| boole_gate_supervisor::stub::export(t, fuel))
-        .unwrap_or_else(|| vec![42; 8]);
+    let raw = real_raw.unwrap_or_else(|| {
+        tag.map(|t| boole_gate_supervisor::stub::export(t, fuel))
+            .unwrap_or_else(|| vec![42; 8])
+    });
     let transport = if tag.is_some() {
         boole_gate_supervisor::raw_frame::encode(&raw).unwrap()
     } else {
         raw.clone()
     };
-    let (mut ab, _, _) = body(&c, p, [6; 20], [7; 32], &transport, &[]);
-    let q = 151;
+    let (mut ab, _, _) = body(&c, p, [6; 20], [7; 32], &transport, pkgs);
+    let q = 151 + 32 * pkgs.len();
     ab[q + 2..q + 10].copy_from_slice(&(raw.len() as u64).to_be_bytes());
     ab[q + 10..q + 42].copy_from_slice(&hash(&raw));
+    ab[q + 1] = c.slot_table[0].lane;
+    ab[q + 84..q + 86].copy_from_slice(&((40 + model.len()) as u16).to_be_bytes());
+    ab[q + 87] = model.len() as u8;
+    ab.splice(q + 88..q + 88, model.iter().copied());
+    if let Some(body) = body_override {
+        ab = body.to_vec();
+    }
     let ch = commit_hash(c.chain_id, p, cancel_hash(&[8; 32]), body_digest(&ab));
     let mut s = State::new(&c, 30_000_000).unwrap();
     let mut rows = BTreeMap::new();
@@ -71,11 +110,7 @@ pub fn fixture_with_fuel(c: Config, tag: Option<u8>, fuel: u64) -> (Config, Stat
         *garbage.last_mut().unwrap() ^= 1;
         let items = match h {
             1 => vec![input(8, pool(&c, root, 1, 3, 1), 0)],
-            5 => vec![input(
-                9,
-                problem_body(0, 1, 0, &[], [9; 32], &[], &package),
-                0,
-            )],
+            5 => vec![input(9, reveal.clone(), 0)],
             6 => vec![input(2, commit(p, ch), 0)],
             15 => vec![input(4, good.clone(), 0)],
             16 => vec![input(3, open(&ab, cancel_hash(&[8; 32])), 0)],
@@ -110,7 +145,9 @@ pub fn fixture_with_fuel(c: Config, tag: Option<u8>, fuel: u64) -> (Config, Stat
         }
         rows.insert(h, (block, logs));
     }
-    assert_eq!(s.candidates[&(p, ch)].status(), Status::Checking);
+    if body_override.is_none() {
+        assert_eq!(s.candidates[&(p, ch)].status(), Status::Checking);
+    }
     (
         c,
         s,
