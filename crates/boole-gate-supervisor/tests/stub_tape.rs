@@ -102,11 +102,15 @@ fn replay(raw: &str, fresh: bool) -> Result<usize> {
             let reply = if let Some(binary) = &native {
                 Worker {
                     descriptor: if fresh {
+                        // The recorded release lists darwin-aarch64 only; re-pin the fresh
+                        // binary as the sole release for the host that runs it.
+                        let profile = boole_gate_supervisor::process::host_profile();
                         let mut pinned = d.clone();
-                        pinned.binaries.insert(
-                            boole_gate_supervisor::process::host_profile(),
+                        pinned.profiles = vec![profile.clone()];
+                        pinned.binaries = BTreeMap::from([(
+                            profile,
                             boole_gate_supervisor::codec::digest(&std::fs::read(binary)?),
-                        );
+                        )]);
                         pinned
                     } else {
                         d.clone()
