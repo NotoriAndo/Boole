@@ -1,6 +1,6 @@
 # Boole — current development status
 
-Updated: 2026-10-25. This is the tracked entrypoint for current progress and the
+Updated: 2026-10-26. This is the tracked entrypoint for current progress and the
 ordered development roadmap. Edit it in place; execution evidence stays in its
 own result record. Local Master/Execution documents link here instead of owning
 a second current cursor. Work methods follow the
@@ -18,7 +18,7 @@ twelve-hour delegation.
 
 ## Current boundary
 
-**Devnet M3 v1.3, M4a and M4b (October 23–24, devnet only).**
+**Devnet M3 v1.3 and M4a–M4c (October 23–26, devnet only).**
 - [#446](https://github.com/NotoriAndo/Boole/pull/446) adds the pure verdict,
   settlement and reward fold behind an optional M3 profile. One global queue
   orders checks, and due heights follow a checked fuel clock, never bytes.
@@ -27,9 +27,10 @@ twelve-hour delegation.
 - [#447](https://github.com/NotoriAndo/Boole/pull/447) adds the node-local gate
   supervisor. It rebuilds each job's inputs from L1 by digest, runs it in an
   isolated worker with typed outcomes, and keeps a result cache that is never
-  authority. A pinned devnet stub gate drives every verdict path. DET3 has merged
-  (below), but the real gate is not yet connected to the supervisor. The driver
-  refuses any payload whose system deposits differ from the exact expected prefix.
+  authority. A pinned devnet stub gate drives every verdict path. DET3 and the
+  data-only real-gate contract M3d-a have merged (below), but the real gate is
+  not yet connected to the supervisor. The driver refuses any payload whose
+  system deposits differ from the exact expected prefix.
 - [#448](https://github.com/NotoriAndo/Boole/pull/448) resets the devnet to
   [v1.3](devnet-verdicts-v1.3.md). Live recordings on replicas A, B and C cover a
   full round from COMMIT to reward vest. They include restarts, a reorg,
@@ -76,12 +77,32 @@ twelve-hour delegation.
     `transactionsRoot`. A miner whose post finalized in an archive-filled range
     reconciles it from the authenticated receipt, including REVERTED, instead of
     staying paused.
+- [#462](https://github.com/NotoriAndo/Boole/pull/462) (M4c1) adds three pieces.
+  - The auditor owns its private Engine's lifecycle: setup is preflighted,
+    readiness has an absolute deadline, and children are always reaped. A
+    private Engine outage or startup failure is a typed local stop, not a
+    mismatch.
+  - An exhaustive fold-versus-audit differential runs every verdict word of
+    length 0–3 over frozen seeds, plus 45 recheck histories derived from
+    genesis, with zero findings. Candidates are keyed by problem and commitment
+    hash, because a commitment hash alone is not unique across problems.
+  - Posting reconciliation installs verified, locally cached transaction proofs
+    before any remote request, with separate limits of 32 presence checks, 32
+    cache reads and 32 remote requests. A consumed finalized nonce alone still
+    leaves inclusion unresolved.
+- [#464](https://github.com/NotoriAndo/Boole/pull/464) (M4c2) makes retention the
+  default for own-journal M3 drivers and miners. Every K4-relevant input,
+  including L2 bindings and the stub gate and environment artifacts, is pinned in
+  a versioned, fsynced journal before any dependent state, evidence or checkpoint
+  is published. A restart rebuilds from the own verified journal; a missing pin
+  is an availability stop that preserves files, with no historical-L1 fallback.
+  The auditor reports K4 `ok` only after an actual rebuild and an independent
+  read-only pin verification. There is no pruning or compaction, and the
+  environment build (J4) and the two-source readiness policy stay pending.
 
-This is still closed-local devnet work. The stub gate is not a proof verifier,
-testnet minting stays off, and there is no public activation. The next devnet
-step is M4c1: the private-engine lifecycle in the auditor, a differential test
-of the fold against the audit, and cached-proof liveness. M4c2 then covers pins
-and retention.
+This is still closed-local devnet work. The devnet still runs the stub gate,
+which is not a proof verifier. Testnet minting stays off, and there is no public
+activation. Connecting the real gate to the supervisor remains separate work.
 
 **ZK1b zero-knowledge proof (October 25, local only).** One full compressed CPU
 proof of the pinned guest was produced and verified locally: 1,272,970 bytes and
@@ -370,6 +391,36 @@ limited to a safe allowlist; commands that define elaboration code are rejected.
     [#457](https://github.com/NotoriAndo/Boole/pull/457) replaced the
     supply-chain golden's tool paths with root tokens and re-derived its
     bindings.
+  - **Control baselines.** [#460](https://github.com/NotoriAndo/Boole/pull/460)
+    makes each counter-workflow mutation control first pass unmodified and then
+    fail with its specific sidecar refusal, so a broken harness import cannot
+    count as a rejection. The bound-policy test also covers the `rules=`
+    constructor path under both policy versions.
+- **Real-gate release contract M3d-a (October 25–26).** The
+  [contract](devnet-real-gate-a1.md) is data only and is not activated. The
+  supervisor, fold, wire, native tools and their pins and the fitted caps are
+  unchanged, so the devnet still runs the stub gate.
+  - [#461](https://github.com/NotoriAndo/Boole/pull/461) adds a canonical,
+    integer-only release descriptor and a Mac development adapter over the DET3
+    tools. The descriptor pins the environment and tool files, kernel set,
+    authenticated inventories, v2 rules and fuel weights, and admits only the
+    Darwin-arm64 development and Linux-aarch64 production profiles. One closed
+    mapping table binds every typed gate observation to an M3 outcome, reason
+    and action, identically on first execution, retry and replay. Submission
+    faults are typed rejections (0106 malformed, 0108 size or work, 0301 type),
+    the bundle is bound to its commitment before any size verdict, and an
+    unexpected trusted-code fault defers.
+  - [#463](https://github.com/NotoriAndo/Boole/pull/463) amends the contract.
+    Complete package authentication comes first. An OPEN environment that
+    differs from the package's is a terminal 0106 rejection. The published
+    cap's measured reference and environment must match the package, or the
+    result is VOID/0803 before any local reference access. An authorized
+    quarantine without a valid statement uses a separately bound 0802
+    fingerprint, selected only through an explicit sentinel. Decoder evidence
+    is a typed status bound to the job and its pins, so host faults defer and
+    only invalid data rejects.
+  - Supervisor integration, Linux and x86-64 production qualification and an
+    environment release remain separate work.
 - **Resource verdicts and artifact pins.** Host resource failures, trusted export
   corruption and untyped legacy replay failures return ERROR. The judge binds
   Lean executable/runtime bytes and ordered module roots: `.olean`, `.olean.*`
