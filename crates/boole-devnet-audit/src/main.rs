@@ -2,7 +2,7 @@ use anyhow::{ensure, Context, Result};
 use boole_derivation::{m2::Config, m3::ForkTable};
 use boole_devnet_archive::{
     durability::PrivateTempDir,
-    journal::{read_bound, NetworkIdentity, ReadOnlyJournal},
+    journal::{read_external_bound, NetworkIdentity, ReadOnlyJournal},
 };
 use boole_devnet_audit::{rpc::RpcNode, ArchiveInputs, ExpectedHeads, Inputs, JournalInputs, Node};
 use boole_gate_supervisor::{
@@ -51,7 +51,7 @@ struct Args {
 }
 fn json_file<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T> {
     Ok(serde_json::from_slice(
-        &read_bound(path, boole_devnet_archive::input::ROW_MAX)?.0,
+        &read_external_bound(path, boole_devnet_archive::input::ROW_MAX)?.0,
     )?)
 }
 fn supervisor(
@@ -277,6 +277,19 @@ fn main() {
 #[cfg(test)]
 mod cli_tests {
     use super::*;
+    #[test]
+    #[cfg(unix)]
+    fn fix2_hard_linked_operator_json_is_read_without_a_state_alias_rule() -> Result<()> {
+        let root = PrivateTempDir::new("audit-external-json")?;
+        let source = root.path().join("configuration.json");
+        let alias = root.path().join("configuration-alias.json");
+        let value = json!({"operator_configuration": 1});
+        std::fs::write(&source, serde_json::to_vec(&value)?)?;
+        std::fs::hard_link(&source, &alias)?;
+        assert_eq!(json_file::<Value>(&alias)?, value);
+        assert_eq!(json_file::<Value>(&source)?, value);
+        Ok(())
+    }
     use std::sync::{
         atomic::{AtomicBool, Ordering},
         Arc,

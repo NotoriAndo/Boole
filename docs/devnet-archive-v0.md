@@ -236,6 +236,115 @@ axis is `pending` throughout: neither Pass A nor Pass B is implemented here.
 Range labels retain the weakest applicable trust and split at source/follow
 boundaries. Existing evidence bytes retain their original labels.
 
+## Default local retention and pin-store format (M4c2)
+
+The archive library's `pins-v1` format is local metadata, outside consensus and
+wire encodings. Its version-1 manifest binds the full own-journal network
+identity and L1 anchor, and requires retention. Candidate keys contain both
+`problem_id` and `commit_hash`. Accumulated reasons distinguish ACCEPTED, STALE,
+kernel-fault REJECT, QUARANTINE and live CHECKING/PASSED coverage; reasons never
+remove an older requirement. The interval-union index covers `h_c`, every height
+in `h_o..=h_r`, and `reveal_pos.0`, including interior PART heights.
+
+Objects are content addressed under `pins-v1/objects/0x<sha256>`. Descriptor,
+host binary and environment roles bind their epoch or component identity.
+Publication fsyncs bytes before a new immutable hash-chained record, then records
+the selected L2 header, transaction bytes and root before a dependent checkpoint.
+A checkpoint's pin anchor names a durable journal prefix. Extra complete records
+or bytes after an interrupted publication are retained; they do not authorize a
+checkpoint on their own. R1 publication recovery runs under the owning writer
+lock. There is no pin deletion, pruning or compaction operation.
+
+`ReadOnlyPins` binds manifest, record and artifact versions without taking an
+Objects writer lock or invoking quarantine/repair. Verification rereads the
+required own-journal rows and retained artifacts and checks their digests and L2
+origin bindings. Missing coverage is availability, never a synthetic verdict or
+a historical-L1 fallback. A changed source cannot remain a successful read-only
+verification.
+
+The exclusive own writer verifies the complete prefix, retained rows and bindings
+at startup. It then advances an append-only cursor: only new record bodies after
+the verified sequence are read, and new events are checked against a sparse set
+of touched keys before publication. Verified input rows reuse the own journal's
+authenticated position digests under its lifetime ownership/version fence.
+There is no whole-index copy per write. Existing immutable prefix bytes remain
+subject to full verification at the next startup and by every read-only auditor;
+the hot cursor is not an online scan for arbitrary out-of-band old-file writes.
+
+Artifact digest reuse is process-local and tied to an unchanged R1 file version
+(device/inode, length, modification and change times). There is no persisted
+verification receipt. **Coarse-timestamp limit:** on filesystems such as ext4 or
+tmpfs on Linux before 6.13, an external same-length in-place rewrite within one
+timestamp tick can leave those fields equal. Such a collision may evade the
+writer's artifact/row caches for the rest of that process, not merely one tick.
+No periodic rehash is claimed. Fresh startup and independent full audits hash
+again; normal replaced/restored versions invalidate the cache. The owner must
+keep these append-only stores private. This is a filesystem-version optimization,
+not a guarantee against adversarial same-tick rewrites or silent bit rot.
+
+`RealGateInventoryPending` is the named unavailable seam for the
+complete transitive real-gate inventory; stub artifacts cannot supply it.
+
+Own-journal M3 driver and miner stores enable retention by default, including
+when the miner's optional `--verify-own` is off. Their gate metadata is still
+required on first startup. A retained descriptor and host binary replace the
+original paths; a new epoch may reuse the exact retained host binary. Every
+startup checks S20 before a gate rebuild or dependent publication. An indexed
+missing object cannot be silently copied back from its old source. Restore the
+verified bytes and restart or retry; no verdict is fabricated.
+
+The driver publishes a prepared full header/transaction/root binding before
+Engine import, then its selected binding before state, evidence and checkpoint.
+The miner binds canonical headers and transactions before its retained tip,
+package, reward or submission state. Their checkpoint/tip anchors name a prefix
+that already contains the selected binding; a later suffix cannot satisfy an
+earlier anchor. Read-only verification also binds the retention deletion guard.
+
+A pre-M4c store can bootstrap from its complete verified own input journal and
+historical local L2 headers/transactions. The driver's durable ceiling bounds its
+one-time historical Engine bootstrap; successful full replay seals it. The miner
+records the journal tip at bootstrap start, but that marker is not a fetch ceiling:
+it may consume additional independently checked canonical L2 blocks while catching
+up. It seals bootstrap when the fold reaches finalized L1. No historical L1 read
+is enabled by either marker. A modern checkpoint with missing
+pins must stop; it cannot re-enter bootstrap. Subsequent restart/recheck history
+comes from the journal and pinned L2 bindings, with only the current L2 head
+observed live. There is no historical L1 fallback, pin pruning or compaction.
+
+After the independent auditor actually rebuilds every retained record, durable
+pin verification compares its observed L2 headers/transactions and final root
+against the identity-bound pin view. Only then can `k4.status=ok` and
+`k4.pin_retention=ok`, with decimal `checked`, `total` and `verification_height`.
+`rebuilt` records rebuild coverage separately. Missing or concurrently changed
+pins remain `pending` / `local-unavailable` with checked zero and null verification
+height; corrupt or foreign pins are K4 failures. Archive-only inputs have no
+node-owned pin journal and remain pending.
+
+A recognized own-writer staging pair (the value and its published name are two
+links to the same owned staging inode) means interrupted/in-progress publication,
+so an audit stays pending without repairing either name. An unrelated hard link
+still fails K4. Writer startup completes large artifact staging under the existing
+256 MiB artifact cap, using bounded streaming comparison; input/record staging
+keeps its existing smaller role cap. Parents of the three pin directories are
+fsynced before pin authority is published.
+
+Operator-supplied gate binaries, environment artifacts and audit JSON/genesis
+inputs may have hard-link aliases. Their bounded, no-follow reads bind length,
+mtime, device/inode and ctime through the read. Pin imports then authenticate the
+expected digest and publish an independent single-link store copy. Reusing an
+object already inside the pin store still uses the state-file alias guard, as
+does every subsequent store read. Checkpoints, journals and owned logs retain
+their single-link requirement.
+
+An `ok` audit requires a stable source window and a node head at the same input
+tip. A continuously publishing node cannot guarantee that window: pin growth
+makes its snapshot pending and an input-journal version change retains the
+existing input-check failure. Quiesce publication at a common tip for the audit
+and its final recheck, then resume production. No concurrent source is repaired,
+no moving-tip `ok` is asserted, and no source-version check is skipped to get one.
+Environment/J4 stay pending, and
+local retention does not assert the separate two-source readiness policy.
+
 ## Independent read-only audit (M4b2)
 
 `boole-devnet-audit` reads `--journal DIR`, or repeated `--archive URL` with
@@ -277,10 +386,9 @@ reports its reproduced block count and private Engine cleanup. The audit exits
 nonzero at its first input/fold/prefix/verdict/ledger/admission/K4/environment
 mismatch and preserves sources. It never repairs an audited file.
 
-Current retained K4 records are rebuilt and checked against frozen digests, but
-coverage stays `pending` because durable retention pins belong to M4c. Environment
-hash and verification also stay pending until J4; a successful audit does not
-claim either deferred property. A K4 mismatch names the verdict record's height;
+Retained K4 records are rebuilt and checked against frozen digests. Coverage is
+`ok` only with the durable local verification described above; a rebuild alone
+stays pending. Environment hash and verification stay pending until J4. A K4 mismatch names the verdict record's height;
 its decoder scratch stays inside the auditor's private work directory.
 
 The audited-node RPC retains one authenticated view per height for its header,

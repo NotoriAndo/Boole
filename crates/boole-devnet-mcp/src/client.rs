@@ -439,6 +439,9 @@ pub struct CanonicalBlock {
     pub transactions: Vec<String>,
 }
 pub trait L2Source {
+    fn header(&mut self, _height: u64) -> Result<Option<boole_derivation::ParentHeader>> {
+        Ok(None)
+    }
     /// None means the node has not built this finalized L1 height yet.
     fn root(&mut self, height: u64, origin: &str) -> Result<Option<Hash>>;
     /// Actual block transaction bytes, for M3's strict system-prefix fold.
@@ -467,6 +470,9 @@ impl RpcL2 {
     }
 }
 impl L2Source for RpcL2 {
+    fn header(&mut self, h: u64) -> Result<Option<boole_derivation::ParentHeader>> {
+        boole_devnet_driver::engine::read_l2_header(&self.rpc, json!(format!("0x{h:x}")))
+    }
     fn balance(&mut self, payee: [u8; 20], height: u64) -> Result<Hash> {
         let value = self.rpc.call(
             "eth_getBalance",
@@ -585,6 +591,9 @@ pub struct Client<L, P> {
     vested_at: BTreeMap<u64, u64>,
     archive_alerts: Vec<String>,
     own: Option<crate::own::Verifier>,
+    pins: Option<boole_devnet_archive::pins::PinStore>,
+    retention_tip: Option<boole_devnet_archive::pins::PinAnchor>,
+    retention_stamp: Option<boole_devnet_archive::version::FileStamp>,
 }
 impl<L: L1Source, P: Poster> Client<L, P> {
     pub fn new(
@@ -626,7 +635,47 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             hash: source.genesis_hash()?,
         };
         let _: Hash = fixed(&anchor.hash)?;
+        let mut pins = if config.m3.is_some() {
+            source
+                .input_journal()
+                .map(|j| {
+                    boole_devnet_driver::retention::open(
+                        &j.borrow(),
+                        Some(&path.join("retention-tip.json")),
+                    )
+                })
+                .transpose()?
+        } else {
+            None
+        };
         let store = Store::open(path)?;
+        let retention_stamp =
+            boole_devnet_archive::version::file_stamp(&store.path.join("retention-tip.json"))?;
+        let retention_tip: Option<boole_devnet_archive::pins::PinAnchor> =
+            if retention_stamp.is_some() {
+                Some(store.read("retention-tip.json")?)
+            } else {
+                None
+            };
+        ensure!(
+            boole_devnet_archive::version::file_stamp(&store.path.join("retention-tip.json"))?
+                == retention_stamp,
+            "retention checkpoint changed during read"
+        );
+        if let Some(p) = &mut pins {
+            if let Some(a) = &retention_tip {
+                p.view().verify_anchor(a)?;
+            } else if p.bootstrap_allowed() {
+                p.begin_bootstrap(
+                    source
+                        .input_journal()
+                        .context("own journal")?
+                        .borrow()
+                        .tip(),
+                )?;
+            }
+        }
+
         let identity = json!({"schema_version":2,"config_digest":hex_string(&config.digest()),"l1_genesis_hash":anchor.hash,"l2_gas_limit":options.l2_gas_limit});
         if store.path.join("identity.json").exists() {
             let saved: Value = store.read("identity.json")?;
@@ -693,6 +742,9 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             vested_at: BTreeMap::new(),
             archive_alerts: Vec::new(),
             own,
+            pins,
+            retention_tip,
+            retention_stamp,
         })
     }
     pub fn m2_state(&self) -> &State {
@@ -811,15 +863,45 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             "finalized anchor changed"
         );
         self.waiting_l2 = false;
+        if let Some(pins) = &mut self.pins {
+            let journal = self.source.input_journal().context("S20 own journal")?;
+            pins.refresh(&journal.borrow())?;
+            if pins.view().has_selected(0) {
+                let req = boole_devnet_archive::pins::requirements(
+                    &self.state,
+                    &self.config,
+                    &self.chain.as_ref().context("M3 chain")?.forks,
+                    true,
+                )?;
+                pins.view()
+                    .verify(&*journal.borrow(), &req, self.state.height())?;
+            }
+        }
         if let Some(chain) = &mut self.chain {
             if !chain.refresh(
                 &self.config,
                 &mut self.source,
                 self.l2.as_mut().context("M3 L2 source")?.as_mut(),
                 finalized,
+                self.pins.as_ref().map(|p| p.view()),
             )? {
                 self.waiting_l2 = true;
                 return Ok(());
+            }
+        }
+        if let Some(pins) = &mut self.pins {
+            if !pins.view().has_selected(0) {
+                let chain = self.chain.as_ref().context("M3 chain")?;
+                let e = chain.blocks.get(&0).context("S20 genesis")?;
+                let header = e.header.clone().context("S20: genesis header")?;
+                let b = boole_devnet_archive::pins::HeaderBinding {
+                    header,
+                    transactions: e.block.transactions.clone(),
+                    root: self.state.root,
+                };
+                let journal = self.source.input_journal().context("S20 journal")?;
+                pins.prepare(&journal.borrow(), b.clone(), &[])?;
+                pins.select(0, &b.header.hash, b.root)?;
             }
         }
         while self.state.height() < finalized {
@@ -870,6 +952,51 @@ impl<L: L1Source, P: Poster> Client<L, P> {
                 fixed::<32>(&repeated.hash)? == fixed::<32>(&block.hash)?,
                 "L1 changed during read"
             );
+            if let Some(pins) = &mut self.pins {
+                let chain = self.chain.as_ref().context("M3 chain")?;
+                let e = chain.blocks.get(&h).context("S20 canonical block")?;
+                let b = boole_devnet_archive::pins::HeaderBinding {
+                    header: e.header.clone().context("S20 canonical header")?,
+                    transactions: e.block.transactions.clone(),
+                    root: step.state.root,
+                };
+                ensure!(
+                    b.header.hash == hex_string(&e.block.hash)
+                        && b.header.number == h
+                        && b.header.parent_hash.as_deref()
+                            == Some(hex_string(&e.block.parent_hash).as_str()),
+                    "S20: L2 header/block binding differs"
+                );
+                let req = boole_devnet_archive::pins::requirements(
+                    &step.state,
+                    &self.config,
+                    &chain.forks,
+                    true,
+                )?;
+                let journal = self.source.input_journal().context("S20 journal")?;
+                pins.prepare(&journal.borrow(), b.clone(), &req)?;
+                pins.select(h, &b.header.hash, b.root)?;
+                if self.retention_tip.as_ref().is_none_or(|a| a.height < h) {
+                    let path = self.store.path.join("retention-tip.json");
+                    if boole_devnet_archive::version::file_stamp(&path)? != self.retention_stamp {
+                        return Err(boole_devnet_archive::error::integrity(
+                            h,
+                            "pin-checkpoint",
+                            "miner pin checkpoint changed before publication",
+                        ));
+                    }
+                    let a = pins.view().anchor(h)?;
+                    self.store.write("retention-tip.json", &a).map_err(|e| {
+                        boole_devnet_archive::error::availability(
+                            h,
+                            "pin-checkpoint",
+                            format!("pin checkpoint publication unavailable: {e:#}"),
+                        )
+                    })?;
+                    self.retention_stamp = boole_devnet_archive::version::file_stamp(&path)?;
+                    self.retention_tip = Some(a);
+                }
+            }
             let mut additions = vec![];
             for (item, code) in inputs.iter().zip(&step.codes) {
                 if item.kind == 9 && *code == 0x86 {
@@ -934,6 +1061,11 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             // Observe every height, including an expiry immediately before prune,
             // even when a restarted worker catches up in a single sync.
             self.observe_submissions()?;
+        }
+        if let Some(pins) = &mut self.pins {
+            if self.state.height() == finalized {
+                pins.finish_bootstrap()?;
+            }
         }
         self.observe_submissions()?;
         Ok(())

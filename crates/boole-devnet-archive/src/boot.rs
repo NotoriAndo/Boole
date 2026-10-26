@@ -4,6 +4,14 @@ use anyhow::{ensure, Result};
 use std::path::Path;
 /// Complete only a published create-new hard link, before single-link readers run.
 pub fn cleanup_publications(root: &Path, guard: &StateDirGuard) -> Result<()> {
+    cleanup_publications_with_limit(root, guard, crate::input::ROW_MAX)
+}
+/// Role-specific bound; pin artifact staging can be larger than an input row.
+pub(crate) fn cleanup_publications_with_limit(
+    root: &Path,
+    guard: &StateDirGuard,
+    limit: usize,
+) -> Result<()> {
     use std::io::Read;
     use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
     let result = (|| -> Result<()> {
@@ -58,7 +66,7 @@ pub fn cleanup_publications(root: &Path, guard: &StateDirGuard) -> Result<()> {
                     && before.uid() == effective_uid()
                     && matches!(before.nlink(), 1 | 2)
                     && before.permissions().mode() & 0o777 == 0o600
-                    && before.len() <= crate::input::ROW_MAX as u64,
+                    && before.len() <= limit as u64,
                 "unpublished or ambiguous staging value; preserved"
             );
             let mut target = None;
@@ -120,15 +128,24 @@ pub fn cleanup_publications(root: &Path, guard: &StateDirGuard) -> Result<()> {
             let target = target
                 .ok_or_else(|| anyhow::anyhow!("published target absent; staging preserved"))?;
             let target_file = open(&target)?;
-            let read = |file: &std::fs::File| -> Result<Vec<u8>> {
-                let mut bytes = vec![];
-                file.take(crate::input::ROW_MAX as u64 + 1)
-                    .read_to_end(&mut bytes)?;
-                ensure!(bytes.len() <= crate::input::ROW_MAX, "staging byte cap");
-                Ok(bytes)
-            };
-            let bytes = read(&file)?;
-            let published = read(&target_file)?;
+            // Compare bounded chunks instead of holding two maximum-sized
+            // artifacts in memory during restart recovery.
+            let mut left = &file;
+            let mut right = &target_file;
+            let mut a = [0u8; 65536];
+            let mut b = [0u8; 65536];
+            let mut length = 0u64;
+            loop {
+                let n = left.read(&mut a)?;
+                if n == 0 {
+                    ensure!(right.read(&mut b)? == 0, "staging target length");
+                    break;
+                }
+                right.read_exact(&mut b[..n])?;
+                ensure!(a[..n] == b[..n], "staging target bytes");
+                length += n as u64;
+                ensure!(length <= limit as u64, "staging byte cap");
+            }
             let stable = |m: &std::fs::Metadata| {
                 m.is_file()
                     && m.dev() == before.dev()
@@ -139,8 +156,7 @@ pub fn cleanup_publications(root: &Path, guard: &StateDirGuard) -> Result<()> {
                     && m.ctime_nsec() == before.ctime_nsec()
             };
             ensure!(
-                bytes == published
-                    && bytes.len() as u64 == before.len()
+                length == before.len()
                     && stable(&file.metadata()?)
                     && stable(&target_file.metadata()?)
                     && stable(&std::fs::symlink_metadata(&target)?)

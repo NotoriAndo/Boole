@@ -9,6 +9,12 @@ pub trait Inputs: History {
     fn row(&mut self, height: u64) -> Result<InputRow>;
     fn check(&self) -> Result<()>;
     fn label(&self) -> &'static str;
+    fn pin_view(&self) -> Result<Option<boole_devnet_archive::pins::ReadOnlyPins>> {
+        Ok(None)
+    }
+    fn pin_source(&self) -> Option<&dyn boole_devnet_archive::pins::PinInputs> {
+        None
+    }
 }
 pub trait Node {
     fn head(&mut self) -> Result<ParentHeader>;
@@ -263,6 +269,13 @@ pub fn audit_in(
     };
     let tip = inputs.tip();
     let mut receipt = empty_receipt(c, inputs.label());
+    let pin_view = if c.m3.is_some() {
+        inputs.pin_view()
+    } else {
+        Ok(None)
+    };
+    let mut observed = retention::Observed::new();
+
     let result = (|| -> std::result::Result<(), AuditFailure> {
         at(0, "input", inputs.check())?;
         let genesis = at(0, "input", inputs.row(0))?;
@@ -288,6 +301,13 @@ pub fn audit_in(
         }
         receipt["observed_l2_head"] = json!({"number":head.number.to_string(),"hash":head.hash});
         let mut previous = at(0, "prefix", node.header(0))?;
+        if matches!(&pin_view, Ok(Some(_))) {
+            observed.insert(
+                0,
+                (previous.clone(), at(0, "K4", retention::tx_digest(&[]))?),
+            );
+        }
+
         receipt["l2_head"] = json!({"number":"0","hash":previous.hash});
         receipt["l1_head"] = json!({"number":"0","hash":anchor.block.hash});
         let mut state = at(
@@ -319,6 +339,18 @@ pub fn audit_in(
                 block.number == h && block.parent_hash.as_deref() == Some(previous.hash.as_str()),
             )?;
             let actual = at(h, "prefix", node.transactions(h))?;
+            if pin_view
+                .as_ref()
+                .ok()
+                .and_then(|p| p.as_ref())
+                .is_some_and(|p| p.intervals().contains(h) || h == tip)
+            {
+                observed.insert(
+                    h,
+                    (block.clone(), at(h, "K4", retention::tx_digest(&actual))?),
+                );
+            }
+
             at(h, "input", inputs.check())?;
             let items = at(h, "fold", input_items(&verified.logs))?;
             let (derived, next, events, payments) = if c.m3.is_some() {
@@ -415,7 +447,7 @@ pub fn audit_in(
             state = next;
             previous = block;
         }
-        match k4::check(
+        let rebuilt = k4::check(
             &state,
             c,
             forks,
@@ -423,10 +455,22 @@ pub fn audit_in(
             supervisor.as_deref().and_then(|s| s.codec.as_ref()),
             &record_heights,
             work,
-        ) {
+        );
+        at(tip, "input", inputs.check())?;
+        match rebuilt {
             Ok(coverage) => {
                 receipt["k4"]["total"] = json!(coverage.total.to_string());
                 receipt["k4"]["checked"] = json!(coverage.checked.to_string());
+                retention::verify(
+                    inputs,
+                    &pin_view,
+                    &state,
+                    c,
+                    forks,
+                    &observed,
+                    coverage,
+                    &mut receipt,
+                )?;
             }
             Err(failure) => {
                 receipt["k4"]["total"] = json!(failure.coverage.total.to_string());
@@ -465,6 +509,7 @@ pub fn audit_in(
             json!([{"from":"1","through":tip.to_string(),"inputs":inputs.label(),"verdicts":"computed","environment":"pending"}])
         };
         at(tip, "input", inputs.check())?;
+        retention::finish(&pin_view, &mut receipt, tip)?;
         Ok(())
     })();
     if let Err(m) = result {
@@ -480,6 +525,17 @@ pub mod ledger;
 
 pub struct JournalInputs(pub boole_devnet_archive::journal::ReadOnlyJournal);
 impl Inputs for JournalInputs {
+    fn pin_view(&self) -> Result<Option<boole_devnet_archive::pins::ReadOnlyPins>> {
+        boole_devnet_archive::pins::ReadOnlyPins::open(
+            self.0.root(),
+            self.0.network(),
+            self.0.anchor_hash(),
+        )
+    }
+    fn pin_source(&self) -> Option<&dyn boole_devnet_archive::pins::PinInputs> {
+        Some(&self.0)
+    }
+
     fn tip(&self) -> u64 {
         self.0.tip()
     }
@@ -644,3 +700,5 @@ pub fn recheck_inputs(receipt: &mut Value, inputs: &dyn Inputs) {
 }
 
 pub mod private_engine;
+
+mod retention;

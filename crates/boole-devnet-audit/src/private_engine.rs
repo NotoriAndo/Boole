@@ -325,7 +325,8 @@ impl PrivateEngine {
                 actual.trim_start_matches("0x") == expected.trim_start_matches("0x"),
                 "binary pin"
             );
-            let (raw, _) = boole_devnet_archive::journal::read_bound(genesis, 16 * 1024 * 1024)?;
+            let (raw, _) =
+                boole_devnet_archive::journal::read_external_bound(genesis, 16 * 1024 * 1024)?;
             let config: Value = serde_json::from_slice(&raw)?;
             ensure!(
                 config["config"]["chainId"].as_u64() == Some(boole_derivation::config::L2_CHAIN_ID),
@@ -667,6 +668,11 @@ mod tests {
             boole_derivation::attributes::hex_string(&Sha256::digest(std::fs::read(&binary)?));
         let genesis = work.path().join("genesis.json");
         std::fs::write(&genesis, if bad_config { json!({}) } else {json!({"config":{"chainId":boole_derivation::config::L2_CHAIN_ID},"gasLimit":"0x1c9c380","alloc":{}})}.to_string())?;
+        std::fs::hard_link(&genesis, work.path().join("genesis-alias.json"))?;
+        assert_eq!(
+            std::os::unix::fs::MetadataExt::nlink(&std::fs::metadata(&genesis)?),
+            2
+        );
         let error = PrivateEngine::launch(&binary, &genesis, work.path(), &hash, timeout)
             .err()
             .context("fixture unexpectedly ready")?;
@@ -735,6 +741,17 @@ mod tests {
                 )?;
             }
         }
+        Ok(())
+    }
+    #[test]
+    #[cfg(unix)]
+    fn fix2_hard_linked_genesis_reaches_startup_without_a_setup_alias_stop() -> Result<()> {
+        let (_, r) = launch_script("exit 7", Duration::from_secs(1), false)?;
+        assert_eq!(
+            r["resource_stop"]["resource"],
+            "private-engine-startup-unavailable"
+        );
+        assert_eq!(r["resource_stop"]["exit_code"], 7);
         Ok(())
     }
     #[test]
