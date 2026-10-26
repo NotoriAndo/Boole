@@ -596,6 +596,7 @@ jobs:
           cargo test --release --locked -p boole-devnet-driver -p boole-devnet-mcp --test fault_hooks
           cargo test --locked -p boole-devnet-driver --features qualification-faults --test journal_restart
           cargo test --locked -p boole-devnet-archive --features qualification-faults --test publication_recovery
+          cargo test --locked -p boole-devnet-archive --features qualification-faults --test pin_publication_recovery
 
       # P0.7 (audit) — the self-test gate only builds the dev profile, so the
       # release profile (panic = "abort", opt-level, overflow checks elided)

@@ -29,6 +29,7 @@ const RECORD_MAX: usize = 64 * 1024 * 1024;
 #[cfg(test)]
 thread_local! {
     static ARTIFACT_HASHES: std::cell::RefCell<BTreeMap<Hash, usize>> = const { std::cell::RefCell::new(BTreeMap::new()) };
+    static PIN_ROW_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     static PIN_COST: std::cell::Cell<(usize, usize, usize)> = const { std::cell::Cell::new((0, 0, 0)) };
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -291,6 +292,15 @@ pub trait PinInputs {
     fn pin_row_id(&self, _h: u64) -> Result<Option<Hash>> {
         Ok(None)
     }
+    /// Optional trusted writer session. Other input providers retain full checks.
+    fn pin_session(&self) -> Option<u64> {
+        None
+    }
+    /// The private verifier fences this entire batch with pin_check(), so the
+    /// own journal need not repeat stat/statvfs for every authenticated token.
+    fn pin_row_id_in_checked_scope(&self, h: u64) -> Result<Option<Hash>> {
+        self.pin_row_id(h)
+    }
 }
 impl PinInputs for InputJournal {
     fn pin_network(&self) -> &NetworkIdentity {
@@ -313,6 +323,13 @@ impl PinInputs for InputJournal {
     fn pin_row_id(&self, h: u64) -> Result<Option<Hash>> {
         Ok(Some(self.verified_row_digest(h)?))
     }
+    fn pin_session(&self) -> Option<u64> {
+        Some(self.pin_session_id())
+    }
+    fn pin_row_id_in_checked_scope(&self, h: u64) -> Result<Option<Hash>> {
+        Ok(Some(self.pin_row_digest_in_checked_scope(h)?))
+    }
+
     fn pin_check(&self) -> Result<()> {
         self.check()
     }
@@ -347,6 +364,9 @@ pub struct ReadOnlyPins {
     writer: bool,
     records_stamp: DirectoryStamp,
     verified_rows: std::sync::Mutex<BTreeMap<u64, VerifiedRow>>,
+    // Only complete selected coverage may enter this process/session cache.
+    // Prepared alternatives do not establish reusable candidate authority.
+    verified_candidates: std::sync::Mutex<BTreeMap<Key, (u64, CandidatePin)>>,
     // Process-local only. Reuse a digest check solely while the complete R1
     // file identity/version remains equal; startup and restored versions hash
     // again. Every read still fences all source versions in check().
@@ -442,6 +462,7 @@ impl ReadOnlyPins {
             writer: false,
             records_stamp: directory_stamp(&root.join("records"))?,
             verified_rows: Default::default(),
+            verified_candidates: Default::default(),
         };
         view.check()?;
         Ok(Some(view))
@@ -620,6 +641,8 @@ impl ReadOnlyPins {
         for a in self.index.artifacts.values() {
             self.verify_artifact(a)?;
         }
+        let session = self.writer.then(|| source.pin_session()).flatten();
+        let mut verified = vec![];
         let mut ranges = IntervalUnion::default();
         for req in required {
             req.validate(through)?;
@@ -635,8 +658,20 @@ impl ReadOnlyPins {
                     "S20: durable candidate pin missing",
                 ));
             }
+            if session.is_some_and(|session| {
+                self.verified_candidates.lock().ok().is_some_and(|cache| {
+                    cache
+                        .get(&req.key)
+                        .is_some_and(|(old, p)| *old == session && p.covers(req))
+                })
+            }) {
+                continue;
+            }
             self.verify_releases(&req.gates, &req.components)?;
             ranges.extend(&req.intervals());
+            if prospective.is_none() {
+                verified.push(req.clone());
+            }
         }
         for (&lo, &hi) in &ranges.0 {
             if hi > source.pin_tip() {
@@ -679,7 +714,17 @@ impl ReadOnlyPins {
             self.verify_all(source)?;
         }
         source.pin_check()?;
-        self.check()
+        self.check()?;
+        if let Some(session) = session {
+            let mut cache = self
+                .verified_candidates
+                .lock()
+                .map_err(|_| anyhow::anyhow!("pin candidate cache poisoned"))?;
+            for pin in verified {
+                cache.insert(pin.key, (session, pin));
+            }
+        }
+        Ok(())
     }
     pub fn verify_releases(
         &self,
@@ -861,6 +906,7 @@ pub struct PinStore {
     records_guard: StateDirGuard,
     objects_guard: StateDirGuard,
     tail_dirty: bool,
+    pending_publication: Option<(u64, Hash)>,
 }
 impl PinStore {
     pub fn open(source: &InputJournal) -> Result<Self> {
@@ -933,6 +979,7 @@ impl PinStore {
             records_guard,
             objects_guard,
             tail_dirty: false,
+            pending_publication: None,
         })
     }
     pub fn view(&self) -> &ReadOnlyPins {
@@ -1050,7 +1097,10 @@ impl PinStore {
         validate_event(&self.view.index, &frame.event, frame.sequence)?;
         let path = self.view.root.join("records").join(&name);
         self.tail_dirty = true;
-        publish_new(&path, &raw)?;
+        let mut linked = false;
+        let published = crate::journal::publish_pin_record(&path, &raw, &mut linked);
+        self.pending_publication = linked.then_some((frame.sequence, digest));
+        published?;
         apply(&mut self.view.index, &frame.event, frame.sequence)?;
         self.view
             .files
@@ -1058,6 +1108,7 @@ impl PinStore {
         self.view.last = digest;
         self.view.records_stamp = directory_stamp(&self.view.root.join("records"))?;
         self.tail_dirty = false;
+        self.pending_publication = None;
         self.view.check()
     }
 
@@ -1160,10 +1211,13 @@ impl PinStore {
                 .index
                 .candidates
                 .get(&req.key)
-                .is_none_or(|old| !old.covers(req))
+                .is_some_and(|old| old.covers(req))
             {
-                changed.push(req.clone());
+                // Immutable already-published input membership cannot expand.
+                // verify_required still validates any uncached selected coverage.
+                continue;
             }
+            changed.push(req.clone());
             for (&lo, &hi) in &req.intervals().0 {
                 for h in lo..=hi {
                     if !self.view.index.inputs.contains_key(&h) {
@@ -1181,6 +1235,7 @@ impl PinStore {
                 "prepared header rebound"
             );
         }
+        source.check()?;
         if self
             .view
             .prepared(binding.header.number, &binding.header.hash)
