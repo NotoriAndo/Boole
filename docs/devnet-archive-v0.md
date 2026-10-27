@@ -193,12 +193,42 @@ failure or a repost.
 
 **DROPPED cannot be proved from an archive across bloom-negative blocks whose
 transaction lists are not served.** REVERTED needs the exact authenticated tx
-hash and status-0 receipt; neither a 404 nor a timeout substitutes for it. The
-DROPPED rule is unchanged. A finalized account nonce above the submitted nonce
-is only a nonterminal “nonce consumed, inclusion unresolved” observation: the
-original may already have succeeded, reverted, or been replaced. Terminal
-DROPPED requires authenticated exclusion or replacement evidence; the nonce
-alone is insufficient. No nonce-based terminal status is implemented.
+hash and status-0 receipt; neither a 404 nor a timeout substitutes for it.
+The miner durably records its own sender, L1 chain id, assigned nonce and locally
+computed signed-transaction hash, bound to the item kind and SHA-256 of its body.
+The signed bytes are authenticated, then retained privately with the submission
+reference; both files and their directory are fsynced before the single send.
+An RPC-selected hash cannot replace the local hash. A lost, malformed or
+contradictory send response remains ambiguous across restart, with no guessed
+success, failure or automatic repost. Restart also treats an interrupted
+pre-send Prepared stamp as ambiguous; an explicit pre-signing Intent recovers as
+NotSent. Signed bytes and reveal/cancel secrets are never
+included in tool output. Existing stores without assigned metadata cannot use
+the nonce observation; no historical nonce is guessed for them.
+
+A finalized account nonce above the submitted nonce yields only the nonterminal
+`nonce-consumed / inclusion-unresolved` observation: the original may already
+have succeeded, reverted, or been replaced. An equal or lower proven nonce is
+`not-advanced`, still with inclusion unresolved; it proves no drop. The
+observation requires the exact
+own finalized tip hash and height to match the verified input journal, and an
+`eth_getProof` account membership proof at that hash (with `requireCanonical`)
+checked against the stateRoot in the own header. Finality and the journal are
+rechecked before returning it. Unsupported, absent, invalid, stale or foreign
+proofs leave the observation unavailable. No archive 404, `latest`, `pending`,
+height-tag or hash-tag fallback is an absence proof. `pending` is used only to
+assign a new transaction's nonce, never to establish this observation. Cached
+proof results are bound to the own header and journal row; saved observations
+are cleared on restart and hidden after the own tip changes. Proof reads use a
+three-second RPC observation budget, a 256 KiB response cap and bounded trie
+nodes. Unavailable or invalid proofs at an unchanged own tip are reprobed after
+one second, shared across its posting items; a changed finalized tip has the
+same bounded retry delay. This advisory state does not override an authenticated receipt, change
+submission status, resolve an archive-tx-proof pause or authorize a new signed posting. The miner may perform the separately bounded
+identical-byte PART rebroadcast described in the [client contract](devnet-miner-client-v0.md).
+Terminal DROPPED still requires an agreed authenticated exclusion or replacement
+proof contract; the nonce alone is insufficient. No nonce-based terminal status
+is implemented.
 
 For old rows, reconciliation restores proofs into the own `transaction-proofs/`
 cache with new-file-only publication and read-time re-verification. It does not

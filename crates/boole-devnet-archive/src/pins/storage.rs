@@ -1101,12 +1101,14 @@ impl PinStore {
         let published = crate::journal::publish_pin_record(&path, &raw, &mut linked);
         self.pending_publication = linked.then_some((frame.sequence, digest));
         published?;
+        // Observe every fallible publication stamp before advancing the index.
+        // On failure refresh must still see an entirely unapplied own tail.
+        let stamp = pin_stamp(&path)?.context("published pin record")?;
+        let records_stamp = directory_stamp(&self.view.root.join("records"))?;
         apply(&mut self.view.index, &frame.event, frame.sequence)?;
-        self.view
-            .files
-            .push((name, pin_stamp(&path)?.context("published pin record")?));
+        self.view.files.push((name, stamp));
         self.view.last = digest;
-        self.view.records_stamp = directory_stamp(&self.view.root.join("records"))?;
+        self.view.records_stamp = records_stamp;
         self.tail_dirty = false;
         self.pending_publication = None;
         self.view.check()

@@ -33,6 +33,16 @@ impl L1Source for Tip {
 }
 struct NoPost;
 impl Poster for NoPost {
+    fn post_durable(
+        &mut self,
+        kind: u8,
+        body: &[u8],
+        _persist: &mut dyn FnMut(&boole_devnet_mcp::posting::SignedPosting) -> Result<()>,
+    ) -> Result<String> {
+        // Read-only test adapter: retain its panic/error on any attempted post.
+        self.post(kind, body)
+    }
+
     fn head(&mut self) -> Result<u64> {
         Ok(2)
     }

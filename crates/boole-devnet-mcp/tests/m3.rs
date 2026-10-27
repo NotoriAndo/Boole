@@ -32,6 +32,16 @@ impl L1Source for EmptySource {
 }
 struct NoPosts;
 impl Poster for NoPosts {
+    fn post_durable(
+        &mut self,
+        kind: u8,
+        body: &[u8],
+        _persist: &mut dyn FnMut(&boole_devnet_mcp::posting::SignedPosting) -> Result<()>,
+    ) -> Result<String> {
+        // Read-only test adapter: retain its panic/error on any attempted post.
+        self.post(kind, body)
+    }
+
     fn head(&mut self) -> Result<u64> {
         Ok(0)
     }
@@ -417,6 +427,16 @@ struct CountingPoster {
     posts: Vec<u8>,
 }
 impl Poster for CountingPoster {
+    fn post_durable(
+        &mut self,
+        kind: u8,
+        body: &[u8],
+        _persist: &mut dyn FnMut(&boole_devnet_mcp::posting::SignedPosting) -> Result<()>,
+    ) -> Result<String> {
+        // Pure scheduling fake: no signed transaction or network send exists.
+        self.post(kind, body)
+    }
+
     fn head(&mut self) -> Result<u64> {
         Ok(self.head)
     }

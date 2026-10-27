@@ -20,9 +20,20 @@ use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
 };
+#[cfg(test)]
+#[path = "client_posting_tests.rs"]
+mod posting_tests;
 
 #[derive(Debug)]
 pub struct RevertedReceipt;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SubmissionError {
+    DurablePostingInvalid,
+    DurableRecordUnavailable,
+}
+
 impl std::fmt::Display for RevertedReceipt {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("devnet posting transaction reverted")
@@ -67,6 +78,25 @@ pub trait Poster {
     }
     fn head(&mut self) -> Result<u64>;
     fn post(&mut self, kind: u8, body: &[u8]) -> Result<String>;
+    fn rebroadcast(&mut self, _signed: &crate::posting::SignedPosting) -> Result<()> {
+        bail!("same-bytes rebroadcast unavailable")
+    }
+    /// Concrete RPC posting must persist the assigned, authenticated signed
+    /// transaction through this callback before attempting a network send.
+    fn post_durable(
+        &mut self,
+        _kind: u8,
+        _body: &[u8],
+        _persist: &mut dyn FnMut(&crate::posting::SignedPosting) -> Result<()>,
+    ) -> Result<String> {
+        Err(crate::posting::PostingNotSent.into())
+    }
+    fn nonce_observation(
+        &mut self,
+        _posting: &crate::posting::PostingMetadata,
+    ) -> crate::nonce::NonceObservation {
+        crate::nonce::NonceObservation::unavailable(crate::nonce::UnavailableReason::NoJournal)
+    }
     /// Only a successful receipt in the current canonical L1 counts.
     fn included(&mut self, tx: &str) -> Result<Option<u64>>;
     /// Advisory inclusion for send/wait decisions only; never fold authority.
@@ -89,11 +119,52 @@ struct LiveReceiptWindow {
 }
 pub struct RpcPoster {
     rpc: Rpc,
+    nonce_endpoint: crate::nonce::Endpoint,
     account: String,
     journal: Option<std::rc::Rc<std::cell::RefCell<boole_devnet_archive::journal::InputJournal>>>,
     live_window: Option<LiveReceiptWindow>,
 }
 impl RpcPoster {
+    fn prepare_signed(&self, kind: u8, body: &[u8]) -> Result<crate::posting::SignedPosting> {
+        let nonce = quantity(
+            &self
+                .rpc
+                .call("eth_getTransactionCount", json!([self.account, "pending"]))?,
+        )?;
+        let fee = self.rpc.call("eth_gasPrice", json!([]))?;
+        let requested_fee = boole_devnet_archive::input::quantity_bytes(&fee)?;
+        ensure!(requested_fee.len() <= 32, "posting fee width");
+        let transaction = json!({
+            "from": self.account,
+            "to": boole_derivation::config::INBOX,
+            "type": "0x2",
+            "chainId": format!("0x{:x}", boole_derivation::config::L1_CHAIN_ID),
+            "nonce": format!("0x{nonce:x}"),
+            "value": "0x0",
+            "data": hex_string(&calldata(kind, body)),
+            "gas": if kind == 4 { "0x4dd1e0" } else { "0xf4240" },
+            "maxFeePerGas": fee,
+            "maxPriorityFeePerGas": "0x0",
+            "accessList": [],
+        });
+        let reply = self.rpc.call("eth_signTransaction", json!([transaction]))?;
+        let raw = reply["raw"]
+            .as_str()
+            .or_else(|| reply.as_str())
+            .context("signed transaction bytes unavailable")?;
+        let signed = crate::posting::SignedPosting::authenticate(
+            hex_bytes(raw, "signed transaction")?,
+            kind,
+            body,
+            &self.account,
+            &requested_fee,
+        )?;
+        ensure!(
+            signed.metadata.nonce == nonce,
+            "signer changed assigned nonce"
+        );
+        Ok(signed)
+    }
     pub fn new(url: &str, account: [u8; 20]) -> Result<Self> {
         let rpc = Rpc::new(url)?;
         let account = hex_string(&account);
@@ -111,6 +182,7 @@ impl RpcPoster {
         );
         Ok(Self {
             rpc,
+            nonce_endpoint: crate::nonce::Endpoint::new(url)?,
             account,
             journal: None,
             live_window: None,
@@ -127,6 +199,18 @@ fn quantity(value: &Value) -> Result<u64> {
     )?)
 }
 impl Poster for RpcPoster {
+    fn rebroadcast(&mut self, signed: &crate::posting::SignedPosting) -> Result<()> {
+        ensure!(
+            signed.metadata.sender.eq_ignore_ascii_case(&self.account)
+                && signed.metadata.transaction_hash
+                    == hex_string(&boole_derivation::user_tx::keccak(&signed.raw)),
+            "rebroadcast identity"
+        );
+        self.rpc
+            .call("eth_sendRawTransaction", json!([hex_string(&signed.raw)]))
+            .map(|_| ())
+            .map_err(|_| crate::posting::PostingAmbiguous.into())
+    }
     fn bind_journal(
         &mut self,
         journal: std::rc::Rc<std::cell::RefCell<boole_devnet_archive::journal::InputJournal>>,
@@ -137,11 +221,44 @@ impl Poster for RpcPoster {
     fn head(&mut self) -> Result<u64> {
         quantity(&self.rpc.call("eth_blockNumber", json!([]))?)
     }
+    fn nonce_observation(
+        &mut self,
+        posting: &crate::posting::PostingMetadata,
+    ) -> crate::nonce::NonceObservation {
+        self.nonce_endpoint
+            .observe(&self.account, posting, self.journal.as_ref())
+    }
     fn post(&mut self, kind: u8, body: &[u8]) -> Result<String> {
-        let tx=self.rpc.call("eth_sendTransaction",json!([{"from":self.account,"to":boole_derivation::config::INBOX,"data":hex_string(&calldata(kind,body)),"gas":if kind==4 {"0x4dd1e0"}else{"0xf4240"}}])).map_err(|_|anyhow::anyhow!("devnet post outcome unknown; reconciliation required"))?;
-        let tx = tx.as_str().context("missing transaction hash")?;
-        let _: Hash = fixed(tx)?;
-        Ok(tx.into())
+        let _ = (kind, body);
+        bail!("RPC posting requires durable intent persistence")
+    }
+    fn post_durable(
+        &mut self,
+        kind: u8,
+        body: &[u8],
+        persist: &mut dyn FnMut(&crate::posting::SignedPosting) -> Result<()>,
+    ) -> Result<String> {
+        use crate::posting::{PostingAmbiguous, PostingNotSent};
+        let signed = self
+            .prepare_signed(kind, body)
+            .map_err(|_| anyhow::Error::new(PostingNotSent))?;
+        persist(&signed).map_err(|_| anyhow::Error::new(PostingNotSent))?;
+        // Never retry a send, or replace its locally authenticated hash with an
+        // RPC-selected one. A lost/malformed/contradictory response is ambiguous.
+        let expected = signed.metadata.transaction_hash;
+        match self
+            .rpc
+            .call("eth_sendRawTransaction", json!([hex_string(&signed.raw)]))
+        {
+            Ok(reply)
+                if reply
+                    .as_str()
+                    .is_some_and(|h| h.eq_ignore_ascii_case(&expected)) =>
+            {
+                Ok(expected)
+            }
+            _ => Err(PostingAmbiguous.into()),
+        }
     }
     fn included(&mut self, tx: &str) -> Result<Option<u64>> {
         if let Some(journal) = &self.journal {
@@ -352,6 +469,20 @@ struct Sent {
     tx: Option<String>,
     #[serde(default)]
     failure: Option<String>,
+    #[serde(default)]
+    posting: Option<crate::posting::PostingMetadata>,
+    #[serde(default)]
+    send_state: Option<crate::posting::SendState>,
+    #[serde(default)]
+    nonce_observation: Option<crate::nonce::NonceObservation>,
+    #[serde(default)]
+    rebroadcast_attempts: u8,
+    #[serde(default)]
+    last_broadcast_head: Option<u64>,
+    #[serde(default)]
+    stage_error: Option<crate::posting::StageError>,
+    #[serde(default)]
+    rebroadcast_stop: Option<crate::posting::RebroadcastStop>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -578,6 +709,9 @@ pub struct Client<L, P> {
     packages: BTreeMap<(u32, u32), Package>,
     store: Store,
     submissions: BTreeMap<Hash, Submission>,
+    progress_errors: BTreeMap<Hash, SubmissionError>,
+    consumed_posts: std::collections::BTreeSet<String>,
+    rebroadcast_queue: Vec<(Hash, String)>,
     codec: Option<Codec>,
     hook: Option<Precheck>,
     account: [u8; 20],
@@ -697,16 +831,29 @@ impl<L: L1Source, P: Poster> Client<L, P> {
                 raw.get("schema_version").and_then(Value::as_u64) == Some(2),
                 "v1 store submission refused: schema_version 2 requires a fresh private directory"
             );
-            let sub: Submission = serde_json::from_value(raw)?;
-            ensure!(
-                sub.schema_version == 2 && sub.config_digest == config.digest(),
-                "submission config/version mismatch"
-            );
-            sub.prepared.validate(&config)?;
-            ensure!(
-                name == submission_name(sub.prepared.commit),
-                "submission file identity mismatch"
-            );
+            let mut sub: Submission = serde_json::from_value(raw)?;
+            validate_submission(&store, &name, &sub, &config, account)?;
+            let mut recovered = false;
+            for sent in sub.sent.values_mut() {
+                if sent.send_state == Some(crate::posting::SendState::Intent) {
+                    ensure!(
+                        sent.tx.is_none() && sent.posting.is_none(),
+                        "intent carries signed posting"
+                    );
+                    sent.send_state = Some(crate::posting::SendState::NotSent);
+                    recovered = true;
+                }
+                if sent.send_state == Some(crate::posting::SendState::Prepared) {
+                    sent.send_state = Some(crate::posting::SendState::Ambiguous);
+                    recovered = true;
+                }
+                if sent.nonce_observation.take().is_some() {
+                    recovered = true;
+                }
+            }
+            if recovered {
+                store.write(&name, &sub)?;
+            }
             submissions.insert(sub.prepared.commit, sub);
         }
         let own = if let Some(settings) = options.own {
@@ -729,6 +876,9 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             packages: BTreeMap::new(),
             store,
             submissions,
+            progress_errors: BTreeMap::new(),
+            consumed_posts: std::collections::BTreeSet::new(),
+            rebroadcast_queue: vec![],
             codec: options.codec,
             hook: options.hook,
             account,
@@ -1074,6 +1224,9 @@ impl<L: L1Source, P: Poster> Client<L, P> {
         let height = self.state.height();
         let mut changed = vec![];
         for sub in self.submissions.values() {
+            if self.progress_errors.contains_key(&sub.prepared.commit) {
+                continue;
+            }
             if sub.observed.as_ref().is_some_and(|o| o.height > height) {
                 continue;
             }
@@ -1284,6 +1437,10 @@ impl<L: L1Source, P: Poster> Client<L, P> {
         self.submission(commit)
     }
     fn save(&mut self, sub: &Submission) -> Result<()> {
+        ensure!(
+            !self.progress_errors.contains_key(&sub.prepared.commit),
+            "submission durable record is isolated"
+        );
         self.store
             .write(&submission_name(sub.prepared.commit), sub)?;
         self.submissions.insert(sub.prepared.commit, sub.clone());
@@ -1340,7 +1497,7 @@ impl<L: L1Source, P: Poster> Client<L, P> {
         let complete = open
             .map(|o| o.bitmap.iter().map(|b| b.count_ones()).sum::<u32>())
             .unwrap_or(0);
-        let mut view = json!({"schema_version":sub.schema_version,"submission_id":hex_string(&id),"problem_id":hex_string(&sub.prepared.problem),"status":status,"cancel_requested":sub.cancel_requested,"local_check":sub.local_check,"precheck_gate_rule_digest":sub.precheck_gate.map(|h|hex_string(&h)),"allow_stale_gate":sub.precheck_override,"license_id":license_id,"terms_digest":hex_string(&terms_digest),"finalized_parts":complete,"parts":sub.prepared.chunks.len(),"transactions":sub.sent.iter().map(|(stage,s)|json!({"stage":stage,"transaction_hash":s.tx,"failure":s.failure})).collect::<Vec<_>>(),"last_error":sub.last_error,"last_observed_state":sub.observed,"prune_height":sub.prune_height,"fold_height":self.state.height()});
+        let mut view = json!({"schema_version":sub.schema_version,"submission_id":hex_string(&id),"problem_id":hex_string(&sub.prepared.problem),"status":status,"cancel_requested":sub.cancel_requested,"local_check":sub.local_check,"precheck_gate_rule_digest":sub.precheck_gate.map(|h|hex_string(&h)),"allow_stale_gate":sub.precheck_override,"license_id":license_id,"terms_digest":hex_string(&terms_digest),"finalized_parts":complete,"parts":sub.prepared.chunks.len(),"transactions":sub.sent.iter().map(|(stage,s)|json!({"stage":stage,"transaction_hash":s.tx,"failure":s.failure,"posting":s.posting,"send_state":s.send_state,"rebroadcast_attempts":s.rebroadcast_attempts,"last_broadcast_head":s.last_broadcast_head,"stage_error":s.stage_error,"rebroadcast_stop":s.rebroadcast_stop,"nonce_observation":self.nonce_view(s)})).collect::<Vec<_>>(),"last_error":sub.last_error,"progress_error":self.progress_errors.get(&id),"last_observed_state":sub.observed,"prune_height":sub.prune_height,"fold_height":self.state.height()});
         view.as_object_mut()
             .expect("submission view")
             .extend(crate::m3_status::submission(
@@ -1349,6 +1506,28 @@ impl<L: L1Source, P: Poster> Client<L, P> {
                 (sub.prepared.problem, id),
             )?);
         Ok(view)
+    }
+    fn nonce_view(&self, sent: &Sent) -> crate::nonce::NonceObservation {
+        use crate::nonce::{NonceObservation, NonceState, UnavailableReason};
+        let Some(observation) = &sent.nonce_observation else {
+            return NonceObservation::unavailable(UnavailableReason::NotChecked);
+        };
+        if observation.state == NonceState::Unavailable {
+            return observation.clone();
+        }
+        let Some(journal) = self.source.input_journal() else {
+            return NonceObservation::unavailable(UnavailableReason::NoJournal);
+        };
+        let journal = journal.borrow();
+        if journal.check().is_err() {
+            return NonceObservation::unavailable(UnavailableReason::JournalUnavailable);
+        }
+        if observation.finalized_height != Some(journal.tip())
+            || observation.finalized_hash.as_deref() != journal.hash(journal.tip())
+        {
+            return NonceObservation::unavailable(UnavailableReason::TipChanged);
+        }
+        observation.clone()
     }
     pub fn rewards(&mut self, payee: [u8; 20]) -> Result<Value> {
         let entries: Vec<_> = self
@@ -1430,6 +1609,7 @@ impl<L: L1Source, P: Poster> Client<L, P> {
         self.submission(id)
     }
     pub fn tick(&mut self) -> Result<()> {
+        self.rebroadcast_queue.clear();
         self.sync()?;
         ensure!(
             self.l2.is_none() || self.l2_m2_root_match == Some(true),
@@ -1446,25 +1626,96 @@ impl<L: L1Source, P: Poster> Client<L, P> {
                 .submissions
                 .values()
                 .flat_map(|s| s.sent.values())
-                .filter(|s| s.head == head)
+                .filter(|s| s.head == head || s.last_broadcast_head == Some(head))
                 .count() as u64;
         }
         let ids: Vec<_> = self.submissions.keys().copied().collect();
         for id in ids {
+            if self.progress_errors.contains_key(&id) {
+                match self.read_progress(id) {
+                    Ok(sub) => {
+                        self.progress_errors.remove(&id);
+                        if let Err(error) = self.save(&sub) {
+                            self.isolate_progress(id, &error, "retry unavailable");
+                            continue;
+                        }
+                    }
+                    Err(error) => {
+                        self.isolate_progress(id, &error, "retry pending");
+                        continue;
+                    }
+                }
+            }
             if let Err(error) = self.advance(id, head) {
-                let mut sub = self.submissions[&id].clone();
-                sub.last_error = Some(
-                    match error.downcast_ref::<boole_devnet_archive::error::Error>() {
-                        Some(boole_devnet_archive::error::Error::Availability {
-                            class, ..
-                        }) => format!("submission progress unavailable ({class}); retry pending"),
-                        _ => "submission progress read failed; retry pending".into(),
-                    },
-                );
-                self.save(&sub)?;
+                self.rebroadcast_queue.retain(|(queued, _)| *queued != id);
+                self.recover_progress(id, error);
+            }
+        }
+        // All first/new signed attempts across all submissions get the head's
+        // budget before any same-bytes retry. The queue is rebuilt each tick
+        // only from stages whose ordinary advance passed the M2 window check.
+        for (id, stage) in std::mem::take(&mut self.rebroadcast_queue) {
+            if self.posted >= self.config.p_blk {
+                break;
+            }
+            if self.progress_errors.contains_key(&id) {
+                continue;
+            }
+            let mut sub = self.submissions[&id].clone();
+            let result = (|| -> Result<()> {
+                if self.receipt(&mut sub, &stage)?.is_none() {
+                    self.rebroadcast_part(&mut sub, &stage, head)?;
+                }
+                Ok(())
+            })();
+            if let Err(error) = result {
+                self.recover_progress(id, error);
             }
         }
         Ok(())
+    }
+    fn read_progress(&self, id: Hash) -> Result<Submission> {
+        let name = submission_name(id);
+        let mut sub: Submission = self.store.read(&name)?;
+        validate_submission(&self.store, &name, &sub, &self.config, self.account)?;
+        for sent in sub.sent.values_mut() {
+            if sent.send_state == Some(crate::posting::SendState::Intent) {
+                sent.send_state = Some(crate::posting::SendState::NotSent);
+            }
+        }
+        Ok(sub)
+    }
+    fn isolate_progress(&mut self, id: Hash, error: &anyhow::Error, original: &str) {
+        let kind = if error.chain().any(|e| e.is::<std::io::Error>()) {
+            SubmissionError::DurableRecordUnavailable
+        } else {
+            SubmissionError::DurablePostingInvalid
+        };
+        self.progress_errors.insert(id, kind);
+        self.submissions
+            .get_mut(&id)
+            .expect("submission")
+            .last_error = Some(format!(
+            "{original}; durable submission recovery refused ({kind:?})"
+        ));
+    }
+    fn recover_progress(&mut self, id: Hash, error: anyhow::Error) {
+        let detail = match error.downcast_ref::<boole_devnet_archive::error::Error>() {
+            Some(boole_devnet_archive::error::Error::Availability { class, .. }) => {
+                format!("submission progress unavailable ({class}); retry pending")
+            }
+            _ => "submission progress read failed; retry pending".into(),
+        };
+        // A rename may precede a reported fsync failure. Validate the current
+        // record exactly as startup does, never writing a stale memory copy.
+        let recovered = (|| -> Result<()> {
+            let mut sub = self.read_progress(id)?;
+            sub.last_error = Some(detail.clone());
+            self.save(&sub)
+        })();
+        if let Err(recovery) = recovered {
+            self.isolate_progress(id, &recovery, &detail);
+        }
     }
     fn advance(&mut self, id: Hash, head: u64) -> Result<()> {
         let mut sub = self.submissions[&id].clone();
@@ -1586,8 +1837,18 @@ impl<L: L1Source, P: Poster> Client<L, P> {
                 return Ok(());
             }
             let old_head = sent.head;
+            let unresolved = sent.failure.is_none()
+                && sent.send_state != Some(crate::posting::SendState::NotSent)
+                && (sent.tx.is_none() || sent.posting.is_some());
             match self.receipt(sub, stage)? {
                 Some(h) if h > self.state.height() => return Ok(()),
+                None if unresolved => {
+                    if kind == 4 {
+                        self.rebroadcast_queue
+                            .push((sub.prepared.commit, stage.into()));
+                    }
+                    return Ok(());
+                }
                 None if head <= old_head.saturating_add(1) => return Ok(()),
                 _ => {}
             }
@@ -1599,25 +1860,128 @@ impl<L: L1Source, P: Poster> Client<L, P> {
                 finalized_before_post: Some(self.state.height()),
                 tx: None,
                 failure: None,
+                posting: None,
+                send_state: Some(crate::posting::SendState::Intent),
+                nonce_observation: None,
+                rebroadcast_attempts: 0,
+                last_broadcast_head: None,
+                stage_error: None,
+                rebroadcast_stop: None,
             },
         );
         self.save(sub)?;
         self.posted += 1;
-        match self.poster.post(kind, &body) {
+        let store = &self.store;
+        let submissions = &mut self.submissions;
+        let name = submission_name(sub.prepared.commit);
+        let outcome = self.poster.post_durable(kind, &body, &mut |signed| {
+            ensure!(
+                signed.metadata.kind == kind
+                    && signed.metadata.body_digest == hex_string(&digest(&body))
+                    && signed.metadata.sender == hex_string(&self.account),
+                "assigned posting identity"
+            );
+            signed.persist(store)?;
+            let mut next = sub.clone();
+            let sent = next.sent.get_mut(stage).context("posting intent missing")?;
+            sent.tx = Some(signed.metadata.transaction_hash.clone());
+            sent.posting = Some(signed.metadata.clone());
+            sent.send_state = Some(crate::posting::SendState::Prepared);
+            store.write(&name, &next)?;
+            submissions.insert(next.prepared.commit, next.clone());
+            *sub = next;
+            Ok(())
+        });
+        match outcome {
             Ok(tx) => {
                 sub.sent
                     .get_mut(stage)
                     .context("posting intent missing")?
                     .tx = Some(tx);
+                sub.sent.get_mut(stage).expect("intent").send_state =
+                    Some(crate::posting::SendState::Acknowledged);
                 sub.last_error = None;
             }
-            Err(_) => {
-                sub.last_error =
-                    Some("posting outcome unknown; waiting to reconcile this exact item".into());
+            Err(error) => {
+                sub.sent.get_mut(stage).expect("intent").send_state =
+                    Some(if error.is::<crate::posting::PostingNotSent>() {
+                        crate::posting::SendState::NotSent
+                    } else {
+                        crate::posting::SendState::Ambiguous
+                    });
+                sub.last_error = Some(if error.is::<crate::posting::PostingNotSent>() {
+                    "posting preparation unavailable; no send attempted".into()
+                } else {
+                    "posting outcome unknown; waiting to reconcile this exact item".into()
+                });
             }
         }
         self.save(sub)?;
         Ok(())
+    }
+    fn rebroadcast_part(&mut self, sub: &mut Submission, stage: &str, head: u64) -> Result<()> {
+        use crate::posting::SendState;
+        let sent = sub.sent.get(stage).context("posting stage")?;
+        let Some(metadata) = &sent.posting else {
+            return Ok(());
+        };
+        if metadata.kind != 4
+            || sent.rebroadcast_stop.is_some()
+            || self.consumed_posts.contains(&metadata.transaction_hash)
+            || sent
+                .nonce_observation
+                .as_ref()
+                .is_some_and(|o| o.state == crate::nonce::NonceState::NonceConsumed)
+            || sent.failure.is_some()
+            || !matches!(
+                sent.send_state,
+                Some(SendState::Acknowledged | SendState::Ambiguous)
+            )
+            || sent.rebroadcast_attempts >= 3
+            || head
+                < sent
+                    .last_broadcast_head
+                    .unwrap_or(sent.head)
+                    .saturating_add(2)
+        {
+            return Ok(());
+        }
+        let Some(signed) = self.posting_record(sub, stage)? else {
+            return Ok(());
+        };
+        let sent = sub.sent.get_mut(stage).expect("posting stage");
+        sent.rebroadcast_attempts += 1;
+        sent.last_broadcast_head = Some(head);
+        // Burn the bounded attempt durably before the network call. Neither an
+        // acknowledgement nor any error (including nonce-too-low) is inclusion.
+        self.save(sub)?;
+        self.posted += 1;
+        let _ = self.poster.rebroadcast(&signed);
+        Ok(())
+    }
+    fn posting_record(
+        &mut self,
+        sub: &mut Submission,
+        stage: &str,
+    ) -> Result<Option<crate::posting::SignedPosting>> {
+        let sent = sub.sent.get(stage).context("posting stage")?;
+        let metadata = sent.posting.as_ref().context("posting metadata")?;
+        let loaded = crate::posting::SignedPosting::load(&self.store, metadata);
+        let next_error = loaded
+            .as_ref()
+            .err()
+            .map(|_| crate::posting::StageError::PostingRecordDamaged);
+        let sent = sub.sent.get_mut(stage).expect("posting stage");
+        if sent.stage_error != next_error
+            || (next_error.is_some() && sent.nonce_observation.is_some())
+        {
+            sent.stage_error = next_error;
+            if next_error.is_some() {
+                sent.nonce_observation = None;
+            }
+            self.save(sub)?;
+        }
+        Ok(loaded.ok())
     }
     fn receipt(&mut self, sub: &mut Submission, stage: &str) -> Result<Option<u64>> {
         let Some(sent) = sub.sent.get(stage) else {
@@ -1630,22 +1994,73 @@ impl<L: L1Source, P: Poster> Client<L, P> {
             return Ok(None);
         };
         let finalized_before = sent.finalized_before_post.unwrap_or(0);
-        match retry_rpc(|| {
+        let posting = sent.posting.clone();
+        let result = retry_rpc(|| {
             self.source.restore_posting_proof(tx, finalized_before)?;
             self.poster.included_for_posting_since(tx, finalized_before)
-        }) {
+        });
+        match result {
             Err(e) if e.is::<RevertedReceipt>() => {
                 sub.sent
                     .get_mut(stage)
                     .context("posting step missing")?
                     .failure = Some("REVERTED".into());
+                sub.sent.get_mut(stage).expect("step").nonce_observation = None;
+                sub.sent.get_mut(stage).expect("step").stage_error = None;
                 sub.last_error = Some(format!(
                     "{stage} transaction reverted; retry only within the M2 window"
                 ));
                 self.save(sub)?;
                 Ok(None)
             }
-            result => result,
+            Ok(Some(height)) => {
+                let stage_error = sub
+                    .sent
+                    .get_mut(stage)
+                    .expect("step")
+                    .stage_error
+                    .take()
+                    .is_some();
+                if sub
+                    .sent
+                    .get_mut(stage)
+                    .expect("step")
+                    .nonce_observation
+                    .take()
+                    .is_some()
+                    || stage_error
+                {
+                    self.save(sub)?;
+                }
+                Ok(Some(height))
+            }
+            result => {
+                if let Some(metadata) = posting {
+                    if self.posting_record(sub, stage)?.is_none() {
+                        return result;
+                    }
+                    let observation = self.poster.nonce_observation(&metadata);
+                    if observation.state == crate::nonce::NonceState::NonceConsumed {
+                        self.consumed_posts
+                            .insert(metadata.transaction_hash.clone());
+                    }
+                    let sent = sub.sent.get_mut(stage).context("posting step missing")?;
+                    let stop = metadata.kind == 4
+                        && observation.state == crate::nonce::NonceState::NonceConsumed
+                        && sent.rebroadcast_stop.is_none();
+                    if stop {
+                        sent.rebroadcast_stop =
+                            Some(crate::posting::RebroadcastStop::NonceObservedConsumed);
+                    }
+                    if sent.nonce_observation.as_ref() != Some(&observation) || stop {
+                        sent.nonce_observation = Some(observation);
+                        self.save(sub)?;
+                    }
+                }
+                // The independent nonce observation never overrides a missing
+                // receipt, archive pause, revert, or canonical inclusion.
+                result
+            }
         }
     }
     pub fn call(&mut self, name: &str, args: &Value) -> Result<Value> {
@@ -1708,8 +2123,67 @@ impl<L: L1Source, P: Poster> Client<L, P> {
         }
     }
 }
+fn validate_submission(
+    store: &Store,
+    name: &str,
+    sub: &Submission,
+    config: &Config,
+    account: [u8; 20],
+) -> Result<()> {
+    ensure!(
+        sub.schema_version == 2 && sub.config_digest == config.digest(),
+        "submission config/version mismatch"
+    );
+    sub.prepared.validate(config)?;
+    ensure!(
+        name == submission_name(sub.prepared.commit),
+        "submission file identity mismatch"
+    );
+    for (stage, sent) in &sub.sent {
+        if let Some(metadata) = &sent.posting {
+            let (kind, body) = posting_item(&sub.prepared, account, stage)?;
+            ensure!(
+                metadata.kind == kind
+                    && metadata.body_digest == hex_string(&digest(&body))
+                    && metadata.sender == hex_string(&account)
+                    && sent.tx.as_deref() == Some(metadata.transaction_hash.as_str()),
+                "stored posting item identity"
+            );
+            crate::posting::SignedPosting::load(store, metadata)?;
+        }
+    }
+    for sent in sub.sent.values() {
+        if sent.rebroadcast_stop.is_some() {
+            ensure!(
+                sent.posting.as_ref().is_some_and(|m| m.kind == 4),
+                "rebroadcast policy without a signed PART"
+            );
+        }
+        if sent.send_state == Some(crate::posting::SendState::Intent) {
+            ensure!(
+                sent.tx.is_none() && sent.posting.is_none(),
+                "intent carries signed posting"
+            );
+        }
+    }
+    Ok(())
+}
 fn submission_name(id: Hash) -> String {
     format!("submission-{}.json", hex_string(&id))
+}
+fn posting_item(prepared: &Prepared, account: [u8; 20], stage: &str) -> Result<(u8, Vec<u8>)> {
+    Ok(match stage {
+        "commit" => (2, prepared.commit_body(account)),
+        "open" => (3, prepared.open(account)),
+        "cancel" => (7, prepared.cancel()),
+        _ => {
+            let index = stage
+                .strip_prefix("part:")
+                .context("posting stage")?
+                .parse::<u16>()?;
+            (4, prepared.part(account, index)?)
+        }
+    })
 }
 pub(crate) fn validated_inputs(block: &L1Block, mut logs: Vec<InboxLog>) -> Result<Vec<Input>> {
     logs.sort_by_key(|l| (l.transaction_index, l.log_index));

@@ -1,3 +1,5 @@
+#[path = "support/posting.rs"]
+mod posting_support;
 use anyhow::{bail, Result};
 use boole_derivation::{attributes::hex_string, m2::*, InboxLog, L1Block};
 use boole_devnet_driver::l1::L1Source;
@@ -42,11 +44,19 @@ struct Source {
     transient_reads: u8,
     finality_calls: u8,
     proof_ready: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    posting_unavailable: bool,
 }
 impl L1Source for Source {
     fn restore_posting_proof(&mut self, _: &str, _: u64) -> Result<()> {
         if let Some(flag) = &self.proof_ready {
             flag.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        if self.posting_unavailable {
+            return Err(boole_devnet_archive::error::availability(
+                5,
+                "archive-tx-proof",
+                "withheld original receipt proof",
+            ));
         }
         Ok(())
     }
@@ -101,6 +111,16 @@ impl L1Source for Source {
 }
 struct NoPosts;
 impl Poster for NoPosts {
+    fn post_durable(
+        &mut self,
+        kind: u8,
+        body: &[u8],
+        _persist: &mut dyn FnMut(&boole_devnet_mcp::posting::SignedPosting) -> Result<()>,
+    ) -> Result<String> {
+        // Read-only test adapter: retain its panic/error on any attempted post.
+        self.post(kind, body)
+    }
+
     fn head(&mut self) -> Result<u64> {
         Ok(1000)
     }
@@ -141,6 +161,7 @@ fn fixture() -> (Source, Config, Vec<Value>) {
             transient_reads: 0,
             finality_calls: 0,
             proof_ready: None,
+            posting_unavailable: false,
         },
         serde_json::from_value(fixture["config"].clone()).unwrap(),
         rows,
@@ -315,6 +336,16 @@ struct Capture {
     proof_ready: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 impl Poster for Capture {
+    fn post_durable(
+        &mut self,
+        kind: u8,
+        body: &[u8],
+        _persist: &mut dyn FnMut(&boole_devnet_mcp::posting::SignedPosting) -> Result<()>,
+    ) -> Result<String> {
+        // Pure scheduling fake: no signed transaction or network send exists.
+        self.post(kind, body)
+    }
+
     fn included_for_posting_since(&mut self, tx: &str, _floor: u64) -> Result<Option<u64>> {
         if self.missing_proofs
             && !self
@@ -543,6 +574,223 @@ fn unknown_send_outcome_reconciles_from_the_fold_without_leaking_the_error() {
     client.tick().unwrap();
     assert_eq!(client.submission(id).unwrap()["status"], "COMMITTED");
     assert_eq!(client.poster.posts, [2]);
+}
+
+#[test]
+fn t81_lost_send_response_is_not_automatically_reposted_at_a_later_head() {
+    let dir = Dir::new();
+    let (mut source, c) = persisted_candidates(&dir, 1, false, None);
+    source.finalized = 5;
+    let mut client = Client::new(
+        source,
+        Capture {
+            head: 5,
+            fail_once: true,
+            ..Capture::default()
+        },
+        c,
+        [1; 20],
+        dir.0.clone(),
+        ClientOptions::new(30_000_000),
+    )
+    .unwrap();
+    client.tick().unwrap();
+    assert_eq!(client.poster.posts, [2]);
+    for head in [8, 12, 20] {
+        client.poster.head = head;
+        client.tick().unwrap();
+    }
+    assert_eq!(
+        client.poster.posts,
+        [2],
+        "an ambiguous send must not become a new posting attempt"
+    );
+}
+
+#[test]
+fn t81_client_retains_assigned_hash_on_lost_rpc_response_and_restart() -> Result<()> {
+    use boole_devnet_mcp::{
+        client::{fixed, RpcPoster},
+        wire::Prepared,
+    };
+    use serde_json::json;
+    use std::sync::{
+        atomic::{AtomicBool, AtomicUsize},
+        Arc,
+    };
+    let dir = Dir::new();
+    let (mut source, c) = persisted_candidates(&dir, 1, false, None);
+    source.finalized = 5;
+    let saved_path = std::fs::read_dir(&dir.0)?
+        .filter_map(Result::ok)
+        .find(|p| p.file_name().to_string_lossy().starts_with("submission-"))
+        .unwrap()
+        .path();
+    let saved: Value = serde_json::from_slice(&std::fs::read(&saved_path)?)?;
+    let prepared: Prepared = serde_json::from_value(saved["prepared"].clone())?;
+    let (_, address) = posting_support::signed(2, b"unused", 7);
+    let account = fixed(&address)?;
+    let (raw, _) = posting_support::signed(2, &prepared.commit_body(account), 7);
+    let hash = hex_string(&boole_derivation::user_tx::keccak(&raw));
+    let record_path = dir
+        .0
+        .join(format!("posting-{}.json", hash.trim_start_matches("0x")));
+    let seen_record = record_path.clone();
+    let sent_path = saved_path.clone();
+    let hash_server = hash.clone();
+    let raw_server = hex_string(&raw);
+    let address_server = address.clone();
+    let head = Arc::new(AtomicU64::new(5));
+    let rpc_head = head.clone();
+    let count = Arc::new(AtomicUsize::new(0));
+    let sends = count.clone();
+    let ordered = Arc::new(AtomicBool::new(false));
+    let saw = ordered.clone();
+    let server = posting_support::Server::new(move |request| {
+        Ok(match request["method"].as_str().unwrap() {
+            "eth_chainId" => json!("0x7a69"),
+            "eth_accounts" => json!([address_server]),
+            "eth_blockNumber" => json!(format!("0x{:x}", rpc_head.load(Ordering::SeqCst))),
+            "eth_getTransactionCount" => json!("0x7"),
+            "eth_gasPrice" => json!("0x3b9aca00"),
+            "eth_signTransaction" => json!({"raw":raw_server}),
+            "eth_sendRawTransaction" => {
+                sends.fetch_add(1, Ordering::SeqCst);
+                let saved: Value = serde_json::from_slice(&std::fs::read(&sent_path)?)?;
+                saw.store(
+                    seen_record.is_file() && saved["sent"]["commit"]["tx"] == hash_server,
+                    Ordering::SeqCst,
+                );
+                json!("test-close-without-response")
+            }
+            "eth_getTransactionReceipt" => Value::Null,
+            other => anyhow::bail!("unexpected client RPC {other}"),
+        })
+    });
+    let mut client = Client::new(
+        source.clone(),
+        RpcPoster::new(&server.url, account)?,
+        c.clone(),
+        account,
+        dir.0.clone(),
+        ClientOptions::new(30_000_000),
+    )?;
+    client.tick()?;
+    let view = client.submission(prepared.commit)?;
+    assert_eq!(
+        view["transactions"][0]["transaction_hash"], hash,
+        "lost response discarded the locally assigned hash"
+    );
+    assert!(
+        ordered.load(Ordering::SeqCst),
+        "signed record and item reference must precede send"
+    );
+    assert_eq!(view["transactions"][0]["send_state"], "ambiguous");
+    assert!(
+        !view.to_string().contains(&hex_string(&raw)),
+        "raw signed bytes leaked in tool output"
+    );
+    drop(client);
+    head.store(12, Ordering::SeqCst);
+    // A crash can leave the fsynced pre-send stamp even if the request reached
+    // L1. Restart must treat it as ambiguous, never as proof of no broadcast.
+    let mut saved: Value = serde_json::from_slice(&std::fs::read(&saved_path)?)?;
+    saved["sent"]["commit"]["send_state"] = json!("prepared");
+    saved["sent"]["commit"]["nonce_observation"] = json!({"state":"nonce-consumed","inclusion":"unresolved","finalized_height":0,"finalized_hash":hex_string(&[99;32]),"account_nonce":99,"reason":null});
+    std::fs::write(&saved_path, serde_json::to_vec(&saved)?)?;
+    let mut client = Client::new(
+        source,
+        RpcPoster::new(&server.url, account)?,
+        c,
+        account,
+        dir.0.clone(),
+        ClientOptions::new(30_000_000),
+    )?;
+    assert_eq!(
+        client.submission(prepared.commit)?["transactions"][0]["send_state"],
+        "ambiguous",
+        "restart claimed a prepared intent was definitely unsent"
+    );
+    assert_eq!(
+        client.submission(prepared.commit)?["transactions"][0]["nonce_observation"]["reason"],
+        "not-checked",
+        "restart trusted a stale saved observation without a current proof"
+    );
+    client.source.posting_unavailable = true;
+    client.tick()?;
+    assert_eq!(count.load(Ordering::SeqCst), 1, "restart guessed a repost");
+    assert_eq!(
+        client.submission(prepared.commit)?["transactions"][0]["transaction_hash"],
+        hash
+    );
+    let view = client.submission(prepared.commit)?;
+    assert_eq!(
+        view["transactions"][0]["nonce_observation"]["state"],
+        "unavailable"
+    );
+    assert_eq!(
+        view["transactions"][0]["nonce_observation"]["inclusion"],
+        "unresolved"
+    );
+    assert_eq!(
+        view["transactions"][0]["nonce_observation"]["reason"], "no-journal",
+        "archive pause skipped the independent nonce observation"
+    );
+    assert_eq!(
+        view["status"], "COMMIT_PENDING",
+        "nonce observation changed submission state"
+    );
+    assert!(view["last_error"]
+        .as_str()
+        .unwrap()
+        .contains("archive-tx-proof"));
+    let source = client.source.clone();
+    let config = client.config.clone();
+    drop(client);
+    let mut changed: Value = serde_json::from_slice(&std::fs::read(&saved_path)?)?;
+    changed["sent"]["commit"]["posting"]["sender"] = json!(hex_string(&[94; 20]));
+    std::fs::write(&saved_path, serde_json::to_vec(&changed)?)?;
+    let error = Client::new(
+        source.clone(),
+        RpcPoster::new(&server.url, account)?,
+        config.clone(),
+        account,
+        dir.0.clone(),
+        ClientOptions::new(30_000_000),
+    )
+    .err()
+    .expect("foreign posting metadata accepted");
+    assert!(
+        error.to_string().contains("stored posting item identity"),
+        "{error:#}"
+    );
+    changed["sent"]["commit"]["posting"]["sender"] = json!(hex_string(&account));
+    changed["sent"]["commit"]["send_state"] = json!("prepared");
+    let wrong_path = dir.0.join("submission-foreign.json");
+    let bytes = serde_json::to_vec(&changed)?;
+    std::fs::write(&saved_path, &bytes)?;
+    std::fs::rename(&saved_path, &wrong_path)?;
+    let error = Client::new(
+        source,
+        RpcPoster::new(&server.url, account)?,
+        config,
+        account,
+        dir.0.clone(),
+        ClientOptions::new(30_000_000),
+    )
+    .err()
+    .expect("foreign submission filename accepted");
+    assert!(
+        error
+            .to_string()
+            .contains("submission file identity mismatch"),
+        "{error:#}"
+    );
+    assert!(
+        std::fs::read(&wrong_path)? == bytes,
+        "startup normalized an unowned filename before refusing it"
+    );
+    Ok(())
 }
 
 #[test]
