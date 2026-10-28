@@ -121,7 +121,11 @@ impl Deadline {
 
 /// Outer interruption has policy-v2 transient accounting at every real phase.
 pub fn is_transient(error: &anyhow::Error) -> bool {
-    error.is::<Expired>() || error.is::<crate::real_process::Unavailable>()
+    error.is::<Expired>()
+        || error.is::<crate::real_process::Unavailable>()
+        || error
+            .downcast_ref::<crate::real_controller::Fault>()
+            .is_some_and(|f| f.class() == crate::real_controller::DeferClass::T)
 }
 #[cfg(test)]
 thread_local! { static SLOW_READS: std::cell::RefCell<Option<(usize,u64,usize)>> = const { std::cell::RefCell::new(None) }; }

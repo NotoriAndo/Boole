@@ -51,6 +51,8 @@
 // code rather than hidden in a manifest exception.
 #![allow(unsafe_code)]
 
+pub mod artifact_handles;
+
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};

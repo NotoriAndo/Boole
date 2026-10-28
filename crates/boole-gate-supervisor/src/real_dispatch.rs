@@ -59,31 +59,35 @@ impl Supervisor {
                 .push("real canary recheck; no submitted attempt counted".into());
             return Ok(None);
         }
-        let (input, prepared) =
-            match worker.prepare_rebuilt(rebuilt, forced, &self.scratch, deadline) {
-                Ok(p) => p,
-                Err(e) => {
-                    if crate::real_deadline::is_transient(&e) {
-                        self.real_retries.entry(retry_key).or_default().deferred(
-                            now,
-                            "T",
-                            self.class_disagreement,
-                        );
-                        self.alerts.push(
-                            "DEFER(T): real preparation deadline/controller unavailable".into(),
-                        );
-                        return Ok(None);
-                    }
-                    self.real_retries
-                        .entry(retry_key.clone())
-                        .or_default()
-                        .d_node(now);
-                    self.alerts.push(
-                        "d-node: real artifact/release unavailable; attempt not counted".into(),
+        #[cfg(test)]
+        let preparation = match PREPARATION_FAULT.with(|v| v.borrow_mut().take()) {
+            Some(fault) => Err(fault.into()),
+            None => worker.prepare_rebuilt(rebuilt, forced, &self.scratch, deadline),
+        };
+        #[cfg(not(test))]
+        let preparation = worker.prepare_rebuilt(rebuilt, forced, &self.scratch, deadline);
+        let (input, prepared) = match preparation {
+            Ok(p) => p,
+            Err(e) => {
+                if crate::real_deadline::is_transient(&e) {
+                    self.real_retries.entry(retry_key).or_default().deferred(
+                        now,
+                        "T",
+                        self.class_disagreement,
                     );
+                    self.alerts
+                        .push("DEFER(T): real preparation deadline/controller unavailable".into());
                     return Ok(None);
                 }
-            };
+                self.real_retries
+                    .entry(retry_key.clone())
+                    .or_default()
+                    .d_node(now);
+                self.alerts
+                    .push("d-node: real artifact/release unavailable; attempt not counted".into());
+                return Ok(None);
+            }
+        };
         let cached = self.cache.load_real(key, prepared.binding, epoch);
         let hit = cached.is_some();
         let raw = match cached {
@@ -396,5 +400,89 @@ impl Supervisor {
             None
         };
         Ok((raw, record))
+    }
+}
+
+#[cfg(test)]
+thread_local! { static PREPARATION_FAULT: std::cell::RefCell<Option<crate::real_controller::Fault>> = const {std::cell::RefCell::new(None)}; }
+#[cfg(test)]
+#[path = "../tests/support/mod.rs"]
+mod support;
+#[cfg(test)]
+mod cause_dispatch_tests {
+    use super::*;
+    use crate::{
+        codec::{Codec, Scratch},
+        process::Envelope,
+        real_controller::{Fault, Phase, PhysicalStop, Unavailable},
+    };
+    #[test]
+    fn physical_and_node_causes_flow_through_real_collection_without_a_verdict() -> Result<()> {
+        for phase in [
+            Phase::Preflight,
+            Phase::Decode,
+            Phase::Front,
+            Phase::Kernel,
+            Phase::Recheck,
+        ] {
+            for (fault, attempts) in [
+                (Fault::physical(phase, PhysicalStop::Wall), 1),
+                (Fault::physical(phase, PhysicalStop::Memory), 1),
+                (Fault::physical(phase, PhysicalStop::Tasks), 1),
+                (Fault::physical(phase, PhysicalStop::Capture), 1),
+                (Fault::unavailable(phase, Unavailable::Provisioning), 0),
+            ] {
+                let (c, state, _, mut history) =
+                    support::fixture_with(support::scenario::m3_cfg(), Some(0));
+                let forks = ForkTable::genesis(&c)?;
+                let gate = forks.rows[0].gate_rule_digest;
+                let worker: crate::real_worker::Worker = serde_json::from_value(
+                    serde_json::json!({"descriptor":"must-not-read","gate_rule_digest":gate,"python":"must-not-run","python_sha256":vec![2;32],"scripts":"must-not-read","tools_root":"must-not-read","counter_driver":"must-not-run","resolver":{"root":"missing","manifests":{}},"public_counter":false,"canary":null}),
+                )?;
+                let root = Scratch::new(&std::env::temp_dir())?;
+                let mut supervisor = Supervisor::new_releases(
+                    &c,
+                    &forks,
+                    Mode::Follow {
+                        from: 1,
+                        through: 100,
+                    },
+                    vec![Release::Real(Box::new(worker))],
+                    Some(Codec::portable_stub()),
+                    &root.0.join("cache"),
+                    &root.0,
+                    &root.0,
+                    Host {
+                        profile: "darwin-aarch64".into(),
+                        ram_mib: 32768,
+                        cpus: 4,
+                    },
+                    Envelope::default(),
+                )?;
+                // Only this unit fixture seeds the already-validated installation.
+                // Production startup still has to validate the complete closure.
+                supervisor.mode = Mode::Verify;
+                supervisor.verified_table = Some((c.digest(), forks.rows.clone()));
+                PREPARATION_FAULT.with(|v| *v.borrow_mut() = Some(fault));
+                let result =
+                    supervisor.collect_at(&state, &c, state.height() + 1, &forks, &mut history, 10);
+                let unconsumed = PREPARATION_FAULT.with(|v| v.borrow_mut().take());
+                assert!(
+                    unconsumed.is_none(),
+                    "real preparation path did not consume the fault"
+                );
+                assert!(result?.is_empty());
+                assert_eq!(supervisor.real_retries.len(), 1);
+                let retry = supervisor.real_retries.values().next().unwrap();
+                assert_eq!(retry.attempts, attempts);
+                assert_eq!(retry.next_at, 70);
+                assert!(supervisor.alerts.iter().any(|a| if attempts == 1 {
+                    a.starts_with("DEFER(T)")
+                } else {
+                    a.starts_with("d-node:")
+                }));
+            }
+        }
+        Ok(())
     }
 }

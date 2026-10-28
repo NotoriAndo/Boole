@@ -2,14 +2,18 @@
 #[path = "lib.rs"]
 mod legacy;
 pub use legacy::*;
+#[cfg(test)]
+extern crate self as boole_gate_supervisor;
 pub mod real_admission;
 pub mod real_artifact;
 pub mod real_cache;
+pub mod real_controller;
 pub mod real_deadline;
 pub mod real_decoder;
 pub mod real_descriptor;
 pub mod real_front;
 pub mod real_json;
+pub mod real_linux;
 pub mod real_package;
 pub mod real_process;
 pub mod real_rebuild;
