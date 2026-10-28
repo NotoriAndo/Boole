@@ -12,6 +12,8 @@ use std::{
 };
 const CHUNK: u64 = 67_108_864;
 const BLOCK: usize = 65_536;
+#[path = "real_artifact_local.rs"]
+pub mod local;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Resolver {
@@ -141,7 +143,7 @@ fn readonly(path: &Path) -> Result<(File, fs::Metadata)> {
         before.is_file() && !before.file_type().is_symlink(),
         "artifact file type"
     );
-    let file = File::open(path)?;
+    let file = boole_lean_runner::artifact_handles::open_regular(path)?;
     ensure!(
         same(&before, &file.metadata()?),
         "artifact changed while opening"

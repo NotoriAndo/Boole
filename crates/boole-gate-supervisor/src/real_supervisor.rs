@@ -257,10 +257,7 @@ impl Supervisor {
         }
         for row in &forks.rows {
             if let Some(worker) = self.real_workers.get(&row.gate_rule_digest) {
-                ensure!(
-                    host.profile == "darwin-aarch64",
-                    "S16: real profile is Mac development only"
-                );
+                crate::real_linux::select(&host.profile)?;
                 worker.validate_config(c, true)?;
                 worker.validate()?;
                 let install = crate::codec::Scratch::new(&self.scratch)?;

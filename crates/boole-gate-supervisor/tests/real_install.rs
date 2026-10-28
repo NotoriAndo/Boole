@@ -22,16 +22,10 @@ fn real_worker_refuses_unavailable_profiles_before_reading_any_sdk() {
         canary: None,
         decoder: None,
     };
-    assert!(
-        w.validate()
-            .unwrap_err()
-            .to_string()
-            .contains("Mac development only")
-            || w.validate()
-                .unwrap_err()
-                .to_string()
-                .contains("Darwin-arm64 development only")
-    );
+    assert!(w
+        .validate()
+        .unwrap_err()
+        .is::<boole_gate_supervisor::real_linux::StartupRefusal>());
 }
 #[test]
 #[cfg(target_os = "macos")]

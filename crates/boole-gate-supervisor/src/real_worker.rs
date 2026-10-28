@@ -146,10 +146,7 @@ impl Worker {
     }
     fn validate_until(&self, deadline: crate::real_deadline::Deadline) -> Result<Descriptor> {
         deadline.check()?;
-        ensure!(
-            cfg!(all(target_os = "macos", target_arch = "aarch64")),
-            "S16: real worker is Darwin-arm64 development only; Linux controller unavailable"
-        );
+        crate::real_linux::select(&crate::process::host_profile())?;
         let d = self.descriptor()?;
         ensure!(
             file_hash_until(&self.python, deadline)? == self.python_sha256,
