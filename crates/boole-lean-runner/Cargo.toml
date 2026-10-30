@@ -6,6 +6,9 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
+[features]
+w0-fixture = []
+
 [dependencies]
 anyhow.workspace = true
 hex.workspace = true

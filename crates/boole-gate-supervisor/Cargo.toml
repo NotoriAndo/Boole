@@ -9,6 +9,14 @@ publish = false
 [lib]
 path = "src/real_lib.rs"
 
+[features]
+w0-fixture = ["boole-lean-runner/w0-fixture"]
+
+[[bin]]
+name = "boole-w0-probe"
+path = "src/bin/boole-w0-probe.rs"
+required-features = ["w0-fixture"]
+
 [dependencies]
 anyhow.workspace = true
 boole-derivation = { path = "../boole-derivation" }
