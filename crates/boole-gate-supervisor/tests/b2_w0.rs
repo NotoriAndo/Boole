@@ -1,38 +1,23 @@
-//! Executable acceptance cases awaiting the reviewed Linux W0 fixture producer.
-//! Ignored on purpose: the host slice has no controller backend or VM grant.
+#![cfg(feature = "w0-fixture")]
+//! W0 fixture cases passed in one granted VM; repeats remain explicitly opt-in.
+//! Ignored by default: an external grant and the pinned guest bundle are required.
 use anyhow::{ensure, Context, Result};
-use boole_gate_supervisor::codec::{digest, read_bounded, Scratch};
-use serde::Deserialize;
+use boole_gate_supervisor::codec::{digest, Scratch};
+use boole_gate_supervisor::real_w0::{validate_receipt, Grant, RUNNER_SHA256 as W0_RUNNER_SHA256};
+use std::io::Read;
 use std::{
-    collections::BTreeMap,
     fs,
     process::{Child, Command},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
-// No reviewed W0 producer has been released. Only a reviewed tracked change may
-// fill this slot; an operator environment variable cannot authorize a runner.
-const W0_RUNNER_SHA256: Option<[u8; 32]> = None;
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Grant {
-    state: String,
-    owner: String,
-    step: String,
-    start_unix: u64,
-    end_unix: u64,
-    request_id: String,
-}
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Receipt {
-    version: u8,
-    case: String,
-    request_id: String,
-    backend_invocations: u64,
-    control_pass: bool,
-    tree_empty: bool,
-    quiet_window_held: bool,
-    assertions: BTreeMap<String, bool>,
+// The script pin is reviewed in tracked code. Runtime bundle pins bind the
+// separately compiled static fixture; neither grants a production profile.
+fn read_held(path: &std::path::Path, cap: usize) -> Result<Vec<u8>> {
+    let mut file = boole_lean_runner::artifact_handles::open_regular(path)?;
+    let mut raw = vec![];
+    (&mut file).take(cap as u64 + 1).read_to_end(&mut raw)?;
+    ensure!(raw.len() <= cap, "W0 held read bound");
+    Ok(raw)
 }
 struct OwnedProbe(Child);
 impl Drop for OwnedProbe {
@@ -44,87 +29,77 @@ impl Drop for OwnedProbe {
 fn run(case: &str, assertions: &[&str]) -> Result<()> {
     ensure!(
         cfg!(target_os = "linux"),
-        "PENDING-W0: Linux required; no host fallback"
+        "W0 repeat: Linux required; no host fallback"
     );
     let grant_path = std::env::var_os("BOOLE_B2_W0_GRANT")
-        .context("PENDING-W0: explicit quiet-window grant required")?;
-    let g: Grant =
-        serde_json::from_slice(&read_bounded(std::path::Path::new(&grant_path), 16384)?)?;
+        .context("W0 repeat: explicit quiet-window grant required")?;
+    let g: Grant = serde_json::from_slice(&read_held(std::path::Path::new(&grant_path), 16384)?)?;
     let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-    ensure!(
-        g.state == "granted"
-            && g.owner == "N"
-            && g.step == "W0"
-            && now >= g.start_unix
-            && now.checked_add(130).is_some_and(|end| end <= g.end_unix),
-        "W0 grant not active or insufficient cleanup window"
-    );
-    let expected = W0_RUNNER_SHA256.context("PENDING-W0: reviewed tracked fixture pin absent")?;
+    g.validate_guest(now)?;
+    let expected = W0_RUNNER_SHA256.context("W0 repeat: reviewed tracked fixture pin absent")?;
     let runner = std::env::var_os("BOOLE_B2_W0_RUNNER")
-        .context("PENDING-W0: reviewed controller/probe fixture not implemented")?;
+        .context("W0 repeat: pinned runner location required")?;
     ensure!(
-        digest(&read_bounded(
+        digest(&read_held(
             std::path::Path::new(&runner),
             128 * 1024 * 1024
         )?) == expected,
         "W0 fixture pin"
     );
     let root = Scratch::new(&std::env::temp_dir())?;
-    let stdout = root.0.join("receipt.json");
-    let stderr = root.0.join("diagnostic");
-    let mut child = OwnedProbe(
-        Command::new(runner)
-            .args(["probe-v1", case, &g.request_id])
-            .arg(&root.0)
-            .env_clear()
-            .env("PATH", "/usr/bin:/bin")
-            .env("TMPDIR", &root.0)
-            .stdout(fs::File::create(&stdout)?)
-            .stderr(fs::File::create(&stderr)?)
-            .spawn()?,
-    );
-    let deadline = Instant::now() + Duration::from_secs(120);
-    let status = loop {
-        if let Some(status) = child.0.try_wait()? {
-            break status;
-        }
-        if Instant::now() >= deadline
-            || fs::metadata(&stdout)?.len() > 65536
-            || fs::metadata(&stderr)?.len() > 65536
-        {
-            // The reviewed fixture owns an outer cgroup and must clean it when
-            // its supervisor dies. LIFE-parent-kill independently proves that.
-            child.0.kill()?;
-            child.0.wait()?;
-            anyhow::bail!("W0 fixture timeout/capture failure");
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    };
-    ensure!(status.success(), "W0 fixture failed");
-    let r: Receipt = serde_json::from_slice(&read_bounded(&stdout, 65536)?)?;
-    ensure!(
-        r.version == 1
-            && r.case == case
-            && r.request_id == g.request_id
-            && r.backend_invocations > 0
-            && r.control_pass
-            && r.quiet_window_held
-            && r.tree_empty,
-        "W0 execution/cleanup evidence"
-    );
-    ensure!(
-        r.assertions.len() == assertions.len()
-            && assertions
-                .iter()
-                .all(|key| r.assertions.get(*key) == Some(&true)),
-        "W0 acceptance assertions"
-    );
-    Ok(())
+    let evidence = std::path::PathBuf::from(
+        std::env::var_os("BOOLE_B2_W0_RECEIPTS").context("durable evidence root required")?,
+    )
+    .join(case);
+    let evidence_guard = boole_gate_supervisor::real_w0::EvidenceGuard::new(root, &evidence)?;
+    let root = evidence_guard.source().to_path_buf();
+    let result = (|| -> Result<()> {
+        let stdout = root.join("receipt.json");
+        let stderr = root.join("diagnostic");
+        let mut child = OwnedProbe(
+            Command::new(runner)
+                .args(["probe-v1", case, &g.request_id])
+                .arg(&root)
+                .env_clear()
+                .env("PATH", "/usr/bin:/bin")
+                .env("TMPDIR", &root)
+                .stdout(fs::File::create(&stdout)?)
+                .stderr(fs::File::create(&stderr)?)
+                .spawn()?,
+        );
+        let deadline = Instant::now() + Duration::from_secs(120);
+        let status = loop {
+            if let Some(status) = child.0.try_wait()? {
+                break status;
+            }
+            if Instant::now() >= deadline
+                || fs::metadata(&stdout)?.len() > 65536
+                || fs::metadata(&stderr)?.len() > 65536
+            {
+                // The reviewed fixture owns an outer cgroup and must clean it when
+                // its supervisor dies. LIFE-parent-kill independently proves that.
+                child.0.kill()?;
+                child.0.wait()?;
+                anyhow::bail!("W0 fixture timeout/capture failure");
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        ensure!(status.success(), "W0 fixture failed");
+        let raw = read_held(&stdout, 65536)?;
+        let r = validate_receipt(&raw, case, &g)?;
+        ensure!(
+            boole_gate_supervisor::real_w0::required(case) == Some(assertions),
+            "W0 assertion contract drift"
+        );
+        ensure!(r.assertions.values().all(|v| *v), "W0 failed assertions");
+        Ok(())
+    })();
+    evidence_guard.finish(result)
 }
 macro_rules! pending {
     ($name:ident,$case:literal,$($assertion:literal),+)=>{
         #[test]
-        #[ignore="PENDING-W0: reviewed Linux backend, pinned probe fixture and exclusive VM grant required"]
+        #[ignore="W0 repeat: reviewed Linux backend, pinned probe fixture and exclusive VM grant required"]
         fn $name()->Result<()>{run($case,&[$($assertion),+])}
     };
 }
@@ -155,17 +130,18 @@ pending!(
 pending!(
     b2_sbx_capabilities,
     "SBX-capabilities",
-    "missing-delegation-refused",
-    "partial-landlock-refused",
-    "missing-seccomp-refused",
-    "missing-apparmor-refused",
-    "missing-namespace-refused",
+    "consumer-missing-delegation-refused",
+    "consumer-partial-landlock-refused",
+    "consumer-missing-seccomp-refused",
+    "consumer-missing-apparmor-refused",
+    "consumer-missing-namespace-refused",
     "no-fallback"
 );
 pending!(
     b2_sbx_tasks,
     "SBX-tasks",
     "task-limit-enforced",
+    "memory-limit-enforced",
     "stop-is-T",
     "no-logical-reject"
 );
@@ -175,7 +151,7 @@ pending!(
     "slow-preparation-bounded",
     "blocked-read-killed",
     "D4-read-bounded",
-    "no-partial-publication"
+    "consumer-no-partial-publication"
 );
 pending!(
     b2_life_deadlines,
@@ -183,7 +159,7 @@ pending!(
     "absolute-job-deadline",
     "independent-bounded-recheck",
     "counted-T",
-    "no-cached-verdict"
+    "consumer-no-cached-verdict"
 );
 pending!(
     b2_life_tree,
@@ -191,21 +167,73 @@ pending!(
     "setsid-contained",
     "double-fork-reaped",
     "cgroup-empty",
-    "pid-reuse-safe"
+    "pidfd-identity-bound"
 );
 pending!(
     b2_life_parent_kill,
     "LIFE-parent-kill",
     "parent-sigkill",
     "all-descendants-retired",
+    "observer-sigkill-drains",
     "cgroup-empty"
 );
 pending!(
     b2_life_faults,
     "LIFE-faults",
     "spawn-is-D-node",
-    "cleanup-holds-publication",
+    "consumer-cleanup-holds-publication",
     "capture-is-T",
     "forged-channel-refused",
     "no-terminal-verdict"
 );
+
+#[test]
+fn w0_fixture_has_a_reviewed_tracked_runner_pin() {
+    assert!(
+        W0_RUNNER_SHA256.is_some(),
+        "the ten W0 consumers have no pinned runner"
+    );
+}
+
+#[test]
+fn tracked_runner_bytes_and_rust_python_source_identities_agree() -> Result<()> {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()?;
+    let runner = root.join("scripts/devnet/w0/runner.py");
+    ensure!(
+        Some(digest(&read_held(&runner, 65536)?)) == W0_RUNNER_SHA256,
+        "tracked runner pin"
+    );
+    let result = Command::new("python3")
+        .args(["-IB"])
+        .arg(runner)
+        .arg("source-id-v1")
+        .arg(&root)
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin")
+        .output()?;
+    ensure!(result.status.success(), "Python source identity failed");
+    ensure!(
+        result.stdout
+            == format!("{}\n", boole_gate_supervisor::real_w0::source_digest()).as_bytes(),
+        "cross-language fixture source identity"
+    );
+    Ok(())
+}
+#[test]
+#[cfg(not(target_os = "linux"))]
+fn host_fixture_binary_refuses_every_execution_mode() -> Result<()> {
+    for mode in ["probe-v1", "payload-v1", "init-v1", "tool-v1"] {
+        let out = Command::new(env!("CARGO_BIN_EXE_boole-w0-probe"))
+            .arg(mode)
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin")
+            .output()?;
+        ensure!(
+            out.status.code() == Some(2) && out.stdout.is_empty(),
+            "non-Linux fixture fallback"
+        );
+    }
+    Ok(())
+}

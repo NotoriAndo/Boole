@@ -21,3 +21,10 @@ pub mod real_reply;
 pub mod real_retry;
 pub mod real_supervisor;
 pub mod real_worker;
+
+#[cfg(feature = "w0-fixture")]
+pub mod real_w0;
+
+#[cfg(all(test, unix, feature = "w0-fixture"))]
+#[path = "w0_fixture.rs"]
+mod w0_fixture_contract;

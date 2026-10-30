@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "release": "1.95.0",
+  "triple": "aarch64-unknown-linux-gnu",
+  "channel_manifest_date": "2026-04-16",
+  "channel_manifest_sha256": "46c1f8d1bcef24174217545ece8c22eb395a42e3534f618736c17a759a31e255",
+  "components": [
+    {
+      "component": "rustc",
+      "file": "rustc-1.95.0-aarch64-unknown-linux-gnu.tar.xz",
+      "sha256": "0fe3689eeaed603e5ef24572d11597d3edadaefd2cb181674ad621260f2501d2",
+      "bytes": 62041096,
+      "archive_root": "rustc-1.95.0-aarch64-unknown-linux-gnu",
+      "directory": "rustc"
+    },
+    {
+      "component": "cargo",
+      "file": "cargo-1.95.0-aarch64-unknown-linux-gnu.tar.xz",
+      "sha256": "7c070aeba9bbf12073646995a03f36c346bb5f541d0078ba6d9dc2a7adaaf6af",
+      "bytes": 10412640,
+      "archive_root": "cargo-1.95.0-aarch64-unknown-linux-gnu",
+      "directory": "cargo"
+    },
+    {
+      "component": "rust-std",
+      "file": "rust-std-1.95.0-aarch64-unknown-linux-gnu.tar.xz",
+      "sha256": "3a21b271b1ff973b94d69b25e7a39992f9fbcae1ab6d9475844a23e6ad3908ac",
+      "bytes": 28233468,
+      "archive_root": "rust-std-1.95.0-aarch64-unknown-linux-gnu",
+      "directory": "rust-std-aarch64-unknown-linux-gnu"
+    }
+  ]
+}

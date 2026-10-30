@@ -96,6 +96,9 @@ run_logged official-mirror-seed-tests python3 -m unittest scripts/test_native_sh
 run_logged fresh-answer-canary-gate-contract python3 -m unittest scripts/test_native_shadow_canary_gate.py
 run_logged development-vm-lifecycle-contract env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_boole_dev.py
 run_logged metered-tuple-independent-reference env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_metered_tuple_reference.py
+run_logged w0-host-contracts python3 -B -m unittest scripts/test_m3_w0.py scripts/test_m3_w0_authority.py scripts/test_m3_w0_cleanup.py
+run_logged w0-fixture-contracts cargo test --locked -p boole-gate-supervisor --features w0-fixture --lib --test b2_w0 --test w0_channel --test w0_contract --test w0_evidence
+run_logged w0-fixture-clippy cargo clippy --locked -p boole-gate-supervisor -p boole-lean-runner --features w0-fixture --all-targets -- -D warnings
 run_zk_registry
 run_logged fresh-answer-canary-protocol cargo test --locked -p boole-native-shadow-protocol --features development-task-admission --lib --test fresh_answer_canary --test development_task_admission
 run_logged fresh-answer-canary-node cargo test --locked -p boole-node --features development-task-admission --lib native_shadow_replay_service::canary

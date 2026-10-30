@@ -52,6 +52,10 @@
 #![allow(unsafe_code)]
 
 pub mod artifact_handles;
+#[cfg(all(feature = "w0-fixture", target_os = "linux"))]
+pub mod w0_linux;
+#[cfg(feature = "w0-fixture")]
+pub mod w0_types;
 
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
