@@ -38,7 +38,9 @@ directory = Path(sys.argv[3])
 for package, key in (('bubblewrap', 'bubblewrap_deb_sha256'), ('libseccomp-dev', 'libseccomp_dev_deb_sha256')):
     files = list(directory.glob(package + '_*.deb'))
     assert len(files) == 1
-    assert hashlib.sha256(files[0].read_bytes()).hexdigest() == profile[key]
+    actual = hashlib.sha256(files[0].read_bytes()).hexdigest()
+    print(f'{package}: expected sha256={profile[key]} actual sha256={actual}', flush=True)
+    assert actual == profile[key]
 PY
 sudo -n env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin DEBIAN_FRONTEND=noninteractive APT_CONFIG=/dev/null \
   apt-get install -y --no-install-recommends "$state"/downloads/bubblewrap_*.deb \
@@ -74,7 +76,9 @@ files = {'launcher': root / 'launcher.py', 'inner_launcher': root / 'comparator-
          'bwrap': Path('/usr/bin/bwrap'), 'apparmor_profile': Path('/etc/apparmor.d/boole-gate-bwrap')}
 for name, path in files.items():
     expected = data[name + '_sha256'] if name in {'launcher', 'inner_launcher'} else profile[name + '_sha256']
-    assert hashlib.sha256(path.read_bytes()).hexdigest() == expected, name
+    actual = hashlib.sha256(path.read_bytes()).hexdigest()
+    print(f'{name}: expected sha256={expected} actual sha256={actual}', flush=True)
+    assert actual == expected, name
     assert not path.stat().st_mode & 0o6000, name
 sysctl = Path('/proc/sys/kernel/apparmor_restrict_unprivileged_userns')
 assert not sysctl.exists() or sysctl.read_text().strip() == '1'

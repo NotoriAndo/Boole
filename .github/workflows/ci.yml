@@ -97,6 +97,21 @@ jobs:
           qualification::unix::tests::real_kernel_stream_round_trip_observes_peer_and_half_close
           -- --ignored --exact --nocapture
 
+      - name: Report sandbox host diagnostics
+        shell: bash
+        run: |
+          uname -a || true
+          cat /etc/os-release || true
+          gcc --version || true
+          ld --version || true
+          ldd --version || true
+          dpkg-query -W -f='${Package}\t${Version}\t${db:Status-Abbrev}\n' \
+            gcc binutils libc6-dev bubblewrap libseccomp-dev || true
+          findmnt /run || findmnt --target /run || true
+          sysctl kernel.apparmor_restrict_unprivileged_userns \
+            kernel.apparmor_restrict_unprivileged_unconfined \
+            kernel.unprivileged_userns_clone user.max_user_namespaces || true
+
       - name: Verify fixed launcher root and capability shape
         run: ./scripts/native-shadow-launcher-privilege-gate.sh
 
@@ -452,6 +467,40 @@ jobs:
     env:
       RUST_TEST_THREADS: "1"
     steps:
+      - name: Report sandbox host diagnostics
+        if: needs.change-scope.outputs.process_only != 'true'
+        shell: bash
+        run: |
+          uname -a || true
+          cat /etc/os-release || true
+          gcc --version || true
+          ld --version || true
+          ldd --version || true
+          dpkg-query -W -f='${Package}\t${Version}\t${db:Status-Abbrev}\n' \
+            gcc binutils libc6-dev bubblewrap libseccomp-dev || true
+          findmnt /run || findmnt --target /run || true
+          sysctl kernel.apparmor_restrict_unprivileged_userns \
+            kernel.apparmor_restrict_unprivileged_unconfined \
+            kernel.unprivileged_userns_clone user.max_user_namespaces || true
+          dpkg-query -W coreutils rust-coreutils python3 || true
+          # Mirror the fixture's two export files and comparator work directory.
+          for path in /usr /usr/bin/true /usr/bin /lib /lib64 /etc/alternatives /dev/urandom; do
+            printf '\nSandbox path: %s\n' "$path"
+            stat -- "$path" || true
+            readlink -f -- "$path" || true
+          done
+          if fixture=$(mktemp -d); then
+            trap 'rm -rf -- "$fixture"' EXIT
+            if touch -- "$fixture/Challenge.ndjson" "$fixture/ProofMod.ndjson" &&
+                mkdir -- "$fixture/compare"; then
+              for path in "$fixture/Challenge.ndjson" "$fixture/ProofMod.ndjson" "$fixture/compare"; do
+                printf '\nSynthetic sandbox path: %s\n' "$path"
+                stat -- "$path" || true
+                readlink -f -- "$path" || true
+              done
+            fi
+          fi
+
       - name: Require native-shadow containment capability
         env:
           PROCESS_ONLY: ${{ needs.change-scope.outputs.process_only }}

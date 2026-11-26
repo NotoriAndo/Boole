@@ -92,6 +92,21 @@ jobs:
           done
           ls -la "$root"
 
+      - name: Report sandbox host diagnostics
+        shell: bash
+        run: |
+          uname -a || true
+          cat /etc/os-release || true
+          gcc --version || true
+          ld --version || true
+          ldd --version || true
+          dpkg-query -W -f='${Package}\t${Version}\t${db:Status-Abbrev}\n' \
+            gcc binutils libc6-dev bubblewrap libseccomp-dev || true
+          findmnt /run || findmnt --target /run || true
+          sysctl kernel.apparmor_restrict_unprivileged_userns \
+            kernel.apparmor_restrict_unprivileged_unconfined \
+            kernel.unprivileged_userns_clone user.max_user_namespaces || true
+
       - name: Build and require the pinned hardened boundary
         shell: bash
         run: |
@@ -104,6 +119,38 @@ jobs:
           printf 'synthetic non-secret control canary\n' > "$state/read-only-canary"
           chmod 444 "$state/read-only-canary"
           printf 'ZK_GATE_STATE=%s\n' "$state" >> "$GITHUB_ENV"
+
+      - name: Collect gate binaries and SHA-256 diagnostics
+        id: gate-binaries
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          gate="$RUNNER_TEMP/acceptance-tools/gate"
+          files=(gate-isolate launcher.py seccomp-aarch64.bpf)
+          for file in "${files[@]}"; do
+            if [[ ! -f "$gate/$file" ]]; then
+              printf 'Gate binary not built: %s\n' "$file"
+              exit 0
+            fi
+          done
+          output=$(mktemp -d "$RUNNER_TEMP/acceptance-gate-binaries.XXXXXX")
+          for file in "${files[@]}"; do
+            cp -- "$gate/$file" "$output/$file"
+          done
+          (cd "$output" && sha256sum -- "${files[@]}" > SHA256SUMS)
+          printf 'directory=%s\n' "$output" >> "$GITHUB_OUTPUT"
+
+      - name: Upload gate binary diagnostics
+        if: ${{ !cancelled() && steps.gate-binaries.outputs.directory != '' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: acceptance-gate-linux-binaries
+          path: ${{ steps.gate-binaries.outputs.directory }}
+          if-no-files-found: error
+          retention-days: 3
 
       - name: Run actual confinement and policy controls in a delegated cgroup
         shell: bash
