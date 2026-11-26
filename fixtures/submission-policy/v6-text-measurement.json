@@ -1,0 +1,1393 @@
+{
+  "schema": "registry-v6-text-measurement/1",
+  "scope": "offline text-policy evaluation",
+  "lean_processes_launched": 0,
+  "input_sha256": {
+    "scripts/zk_registry/check.py": "9d19b92c4e6722d152e3ba106b2758c63fb16324648152e5c52c233b46ddc08e",
+    "fixtures/submission-policy/numerals-v6.json": "6ff47d0413ecd1786f84b1dfea9751ff29b5cf3d9ea98c6ef6f0318ffb39552c",
+    "scripts/zk_registry/data/submission_policy_v5.json": "56f693d89a1a07751404e987457712bd4776f82aac921d6cf74bc329309aecc3",
+    "scripts/zk_registry/data/submission_policy_v6.json": "999dc86304a54fd77bd1ff3dee7d967d7cb50a35ee4c053779f85c74bd8aba32"
+  },
+  "library_sha256": {
+    "Init/Data/List/Basic.lean": "9d39c20a6de1e973e13490ec81a30672296f173e34014a0e8ba0109958534346",
+    "Init/Data/Option/Basic.lean": "bc690650cf1e4277cf83a418ec351bb79f6628cb41d9260a1979a496eaa2a16f",
+    "Init/Data/Nat/Basic.lean": "92edcd298633bc57f70cf6c9cea73a3b6f984b91b3c8cc8fcc72f57bada0ee36",
+    "Init/Data/Array/Basic.lean": "85b1fcc2eac430164656c02295d9cf5d3549826517a2a89083a7afae28b1e4f2"
+  },
+  "text_matrix": {
+    "columns": [
+      {
+        "text": "sorry",
+        "label": "sorry",
+        "v6_caught": 40
+      },
+      {
+        "text": "admit",
+        "label": "admit",
+        "v6_caught": 40
+      },
+      {
+        "text": "axiom",
+        "label": "axiom",
+        "v6_caught": 40
+      },
+      {
+        "text": "native_decide",
+        "label": "native_decide",
+        "v6_caught": 40
+      },
+      {
+        "text": "unsafe",
+        "label": "unsafe",
+        "v6_caught": 40
+      },
+      {
+        "text": "implemented_by",
+        "label": "implemented_by",
+        "v6_caught": 40
+      },
+      {
+        "text": "extern",
+        "label": "extern",
+        "v6_caught": 40
+      },
+      {
+        "text": "skipKernelTC",
+        "label": "debug.skipKernelTC",
+        "v6_caught": 40
+      },
+      {
+        "text": "addDeclWithoutChecking",
+        "label": "addDeclWithoutChecking",
+        "v6_caught": 40
+      },
+      {
+        "text": "ofReduceBool",
+        "label": "Lean.ofReduceBool/Nat",
+        "v6_caught": 40
+      },
+      {
+        "text": "ofReduceNat",
+        "label": "Lean.ofReduceBool/Nat",
+        "v6_caught": 40
+      },
+      {
+        "text": "#exit",
+        "label": "#exit",
+        "v6_caught": 40
+      },
+      {
+        "text": "#eval",
+        "label": "#eval",
+        "v6_caught": 40
+      },
+      {
+        "text": "run_cmd",
+        "label": "run_cmd",
+        "v6_caught": 40
+      },
+      {
+        "text": "run_elab",
+        "label": "run_elab",
+        "v6_caught": 40
+      },
+      {
+        "text": "run_meta",
+        "label": "run_meta",
+        "v6_caught": 40
+      },
+      {
+        "text": "initialize",
+        "label": "initialize",
+        "v6_caught": 40
+      },
+      {
+        "text": "builtin_initialize",
+        "label": "builtin_initialize",
+        "v6_caught": 40
+      },
+      {
+        "text": "trustCompiler",
+        "label": "Lean.trustCompiler",
+        "v6_caught": 40
+      },
+      {
+        "text": "elab",
+        "label": "elab",
+        "v6_caught": 40
+      },
+      {
+        "text": "elab_rules",
+        "label": "elab_rules",
+        "v6_caught": 40
+      },
+      {
+        "text": "simproc",
+        "label": "simproc",
+        "v6_caught": 40
+      },
+      {
+        "text": "dsimproc",
+        "label": "dsimproc",
+        "v6_caught": 40
+      },
+      {
+        "text": "simproc_decl",
+        "label": "simproc_decl",
+        "v6_caught": 40
+      },
+      {
+        "text": "dsimproc_decl",
+        "label": "dsimproc_decl",
+        "v6_caught": 40
+      },
+      {
+        "text": "builtin_simproc",
+        "label": "builtin_simproc",
+        "v6_caught": 40
+      },
+      {
+        "text": "builtin_dsimproc",
+        "label": "builtin_dsimproc",
+        "v6_caught": 40
+      },
+      {
+        "text": "builtin_simproc_decl",
+        "label": "builtin_simproc_decl",
+        "v6_caught": 40
+      },
+      {
+        "text": "builtin_dsimproc_decl",
+        "label": "builtin_dsimproc_decl",
+        "v6_caught": 40
+      },
+      {
+        "text": "macro",
+        "label": "macro",
+        "v6_caught": 40
+      },
+      {
+        "text": "macro_rules",
+        "label": "macro_rules",
+        "v6_caught": 40
+      },
+      {
+        "text": "syntax",
+        "label": "syntax",
+        "v6_caught": 40
+      },
+      {
+        "text": "run_tac",
+        "label": "run_tac",
+        "v6_caught": 40
+      },
+      {
+        "text": "register_item",
+        "label": "elaboration-registration",
+        "v6_caught": 40
+      },
+      {
+        "text": "declare_item",
+        "label": "elaboration-registration",
+        "v6_caught": 40
+      },
+      {
+        "text": "maxHeartbeats",
+        "label": "limit-override",
+        "v6_caught": 40
+      },
+      {
+        "text": "maxRecDepth",
+        "label": "limit-override",
+        "v6_caught": 40
+      },
+      {
+        "text": "native",
+        "label": "native-evaluation",
+        "v6_caught": 40
+      },
+      {
+        "text": "bv_decide",
+        "label": "native-evaluation",
+        "v6_caught": 40
+      },
+      {
+        "text": "bv_check",
+        "label": "native-evaluation",
+        "v6_caught": 40
+      },
+      {
+        "text": "addDecl",
+        "label": "addDecl",
+        "v6_caught": 40
+      },
+      {
+        "text": "debug.item",
+        "label": "debug.",
+        "v6_caught": 40
+      },
+      {
+        "text": "#print",
+        "label": "output-command",
+        "v6_caught": 40
+      },
+      {
+        "text": "#check",
+        "label": "output-command",
+        "v6_caught": 40
+      },
+      {
+        "text": "#reduce",
+        "label": "output-command",
+        "v6_caught": 40
+      },
+      {
+        "text": "#synth",
+        "label": "output-command",
+        "v6_caught": 40
+      },
+      {
+        "text": "set_option maxHeartbeats 10",
+        "label": "limit-override",
+        "v6_caught": 40
+      },
+      {
+        "text": "set_option maxRecDepth 10",
+        "label": "limit-override",
+        "v6_caught": 40
+      },
+      {
+        "text": "set_option trace.probe true",
+        "label": "output-option",
+        "v6_caught": 40
+      },
+      {
+        "text": "set_option profiler.probe true",
+        "label": "output-option",
+        "v6_caught": 40
+      },
+      {
+        "text": "set_option diagnostics.probe true",
+        "label": "output-option",
+        "v6_caught": 40
+      },
+      {
+        "text": "attribute [not_allowlisted]",
+        "label": "forbidden-attribute",
+        "v6_caught": 40
+      },
+      {
+        "text": "@[not_allowlisted]",
+        "label": "forbidden-attribute",
+        "v6_caught": 40
+      }
+    ],
+    "rows": [
+      {
+        "row": "zero",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      },
+      {
+        "row": "decimal",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      },
+      {
+        "row": "decimal-leading-zero",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      },
+      {
+        "row": "hex-lower",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      },
+      {
+        "row": "hex-upper-digits",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      },
+      {
+        "row": "hex-upper-prefix",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      },
+      {
+        "row": "hex-upper",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      },
+      {
+        "row": "binary-lower",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      },
+      {
+        "row": "binary-upper",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      },
+      {
+        "row": "octal-lower",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      },
+      {
+        "row": "octal-upper",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      },
+      {
+        "row": "decimal-separator",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      },
+      {
+        "row": "decimal-repeated-separator",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      },
+      {
+        "row": "decimal-trailing-separator",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      },
+      {
+        "row": "hex-separator",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      },
+      {
+        "row": "hex-prefix-separator",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      },
+      {
+        "row": "binary-separator",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      },
+      {
+        "row": "binary-prefix-separator",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      },
+      {
+        "row": "octal-separator",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      },
+      {
+        "row": "octal-prefix-separator",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      },
+      {
+        "row": "hex-no-digits",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      },
+      {
+        "row": "binary-no-digits",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      },
+      {
+        "row": "octal-no-digits",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      },
+      {
+        "row": "fraction",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      },
+      {
+        "row": "bare-dot",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      },
+      {
+        "row": "e-unsigned",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      },
+      {
+        "row": "E-unsigned",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      },
+      {
+        "row": "e-plus",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      },
+      {
+        "row": "E-plus",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      },
+      {
+        "row": "e-minus",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      },
+      {
+        "row": "E-minus",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      },
+      {
+        "row": "fraction-plus",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      },
+      {
+        "row": "fraction-minus",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      },
+      {
+        "row": "fraction-separator",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      },
+      {
+        "row": "exponent-separator",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      },
+      {
+        "row": "bare-dot-exponent",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      },
+      {
+        "row": "exponent-no-digits",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      },
+      {
+        "row": "bitvec-width",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      },
+      {
+        "row": "bitvec-hex-width",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      },
+      {
+        "row": "typed-numeral",
+        "expected_label_hits": "11111111111111111111111111111111111111111111111111111",
+        "v6_caught": 53
+      }
+    ],
+    "cells": 2120,
+    "v6_caught": 2120,
+    "lean_parsed": null,
+    "v5_missed": null,
+    "lean_parsed_and_v6_missed": null
+  },
+  "hash_commands": {
+    "#exit": {
+      "spaced": true,
+      "identifier": true,
+      "digit": true,
+      "parenthesis": true
+    },
+    "#eval": {
+      "spaced": true,
+      "identifier": true,
+      "digit": true,
+      "parenthesis": true
+    },
+    "#print": {
+      "spaced": true,
+      "identifier": true,
+      "digit": true,
+      "parenthesis": true
+    },
+    "#check": {
+      "spaced": true,
+      "identifier": true,
+      "digit": true,
+      "parenthesis": true
+    },
+    "#reduce": {
+      "spaced": true,
+      "identifier": true,
+      "digit": true,
+      "parenthesis": true
+    },
+    "#synth": {
+      "spaced": true,
+      "identifier": true,
+      "digit": true,
+      "parenthesis": true
+    }
+  },
+  "attribute_comment_controls": {
+    "block_prefix": {
+      "expected_lines": [
+        1
+      ],
+      "match": true,
+      "diagnostics": [
+        "attribute-comment in helper (line 1 of that part)"
+      ]
+    },
+    "line_prefix": {
+      "expected_lines": [
+        2
+      ],
+      "match": true,
+      "diagnostics": [
+        "attribute-comment in helper (line 2 of that part)"
+      ]
+    },
+    "allowed_name_with_comment": {
+      "expected_lines": [
+        1
+      ],
+      "match": true,
+      "diagnostics": [
+        "attribute-comment in helper (line 1 of that part)"
+      ]
+    },
+    "command_list": {
+      "expected_lines": [
+        1
+      ],
+      "match": true,
+      "diagnostics": [
+        "attribute-comment in helper (line 1 of that part)"
+      ]
+    },
+    "inline_list": {
+      "expected_lines": [
+        1
+      ],
+      "match": true,
+      "diagnostics": [
+        "attribute-comment in helper (line 1 of that part)"
+      ]
+    },
+    "list_with_raw_bracket": {
+      "expected_lines": [
+        1
+      ],
+      "match": true,
+      "diagnostics": [
+        "attribute-comment in helper (line 1 of that part)"
+      ]
+    },
+    "line_opener_in_list": {
+      "expected_lines": [
+        1
+      ],
+      "match": true,
+      "diagnostics": [
+        "attribute-comment in helper (line 1 of that part)"
+      ]
+    },
+    "raw_string_text": {
+      "expected_lines": [
+        1
+      ],
+      "match": true,
+      "diagnostics": [
+        "attribute-comment in helper (line 1 of that part)"
+      ]
+    },
+    "spaced_allowed": {
+      "expected_lines": [],
+      "match": true,
+      "diagnostics": []
+    },
+    "inline_allowed": {
+      "expected_lines": [],
+      "match": true,
+      "diagnostics": []
+    },
+    "comment_after_list": {
+      "expected_lines": [],
+      "match": true,
+      "diagnostics": []
+    },
+    "intervening_word": {
+      "expected_lines": [],
+      "match": true,
+      "diagnostics": []
+    },
+    "longer_identifier": {
+      "expected_lines": [],
+      "match": true,
+      "diagnostics": []
+    },
+    "prefix_without_bracket": {
+      "expected_lines": [],
+      "match": true,
+      "diagnostics": []
+    }
+  },
+  "attribute_comment_work": {
+    "prefixes": [
+      {
+        "size": 64,
+        "input_characters": 1984,
+        "primitives": {
+          "iteration": 1984,
+          "indexing": 127,
+          "find": 0,
+          "count": 0,
+          "prefix": 1664,
+          "regex": 63,
+          "python": 25696
+        },
+        "regex": {
+          "calls": 63,
+          "matches": 0,
+          "matched_characters": 0
+        },
+        "operations": 29534,
+        "diagnostics": 64,
+        "more": false
+      },
+      {
+        "size": 128,
+        "input_characters": 3968,
+        "primitives": {
+          "iteration": 3968,
+          "indexing": 255,
+          "find": 0,
+          "count": 0,
+          "prefix": 3328,
+          "regex": 127,
+          "python": 51488
+        },
+        "regex": {
+          "calls": 127,
+          "matches": 0,
+          "matched_characters": 0
+        },
+        "operations": 59166,
+        "diagnostics": 64,
+        "more": true
+      },
+      {
+        "size": 256,
+        "input_characters": 7936,
+        "primitives": {
+          "iteration": 7936,
+          "indexing": 511,
+          "find": 0,
+          "count": 0,
+          "prefix": 6656,
+          "regex": 255,
+          "python": 103072
+        },
+        "regex": {
+          "calls": 255,
+          "matches": 0,
+          "matched_characters": 0
+        },
+        "operations": 118430,
+        "diagnostics": 64,
+        "more": true
+      },
+      {
+        "size": 512,
+        "input_characters": 15872,
+        "primitives": {
+          "iteration": 15872,
+          "indexing": 1023,
+          "find": 0,
+          "count": 0,
+          "prefix": 13312,
+          "regex": 511,
+          "python": 206240
+        },
+        "regex": {
+          "calls": 511,
+          "matches": 0,
+          "matched_characters": 0
+        },
+        "operations": 236958,
+        "diagnostics": 64,
+        "more": true
+      }
+    ],
+    "lists": [
+      {
+        "size": 64,
+        "input_characters": 2176,
+        "primitives": {
+          "iteration": 2176,
+          "indexing": 64,
+          "find": 0,
+          "count": 0,
+          "prefix": 2158,
+          "regex": 256,
+          "python": 28252
+        },
+        "regex": {
+          "calls": 64,
+          "matches": 64,
+          "matched_characters": 256
+        },
+        "operations": 32906,
+        "diagnostics": 64,
+        "more": false
+      },
+      {
+        "size": 128,
+        "input_characters": 4352,
+        "primitives": {
+          "iteration": 4352,
+          "indexing": 128,
+          "find": 0,
+          "count": 0,
+          "prefix": 4334,
+          "regex": 512,
+          "python": 56604
+        },
+        "regex": {
+          "calls": 128,
+          "matches": 128,
+          "matched_characters": 512
+        },
+        "operations": 65930,
+        "diagnostics": 64,
+        "more": true
+      },
+      {
+        "size": 256,
+        "input_characters": 8704,
+        "primitives": {
+          "iteration": 8704,
+          "indexing": 256,
+          "find": 0,
+          "count": 0,
+          "prefix": 8686,
+          "regex": 1024,
+          "python": 113308
+        },
+        "regex": {
+          "calls": 256,
+          "matches": 256,
+          "matched_characters": 1024
+        },
+        "operations": 131978,
+        "diagnostics": 64,
+        "more": true
+      },
+      {
+        "size": 512,
+        "input_characters": 17408,
+        "primitives": {
+          "iteration": 17408,
+          "indexing": 512,
+          "find": 0,
+          "count": 0,
+          "prefix": 17390,
+          "regex": 2048,
+          "python": 226716
+        },
+        "regex": {
+          "calls": 512,
+          "matches": 512,
+          "matched_characters": 2048
+        },
+        "operations": 264074,
+        "diagnostics": 64,
+        "more": true
+      }
+    ],
+    "pending_prefixes": [
+      {
+        "size": 64,
+        "input_characters": 1164,
+        "primitives": {
+          "iteration": 1164,
+          "indexing": 64,
+          "find": 0,
+          "count": 0,
+          "prefix": 1097,
+          "regex": 63,
+          "python": 15163
+        },
+        "regex": {
+          "calls": 63,
+          "matches": 0,
+          "matched_characters": 0
+        },
+        "operations": 17551,
+        "diagnostics": 64,
+        "more": false
+      },
+      {
+        "size": 128,
+        "input_characters": 2316,
+        "primitives": {
+          "iteration": 2316,
+          "indexing": 128,
+          "find": 0,
+          "count": 0,
+          "prefix": 2185,
+          "regex": 127,
+          "python": 29756
+        },
+        "regex": {
+          "calls": 127,
+          "matches": 0,
+          "matched_characters": 0
+        },
+        "operations": 34512,
+        "diagnostics": 64,
+        "more": true
+      },
+      {
+        "size": 256,
+        "input_characters": 4620,
+        "primitives": {
+          "iteration": 4620,
+          "indexing": 256,
+          "find": 0,
+          "count": 0,
+          "prefix": 4361,
+          "regex": 255,
+          "python": 58940
+        },
+        "regex": {
+          "calls": 255,
+          "matches": 0,
+          "matched_characters": 0
+        },
+        "operations": 68432,
+        "diagnostics": 64,
+        "more": true
+      },
+      {
+        "size": 512,
+        "input_characters": 9228,
+        "primitives": {
+          "iteration": 9228,
+          "indexing": 512,
+          "find": 0,
+          "count": 0,
+          "prefix": 8713,
+          "regex": 511,
+          "python": 117308
+        },
+        "regex": {
+          "calls": 511,
+          "matches": 0,
+          "matched_characters": 0
+        },
+        "operations": 136272,
+        "diagnostics": 64,
+        "more": true
+      }
+    ],
+    "numeral_left_boundary": [
+      {
+        "size": 64,
+        "input_characters": 2240,
+        "primitives": {
+          "iteration": 2240,
+          "indexing": 512,
+          "find": 0,
+          "count": 0,
+          "prefix": 2496,
+          "regex": 4672,
+          "python": 31716
+        },
+        "regex": {
+          "calls": 513,
+          "matches": 704,
+          "matched_characters": 2432
+        },
+        "operations": 41636,
+        "diagnostics": 64,
+        "more": false
+      },
+      {
+        "size": 128,
+        "input_characters": 4480,
+        "primitives": {
+          "iteration": 4480,
+          "indexing": 1024,
+          "find": 0,
+          "count": 0,
+          "prefix": 4992,
+          "regex": 9344,
+          "python": 63524
+        },
+        "regex": {
+          "calls": 1025,
+          "matches": 1408,
+          "matched_characters": 4864
+        },
+        "operations": 83364,
+        "diagnostics": 64,
+        "more": true
+      },
+      {
+        "size": 256,
+        "input_characters": 8960,
+        "primitives": {
+          "iteration": 8960,
+          "indexing": 2048,
+          "find": 0,
+          "count": 0,
+          "prefix": 9984,
+          "regex": 18688,
+          "python": 127140
+        },
+        "regex": {
+          "calls": 2049,
+          "matches": 2816,
+          "matched_characters": 9728
+        },
+        "operations": 166820,
+        "diagnostics": 64,
+        "more": true
+      },
+      {
+        "size": 512,
+        "input_characters": 17920,
+        "primitives": {
+          "iteration": 17920,
+          "indexing": 4096,
+          "find": 0,
+          "count": 0,
+          "prefix": 19968,
+          "regex": 37376,
+          "python": 254372
+        },
+        "regex": {
+          "calls": 4097,
+          "matches": 5632,
+          "matched_characters": 19456
+        },
+        "operations": 333732,
+        "diagnostics": 64,
+        "more": true
+      }
+    ],
+    "dense_list": [
+      {
+        "size": 64,
+        "input_characters": 1110,
+        "primitives": {
+          "iteration": 1110,
+          "indexing": 0,
+          "find": 0,
+          "count": 0,
+          "prefix": 1609,
+          "regex": 324,
+          "python": 14466
+        },
+        "regex": {
+          "calls": 65,
+          "matches": 65,
+          "matched_characters": 324
+        },
+        "operations": 17509,
+        "diagnostics": 1,
+        "more": false
+      },
+      {
+        "size": 128,
+        "input_characters": 2198,
+        "primitives": {
+          "iteration": 2198,
+          "indexing": 0,
+          "find": 0,
+          "count": 0,
+          "prefix": 3209,
+          "regex": 644,
+          "python": 28610
+        },
+        "regex": {
+          "calls": 129,
+          "matches": 129,
+          "matched_characters": 644
+        },
+        "operations": 34661,
+        "diagnostics": 1,
+        "more": false
+      },
+      {
+        "size": 256,
+        "input_characters": 4374,
+        "primitives": {
+          "iteration": 4374,
+          "indexing": 0,
+          "find": 0,
+          "count": 0,
+          "prefix": 6409,
+          "regex": 1284,
+          "python": 56898
+        },
+        "regex": {
+          "calls": 257,
+          "matches": 257,
+          "matched_characters": 1284
+        },
+        "operations": 68965,
+        "diagnostics": 1,
+        "more": false
+      },
+      {
+        "size": 512,
+        "input_characters": 8726,
+        "primitives": {
+          "iteration": 8726,
+          "indexing": 0,
+          "find": 0,
+          "count": 0,
+          "prefix": 12809,
+          "regex": 2564,
+          "python": 113474
+        },
+        "regex": {
+          "calls": 513,
+          "matches": 513,
+          "matched_characters": 2564
+        },
+        "operations": 137573,
+        "diagnostics": 1,
+        "more": false
+      }
+    ],
+    "nested_lists": [
+      {
+        "size": 64,
+        "input_characters": 174,
+        "primitives": {
+          "iteration": 174,
+          "indexing": 65,
+          "find": 0,
+          "count": 0,
+          "prefix": 601,
+          "regex": 10,
+          "python": 3174
+        },
+        "regex": {
+          "calls": 1,
+          "matches": 1,
+          "matched_characters": 10
+        },
+        "operations": 4024,
+        "diagnostics": 1,
+        "more": false
+      },
+      {
+        "size": 128,
+        "input_characters": 302,
+        "primitives": {
+          "iteration": 302,
+          "indexing": 129,
+          "find": 0,
+          "count": 0,
+          "prefix": 1177,
+          "regex": 10,
+          "python": 5734
+        },
+        "regex": {
+          "calls": 1,
+          "matches": 1,
+          "matched_characters": 10
+        },
+        "operations": 7352,
+        "diagnostics": 1,
+        "more": false
+      },
+      {
+        "size": 256,
+        "input_characters": 558,
+        "primitives": {
+          "iteration": 558,
+          "indexing": 257,
+          "find": 0,
+          "count": 0,
+          "prefix": 2329,
+          "regex": 10,
+          "python": 10854
+        },
+        "regex": {
+          "calls": 1,
+          "matches": 1,
+          "matched_characters": 10
+        },
+        "operations": 14008,
+        "diagnostics": 1,
+        "more": false
+      },
+      {
+        "size": 512,
+        "input_characters": 1070,
+        "primitives": {
+          "iteration": 1070,
+          "indexing": 513,
+          "find": 0,
+          "count": 0,
+          "prefix": 4633,
+          "regex": 10,
+          "python": 21094
+        },
+        "regex": {
+          "calls": 1,
+          "matches": 1,
+          "matched_characters": 10
+        },
+        "operations": 27320,
+        "diagnostics": 1,
+        "more": false
+      }
+    ]
+  },
+  "attribute_delimiter_controls": {
+    "inline_escaped_close": {
+      "expected_label": "forbidden-name-character",
+      "expected_line": 1,
+      "diagnostics": [
+        "forbidden-name-character in helper (line 1 of that part)"
+      ]
+    },
+    "command_escaped_close": {
+      "expected_label": "forbidden-name-character",
+      "expected_line": 1,
+      "diagnostics": [
+        "forbidden-name-character in helper (line 1 of that part)"
+      ]
+    },
+    "escaped_open": {
+      "expected_label": "forbidden-name-character",
+      "expected_line": 2,
+      "diagnostics": [
+        "forbidden-name-character in helper (line 2 of that part)"
+      ]
+    },
+    "nested_later_forbidden": {
+      "expected_label": "forbidden-attribute",
+      "expected_line": 1,
+      "diagnostics": [
+        "forbidden-attribute in helper (line 1 of that part)"
+      ]
+    },
+    "inline_nested_comment": {
+      "expected_label": "attribute-comment",
+      "expected_line": 1,
+      "diagnostics": [
+        "attribute-comment in helper (line 1 of that part)"
+      ]
+    },
+    "command_nested_comment": {
+      "expected_label": "attribute-comment",
+      "expected_line": 2,
+      "diagnostics": [
+        "attribute-comment in helper (line 2 of that part)"
+      ]
+    },
+    "nested_mismatch": {
+      "expected_label": "forbidden-attribute",
+      "expected_line": 1,
+      "diagnostics": [
+        "forbidden-attribute in helper (line 1 of that part)"
+      ]
+    },
+    "unclosed_nested": {
+      "expected_label": "forbidden-attribute",
+      "expected_line": 1,
+      "diagnostics": [
+        "forbidden-attribute in helper (line 1 of that part)"
+      ]
+    },
+    "ordinary_specialize": {
+      "expected_label": null,
+      "expected_line": null,
+      "diagnostics": []
+    },
+    "escaped_specialize": {
+      "expected_label": null,
+      "expected_line": null,
+      "diagnostics": []
+    },
+    "nested_without_comment": {
+      "expected_label": null,
+      "expected_line": null,
+      "diagnostics": []
+    }
+  },
+  "identifier_cases": {
+    "templates": {
+      "declaration": "def {name} : Nat := 0",
+      "reference": "example ( {name} : Nat) : Nat := {name}",
+      "parenthesized_reference": "example ( {name} : Nat) : Nat := ({name})",
+      "binder": "example ({name} : Nat) : Nat := {name}"
+    },
+    "library_names_per_file": {
+      "Init/Data/List/Basic.lean": 96,
+      "Init/Data/Option/Basic.lean": 7,
+      "Init/Data/Nat/Basic.lean": 261,
+      "Init/Data/Array/Basic.lean": 85
+    },
+    "library": {
+      "names": 415,
+      "cases": 1660,
+      "counts_by_context": {
+        "declaration": {
+          "v5_hit": 0,
+          "v6_hit": 0,
+          "additional_hit": 0,
+          "removed_hit": 0
+        },
+        "reference": {
+          "v5_hit": 0,
+          "v6_hit": 0,
+          "additional_hit": 0,
+          "removed_hit": 0
+        },
+        "parenthesized_reference": {
+          "v5_hit": 0,
+          "v6_hit": 0,
+          "additional_hit": 0,
+          "removed_hit": 0
+        },
+        "binder": {
+          "v5_hit": 0,
+          "v6_hit": 0,
+          "additional_hit": 0,
+          "removed_hit": 0
+        }
+      },
+      "verdict_differences": []
+    },
+    "selected_examples": [
+      "alternative",
+      "is_unsafe",
+      "expand_macro",
+      "concrete_syntax",
+      "current_axiom",
+      "conservative",
+      "count",
+      "maxValue"
+    ],
+    "contrast_sample": {
+      "names": 8,
+      "cases": 32,
+      "counts_by_context": {
+        "declaration": {
+          "v5_hit": 0,
+          "v6_hit": 0,
+          "additional_hit": 0,
+          "removed_hit": 0
+        },
+        "reference": {
+          "v5_hit": 0,
+          "v6_hit": 0,
+          "additional_hit": 0,
+          "removed_hit": 0
+        },
+        "parenthesized_reference": {
+          "v5_hit": 0,
+          "v6_hit": 5,
+          "additional_hit": 5,
+          "removed_hit": 0
+        },
+        "binder": {
+          "v5_hit": 0,
+          "v6_hit": 5,
+          "additional_hit": 5,
+          "removed_hit": 0
+        }
+      },
+      "verdict_differences": [
+        {
+          "name": "alternative",
+          "context": "parenthesized_reference",
+          "v5": [],
+          "v6": [
+            "native-evaluation in helper (line 1 of that part)"
+          ]
+        },
+        {
+          "name": "concrete_syntax",
+          "context": "parenthesized_reference",
+          "v5": [],
+          "v6": [
+            "syntax in helper (line 1 of that part)"
+          ]
+        },
+        {
+          "name": "current_axiom",
+          "context": "parenthesized_reference",
+          "v5": [],
+          "v6": [
+            "axiom in helper (line 1 of that part)"
+          ]
+        },
+        {
+          "name": "expand_macro",
+          "context": "parenthesized_reference",
+          "v5": [],
+          "v6": [
+            "macro in helper (line 1 of that part)"
+          ]
+        },
+        {
+          "name": "is_unsafe",
+          "context": "parenthesized_reference",
+          "v5": [],
+          "v6": [
+            "unsafe in helper (line 1 of that part)"
+          ]
+        },
+        {
+          "name": "alternative",
+          "context": "binder",
+          "v5": [],
+          "v6": [
+            "native-evaluation in helper (line 1 of that part)"
+          ]
+        },
+        {
+          "name": "concrete_syntax",
+          "context": "binder",
+          "v5": [],
+          "v6": [
+            "syntax in helper (line 1 of that part)"
+          ]
+        },
+        {
+          "name": "current_axiom",
+          "context": "binder",
+          "v5": [],
+          "v6": [
+            "axiom in helper (line 1 of that part)"
+          ]
+        },
+        {
+          "name": "expand_macro",
+          "context": "binder",
+          "v5": [],
+          "v6": [
+            "macro in helper (line 1 of that part)"
+          ]
+        },
+        {
+          "name": "is_unsafe",
+          "context": "binder",
+          "v5": [],
+          "v6": [
+            "unsafe in helper (line 1 of that part)"
+          ]
+        }
+      ]
+    }
+  }
+}

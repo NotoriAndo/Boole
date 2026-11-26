@@ -92,7 +92,7 @@ packages give ERROR `environment-retired`. Their old stores remain metadata-read
 retired under this judge. Linux execution evidence is outside Task Y; Linux kernel provisioning remains unavailable
 because the current checked binary profile is Darwin-only.
 Submission attributes use the fixed safe allowlist; code-defining/elaboration-registration commands remain forbidden.
-The current forbidden policy is v5 while historical v1–v4 metadata stays readable. The package's declared target name
+The current registry submission policy is v6. Historical v1–v5 package metadata stays readable. The package's declared target name
 is used throughout. A tool-descriptor change does not silently rewrite or qualify an older root's reference bindings.
 
 New entries expose v2 manifest/reference/environment/tool digests bound in their immutable package snapshot.
@@ -203,9 +203,12 @@ Such fixtures and their logs are never tracked or exported.
 `catalog build` records the service's informational source digest separately from generator identities;
 this is run provenance, not executable attestation or a replacement for independent checker replay.
 
-New stores record submission policy v5 and its byte digest in the catalog event.
-Historical catalogs retain their original descriptor. Policy v5 scans submitted
-text for output commands, output options and control characters in escaped names.
+New stores record submission policy v6 and its byte digest in the catalog event.
+Historical catalogs retain their original descriptor. Policy v6 retains v5's
+patterns, output options and escaped-name controls. Its left-boundary check
+accounts for adjacent Lean tokens. In uncertain contexts it can flag a suffix
+of an ordinary identifier. The [v6 review record](registry-text-policy-v6.md)
+describes the boundary and the regression procedure.
 The gate adds its own bound axiom-print command only after scanning submitted text.
 
 Replay preserves logged nonterminal ERROR observations without reclassifying them. Deterministic reveal

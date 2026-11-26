@@ -1,0 +1,202 @@
+[
+  {
+    "name": "zero",
+    "literal": "0",
+    "type": "Nat"
+  },
+  {
+    "name": "decimal",
+    "literal": "17",
+    "type": "Nat"
+  },
+  {
+    "name": "decimal-leading-zero",
+    "literal": "017",
+    "type": "Nat"
+  },
+  {
+    "name": "hex-lower",
+    "literal": "0xaf",
+    "type": "Nat"
+  },
+  {
+    "name": "hex-upper-digits",
+    "literal": "0xAF",
+    "type": "Nat"
+  },
+  {
+    "name": "hex-upper-prefix",
+    "literal": "0Xaf",
+    "type": "Nat"
+  },
+  {
+    "name": "hex-upper",
+    "literal": "0XAF",
+    "type": "Nat"
+  },
+  {
+    "name": "binary-lower",
+    "literal": "0b101",
+    "type": "Nat"
+  },
+  {
+    "name": "binary-upper",
+    "literal": "0B101",
+    "type": "Nat"
+  },
+  {
+    "name": "octal-lower",
+    "literal": "0o71",
+    "type": "Nat"
+  },
+  {
+    "name": "octal-upper",
+    "literal": "0O71",
+    "type": "Nat"
+  },
+  {
+    "name": "decimal-separator",
+    "literal": "1_234",
+    "type": "Nat"
+  },
+  {
+    "name": "decimal-repeated-separator",
+    "literal": "1__23",
+    "type": "Nat"
+  },
+  {
+    "name": "decimal-trailing-separator",
+    "literal": "12_",
+    "type": "Nat"
+  },
+  {
+    "name": "hex-separator",
+    "literal": "0xA_f",
+    "type": "Nat"
+  },
+  {
+    "name": "hex-prefix-separator",
+    "literal": "0x_Af",
+    "type": "Nat"
+  },
+  {
+    "name": "binary-separator",
+    "literal": "0b10_01",
+    "type": "Nat"
+  },
+  {
+    "name": "binary-prefix-separator",
+    "literal": "0B_10",
+    "type": "Nat"
+  },
+  {
+    "name": "octal-separator",
+    "literal": "0o7_1",
+    "type": "Nat"
+  },
+  {
+    "name": "octal-prefix-separator",
+    "literal": "0O_17",
+    "type": "Nat"
+  },
+  {
+    "name": "hex-no-digits",
+    "literal": "0x",
+    "type": "Nat"
+  },
+  {
+    "name": "binary-no-digits",
+    "literal": "0b",
+    "type": "Nat"
+  },
+  {
+    "name": "octal-no-digits",
+    "literal": "0o",
+    "type": "Nat"
+  },
+  {
+    "name": "fraction",
+    "literal": "1.25",
+    "type": "Float"
+  },
+  {
+    "name": "bare-dot",
+    "literal": "1.",
+    "type": "Float"
+  },
+  {
+    "name": "e-unsigned",
+    "literal": "1e2",
+    "type": "Float"
+  },
+  {
+    "name": "E-unsigned",
+    "literal": "1E2",
+    "type": "Float"
+  },
+  {
+    "name": "e-plus",
+    "literal": "1e+2",
+    "type": "Float"
+  },
+  {
+    "name": "E-plus",
+    "literal": "1E+2",
+    "type": "Float"
+  },
+  {
+    "name": "e-minus",
+    "literal": "1e-2",
+    "type": "Float"
+  },
+  {
+    "name": "E-minus",
+    "literal": "1E-2",
+    "type": "Float"
+  },
+  {
+    "name": "fraction-plus",
+    "literal": "1.25e+2",
+    "type": "Float"
+  },
+  {
+    "name": "fraction-minus",
+    "literal": "1.25E-2",
+    "type": "Float"
+  },
+  {
+    "name": "fraction-separator",
+    "literal": "1.2_5",
+    "type": "Float"
+  },
+  {
+    "name": "exponent-separator",
+    "literal": "1e1_2",
+    "type": "Float"
+  },
+  {
+    "name": "bare-dot-exponent",
+    "literal": "1.e+2",
+    "type": "Float"
+  },
+  {
+    "name": "exponent-no-digits",
+    "literal": "1e+",
+    "type": "Float"
+  },
+  {
+    "name": "bitvec-width",
+    "literal": "7#8",
+    "type": "BitVec 8"
+  },
+  {
+    "name": "bitvec-hex-width",
+    "literal": "0xaf#8",
+    "type": "BitVec 8"
+  },
+  {
+    "name": "typed-numeral",
+    "literal": "(17 : UInt8)",
+    "type": "UInt8"
+  }
+]

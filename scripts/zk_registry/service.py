@@ -330,7 +330,7 @@ class Registry:
                 packages[entry['id']] = manifest
             payload = dict(entries=catalog['entries'], packages=packages, excluded=catalog['excluded'],
                            reveal_window=reveal_window, challenge_window=challenge_window,
-                           submission_policy=dict(version=5, sha256=P.sha256_file(str(Path(__file__).parent / 'data/submission_policy_v5.json'))))
+                           submission_policy=dict(version=6, sha256=P.sha256_file(str(Path(__file__).parent / 'data/submission_policy_v6.json'))))
             if error_policy is not None:
                 payload['error_policy'] = (dict(version=E.RULES['version'], rules_sha256=P.sha256_file(str(E.POLICY_PATH)))
                                            if error_policy == 'current' else copy.deepcopy(error_policy))

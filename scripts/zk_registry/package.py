@@ -157,6 +157,7 @@ GENERATOR_SOURCES = [
     'artifact_pins.py',
     'data/submission_policy_v4.json',
     'data/submission_policy_v5.json',
+    'data/submission_policy_v6.json',
     'data/testnet_caps_v1.json',
     'bounded_capture.py',
     'tool_exit.py',

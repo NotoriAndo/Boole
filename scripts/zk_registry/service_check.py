@@ -175,7 +175,9 @@ def ratchet_artifact(problem, report):
 
 def run(config, package_dir, submission_dir, work_dir, *, sandbox=None, acceptance_tools=None):
     from . import check as C
-    with C.submission_policy(config.get('submission_policy',C.policy_descriptor())):
+    # New jobs carry their store descriptor. Older descriptor-less jobs used v5.
+    descriptor = config['submission_policy'] if 'submission_policy' in config else C.policy_descriptor(5)
+    with C.submission_policy(descriptor):
         return _run(config,package_dir,submission_dir,work_dir,sandbox=sandbox,acceptance_tools=acceptance_tools)
 
 

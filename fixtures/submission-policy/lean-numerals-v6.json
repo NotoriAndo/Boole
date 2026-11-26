@@ -1,0 +1,1764 @@
+{
+  "columns": {
+    "abbrev": {
+      "elaborated": 28,
+      "syntax-error": 12
+    },
+    "def": {
+      "elaborated": 28,
+      "syntax-error": 12
+    },
+    "end": {
+      "elaborated": 19,
+      "syntax-error": 21
+    },
+    "separated": {
+      "elaborated": 35,
+      "syntax-error": 5
+    },
+    "theorem": {
+      "elaborated": 34,
+      "syntax-error": 6
+    }
+  },
+  "corpus_sha256": "6ff47d0413ecd1786f84b1dfea9751ff29b5cf3d9ea98c6ef6f0318ffb39552c",
+  "lean_sha256": "1b370cfcbf44e80d1b004ab1b1ab9a4c73951f9f7c242140bcff9bc577576554",
+  "row_counts": {
+    "E-minus": {
+      "elaborated": 5
+    },
+    "E-plus": {
+      "elaborated": 5
+    },
+    "E-unsigned": {
+      "elaborated": 5
+    },
+    "bare-dot": {
+      "elaborated": 1,
+      "syntax-error": 4
+    },
+    "bare-dot-exponent": {
+      "elaborated": 5
+    },
+    "binary-lower": {
+      "elaborated": 5
+    },
+    "binary-no-digits": {
+      "syntax-error": 5
+    },
+    "binary-prefix-separator": {
+      "elaborated": 5
+    },
+    "binary-separator": {
+      "elaborated": 5
+    },
+    "binary-upper": {
+      "elaborated": 5
+    },
+    "bitvec-hex-width": {
+      "elaborated": 4,
+      "syntax-error": 1
+    },
+    "bitvec-width": {
+      "elaborated": 4,
+      "syntax-error": 1
+    },
+    "decimal": {
+      "elaborated": 4,
+      "syntax-error": 1
+    },
+    "decimal-leading-zero": {
+      "elaborated": 4,
+      "syntax-error": 1
+    },
+    "decimal-repeated-separator": {
+      "elaborated": 4,
+      "syntax-error": 1
+    },
+    "decimal-separator": {
+      "elaborated": 4,
+      "syntax-error": 1
+    },
+    "decimal-trailing-separator": {
+      "syntax-error": 5
+    },
+    "e-minus": {
+      "elaborated": 5
+    },
+    "e-plus": {
+      "elaborated": 5
+    },
+    "e-unsigned": {
+      "elaborated": 5
+    },
+    "exponent-no-digits": {
+      "syntax-error": 5
+    },
+    "exponent-separator": {
+      "elaborated": 5
+    },
+    "fraction": {
+      "elaborated": 4,
+      "syntax-error": 1
+    },
+    "fraction-minus": {
+      "elaborated": 5
+    },
+    "fraction-plus": {
+      "elaborated": 5
+    },
+    "fraction-separator": {
+      "elaborated": 4,
+      "syntax-error": 1
+    },
+    "hex-lower": {
+      "elaborated": 2,
+      "syntax-error": 3
+    },
+    "hex-no-digits": {
+      "syntax-error": 5
+    },
+    "hex-prefix-separator": {
+      "elaborated": 2,
+      "syntax-error": 3
+    },
+    "hex-separator": {
+      "elaborated": 2,
+      "syntax-error": 3
+    },
+    "hex-upper": {
+      "elaborated": 2,
+      "syntax-error": 3
+    },
+    "hex-upper-digits": {
+      "elaborated": 2,
+      "syntax-error": 3
+    },
+    "hex-upper-prefix": {
+      "elaborated": 2,
+      "syntax-error": 3
+    },
+    "octal-lower": {
+      "elaborated": 5
+    },
+    "octal-no-digits": {
+      "syntax-error": 5
+    },
+    "octal-prefix-separator": {
+      "elaborated": 5
+    },
+    "octal-separator": {
+      "elaborated": 5
+    },
+    "octal-upper": {
+      "elaborated": 5
+    },
+    "typed-numeral": {
+      "elaborated": 5
+    },
+    "zero": {
+      "elaborated": 4,
+      "syntax-error": 1
+    }
+  },
+  "rows": {
+    "E-minus": {
+      "abbrev": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "def": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "end": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "separated": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "theorem": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      }
+    },
+    "E-plus": {
+      "abbrev": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "def": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "end": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "separated": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "theorem": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      }
+    },
+    "E-unsigned": {
+      "abbrev": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "def": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "end": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "separated": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "theorem": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      }
+    },
+    "bare-dot": {
+      "abbrev": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 23,
+            "line": 3,
+            "message": "unexpected identifier after decimal point; consider parenthesizing the number",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "def": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 23,
+            "line": 3,
+            "message": "unexpected identifier after decimal point; consider parenthesizing the number",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "end": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 25,
+            "line": 3,
+            "message": "missing exponent digits in scientific literal",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "separated": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "theorem": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 23,
+            "line": 3,
+            "message": "unexpected identifier after decimal point; consider parenthesizing the number",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      }
+    },
+    "bare-dot-exponent": {
+      "abbrev": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "def": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "end": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "separated": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "theorem": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      }
+    },
+    "binary-lower": {
+      "abbrev": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "def": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "end": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "separated": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "theorem": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      }
+    },
+    "binary-no-digits": {
+      "abbrev": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 23,
+            "line": 3,
+            "message": "unexpected character",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "def": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 23,
+            "line": 3,
+            "message": "unexpected character",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "end": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 23,
+            "line": 3,
+            "message": "unexpected character",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "separated": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 23,
+            "line": 3,
+            "message": "unexpected character",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "theorem": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 23,
+            "line": 3,
+            "message": "unexpected character",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      }
+    },
+    "binary-prefix-separator": {
+      "abbrev": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "def": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "end": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "separated": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "theorem": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      }
+    },
+    "binary-separator": {
+      "abbrev": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "def": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "end": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "separated": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "theorem": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      }
+    },
+    "binary-upper": {
+      "abbrev": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "def": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "end": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "separated": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "theorem": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      }
+    },
+    "bitvec-hex-width": {
+      "abbrev": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "def": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "end": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 32,
+            "line": 3,
+            "message": "missing exponent digits in scientific literal",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "separated": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "theorem": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      }
+    },
+    "bitvec-width": {
+      "abbrev": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "def": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "end": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 29,
+            "line": 3,
+            "message": "missing exponent digits in scientific literal",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "separated": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "theorem": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      }
+    },
+    "decimal": {
+      "abbrev": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "def": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "end": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 23,
+            "line": 3,
+            "message": "missing exponent digits in scientific literal",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "separated": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "theorem": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      }
+    },
+    "decimal-leading-zero": {
+      "abbrev": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "def": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "end": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 24,
+            "line": 3,
+            "message": "missing exponent digits in scientific literal",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "separated": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "theorem": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      }
+    },
+    "decimal-repeated-separator": {
+      "abbrev": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "def": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "end": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 26,
+            "line": 3,
+            "message": "missing exponent digits in scientific literal",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "separated": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "theorem": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      }
+    },
+    "decimal-separator": {
+      "abbrev": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "def": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "end": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 26,
+            "line": 3,
+            "message": "missing exponent digits in scientific literal",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "separated": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "theorem": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      }
+    },
+    "decimal-trailing-separator": {
+      "abbrev": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 24,
+            "line": 3,
+            "message": "unexpected character",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "def": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 24,
+            "line": 3,
+            "message": "unexpected character",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "end": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 24,
+            "line": 3,
+            "message": "missing exponent digits in scientific literal",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "separated": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 24,
+            "line": 3,
+            "message": "unexpected character",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "theorem": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 24,
+            "line": 3,
+            "message": "unexpected character",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      }
+    },
+    "e-minus": {
+      "abbrev": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "def": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "end": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "separated": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "theorem": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      }
+    },
+    "e-plus": {
+      "abbrev": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "def": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "end": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "separated": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "theorem": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      }
+    },
+    "e-unsigned": {
+      "abbrev": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "def": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "end": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "separated": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "theorem": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      }
+    },
+    "exponent-no-digits": {
+      "abbrev": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 24,
+            "line": 3,
+            "message": "missing exponent digits in scientific literal",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "def": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 24,
+            "line": 3,
+            "message": "missing exponent digits in scientific literal",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "end": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 24,
+            "line": 3,
+            "message": "missing exponent digits in scientific literal",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "separated": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 24,
+            "line": 3,
+            "message": "missing exponent digits in scientific literal",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "theorem": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 24,
+            "line": 3,
+            "message": "missing exponent digits in scientific literal",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      }
+    },
+    "exponent-separator": {
+      "abbrev": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "def": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "end": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "separated": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "theorem": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      }
+    },
+    "fraction": {
+      "abbrev": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "def": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "end": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 27,
+            "line": 3,
+            "message": "missing exponent digits in scientific literal",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "separated": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "theorem": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      }
+    },
+    "fraction-minus": {
+      "abbrev": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "def": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "end": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "separated": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "theorem": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      }
+    },
+    "fraction-plus": {
+      "abbrev": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "def": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "end": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "separated": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "theorem": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      }
+    },
+    "fraction-separator": {
+      "abbrev": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "def": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "end": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 28,
+            "line": 3,
+            "message": "missing exponent digits in scientific literal",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "separated": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "theorem": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      }
+    },
+    "hex-lower": {
+      "abbrev": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 28,
+            "line": 3,
+            "message": "unexpected identifier; expected command",
+            "severity": "error"
+          },
+          {
+            "column": 10,
+            "line": 5,
+            "message": "Unknown identifier `Probe.seen`",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "def": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 21,
+            "line": 3,
+            "message": "Function expected at\n  720367\nbut this term has type\n  ?m.2\n\nNote: Expected a function because this term is being applied to the argument\n  seen",
+            "severity": "error"
+          },
+          {
+            "column": 34,
+            "line": 3,
+            "message": "unexpected token ':'; expected command",
+            "severity": "error"
+          },
+          {
+            "column": 10,
+            "line": 5,
+            "message": "Unknown identifier `Probe.seen`",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "end": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 26,
+            "line": 3,
+            "message": "unexpected identifier; expected command",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "separated": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "theorem": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      }
+    },
+    "hex-no-digits": {
+      "abbrev": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 26,
+            "line": 3,
+            "message": "unexpected identifier; expected command",
+            "severity": "error"
+          },
+          {
+            "column": 10,
+            "line": 5,
+            "message": "Unknown identifier `Probe.seen`",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "def": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 21,
+            "line": 3,
+            "message": "Function expected at\n  3567\nbut this term has type\n  ?m.2\n\nNote: Expected a function because this term is being applied to the argument\n  seen",
+            "severity": "error"
+          },
+          {
+            "column": 32,
+            "line": 3,
+            "message": "unexpected token ':'; expected command",
+            "severity": "error"
+          },
+          {
+            "column": 10,
+            "line": 5,
+            "message": "Unknown identifier `Probe.seen`",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "end": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 24,
+            "line": 3,
+            "message": "unexpected identifier; expected command",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "separated": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 23,
+            "line": 3,
+            "message": "unexpected character",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "theorem": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 23,
+            "line": 3,
+            "message": "unexpected character",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      }
+    },
+    "hex-prefix-separator": {
+      "abbrev": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 29,
+            "line": 3,
+            "message": "unexpected identifier; expected command",
+            "severity": "error"
+          },
+          {
+            "column": 10,
+            "line": 5,
+            "message": "Unknown identifier `Probe.seen`",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "def": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 21,
+            "line": 3,
+            "message": "Function expected at\n  720367\nbut this term has type\n  ?m.2\n\nNote: Expected a function because this term is being applied to the argument\n  seen",
+            "severity": "error"
+          },
+          {
+            "column": 35,
+            "line": 3,
+            "message": "unexpected token ':'; expected command",
+            "severity": "error"
+          },
+          {
+            "column": 10,
+            "line": 5,
+            "message": "Unknown identifier `Probe.seen`",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "end": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 27,
+            "line": 3,
+            "message": "unexpected identifier; expected command",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "separated": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "theorem": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      }
+    },
+    "hex-separator": {
+      "abbrev": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 29,
+            "line": 3,
+            "message": "unexpected identifier; expected command",
+            "severity": "error"
+          },
+          {
+            "column": 10,
+            "line": 5,
+            "message": "Unknown identifier `Probe.seen`",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "def": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 21,
+            "line": 3,
+            "message": "Function expected at\n  720367\nbut this term has type\n  ?m.2\n\nNote: Expected a function because this term is being applied to the argument\n  seen",
+            "severity": "error"
+          },
+          {
+            "column": 35,
+            "line": 3,
+            "message": "unexpected token ':'; expected command",
+            "severity": "error"
+          },
+          {
+            "column": 10,
+            "line": 5,
+            "message": "Unknown identifier `Probe.seen`",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "end": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 27,
+            "line": 3,
+            "message": "unexpected identifier; expected command",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "separated": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "theorem": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      }
+    },
+    "hex-upper": {
+      "abbrev": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 28,
+            "line": 3,
+            "message": "unexpected identifier; expected command",
+            "severity": "error"
+          },
+          {
+            "column": 10,
+            "line": 5,
+            "message": "Unknown identifier `Probe.seen`",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "def": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 21,
+            "line": 3,
+            "message": "Function expected at\n  720367\nbut this term has type\n  ?m.2\n\nNote: Expected a function because this term is being applied to the argument\n  seen",
+            "severity": "error"
+          },
+          {
+            "column": 34,
+            "line": 3,
+            "message": "unexpected token ':'; expected command",
+            "severity": "error"
+          },
+          {
+            "column": 10,
+            "line": 5,
+            "message": "Unknown identifier `Probe.seen`",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "end": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 26,
+            "line": 3,
+            "message": "unexpected identifier; expected command",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "separated": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "theorem": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      }
+    },
+    "hex-upper-digits": {
+      "abbrev": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 28,
+            "line": 3,
+            "message": "unexpected identifier; expected command",
+            "severity": "error"
+          },
+          {
+            "column": 10,
+            "line": 5,
+            "message": "Unknown identifier `Probe.seen`",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "def": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 21,
+            "line": 3,
+            "message": "Function expected at\n  720367\nbut this term has type\n  ?m.2\n\nNote: Expected a function because this term is being applied to the argument\n  seen",
+            "severity": "error"
+          },
+          {
+            "column": 34,
+            "line": 3,
+            "message": "unexpected token ':'; expected command",
+            "severity": "error"
+          },
+          {
+            "column": 10,
+            "line": 5,
+            "message": "Unknown identifier `Probe.seen`",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "end": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 26,
+            "line": 3,
+            "message": "unexpected identifier; expected command",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "separated": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "theorem": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      }
+    },
+    "hex-upper-prefix": {
+      "abbrev": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 28,
+            "line": 3,
+            "message": "unexpected identifier; expected command",
+            "severity": "error"
+          },
+          {
+            "column": 10,
+            "line": 5,
+            "message": "Unknown identifier `Probe.seen`",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "def": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 21,
+            "line": 3,
+            "message": "Function expected at\n  720367\nbut this term has type\n  ?m.2\n\nNote: Expected a function because this term is being applied to the argument\n  seen",
+            "severity": "error"
+          },
+          {
+            "column": 34,
+            "line": 3,
+            "message": "unexpected token ':'; expected command",
+            "severity": "error"
+          },
+          {
+            "column": 10,
+            "line": 5,
+            "message": "Unknown identifier `Probe.seen`",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "end": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 26,
+            "line": 3,
+            "message": "unexpected identifier; expected command",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "separated": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "theorem": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      }
+    },
+    "octal-lower": {
+      "abbrev": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "def": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "end": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "separated": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "theorem": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      }
+    },
+    "octal-no-digits": {
+      "abbrev": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 23,
+            "line": 3,
+            "message": "unexpected character",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "def": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 23,
+            "line": 3,
+            "message": "unexpected character",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "end": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 23,
+            "line": 3,
+            "message": "unexpected character",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "separated": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 23,
+            "line": 3,
+            "message": "unexpected character",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "theorem": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 23,
+            "line": 3,
+            "message": "unexpected character",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      }
+    },
+    "octal-prefix-separator": {
+      "abbrev": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "def": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "end": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "separated": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "theorem": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      }
+    },
+    "octal-separator": {
+      "abbrev": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "def": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "end": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "separated": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "theorem": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      }
+    },
+    "octal-upper": {
+      "abbrev": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "def": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "end": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "separated": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "theorem": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      }
+    },
+    "typed-numeral": {
+      "abbrev": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "def": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "end": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "separated": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "theorem": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      }
+    },
+    "zero": {
+      "abbrev": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "def": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "end": {
+        "exit": 1,
+        "messages": [
+          {
+            "column": 22,
+            "line": 3,
+            "message": "missing exponent digits in scientific literal",
+            "severity": "error"
+          }
+        ],
+        "status": "syntax-error"
+      },
+      "separated": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      },
+      "theorem": {
+        "exit": 0,
+        "messages": [],
+        "status": "elaborated"
+      }
+    }
+  }
+}
