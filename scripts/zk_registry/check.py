@@ -70,7 +70,7 @@ FORBIDDEN_V2 = FORBIDDEN_V1 + [
     (r"\bbuiltin_initialize\b", "builtin_initialize"), (r"@\s*\[", "elaboration-attribute"),
     (r"\btrustCompiler\b", "Lean.trustCompiler"),
 ]
-FORBIDDEN_VERSION = 5
+FORBIDDEN_VERSION = 6
 CODE_DEFINING_COMMANDS = (
     'elab', 'elab_rules', 'simproc', 'dsimproc', 'simproc_decl', 'dsimproc_decl',
     'builtin_simproc', 'builtin_dsimproc', 'builtin_simproc_decl', 'builtin_dsimproc_decl',
@@ -80,15 +80,14 @@ FORBIDDEN = [entry for entry in FORBIDDEN_V2 if entry[1] != 'elaboration-attribu
     (r'\b' + command + r'\b', command) for command in CODE_DEFINING_COMMANDS
 ] + [(r'\b(?:register|declare)_\w+\b', 'elaboration-registration')]
 FORBIDDEN_LABELS_V3 = [label for _, label in FORBIDDEN] + ['forbidden-attribute']
-# Both runners read this list. ASCII boundaries mean [A-Za-z0-9_] only.
-with open(os.path.join(os.path.dirname(__file__), 'data', 'submission_policy_v5.json'), encoding='utf-8') as policy_file:
+with open(os.path.join(os.path.dirname(__file__), 'data', 'submission_policy_v6.json'), encoding='utf-8') as policy_file:
     TEXT_POLICY = json.load(policy_file)
 
 
 _SUBMISSION_POLICY=ContextVar('submission_policy',default=None)
 
 
-def policy_descriptor(version=5):
+def policy_descriptor(version=FORBIDDEN_VERSION):
     raw=(FS.Path(__file__).parent/f'data/submission_policy_v{version}.json').read_bytes()
     return dict(version=version,sha256=hashlib.sha256(raw).hexdigest())
 
@@ -107,10 +106,14 @@ def current_text_policy():
 def submission_policy(descriptor):
     descriptor=policy_descriptor(4) if descriptor is None else descriptor
     version=descriptor.get('version')
-    if type(version) is not int or version not in (4,5):raise ValueError('unsupported submission policy')
+    if type(version) is not int or version not in (4,5,6):raise ValueError('unsupported submission policy')
     raw=(FS.Path(__file__).parent/f'data/submission_policy_v{version}.json').read_bytes()
     if hashlib.sha256(raw).hexdigest()!=descriptor.get('sha256'):raise ValueError('submission policy digest mismatch')
-    token=_SUBMISSION_POLICY.set((dict(descriptor),json.loads(raw)))
+    policy = json.loads(raw)
+    if policy['version'] != version:
+        raise ValueError('submission policy version mismatch')
+    validate_text_policy(policy)
+    token=_SUBMISSION_POLICY.set((dict(descriptor),policy))
     try:yield
     finally:_SUBMISSION_POLICY.reset(token)
 
@@ -118,6 +121,10 @@ def submission_policy(descriptor):
 def validate_text_policy(policy: dict) -> None:
     if not policy['ascii_whitespace'].isascii():
         raise ValueError('attribute whitespace must be ASCII only')
+    if policy.get('version') == 6 and policy.get('left_boundary') != 'lean-4.34.1-conservative-token-start':
+        raise ValueError('unsupported v6 left boundary')
+    if policy.get('version') == 6 and policy.get('attribute_comments') != 'refuse':
+        raise ValueError('unsupported v6 attribute comment rule')
 
 
 validate_text_policy(TEXT_POLICY)
@@ -126,7 +133,7 @@ ASCII_WHITESPACE = re.escape(TEXT_POLICY['ascii_whitespace'])
 MAX_SAFE_ATTRIBUTE_LENGTH = max(map(len, SAFE_ATTRIBUTES))
 
 
-def text_pattern(rule: dict) -> str:
+def text_pattern(rule: dict, *, ascii_left: bool = True) -> str:
     boundary = rule['boundary']
     word = rule['text']
     if ((boundary in ('word', 'prefix') and
@@ -134,7 +141,7 @@ def text_pattern(rule: dict) -> str:
         (boundary in ('word', 'suffix') and
          (not word or not re.fullmatch(r'[A-Za-z0-9_]', word[-1])))):
         raise ValueError('bounded pattern edges must be ASCII word characters')
-    return ((r'\b' if boundary in ('word', 'prefix') else '')
+    return ((r'\b' if ascii_left and boundary in ('word', 'prefix') else '')
             + re.escape(rule['text'])
             + (r'\b' if boundary in ('word', 'suffix') else ''))
 
@@ -148,7 +155,8 @@ FORBIDDEN_LABELS_V4 = FORBIDDEN_LABELS_V3[:-1] + ['limit-override', 'native-eval
 FORBIDDEN_SETS = {1: FORBIDDEN_LABELS_V1, 2: FORBIDDEN_LABELS_V2,
                   3: FORBIDDEN_LABELS_V3, 4: FORBIDDEN_LABELS_V4,
                   5: FORBIDDEN_LABELS_V4 + ['output-command', 'output-option', 'forbidden-name-character']}
-FORBIDDEN_LABELS = FORBIDDEN_SETS[5]
+FORBIDDEN_SETS[6] = FORBIDDEN_SETS[5] + ['attribute-comment']
+FORBIDDEN_LABELS = FORBIDDEN_SETS[FORBIDDEN_VERSION]
 EXIT = {"PASS": 0, "FAIL": 1, "INVALID": 2, "ERROR": 3}
 
 
@@ -222,40 +230,136 @@ def text_check(orig: str, proof: str, thm: str) -> tuple[list[str], str, str]:
     return probs, aux, body
 
 
-def forbidden_attributes(text: str) -> tuple[list[int], bool]:
-    """Return unique offending lines, with bounded parser and report storage.
+_AFTER_LAYOUT = re.compile(r'(?<![^ \t\r\n])(?=[A-Za-z_0-9])', re.ASCII)
+_ID_PART = r"[A-Za-z_][A-Za-z0-9_'!?]*"
+_ASCII_IDENT = re.compile(_ID_PART + r'(?:\.' + _ID_PART + ')*', re.ASCII)
+_ASCII_WORD = re.compile('[A-Za-z0-9_]+', re.ASCII)
+_DECIMAL_DIGITS = re.compile('[0-9_]+')
+_RADIX_DIGITS = {'b': re.compile('[01_]+'), 'o': re.compile('[0-7_]+'), 'x': re.compile('[0-9A-Fa-f_]+')}
+
+
+def numeral_end(text: str, start: int) -> int | None:
+    """End of a built-in numeral at an ASCII digit; None for malformed digits."""
+    # takeDigitsFn consumes separators, including repeated separators, but
+    # requires a digit at the end. A decimal fraction/exponent starts with a digit.
+    def digits(pattern, pos):
+        match = pattern.match(text, pos)
+        return match.end() if match and text[match.end() - 1] != '_' else None
+
+    prefix = text[start + 1:start + 2].lower()
+    if text[start] == '0' and prefix in _RADIX_DIGITS:
+        return digits(_RADIX_DIGITS[prefix], start + 2)
+    end = digits(_DECIMAL_DIGITS, start)
+    if end is None or text.startswith('..', end):
+        return end
+    bare_dot = False
+    if text.startswith('.', end):
+        end += 1
+        if end < len(text) and '0' <= text[end] <= '9':
+            end = digits(_DECIMAL_DIGITS, end)
+            if end is None:
+                return None
+        else:
+            bare_dot = True
+    if text.startswith(('e', 'E'), end):
+        end += 1
+        if text.startswith(('+', '-'), end):
+            end += 1
+        if end == len(text) or not '0' <= text[end] <= '9':
+            return None
+        return digits(_DECIMAL_DIGITS, end)
+    # A bare decimal point followed by an identifier is a tokenization error.
+    # Only ASCII identifier starts are used to prove interiors below.
+    if bare_dot and _ASCII_IDENT.match(text, end):
+        return None
+    return end
+
+
+def identifier_interiors(text: str) -> bytearray:
+    """Positions provably inside an ASCII identifier. Other left contexts stay open.
+
+    Lean 4.34.1 Basic.lean:817–919 dispatches numbers before identifiers.
+    At layout or a known numeral end an ASCII letter or underscore starts an
+    identifier; identFnAux consumes its identifier/dotted components (975–1009).
+    After punctuation we cannot assume which registered symbol Lean took.
+    Work on raw text so legacy checks inside comments and strings still apply.
+    """
+    interior = bytearray(len(text))
+    for match in _AFTER_LAYOUT.finditer(text):
+        first = match.start()
+        if '0' <= text[first] <= '9':
+            first = numeral_end(text, first)
+            if first is None:
+                continue
+        ident = _ASCII_IDENT.match(text, first)
+        if ident:
+            # Keep every legacy ASCII boundary live, including dots and primes.
+            for fragment in _ASCII_WORD.finditer(text, first, ident.end()):
+                start, end = fragment.span()
+                if end > start + 1:
+                    interior[start + 1:end] = b'\x01' * (end - start - 1)
+    return interior
+
+
+class LeftBoundary:
+    """Build the v6 index only if a policy match actually needs a new boundary decision."""
+
+    def __init__(self, text, policy):
+        self.text = text
+        self.legacy = 'left_boundary' not in policy
+        self.interiors = None
+
+    def matches(self, start):
+        if not start or not _ASCII_WORD.fullmatch(self.text[start - 1]):
+            return True
+        if self.legacy:
+            return False
+        if self.interiors is None:
+            self.interiors = identifier_interiors(self.text)
+        return not self.interiors[start]
+
+
+def scan_attributes(text: str, boundary: LeftBoundary | None = None):
+    """Collect allowlist and raw comment diagnostics using the same list frames.
 
     Delimiters outside attributes need no stack. After a nesting overflow the
     verdict is already INVALID; count brackets until that region ends, without
     retaining more frames. Marker recognition happens only when `[` is reached.
     """
     policy=current_text_policy()
+    if boundary is None:
+        boundary = LeftBoundary(text, policy)
+    check_comments = policy.get('attribute_comments') == 'refuse'
     limits = policy['attribute_limits']
     whitespace = policy['ascii_whitespace']
     safe_attributes=frozenset(policy['safe_attributes'])
     max_safe_attribute_length=max(map(len,safe_attributes))
     ascii_whitespace=re.escape(whitespace)
-    bad = set()
-    more = False
+    rejected = {'forbidden-attribute': set(), 'attribute-comment': set()}
+    more = set()
     closers = bytearray()
-    frames = []  # depth, marker line, entry start
+    frames = []  # depth, marker line, entry start, accepts comment diagnostics
+    prefix_lines = []
+    prefix_overflow = False
     overflow = 0
     line = 1
+    previous = -1
+    previous_line = 1
     pairs = {'[': ord(']'), '(': ord(')'), '{': ord('}')}
     entry_pattern = re.compile(r'[' + ascii_whitespace + r']*(?:(?:local|scoped)[' + ascii_whitespace + r']+)?-?([^' + ascii_whitespace + r',()\[\]{}]+)', re.ASCII)
 
-    def reject(marker_line):
-        nonlocal more
-        if marker_line in bad:
+    def reject(marker_line, label='forbidden-attribute'):
+        lines = rejected[label]
+        if marker_line in lines:
             return
-        if len(bad) < limits['reported_lines']:
-            bad.add(marker_line)
+        if len(lines) < limits['reported_lines']:
+            lines.add(marker_line)
         else:
-            more = True
-            latest = max(bad)
+            more.add(label)
+            latest = max(lines)
             if marker_line < latest:
-                bad.remove(latest)
-                bad.add(marker_line)
+                lines.remove(latest)
+                lines.add(marker_line)
 
     def check_entry(frame, end):
         entry = entry_pattern.match(text, frame[2], end)
@@ -267,17 +371,34 @@ def forbidden_attributes(text: str) -> tuple[list[int], bool]:
         if char == '\n':
             line += 1
         marker_line = None
-        if char == '[':
-            before = index - 1
-            start_line = line
-            while before >= 0 and text[before] in whitespace:
-                start_line -= text[before] == '\n'
-                before -= 1
-            if before >= 0 and text[before] == '@':
-                marker_line = start_line
-            elif (before >= 8 and text.startswith('attribute', before - 8, before + 1)
-                  and (before == 8 or not re.fullmatch(r'[A-Za-z0-9_]', text[before - 9]))):
-                marker_line = start_line
+        comment_list = False
+        opener = check_comments and char in '-/' and text.startswith(('--', '/-'), index)
+        if opener or char == '[':
+            attribute = (previous >= 8
+                         and text.startswith('attribute', previous - 8, previous + 1)
+                         and boundary.matches(previous - 8))
+            if opener:
+                if attribute and (not prefix_lines or prefix_lines[-1] != previous_line):
+                    if len(prefix_lines) < limits['reported_lines']:
+                        prefix_lines.append(previous_line)
+                    else:
+                        prefix_overflow = True
+                for frame in frames:
+                    if frame[3]:
+                        reject(frame[1], 'attribute-comment')
+                        break
+            else:
+                for prefix_line in prefix_lines:
+                    reject(prefix_line, 'attribute-comment')
+                if prefix_overflow:
+                    more.add('attribute-comment')
+                prefix_lines.clear()
+                prefix_overflow = False
+                if attribute or (previous >= 0 and text[previous] == '@'):
+                    marker_line = previous_line
+                    comment_list = check_comments and (attribute or previous == index - 1)
+        if char not in whitespace:
+            previous, previous_line = index, line
         if overflow:
             if marker_line is not None:
                 reject(marker_line)
@@ -294,9 +415,11 @@ def forbidden_attributes(text: str) -> tuple[list[int], bool]:
                 continue
             closers.append(pairs[char])
             if marker_line is not None:
-                frames.append([len(closers), marker_line, index + 1])
+                frames.append([len(closers), marker_line, index + 1, comment_list])
         elif char in '])}':
             close = ord(char)
+            if check_comments and frames and closers[-1] != close:
+                reject(frames[-1][1])
             while closers and closers[-1] != close:
                 if frames and frames[-1][0] == len(closers):
                     reject(frames.pop()[1])
@@ -310,14 +433,27 @@ def forbidden_attributes(text: str) -> tuple[list[int], bool]:
             frames[-1][2] = index + 1
     for frame in frames:
         reject(frame[1])
-    return sorted(bad), more
+    return {label: (sorted(lines), label in more) for label, lines in rejected.items()}
 
 
-def output_option_positions(text: str):
+def forbidden_attributes(text: str, boundary: LeftBoundary | None = None) -> tuple[list[int], bool]:
+    return scan_attributes(text, boundary)['forbidden-attribute']
+
+
+def attribute_comment_lines(text: str, boundary: LeftBoundary | None = None) -> tuple[list[int], bool]:
+    return scan_attributes(text, boundary)['attribute-comment']
+
+
+def output_option_positions(text: str, boundary: LeftBoundary | None = None):
     policy=current_text_policy()
     options=policy.get('output_options')
     if options is None:return
-    for match in re.finditer(r'\bset_option\b', text, re.ASCII):
+    if boundary is None:
+        boundary = LeftBoundary(text, policy)
+    pattern = r'\bset_option\b' if boundary.legacy else r'set_option\b'
+    for match in re.finditer(pattern, text, re.ASCII):
+        if not boundary.legacy and not boundary.matches(match.start()):
+            continue
         option = re.compile(r'['+re.escape(policy['ascii_whitespace'])+r']+('+options['name_grammar']+')',re.ASCII).match(text, match.end())
         if option is None or option[1].split('.')[0] in options['forbidden_roots']:
             yield match.start()
@@ -346,29 +482,36 @@ def forbidden_name_positions(text: str):
 
 
 def forbidden_scan(parts: list[tuple[str, str]]) -> list[str]:
-    """Scan all solver-written text, including comments and strings, with ASCII boundaries."""
+    """Scan raw solver-written text with the selected store's boundary policy."""
     hits = []
-    patterns=[(re.compile(text_pattern(rule),re.ASCII),rule['label']) for rule in current_text_policy()['patterns']]
+    policy = current_text_policy()
+    ascii_left = 'left_boundary' not in policy
+    patterns = [(re.compile(text_pattern(rule, ascii_left=ascii_left), re.ASCII), rule)
+                for rule in policy['patterns']]
     for name, text in parts:
-        for pattern, label in patterns:
+        boundary = LeftBoundary(text, policy)
+        for pattern, rule in patterns:
+            label = rule['label']
             line, previous = 1, 0
             for match in pattern.finditer(text):
+                if not ascii_left and rule['boundary'] in ('word', 'prefix') and not boundary.matches(match.start()):
+                    continue
                 line += text.count('\n', previous, match.start())
                 previous = match.start()
                 word = match.group()
                 detail = '' if word in label else f' [forbidden word: {word}]'
                 hits.append(f'{label} in {name} (line {line} of that part){detail}')
-        for label, positions in [('output-option', output_option_positions(text)),
+        for label, positions in [('output-option', output_option_positions(text, boundary)),
                                  ('forbidden-name-character', forbidden_name_positions(text))]:
             line, previous = 1, 0
             for position in positions:
                 line += text.count('\n', previous, position)
                 previous = position
                 hits.append(f'{label} in {name} (line {line} of that part)')
-        lines, more = forbidden_attributes(text)
-        for index, line in enumerate(lines):
-            detail = ' [more offending lines omitted]' if more and index == len(lines) - 1 else ''
-            hits.append(f'forbidden-attribute in {name} (line {line} of that part){detail}')
+        for label, (lines, more) in scan_attributes(text, boundary).items():
+            for index, line in enumerate(lines):
+                detail = ' [more offending lines omitted]' if more and index == len(lines) - 1 else ''
+                hits.append(f'{label} in {name} (line {line} of that part){detail}')
     return hits
 
 

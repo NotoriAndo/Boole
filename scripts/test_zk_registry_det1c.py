@@ -283,7 +283,7 @@ class TextPolicy(unittest.TestCase):
     def test_shared_text_policy_cases(self):
         path = Path(C.__file__).parents[2]/'fixtures/submission-policy/cases-v4.json'
         for case in json.loads(path.read_text())['cases']:
-            with self.subTest(case=case['name']):
+            with self.subTest(case=case['name']), C.submission_policy(C.policy_descriptor(4)):
                 expected = [f"{hit['label']} in proof (line {hit['line']} of that part)"
                             + (f" [forbidden word: {hit['word']}]" if hit['word'] not in hit['label']
                                and hit['label'] != 'forbidden-attribute' else '') for hit in case['hits']]

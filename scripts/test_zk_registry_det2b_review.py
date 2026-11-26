@@ -12,6 +12,34 @@ from zk_registry import check as C, service as S
 from test_zk_registry_service import IntakeTests as Fixtures
 
 class Review(unittest.TestCase):
+    def test_v5_store_replays_with_original_policy_and_gate(self):
+        fixture = Fixtures()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        registry = fixture.registry
+        events, _ = registry._load()
+        catalog = copy.deepcopy(events[0]['payload'])
+        descriptor = C.policy_descriptor(5)
+        catalog['submission_policy'] = descriptor
+        registry.log.unlink()
+        registry._append('catalog', catalog, 0, [])
+
+        seen = []
+        def original_verifier(package, answer, work):
+            seen.append(C.current_policy_descriptor())
+            return fixture.verify(package, answer, work)
+
+        registry.verifier = original_verifier
+        sequence = fixture.commit()['sequence']
+        registry.reveal(sequence, fixture.problem_id, 'alice', str(fixture.submission), 'first', 2)
+        self.assertEqual(registry.status()['problems'][fixture.problem_id]['status'], 'ACCEPTED')
+        reopened = S.Registry(str(registry.root), gate='f' * 64)
+        replica = reopened.replay(str(Path(fixture.scratch.name) / 'v5-replay'),
+                                  gates={registry.gate: original_verifier})
+        self.assertEqual(seen, [descriptor, descriptor])
+        self.assertEqual(replica.log.read_bytes(), registry.log.read_bytes())
+        self.assertEqual(S.canonical(replica.status()), S.canonical(registry.status()))
+
     def test_recorded_policy_controls_legacy_replay(self):
         fixture=Fixtures();fixture.setUp();self.addCleanup(fixture.doCleanups)
         registry=fixture.registry
