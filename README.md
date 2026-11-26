@@ -12,7 +12,7 @@ Current devnet progress is tracked in [`docs/current-development-status.md`](doc
 
 This repository contains the Rust devnet node that derives blocks from Ethereum L1 (derivation, commit–reveal, the verdict and reward fold, the gate supervisor, archive and audit), the Lean problem registry with its two-kernel acceptance gate, and the earlier native (R1) runtime and tools. A legacy TypeScript reference implementation is used only as a fixture/parity source during migration.
 
-## Legacy Proof-to-Block benchmark (earlier native runtime)
+## Proof-to-Block Benchmark v0.1 card (legacy, earlier native runtime)
 
 Current local preflight evidence is checked by `./scripts/self-test.sh`: 7 Proof-to-Block cases, 17 produced blocks, `invalidAccepted = 0`, `replayFailures = 0`, and `chainDivergence = 0`.
 
