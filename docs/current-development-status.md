@@ -1,6 +1,6 @@
 # Boole — current development status
 
-Updated: 2026-10-26. This is the tracked entrypoint for current progress and the
+Updated: 2026-11-26. This is the tracked entrypoint for current progress and the
 ordered development roadmap. Edit it in place; execution evidence stays in its
 own result record. Local Master/Execution documents link here instead of owning
 a second current cursor. Work methods follow the
@@ -27,9 +27,10 @@ twelve-hour delegation.
 - [#447](https://github.com/NotoriAndo/Boole/pull/447) adds the node-local gate
   supervisor. It rebuilds each job's inputs from L1 by digest, runs it in an
   isolated worker with typed outcomes, and keeps a result cache that is never
-  authority. A pinned devnet stub gate drives every verdict path. DET3 and the
-  data-only real-gate contract M3d-a have merged (below), but the real gate is
-  not yet connected to the supervisor. The driver refuses any payload whose
+  authority. A pinned devnet stub gate drives every verdict path. DET3, the
+  data-only real-gate contract M3d-a and a Mac development dispatch for the real
+  gate (#467, below) have merged, but no real gate is active on the devnet. The
+  driver refuses any payload whose
   system deposits differ from the exact expected prefix.
 - [#448](https://github.com/NotoriAndo/Boole/pull/448) resets the devnet to
   [v1.3](devnet-verdicts-v1.3.md). Live recordings on replicas A, B and C cover a
@@ -99,10 +100,27 @@ twelve-hour delegation.
   The auditor reports K4 `ok` only after an actual rebuild and an independent
   read-only pin verification. There is no pruning or compaction, and the
   environment build (J4) and the two-source readiness policy stay pending.
+- [#467](https://github.com/NotoriAndo/Boole/pull/467) (M3d-b, October 26) adds a
+  versioned Mac real-gate dispatch to the gate supervisor. It activates no
+  release, environment, clock, fork or devnet profile, and Linux production
+  dispatch stays unavailable ([real gate supervisor](devnet-real-gate-b1.md)).
+- [#469](https://github.com/NotoriAndo/Boole/pull/469) (M3d-b2, October 29) adds
+  the Linux controller's host contract and a local content-address artifact
+  transport. Startup still refuses Linux production execution with a typed report
+  of the missing backend, production contract, native causes, memory accounting,
+  artifact release, runtime closure and sandbox capabilities
+  ([Linux controller](devnet-linux-controller-v0.md)).
+- [#470](https://github.com/NotoriAndo/Boole/pull/470) (M3d-b2 W0, October 30)
+  qualifies ten Linux containment fixture cases in one Mac-hosted aarch64 VM:
+  10 passed, 0 failed. This is not production-host qualification. The Ubuntu
+  user-namespace restriction was absent in that VM and the pinned AppArmor
+  profile was loaded unconfined. It grants no devnet admission, reset or
+  activation.
 
 This is still closed-local devnet work. The devnet still runs the stub gate,
 which is not a proof verifier. Testnet minting stays off, and there is no public
-activation. Connecting the real gate to the supervisor remains separate work.
+activation. Activating a real gate on the devnet remains separate work, and
+Linux production execution is not available yet.
 
 **ZK1b zero-knowledge proof (October 25, local only).** One full compressed CPU
 proof of the pinned guest was produced and verified locally: 1,272,970 bytes and
@@ -122,8 +140,11 @@ downloads that are not approved yet.
     sync accepted.
   - Environment commitments must use a normalized hash, because raw export bytes
     differ across construction paths.
-- **Testnet node.** The minimum node is 16 GB of RAM and 4 cores; 32 GB is
-  recommended. Withdrawals,
+- **Testnet node.** The first public testnet's minimum node is 32 GB of RAM and
+  4 cores (decided November 26). Lowering the minimum to 16 GB is deferred until
+  after the first testnet. A testnet host also needs the 3,072 MiB of headroom
+  and the four CPUs that startup checks
+  ([devnet verdicts v1.3](devnet-verdicts-v1.3.md)). Withdrawals,
   after testnet, are optimistic by default: a ZK proof is required only when a
   verdict claim is disputed.
 - **M3: verdicts, settlement and rewards.**
@@ -195,8 +216,12 @@ closed-local devnet evidence.
 
 **Priority: ZK verification problem production, selected by the user on
 September 29.** Protocol-authored Lean problems about real ZK code (miners only
-prove) replace generated puzzles as the useful-work direction; block production
-stays hash-based and useful work remains an asynchronous additional-reward lane.
+prove) replace generated puzzles as the useful-work direction. This section
+records the September 29 priority. Its block-production framing, hash-based
+blocks with useful work as an asynchronous additional-reward lane, no longer
+describes the devnet. Since Devnet M1, each block derives only from a finalized
+L1 block, and useful work enters through L1-ordered commit–reveal and
+node-computed verdicts (see the devnet sections above).
 A measured census found no ZK code item with full machine-checked coverage.
 
 - **Problem supply (DET).** Six deterministic generators (Circom, zkVM AIR for SP1 /
@@ -709,6 +734,14 @@ earlier roadmap review; this status owns the current implementation cursor.
 
 ## Ordered roadmap
 
+The table below is the earlier native-network (R1–R4) and useful-work lane
+(U1/U2) plan. It is kept for its evidence links and is not the current sequence.
+Current work is the devnet sequence recorded under Current boundary: derivation
+from finalized L1 (M1), commit–reveal (M2), verdicts, settlement and rewards with
+the stub gate (M3a–M3c), the real-gate contract and its development and Linux
+host seams (M3d), and node durability, archive and audit (M4). The real gate is
+not active on the devnet yet.
+
 R1–R4 is the base-network sequence. U1/U2 is the separately gated useful-work
 branch; it must not become a prerequisite for ordinary native test-coin
 transfers. Demand discovery and conditional research can proceed in parallel.
@@ -722,7 +755,7 @@ proceed alongside it without making all of R1 one oversized change.
 | R1 | Native transfer and launch-critical product/security/operations: signed network-bound transfers, debit/fee/nonce state, block/replay/reorg integration, wallet safety/recovery for the selected testnet UX, secure authenticated P2P, operator-local RPC, resource limits and operator recovery/observability. Pin test-only monetary parameters and experiment criteria before running the new network. | **In progress, incomplete.** Native issuance/transfer, owner-vault recovery, mutually pinned TLS, incremental sync, local rejoin and bounded offline long-fork recovery pass direct tests. Broader fault/abuse acceptance, approved public P2P and large-state storage readiness remain; public RPC is excluded from the initial scope. |
 | R2 | Public-testnet launch readiness: versioned network/genesis and release artifacts, scoped key custody, participant risk notice/onboarding, bootstrap/incident/upgrade/rollback runbook and launch approval. | After the applicable R1 acceptance tests. **Not passed.** Clean-Mac CURL.3 is the last installation-validation step, deferred until a clean machine is available; current-Mac/CI work continues. A supported-Mac public-release claim still needs that evidence, or an explicit narrower platform scope. |
 | R3 | Public base-network testnet: independently operated nodes actually mine test coins, send them between wallets, include/confirm transactions and agree on balances/fees/supply; exercise rejection, restart, partitions/rejoin, reorg and operator recovery. | After R2 and explicit public-network/mining/test-wallet scope. **Not started.** Test coins carry no real-money or future-mainnet entitlement. Mock-only accounting does not pass. Useful-work reward remains OFF unless separately authorized. |
-| U1 | BF.7: new-rule receipt consensus with `no_protocol_reward`, independent replay and DA recovery. | **Priority prerequisite work; BF.7 HOLD.** A separate local metered generated-tuple verifier and root-bound package/recovery path are implemented. Adapter-scoped RP0-MD/supply, actual useful-adapter BF.6a qualification and executable/resource pins remain prerequisites; generated tasks do not count as source supply. Closed-local integration precedes any separately approved public extension. Existing v3 is preserved; this branch does not block R1–R3 base transfers. |
+| U1 | BF.7: new-rule receipt consensus with `no_protocol_reward`, independent replay and DA recovery. | **Not on the current devnet path; BF.7 HOLD.** The devnet records verdicts through L1-ordered commit–reveal and the M3 verdict fold ([devnet verdicts v1.3](devnet-verdicts-v1.3.md)). A separate local metered generated-tuple verifier and root-bound package/recovery path are implemented. Adapter-scoped RP0-MD/supply, actual useful-adapter BF.6a qualification and executable/resource pins remain prerequisites; generated tasks do not count as source supply. Closed-local integration precedes any separately approved public extension. Existing v3 is preserved; this branch does not block R1–R3 base transfers. |
 | U2 | BF.8: preregister economic experiments, gather supply/solve/attack/demand evidence including at least four nodes and heterogeneous operators, then accept the evidence-informed Economic ADR. | After the applicable U1 path and preregistered experiment authority. **Not passed.** Additional useful-work reward activation needs its own plan; an ACCEPT/BF.3 receipt is not issuance. |
 | R4 | Mainnet / real-value production decision and launch: testnet exit review, final monetary parameters, economic/security assumptions, release/key custody, recovery and any selected real-payment/refund service. | After R3 evidence and applicable economic/release gates. **Not ready; no launch approval.** If useful-work rewards are included, U1/U2 and their activation gates also apply. A base-only scope is a separate explicit decision, not an automatic bypass. |
 
@@ -788,6 +821,9 @@ No new production release, public testnet/P2P, mining, real payment/wallet movem
 reward, consensus-state or activation authority follows from this plan.
 `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`,
 `Base activation=false`, `activationAllowed=false` remain the recorded posture.
+These values describe the earlier useful-work lane. The devnet M3 profile has its
+own minting switch, which is off in the staged testnet parameters
+([devnet verdicts v1.3](devnet-verdicts-v1.3.md)).
 Those useful-work readiness values do not mean ordinary test-coin transfer
 development must wait for BF.7. A proposed network still needs its own scope,
 rules and explicit execution authority.

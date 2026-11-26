@@ -1,18 +1,22 @@
 # Boole
 
-Boole is a proof-mined L1 prototype where AI agents create machine-checkable work that becomes replayable blocks.
+Boole is a prototype chain designed to be mined by kernel-verified Lean proofs. Ethereum L1 sets the order and finality of every input: a node derives each block only from finalized L1 blocks, so there is no hash mining, and new coins are issued only as rewards for accepted submissions. Today this runs as a closed-local devnet on a local L1: the gate that judges submissions is still a development stub, not a proof verifier, and testnet minting is off.
 
 ```text
-Agent → Lean proof → verifier → canonical share → block → replay
+Agent → Lean proof → commit/reveal on Ethereum L1 → node gate → verdict → locked reward → vest
 ```
+
+The devnet gate is a development stub today; the kernel-checked gate is specified but not yet active.
+
+Current devnet progress is tracked in [`docs/current-development-status.md`](docs/current-development-status.md): three local replicas derive the same blocks, verdicts and rewards from a local L1, using the stub gate.
+
+This repository contains the Rust devnet node that derives blocks from Ethereum L1 (derivation, commit–reveal, the verdict and reward fold, the gate supervisor, archive and audit), the Lean problem registry with its two-kernel acceptance gate, and the earlier native (R1) runtime and tools. A legacy TypeScript reference implementation is used only as a fixture/parity source during migration.
+
+## Proof-to-Block Benchmark v0.1 card (legacy, earlier native runtime)
 
 Current local preflight evidence is checked by `./scripts/self-test.sh`: 7 Proof-to-Block cases, 17 produced blocks, `invalidAccepted = 0`, `replayFailures = 0`, and `chainDivergence = 0`.
 
-This repository contains the Rust protocol core and local proof-to-block runtime. A legacy TypeScript reference implementation is used only as a fixture/parity source during migration.
-
-## Proof-to-Block Benchmark v0.1 card
-
-**Which AI agents can create verified work that becomes blocks?** Boole's public score is `blockProductionRate = blocksProduced / generatedAttempts`: AI/agent outputs must become replay-valid blocks under the calibrated fixture difficulty — not just verifier-checked shares, and not vibes.
+**Which AI agents can create verified work that becomes blocks?** In the earlier native runtime, Boole's benchmark score was `blockProductionRate = blocksProduced / generatedAttempts`: AI/agent outputs must become replay-valid blocks under the calibrated fixture difficulty — not just verifier-checked shares, and not vibes.
 
 Current safe-local evidence:
 
@@ -44,7 +48,7 @@ less install.sh
 bash install.sh
 ```
 
-The installer installs required local tools for the safe preflight path: Git, curl, Python 3, Rust `1.95.0` with `rustfmt`/`clippy`, and Lean `leanprover/lean4:v4.29.1` via `elan`. It never asks for wallet seeds/private keys, never prints API key values, never starts public mining, and never runs paid API benchmarks without explicit confirmation. See [`docs/install.md`](docs/install.md).
+The installer installs required local tools for the safe preflight path: Git, curl, Python 3, Rust `1.95.0` with `rustfmt`/`clippy`, and Lean `leanprover/lean4:v4.29.1` via `elan`, the toolchain pinned by `lean/checker`. The problem registry's acceptance gate uses its own Lean v4.34.1 environment, which this installer does not set up (see [`docs/zk-problem-registry.md`](docs/zk-problem-registry.md)). It never asks for wallet seeds/private keys, never prints API key values, never starts public mining, and never runs paid API benchmarks without explicit confirmation. See [`docs/install.md`](docs/install.md).
 
 After install, the guided wizard gives a Hermes-style seven-step flow:
 
@@ -59,7 +63,7 @@ The wizard prints `Step 1/7` through `Step 7/7`, explains the safety/cost bounda
 
 ```text
 Rust:
-  core L1 node, block/state/replay, reward/account ledger, canonicalization, native CLI, verifier runner
+  core node: L1-derived devnet blocks, verdict and reward fold, replay and audit; native ledger, canonicalization, CLI and verifier runner
 
 Lean:
   proof obligations, checker artifacts, formal specs
@@ -87,6 +91,12 @@ Rust boole-core can replay TypeScript-produced block/reward fixtures and produce
 
 ## Crates
 
+- `boole-derivation`: pure derivation of devnet blocks from finalized L1 inbox data, with commit–reveal and the verdict and reward fold.
+- `boole-devnet-driver`: drives an unmodified pinned op-reth through the Engine API from finalized L1.
+- `boole-gate-supervisor`: node-local gate supervisor; runs the development stub gate and an inactive Mac development dispatch for the real gate.
+- `boole-devnet-archive`: archive node for finalized headers, receipts and derived objects behind a loopback-only, GET-only API.
+- `boole-devnet-audit`: independent read-only auditor of the devnet fold and blocks.
+- `boole-devnet-mcp`: devnet miner client.
 - `boole-core`: protocol types, hashes, canonical encoding, replay, ledger state.
 - `boole-cli`: native CLI with stable JSON output and exit codes.
 - `boole-node`: Rust local node/runtime server and network daemon/RPC layer.
